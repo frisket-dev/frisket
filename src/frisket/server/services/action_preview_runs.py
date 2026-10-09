@@ -365,7 +365,7 @@ class ActionPreviewRunService:
                             scratch_failure=failure,
                         )
                     except BaseException as finalization_error:
-                        if isinstance(failure, SandboxTeardownError):
+                        if failure is not None:
                             raise failure from finalization_error
                         raise
 
