@@ -6,7 +6,8 @@ organization.  Solo callers leave it unset and therefore remain unlimited.
 
 from __future__ import annotations
 
-from typing import Protocol
+import threading
+from typing import Callable, Protocol, TypeVar
 
 from fastapi.responses import JSONResponse
 from starlette.types import Scope
@@ -20,6 +21,54 @@ class ImportAdmissionPermit(Protocol):
 
 class ImportAdmission(Protocol):
     def try_acquire(self) -> ImportAdmissionPermit | None: ...
+
+
+_BackgroundResult = TypeVar("_BackgroundResult")
+IMPORT_ADMISSION_LEASE_STATE_KEY = "frisket_import_admission_lease"
+
+
+class ImportAdmissionLease:
+    """Transfer one request permit to a background job exactly once."""
+
+    def __init__(self, permit: ImportAdmissionPermit) -> None:
+        self._permit = permit
+        self._transferred = False
+        self._request_released = False
+        self._lock = threading.Lock()
+
+    @property
+    def transferred(self) -> bool:
+        with self._lock:
+            return self._transferred
+
+    def start_background(
+        self,
+        starter: Callable[[Callable[[], None]], _BackgroundResult],
+    ) -> _BackgroundResult:
+        with self._lock:
+            if self._transferred or self._request_released:
+                raise RuntimeError("import admission permit is no longer request-owned")
+            self._transferred = True
+        try:
+            return starter(self._permit.release)
+        except BaseException:
+            self._permit.release()
+            raise
+
+    def release_request(self) -> None:
+        with self._lock:
+            if self._transferred or self._request_released:
+                return
+            self._request_released = True
+        self._permit.release()
+
+
+def import_admission_lease(scope: Scope) -> ImportAdmissionLease | None:
+    state = scope.get("state")
+    if not isinstance(state, dict):
+        return None
+    lease = state.get(IMPORT_ADMISSION_LEASE_STATE_KEY)
+    return lease if isinstance(lease, ImportAdmissionLease) else None
 
 
 IMPORT_ACTION_KINDS = frozenset(

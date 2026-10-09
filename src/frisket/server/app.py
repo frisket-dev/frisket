@@ -42,7 +42,9 @@ from frisket.server.notifications.secrets import NotificationSecretResolver
 from frisket.server import workspace as server_workspace
 from frisket.server.route_errors import register_route_error_handler
 from frisket.server.import_admission import (
+    IMPORT_ADMISSION_LEASE_STATE_KEY,
     ImportAdmission,
+    ImportAdmissionLease,
     import_admission_refusal,
     is_native_import_request,
 )
@@ -245,10 +247,12 @@ class _NativeImportAdmissionMiddleware:
         if permit is None:
             await import_admission_refusal()(scope, receive, send)
             return
+        lease = ImportAdmissionLease(permit)
+        scope.setdefault("state", {})[IMPORT_ADMISSION_LEASE_STATE_KEY] = lease
         try:
             await self.app(scope, receive, send)
         finally:
-            permit.release()
+            lease.release_request()
 
 
 class _SidecarCapabilitiesCache:

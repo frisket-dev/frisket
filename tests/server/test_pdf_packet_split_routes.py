@@ -49,7 +49,8 @@ class _Service:
         self.thumb = tmp_path / "page-1.png"
         self.thumb.write_bytes(b"png")
 
-    def create(self, pid, upload, *, request_id=None):
+    def create(self, pid, upload, *, request_id=None, admission_lease=None):
+        assert admission_lease is None
         self.calls.append(("create", pid, upload.filename, upload.sha256, request_id))
         return _status()
 
@@ -133,7 +134,16 @@ class _Service:
             "accept_all_scope": "packet",
         }
 
-    def commit(self, pid, split_id, body, *, request_context=None):
+    def commit(
+        self,
+        pid,
+        split_id,
+        body,
+        *,
+        request_context=None,
+        admission_lease=None,
+    ):
+        assert admission_lease is None
         self.calls.append(("commit", body.confirmed_starts, body.destination.name))
         return {
             "schema_version": "frisket.pdf_packet_split.v1",

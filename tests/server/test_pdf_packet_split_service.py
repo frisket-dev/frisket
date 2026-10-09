@@ -28,6 +28,7 @@ from frisket.engine.store.ocr_word_stream import (
 from frisket.server.services.action_preview_runs import ActionPreviewRunResponse
 from frisket.server.services.action_preview_jobs import ActionPreviewJobRegistry
 from frisket.server.services.import_uploads import AdmittedUpload
+from frisket.server.import_admission import ImportAdmissionLease
 from frisket.server.services.pdf_packet_commit import PdfPacketCommitter
 from frisket.server.services.pdf_packet_splits import (
     PdfPacketSplitRouteError,
@@ -351,16 +352,48 @@ def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
 
     project = workspace.get(project_id)
     project.add_sheet("Documents")
-    failed = service.commit(project_id, split_id, commit_body)
+
+    class CountingPermit:
+        def __init__(self) -> None:
+            self.releases = 0
+
+        def release(self) -> None:
+            self.releases += 1
+
+    failed_permit = CountingPermit()
+    failed_lease = ImportAdmissionLease(failed_permit)
+    failed = service.commit(
+        project_id,
+        split_id,
+        commit_body,
+        admission_lease=failed_lease,
+    )
     failed_status, failed_job = _wait_session_job(
         service, project_id, split_id, failed["job_id"], "error"
     )
+    assert failed_lease.transferred is True
+    with controlled_time(timeout=4) as clock:
+        clock.wait_until(
+            lambda: failed_permit.releases == 1,
+            message="failed commit did not release its import permit",
+        )
     assert failed_status["status"] == "ready"
     assert failed_job["progress"]["status"] == "error"
     assert failed_job["progress"]["error"] == "A sheet named 'Documents' already exists"
+    replay_permit = CountingPermit()
+    replay_lease = ImportAdmissionLease(replay_permit)
     assert (
-        service.commit(project_id, split_id, commit_body)["job_id"] == failed["job_id"]
+        service.commit(
+            project_id,
+            split_id,
+            commit_body,
+            admission_lease=replay_lease,
+        )["job_id"]
+        == failed["job_id"]
     )
+    assert replay_lease.transferred is False
+    replay_lease.release_request()
+    assert replay_permit.releases == 1
 
     successful_body = commit_body.model_copy(
         update={

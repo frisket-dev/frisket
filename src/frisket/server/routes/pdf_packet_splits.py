@@ -21,6 +21,7 @@ from frisket.contracts.http.pdf_packet_splits import (
     PdfPacketTextSourceRequest,
 )
 from frisket.server.route_errors import http_error_responses
+from frisket.server.import_admission import import_admission_lease
 from frisket.server.services.import_bulk_types import BulkImportLimits
 from frisket.server.services.import_uploads import admit_upload
 from frisket.server.services.pdf_packet_splits import PdfPacketSplitService
@@ -43,13 +44,18 @@ def register_pdf_packet_split_routes(
         responses=responses,
     )
     async def create_pdf_packet_split(
+        request: Request,
         pid: str,
         file: Annotated[UploadFile, File()],
         request_id: Annotated[str | None, Form()] = None,
     ) -> PdfPacketSplitStatus:
         upload = await admit_upload(file, max_bytes=limits.max_upload_bytes)
         return await await_thread_worker(
-            service.create, pid, upload, request_id=request_id
+            service.create,
+            pid,
+            upload,
+            request_id=request_id,
+            admission_lease=import_admission_lease(request.scope),
         )
 
     @app.get(
@@ -171,6 +177,7 @@ def register_pdf_packet_split_routes(
             split_id,
             body,
             request_context=request,
+            admission_lease=import_admission_lease(request.scope),
         )
 
     @app.delete(base + "/{split_id}", status_code=204, responses=responses)

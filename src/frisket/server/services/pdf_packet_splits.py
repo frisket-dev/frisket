@@ -43,6 +43,7 @@ from frisket.pdf_packets import (
     page_perceptual_signature,
 )
 from frisket.server.route_errors import RouteError
+from frisket.server.import_admission import ImportAdmissionLease
 from frisket.server.services.action_preview_jobs import (
     ActionPreviewJobRegistry,
     PreviewJob,
@@ -142,7 +143,12 @@ class PdfPacketSplitService:
         self._lock = threading.RLock()
 
     def create(
-        self, project_id: str, upload: AdmittedUpload, *, request_id: str | None = None
+        self,
+        project_id: str,
+        upload: AdmittedUpload,
+        *,
+        request_id: str | None = None,
+        admission_lease: ImportAdmissionLease | None = None,
     ) -> dict[str, Any]:
         del request_id
         self._reap_expired_sessions()
@@ -197,13 +203,17 @@ class PdfPacketSplitService:
             with self._lock:
                 self._sessions[session_id] = session
             with self._admit_session(session):
-                job = self._registry.start(
-                    project_id,
-                    page_count,
-                    lambda progress, cancelled: self._prepare(
-                        session_id, progress=progress, cancelled=cancelled
+                job = self._start_background_job(
+                    admission_lease,
+                    lambda on_finished: self._registry.start(
+                        project_id,
+                        page_count,
+                        lambda progress, cancelled: self._prepare(
+                            session_id, progress=progress, cancelled=cancelled
+                        ),
+                        replacement_key=f"pdf-packet:{session_id}:prepare",
+                        on_finished=on_finished,
                     ),
-                    replacement_key=f"pdf-packet:{session_id}:prepare",
                 )
                 with self._lock:
                     session.prepare_job_id = job.id
@@ -601,6 +611,7 @@ class PdfPacketSplitService:
         body: PdfPacketCommitRequest,
         *,
         request_context: Any = None,
+        admission_lease: ImportAdmissionLease | None = None,
     ) -> dict[str, Any]:
         session = self._session(project_id, split_id)
         request_fingerprint = hashlib.sha256(
@@ -657,18 +668,22 @@ class PdfPacketSplitService:
                     raise PdfPacketSplitRouteError(409, message)
                 session.status = "committing"
             try:
-                job = self._registry.start(
-                    project_id,
-                    len(ranges),
-                    lambda progress, cancelled: self._commit_run(
-                        session,
-                        body,
-                        ranges,
-                        request_context=request_context,
-                        progress=progress,
-                        cancelled=cancelled,
+                job = self._start_background_job(
+                    admission_lease,
+                    lambda on_finished: self._registry.start(
+                        project_id,
+                        len(ranges),
+                        lambda progress, cancelled: self._commit_run(
+                            session,
+                            body,
+                            ranges,
+                            request_context=request_context,
+                            progress=progress,
+                            cancelled=cancelled,
+                        ),
+                        replacement_key=f"pdf-packet:{split_id}:commit",
+                        on_finished=on_finished,
                     ),
-                    replacement_key=f"pdf-packet:{split_id}:commit",
                 )
             except BaseException:
                 with self._lock:
@@ -681,6 +696,15 @@ class PdfPacketSplitService:
                     request_fingerprint,
                 )
             return self._start_payload(session, job, "commit", len(ranges))
+
+    def _start_background_job(
+        self,
+        admission_lease: ImportAdmissionLease | None,
+        starter: Callable[[Callable[[], None] | None], PreviewJob],
+    ) -> PreviewJob:
+        if admission_lease is None:
+            return starter(None)
+        return admission_lease.start_background(starter)
 
     def _commit_run(
         self,
