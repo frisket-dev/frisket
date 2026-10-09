@@ -190,6 +190,8 @@ class ActionPreviewRunService:
         router: Any,
         composition: Any,
         execution_context: Any,
+        replacement_key: str | None = None,
+        total: int = 1,
     ) -> ActionPreviewRunResponse:
         project = self._workspace.get(project_id)
         resolved, estimate, uncovered = _scratch_claims(project, plan)
@@ -327,9 +329,10 @@ class ActionPreviewRunService:
         try:
             job = self._registry.start(
                 project_id,
-                1,
+                total,
                 run,
                 **({"receipt": receipt} if receipt is not None else {}),
+                replacement_key=replacement_key,
             )
         except BaseException:
             if receipt is not None:
@@ -340,7 +343,7 @@ class ActionPreviewRunService:
             payload={
                 "schema_version": PREVIEW_SCHEMA_VERSION,
                 "preview_id": job.id,
-                "total": 1,
+                "total": total,
             },
         )
 

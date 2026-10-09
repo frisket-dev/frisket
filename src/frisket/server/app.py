@@ -82,6 +82,7 @@ from frisket.server.routes.imports import (
     register_import_xlsx_routes,
 )
 from frisket.server.routes.import_sessions import register_import_session_routes
+from frisket.server.routes.pdf_packet_splits import register_pdf_packet_split_routes
 from frisket.server.routes.instance import (
     register_admin_pricing_routes,
     register_health_routes,
@@ -176,6 +177,7 @@ from frisket.server.services.import_followthemoney import FollowTheMoneyUploadSe
 from frisket.server.services.import_pdf import ImportPdfUploadService
 from frisket.server.services.import_urls import ImportUrlsService
 from frisket.server.services.import_xlsx import ImportXlsxUploadService
+from frisket.server.services.pdf_packet_splits import PdfPacketSplitService
 from frisket.server.services.map_points import MapPointsService
 from frisket.server.services.notifications import NotificationService
 from frisket.server.services.project_actions import ProjectActionUtilityService
@@ -528,6 +530,8 @@ def create_app(
     app.router.add_event_handler("shutdown", project_qa_service.shutdown)
     action_preview_job_registry = ActionPreviewJobRegistry()
     app.state.action_preview_job_registry = action_preview_job_registry
+    pdf_packet_job_registry = ActionPreviewJobRegistry()
+    app.state.pdf_packet_job_registry = pdf_packet_job_registry
     sidecar_capabilities_cache = _SidecarCapabilitiesCache(
         ttl_seconds=SIDECAR_CAPABILITIES_CACHE_TTL_SECONDS,
         clock=time.monotonic,
@@ -653,6 +657,21 @@ def create_app(
     action_preview_run_service = ActionPreviewRunService(
         ws, registry=action_preview_job_registry
     )
+    pdf_packet_preview_run_service = ActionPreviewRunService(
+        ws, registry=pdf_packet_job_registry
+    )
+    pdf_packet_split_service = PdfPacketSplitService(
+        ws,
+        registry=pdf_packet_job_registry,
+        preview_runs=pdf_packet_preview_run_service,
+    )
+    app.state.pdf_packet_split_service = pdf_packet_split_service
+
+    async def _shutdown_pdf_packet_jobs() -> None:
+        await asyncio.to_thread(pdf_packet_split_service.shutdown)
+        await asyncio.to_thread(pdf_packet_job_registry.shutdown)
+
+    app.router.add_event_handler("shutdown", _shutdown_pdf_packet_jobs)
     register_preview_routes(
         app,
         service=PreviewService(ws),
@@ -743,6 +762,11 @@ def create_app(
     register_import_files_routes(
         app,
         service=ImportFilesUploadService(ws),
+        limits=bulk_limits,
+    )
+    register_pdf_packet_split_routes(
+        app,
+        service=pdf_packet_split_service,
         limits=bulk_limits,
     )
     register_import_followthemoney_routes(
