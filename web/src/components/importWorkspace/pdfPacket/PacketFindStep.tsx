@@ -321,7 +321,7 @@ export function PacketFindStep({
                   data-document-kind={suggested.includes(document.start) ? 'suggested' : 'confirmed'}
                   data-confirmed={confirmed || undefined}
                   data-suggested={isSuggested || undefined}
-                  data-unsure={isUnsure || undefined}
+                  data-unsure={(isUnsure && !isSuggested) || undefined}
                 >
                   <button
                     type="button"
@@ -341,7 +341,7 @@ export function PacketFindStep({
                     <span className="pdf-packet-page-meta">
                       <span>{page}</span>
                       <span title={(isSuggested || isUnsure) && matchLabel ? matchDescription : undefined}>
-                        {rejected ? 'not a start' : isUnsure ? 'unsure' : isSuggested ? matchLabel : ''}
+                        {rejected ? 'not a start' : isSuggested ? matchLabel : isUnsure ? 'unsure' : ''}
                       </span>
                     </span>
                   </button>
@@ -499,7 +499,10 @@ export function PacketFindStep({
         <span className="sr-only" role="status" aria-live="polite">{reviewFeedback}</span>
       </aside>
       <footer className="pdf-packet-find-footer">
-        <span>{state.confirmedStarts.length} marked · {suggested.length} suggested · {unsure.length} unsure</span>
+        <span>
+          {state.confirmedStarts.length} marked · {unsure.length} to review
+          {suggested.length ? ` (${suggested.length} suggested)` : ''}
+        </span>
         <button type="button" className="btn" disabled={!state.matches || !suggested.length} onClick={acceptAllSuggestions}>
           Accept all {suggested.length} suggested
         </button>

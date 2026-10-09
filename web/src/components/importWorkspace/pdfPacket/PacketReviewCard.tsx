@@ -1,4 +1,4 @@
-import type { KeyboardEvent } from 'react';
+import { useState, type KeyboardEvent } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { PdfPacketMatchResult, PdfPacketPageMatch } from '../../../api/pdfPacketSplits';
 import { matchForPage } from './model';
@@ -43,16 +43,21 @@ export function PacketReviewCard({
   canAcceptAll: boolean;
   onOpenLarge(page: number): void;
 }) {
+  const [referenceSeen, setReferenceSeen] = useState(false);
+  const showingReference = !referenceSeen;
   const queue = tab === 'unsure' ? unsure : suggested;
   const currentIndex = Math.min(index, Math.max(0, queue.length - 1));
-  const page = queue[currentIndex] ?? null;
+  const page = showingReference ? 1 : queue[currentIndex] ?? null;
   const match = page == null ? null : matchForPage(matches, page);
+  const reviewTone = !showingReference && page != null && suggested.includes(page)
+    ? 'suggested'
+    : tab;
   const move = (delta: number) => {
-    if (!queue.length) return;
+    if (showingReference || !queue.length) return;
     onIndex((currentIndex + delta + queue.length) % queue.length);
   };
   const answer = (accept: boolean) => {
-    if (page == null) return;
+    if (showingReference || page == null) return;
     if (accept) onAccept(page);
     else onReject(page);
   };
@@ -77,6 +82,7 @@ export function PacketReviewCard({
     <section
       className="packet-review-card"
       data-review-tab={tab}
+      data-review-tone={reviewTone}
       aria-label={`${tab === 'unsure' ? 'Unsure' : 'Suggested'} pages to review`}
       tabIndex={0}
       onKeyDown={onKeyDown}
@@ -96,8 +102,12 @@ export function PacketReviewCard({
       ) : (
         <>
           <header className="packet-review-heading">
-            <strong>{tab === 'unsure' ? 'Does a document start here?' : 'Likely a start'}</strong>
-            <span>{currentIndex + 1} of {queue.length}</span>
+            <strong>
+              {showingReference
+                ? 'Reference document start'
+                : tab === 'unsure' ? 'Does a document start here?' : 'Likely a start'}
+            </strong>
+            <span>{showingReference ? 'Baseline' : `${currentIndex + 1} of ${queue.length}`}</span>
           </header>
           <div className="packet-review-pages">
             {page > 1 ? (
@@ -113,36 +123,44 @@ export function PacketReviewCard({
               onClick={() => onOpenLarge(page)}
             >
               <PacketThumbnail projectId={projectId} splitId={splitId} page={page} alt={`Page ${page}`} eager />
-              <span>{candidateCaption(page, match)}</span>
+              <span>{showingReference ? `Page ${page} · reference` : candidateCaption(page, match)}</span>
             </button>
           </div>
-          <div className="packet-review-actions">
-            <button
-              type="button"
-              className="packet-review-step"
-              aria-label={`Previous ${tab} page`}
-              onClick={() => move(-1)}
-            >
-              <ChevronLeft size={14} />
-            </button>
-            <button type="button" className="btn btn-primary" onClick={() => answer(true)}>
-              {tab === 'unsure' ? 'Yes, starts here' : 'Accept'}
-            </button>
-            <button type="button" className="btn" onClick={() => answer(false)}>
-              {tab === 'unsure' ? 'No' : 'Not a start'}
-            </button>
-            <button
-              type="button"
-              className="packet-review-step"
-              aria-label={`Skip to next ${tab} page`}
-              onClick={() => move(1)}
-            >
-              <ChevronRight size={14} />
-            </button>
-          </div>
+          {showingReference ? (
+            <div className="packet-review-actions packet-review-reference-actions">
+              <button type="button" className="btn btn-primary" onClick={() => setReferenceSeen(true)}>
+                Continue
+              </button>
+            </div>
+          ) : (
+            <div className="packet-review-actions">
+              <button
+                type="button"
+                className="packet-review-step"
+                aria-label={`Previous ${tab} page`}
+                onClick={() => move(-1)}
+              >
+                <ChevronLeft size={14} />
+              </button>
+              <button type="button" className="btn btn-primary" onClick={() => answer(true)}>
+                {tab === 'unsure' ? 'Yes, starts here' : 'Accept'}
+              </button>
+              <button type="button" className="btn" onClick={() => answer(false)}>
+                {tab === 'unsure' ? 'No' : 'Not a start'}
+              </button>
+              <button
+                type="button"
+                className="packet-review-step"
+                aria-label={`Skip to next ${tab} page`}
+                onClick={() => move(1)}
+              >
+                <ChevronRight size={14} />
+              </button>
+            </div>
+          )}
         </>
       )}
-      {tab === 'suggested' && suggested.length > 0 ? (
+      {!showingReference && tab === 'suggested' && suggested.length > 0 ? (
         <button type="button" className="packet-review-accept-all" disabled={!canAcceptAll} onClick={onAcceptAll}>
           Accept all {suggested.length} suggestions
         </button>
