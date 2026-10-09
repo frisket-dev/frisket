@@ -14,6 +14,21 @@ from frisket.ops.markdown_plain import markdown_to_plain_text
         (r"\*literal\* &amp; text", "*literal* & text"),
         ("![A diagram](https://example.com/image.png)", "A diagram"),
         ("<p>One<br>Two</p>", "One\nTwo"),
+        ("Plaintiff <John Doe> v. State", "Plaintiff <John Doe> v. State"),
+        ("Plaintiff <Mark Doe> v. State", "Plaintiff <Mark Doe> v. State"),
+        ("Filing <party/>", "Filing <party/>"),
+        ("<TABLE><TR><TD>Filed</TD></TR></TABLE>", "Filed"),
+        ('First<BR>Second <IMG ALT="diagram">', "First\nSecond diagram"),
+        (
+            "Plaintiff <Mark Doe> and <mark>flagged</mark>",
+            "Plaintiff <Mark Doe> and flagged",
+        ),
+        ("1. First\n2. Second", "1. First\n2. Second"),
+        ("3. Third\n4. Fourth", "3. Third\n4. Fourth"),
+        (
+            "1. Plaintiff <John Doe>\n2. Defendant State",
+            "1. Plaintiff <John Doe>\n2. Defendant State",
+        ),
     ],
 )
 def test_plain_text_preserves_content(markdown, expected):

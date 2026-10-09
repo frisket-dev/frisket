@@ -2120,4 +2120,5 @@ def _opendocrouter_choices(project, credential_context=None):
             ),
         }
         for declaration in opendocrouter_engines()
+        if declaration.listed
     ]

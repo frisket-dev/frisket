@@ -206,6 +206,9 @@ def opendocrouter_engines() -> tuple[EngineDeclaration, ...]:
     """Provider catalog entries share one fixed, code-owned parsing contract."""
     from frisket.opendocrouter_catalog import current_catalog
 
+    catalog = current_catalog()
+    active = {model.engine for model in catalog.models}
+
     return tuple(
         EngineDeclaration(
             id=model.engine,
@@ -214,8 +217,9 @@ def opendocrouter_engines() -> tuple[EngineDeclaration, ...]:
             provider="opendocrouter",
             billable=True,
             ocr_geometry=True,
+            listed=model.engine in active,
         )
-        for model in current_catalog().models
+        for model in (*catalog.models, *catalog.retired_models)
     )
 
 

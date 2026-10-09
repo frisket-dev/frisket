@@ -12,13 +12,14 @@ import base64
 import math
 import time
 from collections.abc import Awaitable, Callable
+from typing import Any
 from pathlib import Path
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
 import httpx
 
-from frisket.opendocrouter_catalog import find_model
+from frisket.opendocrouter_catalog import find_known_model, find_model
 from frisket.ai.models.metadata import ModelCallMeta, provider_cost_value
 from frisket.ops.integrations.hosted_error import HostedEngineError
 from frisket.ops.netguard import safe_request, EgressRefused, ResponseTooLarge
@@ -171,6 +172,18 @@ async def _request(
     return body
 
 
+async def _await_completed(task: asyncio.Task) -> tuple[Any, bool]:
+    """Join an owned provider task even when the runner cancels repeatedly."""
+    interrupted = False
+    while True:
+        try:
+            return await asyncio.shield(task), interrupted
+        except asyncio.CancelledError:
+            interrupted = True
+            if task.done():
+                return task.result(), interrupted
+
+
 def _job_id(body: dict) -> str:
     try:
         return str(UUID(body["id"]))
@@ -286,6 +299,11 @@ async def parse_document(
     headers = {"Authorization": f"Bearer {api_key}"}
     model = find_model(engine)
     if model is None:
+        if find_known_model(engine) is not None:
+            raise HostedEngineError(
+                "bad_request",
+                "This OpenDocRouter model is no longer offered. Choose a current model before running this action.",
+            )
         raise HostedEngineError(
             "bad_request", "This OpenDocRouter model is not in the current catalog."
         )
@@ -294,6 +312,9 @@ async def parse_document(
     accounting = None
     job_url = None
     delete_results = False
+    remote_job = False
+    interrupted = False
+    pending_error = None
     body = {}
     fact_id = f"opendocrouter_{uuid4().hex}"
 
@@ -415,14 +436,9 @@ async def parse_document(
                 },
             )
         )
-        interrupted = False
-        try:
-            body = await asyncio.shield(submit)
-        except asyncio.CancelledError:
-            # A submitted synchronous request can still incur a charge. Drain
-            # it and record the provider response before honoring cancellation.
-            body = await submit
-            interrupted = True
+        # A submitted request can still incur a charge. Repeated runner
+        # cancellation must not detach or cancel the provider response drain.
+        body, interrupted = await _await_completed(submit)
         try:
             accounting = _accounting(
                 body, engine, capability, credential_source, fact_id=fact_id
@@ -431,6 +447,7 @@ async def parse_document(
             error.post_egress_ambiguous = True
             raise
         job_url = f"{BASE_URL}/parse/{accounting['model_calls'][0]['request_id']}"
+        remote_job = asynchronous or body.get("status") not in TERMINAL_STATUSES
         # Acceptance is durable with unknown meters. The normal returned-row
         # writer later enriches that same fact and attaches its output column.
         notify_accounting()
@@ -445,7 +462,7 @@ async def parse_document(
             await asyncio.sleep(POLL_SECONDS)
             check_cancel()
             body = await read()
-        if asynchronous:
+        if remote_job:
             body = await read(expand=True)
         pages = await _read_pages(body, count, read)
         delete_results = True
@@ -469,23 +486,38 @@ async def parse_document(
                 pass
         exc.accounting = accounting
         exc.provider_job_accepted = accounting is not None and (
-            exc.code == "accounting" or (asynchronous and job_url is not None)
+            exc.code == "accounting"
+            or (job_url is not None and (remote_job or interrupted))
         )
         delete_results = exc.code == "cancelled"
-        if asynchronous and job_url and not delete_results:
+        if remote_job and job_url and not delete_results:
             exc.message += " Results are retained by OpenDocRouter for up to 24 hours; check the existing job before submitting again."
+        pending_error = exc
         raise exc
     finally:
-        if asynchronous and job_url and delete_results:
-            try:
+        if remote_job and job_url and delete_results:
+            cleanup_interrupted = False
+
+            async def cleanup():
                 await _request(client, "DELETE", job_url, headers=headers, timeout=10)
                 if accounting and accounting["cost"] is None:
                     status = await _request(
                         client, "GET", job_url, headers=headers, timeout=10
                     )
                     record(status)
+
+            try:
+                cleanup_task = asyncio.create_task(cleanup())
+                _, cleanup_interrupted = await _await_completed(cleanup_task)
             except HostedEngineError:
                 if accounting:
                     accounting["model_calls"][0]["warnings"].append(
                         "Temporary OpenDocRouter results could not be deleted; the provider retains them for up to 24 hours."
                     )
+            if cleanup_interrupted and pending_error is None:
+                cancelled = HostedEngineError(
+                    "cancelled", "OpenDocRouter processing was stopped."
+                )
+                cancelled.accounting = accounting
+                cancelled.provider_job_accepted = accounting is not None
+                raise cancelled

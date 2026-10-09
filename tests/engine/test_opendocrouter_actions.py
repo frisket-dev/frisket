@@ -20,7 +20,10 @@ from frisket.execution.attempt import run_attempt_receipts
 from tests.ops.test_opendocrouter import ENGINE, response
 
 
-def test_paid_async_result_failure_halts_and_keeps_charge(tmp_path, monkeypatch):
+@pytest.mark.parametrize("pages", [1, 51])
+def test_paid_remote_job_result_failure_halts_and_keeps_charge(
+    tmp_path, monkeypatch, pages
+):
     from frisket.ops.integrations import opendocrouter as api
 
     monkeypatch.setenv("OPEN_DOC_ROUTER_API_KEY", "odr-key")
@@ -32,10 +35,10 @@ def test_paid_async_result_failure_halts_and_keeps_charge(tmp_path, monkeypatch)
     def handler(request):
         calls.append(request.method)
         if request.method == "POST":
-            return httpx.Response(202, json=response(51, status="processing"))
+            return httpx.Response(202, json=response(pages, status="processing"))
         if request.url.params.get("expand"):
             return httpx.Response(503)
-        body = response(51)
+        body = response(pages)
         body["pages"] = []
         return httpx.Response(200, json=body)
 
@@ -46,7 +49,7 @@ def test_paid_async_result_failure_halts_and_keeps_charge(tmp_path, monkeypatch)
         column = project.add_column(sheet, "doc", type="file")
         data = io.BytesIO()
         writer = PdfWriter()
-        for _ in range(51):
+        for _ in range(pages):
             writer.add_blank_page(width=100, height=200)
         writer.write(data)
         blob = project.add_blob(
@@ -93,6 +96,7 @@ def test_paid_async_result_failure_halts_and_keeps_charge(tmp_path, monkeypatch)
         "ledger_failure",
         "lost_response",
         "repriced",
+        "catalog_removed",
         "new_model",
         "unknown_price",
     ],
@@ -102,6 +106,7 @@ def test_paid_document_action(tmp_path, monkeypatch, action, scenario):
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
     calls = []
     engine = ENGINE
+    original_catalog = None
     if scenario in {"new_model", "unknown_price"}:
         from frisket.opendocrouter_catalog import current_catalog, DocumentCatalog
         from dataclasses import replace
@@ -152,6 +157,22 @@ def test_paid_document_action(tmp_path, monkeypatch, action, scenario):
         if scenario == "partial":
             result["status"] = "partial"
             result["pages"][0]["status"] = "error"
+        if scenario == "catalog_removed":
+            import frisket.opendocrouter_catalog as document_catalog
+
+            nonlocal original_catalog
+            original_catalog = document_catalog.current_catalog()
+            monkeypatch.setattr(document_catalog, "_catalog", original_catalog)
+            document_catalog.install_catalog(
+                document_catalog.DocumentCatalog(
+                    original_catalog.price_version,
+                    tuple(
+                        model
+                        for model in original_catalog.models
+                        if model.engine != engine
+                    ),
+                )
+            )
         return httpx.Response(200, json=result)
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
@@ -242,7 +263,38 @@ def test_paid_document_action(tmp_path, monkeypatch, action, scenario):
         [attempt] = run_attempt_receipts(project, result.run_id)
         assert attempt["settlement"]["charge_usd"] == "0.00397", attempt
         assert attempt["settlement"]["charge_authority"] == "provider_usage"
-        if scenario in {"success", "new_model", "unknown_price"}:
+        if scenario == "catalog_removed" and action == "media.to_markdown":
+            from frisket.engine.store.receipts import ReceiptStore
+
+            receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+            assert receipt is not None
+            assert receipt.provider_use == [
+                {
+                    "provider": "opendocrouter",
+                    "model": engine,
+                    "engine": engine,
+                    "service": "document.convert",
+                    "external_api": True,
+                    "operation_call_count": 1,
+                    "model_call_count": 1,
+                    "cost_actual": 0.00397,
+                }
+            ]
+            replay = run_action_spec(
+                project,
+                {**spec, "confirmation": gate.errors[0].details["promise_set_hash"]},
+                router=router,
+                project_id="odr",
+            )
+            assert replay.receipt_id == result.receipt_id
+            assert replay.run_id == result.run_id
+            assert len(calls) == 1
+        if scenario in {
+            "success",
+            "catalog_removed",
+            "new_model",
+            "unknown_price",
+        }:
             assert result.status == "completed", result.errors
             name = "text" if action == "media.ocr" else "markdown"
             target = project.db.execute(

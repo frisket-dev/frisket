@@ -154,6 +154,87 @@ def test_async_poll_pagination_and_delete(tmp_path, monkeypatch):
     assert accounting["model_calls"][0]["units"]["pages"] == 51
 
 
+def test_sync_processing_reads_expanded_result_and_deletes_job(png, monkeypatch):
+    monkeypatch.setattr(api, "POLL_SECONDS", 0)
+    calls = []
+
+    def handler(request):
+        calls.append((request.method, bool(request.url.params.get("expand"))))
+        if request.method == "POST":
+            return httpx.Response(202, json=response(status="processing"))
+        if request.method == "DELETE":
+            return httpx.Response(200, json={})
+        body = response()
+        if not request.url.params.get("expand"):
+            body["pages"] = []
+        return httpx.Response(200, json=body)
+
+    pages, accounting = run(png, handler)
+
+    assert pages[0]["markdown"] == "# Page 1\n\nText"
+    assert accounting["cost"] == 0.00397
+    assert calls == [
+        ("POST", False),
+        ("GET", False),
+        ("GET", True),
+        ("DELETE", False),
+    ]
+
+
+def test_sync_processing_result_failure_retains_accepted_job(png, monkeypatch):
+    monkeypatch.setattr(api, "POLL_SECONDS", 0)
+    monkeypatch.setattr(api, "READ_RETRY_SECONDS", 0)
+    calls = []
+
+    def handler(request):
+        calls.append((request.method, bool(request.url.params.get("expand"))))
+        if request.method == "POST":
+            return httpx.Response(202, json=response(status="processing"))
+        body = response()
+        if request.url.params.get("expand"):
+            return httpx.Response(503)
+        body["pages"] = []
+        return httpx.Response(200, json=body)
+
+    with pytest.raises(HostedEngineError) as error:
+        run(png, handler)
+
+    assert error.value.provider_job_accepted
+    assert error.value.accounting["model_calls"][0]["request_id"] == JOB
+    assert error.value.accounting["cost"] == 0.00397
+    assert "retained" in error.value.message
+    assert calls == [
+        ("POST", False),
+        ("GET", False),
+        ("GET", True),
+        ("GET", True),
+        ("GET", True),
+    ]
+
+
+def test_retired_model_refuses_before_egress(png):
+    from frisket.opendocrouter_catalog import (
+        DocumentCatalog,
+        current_catalog,
+        install_catalog,
+    )
+
+    original = current_catalog()
+    calls = []
+    try:
+        install_catalog(
+            DocumentCatalog(
+                original.price_version,
+                tuple(model for model in original.models if model.engine != ENGINE),
+            )
+        )
+        with pytest.raises(HostedEngineError, match="no longer offered"):
+            run(png, lambda request: calls.append(request))
+        assert calls == []
+    finally:
+        install_catalog(original)
+
+
 def test_async_cancel_deletes_and_preserves_settled_cost(tmp_path):
     cancelled = False
     calls = []
@@ -363,11 +444,67 @@ def test_task_cancellation_drains_sync_response_and_records_charge(png):
             )
             await submitted.wait()
             task.cancel()
+            await asyncio.sleep(0)
+            task.cancel()
             finish.set()
             with pytest.raises(HostedEngineError) as error:
                 await task
             assert error.value.code == "cancelled"
+            assert error.value.provider_job_accepted
             assert error.value.accounting["cost"] == 0.00397
+
+    asyncio.run(execute())
+    assert recorded[-1]["cost"] == 0.00397
+
+
+def test_repeated_cancel_during_async_cleanup_preserves_accepted_error(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(api, "POLL_SECONDS", 60)
+    recorded = []
+
+    async def execute():
+        submitted = asyncio.Event()
+        deleting = asyncio.Event()
+        finish_delete = asyncio.Event()
+        calls = []
+
+        async def handler(request):
+            calls.append(request.method)
+            if request.method == "POST":
+                submitted.set()
+                return httpx.Response(202, json=response(51, status="processing"))
+            if request.method == "DELETE":
+                deleting.set()
+                await finish_delete.wait()
+                return httpx.Response(200, json={})
+            return httpx.Response(200, json=response(51, status="partial"))
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            task = asyncio.create_task(
+                api.parse_document(
+                    client,
+                    path=pdf(tmp_path, 51),
+                    engine=ENGINE,
+                    api_key="key",
+                    capability="ocr",
+                    credential_source="project_key",
+                    on_accounting=lambda a: recorded.append(copy.deepcopy(a)),
+                )
+            )
+            await submitted.wait()
+            await asyncio.sleep(0)
+            task.cancel()
+            await deleting.wait()
+            task.cancel()
+            finish_delete.set()
+            with pytest.raises(HostedEngineError) as error:
+                await task
+            assert error.value.code == "cancelled"
+            assert error.value.provider_job_accepted
+            assert error.value.accounting["model_calls"][0]["request_id"] == JOB
+            assert error.value.accounting["cost"] == 0.00397
+            assert calls == ["POST", "DELETE", "GET"]
 
     asyncio.run(execute())
     assert recorded[-1]["cost"] == 0.00397

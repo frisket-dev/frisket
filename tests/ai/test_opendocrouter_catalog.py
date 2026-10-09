@@ -11,7 +11,15 @@ import pytest
 
 from frisket.ai.llm import pricing
 from frisket.ai.llm.pricing_refresh import refresh_pricing_once, _load_cached_pricing
-from frisket.opendocrouter_catalog import current_catalog, catalog_document, find_model
+from frisket.opendocrouter_catalog import (
+    DocumentCatalog,
+    catalog_document,
+    current_catalog,
+    find_known_model,
+    find_model,
+)
+from frisket.ai.external_pricing import external_unit_price_usd
+from frisket.contracts.actions.schemas._engines import opendocrouter_engines
 from frisket.actions.markdown import ToMarkdownParams
 from frisket.actions.media_options import OcrOptions
 from frisket.execution.definitions import StaticExecutionTargetProvider
@@ -20,7 +28,11 @@ from frisket.execution.promise_compiler import ProviderUsageCost
 
 
 @pytest.fixture
-def document():
+def document(monkeypatch):
+    import frisket.opendocrouter_catalog as document_catalog
+
+    installed_catalog = current_catalog()
+    monkeypatch.setattr(document_catalog, "_catalog", installed_catalog)
     original = {
         "text": {k: list(v) for k, v in pricing.PRICES.items()},
         "audio": copy.deepcopy(pricing.AUDIO_PRICES),
@@ -28,7 +40,7 @@ def document():
     }
     doc = copy.deepcopy(original)
     yield doc
-    pricing.install_pricing_data(original)
+    pricing.install_pricing_data({"text": original["text"], "audio": original["audio"]})
 
 
 def future_model(document):
@@ -133,7 +145,7 @@ def test_invalid_provider_refresh_caches_last_good_catalog_for_reload(
     assert pricing.PRICES["fresh-text-model"] == (7.0, 8.0)
 
 
-def test_missing_price_is_unknown_and_catalog_removal_stops_new_admission(document):
+def test_catalog_removal_keeps_engine_resolvable_but_unlisted_and_unpriced(document):
     engine = future_model(document)
     document["opendocrouter"]["data"][-1]["max_charge_per_page_usd"] = None
     pricing.install_pricing_data(document)
@@ -150,8 +162,52 @@ def test_missing_price_is_unknown_and_catalog_removal_stops_new_admission(docume
     document["opendocrouter"]["data"].pop()
     pricing.install_pricing_data(document)
     assert find_model(engine) is None
-    with pytest.raises(ValueError):
-        ToMarkdownParams.model_validate({"source": "document", "engine": engine})
+    assert find_known_model(engine).name == "New parser"
+    declaration = next(item for item in opendocrouter_engines() if item.id == engine)
+    assert not declaration.listed
+    assert external_unit_price_usd(engine + ".parse_page") is None
+    assert (
+        ToMarkdownParams.model_validate(
+            {"source": "document", "engine": engine}
+        ).engine.root
+        == engine
+    )
+
+
+def test_cached_catalog_preserves_retired_models_and_reactivates_them(
+    document, tmp_path
+):
+    import frisket.opendocrouter_catalog as document_catalog
+
+    baseline = copy.deepcopy(document)
+    engine = future_model(document)
+    pricing.install_pricing_data(document)
+    removed = copy.deepcopy(baseline)
+    assert refresh_pricing_once(
+        cache_dir=tmp_path, now=100000, fetch=lambda _: json.dumps(removed).encode()
+    )
+    cached = json.loads((tmp_path / "pricing_data.json").read_text())
+    assert any(
+        row["id"] == engine.removeprefix("opendocrouter/")
+        for row in cached["opendocrouter"]["retired_data"]
+    )
+
+    document_catalog._catalog = DocumentCatalog(
+        current_catalog().price_version, current_catalog().models
+    )
+    assert find_known_model(engine) is None
+    _load_cached_pricing(tmp_path)
+    assert find_model(engine) is None
+    assert find_known_model(engine).name == "New parser"
+
+    row = copy.deepcopy(cached["opendocrouter"]["retired_data"][0])
+    row.update(name="Returned parser", max_charge_per_page_usd=0.25)
+    reactivated = copy.deepcopy(removed)
+    reactivated["opendocrouter"]["data"].append(row)
+    pricing.install_pricing_data(reactivated)
+    assert find_model(engine).name == "Returned parser"
+    assert next(item for item in opendocrouter_engines() if item.id == engine).listed
+    assert external_unit_price_usd(engine + ".parse_page") == 0.25
 
 
 def test_malformed_provider_section_keeps_catalog_and_installs_independent_prices(

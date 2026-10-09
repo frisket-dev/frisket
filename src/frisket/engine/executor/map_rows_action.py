@@ -3044,11 +3044,19 @@ def _typed_receipt(
             else []
         )
         evidence.extend(recorded)
-        grouped = {}
+        grouped: dict[str, dict[str, Any]] = {}
         for item in recorded:
             if item.ref["kind"] == "document_convert_read":
                 engine = item.ref["engine"]
-                grouped[engine] = grouped.get(engine, 0) + 1
+                group = grouped.setdefault(
+                    engine,
+                    {
+                        "count": 0,
+                        "external": bool(item.ref.get("external")),
+                    },
+                )
+                group["count"] += 1
+                group["external"] = group["external"] or bool(item.ref.get("external"))
         # Keep accepted external calls even when no document result returned.
         document_calls = [
             call
@@ -3056,23 +3064,30 @@ def _typed_receipt(
             if call["capability"] == ROUTED_CAPABILITIES[DocumentConverter]
         ]
         for call in document_calls:
-            grouped.setdefault(call["engine"], 0)
+            grouped.setdefault(call["engine"], {"count": 0, "external": True})
         provider_use = [
             item
             for item in provider_use
             if item.get("service") != ROUTED_CAPABILITIES[DocumentConverter]
         ]
-        for engine, count in grouped.items():
+        for engine, group in grouped.items():
             declaration = find_engine(to_markdown_engine_table(), engine)
             calls = [call for call in document_calls if call["engine"] == engine]
+            if not calls and declaration is None:
+                # Preserve the receipt rather than guessing provider identity
+                # from an unknown engine spelling. A paid call always carries
+                # its provider by value in ``document_calls``.
+                continue
             provider_use.append(
                 {
                     "provider": calls[0]["provider"] if calls else declaration.provider,
                     "model": engine,
                     "engine": engine,
                     "service": "document.convert",
-                    "external_api": declaration.tier == "hosted",
-                    "operation_call_count": count,
+                    "external_api": bool(calls)
+                    or bool(group["external"])
+                    or declaration.tier == "hosted",
+                    "operation_call_count": group["count"],
                     "model_call_count": len(calls),
                     "cost_actual": model_calls_cost_actual(calls),
                 }

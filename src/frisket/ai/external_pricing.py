@@ -244,6 +244,9 @@ CATALOG: dict[str, ExternalPricingEntry] = {
 def _opendocrouter_prices() -> dict[str, ExternalPricingEntry]:
     from frisket.opendocrouter_catalog import current_catalog
 
+    catalog = current_catalog()
+    active = {model.engine for model in catalog.models}
+
     return {
         m.engine + ".parse_page": ExternalPricingEntry(
             key=m.engine + ".parse_page",
@@ -251,14 +254,14 @@ def _opendocrouter_prices() -> dict[str, ExternalPricingEntry]:
             provider="OpenDocRouter",
             unit="page",
             default_unit_price_usd=Decimal(str(m.max_charge_per_page_usd))
-            if m.max_charge_per_page_usd is not None
+            if m.engine in active and m.max_charge_per_page_usd is not None
             else None,
             env_var=None,
             billable=True,
             external_api=True,
             description="Estimate uses the published maximum per page; actual charges use provider-reported usage.",
         )
-        for m in current_catalog().models
+        for m in (*catalog.models, *catalog.retired_models)
     }
 
 
