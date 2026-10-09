@@ -108,13 +108,13 @@ class ActionPreviewJobRegistry:
         preparation_message: str | None = None,
         replacement_key: str | None = None,
     ) -> PreviewJob:
-        """Cancel and join the prior same-project job, then start its successor.
+        """Replace the prior job in the same project and replacement lane.
 
         Joining is deliberately outside the registry lock but inside a
-        project-scoped handoff lock. Thus an unrelated project's preview can
-        still start, while concurrent replacements for one project cannot
-        publish competing successors or overlap process-scoped engines. The
-        cancelled predecessor stays queryable until TTL eviction.
+        replacement-lane handoff lock. Unrelated lanes can still start, while
+        concurrent replacements in one lane cannot publish competing successors.
+        Without an explicit key, previews share the project's default lane.
+        The cancelled predecessor stays queryable until TTL eviction.
         """
         self._evict_expired()
         effective_replacement_key = (project_id, replacement_key or "__project__")

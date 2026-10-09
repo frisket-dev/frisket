@@ -20,8 +20,6 @@ class ImportFilesUploadResponse:
     status_code: int
     payload: dict[str, Any]
     force_json_response: bool = False
-    receipt_id: str | None = None
-    op_ids: tuple[int, ...] = ()
 
 
 class ImportFilesRouteError(RouteError):
@@ -131,6 +129,4 @@ class ImportFilesUploadService:
         return ImportFilesUploadResponse(
             status_code=200,
             payload={"sheet_id": sheet_output.sheet_id, "rows": len(files)},
-            receipt_id=result.receipt_id,
-            op_ids=tuple(result.op_ids),
         )
