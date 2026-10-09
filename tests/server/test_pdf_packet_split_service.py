@@ -28,7 +28,10 @@ from frisket.server.services.action_preview_runs import ActionPreviewRunResponse
 from frisket.server.services.action_preview_jobs import ActionPreviewJobRegistry
 from frisket.server.services.import_uploads import AdmittedUpload
 from frisket.server.services.pdf_packet_commit import PdfPacketCommitter
-from frisket.server.services.pdf_packet_splits import PdfPacketSplitService
+from frisket.server.services.pdf_packet_splits import (
+    PdfPacketSplitRouteError,
+    PdfPacketSplitService,
+)
 from frisket.server.workspace import Workspace
 
 
@@ -235,20 +238,26 @@ def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
     ]
     assert candidates["accept_all_scope"] == "packet"
 
-    started = service.commit(
-        project_id,
-        split_id,
-        PdfPacketCommitRequest(
-            idempotency_key="commit-once",
-            confirmed_starts=[1, 3],
-            destination=PdfPacketDestination(kind="new_sheet", name="Documents"),
-            name_pattern="{packet}-{index}-{start}-{end}",
-            keep_ocr_text=True,
-        ),
+    commit_body = PdfPacketCommitRequest(
+        idempotency_key="commit-once",
+        confirmed_starts=[1, 3],
+        destination=PdfPacketDestination(kind="new_sheet", name="Documents"),
+        name_pattern="{packet}-{index}-{start}-{end}",
+        keep_ocr_text=True,
     )
+    started = service.commit(project_id, split_id, commit_body)
     assert started["kind"] == "commit"
     completed = _wait_status(service, project_id, split_id, "completed")
     assert completed["commit_result"]["document_count"] == 2
+    replayed = service.commit(project_id, split_id, commit_body)
+    assert replayed["job_id"] == started["job_id"]
+    with pytest.raises(PdfPacketSplitRouteError) as conflict:
+        service.commit(
+            project_id,
+            split_id,
+            commit_body.model_copy(update={"name_pattern": "different-{index}"}),
+        )
+    assert conflict.value.status_code == 409
 
     service.close(project_id, split_id)
     project = workspace.get(project_id)

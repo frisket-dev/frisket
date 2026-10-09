@@ -98,7 +98,7 @@ class _PacketSession:
     ocr_engine: str | None = None
     analysis_revision: int = 0
     commit_result: dict[str, Any] | None = None
-    commit_keys: dict[str, str] = field(default_factory=dict)
+    commit_keys: dict[str, tuple[str, str]] = field(default_factory=dict)
 
 
 @dataclass
@@ -562,9 +562,17 @@ class PdfPacketSplitService:
         request_context: Any = None,
     ) -> dict[str, Any]:
         session = self._session(project_id, split_id)
+        request_fingerprint = hashlib.sha256(
+            body.model_dump_json().encode("utf-8")
+        ).hexdigest()
         existing = session.commit_keys.get(body.idempotency_key)
         if existing:
-            job = self._registry.get(project_id, existing)
+            job_id, existing_fingerprint = existing
+            if existing_fingerprint != request_fingerprint:
+                raise PdfPacketSplitRouteError(
+                    409, "idempotency key was already used for another commit"
+                )
+            job = self._registry.get(project_id, job_id)
             return self._start_payload(
                 session, job, "commit", len(body.confirmed_starts)
             )
@@ -621,7 +629,10 @@ class PdfPacketSplitService:
             raise
         with self._lock:
             session.jobs[job.id] = _PacketJob(job.id, "commit")
-            session.commit_keys[body.idempotency_key] = job.id
+            session.commit_keys[body.idempotency_key] = (
+                job.id,
+                request_fingerprint,
+            )
         return self._start_payload(session, job, "commit", len(ranges))
 
     def _commit_run(
@@ -739,41 +750,50 @@ class PdfPacketSplitService:
 
     def _snapshot(self, session: _PacketSession) -> dict[str, Any]:
         self._sync_jobs(session)
-        prepare = self._registry.get(session.project_id, session.prepare_job_id)
+        with self._lock:
+            project_id = session.project_id
+            prepare_job_id = session.prepare_job_id
+            tracked_jobs = tuple(session.jobs.values())
+            snapshot: dict[str, Any] = {
+                "schema_version": PDF_PACKET_SPLIT_SCHEMA_VERSION,
+                "split_id": session.id,
+                "status": session.status,
+                "packet": {
+                    "blob_hash": session.source_hash,
+                    "filename": session.filename,
+                    "mime": "application/pdf",
+                    "size": session.size,
+                    "page_count": session.page_count,
+                },
+                "prepare": {
+                    "job_id": prepare_job_id,
+                    "pages_ready": sorted(session.pages_ready),
+                    "native_text_pages": sorted(
+                        page for page, text in session.native_text.items() if text
+                    ),
+                    "visual_pages_ready": len(session.signatures),
+                },
+                "text_source": session.text_source,
+                "ocr_engine": session.ocr_engine,
+                "analysis_revision": session.analysis_revision,
+                "expires_at": session.expires_at.isoformat().replace("+00:00", "Z"),
+                "commit_result": (
+                    dict(session.commit_result)
+                    if session.commit_result is not None
+                    else None
+                ),
+            }
+        prepare = self._registry.get(project_id, prepare_job_id)
         jobs = []
-        for tracked in session.jobs.values():
+        for tracked in tracked_jobs:
             if tracked.kind == "prepare":
                 continue
-            job = self._registry.get(session.project_id, tracked.id)
+            job = self._registry.get(project_id, tracked.id)
             if job is not None:
                 jobs.append(self._job_state(tracked, job))
-        return {
-            "schema_version": PDF_PACKET_SPLIT_SCHEMA_VERSION,
-            "split_id": session.id,
-            "status": session.status,
-            "packet": {
-                "blob_hash": session.source_hash,
-                "filename": session.filename,
-                "mime": "application/pdf",
-                "size": session.size,
-                "page_count": session.page_count,
-            },
-            "prepare": {
-                "job_id": session.prepare_job_id,
-                "progress": self._progress(prepare),
-                "pages_ready": sorted(session.pages_ready),
-                "native_text_pages": sorted(
-                    page for page, text in session.native_text.items() if text
-                ),
-                "visual_pages_ready": len(session.signatures),
-            },
-            "text_source": session.text_source,
-            "ocr_engine": session.ocr_engine,
-            "jobs": jobs,
-            "analysis_revision": session.analysis_revision,
-            "expires_at": session.expires_at.isoformat().replace("+00:00", "Z"),
-            "commit_result": session.commit_result,
-        }
+        snapshot["prepare"]["progress"] = self._progress(prepare)
+        snapshot["jobs"] = jobs
+        return snapshot
 
     def _job_state(self, tracked: _PacketJob, job: PreviewJob) -> dict[str, Any]:
         receipt = job.receipt
