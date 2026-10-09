@@ -345,6 +345,8 @@ function PdfPacketSourceCard({
   splitAt: string;
   onOpenSiblingSheet(sheetId: number): void;
 }) {
+  const [sourceOpen, setSourceOpen] = useState(false);
+  const [sourcePage, setSourcePage] = useState(data.pageStart);
   const splitDate = new Date(splitAt);
   const dateLabel = Number.isNaN(splitDate.getTime())
     ? null
@@ -378,9 +380,16 @@ function PdfPacketSourceCard({
           ))}
         </div>
         <div className="pdf-packet-source-actions">
-          <a href={data.sourceUrl} target="_blank" rel="noopener noreferrer">
-            Open in source packet <ExternalLink size={12} />
-          </a>
+          <button
+            type="button"
+            aria-expanded={sourceOpen}
+            onClick={() => {
+              setSourcePage(data.pageStart);
+              setSourceOpen((open) => !open);
+            }}
+          >
+            {sourceOpen ? 'Close source packet' : 'Open in source packet'}
+          </button>
           <button
             type="button"
             disabled={data.sourceSheetId === null}
@@ -388,10 +397,31 @@ function PdfPacketSourceCard({
               if (data.sourceSheetId !== null) onOpenSiblingSheet(data.sourceSheetId);
             }}
           >
-            Other documents from this packet ({data.siblingCount})
+            Other documents from this packet ({data.otherDocumentCount})
           </button>
         </div>
       </div>
+      {sourceOpen ? (
+        <div className="pdf-packet-source-reader" data-testid="pdf-packet-source-reader">
+          <header>
+            <button type="button" disabled={sourcePage <= 1} onClick={() => setSourcePage((page) => Math.max(1, page - 1))}>← Previous</button>
+            <strong>Page {sourcePage} of {data.pageCount}</strong>
+            <button type="button" disabled={sourcePage >= data.pageCount} onClick={() => setSourcePage((page) => Math.min(data.pageCount, page + 1))}>Next →</button>
+          </header>
+          <Suspense fallback={<FileText size={24} aria-hidden />}>
+            <PdfViewer
+              url={data.blobUrl}
+              layout="single"
+              fit="page"
+              zoom={1}
+              textLayer={false}
+              currentPage={sourcePage}
+              onLoaded={ignorePdfPageCount}
+              onCurrentPageChange={setSourcePage}
+            />
+          </Suspense>
+        </div>
+      ) : null}
     </section>
   );
 }

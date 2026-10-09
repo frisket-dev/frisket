@@ -5,9 +5,8 @@ export interface PdfPacketSourceCardData {
   pageCount: number;
   pageStart: number;
   pageEnd: number;
-  siblingCount: number;
+  otherDocumentCount: number;
   blobUrl: string;
-  sourceUrl: string;
   sourceSheetId: number | null;
 }
 
@@ -49,9 +48,8 @@ export function pdfPacketSourceCardData(
     pageCount,
     pageStart,
     pageEnd,
-    siblingCount,
+    otherDocumentCount: Math.max(0, siblingCount - 1),
     blobUrl: blob.url,
-    sourceUrl: `${blob.url.replace(/#.*$/, '')}#page=${pageStart}`,
     sourceSheetId: artifact.source_cell?.sheet_id ?? null,
   };
 }

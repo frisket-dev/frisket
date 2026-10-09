@@ -1,3 +1,6 @@
+import type { RunEstimate } from './open';
+import { requestPdfPacketSplit } from './raw/pdfPacketSplitsTransport';
+
 export type PdfPacketSplitStatus =
   | 'preparing'
   | 'ready'
@@ -178,7 +181,7 @@ export function estimatePdfPacketOcr(
   splitId: string,
   input: { engine: string; scope: 'sample' | 'all'; pages?: number[] },
   options?: PdfPacketRequestOptions,
-): Promise<{ schema_version: string; engine: string; scope: 'sample' | 'all'; pages: number[]; cached_pages: number[]; estimate: Record<string, unknown> }> {
+): Promise<{ schema_version: string; engine: string; scope: 'sample' | 'all'; pages: number[]; cached_pages: number[]; estimate: RunEstimate }> {
   return jsonRequest(`${prefix(projectId)}/${encodeURIComponent(splitId)}/ocr/estimate`, 'POST', input, options);
 }
 
@@ -250,5 +253,4 @@ export function deletePdfPacketSplit(
     if (!response.ok) await responseJson(response);
   });
 }
-import { requestPdfPacketSplit } from './raw/pdfPacketSplitsTransport';
 

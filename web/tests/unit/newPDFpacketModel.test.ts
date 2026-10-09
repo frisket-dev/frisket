@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest';
 import type { PdfPacketMatchResult, PdfPacketSplitSnapshot } from '../../src/api/pdfPacketSplits';
 import {
   confirmedDocuments,
+  formatPdfPacketDocumentName,
   initialPdfPacketFlowState,
+  pdfPacketNamePatternError,
   pdfPacketFlowReducer,
   samplePages,
 } from '../../src/components/importWorkspace/pdfPacket/model';
@@ -81,5 +83,16 @@ describe('PDF packet split state', () => {
   it('chooses six samples spread from the first through last page', () => {
     expect(samplePages(284)).toEqual([1, 58, 114, 171, 227, 284]);
     expect(samplePages(3)).toEqual([1, 2, 3]);
+  });
+
+  it('previews every backend-supported filename field and adds the PDF suffix', () => {
+    const document = { index: 3, start: 17, end: 21, pages: 5 };
+    expect(formatPdfPacketDocumentName(
+      '{packet}-{index}-{page}-{start}-{end}',
+      'FOIA packet.pdf',
+      document,
+    )).toBe('FOIA packet-3-17-17-21.pdf');
+    expect(formatPdfPacketDocumentName('{packet}.pdf', 'FOIA packet.pdf', document)).toBe('FOIA packet.pdf');
+    expect(pdfPacketNamePatternError('{packet}-{unknown}')).toBe('Unknown field {unknown}.');
   });
 });

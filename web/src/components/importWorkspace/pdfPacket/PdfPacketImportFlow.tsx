@@ -8,6 +8,7 @@ import {
   type KeyboardEvent,
 } from 'react';
 import { Check, FileText, Plus, X } from 'lucide-react';
+import type { RunEstimate } from '../../../api/open';
 import type { SelectorChoice } from '../../../api/selectorChoices';
 import {
   cancelPdfPacketOcr,
@@ -25,12 +26,16 @@ import {
   type PdfPacketSplitSnapshot,
 } from '../../../api/pdfPacketSplits';
 import { SelectorField } from '../../../engine-selector/SelectorField';
+import { CostGateModal } from '../../CostGateModal';
 import { PanelSelect } from '../../PanelSelect';
 import { SegmentedToggle } from '../../PanelPrimitives';
 import {
+  canKeepPdfPacketOcr,
   confirmedDocuments,
+  formatPdfPacketDocumentName,
   initialPdfPacketFlowState,
   matchForPage,
+  pdfPacketNamePatternError,
   pdfPacketFlowReducer,
   samplePages,
   type PdfPacketDocument,
@@ -51,6 +56,14 @@ interface PdfPacketImportFlowProps {
   registerCloseGuard(guard: (() => boolean) | null): void;
   onImported(sheetId: number): void;
   onError(message: string): void;
+}
+
+interface PendingOcrConsent {
+  estimate: RunEstimate;
+  engine: string;
+  scope: 'sample' | 'all';
+  pages?: number[];
+  confirmation: string;
 }
 
 function engineOf(choice: SelectorChoice): string | null {
@@ -107,7 +120,12 @@ export function PdfPacketImportFlow({
   const [state, dispatch] = useReducer(pdfPacketFlowReducer, initialPdfPacketFlowState);
   const [uploading, setUploading] = useState(false);
   const [showOcr, setShowOcr] = useState(false);
-  const splitId = state.snapshot?.split_id ?? null;
+  const [ocrConsent, setOcrConsent] = useState<PendingOcrConsent | null>(null);
+  const [sessionProjectId, setSessionProjectId] = useState<string | null>(null);
+  const sessionProject = useRef<string | null>(null);
+  const projectEpoch = useRef(0);
+  const actionController = useRef<AbortController | null>(null);
+  const splitId = sessionProjectId === projectId ? state.snapshot?.split_id ?? null : null;
   const pageCount = pageCountOf(state.snapshot);
   const candidateGeneration = useRef(0);
   const requestId = useRef(crypto.randomUUID());
@@ -115,6 +133,42 @@ export function PdfPacketImportFlow({
   const committedSheet = useRef<number | null>(null);
   const latestStatus = useRef(state.snapshot?.status);
   const serverCommitBusy = state.snapshot?.status === 'committing';
+
+  const beginAction = useCallback(() => {
+    actionController.current?.abort();
+    const controller = new AbortController();
+    actionController.current = controller;
+    return { controller, epoch: projectEpoch.current };
+  }, []);
+
+  const actionIsCurrent = useCallback((controller: AbortController, epoch: number) => (
+    !controller.signal.aborted && epoch === projectEpoch.current && sessionProject.current === projectId
+  ), [projectId]);
+
+  const previousProjectId = useRef(projectId);
+  useEffect(() => {
+    if (previousProjectId.current === projectId) return;
+    previousProjectId.current = projectId;
+    projectEpoch.current += 1;
+    actionController.current?.abort();
+    candidateGeneration.current += 1;
+    sessionProject.current = null;
+    setSessionProjectId(null);
+    requestId.current = crypto.randomUUID();
+    commitRequestId.current = crypto.randomUUID();
+    committedSheet.current = null;
+    latestStatus.current = undefined;
+    setUploading(false);
+    setShowOcr(false);
+    setOcrConsent(null);
+    dispatch({ type: 'reset' });
+  }, [projectId]);
+
+  useEffect(() => () => {
+    projectEpoch.current += 1;
+    actionController.current?.abort();
+    candidateGeneration.current += 1;
+  }, []);
 
   useEffect(() => {
     latestStatus.current = state.snapshot?.status;
@@ -149,9 +203,10 @@ export function PdfPacketImportFlow({
 
   const refreshSnapshot = useCallback(async (signal?: AbortSignal) => {
     if (!splitId) return;
+    const epoch = projectEpoch.current;
     try {
       const snapshot = await getPdfPacketSplit(projectId, splitId, { signal });
-      if (signal?.aborted) return;
+      if (signal?.aborted || epoch !== projectEpoch.current || sessionProject.current !== projectId) return;
       latestStatus.current = snapshot.status;
       dispatch({ type: 'snapshot', snapshot });
       if (snapshot.status === 'error') {
@@ -182,10 +237,13 @@ export function PdfPacketImportFlow({
 
   const loadPage = useCallback(async (page: number, signal?: AbortSignal) => {
     if (!splitId) return;
+    const epoch = projectEpoch.current;
     dispatch({ type: 'pageLoading', page });
     try {
       const loaded = await getPdfPacketPage(projectId, splitId, page, { signal });
-      if (!signal?.aborted) dispatch({ type: 'pageLoaded', page: loaded });
+      if (!signal?.aborted && epoch === projectEpoch.current && sessionProject.current === projectId) {
+        dispatch({ type: 'pageLoaded', page: loaded });
+      }
     } catch (error) {
       if (!signal?.aborted) dispatch({ type: 'error', message: error instanceof Error ? error.message : String(error) });
     }
@@ -198,15 +256,36 @@ export function PdfPacketImportFlow({
     return () => controller.abort();
   }, [loadPage, splitId, state.selectedPage, state.snapshot?.status]);
 
-  const selectedPageOcrJobState = state.snapshot?.jobs
+  const selectedPageOcrJob = state.snapshot?.jobs
     .filter((job) => job.kind === 'ocr_sample' && job.pages.includes(state.selectedPage))
-    .at(-1)?.progress.status;
+    .at(-1);
   useEffect(() => {
-    if (!splitId || selectedPageOcrJobState !== 'done') return undefined;
+    if (!splitId || selectedPageOcrJob?.progress.status !== 'done' || !selectedPageOcrJob.engine) return undefined;
     const controller = new AbortController();
-    void loadPage(state.selectedPage, controller.signal);
+    const engine = selectedPageOcrJob.engine;
+    const selectAndLoad = async () => {
+      try {
+        if (state.snapshot?.text_source !== 'ocr' || state.snapshot.ocr_engine !== engine) {
+          const snapshot = await setPdfPacketTextSource(
+            projectId,
+            splitId,
+            { kind: 'ocr', engine },
+            { signal: controller.signal },
+          );
+          if (controller.signal.aborted) return;
+          dispatch({ type: 'snapshot', snapshot });
+          dispatch({ type: 'ocrEngine', engine });
+        }
+        await loadPage(state.selectedPage, controller.signal);
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          dispatch({ type: 'error', message: error instanceof Error ? error.message : String(error) });
+        }
+      }
+    };
+    void selectAndLoad();
     return () => controller.abort();
-  }, [loadPage, selectedPageOcrJobState, splitId, state.selectedPage]);
+  }, [loadPage, projectId, selectedPageOcrJob?.engine, selectedPageOcrJob?.job_id, selectedPageOcrJob?.progress.status, splitId, state.selectedPage, state.snapshot?.ocr_engine, state.snapshot?.text_source]);
 
   useEffect(() => {
     if (!splitId || state.stage !== 'find' || state.snapshot?.status === 'preparing') return undefined;
@@ -236,7 +315,7 @@ export function PdfPacketImportFlow({
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [projectId, splitId, state.confirmedStarts, state.phrases, state.rejected, state.snapshot?.status, state.stage, state.threshold]);
+  }, [projectId, splitId, state.confirmedStarts, state.phrases, state.rejected, state.snapshot?.analysis_revision, state.snapshot?.status, state.stage, state.threshold]);
 
   useEffect(() => {
     if (state.stage !== 'import' || !splitId) return undefined;
@@ -252,89 +331,144 @@ export function PdfPacketImportFlow({
       dispatch({ type: 'error', message: 'Choose a PDF packet.' });
       return;
     }
+    const { controller, epoch } = beginAction();
     setUploading(true);
     dispatch({ type: 'error', message: null });
     try {
-      const snapshot = await createPdfPacketSplit(projectId, file, requestId.current);
+      const snapshot = await createPdfPacketSplit(projectId, file, requestId.current, { signal: controller.signal });
+      if (controller.signal.aborted || epoch !== projectEpoch.current) return;
+      sessionProject.current = projectId;
+      setSessionProjectId(projectId);
       dispatch({ type: 'prepared', snapshot, remembered: loadRememberedOptions(projectId) });
     } catch (error) {
+      if (controller.signal.aborted) return;
       const message = error instanceof Error ? error.message : String(error);
       dispatch({ type: 'error', message });
       onError(`Import failed: ${message}`);
     } finally {
-      setUploading(false);
+      if (epoch === projectEpoch.current) setUploading(false);
+    }
+  };
+
+  const launchOcr = async ({
+    engine,
+    scope,
+    pages,
+    confirmation,
+  }: { engine: string; scope: 'sample' | 'all'; pages?: number[]; confirmation?: string }) => {
+    if (!splitId) return;
+    const { controller, epoch } = beginAction();
+    dispatch({ type: 'ocrBusy', value: true });
+    dispatch({ type: 'error', message: null });
+    try {
+      await startPdfPacketOcr(projectId, splitId, {
+        engine,
+        scope,
+        pages,
+        confirmation,
+      }, { signal: controller.signal });
+      if (!actionIsCurrent(controller, epoch)) return;
+      if (scope === 'all') {
+        const snapshot = await setPdfPacketTextSource(
+          projectId,
+          splitId,
+          { kind: 'ocr', engine },
+          { signal: controller.signal },
+        );
+        if (!actionIsCurrent(controller, epoch)) return;
+        dispatch({ type: 'snapshot', snapshot });
+        dispatch({ type: 'stage', stage: 'find' });
+      } else {
+        await refreshSnapshot(controller.signal);
+      }
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        dispatch({ type: 'error', message: error instanceof Error ? error.message : String(error) });
+      }
+    } finally {
+      if (epoch === projectEpoch.current) dispatch({ type: 'ocrBusy', value: false });
     }
   };
 
   const runOcr = async (scope: 'sample' | 'all') => {
     if (!splitId) return;
+    const { controller, epoch } = beginAction();
+    const engine = state.ocrEngine;
+    const pages = scope === 'sample' ? [state.selectedPage] : undefined;
     dispatch({ type: 'ocrBusy', value: true });
     dispatch({ type: 'error', message: null });
-    const pages = scope === 'sample' ? [state.selectedPage] : undefined;
     try {
       const quote = await estimatePdfPacketOcr(projectId, splitId, {
-        engine: state.ocrEngine,
+        engine,
         scope,
         pages,
-      });
-      const promiseHash = typeof quote.estimate.promise_set_hash === 'string'
-        ? quote.estimate.promise_set_hash
-        : undefined;
-      await startPdfPacketOcr(projectId, splitId, {
-        engine: state.ocrEngine,
-        scope,
-        pages,
-        confirmation: promiseHash,
-      });
-      if (scope === 'all') {
-        await setPdfPacketTextSource(projectId, splitId, { kind: 'ocr', engine: state.ocrEngine });
-        dispatch({ type: 'stage', stage: 'find' });
+      }, { signal: controller.signal });
+      if (!actionIsCurrent(controller, epoch)) return;
+      if (quote.estimate.requires_confirmation) {
+        const confirmation = quote.estimate.promise_set_hash;
+        if (!confirmation) throw new Error('The OCR estimate did not include its confirmation token.');
+        setOcrConsent({ estimate: quote.estimate, engine, scope, pages, confirmation });
+        return;
       }
-      await refreshSnapshot();
+      await launchOcr({ engine, scope, pages });
     } catch (error) {
-      dispatch({ type: 'error', message: error instanceof Error ? error.message : String(error) });
+      if (!controller.signal.aborted) {
+        dispatch({ type: 'error', message: error instanceof Error ? error.message : String(error) });
+      }
     } finally {
-      dispatch({ type: 'ocrBusy', value: false });
+      if (epoch === projectEpoch.current) dispatch({ type: 'ocrBusy', value: false });
     }
   };
 
   const acceptNativeText = async () => {
     if (!splitId) return;
+    const { controller, epoch } = beginAction();
     try {
-      const snapshot = await setPdfPacketTextSource(projectId, splitId, { kind: 'native' });
+      const snapshot = await setPdfPacketTextSource(projectId, splitId, { kind: 'native' }, { signal: controller.signal });
+      if (!actionIsCurrent(controller, epoch)) return;
       dispatch({ type: 'snapshot', snapshot });
+      dispatch({ type: 'keepOcrText', value: false });
       dispatch({ type: 'stage', stage: 'find' });
     } catch (error) {
-      dispatch({ type: 'error', message: error instanceof Error ? error.message : String(error) });
+      if (!controller.signal.aborted) dispatch({ type: 'error', message: error instanceof Error ? error.message : String(error) });
     }
   };
 
   const chooseAnotherPacket = async () => {
     if (!splitId) return;
+    const { controller, epoch } = beginAction();
     try {
-      await deletePdfPacketSplit(projectId, splitId);
+      await deletePdfPacketSplit(projectId, splitId, { signal: controller.signal });
+      if (!actionIsCurrent(controller, epoch)) return;
       latestStatus.current = 'cancelled';
+      sessionProject.current = null;
+      setSessionProjectId(null);
       requestId.current = crypto.randomUUID();
       commitRequestId.current = crypto.randomUUID();
       setShowOcr(false);
       dispatch({ type: 'reset' });
     } catch (error) {
-      dispatch({ type: 'error', message: error instanceof Error ? error.message : String(error) });
+      if (!controller.signal.aborted) dispatch({ type: 'error', message: error instanceof Error ? error.message : String(error) });
     }
   };
 
   const cancelOcr = async (jobId: string) => {
     if (!splitId) return;
+    const { controller, epoch } = beginAction();
     try {
-      const snapshot = await cancelPdfPacketOcr(projectId, splitId, jobId);
+      const snapshot = await cancelPdfPacketOcr(projectId, splitId, jobId, { signal: controller.signal });
+      if (!actionIsCurrent(controller, epoch)) return;
       dispatch({ type: 'snapshot', snapshot });
+      dispatch({ type: 'keepOcrText', value: false });
     } catch (error) {
-      dispatch({ type: 'error', message: error instanceof Error ? error.message : String(error) });
+      if (!controller.signal.aborted) dispatch({ type: 'error', message: error instanceof Error ? error.message : String(error) });
     }
   };
 
   const submitImport = async () => {
-    if (!splitId || !state.destinationName.trim()) return;
+    if (!splitId || !state.destinationName.trim() || pdfPacketNamePatternError(state.namePattern)) return;
+    const { controller, epoch } = beginAction();
+    const canKeepOcrText = canKeepPdfPacketOcr(state.snapshot);
     dispatch({ type: 'committing', value: true });
     try {
       await commitPdfPacketSplit(projectId, splitId, {
@@ -342,21 +476,22 @@ export function PdfPacketImportFlow({
         confirmed_starts: state.confirmedStarts,
         destination: { kind: 'new_sheet', name: state.destinationName.trim() },
         name_pattern: state.namePattern,
-        keep_ocr_text: state.keepOcrText,
-      });
+        keep_ocr_text: canKeepOcrText && state.keepOcrText,
+      }, { signal: controller.signal });
+      if (!actionIsCurrent(controller, epoch)) return;
       if (state.rememberOptions) {
         window.localStorage.setItem(rememberedOptionsKey(projectId), JSON.stringify({
           namePattern: state.namePattern,
-          keepOcrText: state.keepOcrText,
+          keepOcrText: canKeepOcrText && state.keepOcrText,
         } satisfies PdfPacketRememberedOptions));
       } else {
         window.localStorage.removeItem(rememberedOptionsKey(projectId));
       }
-      await refreshSnapshot();
+      await refreshSnapshot(controller.signal);
     } catch (error) {
-      dispatch({ type: 'error', message: error instanceof Error ? error.message : String(error) });
+      if (!controller.signal.aborted) dispatch({ type: 'error', message: error instanceof Error ? error.message : String(error) });
     } finally {
-      dispatch({ type: 'committing', value: false });
+      if (epoch === projectEpoch.current) dispatch({ type: 'committing', value: false });
     }
   };
 
@@ -381,7 +516,8 @@ export function PdfPacketImportFlow({
   }
 
   return (
-    <div className="pdf-packet-flow" data-testid="pdf-packet-flow" data-stage={state.stage}>
+    <>
+      <div className="pdf-packet-flow" data-testid="pdf-packet-flow" data-stage={state.stage}>
       {state.stage === 'check' ? (
         <PacketTextStep
           projectId={projectId}
@@ -414,13 +550,27 @@ export function PdfPacketImportFlow({
         <PacketImportStep
           state={state}
           pageCount={pageCount}
+          canKeepOcrText={canKeepPdfPacketOcr(state.snapshot)}
           onBack={() => dispatch({ type: 'stage', stage: 'find' })}
           onSubmit={() => void submitImport()}
           dispatch={dispatch}
         />
       )}
       {state.error && <div className="pdf-packet-error import-field-error" role="alert">{state.error}</div>}
-    </div>
+      </div>
+      {ocrConsent ? (
+        <CostGateModal
+          estimate={ocrConsent.estimate}
+          message={`Run ${ocrConsent.engine} OCR on ${ocrConsent.scope === 'all' ? `all ${pageCount} pages` : `page ${ocrConsent.pages?.[0] ?? state.selectedPage}`}?`}
+          onCancel={() => setOcrConsent(null)}
+          onConfirm={() => {
+            const approved = ocrConsent;
+            setOcrConsent(null);
+            void launchOcr(approved);
+          }}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -496,11 +646,18 @@ function PacketTextStep({
 }) {
   const samples = samplePages(pageCount);
   const nativeText = page?.native_text ?? '';
-  const ocrText = page?.ocr_text ?? '';
-  const [preferredSource, setPreferredSource] = useState<'native' | 'ocr'>('native');
-  const source = (preferredSource === 'ocr' && ocrText) || (!nativeText && ocrText)
+  const ocrText = page?.ocr_engine === engine ? page.ocr_text ?? '' : '';
+  const [preferredSource, setPreferredSource] = useState<'native' | 'ocr' | null>(null);
+  const defaultSource = snapshot.text_source === 'ocr' && snapshot.ocr_engine === engine ? 'ocr' : 'native';
+  const source = preferredSource === 'ocr' && ocrText
     ? 'ocr'
-    : 'native';
+    : preferredSource === 'native' && nativeText
+      ? 'native'
+      : defaultSource === 'ocr' && ocrText
+        ? 'ocr'
+        : !nativeText && ocrText
+          ? 'ocr'
+          : 'native';
   const shownText = source === 'ocr' ? ocrText : nativeText;
   const nativeCount = snapshot.prepare.native_text_pages.length;
   return (
@@ -624,9 +781,10 @@ function PacketFindStep({
   const [visibleRange, setVisibleRange] = useState<[number, number]>([1, Math.min(40, pageCount)]);
   const questionPages = state.matches?.question_pages ?? [];
   const suggested = state.matches?.suggested_pages ?? [];
-  const ocrJob = state.snapshot?.jobs.find((job) => job.kind === 'ocr_full');
-  const textRead = ocrJob?.progress.done
-    ?? (state.snapshot?.text_source === 'native' ? state.snapshot.prepare.native_text_pages.length : 0);
+  const ocrJob = state.snapshot?.jobs.filter((job) => job.kind === 'ocr_full').at(-1);
+  const textRead = ocrJob
+    ? Math.min(pageCount, pageCount - ocrJob.pages.length + ocrJob.progress.done)
+    : (state.snapshot?.text_source === 'native' ? state.snapshot.prepare.native_text_pages.length : 0);
   const documents = confirmedDocuments([...state.confirmedStarts, ...suggested], pageCount);
   const pageToDocument = new Map<number, PdfPacketDocument>();
   for (const document of documents) {
@@ -846,13 +1004,14 @@ function PacketMinimap({ pageCount, confirmed, suggested, questions, visibleRang
   </aside>;
 }
 
-function PacketImportStep({ state, pageCount, onBack, onSubmit, dispatch }: { state: ReturnType<typeof pdfPacketFlowReducer>; pageCount: number; onBack(): void; onSubmit(): void; dispatch: PacketDispatch }) {
+function PacketImportStep({ state, pageCount, canKeepOcrText, onBack, onSubmit, dispatch }: { state: ReturnType<typeof pdfPacketFlowReducer>; pageCount: number; canKeepOcrText: boolean; onBack(): void; onSubmit(): void; dispatch: PacketDispatch }) {
   const documents = confirmedDocuments(state.confirmedStarts, pageCount);
-  const packetBase = state.snapshot!.packet.filename.replace(/\.pdf$/i, '');
-  const nameFor = (document: PdfPacketDocument) => state.namePattern
-    .replaceAll('{packet}', packetBase)
-    .replaceAll('{start}', String(document.start))
-    .replaceAll('{end}', String(document.end));
+  const patternError = pdfPacketNamePatternError(state.namePattern);
+  const nameFor = (document: PdfPacketDocument) => formatPdfPacketDocumentName(
+    state.namePattern,
+    state.snapshot!.packet.filename,
+    document,
+  ) ?? 'Invalid file name pattern';
   return <div className="pdf-packet-import-step">
     <header><h2>Import {documents.length} documents</h2><p>Each becomes a normal PDF. The original packet stays as it is.</p></header>
     <div className="pdf-packet-import-options">
@@ -863,13 +1022,15 @@ function PacketImportStep({ state, pageCount, onBack, onSubmit, dispatch }: { st
         <input className="form-input" aria-label="New sheet name" value={state.destinationName} onChange={(event) => dispatch({ type: 'destinationName', value: event.target.value })} />
       </label>
       <label>File names<input className="form-input mono" value={state.namePattern} onChange={(event) => dispatch({ type: 'namePattern', value: event.target.value })} /></label>
-      <label className="import-check-inline"><input type="checkbox" checked={state.keepOcrText} onChange={(event) => dispatch({ type: 'keepOcrText', value: event.target.checked })} /> Keep OCR text and boxes with each PDF</label>
+      {patternError && <div className="import-field-error" role="alert">{patternError}</div>}
+      <label className="import-check-inline"><input type="checkbox" disabled={!canKeepOcrText} checked={canKeepOcrText && state.keepOcrText} onChange={(event) => dispatch({ type: 'keepOcrText', value: event.target.checked })} /> Keep OCR text and boxes with each PDF</label>
+      {!canKeepOcrText && <p className="form-hint">Finish OCR for every page to keep its text and boxes.</p>}
       <label className="import-check-inline"><input type="checkbox" checked={state.rememberOptions} onChange={(event) => dispatch({ type: 'rememberOptions', value: event.target.checked })} /> Remember these options for the next split</label>
       <p>OCR stays as ordinary Frisket text and positioned boxes. The PDF files are not given a new text layer.</p>
     </div>
     <div className="pdf-packet-import-table"><table><thead><tr><th>#</th><th>Name</th><th>Source</th><th>Starts with</th></tr></thead><tbody>
       {documents.map((document) => <tr key={document.start}><td>{document.index}</td><td>{nameFor(document)}</td><td>packet pp {document.start}–{document.end} · {document.pages} pp</td><td>{firstLine(state.pages[document.start]?.ocr_text ?? state.pages[document.start]?.native_text)}</td></tr>)}
     </tbody></table></div>
-    <footer><button type="button" className="btn" onClick={onBack}>Back</button><span>{documents.length} PDFs · {pageCount} pages · each linked to the packet and its page range</span><button type="button" className="btn btn-primary" disabled={state.committing || !state.destinationName.trim()} onClick={onSubmit}>{state.committing ? 'Starting import…' : `Import ${documents.length} documents`}</button></footer>
+    <footer><button type="button" className="btn" onClick={onBack}>Back</button><span>{documents.length} PDFs · {pageCount} pages · each linked to the packet and its page range</span><button type="button" className="btn btn-primary" disabled={state.committing || !state.destinationName.trim() || Boolean(patternError)} onClick={onSubmit}>{state.committing ? 'Starting import…' : `Import ${documents.length} documents`}</button></footer>
   </div>;
 }

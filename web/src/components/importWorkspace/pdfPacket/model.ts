@@ -98,7 +98,7 @@ export const initialPdfPacketFlowState: PdfPacketFlowState = {
   ocrBusy: false,
   destinationName: '',
   namePattern: '{packet} · pp {start}–{end}',
-  keepOcrText: true,
+  keepOcrText: false,
   rememberOptions: false,
   committing: false,
   error: null,
@@ -246,4 +246,42 @@ export function samplePages(pageCount: number): number[] {
 
 export function matchForPage(matches: PdfPacketMatchResult | null, page: number) {
   return matches?.pages.find((candidate) => candidate.page === page) ?? null;
+}
+
+const NAME_PATTERN_FIELDS = new Set(['packet', 'index', 'start', 'end', 'page']);
+
+export function pdfPacketNamePatternError(pattern: string): string | null {
+  if (!pattern.trim()) return 'Enter a file name pattern.';
+  const withoutFields = pattern.replace(/\{([^{}]+)\}/g, (_match, field: string) => (
+    NAME_PATTERN_FIELDS.has(field) ? '' : `{${field}}`
+  ));
+  const unknown = withoutFields.match(/\{([^{}]+)\}/)?.[1];
+  if (unknown) return `Unknown field {${unknown}}.`;
+  if (withoutFields.includes('{') || withoutFields.includes('}')) return 'Check the braces in this pattern.';
+  return null;
+}
+
+export function formatPdfPacketDocumentName(
+  pattern: string,
+  packetFilename: string,
+  document: PdfPacketDocument,
+): string | null {
+  if (pdfPacketNamePatternError(pattern)) return null;
+  const packet = packetFilename.replace(/\.pdf$/i, '');
+  const fields: Record<string, string> = {
+    packet,
+    index: String(document.index),
+    start: String(document.start),
+    end: String(document.end),
+    page: String(document.start),
+  };
+  const formatted = pattern.replace(/\{([^{}]+)\}/g, (_match, field: string) => fields[field] ?? '').trim();
+  if (!formatted) return null;
+  return formatted.toLowerCase().endsWith('.pdf') ? formatted : `${formatted}.pdf`;
+}
+
+export function canKeepPdfPacketOcr(snapshot: PdfPacketSplitSnapshot | null): boolean {
+  if (!snapshot || snapshot.text_source !== 'ocr' || !snapshot.ocr_engine) return false;
+  const latest = snapshot.jobs.filter((job) => job.kind === 'ocr_full').at(-1);
+  return latest?.engine === snapshot.ocr_engine && latest.progress.status === 'done';
 }
