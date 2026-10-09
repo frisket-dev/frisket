@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -497,6 +498,110 @@ def test_create_reaps_expired_packet_sessions_and_preserves_active_ones(
     assert active_session.directory.exists()
     assert service.status(project_id, active["split_id"])["status"] == "ready"
     assert trigger["split_id"] in service._sessions
+
+    service.shutdown()
+    registry.shutdown()
+
+
+def test_close_waits_for_ocr_admission_and_releases_the_registered_job(
+    tmp_path: Path, monkeypatch
+) -> None:
+    async def fake_text(_source, **_kwargs):
+        return [SimpleNamespace(page=1, tokens=[SimpleNamespace(text="Page 1")])]
+
+    async def fake_render(_source, scratch, *, pages, **_kwargs):
+        rendered = []
+        for page in pages:
+            path = scratch / f"page-{page}.png"
+            path.write_bytes(b"png")
+            rendered.append((page, path))
+        return PdfRenderResult(page_count=1, pages=tuple(rendered))
+
+    monkeypatch.setattr(
+        "frisket.server.services.pdf_packet_splits.extract_pdf_text", fake_text
+    )
+    monkeypatch.setattr(
+        "frisket.server.services.pdf_packet_splits.render_pdf_pages", fake_render
+    )
+    workspace = Workspace(tmp_path / "workspace", enable_local_model_pull=False)
+    project_id = str(workspace.create("Packet", project_id="packet")["id"])
+    registry = ActionPreviewJobRegistry()
+    preview_runs = _PreviewRuns(registry)
+    service = PdfPacketSplitService(
+        workspace,
+        registry=registry,
+        preview_runs=preview_runs,  # type: ignore[arg-type]
+        page_signature=lambda _path: 1,
+    )
+    raw = _pdf(1)
+    created = service.create(
+        project_id,
+        AdmittedUpload(
+            filename="packet.pdf",
+            mime="application/pdf",
+            source=io.BytesIO(raw),
+            sha256=hashlib.sha256(raw).hexdigest(),
+            size=len(raw),
+        ),
+    )
+    split_id = created["split_id"]
+    _wait_status(service, project_id, split_id, "ready")
+    with service._lock:
+        directory = service._sessions[split_id].directory
+
+    original_start = preview_runs.start_scratch_preview
+    original_detach = service._detach_session
+    close_entered = threading.Event()
+    started: list[dict] = []
+    errors: list[BaseException] = []
+
+    def observed_detach(session, *, expired_at=None):
+        close_entered.set()
+        return original_detach(session, expired_at=expired_at)
+
+    monkeypatch.setattr(service, "_detach_session", observed_detach)
+
+    with controlled_time(timeout=5) as clock:
+        gate = clock.gate()
+
+        def blocked_start(*args, **kwargs):
+            gate({})
+            return original_start(*args, **kwargs)
+
+        monkeypatch.setattr(preview_runs, "start_scratch_preview", blocked_start)
+
+        def start_ocr() -> None:
+            try:
+                started.append(
+                    service.start_ocr(
+                        project_id,
+                        split_id,
+                        PdfPacketOcrJobRequest(engine="test-ocr", scope="all"),
+                    )
+                )
+            except BaseException as exc:
+                errors.append(exc)
+
+        def close() -> None:
+            try:
+                service.close(project_id, split_id)
+            except BaseException as exc:
+                errors.append(exc)
+
+        clock.background(start_ocr)
+        clock.wait_entered()
+        clock.background(close)
+        clock.wait_until(
+            close_entered.is_set,
+            message="close did not reach the session admission boundary",
+        )
+        clock.release()
+
+    assert errors == []
+    assert len(started) == 1
+    assert split_id not in service._sessions
+    assert not directory.exists()
+    assert registry.get(project_id, started[0]["job_id"]) is None
 
     service.shutdown()
     registry.shutdown()

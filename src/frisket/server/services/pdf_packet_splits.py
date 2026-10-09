@@ -99,6 +99,7 @@ class _PacketSession:
     analysis_revision: int = 0
     commit_result: dict[str, Any] | None = None
     commit_keys: dict[str, tuple[str, str]] = field(default_factory=dict)
+    admission_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
 
 @dataclass
@@ -185,17 +186,18 @@ class PdfPacketSplitService:
             )
             with self._lock:
                 self._sessions[session_id] = session
-            job = self._registry.start(
-                project_id,
-                page_count,
-                lambda progress, cancelled: self._prepare(
-                    session_id, progress=progress, cancelled=cancelled
-                ),
-                replacement_key=f"pdf-packet:{session_id}:prepare",
-            )
-            with self._lock:
-                session.prepare_job_id = job.id
-                session.jobs[job.id] = _PacketJob(job.id, "prepare")
+            with self._admit_session(session):
+                job = self._registry.start(
+                    project_id,
+                    page_count,
+                    lambda progress, cancelled: self._prepare(
+                        session_id, progress=progress, cancelled=cancelled
+                    ),
+                    replacement_key=f"pdf-packet:{session_id}:prepare",
+                )
+                with self._lock:
+                    session.prepare_job_id = job.id
+                    session.jobs[job.id] = _PacketJob(job.id, "prepare")
             return self._snapshot(session)
         except BaseException:
             with self._lock:
@@ -322,14 +324,15 @@ class PdfPacketSplitService:
 
     def thumbnail(self, project_id: str, split_id: str, page: int) -> _ThumbnailLease:
         session = self._session(project_id, split_id)
-        self._validate_pages(session, [page])
-        source = session.directory / "pages" / f"page-{page}.png"
-        if not source.is_file():
-            raise PdfPacketSplitRouteError(409, "page thumbnail is not ready")
-        fd, name = tempfile.mkstemp(prefix="frisket-packet-thumb-", suffix=".png")
-        os.close(fd)
-        target = Path(name)
-        shutil.copyfile(source, target)
+        with self._admit_session(session):
+            self._validate_pages(session, [page])
+            source = session.directory / "pages" / f"page-{page}.png"
+            if not source.is_file():
+                raise PdfPacketSplitRouteError(409, "page thumbnail is not ready")
+            fd, name = tempfile.mkstemp(prefix="frisket-packet-thumb-", suffix=".png")
+            os.close(fd)
+            target = Path(name)
+            shutil.copyfile(source, target)
         return _ThumbnailLease(target)
 
     def estimate_ocr(
@@ -341,22 +344,25 @@ class PdfPacketSplitService:
         request_context: Any = None,
     ) -> dict[str, Any]:
         session = self._session(project_id, split_id, ready=True)
-        self._sync_jobs(session)
-        pages, cached = self._ocr_pages(session, body.engine, body.scope, body.pages)
-        if not pages:
-            estimate = None
-        else:
-            plan, _source, _router, _composition, _context = (
-                self._preview_runs.prepare_ocr_scratch_path(
-                    project_id,
-                    session.source_path,
-                    media_digest=session.source_hash,
-                    media_size=session.size,
-                    payload=self._ocr_payload(session, body.engine, pages),
-                    request_context=request_context,
-                )
+        with self._admit_session(session, ready=True):
+            self._sync_jobs(session)
+            pages, cached = self._ocr_pages(
+                session, body.engine, body.scope, body.pages
             )
-            estimate = self._preview_runs.scratch_estimate(project_id, plan)
+            if not pages:
+                estimate = None
+            else:
+                plan, _source, _router, _composition, _context = (
+                    self._preview_runs.prepare_ocr_scratch_path(
+                        project_id,
+                        session.source_path,
+                        media_digest=session.source_hash,
+                        media_size=session.size,
+                        payload=self._ocr_payload(session, body.engine, pages),
+                        request_context=request_context,
+                    )
+                )
+                estimate = self._preview_runs.scratch_estimate(project_id, plan)
         return {
             "schema_version": PDF_PACKET_SPLIT_SCHEMA_VERSION,
             "engine": body.engine,
@@ -375,43 +381,50 @@ class PdfPacketSplitService:
         request_context: Any = None,
     ) -> dict[str, Any]:
         session = self._session(project_id, split_id, ready=True)
-        self._sync_jobs(session)
-        pages, cached = self._ocr_pages(session, body.engine, body.scope, body.pages)
-        if not pages:
-            raise PdfPacketSplitRouteError(409, "all requested pages already have OCR")
-        plan, _source, router, composition, execution_context = (
-            self._preview_runs.prepare_ocr_scratch_path(
+        with self._admit_session(session, ready=True):
+            self._sync_jobs(session)
+            pages, cached = self._ocr_pages(
+                session, body.engine, body.scope, body.pages
+            )
+            if not pages:
+                raise PdfPacketSplitRouteError(
+                    409, "all requested pages already have OCR"
+                )
+            plan, _source, router, composition, execution_context = (
+                self._preview_runs.prepare_ocr_scratch_path(
+                    project_id,
+                    session.source_path,
+                    media_digest=session.source_hash,
+                    media_size=session.size,
+                    payload=self._ocr_payload(session, body.engine, pages),
+                    on_page=lambda page: self._cache_ocr_page(
+                        split_id, body.engine, page
+                    ),
+                    request_context=request_context,
+                )
+            )
+            started = self._preview_runs.start_scratch_preview(
                 project_id,
-                session.source_path,
-                media_digest=session.source_hash,
-                media_size=session.size,
-                payload=self._ocr_payload(session, body.engine, pages),
-                on_page=lambda page: self._cache_ocr_page(split_id, body.engine, page),
-                request_context=request_context,
+                plan,
+                confirmation=body.confirmation,
+                router=router,
+                composition=composition,
+                execution_context=execution_context,
+                replacement_key=f"pdf-packet:{split_id}:ocr:{body.engine}",
+                total=len(pages),
             )
-        )
-        started = self._preview_runs.start_scratch_preview(
-            project_id,
-            plan,
-            confirmation=body.confirmation,
-            router=router,
-            composition=composition,
-            execution_context=execution_context,
-            replacement_key=f"pdf-packet:{split_id}:ocr:{body.engine}",
-            total=len(pages),
-        )
-        if started.status_code != 202:
-            raise PdfPacketSplitRouteError(
-                started.status_code, started.payload, bare_json=True
-            )
-        job_id = str(started.payload["preview_id"])
-        kind = "ocr_sample" if body.scope == "sample" else "ocr_full"
-        with self._lock:
-            session.jobs[job_id] = _PacketJob(
-                job_id, kind, tuple(pages), engine=body.engine
-            )
-            session.expires_at = self._expiry()
-        job = self._registry.get(project_id, job_id)
+            if started.status_code != 202:
+                raise PdfPacketSplitRouteError(
+                    started.status_code, started.payload, bare_json=True
+                )
+            job_id = str(started.payload["preview_id"])
+            kind = "ocr_sample" if body.scope == "sample" else "ocr_full"
+            with self._lock:
+                session.jobs[job_id] = _PacketJob(
+                    job_id, kind, tuple(pages), engine=body.engine
+                )
+                session.expires_at = self._expiry()
+            job = self._registry.get(project_id, job_id)
         return {
             "schema_version": PDF_PACKET_SPLIT_SCHEMA_VERSION,
             "split_id": split_id,
@@ -566,80 +579,81 @@ class PdfPacketSplitService:
         request_fingerprint = hashlib.sha256(
             body.model_dump_json().encode("utf-8")
         ).hexdigest()
-        existing = session.commit_keys.get(body.idempotency_key)
-        if existing:
-            job_id, existing_fingerprint = existing
-            if existing_fingerprint != request_fingerprint:
-                raise PdfPacketSplitRouteError(
-                    409, "idempotency key was already used for another commit"
+        with self._admit_session(session):
+            existing = session.commit_keys.get(body.idempotency_key)
+            if existing:
+                job_id, existing_fingerprint = existing
+                if existing_fingerprint != request_fingerprint:
+                    raise PdfPacketSplitRouteError(
+                        409, "idempotency key was already used for another commit"
+                    )
+                job = self._registry.get(project_id, job_id)
+                return self._start_payload(
+                    session, job, "commit", len(body.confirmed_starts)
                 )
-            job = self._registry.get(project_id, job_id)
-            return self._start_payload(
-                session, job, "commit", len(body.confirmed_starts)
-            )
-        if session.status != "ready":
-            raise PdfPacketSplitRouteError(409, "packet preparation is not ready")
-        self._validate_labels(session, body.confirmed_starts, [])
-        starts = sorted(set(body.confirmed_starts))
-        ranges = [
-            (
-                start,
-                starts[index + 1] - 1
-                if index + 1 < len(starts)
-                else session.page_count,
-            )
-            for index, start in enumerate(starts)
-        ]
-        for index, (start, end) in enumerate(ranges, 1):
-            self._child_name(body.name_pattern, session.filename, index, start, end)
-        if body.keep_ocr_text:
-            if session.text_source != "ocr" or session.ocr_engine is None:
-                raise PdfPacketSplitRouteError(
-                    409, "keeping OCR requires selected OCR text"
-                )
-            missing = [
-                page
-                for page in range(1, session.page_count + 1)
-                if page not in session.ocr.get(session.ocr_engine, {})
-            ]
-            if missing:
-                raise PdfPacketSplitRouteError(
-                    409, "run OCR on every page before keeping OCR text"
-                )
-        with self._lock:
             if session.status != "ready":
-                message = (
-                    "packet commit is already running"
-                    if session.status == "committing"
-                    else "packet preparation is not ready"
+                raise PdfPacketSplitRouteError(409, "packet preparation is not ready")
+            self._validate_labels(session, body.confirmed_starts, [])
+            starts = sorted(set(body.confirmed_starts))
+            ranges = [
+                (
+                    start,
+                    starts[index + 1] - 1
+                    if index + 1 < len(starts)
+                    else session.page_count,
                 )
-                raise PdfPacketSplitRouteError(409, message)
-            session.status = "committing"
-        try:
-            job = self._registry.start(
-                project_id,
-                len(ranges),
-                lambda progress, cancelled: self._commit_run(
-                    session,
-                    body,
-                    ranges,
-                    request_context=request_context,
-                    progress=progress,
-                    cancelled=cancelled,
-                ),
-                replacement_key=f"pdf-packet:{split_id}:commit",
-            )
-        except BaseException:
+                for index, start in enumerate(starts)
+            ]
+            for index, (start, end) in enumerate(ranges, 1):
+                self._child_name(body.name_pattern, session.filename, index, start, end)
+            if body.keep_ocr_text:
+                if session.text_source != "ocr" or session.ocr_engine is None:
+                    raise PdfPacketSplitRouteError(
+                        409, "keeping OCR requires selected OCR text"
+                    )
+                missing = [
+                    page
+                    for page in range(1, session.page_count + 1)
+                    if page not in session.ocr.get(session.ocr_engine, {})
+                ]
+                if missing:
+                    raise PdfPacketSplitRouteError(
+                        409, "run OCR on every page before keeping OCR text"
+                    )
             with self._lock:
-                session.status = "ready"
-            raise
-        with self._lock:
-            session.jobs[job.id] = _PacketJob(job.id, "commit")
-            session.commit_keys[body.idempotency_key] = (
-                job.id,
-                request_fingerprint,
-            )
-        return self._start_payload(session, job, "commit", len(ranges))
+                if session.status != "ready":
+                    message = (
+                        "packet commit is already running"
+                        if session.status == "committing"
+                        else "packet preparation is not ready"
+                    )
+                    raise PdfPacketSplitRouteError(409, message)
+                session.status = "committing"
+            try:
+                job = self._registry.start(
+                    project_id,
+                    len(ranges),
+                    lambda progress, cancelled: self._commit_run(
+                        session,
+                        body,
+                        ranges,
+                        request_context=request_context,
+                        progress=progress,
+                        cancelled=cancelled,
+                    ),
+                    replacement_key=f"pdf-packet:{split_id}:commit",
+                )
+            except BaseException:
+                with self._lock:
+                    session.status = "ready"
+                raise
+            with self._lock:
+                session.jobs[job.id] = _PacketJob(job.id, "commit")
+                session.commit_keys[body.idempotency_key] = (
+                    job.id,
+                    request_fingerprint,
+                )
+            return self._start_payload(session, job, "commit", len(ranges))
 
     def _commit_run(
         self,
@@ -712,16 +726,19 @@ class PdfPacketSplitService:
 
     def close(self, project_id: str, split_id: str) -> None:
         session = self._session(project_id, split_id)
-        with self._lock:
-            detached = self._sessions.pop(split_id, None)
-        if detached is session:
-            self._cleanup_sessions([session])
+        detached = self._detach_session(session)
+        if detached is not None:
+            self._cleanup_sessions([detached])
 
     def shutdown(self) -> None:
         with self._lock:
             sessions = list(self._sessions.values())
-            self._sessions.clear()
-        self._cleanup_sessions(sessions)
+        detached = []
+        for session in sessions:
+            removed = self._detach_session(session)
+            if removed is not None:
+                detached.append(removed)
+        self._cleanup_sessions(detached)
 
     def _reap_expired_sessions(self) -> None:
         now = datetime.now(timezone.utc)
@@ -731,9 +748,40 @@ class PdfPacketSplitService:
                 for session in self._sessions.values()
                 if now >= session.expires_at
             ]
-            for session in sessions:
-                self._sessions.pop(session.id, None)
-        self._cleanup_sessions(sessions)
+        detached = []
+        for session in sessions:
+            removed = self._detach_session(session, expired_at=now)
+            if removed is not None:
+                detached.append(removed)
+        self._cleanup_sessions(detached)
+
+    @contextlib.contextmanager
+    def _admit_session(
+        self, session: _PacketSession, *, ready: bool = False
+    ) -> Iterator[None]:
+        with session.admission_lock:
+            with self._lock:
+                if self._sessions.get(session.id) is not session:
+                    raise PdfPacketSplitRouteError(404, "packet split was not found")
+                if ready and session.status != "ready":
+                    raise PdfPacketSplitRouteError(
+                        409, "packet preparation is not ready"
+                    )
+            yield
+
+    def _detach_session(
+        self,
+        session: _PacketSession,
+        *,
+        expired_at: datetime | None = None,
+    ) -> _PacketSession | None:
+        with session.admission_lock:
+            with self._lock:
+                if self._sessions.get(session.id) is not session:
+                    return None
+                if expired_at is not None and expired_at < session.expires_at:
+                    return None
+                return self._sessions.pop(session.id)
 
     def _cleanup_sessions(self, sessions: list[_PacketSession]) -> None:
         for session in sessions:
@@ -873,12 +921,15 @@ class PdfPacketSplitService:
         session = self._require(split_id=split_id)
         if session.project_id != project_id:
             raise PdfPacketSplitRouteError(404, "packet split was not found")
-        if datetime.now(timezone.utc) >= session.expires_at:
+        now = datetime.now(timezone.utc)
+        if now >= session.expires_at:
+            detached = self._detach_session(session, expired_at=now)
+            if detached is not None:
+                self._cleanup_sessions([detached])
+                raise PdfPacketSplitRouteError(404, "packet split expired")
             with self._lock:
-                detached = self._sessions.pop(split_id, None)
-            if detached is session:
-                self._cleanup_sessions([session])
-            raise PdfPacketSplitRouteError(404, "packet split expired")
+                if self._sessions.get(split_id) is not session:
+                    raise PdfPacketSplitRouteError(404, "packet split was not found")
         if ready and session.status != "ready":
             raise PdfPacketSplitRouteError(409, "packet preparation is not ready")
         return session
