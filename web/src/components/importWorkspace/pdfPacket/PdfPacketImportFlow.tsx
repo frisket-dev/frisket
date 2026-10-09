@@ -28,7 +28,6 @@ import {
 import { SelectorField } from '../../../engine-selector/SelectorField';
 import { countLabel } from '../../../format';
 import { CostGateModal } from '../../CostGateModal';
-import { PanelSelect } from '../../PanelSelect';
 import { SegmentedToggle } from '../../PanelPrimitives';
 import {
   canKeepPdfPacketOcr,
@@ -1138,7 +1137,7 @@ function PacketFindStep({
         {state.method === 'visual' ? (
           <div className="pdf-packet-method-copy">
             <h3>Pages that look like your starts</h3>
-            <p>Learning from {state.confirmedStarts.length} starts you marked (and {state.rejected.length} you rejected). Different kinds of start page are grouped automatically.</p>
+            <p>Learning from {countLabel(state.confirmedStarts.length, 'start')} you marked (and {state.rejected.length} you rejected). Different kinds of start page are grouped automatically.</p>
             <label>
               <span><strong>How similar</strong><strong>{state.threshold}%</strong></span>
               <input type="range" min="50" max="99" value={state.threshold} onChange={(event) => dispatch({ type: 'threshold', value: Number(event.target.value) })} />
@@ -1248,18 +1247,20 @@ function PacketImportStep({ state, pageCount, canKeepOcrText, onBack, onSubmit, 
   return <div className="pdf-packet-import-step">
     <header><h2>Import {countLabel(documents.length, 'document')}</h2><p>Each becomes a normal PDF. The original packet stays as it is.</p></header>
     <div className="pdf-packet-import-options">
-      <label>Destination
-        <PanelSelect className="form-input" value="new" disabled>
-          <option value="new">New sheet</option>
-        </PanelSelect>
-        <input className="form-input" aria-label="New sheet name" value={state.destinationName} onChange={(event) => dispatch({ type: 'destinationName', value: event.target.value })} />
+      <label className="pdf-packet-import-field"><span>New sheet</span>
+        <input className="form-input" value={state.destinationName} onChange={(event) => dispatch({ type: 'destinationName', value: event.target.value })} />
       </label>
-      <label>File names<input className="form-input mono" value={state.namePattern} onChange={(event) => dispatch({ type: 'namePattern', value: event.target.value })} /></label>
-      {patternError && <div className="import-field-error" role="alert">{patternError}</div>}
-      <label className="import-check-inline"><input type="checkbox" disabled={!canKeepOcrText} checked={canKeepOcrText && state.keepOcrText} onChange={(event) => dispatch({ type: 'keepOcrText', value: event.target.checked })} /> Keep OCR text and boxes with each PDF</label>
-      {!canKeepOcrText && <p className="form-hint">Finish OCR for every page to keep its text and boxes.</p>}
-      <label className="import-check-inline"><input type="checkbox" checked={state.rememberOptions} onChange={(event) => dispatch({ type: 'rememberOptions', value: event.target.checked })} /> Remember these options for the next split</label>
-      <p>OCR stays as ordinary Frisket text and positioned boxes. The PDF files are not given a new text layer.</p>
+      <label className="pdf-packet-import-field"><span>File names</span>
+        <input className="form-input mono" value={state.namePattern} onChange={(event) => dispatch({ type: 'namePattern', value: event.target.value })} />
+        {patternError && <span className="import-field-error" role="alert">{patternError}</span>}
+      </label>
+      <div className="pdf-packet-import-choice">
+        <label className="import-check-inline"><input type="checkbox" disabled={!canKeepOcrText} checked={canKeepOcrText && state.keepOcrText} onChange={(event) => dispatch({ type: 'keepOcrText', value: event.target.checked })} /> Keep OCR text and boxes with each PDF</label>
+        {!canKeepOcrText && <p className="form-hint">Finish OCR for every page to keep its text and boxes.</p>}
+      </div>
+      <div className="pdf-packet-import-choice">
+        <label className="import-check-inline"><input type="checkbox" checked={state.rememberOptions} onChange={(event) => dispatch({ type: 'rememberOptions', value: event.target.checked })} /> Remember these options for the next split</label>
+      </div>
     </div>
     <div className="pdf-packet-import-table"><table><thead><tr><th>#</th><th>Name</th><th>Source</th><th>Starts with</th></tr></thead><tbody>
       {documents.map((document) => <tr key={document.start}><td>{document.index}</td><td>{nameFor(document)}</td><td>packet pp {document.start}–{document.end} · {document.pages} pp</td><td>{firstLine(state.pages[document.start]?.ocr_text ?? state.pages[document.start]?.native_text)}</td></tr>)}

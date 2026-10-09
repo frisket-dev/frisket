@@ -100,6 +100,7 @@ export function applySavedViewTransition(
 export function resetForRouteSheetChange(stores: SelectSheetStores, sheetId: string): void {
   stores.gridView.resetForSheetChange();
   stores.selection.clearRowSelection(sheetId);
+  stores.detail.closeAll();
   stores.detail.closeHeaderMenu();
   stores.workView.resetForSheetChange();
   stores.lensView.resetForSheetChange();

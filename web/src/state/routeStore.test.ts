@@ -206,6 +206,7 @@ describe('applyRoute fixed six-class matrix', () => {
       const lensView = createLensViewStore();
       const previewView = createPreviewViewStore(api);
       selection.setSelectedRows({ sheetId: 's1', rowIds: ['r1'], rowIndexes: [0] });
+      detail.openRow({ id: 'r1' } as Row);
       lensView.setLensView({
         lensId: 1,
         name: 'lens',
@@ -230,12 +231,14 @@ describe('applyRoute fixed six-class matrix', () => {
       let generation = 1;
       const capturedGeneration = generation;
       let stalePreviewCommits = 0;
+      let staleRowAtHydrate: Row | null = null;
       route.registerSheetChangeTeardown(() => {
         order.push('teardown');
         generation += 1;
       });
       route.store.subscribe(() => {
         order.push('hydrate');
+        staleRowAtHydrate = detail.store.get().rowDrawer;
         if (capturedGeneration === generation) stalePreviewCommits += 1;
       });
 
@@ -243,6 +246,8 @@ describe('applyRoute fixed six-class matrix', () => {
 
       expect(order).toEqual(['teardown', 'reset', 'hydrate']);
       expect(stalePreviewCommits).toBe(0);
+      expect(staleRowAtHydrate).toBeNull();
+      expect(detail.store.get().rowDrawer).toBeNull();
       expect(selection.store.get().selectedRows).toEqual({
         sheetId: 's2',
         rowIds: [],

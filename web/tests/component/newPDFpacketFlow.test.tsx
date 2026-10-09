@@ -179,6 +179,7 @@ describe('PDF packet import flow boundaries', () => {
     const continueButton = await screen.findByRole('button', { name: 'Continue without OCR' });
     fireEvent.click(continueButton);
     expect(await screen.findByText('Pages that look like your starts')).toBeInTheDocument();
+    expect(screen.getByText(/Learning from 1 start you marked/)).toBeInTheDocument();
     expect(api.setPdfPacketTextSource).toHaveBeenCalledWith(
       'project-1',
       'split-1',
@@ -429,6 +430,10 @@ describe('PDF packet import flow boundaries', () => {
     expect(await screen.findByText('Text: 4 of 4 read')).toBeInTheDocument();
     await waitFor(() => expect(api.matchPdfPacketCandidates.mock.calls.length).toBeGreaterThanOrEqual(2), { timeout: 2_000 });
     fireEvent.click(screen.getByRole('button', { name: 'Continue with 1 marked start →' }));
+    expect(screen.getByRole('textbox', { name: 'New sheet' })).toHaveValue('Records documents');
+    expect(screen.getByRole('textbox', { name: 'File names' })).toHaveValue('{packet} · pp {start}–{end}');
+    expect(screen.queryByRole('combobox', { name: 'Destination' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/OCR stays as ordinary Frisket text/)).not.toBeInTheDocument();
     const keepOcr = screen.getByRole('checkbox', { name: 'Keep OCR text and boxes with each PDF' });
     expect(keepOcr).toBeDisabled();
     expect(keepOcr).not.toBeChecked();
