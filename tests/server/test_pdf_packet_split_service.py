@@ -629,6 +629,8 @@ def test_packet_session_ttl_tracks_access_and_running_jobs(
 
 def test_packet_child_names_use_only_client_placeholders_and_fit_one_component():
     child_name = PdfPacketSplitService._child_name
+    assert child_name("{packet}", "records.document", 1, 1, 2) == "records.document.pdf"
+    assert child_name("{packet}", "records.PDF", 1, 1, 2) == "records.pdf"
     assert (
         child_name("{packet}-{index}-{page}-{start}-{end}", "packet.pdf", 2, 10, 19)
         == "packet-2-10-10-19.pdf"

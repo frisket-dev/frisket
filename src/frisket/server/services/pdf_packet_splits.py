@@ -719,7 +719,7 @@ class PdfPacketSplitService:
 
     @staticmethod
     def _child_name(pattern: str, packet: str, index: int, start: int, end: int) -> str:
-        stem = Path(packet).stem
+        stem = re.sub(r"\.pdf$", "", packet, flags=re.IGNORECASE)
         fields = {
             "packet": stem,
             "index": str(index),
