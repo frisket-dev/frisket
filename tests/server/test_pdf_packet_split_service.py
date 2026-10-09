@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -430,6 +431,74 @@ def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
         "pdf_packet_split",
     ]
 
+    registry.shutdown()
+
+
+def test_create_reaps_expired_packet_sessions_and_preserves_active_ones(
+    tmp_path: Path, monkeypatch
+) -> None:
+    async def fake_text(_source, **_kwargs):
+        return [SimpleNamespace(page=1, tokens=[SimpleNamespace(text="Page 1")])]
+
+    async def fake_render(_source, scratch, *, pages, **_kwargs):
+        rendered = []
+        for page in pages:
+            path = scratch / f"page-{page}.png"
+            path.write_bytes(b"png")
+            rendered.append((page, path))
+        return PdfRenderResult(page_count=1, pages=tuple(rendered))
+
+    monkeypatch.setattr(
+        "frisket.server.services.pdf_packet_splits.extract_pdf_text", fake_text
+    )
+    monkeypatch.setattr(
+        "frisket.server.services.pdf_packet_splits.render_pdf_pages", fake_render
+    )
+    workspace = Workspace(tmp_path / "workspace", enable_local_model_pull=False)
+    project_id = str(workspace.create("Packet", project_id="packet")["id"])
+    registry = ActionPreviewJobRegistry()
+    service = PdfPacketSplitService(
+        workspace,
+        registry=registry,
+        preview_runs=_PreviewRuns(registry),  # type: ignore[arg-type]
+        page_signature=lambda _path: 1,
+    )
+    raw = _pdf(1)
+
+    def create_packet(filename: str):
+        return service.create(
+            project_id,
+            AdmittedUpload(
+                filename=filename,
+                mime="application/pdf",
+                source=io.BytesIO(raw),
+                sha256=hashlib.sha256(raw).hexdigest(),
+                size=len(raw),
+            ),
+        )
+
+    expired = create_packet("expired.pdf")
+    _wait_status(service, project_id, expired["split_id"], "ready")
+    active = create_packet("active.pdf")
+    _wait_status(service, project_id, active["split_id"], "ready")
+    with service._lock:
+        expired_session = service._sessions[expired["split_id"]]
+        active_session = service._sessions[active["split_id"]]
+        expired_session.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        expired_directory = expired_session.directory
+        expired_job_ids = tuple(expired_session.jobs)
+
+    trigger = create_packet("trigger.pdf")
+
+    assert expired["split_id"] not in service._sessions
+    assert not expired_directory.exists()
+    assert all(registry.get(project_id, job_id) is None for job_id in expired_job_ids)
+    assert service._sessions[active["split_id"]] is active_session
+    assert active_session.directory.exists()
+    assert service.status(project_id, active["split_id"])["status"] == "ready"
+    assert trigger["split_id"] in service._sessions
+
+    service.shutdown()
     registry.shutdown()
 
 

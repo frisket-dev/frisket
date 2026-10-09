@@ -134,6 +134,7 @@ class PdfPacketSplitService:
         self, project_id: str, upload: AdmittedUpload, *, request_id: str | None = None
     ) -> dict[str, Any]:
         del request_id
+        self._reap_expired_sessions()
         self._workspace.get(project_id)
         if upload.mime not in ("application/pdf", "application/octet-stream"):
             raise PdfPacketSplitRouteError(422, "packet upload must be a PDF")
@@ -712,15 +713,29 @@ class PdfPacketSplitService:
     def close(self, project_id: str, split_id: str) -> None:
         session = self._session(project_id, split_id)
         with self._lock:
-            self._sessions.pop(split_id, None)
-        for job_id in list(session.jobs):
-            self._registry.release(project_id, job_id)
-        shutil.rmtree(session.directory, ignore_errors=True)
+            detached = self._sessions.pop(split_id, None)
+        if detached is session:
+            self._cleanup_sessions([session])
 
     def shutdown(self) -> None:
         with self._lock:
             sessions = list(self._sessions.values())
             self._sessions.clear()
+        self._cleanup_sessions(sessions)
+
+    def _reap_expired_sessions(self) -> None:
+        now = datetime.now(timezone.utc)
+        with self._lock:
+            sessions = [
+                session
+                for session in self._sessions.values()
+                if now >= session.expires_at
+            ]
+            for session in sessions:
+                self._sessions.pop(session.id, None)
+        self._cleanup_sessions(sessions)
+
+    def _cleanup_sessions(self, sessions: list[_PacketSession]) -> None:
         for session in sessions:
             for job_id in list(session.jobs):
                 self._registry.release(session.project_id, job_id)
@@ -860,10 +875,9 @@ class PdfPacketSplitService:
             raise PdfPacketSplitRouteError(404, "packet split was not found")
         if datetime.now(timezone.utc) >= session.expires_at:
             with self._lock:
-                self._sessions.pop(split_id, None)
-            for job_id in list(session.jobs):
-                self._registry.release(project_id, job_id)
-            shutil.rmtree(session.directory, ignore_errors=True)
+                detached = self._sessions.pop(split_id, None)
+            if detached is session:
+                self._cleanup_sessions([session])
             raise PdfPacketSplitRouteError(404, "packet split expired")
         if ready and session.status != "ready":
             raise PdfPacketSplitRouteError(409, "packet preparation is not ready")
