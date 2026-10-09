@@ -202,6 +202,9 @@ conflicts = [
 
 [dependency-groups]
 dev = [
+    # Grounding tests exercise LightOn's Markdown projection without installing
+    # the heavyweight ocr-lighton runtime extra.
+    "markdown-it-py>=3",
     "pytest>=9.0.3",
     "ruff>=0.15.16",
 ]

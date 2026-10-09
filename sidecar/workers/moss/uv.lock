@@ -137,6 +137,7 @@ provides-extras = ["classify-clef", "ocr", "ocr-lighton", "ocr-paddle", "convert
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "markdown-it-py", specifier = ">=3" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "ruff", specifier = ">=0.15.16" },
 ]
