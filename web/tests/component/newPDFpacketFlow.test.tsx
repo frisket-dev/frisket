@@ -361,7 +361,7 @@ describe('PDF packet import flow boundaries', () => {
     api.getPdfPacketSplit.mockResolvedValue(sampleDoneSnapshot());
     api.setPdfPacketTextSource.mockImplementation(async (_projectId, _splitId, source) => {
       if (source.kind === 'ocr') ocrSelected = true;
-      return source.kind === 'ocr' ? sampleDoneSnapshot('ocr') : { ...baseSnapshot, text_source: 'native' };
+      return source.kind === 'ocr' ? sampleDoneSnapshot('ocr') : { ...sampleDoneSnapshot(), text_source: 'native' };
     });
     api.getPdfPacketPage.mockImplementation(async () => ocrSelected ? {
       ...nativePage,
@@ -382,6 +382,13 @@ describe('PDF packet import flow boundaries', () => {
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     expect(screen.getByRole('button', { name: 'Use this OCR and read all 4 pages' })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Extracted text', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, use extracted text' }));
+    await screen.findByRole('group', { name: 'How to find document starts' });
+    await waitFor(() => expect(api.matchPdfPacketCandidates).toHaveBeenCalled());
+    expect(api.setPdfPacketTextSource.mock.calls.at(-1)?.[2]).toEqual({ kind: 'native' });
+    expect(screen.getByText('Text: 4 of 4 read')).toBeInTheDocument();
   });
 
   it('uses a cached OCR sample without trying to start another job', async () => {

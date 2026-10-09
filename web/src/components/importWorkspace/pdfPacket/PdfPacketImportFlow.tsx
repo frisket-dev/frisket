@@ -18,7 +18,6 @@ import {
   getPdfPacketPage,
   getPdfPacketSplit,
   matchPdfPacketCandidates,
-  pdfPacketThumbnailUrl,
   setPdfPacketTextSource,
   startPdfPacketOcr,
   type PdfPacketSplitSnapshot,
@@ -41,6 +40,7 @@ import {
   type PdfPacketStage,
 } from './model';
 import { PacketFindStep } from './PacketFindStep';
+import { PacketThumbnail } from './PacketThumbnail';
 
 export interface PdfPacketShellContext {
   active: boolean;
@@ -283,7 +283,7 @@ export function PdfPacketImportFlow({
   const sampleJobError = selectedPageOcrJob?.progress.error;
   const sampleJobEngine = selectedPageOcrJob?.engine;
   useEffect(() => {
-    if (!splitId || !sampleJobId) return undefined;
+    if (!splitId || !sampleJobId || state.stage !== 'check') return undefined;
     if (sampleJobStatus === 'error' || sampleJobStatus === 'cancelled') {
       dispatch({ type: 'error', message: sampleJobError ?? 'Text extraction stopped.' });
       return undefined;
@@ -313,7 +313,7 @@ export function PdfPacketImportFlow({
     };
     void selectAndLoad();
     return () => controller.abort();
-  }, [loadPage, projectId, sampleJobError, sampleJobEngine, sampleJobId, sampleJobStatus, splitId, state.selectedPage, state.snapshot?.ocr_engine, state.snapshot?.text_source]);
+  }, [loadPage, projectId, sampleJobError, sampleJobEngine, sampleJobId, sampleJobStatus, splitId, state.stage, state.selectedPage, state.snapshot?.ocr_engine, state.snapshot?.text_source]);
 
   const sampleExtracting = state.ocrBusy || selectedPageOcrJob?.progress.status === 'queued'
     || selectedPageOcrJob?.progress.status === 'running';
@@ -701,10 +701,6 @@ export function PdfPacketImportFlow({
       ) : null}
     </>
   );
-}
-
-function PacketThumbnail({ projectId, splitId, page, alt = '', eager = false }: { projectId: string; splitId: string; page: number; alt?: string; eager?: boolean }) {
-  return <img loading={eager ? 'eager' : 'lazy'} src={pdfPacketThumbnailUrl(projectId, splitId, page)} alt={alt} />;
 }
 
 function PacketChooser({
