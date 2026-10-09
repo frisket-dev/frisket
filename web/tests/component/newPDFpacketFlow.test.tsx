@@ -311,7 +311,10 @@ describe('PDF packet import flow boundaries', () => {
 
     expect(screen.getByText('Does a document start here?')).toBeInTheDocument();
     expect(screen.getByText('1 of 3')).toBeInTheDocument();
-    expect(within(screen.getByRole('region', { name: 'Unsure pages to review' })).getByRole('button', { name: 'View page 3 large' })).toHaveTextContent('Page 3 · 92% similar');
+    const unsureReview = screen.getByRole('region', { name: 'Unsure pages to review' });
+    expect(unsureReview).toHaveAttribute('data-review-tab', 'unsure');
+    expect(unsureReview).toHaveAttribute('data-review-tone', 'suggested');
+    expect(within(unsureReview).getByRole('button', { name: 'View page 3 large' })).toHaveTextContent('Page 3 · 92% similar');
     expect(screen.getByRole('button', { name: 'Page 3, suggested start' }).closest('[data-packet-page="3"]')).not.toHaveAttribute('data-unsure');
     fireEvent.click(screen.getByRole('button', { name: 'Skip to next unsure page' }));
     expect(screen.getByText('p 1 · before')).toBeInTheDocument();

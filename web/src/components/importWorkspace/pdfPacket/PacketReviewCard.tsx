@@ -49,6 +49,9 @@ export function PacketReviewCard({
   const currentIndex = Math.min(index, Math.max(0, queue.length - 1));
   const page = showingReference ? 1 : queue[currentIndex] ?? null;
   const match = page == null ? null : matchForPage(matches, page);
+  const reviewTone = !showingReference && page != null && suggested.includes(page)
+    ? 'suggested'
+    : tab;
   const move = (delta: number) => {
     if (showingReference || !queue.length) return;
     onIndex((currentIndex + delta + queue.length) % queue.length);
@@ -79,6 +82,7 @@ export function PacketReviewCard({
     <section
       className="packet-review-card"
       data-review-tab={tab}
+      data-review-tone={reviewTone}
       aria-label={`${tab === 'unsure' ? 'Unsure' : 'Suggested'} pages to review`}
       tabIndex={0}
       onKeyDown={onKeyDown}
