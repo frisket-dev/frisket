@@ -540,6 +540,10 @@ _INLINE_KINDS: Mapping[str, str] = MappingProxyType(
             "NDJSON import parses an already-uploaded file synchronously; "
             "bounded, no network."
         ),
+        "import.packet_split": (
+            "Packet split import publishes preprocessed child PDFs atomically "
+            "inside its coordinating preview job; no second queue."
+        ),
         "import.pdf": "PDF import parses an already-uploaded file synchronously; bounded, no network.",
         "import.rows": (
             "Row import ingests an in-request row payload synchronously; "
