@@ -350,6 +350,7 @@ def test_paid_ocr_borrowed_pdf_accepts_packet_scale_page_selection(
             media_size=source.stat().st_size,
             payload={"engine": "tesseract", "pages": pages},
             composition=composition,
+            max_pages=2000,
         )
 
         assert summary["pages"] == pages
