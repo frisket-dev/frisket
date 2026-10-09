@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type {
@@ -248,7 +248,12 @@ describe('PDF packet import flow boundaries', () => {
       question_pages: [4],
       phrase_counts: { 'phrase-1': 2 },
     };
-    api.matchPdfPacketCandidates.mockResolvedValue(evidenceMatches);
+    let resolveRematch!: (value: PdfPacketMatchResult) => void;
+    api.matchPdfPacketCandidates
+      .mockResolvedValueOnce(evidenceMatches)
+      .mockReturnValueOnce(new Promise((resolve) => {
+        resolveRematch = resolve;
+      }));
 
     renderFlow();
     await choosePacket();
@@ -268,9 +273,28 @@ describe('PDF packet import flow boundaries', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'No, page 2 does not start a document' }));
     expect(screen.queryByRole('button', { name: 'Page 2 · Text match' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Accept all 1' }));
-    expect(screen.getByRole('button', { name: 'Continue with 2 marked starts →' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Page 3 · Text match · 92% visual' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Accept all 0' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Continue with 1 marked start →' })).toBeInTheDocument();
     expect(pageTwoCell).toHaveTextContent('not a start');
+
+    await waitFor(() => expect(api.matchPdfPacketCandidates).toHaveBeenCalledTimes(2));
+    await act(async () => resolveRematch({
+      ...evidenceMatches,
+      pages: [{
+        page: 4,
+        visual_score: 91,
+        closest_confirmed_page: 1,
+        kind_id: 1,
+        matched_phrase_ids: [],
+        suggested: true,
+      }],
+      suggested_pages: [4],
+      question_pages: [],
+      phrase_counts: {},
+    }));
+    expect(await screen.findByRole('button', { name: 'Page 4 · 91% visual' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Accept all 1' })).toBeEnabled();
   });
 
   it('selects the completed sample engine before showing its OCR text', async () => {

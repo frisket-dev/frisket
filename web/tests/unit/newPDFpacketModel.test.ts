@@ -83,14 +83,15 @@ describe('PDF packet split state', () => {
     expect(accepted.rejected).toEqual([14]);
   });
 
-  it('keeps a rejection authoritative when accept all sees stale suggestions', () => {
+  it('invalidates suggestions as soon as feedback changes matcher inputs', () => {
     const withMatches = pdfPacketFlowReducer(
       { ...initialPdfPacketFlowState, confirmedStarts: [1, 9] },
       { type: 'matches', value: matches },
     );
     const rejected = pdfPacketFlowReducer(withMatches, { type: 'reject', page: 5 });
     const accepted = pdfPacketFlowReducer(rejected, { type: 'acceptAll' });
-    expect(accepted.confirmedStarts).toEqual([1, 9, 14, 19]);
+    expect(rejected.matches).toBeNull();
+    expect(accepted.confirmedStarts).toEqual([1, 9]);
     expect(accepted.rejected).toEqual([5]);
   });
 

@@ -134,6 +134,10 @@ export function pdfPacketFlowReducer(
       return {
         ...state,
         snapshot: action.snapshot,
+        matches: action.snapshot.analysis_revision !== state.snapshot?.analysis_revision
+          || action.snapshot.text_source !== state.snapshot?.text_source
+          ? null
+          : state.matches,
         selectedPage: state.samplePageChosen
           ? state.selectedPage
           : preferredSamplePage(action.snapshot),
@@ -159,6 +163,7 @@ export function pdfPacketFlowReducer(
           ? state.confirmedStarts.filter((page) => page !== action.page)
           : sortedUnique([...state.confirmedStarts, action.page]),
         rejected: state.rejected.filter((page) => page !== action.page),
+        matches: null,
         dirty: true,
       };
     }
@@ -167,6 +172,7 @@ export function pdfPacketFlowReducer(
         ...state,
         confirmedStarts: sortedUnique([...state.confirmedStarts, action.page]),
         rejected: state.rejected.filter((page) => page !== action.page),
+        matches: null,
         dirty: true,
       };
     case 'reject':
@@ -174,10 +180,11 @@ export function pdfPacketFlowReducer(
         ...state,
         confirmedStarts: state.confirmedStarts.filter((page) => page !== action.page),
         rejected: sortedUnique([...state.rejected, action.page]),
+        matches: null,
         dirty: true,
       };
     case 'threshold':
-      return { ...state, threshold: action.value, dirty: true };
+      return { ...state, threshold: action.value, matches: null, dirty: true };
     case 'method':
       return { ...state, method: action.method };
     case 'addPhrase': {
@@ -185,6 +192,7 @@ export function pdfPacketFlowReducer(
       return {
         ...state,
         phrases: [...state.phrases, { id, text: '', enabled: true, fuzzy: state.fuzzy }],
+        matches: null,
         dirty: true,
       };
     }
@@ -194,15 +202,22 @@ export function pdfPacketFlowReducer(
         phrases: state.phrases.map((phrase) => phrase.id === action.id
           ? { ...phrase, ...action.patch }
           : phrase),
+        matches: null,
         dirty: true,
       };
     case 'removePhrase':
-      return { ...state, phrases: state.phrases.filter((phrase) => phrase.id !== action.id), dirty: true };
+      return {
+        ...state,
+        phrases: state.phrases.filter((phrase) => phrase.id !== action.id),
+        matches: null,
+        dirty: true,
+      };
     case 'fuzzy':
       return {
         ...state,
         fuzzy: action.value,
         phrases: state.phrases.map((phrase) => ({ ...phrase, fuzzy: action.value })),
+        matches: null,
         dirty: true,
       };
     case 'matching':
@@ -218,6 +233,7 @@ export function pdfPacketFlowReducer(
             !state.rejected.includes(page) && !state.confirmedStarts.includes(page)
           )),
         ]),
+        matches: null,
         dirty: true,
       };
     case 'ocrEngine':
