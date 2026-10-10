@@ -87,7 +87,6 @@ test('sample-project button seeds raw Dispatches and Contracts sheets', async ({
   expect(Math.min(...storyLengths)).toBeLessThan(200);
   expect(Math.max(...storyLengths)).toBeGreaterThan(1_000);
 
-  await page.getByTestId('chrome-walkthrough').click();
   const chooser = page.getByTestId('walkthrough-chooser');
   await expect(chooser).toBeVisible();
   const chooserBox = await chooser.boundingBox();
@@ -112,6 +111,8 @@ test('repeat clicks reuse the existing sample project instead of duplicating it'
   await expect(
     page.getByTestId('grid').or(page.getByTestId('import-dropzone')).first(),
   ).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId('walkthrough-chooser')).toBeVisible();
+  await page.getByRole('button', { name: 'Close walkthrough chooser' }).click();
   const firstPid = new URL(page.url()).pathname.split('/')[2];
 
   const projectsAfterFirst = (await (await request.get('/api/projects')).json()) as Array<{
@@ -147,6 +148,7 @@ test('repeat clicks reuse the existing sample project instead of duplicating it'
   await expect(
     page.getByTestId('grid').or(page.getByTestId('import-dropzone')).first(),
   ).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId('walkthrough-chooser')).toBeVisible();
   const secondPid = new URL(page.url()).pathname.split('/')[2];
 
   // Idempotent: the same project is reopened, not a new one created.

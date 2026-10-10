@@ -125,7 +125,7 @@ interface HomeProjectsController {
   setError(message: string | null): void;
   dismissWelcome(): void;
   createAndOpen(name: string): void;
-  trySampleAndOpen(options?: HomeOpenOptions): void;
+  trySampleAndOpen(): void;
   setFlag(project: ProjectInfo, patch: { starred?: boolean; archived?: boolean }): void;
   renameProject(project: ProjectInfo, nextName: string): void;
   removeProject(project: ProjectInfo): void;
@@ -231,7 +231,7 @@ function useHomeProjects(
   // Idempotent sample-project onboarding: reuse an existing "Sample
   // project" or create+seed one, cleaning up only a project THIS click created
   // if seeding fails.
-  const trySampleAndOpen = (options?: HomeOpenOptions) => {
+  const trySampleAndOpen = () => {
     if (busy || sampleRequestActive.current) return;
     sampleRequestActive.current = true;
     setSampleBusy(true);
@@ -265,7 +265,7 @@ function useHomeProjects(
             properties: { creationKind: 'sample', requestDuration: durationBucket(performance.now() - startedAt) },
           }, project.id);
         }
-        onOpen(project, options);
+        onOpen(project, { openGuide: true });
       })
       .catch((e: Error) => {
         sendProductTelemetry({

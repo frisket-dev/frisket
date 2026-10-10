@@ -122,7 +122,7 @@ test('publishes the deterministic Regex extract walkthrough as ordered Markdown 
   await expect(page).toHaveURL(/\/p\/[^/]+/, { timeout: 30_000 });
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 30_000 });
   await setTheme(page, 'light');
-  await page.getByTestId('chrome-walkthrough').click();
+  await expect(page.getByTestId('walkthrough-chooser')).toBeVisible();
   await page.getByTestId('walkthrough-choice-regex-extract').click();
   await expect(page.getByRole('heading', { name: walkthrough.steps[0].title })).toBeVisible();
 
