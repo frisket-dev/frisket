@@ -40,6 +40,9 @@ async function launch(feed, testInfo, automaticChoice = 'Check automatically') {
           proof.prompts.push({ message: options.message, buttons: options.buttons });
           return { response: options.buttons.indexOf(proof.restart ? 'Update now' : 'Later'), checkboxChecked: false };
         }
+        if (options.buttons?.includes('Restart now')) {
+          return { response: options.buttons.indexOf(proof.restart ? 'Restart now' : 'Later'), checkboxChecked: false };
+        }
         if (options.type === 'error') {
           proof.errors.push(`${options.message} ${options.detail ?? ''}`);
           return { response: Math.max(0, options.buttons?.indexOf('Quit') ?? 0), checkboxChecked: false };

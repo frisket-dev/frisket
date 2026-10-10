@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'">
+    <title>Updating Frisket Desktop</title>
+    <link rel="stylesheet" href="update.css">
+    <script src="update.js" defer></script>
+  </head>
+  <body>
+    <main aria-labelledby="title">
+      <h1 id="title">Downloading update</h1>
+      <div class="progress-heading"><span id="status" role="status">Downloading…</span><span id="percent">0%</span></div>
+      <progress id="progress" max="100" value="0" aria-label="Update download"></progress>
+      <p>Keep Frisket open. We’ll ask before restarting.</p>
+    </main>
+  </body>
+</html>

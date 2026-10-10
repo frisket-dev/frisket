@@ -9,6 +9,7 @@ import { appUrl, installProtocol, APP_ORIGIN, APP_SCHEME } from './protocol.mjs'
 import { startBackend } from './backend.mjs';
 import { CleanupError } from './errors.mjs';
 import { createUpdater } from './updater.mjs';
+import { createUpdateProgress } from './update-progress.mjs';
 import { updatePreferences } from './update-preferences.mjs';
 import { createBackendStopper, shutdownDesktop } from './shutdown.mjs';
 
@@ -24,6 +25,9 @@ let quitReady = false;
 let recoveryTask;
 let cleanupFailed = false;
 let updates;
+const updateProgress = createUpdateProgress({
+  BrowserWindow, getParent: () => mainWindow, pagePath: path.join(desktopRoot, 'ui', 'update.html'),
+});
 const stopBackend = createBackendStopper(() => {
   const current = backend;
   backend = undefined;
@@ -196,6 +200,7 @@ function startAttempt() {
 async function requestQuit(installUpdate = false) {
   if (quitting) return;
   quitting = true;
+  updateProgress.close();
   return shutdownDesktop({
     abortStartup: () => provisioningController?.abort(),
     stopBackend,
@@ -253,7 +258,7 @@ function setupUpdates() {
     updater: electronUpdater.autoUpdater,
     ...updatePreferences(path.join(app.getPath('userData'), 'update-preferences.json')),
     requestInstall: () => requestQuit(true),
-    message: async (options) => (await dialog.showMessageBox({
+    message: async (options) => (await dialog.showMessageBox(mainWindow, {
       ...options, defaultId: options.defaultId ?? 0,
       cancelId: options.cancelId ?? Math.max(0, options.buttons.indexOf('Later')),
     })).response,
@@ -261,13 +266,15 @@ function setupUpdates() {
       const item = Menu.getApplicationMenu()?.getMenuItemById('desktop-update-automatic');
       if (item) item.checked = enabled;
     },
-    onState: ({ phase, percent }) => {
+    onState: (state) => {
+      if (!quitting) updateProgress.update(state);
+      const { phase } = state;
       const item = Menu.getApplicationMenu()?.getMenuItemById('desktop-update');
       if (!item) return;
       item.label = phase === 'ready' ? 'Restart to update…'
         : phase === 'available' ? 'Update available…'
         : phase === 'checking' ? 'Checking for updates…'
-          : phase === 'downloading' ? `Downloading update${Number.isFinite(percent) ? ` (${Math.floor(percent)}%)` : ''}…`
+          : phase === 'downloading' ? 'Downloading update…'
             : 'Check for Updates…';
       item.enabled = !quitting && !['checking', 'downloading', 'installing'].includes(phase);
     },
@@ -314,4 +321,4 @@ app.on('before-quit', (event) => {
   event.preventDefault();
   void requestQuit();
 });
-app.on('will-quit', () => updates?.dispose());
+app.on('will-quit', () => { updateProgress.close(); updates?.dispose(); });
