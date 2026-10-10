@@ -191,20 +191,66 @@ test('changing the automatic-check choice cancels work, suppresses an open autom
   assert.equal(harness.timers.intervals.length, 2);
 });
 
-test('one manual check offers, downloads and installs without a second menu click', async () => {
-  const { controller, updater, states, messages, installs } = createHarness({ response: 0 });
-  await controller.check({ manual: true });
-  assert.equal(messages.length, 1);
+test('one manual check offers, downloads, and asks before restarting to install', async () => {
+  let restart;
+  const { controller, updater, states, messages, installs } = createHarness({
+    response: ({ buttons }) => buttons.includes('Restart now')
+      ? new Promise((resolve) => { restart = resolve; })
+      : 0,
+  });
+  const check = controller.check({ manual: true });
+  await new Promise(setImmediate);
+  assert.equal(messages.length, 2);
+  assert.deepEqual(messages[1], {
+    title: 'Restart Frisket Desktop?',
+    message: 'The update is ready to install.',
+    detail: 'Restart Frisket Desktop to finish updating to version 1.2.3.',
+    buttons: ['Restart now', 'Later'],
+    defaultId: 1,
+    cancelId: 1,
+  });
   assert.equal(updater.downloads, 1);
+  assert.equal(installs.length, 0);
+  assert.deepEqual(controller.state, { phase: 'ready', version: '1.2.3' });
+  restart(0);
+  await check;
   assert.equal(installs.length, 1);
   assert.ok(states.some((state) => state.phase === 'downloading' && state.percent === 47.5));
+  assert.deepEqual(controller.state, { phase: 'installing', version: '1.2.3' });
+});
+
+test('Later keeps a download ready and a manual check only re-prompts for restart', async () => {
+  const responses = [0, 1, 0];
+  const { controller, updater, messages, installs } = createHarness({
+    response: () => responses.shift(),
+  });
+  await controller.check();
+  assert.equal(messages.length, 2);
+  assert.deepEqual(messages[1].buttons, ['Restart now', 'Later']);
+  assert.equal(updater.checks, 1);
+  assert.equal(updater.downloads, 1);
+  assert.equal(installs.length, 0);
+  assert.deepEqual(controller.state, { phase: 'ready', version: '1.2.3' });
+
+  await controller.check();
+  assert.equal(messages.length, 2);
+  assert.equal(updater.checks, 1);
+
+  await controller.check({ manual: true });
+  assert.equal(messages.length, 3);
+  assert.deepEqual(messages[2].buttons, ['Restart now', 'Later']);
+  assert.equal(updater.checks, 1);
+  assert.equal(updater.downloads, 1);
+  assert.equal(installs.length, 1);
   assert.deepEqual(controller.state, { phase: 'installing', version: '1.2.3' });
 });
 
 test('coalesces checks and dialogs, including manual use while the automatic offer is open', async () => {
   let respond;
   const { controller, updater, messages, installs } = createHarness({
-    response: () => new Promise((resolve) => { respond = resolve; }),
+    response: ({ buttons }) => buttons.includes('Update now')
+      ? new Promise((resolve) => { respond = resolve; })
+      : 0,
   });
   const automatic = controller.check();
   await new Promise(setImmediate);
@@ -212,6 +258,7 @@ test('coalesces checks and dialogs, including manual use while the automatic off
   assert.equal(messages.length, 1);
   respond(0);
   await Promise.all([automatic, manual]);
+  assert.equal(messages.length, 2);
   assert.equal(updater.checks, 1);
   assert.equal(updater.downloads, 1);
   assert.equal(installs.length, 1);
@@ -291,4 +338,26 @@ test('dispose cancels scheduled work and prevents late dialog consent from downl
   assert.equal(timers.clearedTimeouts.length, 1);
   assert.equal(timers.clearedIntervals.length, 1);
   assert.equal(updater.listenerCount('error'), 0);
+});
+
+test('late progress cannot reopen a finished download', async () => {
+  const { controller, updater } = createHarness({
+    response: ({ buttons }) => buttons.includes('Restart now') ? 1 : 0,
+  });
+  await controller.check({ manual: true });
+  assert.equal(controller.state.phase, 'ready');
+  updater.emit('download-progress', { percent: 99 });
+  assert.equal(controller.state.phase, 'ready');
+});
+
+test('turning off future automatic checks does not discard explicit restart consent', async () => {
+  const harness = createHarness({
+    response: ({ buttons }) => {
+      if (buttons.includes('Restart now')) harness.controller.setAutomaticChecks(false);
+      return 0;
+    },
+  });
+  await harness.controller.check();
+  assert.equal(harness.installs.length, 1);
+  assert.equal(harness.controller.state.phase, 'installing');
 });

@@ -73,13 +73,32 @@ export function createUpdater({
     })).catch(() => {});
   }
 
+  async function confirmRestart() {
+    const { version } = state;
+    if (disposed || state.phase !== 'ready' || !version) return;
+    const result = await message({
+      title: 'Restart Frisket Desktop?',
+      message: 'The update is ready to install.',
+      detail: `Restart Frisket Desktop to finish updating to version ${version}.`,
+      buttons: ['Restart now', 'Later'],
+      defaultId: 1,
+      cancelId: 1,
+    });
+    if (disposed || state.phase !== 'ready') return;
+    const response = typeof result === 'number' ? result : result?.response;
+    if (response !== 0) return;
+    attempt.accepted = true;
+    // A refused shutdown keeps the download ready for a later retry.
+    if (await requestInstall() !== false) publish({ phase: 'installing', version });
+  }
+
   async function offerUpdate() {
-    const { version, phase } = state;
+    const { version } = state;
     if (disposed || !version || (!attempt.manual && getSkippedVersion() === version)) return;
     const result = await message({
       title: 'Frisket Desktop update',
       message: 'A new version of Frisket Desktop is available.',
-      detail: `Version ${version}. ${phase === 'ready' ? 'The update is downloaded.' : 'Frisket will download the update.'} Updating will restart the app.`,
+      detail: `Version ${version}. Frisket will download the update, then ask when to restart the app.`,
       buttons: ['Update now', 'Later', 'Skip this version'],
     });
     if (disposed || (!attempt.manual && !automaticChecks)) return;
@@ -97,13 +116,10 @@ export function createUpdater({
     }
     if (response !== 0) return;
     attempt.accepted = true;
-    if (phase !== 'ready') {
-      publish({ phase: 'downloading', version });
-      await updater.downloadUpdate();
-    }
+    publish({ phase: 'downloading', version });
+    await updater.downloadUpdate();
     if (disposed || state.phase !== 'ready') return;
-    // A refused shutdown keeps the download ready for a later retry.
-    if (await requestInstall() !== false) publish({ phase: 'installing', version });
+    await confirmRestart();
   }
 
   const listeners = {
@@ -111,6 +127,7 @@ export function createUpdater({
     'update-available': (info) => publish({ phase: 'available', version: info.version }),
     'update-not-available': () => publish({ phase: 'up-to-date' }),
     'download-progress': (progress) => {
+      if (state.phase !== 'downloading') return;
       const percent = Number(progress?.percent);
       publish({ phase: 'downloading', version: state.version, ...(Number.isFinite(percent) ? { percent } : {}) });
     },
@@ -135,7 +152,8 @@ export function createUpdater({
         await updater.checkForUpdates();
       }
       if (disposed || (!attempt.manual && !automaticChecks)) return;
-      if (['available', 'ready'].includes(state.phase)) await offerUpdate();
+      if (state.phase === 'available') await offerUpdate();
+      else if (state.phase === 'ready' && attempt.manual) await confirmRestart();
       else if (state.phase === 'up-to-date' && attempt.manual) {
         await message({
           title: 'Frisket is up to date',
