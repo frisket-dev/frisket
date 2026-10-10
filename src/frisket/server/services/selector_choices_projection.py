@@ -8,6 +8,7 @@ from urllib.parse import quote
 
 from frisket.ai.llm.model_catalog import MODEL_ENTRIES
 from frisket.actions.translate_types import TranslationOptions
+from frisket.execution.definitions import MODELS_GATEWAY_TARGET_ID
 from frisket.ops.integrations.opus_mt import resolve_pair_codes
 from frisket.server.provider_config import PROVIDER_LABELS
 
@@ -167,6 +168,7 @@ def _response(
     choices: list[dict[str, Any]],
     current_selection: dict[str, Any] | None,
     default_selection: dict[str, Any] | None,
+    server_labels: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     current_key = _selection_key(current_selection) if current_selection else None
     default_key = _selection_key(default_selection) if default_selection else None
@@ -191,7 +193,7 @@ def _response(
         "depends_on": depends_on,
         "current_choice_id": current_choice_id,
         "default_choice_id": default_choice_id,
-        "groups": _groups(choices),
+        "groups": _groups(choices, server_labels),
         "orphaned_current": orphan,
     }
 
@@ -228,7 +230,9 @@ def _orphan(selection: dict[str, Any]) -> dict[str, Any]:
     return choice
 
 
-def _group_identity(choice: Mapping[str, Any]) -> tuple[str, str, str]:
+def _group_identity(
+    choice: Mapping[str, Any], server_labels: Mapping[str, str] | None = None
+) -> tuple[str, str, str]:
     target = _mapping(choice.get("resolved_target"))
     destination = _mapping(choice.get("processing_destination"))
     selection = _mapping(choice.get("authored_selection"))
@@ -236,7 +240,14 @@ def _group_identity(choice: Mapping[str, Any]) -> tuple[str, str, str]:
     if destination.get("kind") == "local":
         return "local", "local", "On this device"
     if destination.get("kind") in {"operator_network", "unknown"} and target_id:
-        return f"server:{target_id}", "server", "Models server"
+        label = (
+            "Frisket models server"
+            if target_id == MODELS_GATEWAY_TARGET_ID
+            else (server_labels or {}).get(
+                str(target_id), f"Model server · {target_id}"
+            )
+        )
+        return f"server:{target_id}", "server", label
     provider = selection.get("provider")
     if not provider:
         model = selection.get("model")
@@ -253,10 +264,12 @@ def _group_identity(choice: Mapping[str, Any]) -> tuple[str, str, str]:
     )
 
 
-def _groups(choices: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _groups(
+    choices: list[dict[str, Any]], server_labels: Mapping[str, str] | None = None
+) -> list[dict[str, Any]]:
     groups: dict[str, dict[str, Any]] = {}
     for choice in choices:
-        group_id, kind, label = _group_identity(choice)
+        group_id, kind, label = _group_identity(choice, server_labels)
         group = groups.setdefault(
             group_id,
             {
@@ -271,6 +284,18 @@ def _groups(choices: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if _GROUP_STATUS_ORDER[choice["status"]] < _GROUP_STATUS_ORDER[group["status"]]:
             group["status"] = choice["status"]
     return list(groups.values())
+
+
+def _server_labels(provider_catalog: Mapping[str, Any]) -> dict[str, str]:
+    return {
+        str(_provider_identity(provider)): str(
+            provider.get("label") or _provider_identity(provider)
+        )
+        for provider in provider_catalog.get("providers", [])
+        if isinstance(provider, Mapping)
+        and provider.get("kind") == "local_http"
+        and _provider_identity(provider)
+    }
 
 
 def _engine_depends_on(

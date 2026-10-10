@@ -33,7 +33,13 @@ function displayFact(choice: SelectorChoice): EngineSelectorChoice['facts'] {
   return choice.facts.map((fact) => {
     if (fact.kind === 'list') return { label: fact.label, value: fact.values };
     if (fact.kind === 'rate') {
-      return { label: fact.label, value: `${fact.amount} ${fact.currency} / ${fact.unit}` };
+      const perToken = fact.unit === 'input_token' || fact.unit === 'output_token';
+      const amount = fact.amount * (perToken ? 1_000_000 : 1);
+      const unit = perToken ? `million ${fact.unit.replace('_', ' ')}s` : fact.unit.replaceAll('_', ' ');
+      const price = new Intl.NumberFormat('en-US', {
+        style: 'currency', currency: fact.currency, maximumFractionDigits: 10,
+      }).format(amount);
+      return { label: perToken ? 'Price' : fact.label, value: `${price} per ${unit}` };
     }
     return { label: fact.label, value: fact.value };
   });
@@ -71,8 +77,9 @@ function displayChoice(choice: SelectorChoice): EngineSelectorChoice {
     status: choice.status,
     canAuthor: choice.can_author,
     canRun: choice.can_run,
-    blocker: hasActionableCredentialSetup(choice)
+    blocker: (setup?.kind === 'instructions' && setup.steps.includes(choice.blocker?.message ?? '')) || (hasActionableCredentialSetup(choice)
       && (choice.blocker?.code === 'provider_key_required' || choice.blocker?.code === 'models_gateway_required')
+    )
       ? undefined : choice.blocker?.message,
     activity: active ? {
       label: choice.active_operation ? operation.display_name

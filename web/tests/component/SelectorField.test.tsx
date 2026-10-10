@@ -97,6 +97,28 @@ describe('SelectorField', () => {
     const token = within(dialog).getByLabelText('Gateway token');
     expect(within(dialog).queryByText(/FRISKET_MODELS_URL/)).not.toBeInTheDocument();
     expect(dialog.querySelector('.engine-selector__detail-scroll')).toContainElement(token);
+    expect(within(dialog).getByText(/not an Ollama or OpenAI-compatible endpoint/)).toBeInTheDocument();
+    expect(within(dialog).getByText('FRISKET_MODELS_TOKEN')).toBeInTheDocument();
+    expect(within(dialog).getByRole('link', { name: 'Models server setup guide' })).toBeInTheDocument();
+  });
+
+  it('shows readable token pricing and setup instructions only once', async () => {
+    const payload = response();
+    const message = 'Set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN to enable Cloudflare Clef classification.';
+    Object.assign(payload.groups[0].choices[0], {
+      label: 'Cloudflare Clef', status: 'needs_setup', can_run: false,
+      facts: [{ kind: 'rate', label: 'Cloudflare Clef classification (per input token)', amount: 0.00000024, currency: 'USD', unit: 'input_token', source_url: null, updated: null }],
+      blocker: { code: 'engine_unavailable', message, field: null },
+      setup: { kind: 'instructions', title: 'Connect Cloudflare', steps: [message], url: null },
+    });
+    render(<SelectorField projectId="project-a" label="Model"
+      query={{ schema_version: 'frisket.selector_choices_query.v1', subject: { kind: 'action', action_id: 'map.classify', field: 'engine', params: {} } }}
+      recentNamespace="clef-setup" load={vi.fn().mockResolvedValue(payload)} onSelect={vi.fn()} />);
+    await userEvent.click(await screen.findByRole('button', { name: /Cloudflare Clef/ }));
+    const dialog = within(screen.getByTestId('engine-selector-dialog'));
+    expect(dialog.getByText('$0.24 per million input tokens')).toBeInTheDocument();
+    expect(dialog.getAllByText(message)).toHaveLength(1);
+    expect(dialog.getByText('Connect Cloudflare')).toBeInTheDocument();
   });
 
 

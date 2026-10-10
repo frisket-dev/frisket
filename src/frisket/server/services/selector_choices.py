@@ -29,6 +29,7 @@ from frisket.engine._workers.parakeet_artifacts import (
 )
 from frisket.engine.jobs.engine_setup import DOCLING_SETUP_REF, PARAKEET_TDT_SETUP_REF
 from frisket.execution.definitions import (
+    CLOUDFLARE_CLEF_TARGET_ID,
     LOCAL_MODELS_TARGET_ID,
     MODELS_GATEWAY_TARGET_ID,
     parakeet_runtime_present,
@@ -74,6 +75,7 @@ from frisket.server.services.selector_choices_projection import (
     _engine_selection,
     _choice,
     _response,
+    _server_labels,
     _engine_depends_on,
     _engine_destination,
     _engine_facts,
@@ -380,6 +382,7 @@ class SelectorChoiceService:
             choices=choices,
             current_selection=current_selection,
             default_selection=default_selection,
+            server_labels=_server_labels(provider_catalog),
         )
 
     def _project_ask_choices(
@@ -408,6 +411,7 @@ class SelectorChoiceService:
             choices=choices,
             current_selection=_model_selection(subject.model),
             default_selection=_model_selection(default_project_ask_model(router)),
+            server_labels=_server_labels(provider_catalog),
         )
 
     def _embedding_choices(
@@ -927,6 +931,21 @@ class SelectorChoiceService:
                         and blocked is None,
                         "blocked_by_operation": blocked or operation,
                     }
+            elif not available and active_target_id == CLOUDFLARE_CLEF_TARGET_ID:
+                status = "needs_setup"
+                setup = {
+                    "kind": "instructions",
+                    "title": "Connect Cloudflare",
+                    "steps": [
+                        str(
+                            engine.get("error")
+                            or "Configure your Cloudflare credentials."
+                        ),
+                        "Use your Cloudflare account ID and a Workers AI API token. "
+                        "Set them in the environment running frisket, then restart frisket.",
+                    ],
+                    "url": None,
+                }
             elif not available and (
                 active_target_id == MODELS_GATEWAY_TARGET_ID
                 or engine.get("tier") == "sidecar"

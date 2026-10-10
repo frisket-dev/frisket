@@ -50,6 +50,8 @@ export function ModelsGatewayForm({ scope, initialOrigin = '', compact = false, 
   };
   const actionLabel = busy === 'test' ? 'Testing…' : busy === 'save' ? 'Saving…' : receipt ? 'Save' : 'Test';
   return <form className={`settings-form settings-inline-form selector-setup-form${compact ? ' selector-setup-form--compact' : ''}`} autoComplete="off" onSubmit={compact ? compactSubmit : submit} onFocus={() => editing(true)}>
+    <p className="settings-help">Connect an existing frisket models server, not an Ollama or OpenAI-compatible endpoint. The URL is its address; the gateway token is the shared secret set as <code>FRISKET_MODELS_TOKEN</code> on that server. If someone else runs it, ask them for both.</p>
+    <p className="settings-help"><a href="https://github.com/frisket-dev/frisket/blob/main/sidecar/README.md" target="_blank" rel="noreferrer">Models server setup guide</a></p>
     <label><span className={compact ? 'sr-only' : undefined}>Gateway URL</span><input aria-label="Gateway URL" type="url" placeholder="https://models.example.org" value={origin} disabled={busy === 'save'} onChange={(event) => { edit(); setOrigin(event.currentTarget.value); }} /></label>
     <label><span className={compact ? 'sr-only' : undefined}>Gateway token</span><input aria-label="Gateway token" placeholder={compact ? 'Gateway token' : undefined} type="password" autoComplete="new-password" value={token} disabled={busy === 'save'} onChange={(event) => { edit(); setToken(event.currentTarget.value); }} /></label>
     {!compact && <p className="settings-help">Use HTTPS or a loopback address. Test this URL and token before saving.</p>}

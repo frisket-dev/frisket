@@ -596,6 +596,62 @@ def test_configured_local_endpoint_discovery_is_called_once_and_preserves_model_
     )
     assert selected["authored_selection"]["model"] == "ollama/@lab/acme/nested-model"
     assert selected["can_run"] is True
+    assert response.json()["groups"][0]["label"] == "Lab server"
+
+
+def test_clef_setup_distinguishes_gateway_and_cloudflare(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("CLOUDFLARE_ACCOUNT_ID", raising=False)
+    monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
+    monkeypatch.delenv("FRISKET_MODELS_URL", raising=False)
+    monkeypatch.delenv("FRISKET_MODELS_TOKEN", raising=False)
+    client, _workspace, pid = _app(
+        tmp_path / "clef",
+        capabilities_for=lambda *_: SelectorCapabilities(
+            may_author_actions=True,
+            may_run_actions=True,
+            configure_models_gateway=True,
+        ),
+    )
+    response = client.post(
+        f"/api/projects/{pid}/selector-choices",
+        json=_query(
+            {
+                "kind": "action",
+                "action_id": "map.classify",
+                "field": "engine",
+                "params": {"engine": "clef", "mode": "single", "labels": ["Yes", "No"]},
+            }
+        ),
+    )
+    assert response.status_code == 200, response.text
+    groups = response.json()["groups"]
+    flash_group = next(
+        group
+        for group in groups
+        if any(
+            choice["authored_selection"].get("engine") == "clef-flash"
+            for choice in group["choices"]
+        )
+    )
+    assert flash_group["label"] == "Frisket models server"
+    flash = next(
+        choice
+        for choice in flash_group["choices"]
+        if choice["authored_selection"].get("engine") == "clef-flash"
+    )
+    assert flash["setup"]["kind"] == "models_gateway"
+    clef = next(
+        choice
+        for choice in _choices(response.json())
+        if choice["authored_selection"].get("engine") == "clef"
+    )
+    assert clef["setup"]["title"] == "Connect Cloudflare"
+    assert clef["status"] == "needs_setup"
+    assert not clef["can_run"]
+    assert clef["blocker"]["message"] in clef["setup"]["steps"]
+    assert "environment running frisket" in " ".join(clef["setup"]["steps"])
 
 
 def test_action_and_project_ask_use_their_distinct_effective_routers(
