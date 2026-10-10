@@ -60,10 +60,9 @@ describe('HomeScreen sample hero', () => {
     render(<HomeScreen onOpen={vi.fn()} />);
 
     await screen.findByTestId('home-sample-hero');
-    expect(screen.getByRole('button', { name: 'Open the sample project' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'See the walkthroughs' })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Try the sample project' })).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: 'See the walkthroughs' })).toBeNull();
     expect(screen.queryByTestId('home-filter')).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Try the sample project' })).toBeNull();
     expect(screen.queryByTestId('home-empty')).toBeNull();
 
     fireEvent.click(screen.getByTestId('home-nav-starred'));
@@ -77,7 +76,7 @@ describe('HomeScreen sample hero', () => {
     render(<HomeScreen onOpen={onOpen} />);
 
     await screen.findByTestId('home-sample-hero');
-    fireEvent.click(screen.getByRole('button', { name: 'See the walkthroughs' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Try the sample project' }));
 
     await waitFor(() => expect(onOpen).toHaveBeenCalledWith(
       { id: 'sample', name: 'Sample project' },
@@ -86,15 +85,16 @@ describe('HomeScreen sample hero', () => {
     expect(seedSampleProject).toHaveBeenCalledWith('sample');
   });
 
-  it('shares one in-flight sample setup between both hero actions', async () => {
+  it('prevents repeat clicks while sample setup is in progress', async () => {
     const seed = deferred<void>();
     seedSampleProject.mockReturnValue(seed.promise);
     const onOpen = vi.fn();
     render(<HomeScreen onOpen={onOpen} />);
 
     await screen.findByTestId('home-sample-hero');
-    fireEvent.click(screen.getByRole('button', { name: 'Open the sample project' }));
-    fireEvent.click(screen.getByRole('button', { name: 'See the walkthroughs' }));
+    const button = screen.getByRole('button', { name: 'Try the sample project' });
+    fireEvent.click(button);
+    fireEvent.click(button);
 
     await waitFor(() => expect(seedSampleProject).toHaveBeenCalledTimes(1));
     expect(screen.getByRole('button', { name: /Setting up the sample/ })).toBeDisabled();
@@ -102,8 +102,20 @@ describe('HomeScreen sample hero', () => {
     seed.resolve();
     await waitFor(() => expect(onOpen).toHaveBeenCalledWith(
       { id: 'sample', name: 'Sample project' },
-      undefined,
+      { openGuide: true },
     ));
     expect(onOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it('reopens the existing sample with walkthroughs from the populated home shortcut', async () => {
+    const project = { id: 'sample', name: 'Sample project' } as ProjectInfo;
+    listProjects.mockResolvedValue([project]);
+    const onOpen = vi.fn();
+    render(<HomeScreen onOpen={onOpen} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Try the sample project' }));
+    await waitFor(() => expect(onOpen).toHaveBeenCalledWith(project, { openGuide: true }));
+    expect(createProject).not.toHaveBeenCalled();
+    expect(seedSampleProject).toHaveBeenCalledWith('sample');
   });
 });

@@ -3,10 +3,17 @@ import { createProject, uniqueName } from './helpers';
 
 test.describe.configure({ mode: 'serial' });
 
-async function openSampleFromHome(page: Page): Promise<void> {
-  await page.goto('/');
-  await page.getByTestId('try-sample-project').click();
-  await expect(page).toHaveURL(/\/p\/[^/]+/, { timeout: 30_000 });
+// Direct project navigation still has its own first-visit introduction.
+// The Home sample button now opens the walkthrough chooser instead.
+async function openSampleDirectly(page: Page): Promise<void> {
+  const response = await page.request.get('/api/projects');
+  expect(response.ok()).toBeTruthy();
+  const projects = await response.json() as Array<{ id: string; name: string }>;
+  const projectId = projects.find((project) => project.name === 'Sample project')?.id
+    ?? await createProject(page.request, 'Sample project');
+  const seed = await page.request.post(`/api/projects/${projectId}/seed-sample`);
+  expect(seed.ok()).toBeTruthy();
+  await page.goto(`/p/${projectId}`);
   await expect(page.getByTestId('sample-project-intro')).toBeVisible({ timeout: 30_000 });
 }
 
@@ -21,7 +28,7 @@ test.beforeEach(async ({ page }) => {
 test('guided Home entry opens the existing chooser without the introduction', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByTestId('home-sample-hero')).toBeVisible();
-  await page.getByRole('button', { name: 'See the walkthroughs' }).click();
+  await page.getByRole('button', { name: 'Try the sample project' }).click();
   await expect(page).toHaveURL(/\/p\/[^/]+/, { timeout: 30_000 });
   const chooser = page.getByTestId('walkthrough-chooser');
   await expect(chooser).toBeVisible();
@@ -35,7 +42,7 @@ test('guided Home entry opens the existing chooser without the introduction', as
 test('sample setup opens the native introduction with live walkthrough badges and remembers X dismissal', async ({
   page,
 }) => {
-  await openSampleFromHome(page);
+  await openSampleDirectly(page);
 
   const intro = page.getByTestId('sample-project-intro');
   await expect(intro.getByTestId('sample-walkthrough-choice-regex-extract')).toContainText('Regex');
@@ -67,7 +74,7 @@ test('sample setup opens the native introduction with live walkthrough badges an
 });
 
 test('Escape dismisses the introduction and Guide consumes its hint into the plain chooser', async ({ page }) => {
-  await openSampleFromHome(page);
+  await openSampleDirectly(page);
 
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('sample-project-intro')).toHaveCount(0);
@@ -85,7 +92,7 @@ test('Poke around dismisses the introduction and an ordinary project never opens
   page,
   request,
 }) => {
-  await openSampleFromHome(page);
+  await openSampleDirectly(page);
   await page.getByTestId('sample-project-intro').getByRole('button', {
     name: 'Poke around first',
     exact: true,
@@ -113,14 +120,14 @@ test('Poke around dismisses the introduction and an ordinary project never opens
 });
 
 test('clicking the scrim dismisses the introduction like Poke around', async ({ page }) => {
-  await openSampleFromHome(page);
+  await openSampleDirectly(page);
   await page.mouse.click(2, 2);
   await expect(page.getByTestId('sample-project-intro')).toHaveCount(0);
   await expect(page.getByTestId('sample-guide-hint')).toBeVisible();
 });
 
 test('a walkthrough starts directly from the introduction after the modal closes', async ({ page }) => {
-  await openSampleFromHome(page);
+  await openSampleDirectly(page);
   await page.getByTestId('sample-walkthrough-choice-regex-extract').click();
   await expect(page.getByTestId('sample-project-intro')).toHaveCount(0);
   await expect(page.getByTestId('walkthrough-card')).toBeVisible();

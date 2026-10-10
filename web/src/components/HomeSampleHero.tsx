@@ -1,6 +1,5 @@
 import { ArrowRight, FolderPlus } from 'lucide-react';
 import styles from './HomeSampleHero.module.css';
-import type { HomeOpenOptions } from './HomeScreen';
 
 export function HomeSampleHero({
   busy,
@@ -8,7 +7,7 @@ export function HomeSampleHero({
   onNewProject,
 }: {
   busy: boolean;
-  onOpenSample(options?: HomeOpenOptions): void;
+  onOpenSample(): void;
   onNewProject(): void;
 }) {
   return (
@@ -17,25 +16,17 @@ export function HomeSampleHero({
         <span className={styles.eyebrow}>Start here</span>
         <h2 className={styles.heading}>Open the sample project</h2>
         <p className={styles.copy}>
-          Sample data is ready to explore, with guided walkthroughs when you want them.
+          Explore sample data with guided walkthroughs.
         </p>
         <div className={styles.actions}>
           <button
             type="button"
             className="btn btn-primary"
             data-testid="try-sample-project"
-            onClick={() => onOpenSample()}
+            onClick={onOpenSample}
             disabled={busy}
           >
-            {busy ? 'Setting up the sample…' : <>Open the sample project <ArrowRight size={13} /></>}
-          </button>
-          <button
-            type="button"
-            className="btn"
-            onClick={() => onOpenSample({ openGuide: true })}
-            disabled={busy}
-          >
-            See the walkthroughs
+            {busy ? 'Setting up the sample…' : <>Try the sample project <ArrowRight size={13} /></>}
           </button>
         </div>
       </div>
