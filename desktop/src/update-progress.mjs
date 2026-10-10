@@ -1,5 +1,5 @@
 /** A desktop-owned modal: the workspace renderer has no updater privileges. */
-export function createUpdateProgress({ BrowserWindow, getParent, pagePath }) {
+export function createUpdateProgress({ BrowserWindow, getParent, pagePath, createQuitMenu }) {
   let window;
   let latest;
   let loaded = false;
@@ -34,7 +34,9 @@ export function createUpdateProgress({ BrowserWindow, getParent, pagePath }) {
       webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, webviewTag: false },
     });
     const current = window;
-    current.setMenu(null);
+    // Windows disables the parent's menu while a modal is open. Keep its own
+    // Quit command available so a stalled download never requires a force-kill.
+    current.setMenu(createQuitMenu());
     // No close button, Escape, or window-manager close can hide an active download.
     current.on('close', (event) => event.preventDefault());
     current.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -43,7 +45,7 @@ export function createUpdateProgress({ BrowserWindow, getParent, pagePath }) {
       if (window !== current || current.isDestroyed()) return;
       loaded = true;
       render();
-    }).catch(() => close());
+    }).catch(() => { if (window === current) close(); });
   }
 
   return { update, close };

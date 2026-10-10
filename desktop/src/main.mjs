@@ -27,6 +27,9 @@ let cleanupFailed = false;
 let updates;
 const updateProgress = createUpdateProgress({
   BrowserWindow, getParent: () => mainWindow, pagePath: path.join(desktopRoot, 'ui', 'update.html'),
+  createQuitMenu: () => Menu.buildFromTemplate([{
+    label: 'File', submenu: [{ label: 'Quit Frisket', accelerator: 'CmdOrCtrl+Q', click: () => void requestQuit() }],
+  }]),
 });
 const stopBackend = createBackendStopper(() => {
   const current = backend;

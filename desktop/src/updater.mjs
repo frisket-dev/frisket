@@ -84,7 +84,7 @@ export function createUpdater({
       defaultId: 1,
       cancelId: 1,
     });
-    if (disposed || state.phase !== 'ready' || (!attempt.manual && !automaticChecks)) return;
+    if (disposed || state.phase !== 'ready') return;
     const response = typeof result === 'number' ? result : result?.response;
     if (response !== 0) return;
     attempt.accepted = true;
@@ -127,6 +127,7 @@ export function createUpdater({
     'update-available': (info) => publish({ phase: 'available', version: info.version }),
     'update-not-available': () => publish({ phase: 'up-to-date' }),
     'download-progress': (progress) => {
+      if (state.phase !== 'downloading') return;
       const percent = Number(progress?.percent);
       publish({ phase: 'downloading', version: state.version, ...(Number.isFinite(percent) ? { percent } : {}) });
     },

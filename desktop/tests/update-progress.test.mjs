@@ -8,6 +8,7 @@ import { createUpdateProgress } from '../src/update-progress.mjs';
 function harness() {
   const windows = [];
   const parent = { isDestroyed: () => false };
+  const quitMenu = { items: ['Quit Frisket'] };
   class Window extends EventEmitter {
     destroyed = false;
     scripts = [];
@@ -22,19 +23,20 @@ function harness() {
     loadFile(file) { this.file = file; return new Promise((resolve) => { this.finishLoad = resolve; }); }
   }
   return {
-    windows, parent,
-    progress: createUpdateProgress({ BrowserWindow: Window, getParent: () => parent, pagePath: '/update.html' }),
+    windows, parent, quitMenu,
+    progress: createUpdateProgress({ BrowserWindow: Window, getParent: () => parent, pagePath: '/update.html', createQuitMenu: () => quitMenu }),
   };
 }
 
 test('download blocks the workspace and window close, and renders latest progress after loading', async () => {
-  const { progress, windows, parent } = harness();
+  const { progress, windows, parent, quitMenu } = harness();
   progress.update({ phase: 'downloading' });
   const window = windows[0];
   assert.equal(window.options.parent, parent);
   assert.equal(window.options.modal, true);
   assert.equal(window.options.show, true);
   assert.equal(window.options.closable, false);
+  assert.equal(window.menu, quitMenu);
   assert.equal(window.options.webPreferences.nodeIntegration, false);
   assert.equal(window.options.webPreferences.sandbox, true);
   assert.deepEqual(window.openHandler(), { action: 'deny' });

@@ -339,3 +339,25 @@ test('dispose cancels scheduled work and prevents late dialog consent from downl
   assert.equal(timers.clearedIntervals.length, 1);
   assert.equal(updater.listenerCount('error'), 0);
 });
+
+test('late progress cannot reopen a finished download', async () => {
+  const { controller, updater } = createHarness({
+    response: ({ buttons }) => buttons.includes('Restart now') ? 1 : 0,
+  });
+  await controller.check({ manual: true });
+  assert.equal(controller.state.phase, 'ready');
+  updater.emit('download-progress', { percent: 99 });
+  assert.equal(controller.state.phase, 'ready');
+});
+
+test('turning off future automatic checks does not discard explicit restart consent', async () => {
+  const harness = createHarness({
+    response: ({ buttons }) => {
+      if (buttons.includes('Restart now')) harness.controller.setAutomaticChecks(false);
+      return 0;
+    },
+  });
+  await harness.controller.check();
+  assert.equal(harness.installs.length, 1);
+  assert.equal(harness.controller.state.phase, 'installing');
+});
