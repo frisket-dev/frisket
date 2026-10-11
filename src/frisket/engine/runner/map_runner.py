@@ -1518,21 +1518,39 @@ class MapRunner:
                             "promise_violation",
                             "Cloud execution requires an authorized attempt",
                         )
-                    checkpoint_id, cloud_request_id, adopted_checkpoint = (
-                        _cloud_row_request_id(
-                            self.project,
-                            current_checkpoint_id=checkpoint_id,
-                            current_group_key=str(run_id),
-                            current_unit_key=str(row_id),
-                            action_kind=spec["action_kind"],
-                            identity=checkpoint_identity,
-                            current_authorized_attempt_id=attempt.attempt_id,
-                            run_id=run_id,
-                            writer_attempt_id=attempt.attempt_id,
-                            claim_token=claim_token,
-                            claimless_direct_effect=self.claimless_direct_effect,
+                    try:
+                        checkpoint_id, cloud_request_id, adopted_checkpoint = (
+                            _cloud_row_request_id(
+                                self.project,
+                                current_checkpoint_id=checkpoint_id,
+                                current_group_key=str(run_id),
+                                current_unit_key=str(row_id),
+                                action_kind=spec["action_kind"],
+                                identity=checkpoint_identity,
+                                current_authorized_attempt_id=attempt.attempt_id,
+                                run_id=run_id,
+                                writer_attempt_id=attempt.attempt_id,
+                                claim_token=claim_token,
+                                claimless_direct_effect=self.claimless_direct_effect,
+                            )
                         )
-                    )
+                    except BaseException:
+                        # Selection/adoption has not reached the transport.  A
+                        # just-created replacement is therefore proven
+                        # no-egress, while the prior ambiguous reservation must
+                        # remain available to its still-live owner.
+                        if checkpoint_created:
+                            self.run_store.discard_reserved_row_effect_checkpoint(
+                                checkpoint_id,
+                                run_id=run_id,
+                                row_id=row_id,
+                                action_kind=spec["action_kind"],
+                                identity=checkpoint_identity,
+                                writer_attempt_id=attempt.attempt_id,
+                                claim_token=claim_token,
+                                claimless_direct_effect=(self.claimless_direct_effect),
+                            )
+                        raise
                     if adopted_checkpoint:
                         # This reservation may already have reached Cloud in a
                         # prior run.  A local refusal or cancellation cannot

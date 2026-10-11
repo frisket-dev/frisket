@@ -567,6 +567,55 @@ def test_cloud_ocr_recovery_retires_key_before_intentional_third_run(
             deps=deps,
         )
         assert first.status == "failed", first.errors
+        unresolved = project.db.execute(
+            "SELECT id, group_key, authorized_attempt_id "
+            "FROM effect_checkpoints WHERE family='row_effect' AND state='reserved'"
+        ).fetchone()
+        assert unresolved is not None
+        source_attempt_id = str(unresolved["authorized_attempt_id"])
+        project.db.execute(
+            "UPDATE execution_attempts SET state='dispatching' WHERE id=?",
+            (source_attempt_id,),
+        )
+        project.db.execute(
+            "UPDATE runs SET current_attempt_id=? WHERE id=?",
+            (source_attempt_id, int(unresolved["group_key"])),
+        )
+        project.db.commit()
+
+        competing = run_action_spec(
+            project,
+            {
+                **_request(sheet_id, engine=engine),
+                "idempotency_key": "ocr-competing-live-owner",
+                "output_names": {
+                    "text": "ocr_text_competing",
+                    "blocks": "ocr_text_blocks_competing",
+                },
+            },
+            project_id="cloud-ocr-anchor",
+            router=router,
+            deps=deps,
+        )
+        assert competing.status == "failed", competing.errors
+        assert len(transport.calls) == 1
+        remaining = project.db.execute(
+            "SELECT id, group_key FROM effect_checkpoints "
+            "WHERE family='row_effect' AND state='reserved'"
+        ).fetchall()
+        assert [tuple(row) for row in remaining] == [
+            (unresolved["id"], unresolved["group_key"])
+        ]
+
+        project.db.execute(
+            "UPDATE execution_attempts SET state='halted' WHERE id=?",
+            (source_attempt_id,),
+        )
+        project.db.execute(
+            "UPDATE runs SET current_attempt_id=NULL WHERE id=?",
+            (int(unresolved["group_key"]),),
+        )
+        project.db.commit()
         second_action = {
             **_request(sheet_id, engine=engine),
             "idempotency_key": "ocr-lost-response-2",
