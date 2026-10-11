@@ -16,6 +16,7 @@ from frisket.contracts.http.cloud_connection import (
     CloudUnitPrice,
     CloudUser,
 )
+from frisket.execution.provider import open_execution_composition
 from frisket.project_settings import ProjectSettings, write_project_settings
 from frisket.server.route_errors import register_route_error_handler
 from frisket.server.routes.selector_choices import register_selector_choices_routes
@@ -33,6 +34,7 @@ def _cloud_selector_app(
     connected: bool = True,
     preference: str = "cloud_first",
     local_keys: dict[str, str] | None = None,
+    execution_composition_factory=None,
 ):
     account = CloudAccount(
         id=41,
@@ -70,6 +72,7 @@ def _cloud_selector_app(
             if local_keys is not None
             else None
         ),
+        execution_composition_factory=execution_composition_factory,
         enable_local_model_pull=False,
     )
     project_id = workspace.create("Cloud selector", project_id="cloud-selector")["id"]
@@ -477,6 +480,57 @@ def test_local_first_ready_model_is_not_blocked_by_cloud_route(tmp_path) -> None
     assert selected["resolved_target"]["target_id"] == "remote-api:openai"
     assert selected["execution_route"]["kind"] == "local_key"
     assert "local-openai-key" not in response.text
+
+
+def test_explicit_composition_factory_remains_the_selector_authority(tmp_path) -> None:
+    route = CloudCapabilityRoute(
+        capability="llm.complete",
+        engine="openai/gpt-5-mini",
+        provider="openai",
+        lane="frisket_credits",
+        route_revision="llm-route-1",
+        ready=True,
+        blocker=None,
+        price=CloudTokenPrice(
+            kind="tokens",
+            input_micro_per_million_tokens=100_000,
+            output_micro_per_million_tokens=400_000,
+        ),
+        options=CloudLLMOptionSupport(
+            kind="llm",
+            structured_output=True,
+            tools=True,
+            vision=True,
+            max_output_tokens=16_384,
+        ),
+    )
+    client, _workspace, _store, project_id = _cloud_selector_app(
+        tmp_path,
+        routes=[route],
+        local_keys={"openai": "composition-owned-key"},
+        execution_composition_factory=open_execution_composition,
+    )
+
+    with client:
+        response = client.post(
+            f"/api/projects/{project_id}/selector-choices",
+            json={
+                "schema_version": "frisket.selector_choices_query.v1",
+                "subject": {
+                    "kind": "project_ask",
+                    "model": "openai/gpt-5-mini",
+                },
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    selected = next(
+        choice for choice in _choices(response.json()) if choice["is_current"]
+    )
+    assert selected["status"] == "ready"
+    assert selected["resolved_target"]["target_id"] == "remote-api:openai"
+    assert selected["execution_route"]["kind"] == "local_key"
+    assert "composition-owned-key" not in response.text
 
 
 def test_expired_connection_projects_reconnect_for_known_cloud_route(

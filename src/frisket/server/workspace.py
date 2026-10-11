@@ -591,6 +591,8 @@ class Workspace:
         composition, effective_router = self._base_execution_composition_for(
             project, router, context
         )
+        if not self._uses_open_execution_composition:
+            return composition
         return self._cloud_execution_composition_overlay(
             composition,
             project,
@@ -617,6 +619,9 @@ class Workspace:
             profile = self._cloud_connection_store.load()
         except CloudConnectionStoreError:
             return composition, None
+        if not self._uses_open_execution_composition:
+            connection = profile.connection
+            return composition, (connection.session if connection is not None else None)
         composition = self._cloud_execution_composition_overlay(
             composition,
             project,
