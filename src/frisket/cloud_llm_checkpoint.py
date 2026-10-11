@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
 from typing import Any
 
 from frisket.cloud_execution import (
@@ -19,6 +18,7 @@ from frisket.contracts.http.cloud_connection import (
     CloudLLMRequest,
 )
 from frisket.engine.store.effect_checkpoints import (
+    EffectCheckpointRef,
     EffectCheckpointStore,
     canonical_json,
 )
@@ -27,15 +27,7 @@ _FAMILY = "model_call"
 _SCHEMA = "frisket.cloud_llm_checkpoint.v1"
 
 
-@dataclass(frozen=True, slots=True)
-class CloudLLMCheckpointRef:
-    """Exact returned child checkpoint awaiting its owner's durable commit."""
-
-    checkpoint_id: str
-    group_key: str
-    unit_key: str
-    action_kind: str
-    identity: str
+CloudLLMCheckpointRef = EffectCheckpointRef
 
 
 class CloudLLMCheckpointCoordinator:
@@ -82,10 +74,17 @@ class CloudLLMCheckpointCoordinator:
         self.claim_token = claim_token
         self.claimless_direct_effect = claimless_direct_effect
         self._returned: dict[str, CloudLLMCheckpointRef] = {}
+        self._accounting: dict[str, dict[str, Any]] = {}
 
     @property
     def returned_checkpoints(self) -> tuple[CloudLLMCheckpointRef, ...]:
         return tuple(self._returned.values())
+
+    @property
+    def returned_accounting(self) -> tuple[dict[str, Any], ...]:
+        """Receipt-derived facts for every returned child, keyed for dedup."""
+
+        return tuple(self._accounting.values())
 
     async def execute(
         self, request: CloudLLMRequest
@@ -153,7 +152,7 @@ class CloudLLMCheckpointCoordinator:
         )
         if not created and row["state"] == "returned":
             response = self._response(row)
-            self._remember(checkpoint_id, unit_key, identity)
+            self._remember(checkpoint_id, unit_key, identity, attempt, response)
             return attempt, response
         if row["state"] != "reserved":
             raise CloudExecutionRefused(
@@ -178,7 +177,7 @@ class CloudLLMCheckpointCoordinator:
             claim_token=self.claim_token,
             claimless_direct_effect=self.claimless_direct_effect,
         )
-        self._remember(checkpoint_id, unit_key, identity)
+        self._remember(checkpoint_id, unit_key, identity, attempt, response)
         return attempt, response
 
     def retire_returned(self) -> None:
@@ -199,6 +198,7 @@ class CloudLLMCheckpointCoordinator:
                 claimless_direct_effect=self.claimless_direct_effect,
             )
             self._returned.pop(ref.checkpoint_id, None)
+            self._accounting.pop(ref.checkpoint_id, None)
 
     def _remaining_authority(
         self, store: EffectCheckpointStore, unit_key: str
@@ -272,13 +272,23 @@ class CloudLLMCheckpointCoordinator:
                 "Cloud LLM checkpoint response is incomplete or corrupt",
             ) from exc
 
-    def _remember(self, checkpoint_id: str, unit_key: str, identity: str) -> None:
+    def _remember(
+        self,
+        checkpoint_id: str,
+        unit_key: str,
+        identity: str,
+        attempt: CloudExecutionAttempt,
+        response: CloudExecutionResponse,
+    ) -> None:
         self._returned[checkpoint_id] = CloudLLMCheckpointRef(
             checkpoint_id=checkpoint_id,
             group_key=self.group_key,
             unit_key=unit_key,
             action_kind=self.action_kind,
             identity=identity,
+        )
+        self._accounting[checkpoint_id] = cloud_execution_accounting(
+            attempt, response, capability="llm.complete"
         )
 
 

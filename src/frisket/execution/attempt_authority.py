@@ -489,17 +489,28 @@ class AttemptAuthority:
         receipt_id: str | None = None,
     ) -> RoutedAdmission | UnroutedAdmission:
         from frisket.ops.base import RecipeInvocationHalt
+        from frisket.engine.store.execution_routes import RouteStore
 
-        if not recipe.consumes_resolution:
-            from frisket.engine.store.execution_routes import (
-                RouteStore,
-            )
+        store = (
+            RouteStore.for_receipt(self.project, receipt_id)
+            if receipt_id is not None
+            else RouteStore.for_run(self.project, run_id)
+        )
+        try:
+            persisted_head = store.head()
+        except Exception as exc:  # noqa: BLE001 — normalized durable failure
+            from frisket.engine.store.execution_routes import RouteStoreError
 
-            store = (
-                RouteStore.for_receipt(self.project, receipt_id)
-                if receipt_id is not None
-                else RouteStore.for_run(self.project, run_id)
-            )
+            if not isinstance(exc, (RouteStoreError, ValueError, KeyError, TypeError)):
+                raise
+            raise ExecutionRouteVerificationFailed(
+                "consent_missing",
+                "this run's execution-route verification could not complete "
+                f"({type(exc).__name__}: {exc}); consent that cannot be "
+                "verified authorizes nothing — re-run the action to record a "
+                "current execution route",
+            ) from exc
+        if not recipe.consumes_resolution and persisted_head is None:
             consents = store.consents()
             if not consents:
                 return UnroutedAdmission()
@@ -645,6 +656,7 @@ class AttemptAuthority:
                 prepared_binding=prepared_binding,
                 prepared_work_scope=prepared_work_scope,
                 receipt_id=receipt_id,
+                persisted_head=persisted_head,
             )
         except (ExecutionRouteVerificationFailed, RecipeInvocationHalt):
             raise
@@ -794,6 +806,7 @@ def admit_routed(
     prepared_work_scope: Mapping[str, Any] | None = None,
     receipt_id: str | None = None,
     consent_coverage: ConsentCoverage | None = None,
+    persisted_head: Any = ...,
 ) -> RoutedAdmission:
     """Claim-time admission for one routed project run.
 
@@ -853,7 +866,7 @@ def admit_routed(
         if receipt_id is not None
         else RouteStore.for_run(project, run_id)
     )
-    head = store.head()
+    head = store.head() if persisted_head is ... else persisted_head
     if head is None:
         raise ExecutionRouteVerificationFailed(
             "consent_missing",

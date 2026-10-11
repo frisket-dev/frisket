@@ -41,6 +41,7 @@ import json
 import sqlite3
 from collections.abc import Callable
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, ClassVar
 
@@ -51,6 +52,17 @@ from .value_codec import repair_unicode_value
 # attestation of a human decision — never a provider response, result, or
 # cost — and is the one consumed payload the operator may later reverse.
 OPERATOR_RESOLUTION_SCHEMA_VERSION = "frisket.effect_checkpoint_operator_resolution.v1"
+
+
+@dataclass(frozen=True, slots=True)
+class EffectCheckpointRef:
+    """The exact logical coordinates needed to retire a returned checkpoint."""
+
+    checkpoint_id: str
+    group_key: str
+    unit_key: str
+    action_kind: str
+    identity: str
 
 
 def is_operator_attestation(payload: Any) -> bool:

@@ -16,6 +16,7 @@ import asyncio
 import hashlib
 import json
 from collections.abc import Mapping
+from contextlib import nullcontext
 from dataclasses import dataclass, field, replace
 from typing import Any, Callable
 
@@ -23,10 +24,13 @@ from frisket.ai.llm import ModelRouter
 from frisket.cloud_execution import (
     CloudExecutionAttempt,
     CloudExecutionTransportProvider,
+    CloudLLMExecutionBinding,
     CloudMediaExecutionBinding,
     CloudPayerSubject,
+    cloud_llm_execution_scope,
     cloud_quote_authority_for_row,
 )
+from frisket.cloud_llm_checkpoint import CloudLLMCheckpointCoordinator
 from frisket.execution.consent_coverage import (
     ConsentCoverage,
     effective_consent_coverage,
@@ -108,6 +112,7 @@ from frisket.execution.attempt_authority import (
     DependentChoiceRefusal,
 )
 from frisket.execution.resolver import CandidateBinding
+from frisket.execution.runtime_binding import bind_fact_to_route
 from frisket.execution.pricing_policy import PricingPolicy, default_pricing_policy
 from frisket.execution.provider import (
     ExecutionComposition,
@@ -434,6 +439,7 @@ class MapRunner:
         if resume_run_id is None and (
             validated.recipe.atomic_output_columns
             or validated.recipe.consumes_resolution
+            or validated.resolved_execution is not None
         ):
             # A fresh atomic family is one lifecycle unit: output columns, op,
             # undo provenance, run row/scope, and the initial live pointer must
@@ -589,7 +595,7 @@ class MapRunner:
             commit=False,
             prepared_binding=prepared_binding,
         )
-        if prepared.recipe.consumes_resolution and not isinstance(
+        if prepared.resolution_bound and not isinstance(
             attempt.admission,
             RoutedAdmission,
         ):
@@ -895,7 +901,7 @@ class MapRunner:
                                 output_column_ids,
                             ),
                         )
-                if recipe.consumes_resolution and not isinstance(
+                if prepared.resolution_bound and not isinstance(
                     attempt.admission, RoutedAdmission
                 ):
                     raise DependentChoiceRefusal(
@@ -1289,6 +1295,7 @@ class MapRunner:
             checkpoint_created = False
             checkpoint_should_complete = False
             recovered_response = False
+            cloud_llm_coordinator: CloudLLMCheckpointCoordinator | None = None
             results: dict[str, dict[str, Any]]
             cloud_payer = (
                 attempt.routed.binding.facts.cloud_payer
@@ -1435,45 +1442,79 @@ class MapRunner:
                         cloud_transport = provider.cloud_execution_transport(target_id)
                         snapshot = attempt.routed.route.target_snapshot
                         capability = snapshot.get("capability")
-                        if (
-                            cloud_transport is None
-                            or snapshot.get("transport") != "frisket.cloud.media.v1"
-                            or capability
-                            not in {"ocr", "transcribe", "document.convert"}
-                        ):
+                        if cloud_transport is None:
                             raise RecipeInvocationHalt(
                                 "promise_violation",
-                                "Cloud media execution differs from its admitted route",
+                                "Cloud execution transport is unavailable",
                             )
-                        cloud_attempt = CloudExecutionAttempt(
-                            request_id=checkpoint_id,
-                            payer=cloud_payer,
-                            quote_authority=cloud_quote_authority_for_row(
-                                attempt.cost_basis, row_id=row_id
-                            ),
+                        quote_authority = cloud_quote_authority_for_row(
+                            attempt.cost_basis, row_id=row_id
                         )
-                        row_ctx = replace(
-                            ctx,
-                            cloud_execution=CloudMediaExecutionBinding(
+                        transport_kind = snapshot.get("transport")
+                        if (
+                            transport_kind == "frisket.cloud.media.v1"
+                            and capability
+                            in {
+                                "ocr",
+                                "transcribe",
+                                "document.convert",
+                            }
+                        ):
+                            cloud_attempt = CloudExecutionAttempt(
+                                request_id=checkpoint_id,
+                                payer=cloud_payer,
+                                quote_authority=quote_authority,
+                            )
+                            row_ctx = replace(
+                                ctx,
+                                cloud_execution=CloudMediaExecutionBinding(
+                                    cloud_transport,
+                                    cloud_attempt,
+                                    capability,
+                                ),
+                            )
+                        elif (
+                            transport_kind == "frisket.cloud.llm.v1"
+                            and capability == "llm.complete"
+                        ):
+                            cloud_llm_coordinator = CloudLLMCheckpointCoordinator(
+                                self.project,
                                 cloud_transport,
-                                cloud_attempt,
-                                capability,
-                            ),
+                                payer=cloud_payer,
+                                quote_authority=quote_authority,
+                                group_key=f"map:{run_id}:row:{row_id}",
+                                action_kind=spec["action_kind"],
+                                run_id=run_id,
+                                writer_attempt_id=attempt.attempt_id,
+                                claim_token=claim_token,
+                                claimless_direct_effect=self.claimless_direct_effect,
+                            )
+                        else:
+                            raise RecipeInvocationHalt(
+                                "promise_violation",
+                                "Cloud execution differs from its admitted route",
+                            )
+                    with (
+                        cloud_llm_execution_scope(
+                            CloudLLMExecutionBinding(coordinator=cloud_llm_coordinator)
                         )
-                    results = await execute_row(
-                        self.project,
-                        self.router,
-                        self._throttle,
-                        recipe,
-                        values,
-                        spec,
-                        row_ctx,
-                        row_id=row_id,
-                        recorder=recorder,
-                        output_field_names=tuple(out_cols),
-                        required_output_field_names=required_output_field_names,
-                        managed_publication=True,
-                    )
+                        if cloud_llm_coordinator is not None
+                        else nullcontext()
+                    ):
+                        results = await execute_row(
+                            self.project,
+                            self.router,
+                            self._throttle,
+                            recipe,
+                            values,
+                            spec,
+                            row_ctx,
+                            row_id=row_id,
+                            recorder=recorder,
+                            output_field_names=tuple(out_cols),
+                            required_output_field_names=required_output_field_names,
+                            managed_publication=True,
+                        )
                 except NetworkDisabled:
                     if checkpoint_created:
                         assert checkpoint_id is not None
@@ -1523,6 +1564,27 @@ class MapRunner:
                 if checkpoint_should_complete:
                     assert checkpoint_id is not None
                     assert checkpoint_identity is not None
+                    supplemental_accounting: tuple[dict[str, Any], ...] = ()
+                    if cloud_llm_coordinator is not None:
+                        if attempt is None or attempt.routed is None:
+                            raise RecipeInvocationHalt(
+                                "promise_violation",
+                                "Cloud LLM accounting lost its admitted route",
+                            )
+                        accounting_call_ids = {
+                            str(call.get("id"))
+                            for entry in cloud_llm_coordinator.returned_accounting
+                            for call in entry.get("model_calls", ())
+                            if isinstance(call, dict) and call.get("id")
+                        }
+                        for result in results.values():
+                            result["model_calls"] = [
+                                bind_fact_to_route(attempt.routed.route, call)
+                                if isinstance(call, dict)
+                                and str(call.get("id")) in accounting_call_ids
+                                else call
+                                for call in result.get("model_calls", ())
+                            ]
                     returned_batch = [
                         {
                             "row_id": row_id,
@@ -1533,6 +1595,32 @@ class MapRunner:
                         if fname in out_cols
                     ]
                     replay_response = _accounted_replay_response(results)
+                    if cloud_llm_coordinator is not None:
+                        returned_call_ids = {
+                            str(call.get("id"))
+                            for result in returned_batch
+                            for call in result.get("model_calls", ())
+                            if isinstance(call, dict) and call.get("id")
+                        }
+                        missing_accounting: list[dict[str, Any]] = []
+                        for entry in cloud_llm_coordinator.returned_accounting:
+                            calls = [
+                                bind_fact_to_route(attempt.routed.route, call)
+                                for call in entry.get("model_calls", ())
+                                if str(call.get("id")) not in returned_call_ids
+                            ]
+                            if calls:
+                                missing_accounting.append(
+                                    {
+                                        "row_id": row_id,
+                                        "column_id": next(
+                                            iter(out_cols.values()), None
+                                        ),
+                                        **entry,
+                                        "model_calls": calls,
+                                    }
+                                )
+                        supplemental_accounting = tuple(missing_accounting)
                     progress.cost += self.run_store.complete_row_effect_checkpoint(
                         checkpoint_id,
                         run_id=run_id,
@@ -1541,6 +1629,12 @@ class MapRunner:
                         identity=checkpoint_identity,
                         batch=returned_batch,
                         replay_response=replay_response,
+                        child_checkpoints=(
+                            cloud_llm_coordinator.returned_checkpoints
+                            if cloud_llm_coordinator is not None
+                            else ()
+                        ),
+                        supplemental_accounting=supplemental_accounting,
                         writer_attempt_id=(
                             attempt.attempt_id if attempt is not None else None
                         ),

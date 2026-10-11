@@ -1338,7 +1338,7 @@ def validate_spec(
                 )
                 if requires_confirmation and cost_gate is not None:
                     raise cost_gate
-                if not recipe.consumes_resolution:
+                if resolved_execution is None:
                     unrouted_confirmation_hash = context_hash
                     consent_basis = (
                         CONSENT_BASIS_CONFIRMED
@@ -1369,11 +1369,10 @@ def validate_spec(
             consent_coverage=consent_coverage,
         )
         backfill_est = backfill_result.presentation
-        if recipe.consumes_resolution:
-            if isinstance(resume_outcome, ResolvedExecution):
-                if backfill_result.bound_resolution is None:
-                    raise RuntimeError("routed estimate did not bind its consent quote")
-                resume_outcome = backfill_result.bound_resolution
+        if isinstance(resume_outcome, ResolvedExecution):
+            if backfill_result.bound_resolution is None:
+                raise RuntimeError("routed estimate did not bind its consent quote")
+            resume_outcome = backfill_result.bound_resolution
             claims_payload = backfill_est.get("claims")
             if claims_payload:
                 set_hash = backfill_est.get("promise_set_hash")
@@ -1453,7 +1452,10 @@ def validate_spec(
                     )
                     if requires_confirmation and cost_gate is not None:
                         raise cost_gate
-                if not recipe.consumes_resolution and not queued_resume:
+                if (
+                    not isinstance(resume_outcome, ResolvedExecution)
+                    and not queued_resume
+                ):
                     unrouted_confirmation_hash = context_hash
                     consent_basis = (
                         CONSENT_BASIS_CONFIRMED
@@ -1486,7 +1488,12 @@ def validate_spec(
     live_provider_effect = provider and (
         not recipe_is_llm or not model_call_cannot_go_live(router)
     )
-    if live_provider_effect:
+    cloud_payer = (
+        resolved_execution.resolution.facts.cloud_payer
+        if resolved_execution is not None
+        else None
+    )
+    if live_provider_effect and cloud_payer is None:
         # Spend caps read durable project state and fail closed before key
         # remediation; a replay cache does not prove every row will hit.
         assert_provider_spend_cap(project, provider)

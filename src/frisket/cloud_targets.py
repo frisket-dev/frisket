@@ -363,17 +363,46 @@ def _offering(
     account: CloudAccount,
 ) -> CommercialOffering | None:
     price = route.price
+    billing = (
+        f"{account.name} provider account"
+        if route.lane == "account_key"
+        else f"{account.name} Cloud credits"
+    )
+    if capability == CAPABILITY_LLM and isinstance(price, CloudTokenPrice):
+        return CommercialOffering(
+            match=CommercialOfferingMatch(
+                target_id=target_id,
+                capability=capability,
+                engine=route.engine,
+            ),
+            quote=CommercialQuoteTerms(
+                pricing_key=(
+                    f"frisket-cloud:{account.id}:{route.lane}:"
+                    f"{route.provider}:{capability}:{route.engine}"
+                ),
+                terms_version=route.route_revision,
+                unit_rate="1",
+                quantity_unit="usd",
+                rounding=CommercialQuoteRounding(mode="exact", decimal_places=None),
+            ),
+            settlement=CommercialSettlementTerms(
+                meter_key="cloud_effective_cost_micro",
+                meter_units_per_quantity_unit="1000000",
+                ceiling_mode="consented_quantity",
+                row_settlement_mode="quoted_successful_rows",
+            ),
+            charge_authority="frisket_cloud_receipt",
+            presentation=CommercialPresentation(
+                venue_label="Frisket Cloud",
+                billing_label=billing,
+            ),
+        )
     if not isinstance(price, CloudUnitPrice):
         return None
     expected_unit = "audio_second" if capability == CAPABILITY_TRANSCRIBE else "page"
     if price.unit != expected_unit:
         raise ValueError("Cloud route price unit does not match its capability")
     rate = Decimal(price.micro_per_unit) / Decimal(1_000_000)
-    billing = (
-        f"{account.name} provider account"
-        if route.lane == "account_key"
-        else f"{account.name} Cloud credits"
-    )
     return CommercialOffering(
         match=CommercialOfferingMatch(
             target_id=target_id,
