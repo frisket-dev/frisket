@@ -149,6 +149,14 @@ _ROW_EFFECT_IDENTITY_IGNORED_SPEC_KEYS = frozenset(
         "consented_promise_set_hash",
         "halted_code",
         "halted_reason",
+        # Selection is represented exactly by run_id + row_id.  A backfill may
+        # spell its delta differently while asking the same row operation.
+        "row_ids",
+    }
+)
+_CLOUD_ROW_EFFECT_IDENTITY_IGNORED_SPEC_KEYS = (
+    _ROW_EFFECT_IDENTITY_IGNORED_SPEC_KEYS
+    | {
         # Output-generation preconditions change from absent to the columns
         # created by a failed first run. They fence local publication, not the
         # provider request, so an exact lost-response retry must retain its
@@ -159,9 +167,6 @@ _ROW_EFFECT_IDENTITY_IGNORED_SPEC_KEYS = frozenset(
         "expected_output_columns",
         "replace_existing",
         "overwrite",
-        # Selection is represented exactly by run_id + row_id.  A backfill may
-        # spell its delta differently while asking the same row operation.
-        "row_ids",
     }
 )
 
@@ -191,12 +196,17 @@ def _row_effect_identity(
         ).hexdigest()
     )
     if cloud_payer is None:
+        semantic_spec = {
+            str(key): value
+            for key, value in spec.items()
+            if key not in _ROW_EFFECT_IDENTITY_IGNORED_SPEC_KEYS
+        }
         identity_payload = {
             "schema_version": "frisket.map_row_effect_identity.v1",
             **logical,
             "action_kind": spec["action_kind"],
             "action_version": recipe.version,
-            "spec": spec,
+            "spec": semantic_spec,
             "values": values,
             "output_columns": sorted(
                 (str(name), int(column_id)) for name, column_id in out_cols.items()
@@ -206,7 +216,7 @@ def _row_effect_identity(
         semantic_spec = {
             str(key): value
             for key, value in spec.items()
-            if key not in _ROW_EFFECT_IDENTITY_IGNORED_SPEC_KEYS
+            if key not in _CLOUD_ROW_EFFECT_IDENTITY_IGNORED_SPEC_KEYS
         }
         identity_payload = {
             "schema_version": "frisket.cloud_map_row_effect_identity.v1",
