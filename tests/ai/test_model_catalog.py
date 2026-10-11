@@ -23,6 +23,20 @@ from frisket.ai.llm.types import LLMRequest
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_every_curated_model_declares_vision_capability() -> None:
+    entries = {
+        f"{provider}/{entry['id']}": entry
+        for provider, provider_entries in MODEL_ENTRIES.items()
+        for entry in provider_entries
+    }
+
+    assert all(type(entry.get("vision")) is bool for entry in entries.values())
+    assert {model_id for model_id, entry in entries.items() if not entry["vision"]} == {
+        "openrouter/qwen/qwen3-8b",
+        "ollama/qwen3:8b",
+    }
+
+
 def test_current_frontier_families_are_available_and_priced() -> None:
     expected = {
         "anthropic": {"claude-sonnet-5", "claude-fable-5"},
