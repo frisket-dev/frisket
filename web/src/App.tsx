@@ -14,6 +14,7 @@ import {
   type RefObject,
   type ReactNode,
 } from 'react';
+import { resumePendingDeviceApproval } from './components/authReturnTo';
 import { PanelSelect } from './components/PanelSelect';
 import { MenuPop } from './components/MenuPop';
 import { toWireJsonObject } from './api/viewsLenses';
@@ -305,6 +306,12 @@ export default function App() {
 
   const { identityMode, me, resolved: identityResolved } = useShellIdentity();
   const needsSignIn = identityMode && identityResolved && me === null;
+
+  useEffect(() => {
+    if (!identityMode || !identityResolved || !me) return;
+    const target = resumePendingDeviceApproval(window.location);
+    if (target) window.location.replace(target);
+  }, [identityMode, identityResolved, me]);
 
   if (activeRoute?.access === 'public') {
     if (ActiveRouteComponent) return lazyPage(<ActiveRouteComponent />);

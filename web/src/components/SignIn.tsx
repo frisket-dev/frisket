@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { KeyRound, Mail } from 'lucide-react';
 import { getRuntimeConfig, type RuntimeConfig } from '../api/open';
-import { oidcSignInUrl } from '../api/raw/browserAuth';
+import { continueAfterBrowserSignIn, oidcSignInUrl } from '../api/raw/browserAuth';
 import {
   completeMagicLink,
   completeProjectInvite,
@@ -12,6 +12,7 @@ import { useInstanceIdentity } from '../instanceIdentity';
 import { useEditionModule } from '../editions/module';
 import { AuthForm, AuthScreen } from './AuthScreen';
 import styles from './SignIn.module.css';
+import { authReturnTo, rememberPendingDeviceApproval } from './authReturnTo';
 
 export function SignIn() {
   const { routes } = useEditionModule();
@@ -24,6 +25,7 @@ export function SignIn() {
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [returnTo] = useState(() => authReturnTo(window.location));
   const magicEmailRef = useRef<HTMLInputElement>(null);
   const [invitedArrival] = useState(
     () => new URLSearchParams(window.location.search).get('invited') === '1',
@@ -39,6 +41,10 @@ export function SignIn() {
   const discoverableRoutes = routes.filter(
     (route) => route.discoverableFrom === 'sign-in',
   );
+
+  useEffect(() => {
+    rememberPendingDeviceApproval(returnTo);
+  }, [returnTo]);
 
   useEffect(() => {
     if (!invitedArrival) return;
@@ -66,7 +72,7 @@ export function SignIn() {
     setError(null);
     try {
       await signInWithPassword(email, password);
-      window.location.assign('/');
+      continueAfterBrowserSignIn(returnTo);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
@@ -104,7 +110,7 @@ export function SignIn() {
       } else {
         await completeProjectInvite(firstUse.token, password);
       }
-      window.location.assign('/');
+      continueAfterBrowserSignIn(returnTo);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
@@ -167,7 +173,7 @@ export function SignIn() {
         {methods?.oidc.map((provider) => (
           <a
             className={`btn ${styles.control}`}
-            href={oidcSignInUrl(provider.id)}
+            href={oidcSignInUrl(provider.id, returnTo)}
             key={provider.id}
             data-testid={`sign-in-oidc-${provider.id}`}
           >

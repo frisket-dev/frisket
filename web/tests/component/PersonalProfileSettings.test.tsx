@@ -52,6 +52,18 @@ afterEach(() => {
 });
 
 describe('personal profile pre-approval settings', () => {
+  it('renders the edition profile contribution after the built-in form', async () => {
+    (getMe as Mock).mockResolvedValue(profile());
+    (getRuntimeConfig as Mock).mockResolvedValue(runtimeConfig());
+    render(<PersonalProfileSettings identityMode PersonalProfileSlot={() => (
+      <section data-testid="profile-slot">Connected devices</section>
+    )} />);
+
+    const slot = await screen.findByTestId('profile-slot');
+    expect(slot).toHaveTextContent('Connected devices');
+    expect(screen.getByTestId('personal-profile-settings').lastElementChild).toBe(slot);
+  });
+
   it('patches only the edited name, retaining an unanswered pre-approval amount', async () => {
     (getMe as Mock).mockResolvedValue(profile());
     (getRuntimeConfig as Mock).mockResolvedValue(runtimeConfig());

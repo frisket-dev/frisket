@@ -1,5 +1,6 @@
 import {
   type FormEvent,
+  type ComponentType,
   type ReactNode,
   useCallback,
   useEffect,
@@ -100,6 +101,7 @@ import {
   type WorkbenchPluginRuntimeIndex,
   type WorkbenchPluginSettings,
 } from '../api/open';
+import type { PersonalProfileSlotProps } from '../editions/module';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import {
   canEditProject,
@@ -126,6 +128,13 @@ import {
   type Preferences,
 } from './preferences';
 import { readSettingsProjectContext } from './settingsProjectContext';
+import { CloudProfileSettings } from '../cloud/CloudProfileSettings';
+import { ProjectCloudRoutingSettings } from '../cloud/ProjectCloudRoutingSettings';
+import {
+  cloudConnectionApi,
+  cloudConnectionPreferencesApi,
+  projectCloudRoutingApi,
+} from '../api/cloudConnection';
 import { fetchDiagnostics, type DiagnosticsReport } from '../api/diagnostics';
 import {
   sendProductTelemetry,
@@ -331,7 +340,13 @@ function ReadOnlyNotice({ children }: { children: ReactNode }) {
   return <div className="settings-readonly-note">{children}</div>;
 }
 
-export function PersonalProfileSettings({ identityMode }: { identityMode: boolean }) {
+export function PersonalProfileSettings({
+  identityMode,
+  PersonalProfileSlot,
+}: {
+  identityMode: boolean;
+  PersonalProfileSlot?: ComponentType<PersonalProfileSlotProps>;
+}) {
   const { data: me, error, loading, setData } = useLoader<MeInfo>(
     async () => {
       try {
@@ -446,7 +461,7 @@ export function PersonalProfileSettings({ identityMode }: { identityMode: boolea
           <button className="btn btn-primary" type="submit" disabled={busy || localRuntimeLoading}>
             <Save size={14} /> Save
           </button>
-          <button
+          {identityMode && <button
             className="btn"
             type="button"
             data-testid="personal-sign-out"
@@ -455,9 +470,12 @@ export function PersonalProfileSettings({ identityMode }: { identityMode: boolea
             }}
           >
             Sign out
-          </button>
+          </button>}
         </div>
       </form>
+      {!identityMode && <CloudProfileSettings connectionClient={cloudConnectionApi}
+        preferencesClient={cloudConnectionPreferencesApi} />}
+      {PersonalProfileSlot && <PersonalProfileSlot />}
     </div>
   );
 }
@@ -1734,7 +1752,13 @@ function ProjectAccessSettings({ project, identityMode }: { project?: ProjectInf
 // sections above: the money cells (cap, spent, unset) are the surface the
 // sub-cent formatter exists for, and asserting them through the full
 // SettingsSectionRenderer would test the router instead.
-export function ProjectAiProvidersSettings({ project }: { project?: ProjectInfo | null }) {
+export function ProjectAiProvidersSettings({
+  project,
+  cloudConnectionAvailable = false,
+}: {
+  project?: ProjectInfo | null;
+  cloudConnectionAvailable?: boolean;
+}) {
   const { projectApi: api } = useWorkspaceStores();
   const keys = useLoader<ProjectProviderKeys>(() => api.getProjectProviderKeys());
   const [adding, setAdding] = useState(false);
@@ -1759,6 +1783,9 @@ export function ProjectAiProvidersSettings({ project }: { project?: ProjectInfo 
   };
   return (
     <div className="settings-stack" data-testid="project-ai-providers-settings">
+      {cloudConnectionAvailable && project?.id && <ProjectCloudRoutingSettings
+        projectId={project.id} connectionClient={cloudConnectionApi}
+        routingClient={projectCloudRoutingApi} />}
       <InlineStatus error={keys.error ?? mutationError} loading={keys.loading} notice={notice} />
       {!canMutate && (
         <ReadOnlyNotice>
@@ -3277,16 +3304,19 @@ export function SettingsSectionRenderer({
   definition,
   project,
   identityMode,
+  PersonalProfileSlot,
 }: {
   definition: OpenSettingsSectionDefinition;
   route: SettingsRoute;
   project?: ProjectInfo | null;
   identityMode: boolean;
+  PersonalProfileSlot?: ComponentType<PersonalProfileSlotProps>;
 }) {
   const body = (() => {
     switch (definition.component) {
       case 'personal.profile':
-        return <PersonalProfileSettings identityMode={identityMode} />;
+        return <PersonalProfileSettings identityMode={identityMode}
+          PersonalProfileSlot={PersonalProfileSlot} />;
       case 'personal.preferences':
         return <PersonalPreferencesSettings />;
       case 'personal.privacy':
@@ -3312,7 +3342,8 @@ export function SettingsSectionRenderer({
       case 'project.access':
         return <ProjectAccessSettings project={project} identityMode={identityMode} />;
       case 'project.aiProviders':
-        return <ProjectAiProvidersSettings project={project} />;
+        return <ProjectAiProvidersSettings project={project}
+          cloudConnectionAvailable={!identityMode} />;
       case 'project.secrets':
         return <ProjectSecretsSettings project={project} />;
       case 'project.mcpServers':

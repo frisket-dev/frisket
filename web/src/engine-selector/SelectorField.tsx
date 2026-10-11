@@ -46,6 +46,7 @@ function displayFact(choice: SelectorChoice): EngineSelectorChoice['facts'] {
 }
 
 function hasActionableCredentialSetup(choice: SelectorChoice): boolean {
+  if (choice.setup?.kind === 'cloud') return true;
   if (choice.setup?.kind === 'api_key') {
     return choice.setup.scopes.some((scope) => scope.scope === 'project' && scope.can_mutate);
   }
@@ -72,6 +73,15 @@ function displayChoice(choice: SelectorChoice): EngineSelectorChoice {
     summary: choice.summary || undefined,
     description: choice.description || undefined,
     facts: displayFact(choice),
+    route: choice.execution_route ? {
+      label: choice.execution_route.label,
+      billedTo: choice.execution_route.billed_to ?? undefined,
+      sendsDataTo: choice.execution_route.sends_data_to ?? undefined,
+      balanceLabel: choice.execution_route.balance_label ?? undefined,
+      balanceUrl: choice.execution_route.balance_url ?? undefined,
+      settingsUrl: choice.execution_route.settings_url ?? undefined,
+      hasAlternativeRoute: choice.execution_route.has_alternative_route,
+    } : undefined,
     destination: choice.processing_destination.label,
     modelCardUrl: choice.model_card_url ?? undefined,
     status: choice.status,

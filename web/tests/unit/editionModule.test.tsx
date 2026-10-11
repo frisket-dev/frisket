@@ -63,6 +63,12 @@ describe('immutable edition module', () => {
     expect(Object.isFrozen(edition.routes)).toBe(true);
   });
 
+  it('preserves the optional personal Profile contribution', () => {
+    const PersonalProfileSlot = () => <div>Connected devices</div>;
+    const edition = defineEditionModule({ descriptor, PersonalProfileSlot });
+    expect(edition.PersonalProfileSlot).toBe(PersonalProfileSlot);
+  });
+
   it('resolves walkthroughs once into the immutable module', () => {
     const guide: WalkthroughDefinition = {
       id: 'extension-guide',

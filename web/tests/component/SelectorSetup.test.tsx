@@ -43,6 +43,46 @@ function pull(overrides: Partial<ModelPullDto> = {}): ModelPullDto {
 }
 
 describe('SelectorSetup', () => {
+  it('shows Cloud first and reuses the validated project-key card as the local alternative', async () => {
+    request.mockImplementation((operation: string) => {
+      if (operation === 'tenant.get_cloud_connection.get') return Promise.resolve({
+        state: 'disconnected', identity: null, accounts: [], expires_at: null,
+        capabilities: { can_connect: true, can_reconnect: false, can_disconnect: false },
+      });
+      return Promise.reject(new Error(`Unexpected operation ${operation}`));
+    });
+    render(<SelectorSetup projectId="a" choice={choice({
+      kind: 'cloud', state: 'connect', account_id: null, account_name: null,
+      add_credits_url: null, balance_url: null, project_settings_url: null,
+      local_key: { kind: 'api_key', provider: 'gemini', scopes: [scope('project')] },
+    })} onChanged={vi.fn()} onEditingChange={vi.fn()} />);
+
+    expect(await screen.findByRole('heading', { name: 'Connect Frisket Cloud' })).toBeVisible();
+    expect(screen.getByText('Each person gets $5 of free Frisket credit every month.')).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Or use your own Google key' })).toBeVisible();
+    expect(screen.getByLabelText('API key')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Disconnect' })).not.toBeInTheDocument();
+  });
+
+  it('hard-stops an exhausted Cloud route with account-scoped remediation', () => {
+    render(<SelectorSetup projectId="a" choice={choice({
+      kind: 'cloud', state: 'out_of_credits', account_id: 11, account_name: 'Riverton News',
+      add_credits_url: 'https://app.frisket.dev/accounts/11/credits',
+      balance_url: 'https://app.frisket.dev/accounts/11',
+      project_settings_url: '/p/a/settings/project/ai-providers', local_key: null,
+    })} onChanged={vi.fn()} onEditingChange={vi.fn()} />);
+
+    expect(screen.getByText('Riverton News is out of Frisket credits')).toBeVisible();
+    expect(screen.getByText(/won’t switch to another key or account/)).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Add credits ↗' })).toHaveAttribute(
+      'href', 'https://app.frisket.dev/accounts/11/credits',
+    );
+    expect(screen.getByRole('link', { name: 'Project settings' })).toHaveAttribute(
+      'href', '/p/a/settings/project/ai-providers',
+    );
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it('validates then turns the compact project-key action into Save with its real receipt', async () => {
     request.mockResolvedValueOnce(accepted).mockResolvedValueOnce({});
     const changed = vi.fn();

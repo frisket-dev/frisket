@@ -1,20 +1,23 @@
 // @vitest-environment jsdom
 
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, screen, render } from '@testing-library/react';
+import { cleanup, fireEvent, screen, render, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   requestMagicLink: vi.fn(),
   signInWithPassword: vi.fn(),
   getRuntimeConfig: vi.fn(),
+  continueAfterBrowserSignIn: vi.fn(),
 }));
 
 vi.mock('../../src/api/open', () => ({
   getRuntimeConfig: mocks.getRuntimeConfig,
 }));
 vi.mock('../../src/api/raw/browserAuth', () => ({
-  oidcSignInUrl: (provider: string) => `/auth/oidc/${provider}`,
+  oidcSignInUrl: (provider: string, returnTo?: string) => `/auth/oidc/${provider}${returnTo && returnTo !== '/'
+    ? `?returnTo=${encodeURIComponent(returnTo)}` : ''}`,
+  continueAfterBrowserSignIn: mocks.continueAfterBrowserSignIn,
 }));
 vi.mock('../../src/api/browserAuth', () => ({
   requestMagicLink: mocks.requestMagicLink,
@@ -24,6 +27,7 @@ vi.mock('../../src/instanceIdentity', () => ({
   useInstanceIdentity: () => ({ display_name: 'Example operator', support_contact: null }),
 }));
 import { SignIn } from '../../src/components/SignIn';
+import { resumePendingDeviceApproval } from '../../src/components/authReturnTo';
 import {
   defineEditionModule,
   EditionModuleProvider,
@@ -34,6 +38,8 @@ import {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  window.history.replaceState({}, '', '/');
+  window.sessionStorage.clear();
 });
 
 const runtimeConfig = {
@@ -100,6 +106,44 @@ describe('SignIn edition links', () => {
     );
   });
 
+  it('returns a password sign-in to the device approval URL', async () => {
+    window.history.replaceState({}, '', '/device?user_code=KQ4F-7M2D');
+    mocks.getRuntimeConfig.mockResolvedValue(runtimeConfig);
+    mocks.signInWithPassword.mockResolvedValue(undefined);
+    renderSignIn();
+
+    fireEvent.change(await screen.findByTestId('sign-in-email'), {
+      target: { value: 'person@example.test' },
+    });
+    fireEvent.change(screen.getByTestId('sign-in-password'), {
+      target: { value: 'password' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /^Sign in$/ }));
+
+    await waitFor(() => {
+      expect(mocks.signInWithPassword).toHaveBeenCalledWith('person@example.test', 'password');
+      expect(mocks.continueAfterBrowserSignIn).toHaveBeenCalledWith(
+        '/device?user_code=KQ4F-7M2D',
+      );
+    });
+  });
+
+  it('carries the device approval URL into an OIDC start', async () => {
+    window.history.replaceState({}, '', '/device?user_code=KQ4F-7M2D');
+    mocks.getRuntimeConfig.mockResolvedValue({
+      ...runtimeConfig,
+      auth_methods: {
+        ...runtimeConfig.auth_methods,
+        oidc: [{ id: 'google', label: 'Google' }],
+      },
+    });
+    renderSignIn();
+
+    expect(await screen.findByTestId('sign-in-oidc-google')).toHaveAttribute(
+      'href', '/auth/oidc/google?returnTo=%2Fdevice%3Fuser_code%3DKQ4F-7M2D',
+    );
+  });
+
   it('moves focus to the revealed magic-link address field', async () => {
     mocks.getRuntimeConfig.mockResolvedValue(runtimeConfig);
     renderSignIn();
@@ -123,5 +167,24 @@ describe('SignIn edition links', () => {
 
     expect(mocks.requestMagicLink).toHaveBeenCalledWith('reporter@example.test');
     expect(await screen.findByTestId('sign-in-sent')).toBeVisible();
+  });
+
+  it('resumes a device approval after a magic-link callback returns to root', async () => {
+    window.history.replaceState({}, '', '/device?user_code=KQ4F-7M2D');
+    mocks.getRuntimeConfig.mockResolvedValue(runtimeConfig);
+    mocks.requestMagicLink.mockResolvedValue(undefined);
+    renderSignIn();
+
+    fireEvent.click(await screen.findByTestId('sign-in-magic-toggle'));
+    fireEvent.change(screen.getByTestId('sign-in-email'), {
+      target: { value: 'person@example.test' },
+    });
+    fireEvent.click(screen.getByTestId('sign-in-submit'));
+    expect(await screen.findByTestId('sign-in-sent')).toBeVisible();
+
+    expect(resumePendingDeviceApproval(
+      { pathname: '/', search: '' },
+      window.sessionStorage,
+    )).toBe('/device?user_code=KQ4F-7M2D');
   });
 });
