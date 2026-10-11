@@ -967,11 +967,12 @@ async def _reduce_group_summary_checkpointed_loop(
         # accounting batch charge the key exactly once.  The run id keeps it
         # unique per purchase — a later action that legitimately re-buys the
         # same content mints a distinct fact.
-        call["id"] = f"reduce_group_summary_{int(envelope['run_id'])}_" + (
-            hashlib.sha256(
-                f"{group_key}|{plan['unit_key']}|{plan['identity']}".encode("utf-8")
-            ).hexdigest()
-        )
+        if response.actual_accounting is None:
+            call["id"] = f"reduce_group_summary_{int(envelope['run_id'])}_" + (
+                hashlib.sha256(
+                    f"{group_key}|{plan['unit_key']}|{plan['identity']}".encode("utf-8")
+                ).hexdigest()
+            )
         call["run_id"] = int(envelope["run_id"])
         accounting_batch = [{"row_id": None, "column_id": None, "model_calls": [call]}]
         require_model_call_ids(accounting_batch)

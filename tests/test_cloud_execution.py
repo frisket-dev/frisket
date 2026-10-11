@@ -509,6 +509,51 @@ def test_cloud_accounting_preserves_charge_and_unknown_provider_cost():
     assert call["units"]["cloud_lane"] == "frisket_credits"
 
 
+def test_account_key_accounting_uses_provider_cost_not_zero_cloud_charge():
+    payer = replace(_payer(), lane="account_key")
+    attempt = CloudExecutionAttempt("request-1", payer, None)
+    response = _response().model_copy(
+        update={
+            "route": _response().route.model_copy(update={"lane": "account_key"}),
+            "receipt": _response().receipt.model_copy(
+                update={
+                    "lane": "account_key",
+                    "charge_micro": 0,
+                    "provider_cost_micro": 25_000,
+                }
+            ),
+        }
+    )
+
+    accounting = cloud_execution_accounting(attempt, response, capability="ocr")
+
+    assert accounting["cost"] == 0.025
+    [call] = accounting["model_calls"]
+    assert call["provider_cost_usd"] == 0.025
+    assert call["units"]["cloud_charge_micro"] == 0
+
+
+def test_account_key_accounting_keeps_unknown_provider_cost_unknown():
+    payer = replace(_payer(), lane="account_key")
+    attempt = CloudExecutionAttempt("request-1", payer, None)
+    response = _response().model_copy(
+        update={
+            "route": _response().route.model_copy(update={"lane": "account_key"}),
+            "receipt": _response().receipt.model_copy(
+                update={
+                    "lane": "account_key",
+                    "charge_micro": 0,
+                    "provider_cost_micro": None,
+                }
+            ),
+        }
+    )
+
+    accounting = cloud_execution_accounting(attempt, response, capability="ocr")
+
+    assert accounting["cost"] is None
+
+
 def test_cloud_accounting_refuses_a_changed_account():
     attempt = CloudExecutionAttempt("request-1", _payer(), None)
 

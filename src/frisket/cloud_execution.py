@@ -828,8 +828,15 @@ def cloud_execution_accounting(
         ),
         duration_ms=None,
     ).as_dict()
+    actual_cost_micro = (
+        receipt.provider_cost_micro
+        if receipt.lane == "account_key"
+        else receipt.charge_micro
+    )
     return {
-        "cost": receipt.charge_micro / 1_000_000,
+        "cost": (
+            actual_cost_micro / 1_000_000 if actual_cost_micro is not None else None
+        ),
         "cost_source": "cloud_receipt",
         "model_calls": [fact],
         "cloud_receipt": receipt.model_dump(mode="json"),

@@ -510,6 +510,42 @@ def test_structured_sum_preserves_each_authoritative_execution_receipt() -> None
     ] == [10_000, 15_000]
 
 
+def test_group_summary_uses_authoritative_cloud_execution_identity() -> None:
+    from frisket.ai.llm.types import LLMActualAccounting
+    from frisket.engine.executor.group_summary_runtime import (
+        _reduce_group_summary_model_call,
+    )
+
+    fact = {
+        "id": "cloud-execution-1",
+        "capability": "llm.complete",
+        "provider": "anthropic",
+        "units": {
+            "cloud_user_id": 7,
+            "cloud_account_id": 41,
+            "cloud_lane": "frisket_credits",
+            "cloud_charge_micro": 25_000,
+            "tokens_in": 10,
+            "tokens_out": 2,
+        },
+    }
+    response = LLMResponse(
+        content="ok",
+        data=None,
+        tokens_in=10,
+        tokens_out=2,
+        cost=0.025,
+        model="anthropic/model-a",
+        actual_accounting=LLMActualAccounting.one(
+            cost=0.025,
+            model_call=fact,
+            receipt={"charge_micro": 25_000},
+        ),
+    )
+
+    assert _reduce_group_summary_model_call("anthropic/model-a", response) == fact
+
+
 def test_replayed_response_reports_no_duration(tmp_path) -> None:
     """A cassette holds whatever the original live call took. Replaying it made
     no wire call, so re-reporting that number would be a fabricated fact — the
