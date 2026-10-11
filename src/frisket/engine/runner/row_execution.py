@@ -43,7 +43,7 @@ from frisket.engine.sandbox.shim import SandboxTeardownError
 from frisket.engine.store import Project
 from frisket.engine.store.runs import TERMINAL_FAILURE_OUTCOMES
 from frisket.execution.attempt import StaleAttemptWriter, routed_admission_in_scope
-from frisket.execution.runtime_binding import bind_fact_to_route
+from frisket.execution.runtime_binding import ROUTE_OBSERVATION_KEY, bind_fact_to_route
 from frisket.operability.trace import TraceWriter, TracingRouter
 
 # The sidecar prefix a grounded field's justification carries so
@@ -305,6 +305,8 @@ async def execute_row(
     except HostedEngineError as e:
         persist_trace(error=safe_error(e.code, e, max_chars=500).text)
         if e.accounting is not None:
+            from frisket.cloud_execution import CloudExecutionRefused
+
             admission = routed_admission_in_scope(ctx.extras)
             calls = e.accounting.get("model_calls")
             if admission is not None and calls:
@@ -315,11 +317,30 @@ async def execute_row(
                         "promise_violation",
                         "Hosted failure accounting has invalid model-call facts.",
                     ) from e
+                bound_calls = []
+                bind_unobserved = isinstance(e, CloudExecutionRefused)
+                for call in calls:
+                    observation = call.get(ROUTE_OBSERVATION_KEY)
+                    if observation is None:
+                        bound_calls.append(
+                            bind_fact_to_route(admission.route, call)
+                            if bind_unobserved
+                            else call
+                        )
+                        continue
+                    if (
+                        not isinstance(observation, dict)
+                        or observation.get("route_id") != admission.route.id
+                        or not isinstance(observation.get("observed"), dict)
+                    ):
+                        raise RecipeInvocationHalt(
+                            "promise_violation",
+                            "Hosted failure accounting differs from its admitted route.",
+                        ) from e
+                    bound_calls.append(call)
                 e.accounting = {
                     **e.accounting,
-                    "model_calls": [
-                        bind_fact_to_route(admission.route, call) for call in calls
-                    ],
+                    "model_calls": bound_calls,
                 }
         if e.provider_job_accepted or e.post_egress_ambiguous:
             # Preserve the reservation while an accepted provider job may finish.
