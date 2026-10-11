@@ -10,7 +10,10 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, cast
+from urllib.parse import quote
 
 
 from frisket.authoring.action_metadata import action_available_in_edition
@@ -45,7 +48,9 @@ from frisket.execution.resolver import (
     preferred_static_choice,
     resolve,
 )
-from frisket.execution.targets import CAPABILITY_GEOCODE
+from frisket.execution.targets import ExecutionTarget
+from frisket.execution.targets import CAPABILITY_GEOCODE, CAPABILITY_LLM
+from frisket.project_settings import read_project_settings
 from frisket.server.action_catalog_hints import (
     project_action_catalog_payload_with_launcher_hints,
 )
@@ -74,10 +79,12 @@ from frisket.server.services.selector_choices_projection import (
     _model_selection,
     _engine_selection,
     _choice,
+    _execution_route,
     _response,
     _server_labels,
     _engine_depends_on,
     _engine_destination,
+    _destination,
     _engine_facts,
     _model_facts,
     _model_target,
@@ -89,6 +96,113 @@ from frisket.server.services.selector_choices_projection import (
 
 
 _TARGET_OVERRIDE_FIELDS = frozenset({"target", "target_id", "execution_target"})
+
+
+@dataclass(frozen=True)
+class _SelectorCloudContext:
+    state: str | None
+    account_id: int | None
+    account_name: str | None
+    available_micro: int | None
+    balance_url: str | None
+    project_settings_url: str
+
+    def setup(
+        self,
+        *,
+        local_key: dict[str, Any] | None,
+        payer_lane: str | None = None,
+    ) -> dict[str, Any] | None:
+        state = self.state
+        if state is None:
+            return None
+        if state == "connected":
+            if payer_lane == "frisket_credits" and self.available_micro == 0:
+                state = "out_of_credits"
+            else:
+                return None
+        return {
+            "kind": "cloud",
+            "state": state,
+            "account_id": self.account_id,
+            "account_name": self.account_name,
+            "balance_url": self.balance_url,
+            "add_credits_url": (
+                self.balance_url if state == "out_of_credits" else None
+            ),
+            "project_settings_url": self.project_settings_url,
+            "local_key": local_key,
+        }
+
+
+def _cloud_context(
+    workspace: Workspace, project_id: str, project: Any, session: Any
+) -> _SelectorCloudContext:
+    settings = read_project_settings(project)
+    project_settings_url = (
+        f"/p/{quote(project_id, safe='')}/settings/project/ai-providers"
+    )
+    if not workspace.supports_cloud_connection():
+        return _SelectorCloudContext(None, None, None, None, None, project_settings_url)
+    if session is None:
+        return _SelectorCloudContext(
+            "connect", None, None, None, None, project_settings_url
+        )
+    try:
+        expires_at = datetime.fromisoformat(session.expires_at.replace("Z", "+00:00"))
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+        expired = expires_at.astimezone(UTC) <= datetime.now(UTC)
+    except (TypeError, ValueError):
+        expired = True
+    selected_id = (
+        settings.cloud_account_id if settings.cloud_user_id == session.user.id else None
+    )
+    account = next(
+        (candidate for candidate in session.accounts if candidate.id == selected_id),
+        None,
+    )
+    origin = workspace.cloud_connection_origin()
+    balance_url = (
+        f"{origin}/settings/billing?account_id={account.id}"
+        if origin is not None and account is not None and account.manage_billing
+        else None
+    )
+    return _SelectorCloudContext(
+        "reconnect"
+        if expired
+        else "account_required"
+        if account is None
+        else "connected",
+        selected_id,
+        account.name if account is not None else None,
+        account.available_micro if account is not None else None,
+        balance_url,
+        project_settings_url,
+    )
+
+
+def _target_for_outcome(
+    composition: ExecutionComposition, outcome: Any
+) -> ExecutionTarget | None:
+    if not isinstance(outcome, Refusal):
+        return outcome.target
+    if outcome.target_id is None:
+        return None
+    return next(
+        (
+            target
+            for target in composition.resolution_targets()
+            if target.id == outcome.target_id
+        ),
+        None,
+    )
+
+
+def _balance_label(cloud: _SelectorCloudContext) -> str | None:
+    if cloud.available_micro is None:
+        return None
+    return f"${cloud.available_micro / 1_000_000:,.2f} balance"
 
 
 def _classification_options_blocker(
@@ -174,17 +288,19 @@ class SelectorChoiceService:
             if isinstance(subject, ActionSelectorSubject)
             else self._workspace.router_for(project)
         )
-        composition = self._workspace.execution_composition_for(
+        composition, cloud_session = self._workspace.selector_execution_composition_for(
             project,
             router,
             self._workspace.edition_execution_composition_context_for(request_context),
         )
+        cloud = _cloud_context(self._workspace, project_id, project, cloud_session)
         if isinstance(subject, ActionSelectorSubject):
             payload = self._action_choices(
                 project_id,
                 project=project,
                 router=router,
                 composition=composition,
+                cloud=cloud,
                 subject=subject,
                 capabilities=capabilities,
             )
@@ -194,6 +310,7 @@ class SelectorChoiceService:
                 project=project,
                 router=router,
                 composition=composition,
+                cloud=cloud,
                 provider_catalog=self._provider_catalog(project, router),
                 subject=subject,
                 capabilities=capabilities,
@@ -234,6 +351,7 @@ class SelectorChoiceService:
         project: Any,
         router: Any,
         composition: ExecutionComposition,
+        cloud: _SelectorCloudContext,
         subject: ActionSelectorSubject,
         capabilities: SelectorCapabilities,
     ) -> dict[str, Any]:
@@ -301,6 +419,8 @@ class SelectorChoiceService:
                 project=project,
                 provider_catalog=provider_catalog,
                 capabilities=capabilities,
+                composition=composition,
+                cloud=cloud,
                 selection_kind="model",
             )
             current_selection = _model_selection(subject.params.get(subject.field))
@@ -329,6 +449,7 @@ class SelectorChoiceService:
                 has_model_field=has_model_field,
                 params=subject.params,
                 capabilities=capabilities,
+                cloud=cloud,
             )
             if subject.action_id == "enrich.geocode":
                 choices.insert(
@@ -392,16 +513,18 @@ class SelectorChoiceService:
         project: Any,
         router: Any,
         composition: ExecutionComposition,
+        cloud: _SelectorCloudContext,
         provider_catalog: dict[str, Any],
         subject: ProjectAskSelectorSubject,
         capabilities: SelectorCapabilities,
     ) -> dict[str, Any]:
-        del composition
         choices = self._model_choices(
             router=router,
             project=project,
             provider_catalog=provider_catalog,
             capabilities=capabilities,
+            composition=composition,
+            cloud=cloud,
             selection_kind="model",
         )
         return _response(
@@ -529,6 +652,8 @@ class SelectorChoiceService:
         project: Any,
         provider_catalog: dict[str, Any],
         capabilities: SelectorCapabilities,
+        composition: ExecutionComposition,
+        cloud: _SelectorCloudContext,
         selection_kind: str,
         engine: str | None = None,
     ) -> list[dict[str, Any]]:
@@ -620,6 +745,58 @@ class SelectorChoiceService:
                             "field": None,
                         }
                 target, destination = _model_target(provider)
+                outcome = resolve(
+                    ResolutionRequest(
+                        engine=model["id"], capability=CAPABILITY_LLM, options={}
+                    ),
+                    composition.provider_for_resolution(),
+                    composition.facts,
+                )
+                refusal = outcome if isinstance(outcome, Refusal) else None
+                resolved = _target_for_outcome(composition, outcome)
+                payer = (
+                    composition.cloud_payer_for(
+                        target_id=resolved.id,
+                        capability=CAPABILITY_LLM,
+                        engine=model["id"],
+                    )
+                    if resolved is not None
+                    else None
+                )
+                execution_route = None
+                if resolved is not None and (refusal is None or payer is not None):
+                    target = {
+                        "target_id": resolved.id,
+                        "operator": resolved.operator,
+                        "egress_class": resolved.egress_class,
+                    }
+                    destination = _destination(resolved.egress_class, resolved.operator)
+                    execution_route = _execution_route(
+                        composition,
+                        resolved,
+                        capability=CAPABILITY_LLM,
+                        engine=model["id"],
+                        balance_label=_balance_label(cloud),
+                        balance_url=cloud.balance_url,
+                        settings_url=cloud.project_settings_url,
+                    )
+                if payer is not None:
+                    if refusal is None:
+                        status = "ready"
+                        blocker = None
+                        setup = None
+                    else:
+                        blocker = {
+                            "code": refusal.family,
+                            "message": refusal.remedy,
+                            "field": None,
+                        }
+                        setup = cloud.setup(
+                            local_key=provider_setup, payer_lane=payer.lane
+                        )
+                        status = "needs_setup" if setup is not None else "unavailable"
+                elif status == "needs_setup" and provider_setup is not None:
+                    setup = cloud.setup(local_key=provider_setup) or provider_setup
                 choices.append(
                     _choice(
                         selection=selection,
@@ -636,6 +813,7 @@ class SelectorChoiceService:
                         can_run=capabilities.may_run_actions and status == "ready",
                         blocker=blocker,
                         setup=setup,
+                        execution_route=execution_route,
                     )
                 )
         return choices
@@ -715,6 +893,16 @@ class SelectorChoiceService:
             if refusal is not None
             else None,
             setup=None,
+            execution_route=(
+                _execution_route(
+                    composition,
+                    target,
+                    capability=CAPABILITY_GEOCODE,
+                    engine=engine_id,
+                )
+                if target is not None
+                else None
+            ),
         )
 
     def _engine_choices(
@@ -730,6 +918,7 @@ class SelectorChoiceService:
         has_model_field: bool,
         params: Mapping[str, Any],
         capabilities: SelectorCapabilities,
+        cloud: _SelectorCloudContext,
     ) -> list[dict[str, Any]]:
         choices: list[dict[str, Any]] = []
         targets = {target.id: target for target in composition.resolution_targets()}
@@ -744,6 +933,8 @@ class SelectorChoiceService:
                         project=project,
                         provider_catalog=provider_catalog,
                         capabilities=capabilities,
+                        composition=composition,
+                        cloud=cloud,
                         selection_kind="engine_model",
                         engine="llm",
                     )
@@ -756,33 +947,71 @@ class SelectorChoiceService:
             )
             assert selection is not None
             active_target_id = engine.get("target_id")
-            target = (
+            catalog_target = (
                 targets.get(active_target_id)
                 if isinstance(active_target_id, str)
                 else None
             )
-            resolved_target = (
-                {
-                    "target_id": active_target_id,
-                    "operator": target.operator if target is not None else None,
-                    "egress_class": target.egress_class if target is not None else None,
-                }
-                if isinstance(active_target_id, str)
+            outcome = (
+                resolve(
+                    ResolutionRequest(
+                        engine=engine_id,
+                        options=authored_options(params, execution_capability),
+                        capability=execution_capability,
+                    ),
+                    composition.provider_for_resolution(),
+                    composition.facts,
+                )
+                if execution_capability is not None
                 else None
             )
-            destination = _engine_destination(engine, target)
-            available = bool(engine.get("available"))
-            policy_forbidden = _network_off(project) and engine.get("tier") == "hosted"
-            option_refusal = None
-            if execution_capability is not None:
-                preferred = preferred_static_choice(
+            refusal = outcome if isinstance(outcome, Refusal) else None
+            static_choice = (
+                preferred_static_choice(
                     engine_id,
                     authored_options(params, execution_capability),
                     list(targets.values()),
                     capability=execution_capability,
                 )
-                if isinstance(preferred, Refusal):
-                    option_refusal = preferred
+                if execution_capability is not None
+                else None
+            )
+            option_refusal = (
+                static_choice if isinstance(static_choice, Refusal) else None
+            )
+            target = (
+                _target_for_outcome(composition, outcome)
+                if outcome is not None
+                else catalog_target
+            ) or catalog_target
+            projected_target_id = (
+                target.id
+                if target is not None
+                else active_target_id
+                if isinstance(active_target_id, str)
+                else None
+            )
+            resolved_target = (
+                {
+                    "target_id": projected_target_id,
+                    "operator": target.operator if target is not None else None,
+                    "egress_class": target.egress_class if target is not None else None,
+                }
+                if projected_target_id is not None
+                else None
+            )
+            destination = _engine_destination(engine, target)
+            available = bool(engine.get("available"))
+            policy_forbidden = _network_off(project) and engine.get("tier") == "hosted"
+            payer = (
+                composition.cloud_payer_for(
+                    target_id=target.id,
+                    capability=execution_capability,
+                    engine=engine_id,
+                )
+                if target is not None and execution_capability is not None
+                else None
+            )
             status = "ready" if available else "unavailable"
             blocker = (
                 None
@@ -1056,6 +1285,20 @@ class SelectorChoiceService:
                     ],
                     "url": None,
                 }
+            if payer is not None and not policy_forbidden:
+                operation = None
+                if refusal is None:
+                    status = "ready"
+                    blocker = None
+                    setup = None
+                else:
+                    blocker = {
+                        "code": refusal.family,
+                        "message": refusal.remedy,
+                        "field": None,
+                    }
+                    setup = cloud.setup(local_key=None, payer_lane=payer.lane)
+                    status = "needs_setup" if setup is not None else "unavailable"
             choices.append(
                 _choice(
                     selection=selection,
@@ -1072,6 +1315,19 @@ class SelectorChoiceService:
                     can_run=capabilities.may_run_actions and status == "ready",
                     blocker=blocker,
                     setup=setup,
+                    execution_route=(
+                        _execution_route(
+                            composition,
+                            target,
+                            capability=execution_capability,
+                            engine=engine_id,
+                            balance_label=_balance_label(cloud),
+                            balance_url=cloud.balance_url,
+                            settings_url=cloud.project_settings_url,
+                        )
+                        if target is not None and execution_capability is not None
+                        else None
+                    ),
                     active_operation=operation,
                 )
             )

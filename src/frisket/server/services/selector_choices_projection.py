@@ -9,6 +9,8 @@ from urllib.parse import quote
 from frisket.ai.llm.model_catalog import MODEL_ENTRIES
 from frisket.actions.translate_types import TranslationOptions
 from frisket.execution.definitions import MODELS_GATEWAY_TARGET_ID
+from frisket.execution.provider import ExecutionComposition
+from frisket.execution.targets import ExecutionTarget
 from frisket.ops.integrations.opus_mt import resolve_pair_codes
 from frisket.server.provider_config import PROVIDER_LABELS
 
@@ -137,6 +139,7 @@ def _choice(
     can_run: bool,
     blocker: dict[str, Any] | None,
     setup: dict[str, Any] | None,
+    execution_route: dict[str, Any] | None = None,
     active_operation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
@@ -148,7 +151,7 @@ def _choice(
         "authored_selection": selection,
         "resolved_target": resolved_target,
         "processing_destination": processing_destination,
-        "execution_route": None,
+        "execution_route": execution_route,
         "facts": facts,
         "status": status,
         "can_author": can_author,
@@ -158,6 +161,73 @@ def _choice(
         "active_operation": active_operation,
         "is_default": False,
         "is_current": False,
+    }
+
+
+def _execution_route(
+    composition: ExecutionComposition,
+    target: ExecutionTarget,
+    *,
+    capability: str,
+    engine: str,
+    balance_label: str | None = None,
+    balance_url: str | None = None,
+    settings_url: str | None = None,
+) -> dict[str, Any]:
+    payer = composition.cloud_payer_for(
+        target_id=target.id, capability=capability, engine=engine
+    )
+    presentation = composition.presentation_for(
+        target_id=target.id, capability=capability, engine=engine
+    )
+    if payer is not None:
+        kind = "cloud_account_key" if payer.lane == "account_key" else "cloud_credits"
+        label = (
+            presentation.venue_label if presentation is not None else "Frisket Cloud"
+        )
+        billed_to = presentation.billing_label if presentation is not None else None
+        sends_data_to = label
+        account_id = payer.account_id
+    elif target.egress_class == "none":
+        kind = "local_engine"
+        label = "On this computer"
+        billed_to = None
+        sends_data_to = None
+        account_id = None
+    elif target.egress_class in {"operator_lan", "frisket_dedicated_org"}:
+        kind = "models_server"
+        label = "Models server"
+        billed_to = None
+        sends_data_to = target.operator
+        account_id = None
+    else:
+        kind = "local_key"
+        provider = PROVIDER_LABELS.get(target.operator, target.operator)
+        label = f"Your {provider} API key"
+        billed_to = label
+        sends_data_to = provider
+        account_id = None
+    alternatives = sum(
+        support.capability == capability
+        and (
+            support.engine == engine
+            or (
+                support.engine.endswith("/*") and engine.startswith(support.engine[:-1])
+            )
+        )
+        for candidate in composition.resolution_targets()
+        for support in candidate.engines
+    )
+    return {
+        "kind": kind,
+        "label": label,
+        "billed_to": billed_to,
+        "sends_data_to": sends_data_to,
+        "account_id": account_id,
+        "balance_label": balance_label if payer is not None else None,
+        "balance_url": balance_url if payer is not None else None,
+        "settings_url": settings_url,
+        "has_alternative_route": alternatives > 1,
     }
 
 

@@ -11,7 +11,7 @@ from contextlib import AbstractContextManager
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from fastapi import HTTPException, Request
 from filelock import FileLock
@@ -70,8 +70,27 @@ from frisket.authoring.workbench.plugin_subprocess import (
     register_project_secret_fallback,
 )
 
+if TYPE_CHECKING:
+    from frisket.contracts.http.cloud_connection import CloudSessionResponse
+
 
 _log = logging.getLogger(__name__)
+
+
+class _SnapshotCloudConnectionStore:
+    """Reuse one request's profile while retaining the store's save fence."""
+
+    def __init__(self, store: Any, profile: Any) -> None:
+        self._store = store
+        self._profile = profile
+
+    def load(self) -> Any:
+        return self._profile
+
+    def save_capabilities(self, capabilities: Any, *, expected_user_id: int) -> Any:
+        return self._store.save_capabilities(
+            capabilities, expected_user_id=expected_user_id
+        )
 
 
 @runtime_checkable
@@ -569,6 +588,53 @@ class Workspace:
         context: ExecutionCompositionContext,
     ) -> ExecutionComposition:
         """Build one request's composition from its exact effective router."""
+        composition, effective_router = self._base_execution_composition_for(
+            project, router, context
+        )
+        return self._cloud_execution_composition_overlay(
+            composition,
+            project,
+            effective_router,
+            context,
+        )
+
+    def selector_execution_composition_for(
+        self,
+        project: Project,
+        router: ModelRouter | None,
+        context: ExecutionCompositionContext,
+    ) -> tuple[ExecutionComposition, CloudSessionResponse | None]:
+        """Build selector composition and public Cloud facts from one profile."""
+
+        if not self.supports_cloud_connection():
+            return self.execution_composition_for(project, router, context), None
+        composition, effective_router = self._base_execution_composition_for(
+            project, router, context
+        )
+        from frisket.cloud_connection import CloudConnectionStoreError
+
+        try:
+            profile = self._cloud_connection_store.load()
+        except CloudConnectionStoreError:
+            return composition, None
+        composition = self._cloud_execution_composition_overlay(
+            composition,
+            project,
+            effective_router,
+            context,
+            cloud_store=_SnapshotCloudConnectionStore(
+                self._cloud_connection_store, profile
+            ),
+        )
+        connection = profile.connection
+        return composition, connection.session if connection is not None else None
+
+    def _base_execution_composition_for(
+        self,
+        project: Project,
+        router: ModelRouter | None,
+        context: ExecutionCompositionContext,
+    ) -> tuple[ExecutionComposition, ModelRouter]:
         effective_router = router if router is not None else self.router_for(project)
         if self._uses_open_execution_composition:
             composition = open_execution_composition(
@@ -581,13 +647,24 @@ class Workspace:
                     and managed_local_models_configured(os.environ)
                 ),
             )
-            return self._cloud_execution_composition_overlay(
-                composition,
-                project,
-                effective_router,
-                context,
-            )
-        return self._execution_composition_factory(project, effective_router, context)
+            return composition, effective_router
+        return (
+            self._execution_composition_factory(project, effective_router, context),
+            effective_router,
+        )
+
+    def supports_cloud_connection(self) -> bool:
+        return (
+            self.edition == "solo"
+            and self._cloud_connection_store is not None
+            and self._cloud_connection_client is not None
+        )
+
+    def cloud_connection_origin(self) -> str | None:
+        """Return the fixed public Cloud origin, never connection credentials."""
+
+        origin = getattr(self._cloud_connection_client, "origin", None)
+        return origin if isinstance(origin, str) and origin else None
 
     def _cloud_execution_composition_overlay(
         self,
@@ -595,6 +672,8 @@ class Workspace:
         project: Project,
         router: ModelRouter,
         context: ExecutionCompositionContext,
+        *,
+        cloud_store: Any = None,
     ) -> ExecutionComposition:
         """Add installation Cloud routes to one already-composed Solo view."""
 
@@ -610,7 +689,9 @@ class Workspace:
         return cloud_execution_composition(
             composition,
             project,
-            store=self._cloud_connection_store,
+            store=(
+                cloud_store if cloud_store is not None else self._cloud_connection_store
+            ),
             client=self._cloud_connection_client,
             execution_transport=self.cloud_execution_transport,
             router=router,
