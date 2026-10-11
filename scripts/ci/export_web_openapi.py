@@ -74,6 +74,51 @@ class _Projection:
 # D/E are per-edition canonical operations, not aliases.
 CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
     {
+        (
+            "tenant",
+            "begin_cloud_authorization",
+            "POST",
+        ): "tenant.begin_cloud_authorization.post",
+        (
+            "tenant",
+            "cancel_cloud_authorization",
+            "DELETE",
+        ): "tenant.cancel_cloud_authorization.delete",
+        (
+            "tenant",
+            "delete_cloud_connection",
+            "DELETE",
+        ): "tenant.delete_cloud_connection.delete",
+        (
+            "tenant",
+            "get_cloud_connection",
+            "GET",
+        ): "tenant.get_cloud_connection.get",
+        (
+            "tenant",
+            "get_cloud_preferences",
+            "GET",
+        ): "tenant.get_cloud_preferences.get",
+        (
+            "tenant",
+            "get_project_cloud_routing",
+            "GET",
+        ): "tenant.get_project_cloud_routing.get",
+        (
+            "tenant",
+            "patch_cloud_preferences",
+            "PATCH",
+        ): "tenant.patch_cloud_preferences.patch",
+        (
+            "tenant",
+            "patch_project_cloud_routing",
+            "PATCH",
+        ): "tenant.patch_project_cloud_routing.patch",
+        (
+            "tenant",
+            "poll_cloud_authorization",
+            "GET",
+        ): "tenant.poll_cloud_authorization.get",
         ("tenant", "ack_notification", "POST"): "tenant.ack_notification.post",
         ("tenant", "action_job_detail", "GET"): "tenant.action_job_detail.get",
         ("tenant", "action_jobs", "GET"): "tenant.action_jobs.get",

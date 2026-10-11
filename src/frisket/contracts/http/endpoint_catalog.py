@@ -276,6 +276,18 @@ _TENANT_LOCAL_RUNTIME_SETTINGS: tuple[RouteSpec, ...] = (
     ("update_runtime_config", "PATCH"),
 )
 
+_TENANT_LOCAL_CLOUD_CONNECTION: tuple[RouteSpec, ...] = (
+    ("begin_cloud_authorization", "POST"),
+    ("cancel_cloud_authorization", "DELETE"),
+    ("delete_cloud_connection", "DELETE"),
+    ("get_cloud_connection", "GET"),
+    ("get_cloud_preferences", "GET"),
+    ("get_project_cloud_routing", "GET"),
+    ("patch_cloud_preferences", "PATCH"),
+    ("patch_project_cloud_routing", "PATCH"),
+    ("poll_cloud_authorization", "GET"),
+)
+
 _TENANT_LOCAL_MCP: tuple[RouteSpec, ...] = (
     ("create_mcp_server", "POST"),
     ("delete_mcp_server", "DELETE"),
@@ -303,10 +315,15 @@ LOCAL_RUNTIME_SETTINGS_ENDPOINT_IDS = frozenset(
 LOCAL_MCP_ENDPOINT_IDS = frozenset(
     f"tenant.{route_name}.{method.lower()}" for route_name, method in _TENANT_LOCAL_MCP
 )
+LOCAL_CLOUD_CONNECTION_ENDPOINT_IDS = frozenset(
+    f"tenant.{route_name}.{method.lower()}"
+    for route_name, method in _TENANT_LOCAL_CLOUD_CONNECTION
+)
 LOCAL_CONFIGURATION_ENDPOINT_IDS = (
     LOCAL_PROVIDER_ENDPOINT_IDS
     | LOCAL_RUNTIME_SETTINGS_ENDPOINT_IDS
     | LOCAL_MCP_ENDPOINT_IDS
+    | LOCAL_CLOUD_CONNECTION_ENDPOINT_IDS
 )
 
 _TENANT_SPEND: tuple[RouteSpec, ...] = (("spend", "GET"),)
@@ -1029,7 +1046,8 @@ _BASE_GROUPS: dict[str, tuple[EndpointPolicy, ...]] = {
         _TENANT_SESSION
         + _TENANT_LOCAL_PROVIDERS
         + _TENANT_LOCAL_RUNTIME_SETTINGS
-        + _TENANT_LOCAL_MCP,
+        + _TENANT_LOCAL_MCP
+        + _TENANT_LOCAL_CLOUD_CONNECTION,
     ),
     "tenant.spend": declare_endpoints(
         "tenant", "session_or_pat", _TENANT_SPEND, resolvers=("org.spend",)
@@ -1294,6 +1312,7 @@ __all__ = [
     "AuthMode",
     "CompiledRoutePolicy",
     "EndpointPolicy",
+    "LOCAL_CLOUD_CONNECTION_ENDPOINT_IDS",
     "LOCAL_MCP_ENDPOINT_IDS",
     "LOCAL_PROVIDER_ENDPOINT_IDS",
     "LOCAL_RUNTIME_SETTINGS_ENDPOINT_IDS",

@@ -198,7 +198,7 @@ class CloudLLMRequest(WireModel):
     schema_: dict[str, JsonValue] | None = Field(default=None, alias="schema")
     max_tokens: int = Field(gt=0)
     temperature: float = Field(allow_inf_nan=False)
-    params: dict[str, JsonValue]
+    params: dict[str, JsonValue] = Field(default_factory=dict)
     mechanism: str | None = None
     tools: list[dict[str, JsonValue]] | None = None
     reasoning_policy: Literal["disabled", "low_exclude"] | None = None

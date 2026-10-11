@@ -94,12 +94,17 @@ def test_desktop_launch_config_refuses_invalid_input_without_echoing_it(
     assert "leak-me" not in captured.err
 
 
-def test_desktop_launch_config_requires_an_integer_schema_one():
+def test_desktop_launch_config_requires_an_integer_schema_two():
     from frisket.server.desktop import DesktopLaunchError, read_launch_config
 
     for schema in (True, 1.0):
         payload = json.dumps(
-            {"schema": schema, "workspace": "/workspace", "token": TOKEN}
+            {
+                "schema": schema,
+                "workspace": "/workspace",
+                "profile_dir": "/profile",
+                "token": TOKEN,
+            }
         ).encode()
         with pytest.raises(DesktopLaunchError):
             read_launch_config(io.BytesIO(payload))
@@ -109,7 +114,12 @@ def test_desktop_main_reports_deliberately_safe_startup_errors(monkeypatch, caps
     from frisket.server import desktop
 
     payload = json.dumps(
-        {"schema": 1, "workspace": "/workspace", "token": TOKEN}
+        {
+            "schema": 2,
+            "workspace": "/workspace",
+            "profile_dir": "/profile",
+            "token": TOKEN,
+        }
     ).encode()
     monkeypatch.setattr(
         desktop.sys, "stdin", SimpleNamespace(buffer=io.BytesIO(payload))
@@ -279,7 +289,11 @@ def test_unexpected_worker_exit_stops_server_nonzero_and_cleans_up(
 
     assert (
         desktop._serve(
-            desktop.DesktopLaunchConfig(tmp_path / "workspace", TOKEN),
+            desktop.DesktopLaunchConfig(
+                workspace=tmp_path / "workspace",
+                profile_dir=tmp_path / "profile",
+                token=TOKEN,
+            ),
             ready_stdout=io.StringIO(),
         )
         == 1
@@ -337,6 +351,10 @@ def test_desktop_server_loads_cached_prices_before_creating_the_app(
     )
     with pytest.raises(AppReady):
         desktop._serve(
-            desktop.DesktopLaunchConfig(tmp_path / "workspace", TOKEN),
+            desktop.DesktopLaunchConfig(
+                workspace=tmp_path / "workspace",
+                profile_dir=tmp_path / "profile",
+                token=TOKEN,
+            ),
             ready_stdout=io.StringIO(),
         )

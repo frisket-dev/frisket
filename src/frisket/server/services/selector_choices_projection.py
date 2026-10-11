@@ -148,6 +148,7 @@ def _choice(
         "authored_selection": selection,
         "resolved_target": resolved_target,
         "processing_destination": processing_destination,
+        "execution_route": None,
         "facts": facts,
         "status": status,
         "can_author": can_author,

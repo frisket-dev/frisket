@@ -35,6 +35,7 @@ class DesktopLaunchError(ValueError):
 @dataclass(frozen=True)
 class DesktopLaunchConfig:
     workspace: Path
+    profile_dir: Path
     token: str = field(repr=False)
 
 
@@ -47,21 +48,32 @@ def read_launch_config(stream: BinaryIO) -> DesktopLaunchConfig:
         value = json.loads(raw)
     except (TypeError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise DesktopLaunchError("invalid desktop launch configuration") from exc
-    if not isinstance(value, dict) or set(value) != {"schema", "workspace", "token"}:
+    if not isinstance(value, dict) or set(value) != {
+        "schema",
+        "workspace",
+        "profile_dir",
+        "token",
+    }:
         raise DesktopLaunchError("invalid desktop launch configuration")
-    if type(value.get("schema")) is not int or value["schema"] != 1:
+    if type(value.get("schema")) is not int or value["schema"] != 2:
         raise DesktopLaunchError("invalid desktop launch configuration")
     workspace = value.get("workspace")
+    profile_dir = value.get("profile_dir")
     token = value.get("token")
     if (
         not isinstance(workspace, str)
         or "\x00" in workspace
         or not Path(workspace).is_absolute()
+        or not isinstance(profile_dir, str)
+        or "\x00" in profile_dir
+        or not Path(profile_dir).is_absolute()
         or not isinstance(token, str)
         or _TOKEN_RE.fullmatch(token) is None
     ):
         raise DesktopLaunchError("invalid desktop launch configuration")
-    return DesktopLaunchConfig(workspace=Path(workspace), token=token)
+    return DesktopLaunchConfig(
+        workspace=Path(workspace), profile_dir=Path(profile_dir), token=token
+    )
 
 
 class DesktopTokenGate:
@@ -175,7 +187,8 @@ def _serve(config: DesktopLaunchConfig, *, ready_stdout: TextIO) -> int:
         raise DesktopLaunchError("desktop static assets are unavailable")
 
     workspace = config.workspace.resolve()
-    secret_key = workspace / ".frisket" / "secrets" / "master.key"
+    profile_dir = config.profile_dir.resolve()
+    secret_key = profile_dir / "secrets" / "master.key"
     state = StandaloneRuntimeState()
     worker: subprocess.Popen | None = None
     model_server = None
@@ -185,12 +198,15 @@ def _serve(config: DesktopLaunchConfig, *, ready_stdout: TextIO) -> int:
     lock.acquire()
     try:
         os.environ["FRISKET_SECRETS_KEY_FILE"] = str(secret_key)
+        os.environ["FRISKET_CLOUD_PROFILE_DIR"] = str(profile_dir)
         configure_logging(stream=sys.stderr, force=True)
         start_pricing_refresh()
         from frisket.runtime.model_server import LocalModelServer
 
         model_server = LocalModelServer()
-        app = create_app(workspace, static_dir=static_dir)
+        app = create_app(
+            workspace, static_dir=static_dir, cloud_profile_dir=profile_dir
+        )
         app.state.standalone_runtime = state
         gated_app = DesktopTokenGate(app, config.token)
         worker = spawn_service(

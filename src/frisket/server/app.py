@@ -115,6 +115,9 @@ from frisket.server.routes.project_mcp import register_project_mcp_routes
 from frisket.server.routes.providers import register_provider_config_routes
 from frisket.server.routes.selector_choices import register_selector_choices_routes
 from frisket.server.routes.models_gateway import register_models_gateway_routes
+from frisket.server.routes.cloud_connection import register_cloud_connection_routes
+from frisket.server.services.cloud_connection import CloudConnectionService
+from frisket.cloud_connection import CloudConnectionClient, CloudConnectionStore
 from frisket.server.services.models_gateway import ModelsGatewayService
 from frisket.server.services.import_sessions import (
     ImportSessionService,
@@ -367,6 +370,10 @@ def create_app(
     auth_methods: Any | None = None,
     bulk_import_limits: BulkImportLimits | None = None,
     import_admission: ImportAdmission | None = None,
+    cloud_connection_store: CloudConnectionStore | None = None,
+    cloud_connection_client: CloudConnectionClient | None = None,
+    cloud_profile_dir: str | Path | None = None,
+    cloud_origin: str | None = None,
 ) -> FastAPI:
     # The deployment's price list (frisket.execution.pricing_policy), installed
     # process-wide because the fourteen sites that mint a money confirmation
@@ -517,6 +524,22 @@ def create_app(
             float(queue_timeout_seconds) if queue_timeout_seconds > 0 else None
         )
     app.state.workspace = ws
+    if edition == "solo":
+        cloud_service = CloudConnectionService(
+            ws,
+            store=(
+                cloud_connection_store
+                if cloud_connection_store is not None
+                else CloudConnectionStore(cloud_profile_dir)
+            ),
+            client=(
+                cloud_connection_client
+                if cloud_connection_client is not None
+                else CloudConnectionClient(cloud_origin)
+            ),
+        )
+        app.state.cloud_connection_service = cloud_service
+        register_cloud_connection_routes(app, service=cloud_service)
     # This is the application-scoped trusted read seam for a later Ask
     # runtime injection. It contains admitted revisions; it is not a module
     # global and no runtime code obtains instructions through the admin HTTP
