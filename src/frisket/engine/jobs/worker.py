@@ -51,7 +51,10 @@ from frisket.execution.pricing_policy import (
     PricingPolicy,
     install_pricing_policy,
 )
-from frisket.execution.provider import ExecutionCompositionFactory
+from frisket.execution.provider import (
+    ExecutionCompositionFactory,
+    ExecutionCompositionOverlay,
+)
 from .project_opener import (
     ProjectOpener,
     open_claimed_project,
@@ -313,6 +316,7 @@ def register_production_handlers(
     response_cache_factory: Callable[[JobHandlerContext], ResponseCache | None]
     | None = None,
     execution_composition_factory: ExecutionCompositionFactory | None = None,
+    execution_composition_overlay: ExecutionCompositionOverlay | None = None,
 ) -> ProjectOpener | None:
     """Register the product handlers on the OPEN worker.
 
@@ -348,6 +352,10 @@ def register_production_handlers(
             "ExecutionComposition (or None for the open default); got "
             f"{type(execution_composition_factory).__name__}"
         )
+    if execution_composition_overlay is not None and not callable(
+        execution_composition_overlay
+    ):
+        raise TypeError("execution_composition_overlay must be callable")
     if execution_router_factory is not None and not callable(execution_router_factory):
         raise TypeError("execution_router_factory must be callable")
     if response_cache_factory is not None and not callable(response_cache_factory):
@@ -429,6 +437,7 @@ def register_production_handlers(
         execution_router_factory=execution_router_factory,
         response_cache_factory=response_cache_factory,
         execution_composition_factory=execution_composition_factory,
+        execution_composition_overlay=execution_composition_overlay,
     )
     action_run_registration = register_action_run_handler(
         registry,

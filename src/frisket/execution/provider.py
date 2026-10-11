@@ -582,6 +582,10 @@ class ExecutionCompositionContext:
 ExecutionCompositionFactory = Callable[
     [Any, Any, ExecutionCompositionContext], ExecutionComposition
 ]
+ExecutionCompositionOverlay = Callable[
+    [ExecutionComposition, Any, Any, ExecutionCompositionContext],
+    ExecutionComposition,
+]
 
 
 def open_execution_composition(

@@ -1493,7 +1493,16 @@ def validate_spec(
         if resolved_execution is not None
         else None
     )
-    if live_provider_effect and cloud_payer is None:
+    cloud_llm_route = recipe_is_llm and any(
+        composition.cloud_payer_for(
+            target_id=target.id,
+            capability="llm.complete",
+            engine=model_name,
+        )
+        is not None
+        for target in composition.resolution_targets()
+    )
+    if live_provider_effect and cloud_payer is None and not cloud_llm_route:
         # Spend caps read durable project state and fail closed before key
         # remediation; a replay cache does not prove every row will hit.
         assert_provider_spend_cap(project, provider)

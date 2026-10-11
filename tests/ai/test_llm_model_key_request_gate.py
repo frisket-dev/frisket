@@ -48,11 +48,16 @@ from frisket.contracts.http.cloud_connection import (
     CloudAccount,
     CloudCapabilitiesResponse,
     CloudCapabilityRoute,
+    CloudExecutionReceipt,
+    CloudExecutionResponse,
     CloudLLMOptionSupport,
+    CloudLLMResult,
+    CloudLLMUsage,
     CloudSessionResponse,
     CloudTokenPrice,
     CloudUser,
 )
+from frisket.engine.jobs import Worker
 from frisket.project_settings import ProjectSettings, write_project_settings
 from frisket.server.action_enqueue import missing_model_key_error_for_request
 from frisket.server.app import create_app
@@ -190,7 +195,7 @@ def test_provider_with_configured_key_passes_the_gate(tmp_path) -> None:
     assert response.status_code != 400 or "missing_provider_key" not in response.text
 
 
-def test_connected_cloud_model_passes_key_gate_with_one_capability_fetch(
+def test_connected_cloud_model_runs_through_queued_worker_composition(
     tmp_path,
 ) -> None:
     model = "gemini/gemini-2.5-flash-lite"
@@ -217,50 +222,95 @@ def test_connected_cloud_model_passes_key_gate_with_one_capability_fetch(
         origin = "https://app.frisket.dev"
         calls = 0
 
+        @staticmethod
+        def route():
+            return CloudCapabilityRoute(
+                capability="llm.complete",
+                engine=model,
+                provider="gemini",
+                lane="frisket_credits",
+                route_revision="route-1",
+                ready=True,
+                blocker=None,
+                price=CloudTokenPrice(
+                    kind="tokens",
+                    input_micro_per_million_tokens=1,
+                    output_micro_per_million_tokens=1,
+                ),
+                options=CloudLLMOptionSupport(
+                    kind="llm",
+                    structured_output=True,
+                    tools=True,
+                    vision=True,
+                    max_output_tokens=32768,
+                ),
+            )
+
         def capabilities(self, token, account_id):
             assert token == "installation-token"
             assert account_id == 41
             self.calls += 1
             return CloudCapabilitiesResponse(
                 account_id=41,
-                routes=[
-                    CloudCapabilityRoute(
-                        capability="llm.complete",
-                        engine=model,
-                        provider="gemini",
-                        lane="frisket_credits",
-                        route_revision="route-1",
-                        ready=True,
-                        blocker=None,
-                        price=CloudTokenPrice(
-                            kind="tokens",
-                            input_micro_per_million_tokens=1,
-                            output_micro_per_million_tokens=1,
-                        ),
-                        options=CloudLLMOptionSupport(
-                            kind="llm",
-                            structured_output=True,
-                            tools=True,
-                            vision=True,
-                            max_output_tokens=4096,
-                        ),
-                    )
-                ],
+                routes=[self.route()],
             )
 
         def close(self):
             return None
 
     cloud_client = Client()
+
+    class Transport:
+        calls = []
+
+        async def execute_llm(self, attempt, request):
+            self.calls.append((attempt, request))
+            return CloudExecutionResponse(
+                execution_id=f"cloud-key-gate-execution-{len(self.calls)}",
+                status="completed",
+                route=Client.route(),
+                result=CloudLLMResult(
+                    content='{"entity":"Alice"}',
+                    data={"entity": "Alice"},
+                    tokens_in=4,
+                    tokens_out=2,
+                    cost=0.000001,
+                    model=model,
+                    cost_source="cloud_receipt",
+                    cached=False,
+                    provider="gemini",
+                    credential_source="platform_key",
+                    raw={},
+                    output_limited=False,
+                ),
+                receipt=CloudExecutionReceipt(
+                    user_id=7,
+                    account_id=41,
+                    lane="frisket_credits",
+                    provider="gemini",
+                    engine=model,
+                    charge_micro=1,
+                    provider_cost_micro=1,
+                    usage=CloudLLMUsage(kind="llm.complete", tokens_in=4, tokens_out=2),
+                ),
+            )
+
+    transport = Transport()
     client = TestClient(
         create_app(
             tmp_path / "workspace",
             router=ModelRouter(cache=None, cache_mode="off"),
             cloud_connection_store=store,
             cloud_connection_client=cloud_client,
+            cloud_execution_transport=transport,
         )
     )
     project_id = _project_id(client)
+    imported = client.post(
+        f"/api/projects/{project_id}/import/csv",
+        files={"file": ("rows.csv", b"text\nAlice arrived\n", "text/csv")},
+    )
+    assert imported.status_code == 200, imported.text
     project = client.app.state.workspace.get(project_id)
     write_project_settings(
         project,
@@ -271,13 +321,48 @@ def test_connected_cloud_model_passes_key_gate_with_one_capability_fetch(
         ),
     )
 
-    response = client.post(
+    action = _extract_action(model=model)
+    action["scope"]["sheet_id"] = imported.json()["sheet_id"]
+    challenge = client.post(
         f"/api/projects/{project_id}/actions/v1/run",
-        json=_extract_action(model=model),
+        json=action,
     )
 
-    assert "missing_provider_key" not in response.text
+    assert challenge.status_code == 402, challenge.text
+    assert "missing_provider_key" not in challenge.text
     assert cloud_client.calls == 1
+    action["confirmation"] = challenge.json()["errors"][0]["details"][
+        "promise_set_hash"
+    ]
+    launched = client.post(
+        f"/api/projects/{project_id}/actions/v1/run",
+        json=action,
+    )
+    assert launched.status_code == 200, launched.text
+    assert launched.json()["status"] == "queued"
+    assert cloud_client.calls == 2
+
+    assert Worker(
+        client.app.state.workspace.queue, client.app.state.workspace.registry
+    ).run_once()
+
+    assert cloud_client.calls == 3
+    assert len(transport.calls) == 2, [
+        (job.status, job.error)
+        for job in client.app.state.workspace.queue.list_jobs(limit=10)
+    ]
+    first_attempt, second_attempt = [call[0] for call in transport.calls]
+    assert first_attempt.request_id != second_attempt.request_id
+    facts = project.db.execute(
+        "SELECT id,provider,credential_source,epoch_id FROM model_calls"
+    ).fetchall()
+    assert {fact["id"] for fact in facts} == {
+        "cloud-key-gate-execution-1",
+        "cloud-key-gate-execution-2",
+    }
+    assert {fact["provider"] for fact in facts} == {"gemini"}
+    assert {fact["credential_source"] for fact in facts} == {"platform_key"}
+    assert all(fact["epoch_id"] is not None for fact in facts)
 
 
 def test_ollama_model_never_gated_local_keyless(tmp_path) -> None:

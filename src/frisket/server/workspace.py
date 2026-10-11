@@ -282,6 +282,13 @@ class Workspace:
                 if self._uses_open_execution_composition
                 else self._execution_composition_factory
             ),
+            execution_composition_overlay=(
+                self._cloud_execution_composition_overlay
+                if self.edition == "solo"
+                and self._cloud_connection_store is not None
+                and self._cloud_connection_client is not None
+                else None
+            ),
         )
         if enable_local_model_pull:
             # Local-tier-only: deliberately
@@ -562,23 +569,40 @@ class Workspace:
                     and managed_local_models_configured(os.environ)
                 ),
             )
-            if (
-                self.edition == "solo"
-                and self._cloud_connection_store is not None
-                and self._cloud_connection_client is not None
-            ):
-                from frisket.cloud_targets import cloud_execution_composition
-
-                composition = cloud_execution_composition(
-                    composition,
-                    project,
-                    store=self._cloud_connection_store,
-                    client=self._cloud_connection_client,
-                    execution_transport=self.cloud_execution_transport,
-                    router=effective_router,
-                )
-            return composition
+            return self._cloud_execution_composition_overlay(
+                composition,
+                project,
+                effective_router,
+                context,
+            )
         return self._execution_composition_factory(project, effective_router, context)
+
+    def _cloud_execution_composition_overlay(
+        self,
+        composition: ExecutionComposition,
+        project: Project,
+        router: ModelRouter,
+        context: ExecutionCompositionContext,
+    ) -> ExecutionComposition:
+        """Add installation Cloud routes to one already-composed Solo view."""
+
+        del context
+        if (
+            self.edition != "solo"
+            or self._cloud_connection_store is None
+            or self._cloud_connection_client is None
+        ):
+            return composition
+        from frisket.cloud_targets import cloud_execution_composition
+
+        return cloud_execution_composition(
+            composition,
+            project,
+            store=self._cloud_connection_store,
+            client=self._cloud_connection_client,
+            execution_transport=self.cloud_execution_transport,
+            router=router,
+        )
 
     @staticmethod
     def execution_composition_context_for(

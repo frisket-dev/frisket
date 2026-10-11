@@ -62,6 +62,7 @@ from frisket.execution.provider import (
     ExecutionComposition,
     ExecutionCompositionContext,
     ExecutionCompositionFactory,
+    ExecutionCompositionOverlay,
     open_execution_composition,
 )
 from frisket.project_identity import ProjectStorageKey
@@ -608,6 +609,7 @@ def register_project_run_handler(
     response_cache_factory: Callable[[JobHandlerContext], ResponseCache | None]
     | None = None,
     execution_composition_factory: ExecutionCompositionFactory | None = None,
+    execution_composition_overlay: ExecutionCompositionOverlay | None = None,
 ) -> HandlerRegistration:
     """Register the project-run handler.
 
@@ -910,6 +912,13 @@ def register_project_run_handler(
                 if uses_open_composition
                 else composition_factory(project, effective_router, execution_context)
             )
+            if execution_composition_overlay is not None:
+                execution_composition = execution_composition_overlay(
+                    execution_composition,
+                    project,
+                    effective_router,
+                    execution_context,
+                )
             actor_row = project.db.execute(
                 "SELECT consent_principal FROM runs WHERE id=?", (run_id,)
             ).fetchone()
