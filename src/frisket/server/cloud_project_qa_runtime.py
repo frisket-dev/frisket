@@ -13,7 +13,7 @@ from frisket.cloud_execution import (
     CloudQuoteAuthority,
 )
 from frisket.cloud_llm_checkpoint import CloudLLMCheckpointCoordinator
-from frisket.cloud_targets import CLOUD_LLM_TRANSPORT
+from frisket.cloud_targets import CLOUD_LLM_TRANSPORT, cloud_fallback_is_blocked
 from frisket.engine.store.project_qa import ProjectQAStore
 from frisket.execution.pricing_policy import usd_to_micros
 from frisket.execution.resolver import Refusal, ResolutionRequest, resolve
@@ -84,7 +84,15 @@ class SoloCloudProjectQARuntimePort:
             composition.facts,
         )
         if isinstance(outcome, Refusal):
-            if outcome.target_id and outcome.target_id.startswith("frisket-cloud:"):
+            if outcome.target_id and (
+                outcome.target_id.startswith("frisket-cloud:")
+                or cloud_fallback_is_blocked(
+                    composition,
+                    target_id=outcome.target_id,
+                    capability=CAPABILITY_LLM,
+                    engine=model,
+                )
+            ):
                 raise CloudExecutionRefused("cloud_route_unavailable", outcome.remedy)
             return SoloCloudProjectQATurnRuntime()
 

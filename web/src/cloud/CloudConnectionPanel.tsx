@@ -23,6 +23,7 @@ export interface CloudConnectionView {
   expiresAt?: string;
   accounts: CloudAccountView[];
   capabilities: { canConnect: boolean; canReconnect: boolean; canDisconnect: boolean };
+  notice?: string;
 }
 
 export interface CloudDeviceAuthorizationView {
@@ -316,6 +317,12 @@ export function CloudConnectionPanel({
     {!expired && <p>Each person gets $5 of free Frisket credit every month.</p>}
     <button className="btn btn-primary" type="button" disabled={busy || !permitted}
       onClick={() => void begin()}>{phase === 'starting' ? 'Opening browser…' : expired ? 'Reconnect' : <><span>Sign in with browser</span><ExternalLink size={14} /></>}</button>
+    {expired && allowSignOut && connection.capabilities.canDisconnect && (
+      <button className="btn" type="button" disabled={busy} onClick={() => void signOut()}>
+        <LogOut size={14} /> {busy ? 'Signing out…' : 'Sign out'}
+      </button>
+    )}
+    {connection.notice && <p className="settings-help" role="status">{connection.notice}</p>}
     {error && <p className="cloud-connection-error" role="alert">{error}</p>}
   </section>;
 }

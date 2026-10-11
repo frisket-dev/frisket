@@ -52,6 +52,10 @@ def _cloud_selector_app(
     )
     if connected:
         store.save_connection("installation-token", session)
+        store.save_capabilities(
+            CloudCapabilitiesResponse(account_id=41, routes=routes),
+            expected_user_id=7,
+        )
 
     class Client:
         origin = "https://cloud.example.test"
@@ -100,7 +104,7 @@ def _choices(payload):
     return [choice for group in payload["groups"] for choice in group["choices"]]
 
 
-def test_cloud_first_selector_projects_the_account_billed_route(
+def test_cloud_first_selector_keeps_local_engine_on_this_computer(
     tmp_path, monkeypatch
 ) -> None:
     monkeypatch.setattr(
@@ -202,10 +206,10 @@ def test_cloud_first_selector_projects_the_account_billed_route(
         for choice in group["choices"]
         if choice["is_current"]
     )
-    assert selected["resolved_target"]["target_id"].startswith("frisket-cloud:41:")
-    assert selected["execution_route"]["kind"] == "cloud_credits"
-    assert selected["execution_route"]["account_id"] == 41
-    assert selected["execution_route"]["billed_to"] == "Investigations Cloud credits"
+    assert selected["resolved_target"]["target_id"] == "local"
+    assert selected["execution_route"]["kind"] == "local_engine"
+    assert selected["execution_route"]["account_id"] is None
+    assert selected["execution_route"]["billed_to"] is None
 
 
 def test_project_ask_projects_the_composed_cloud_model_route(
@@ -271,7 +275,7 @@ def test_project_ask_projects_the_composed_cloud_model_route(
         "sends_data_to": "Frisket Cloud",
         "account_id": 41,
         "balance_label": "$4.50 balance",
-        "balance_url": "https://cloud.example.test/settings/billing?account_id=41",
+        "balance_url": "https://cloud.example.test/funding-accounts?account_id=41",
         "settings_url": "/p/cloud-selector/settings/project/ai-providers",
         "has_alternative_route": True,
     }
@@ -286,7 +290,7 @@ def test_exhausted_cloud_credit_route_stays_selected_and_offers_credits(
     )
     route = CloudCapabilityRoute(
         capability="ocr",
-        engine="rapidocr",
+        engine="datalab",
         provider="frisket",
         lane="frisket_credits",
         route_revision="ocr-route-1",
@@ -310,7 +314,7 @@ def test_exhausted_cloud_credit_route_stays_selected_and_offers_credits(
                     "kind": "action",
                     "action_id": "media.ocr",
                     "field": "engine",
-                    "params": {"engine": "rapidocr"},
+                    "params": {"engine": "datalab"},
                 },
             },
         )
@@ -324,7 +328,7 @@ def test_exhausted_cloud_credit_route_stays_selected_and_offers_credits(
     assert selected["can_run"] is False
     assert selected["setup"]["state"] == "out_of_credits"
     assert selected["setup"]["add_credits_url"] == (
-        "https://cloud.example.test/settings/billing?account_id=41"
+        "https://cloud.example.test/billing-checkout?account_id=41"
     )
 
 
@@ -334,7 +338,7 @@ def test_zero_balance_does_not_block_account_key_route(tmp_path, monkeypatch) ->
     )
     route = CloudCapabilityRoute(
         capability="ocr",
-        engine="rapidocr",
+        engine="datalab",
         provider="frisket",
         lane="account_key",
         route_revision="ocr-route-1",
@@ -358,7 +362,7 @@ def test_zero_balance_does_not_block_account_key_route(tmp_path, monkeypatch) ->
                     "kind": "action",
                     "action_id": "media.ocr",
                     "field": "engine",
-                    "params": {"engine": "rapidocr"},
+                    "params": {"engine": "datalab"},
                 },
             },
         )
@@ -401,11 +405,14 @@ def test_connected_installation_without_project_account_requests_account_once(
     assert selected["setup"]["local_key"]["kind"] == "api_key"
 
 
-def test_disconnected_installation_offers_cloud_connect_with_local_key_choice(
+def test_cloud_first_disconnected_installation_does_not_use_configured_local_key(
     tmp_path,
 ) -> None:
     client, _workspace, _store, project_id = _cloud_selector_app(
-        tmp_path, routes=[], connected=False
+        tmp_path,
+        routes=[],
+        connected=False,
+        local_keys={"openai": "must-not-be-used"},
     )
 
     with client:
@@ -427,7 +434,58 @@ def test_disconnected_installation_offers_cloud_connect_with_local_key_choice(
     assert selected["status"] == "needs_setup"
     assert selected["setup"]["kind"] == "cloud"
     assert selected["setup"]["state"] == "connect"
-    assert selected["setup"]["local_key"]["kind"] == "api_key"
+    assert selected["setup"]["local_key"] is None
+    assert selected["can_run"] is False
+    assert "must-not-be-used" not in response.text
+
+
+def test_cloud_first_different_user_does_not_use_configured_local_key(
+    tmp_path,
+) -> None:
+    client, _workspace, store, project_id = _cloud_selector_app(
+        tmp_path,
+        routes=[],
+        local_keys={"openai": "must-not-be-used"},
+    )
+    store.save_connection(
+        "other-user-token",
+        CloudSessionResponse(
+            user=CloudUser(
+                id=8, email="other@example.test", display_name="Other reporter"
+            ),
+            expires_at="2099-01-01T00:00:00Z",
+            accounts=[
+                CloudAccount(
+                    id=41,
+                    name="Other personal",
+                    kind="personal",
+                    balance_micro=5_000_000,
+                    available_micro=5_000_000,
+                    manage_billing=True,
+                )
+            ],
+        ),
+    )
+
+    with client:
+        response = client.post(
+            f"/api/projects/{project_id}/selector-choices",
+            json={
+                "schema_version": "frisket.selector_choices_query.v1",
+                "subject": {
+                    "kind": "project_ask",
+                    "model": "openai/gpt-5-mini",
+                },
+            },
+        )
+
+    selected = next(
+        choice for choice in _choices(response.json()) if choice["is_current"]
+    )
+    assert selected["status"] == "needs_setup"
+    assert selected["setup"]["state"] == "account_required"
+    assert selected["can_run"] is False
+    assert "must-not-be-used" not in response.text
 
 
 def test_local_first_ready_model_is_not_blocked_by_cloud_route(tmp_path) -> None:

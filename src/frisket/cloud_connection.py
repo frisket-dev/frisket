@@ -322,7 +322,9 @@ class CloudConnectionStore:
             ciphertext = value.get("access_token")
             if not isinstance(ciphertext, str):
                 raise ValueError("connection token is missing")
-            key = load_or_create_secret_key(self.key_path)
+            key = self.key_path.read_bytes()
+            if len(key) != 32:
+                raise ValueError("invalid Cloud connection key")
             token = decrypt_secret(ciphertext, master_key=key)
             session = CloudSessionResponse.model_validate(value.get("session"))
             capabilities = self._load_capabilities(

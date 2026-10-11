@@ -74,7 +74,10 @@ export const cloudConnectionApi: CloudConnectionClient = {
   disconnect(signal) {
     return httpContract('tenant.delete_cloud_connection.delete', {
       pathParams: {}, query: {}, signal,
-    }, (wire) => connectionView(wire.connection));
+    }, (wire) => ({
+      ...connectionView(wire.connection),
+      notice: wire.warning ?? undefined,
+    }));
   },
 };
 

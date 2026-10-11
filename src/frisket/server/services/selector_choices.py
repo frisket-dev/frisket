@@ -19,6 +19,7 @@ from urllib.parse import quote
 from frisket.authoring.action_metadata import action_available_in_edition
 from frisket.ai.embeddings.capabilities import resolve_embedding_capability
 from frisket.authoring.project_ask import default_project_ask_model
+from frisket.cloud_targets import cloud_fallback_is_blocked
 from frisket.contracts.http.selector_choices import (
     ActionSelectorSubject,
     ProjectAskSelectorSubject,
@@ -105,6 +106,7 @@ class _SelectorCloudContext:
     account_name: str | None
     available_micro: int | None
     balance_url: str | None
+    add_credits_url: str | None
     project_settings_url: str
 
     def setup(
@@ -131,9 +133,9 @@ class _SelectorCloudContext:
             "account_id": self.account_id,
             "account_name": self.account_name,
             "balance_url": self.balance_url,
-            "add_credits_url": (
-                self.balance_url if state == "out_of_credits" else None
-            ),
+            "add_credits_url": self.add_credits_url
+            if state == "out_of_credits"
+            else None,
             "project_settings_url": self.project_settings_url,
             "local_key": local_key,
         }
@@ -147,10 +149,12 @@ def _cloud_context(
         f"/p/{quote(project_id, safe='')}/settings/project/ai-providers"
     )
     if not workspace.supports_cloud_connection():
-        return _SelectorCloudContext(None, None, None, None, None, project_settings_url)
+        return _SelectorCloudContext(
+            None, None, None, None, None, None, project_settings_url
+        )
     if session is None:
         return _SelectorCloudContext(
-            "connect", None, None, None, None, project_settings_url
+            "connect", None, None, None, None, None, project_settings_url
         )
     try:
         expires_at = datetime.fromisoformat(session.expires_at.replace("Z", "+00:00"))
@@ -168,7 +172,12 @@ def _cloud_context(
     )
     origin = workspace.cloud_connection_origin()
     balance_url = (
-        f"{origin}/settings/billing?account_id={account.id}"
+        f"{origin}/funding-accounts?account_id={account.id}"
+        if origin is not None and account is not None and account.manage_billing
+        else None
+    )
+    add_credits_url = (
+        f"{origin}/billing-checkout?account_id={account.id}"
         if origin is not None and account is not None and account.manage_billing
         else None
     )
@@ -182,6 +191,7 @@ def _cloud_context(
         account.name if account is not None else None,
         account.available_micro if account is not None else None,
         balance_url,
+        add_credits_url,
         project_settings_url,
     )
 
@@ -799,6 +809,23 @@ class SelectorChoiceService:
                             local_key=provider_setup, payer_lane=payer.lane
                         )
                         status = "needs_setup" if setup is not None else "unavailable"
+                elif (
+                    refusal is not None
+                    and refusal.target_id is not None
+                    and cloud_fallback_is_blocked(
+                        composition,
+                        target_id=refusal.target_id,
+                        capability=CAPABILITY_LLM,
+                        engine=model["id"],
+                    )
+                ):
+                    blocker = {
+                        "code": refusal.family,
+                        "message": refusal.remedy,
+                        "field": None,
+                    }
+                    setup = cloud.setup(local_key=provider_setup)
+                    status = "needs_setup" if setup is not None else "unavailable"
                 elif status == "needs_setup" and provider_setup is not None:
                     setup = cloud.setup(local_key=provider_setup) or provider_setup
                 choices.append(
@@ -1303,6 +1330,26 @@ class SelectorChoiceService:
                     }
                     setup = cloud.setup(local_key=None, payer_lane=payer.lane)
                     status = "needs_setup" if setup is not None else "unavailable"
+            elif (
+                refusal is not None
+                and refusal.target_id is not None
+                and execution_capability is not None
+                and cloud_fallback_is_blocked(
+                    composition,
+                    target_id=refusal.target_id,
+                    capability=execution_capability,
+                    engine=engine_id,
+                )
+                and not policy_forbidden
+            ):
+                operation = None
+                blocker = {
+                    "code": refusal.family,
+                    "message": refusal.remedy,
+                    "field": None,
+                }
+                setup = cloud.setup(local_key=None)
+                status = "needs_setup" if setup is not None else "unavailable"
             choices.append(
                 _choice(
                     selection=selection,

@@ -21,6 +21,11 @@ const connected = (): CloudConnectionView => ({
   ],
   capabilities: { canConnect: false, canReconnect: false, canDisconnect: true },
 });
+const expired = (): CloudConnectionView => ({
+  state: 'expired', identity: { id: 7, displayName: 'Sam Rivera', email: 'sam@example.com' },
+  accounts: [],
+  capabilities: { canConnect: false, canReconnect: true, canDisconnect: true },
+});
 
 function client(overrides: Partial<CloudConnectionClient> = {}): CloudConnectionClient {
   return {
@@ -81,5 +86,21 @@ describe('CloudConnectionPanel', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
     expect(screen.getByRole('alert')).toHaveTextContent('Sign-in didn’t finish');
     expect(screen.getByRole('button', { name: /sign in with browser/i })).toBeVisible();
+  });
+
+  it('allows Profile to sign out an expired connection and shows a revocation warning', async () => {
+    const signedOut = { ...disconnected(), notice: 'Signed out locally; remote revocation was unavailable.' };
+    const api = client({
+      getConnection: vi.fn().mockResolvedValue(expired()),
+      disconnect: vi.fn().mockResolvedValue(signedOut),
+    });
+    render(<CloudConnectionPanel client={api} variant="profile" allowSignOut />);
+    await act(async () => {});
+
+    expect(screen.getByRole('button', { name: 'Sign out' })).toBeVisible();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Sign out' })); });
+
+    expect(api.disconnect).toHaveBeenCalledOnce();
+    expect(screen.getByRole('status')).toHaveTextContent('remote revocation was unavailable');
   });
 });

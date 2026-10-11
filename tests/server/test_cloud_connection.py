@@ -27,6 +27,7 @@ from frisket.contracts.http.cloud_connection import (
     CloudUser,
     ProjectCloudRoutingPatch,
 )
+from frisket.project_settings import ProjectSettings, write_project_settings
 from frisket.server.services.cloud_connection import (
     CloudConnectionService,
     CloudConnectionServiceError,
@@ -96,6 +97,17 @@ def test_installation_store_encrypts_token_outside_workspace(tmp_path):
         assert (
             profile / "secrets" / "cloud_connection.key"
         ).stat().st_mode & 0o777 == 0o600
+
+
+def test_read_does_not_replace_a_missing_connection_key(tmp_path):
+    store = CloudConnectionStore(tmp_path / "profile")
+    store.save_connection("secret-cloud-bearer", _session())
+    store.key_path.unlink()
+
+    with pytest.raises(CloudConnectionStoreError):
+        store.load()
+
+    assert not store.key_path.exists()
 
 
 def test_corrupt_connection_can_be_cleared_or_replaced(tmp_path):
@@ -672,6 +684,8 @@ def test_project_keeps_same_users_unavailable_selected_account(tmp_path):
 
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal session_fetches
+        if request.url.path.endswith("/capabilities"):
+            return httpx.Response(503, json={})
         assert request.url.path.endswith("/session")
         session_fetches += 1
         return httpx.Response(200, json=current_session[0].model_dump(mode="json"))
@@ -698,6 +712,47 @@ def test_project_keeps_same_users_unavailable_selected_account(tmp_path):
     assert session_fetches == 2
     assert unavailable.selected_account_id == 41
     assert [account.id for account in unavailable.accounts] == [99]
+    service.close()
+
+
+def test_project_routing_refreshes_the_selected_account_capability_snapshot(tmp_path):
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        if request.url.path.endswith("/session"):
+            return httpx.Response(200, json=_session().model_dump(mode="json"))
+        if request.url.path.endswith("/capabilities"):
+            return httpx.Response(
+                200,
+                json=_capabilities(revision="route-2").model_dump(mode="json"),
+            )
+        raise AssertionError(request.url)
+
+    store = CloudConnectionStore(tmp_path / "profile")
+    store.save_connection("token", _session())
+    store.save_capabilities(_capabilities(revision="route-1"), expected_user_id=7)
+    workspace = Workspace(tmp_path / "workspace")
+    project_id = workspace.create("Refresh Cloud routes")["id"]
+    write_project_settings(
+        workspace.get(project_id),
+        ProjectSettings(cloud_user_id=7, cloud_account_id=41),
+    )
+    service = CloudConnectionService(
+        workspace,
+        store=store,
+        client=CloudConnectionClient(
+            "https://app.frisket.dev", transport=httpx.MockTransport(handler)
+        ),
+    )
+
+    service.project_routing(project_id)
+
+    assert calls == [
+        "/api/desktop/v1/session",
+        "/api/desktop/v1/accounts/41/capabilities",
+    ]
+    assert store.load().capabilities[41].routes[0].route_revision == "route-2"
     service.close()
 
 

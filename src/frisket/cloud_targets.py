@@ -10,7 +10,6 @@ from decimal import Decimal
 from typing import Any, Protocol
 
 from frisket.cloud_connection import (
-    CloudClientError,
     CloudConnectionClient,
     CloudConnectionStore,
     CloudConnectionStoreError,
@@ -148,6 +147,66 @@ class CloudExecutionTargetProvider:
             return hook(target_id)
 
 
+class _CloudRequiredExecutionTargetProvider:
+    """Block own-key egress when a saved Cloud-first payer is unavailable."""
+
+    def __init__(self, source: ExecutionTargetProvider, reason: str) -> None:
+        self._source = source
+        self._reason = reason
+        self._targets = tuple(
+            replace(
+                target,
+                engines=tuple(
+                    replace(support, unavailable_reason=reason)
+                    for support in target.engines
+                ),
+            )
+            if target.egress_class == "third_party_api"
+            else target
+            for target in source.targets()
+        )
+
+    def targets(self) -> tuple[ExecutionTarget, ...]:
+        return self._targets
+
+    def connection(self, target_id: str) -> ConnectionConfig | None:
+        return self._source.connection(target_id)
+
+    def liveness_remedy(
+        self, target_id: str, capability: str | None = None
+    ) -> str | None:
+        if any(
+            target.id == target_id and target.egress_class == "third_party_api"
+            for target in self._targets
+        ):
+            return self._reason
+        hook = getattr(self._source, "liveness_remedy", None)
+        if not callable(hook):
+            return None
+        try:
+            return hook(target_id, capability=capability)
+        except TypeError:
+            return hook(target_id)
+
+    def blocks_cloud_fallback(
+        self, target_id: str, capability: str, engine: str
+    ) -> bool:
+        return any(
+            target.id == target_id
+            and target.egress_class == "third_party_api"
+            and any(
+                support.capability == capability
+                and (
+                    support.engine == engine
+                    or support.engine.endswith("/*")
+                    and engine.startswith(support.engine[:-1])
+                )
+                for support in target.engines
+            )
+            for target in self._targets
+        )
+
+
 def compose_cloud_targets(
     base: ExecutionComposition,
     *,
@@ -177,6 +236,8 @@ def compose_cloud_targets(
                 continue
             capability = CAPABILITY_LLM
         if capability is None:
+            continue
+        if _base_has_inherent_local_route(base, capability, route.engine):
             continue
         target_id = cloud_target_id(account.id, route.lane, route.provider)
         support = _support(route, capability)
@@ -248,21 +309,26 @@ def cloud_execution_composition(
     execution_transport: CloudExecutionTransport | None = None,
     router: Any | None = None,
 ) -> ExecutionComposition:
-    """Build one project's account-bound Cloud view with one discovery call."""
+    """Build one project's account-bound Cloud view from its last route snapshot."""
 
+    settings = read_project_settings(project)
     try:
         profile = store.load()
     except CloudConnectionStoreError:
-        return base
+        return _block_cloud_first_fallback(
+            base,
+            settings,
+            preference=settings.cloud_execution_preference,
+        )
+    preference = settings.cloud_execution_preference or profile.preference
     connection = profile.connection
     if connection is None:
-        return base
-    settings = read_project_settings(project)
+        return _block_cloud_first_fallback(base, settings, preference=preference)
     if (
         settings.cloud_user_id != connection.session.user.id
         or settings.cloud_account_id is None
     ):
-        return base
+        return _block_cloud_first_fallback(base, settings, preference=preference)
     account = next(
         (
             candidate
@@ -280,39 +346,13 @@ def cloud_execution_composition(
         unavailable_reason = "The selected Frisket Cloud account is unavailable."
         capabilities = snapshot
     else:
-        try:
-            capabilities = client.capabilities(connection.access_token, account.id)
-            if capabilities.account_id != account.id:
-                raise ValueError("Cloud capabilities name a different account")
-        except (CloudClientError, ValueError):
-            unavailable_reason = (
-                "Frisket Cloud is temporarily unavailable. Retry to use this route."
-            )
-            capabilities = snapshot
-        else:
-            try:
-                profile = store.save_capabilities(
-                    capabilities,
-                    expected_user_id=connection.session.user.id,
-                )
-            except (CloudConnectionStoreError, OSError):
-                # The connection may have changed after discovery. Preserve the
-                # exact discovered roster only as unavailable so it cannot send
-                # data or spend under a stale installation identity.
-                unavailable_reason = (
-                    "Frisket Cloud connection changed. Refresh and retry."
-                )
+        capabilities = snapshot
     if capabilities is None:
-        # This installation has never seen an authoritative route roster for
-        # the selected account. The connection/settings endpoints surface the
-        # setup failure; inventing a shadow catalog here could block unrelated
-        # local models that Cloud never offered.
-        return base
+        return _block_cloud_first_fallback(base, settings, preference=preference)
     if unavailable_reason is not None:
         capabilities = _blocked_capabilities(capabilities, unavailable_reason)
     if account is None:
         account = _UnavailableAccount(settings.cloud_account_id)
-    preference = settings.cloud_execution_preference or profile.preference
     return compose_cloud_targets(
         base,
         user_id=connection.session.user.id,
@@ -321,6 +361,56 @@ def cloud_execution_composition(
         preference=preference,
         execution_transport=execution_transport,
         router=router,
+    )
+
+
+def cloud_fallback_is_blocked(
+    composition: ExecutionComposition,
+    *,
+    target_id: str,
+    capability: str,
+    engine: str,
+) -> bool:
+    hook = getattr(composition.provider, "blocks_cloud_fallback", None)
+    return bool(callable(hook) and hook(target_id, capability, engine))
+
+
+def _block_cloud_first_fallback(
+    base: ExecutionComposition,
+    settings: Any,
+    *,
+    preference: str | None,
+) -> ExecutionComposition:
+    if (
+        preference != "cloud_first"
+        or settings.cloud_user_id is None
+        or settings.cloud_account_id is None
+    ):
+        return base
+    return replace(
+        base,
+        provider=_CloudRequiredExecutionTargetProvider(
+            base.provider,
+            "Reconnect Frisket Cloud to use the project's selected payer.",
+        ),
+    )
+
+
+def _base_has_inherent_local_route(
+    base: ExecutionComposition, capability: str, engine: str
+) -> bool:
+    return any(
+        target.egress_class == "none"
+        and any(
+            support.capability == capability
+            and (
+                support.engine == engine
+                or support.engine.endswith("/*")
+                and engine.startswith(support.engine[:-1])
+            )
+            for support in target.engines
+        )
+        for target in base.resolution_targets()
     )
 
 
@@ -500,5 +590,6 @@ __all__ = [
     "CloudExecutionTargetProvider",
     "cloud_target_id",
     "cloud_execution_composition",
+    "cloud_fallback_is_blocked",
     "compose_cloud_targets",
 ]

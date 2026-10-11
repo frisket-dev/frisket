@@ -7,7 +7,7 @@ import pytest
 from frisket.ai.llm import ModelRouter
 from frisket.contracts.action import Receipt
 from frisket.cloud_execution import CloudExecutionAttempt
-from frisket.cloud_connection import CloudClientError, CloudConnectionStore
+from frisket.cloud_connection import CloudConnectionStore
 from frisket.cloud_targets import cloud_execution_composition, compose_cloud_targets
 from frisket.contracts.http.cloud_connection import (
     CloudAccount,
@@ -72,10 +72,27 @@ class _LocalProvider:
         return ConnectionConfig() if target_id == "local" else None
 
 
+class _EmptyProvider:
+    def targets(self):
+        return ()
+
+    def connection(self, target_id):
+        del target_id
+        return None
+
+
 def _base() -> ExecutionComposition:
     return ExecutionComposition(
         facts=CompositionFacts(edition="open", funding=OperatorBorne()),
         provider=_LocalProvider(),
+        credential_use_context=CredentialUseContext.open(),
+    )
+
+
+def _base_without_local_route() -> ExecutionComposition:
+    return ExecutionComposition(
+        facts=CompositionFacts(edition="open", funding=OperatorBorne()),
+        provider=_EmptyProvider(),
         credential_use_context=CredentialUseContext.open(),
     )
 
@@ -146,7 +163,7 @@ def _llm_capabilities(*, ready: bool = True) -> CloudCapabilitiesResponse:
 
 def test_cloud_first_resolves_target_specific_payer_and_offering():
     composition = compose_cloud_targets(
-        _base(),
+        _base_without_local_route(),
         user_id=7,
         account=_account(),
         capabilities=_capabilities(),
@@ -194,6 +211,26 @@ def test_local_first_preserves_existing_local_route():
     assert not isinstance(outcome, Refusal)
     assert outcome.target.id == "local"
     assert outcome.facts.cost_posture == "operator_borne"
+    assert outcome.facts.cloud_payer is None
+
+
+def test_cloud_first_keeps_an_inherent_local_engine_on_this_computer():
+    composition = compose_cloud_targets(
+        _base(),
+        user_id=7,
+        account=_account(),
+        capabilities=_capabilities(),
+        preference="cloud_first",
+    )
+
+    outcome = resolve(
+        ResolutionRequest(engine="rapidocr", capability=CAPABILITY_OCR, options={}),
+        composition.provider_for_resolution(),
+        composition.facts,
+    )
+
+    assert not isinstance(outcome, Refusal)
+    assert outcome.target.id == "local"
     assert outcome.facts.cloud_payer is None
 
 
@@ -461,7 +498,7 @@ def test_cloud_llm_map_run_uses_routed_transport_and_retires_child_checkpoint(
 
 def test_blocked_cloud_first_route_does_not_fall_back_to_local():
     composition = compose_cloud_targets(
-        _base(),
+        _base_without_local_route(),
         user_id=7,
         account=_account(),
         capabilities=_capabilities(ready=False),
@@ -479,7 +516,9 @@ def test_blocked_cloud_first_route_does_not_fall_back_to_local():
     assert "Add credits" in outcome.remedy
 
 
-def test_project_composition_fetches_selected_account_capabilities_once(tmp_path):
+def test_project_composition_reads_selected_account_capabilities_without_network(
+    tmp_path,
+):
     project = Project.create(tmp_path / "project.frisket", name="Project")
     write_project_settings(
         project,
@@ -498,25 +537,24 @@ def test_project_composition_fetches_selected_account_capabilities_once(tmp_path
             accounts=[_account()],
         ),
     )
+    store.save_capabilities(_capabilities(), expected_user_id=7)
 
     class Client:
         calls = 0
 
         def capabilities(self, token, account_id):
-            assert token == "installation-token"
-            assert account_id == 41
             self.calls += 1
-            return _capabilities()
+            raise AssertionError((token, account_id))
 
     client = Client()
     try:
         composition = cloud_execution_composition(
-            _base(), project, store=store, client=client
+            _base_without_local_route(), project, store=store, client=client
         )
     finally:
         project.close()
 
-    assert client.calls == 1
+    assert client.calls == 0
     assert store.load().capabilities[41].routes == _capabilities().routes
     assert (
         composition.cloud_payer_for(
@@ -528,7 +566,7 @@ def test_project_composition_fetches_selected_account_capabilities_once(tmp_path
     )
 
 
-def test_capability_fetch_failure_blocks_last_known_cloud_routes(tmp_path):
+def test_project_composition_uses_last_known_capabilities_without_refetch(tmp_path):
     project = Project.create(tmp_path / "project.frisket", name="Project")
     write_project_settings(
         project,
@@ -551,11 +589,11 @@ def test_capability_fetch_failure_blocks_last_known_cloud_routes(tmp_path):
 
     class Client:
         def capabilities(self, _token, _account_id):
-            raise CloudClientError("cloud_unreachable", retryable=True)
+            raise AssertionError("a stored route snapshot must avoid discovery")
 
     try:
         composition = cloud_execution_composition(
-            _base(), project, store=store, client=Client()
+            _base_without_local_route(), project, store=store, client=Client()
         )
         outcome = resolve(
             ResolutionRequest(engine="rapidocr", capability=CAPABILITY_OCR, options={}),
@@ -565,9 +603,8 @@ def test_capability_fetch_failure_blocks_last_known_cloud_routes(tmp_path):
     finally:
         project.close()
 
-    assert isinstance(outcome, Refusal)
-    assert outcome.target_id == "frisket-cloud:41:frisket_credits:anthropic"
-    assert "temporarily unavailable" in outcome.remedy
+    assert not isinstance(outcome, Refusal)
+    assert outcome.target.id == "frisket-cloud:41:frisket_credits:anthropic"
 
 
 def test_expired_connection_blocks_snapshot_without_fetch_or_local_fallback(tmp_path):
@@ -597,7 +634,7 @@ def test_expired_connection_blocks_snapshot_without_fetch_or_local_fallback(tmp_
 
     try:
         composition = cloud_execution_composition(
-            _base(), project, store=store, client=Client()
+            _base_without_local_route(), project, store=store, client=Client()
         )
         outcome = resolve(
             ResolutionRequest(engine="rapidocr", capability=CAPABILITY_OCR, options={}),

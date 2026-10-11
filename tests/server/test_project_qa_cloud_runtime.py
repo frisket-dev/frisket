@@ -3,9 +3,15 @@ from __future__ import annotations
 import asyncio
 from contextlib import contextmanager
 
+import pytest
+
 from frisket.ai.llm import ModelRouter
 from frisket.cloud_connection import CloudConnectionStore
-from frisket.cloud_execution import CloudPayerSubject, CloudQuoteAuthority
+from frisket.cloud_execution import (
+    CloudExecutionRefused,
+    CloudPayerSubject,
+    CloudQuoteAuthority,
+)
 from frisket.cloud_llm_checkpoint import CloudLLMCheckpointCoordinator
 from frisket.contracts.http.cloud_connection import (
     CloudAccount,
@@ -27,6 +33,7 @@ from frisket.engine.store.project_qa import ProjectQAStore
 from frisket.execution.pricing_policy import usd_to_micros
 from frisket.project_settings import ProjectSettings, write_project_settings
 from frisket.server.services.project_qa import ProjectQAService
+from frisket.server.cloud_project_qa_runtime import SoloCloudProjectQARuntimePort
 from frisket.server.workspace import Workspace
 
 
@@ -71,6 +78,46 @@ def _capabilities(*, ready: bool = True) -> CloudCapabilitiesResponse:
             )
         ],
     )
+
+
+def test_cloud_first_signed_out_ask_refuses_instead_of_using_local_key(tmp_path):
+    class Client:
+        def capabilities(self, _token, _account_id):
+            raise AssertionError("signed-out Ask must not discover routes")
+
+    workspace = Workspace(
+        tmp_path / "workspace",
+        router=ModelRouter(
+            keys={"anthropic": "must-not-be-used"},
+            use_env_keys=False,
+            cache_mode="off",
+        ),
+        cloud_connection_store=CloudConnectionStore(tmp_path / "profile"),
+        cloud_connection_client=Client(),
+    )
+    project_id = workspace.create("Ask")["id"]
+    project = workspace.get(project_id)
+    write_project_settings(
+        project,
+        ProjectSettings(
+            cloud_user_id=7,
+            cloud_account_id=41,
+            cloud_execution_preference="cloud_first",
+        ),
+    )
+    qa = ProjectQAStore(project)
+    thread = qa.create_thread(title="Cloud payer")
+    turn = qa.submit_turn(
+        thread["id"],
+        request_id="signed-out-cloud-first",
+        question="Use the selected payer",
+        model=MODEL,
+    )
+
+    with pytest.raises(CloudExecutionRefused) as exc_info:
+        SoloCloudProjectQARuntimePort(workspace)._prepare_turn(project, turn["id"])
+
+    assert exc_info.value.code == "cloud_route_unavailable"
 
 
 class CloudTransport:
@@ -252,6 +299,7 @@ def test_solo_workspace_routes_ask_through_selected_cloud_account(tmp_path):
                 accounts=[_account()],
             ),
         )
+        store.save_capabilities(_capabilities(), expected_user_id=7)
 
         class Client:
             origin = "https://cloud.example.test"

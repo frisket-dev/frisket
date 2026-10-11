@@ -33,6 +33,7 @@ from frisket.contracts.http.cloud_connection import (
 )
 from frisket.project_settings import read_project_settings, write_project_settings
 from frisket.server.workspace import Workspace
+from frisket.server.provider_config import PROVIDER_LABELS
 
 
 class CloudConnectionServiceError(RuntimeError):
@@ -299,7 +300,9 @@ class CloudConnectionService:
         return CloudConnectionPreferencesResponse(preference=profile.preference)
 
     def project_routing(self, project_id: str) -> ProjectCloudRoutingResponse:
-        return self._project_routing(project_id, self.connection())
+        connection = self.connection()
+        self._refresh_project_capabilities(project_id, connection)
+        return self._project_routing(project_id, connection)
 
     def _project_routing(
         self, project_id: str, connection: CloudConnectionResponse
@@ -326,7 +329,7 @@ class CloudConnectionService:
             preference=preference,
             preference_inherited=inherited,
             accounts=[account for account in connection.accounts if account.eligible],
-            overlap_provider_labels=[],
+            overlap_provider_labels=self._overlap_provider_labels(project, selected),
             can_mutate=True,
         )
 
@@ -352,10 +355,72 @@ class CloudConnectionService:
                 )
             updates["cloud_user_id"] = connection.identity.id
             updates["cloud_account_id"] = patch.selected_account_id
+            self._refresh_capabilities(
+                patch.selected_account_id,
+                connection.identity.id,
+            )
         write_project_settings(project, settings.model_copy(update=updates))
         return self._project_routing(
             project_id, connection if connection is not None else self.connection()
         )
+
+    def _refresh_project_capabilities(
+        self,
+        project_id: str,
+        connection: CloudConnectionResponse,
+    ) -> None:
+        project = self._workspace.get(project_id)
+        settings = read_project_settings(project)
+        identity = connection.identity
+        if (
+            connection.state != "connected"
+            or identity is None
+            or settings.cloud_user_id != identity.id
+            or settings.cloud_account_id is None
+        ):
+            return
+        self._refresh_capabilities(
+            settings.cloud_account_id,
+            identity.id,
+        )
+
+    def _refresh_capabilities(
+        self,
+        account_id: int,
+        user_id: int,
+    ) -> None:
+        try:
+            profile = self._store.load()
+        except CloudConnectionStoreError:
+            return
+        connection = profile.connection
+        if connection is None or connection.session.user.id != user_id:
+            return
+        try:
+            capabilities = self._client.capabilities(
+                connection.access_token, account_id
+            )
+            self._store.save_capabilities(
+                capabilities,
+                expected_user_id=user_id,
+            )
+        except (CloudClientError, CloudConnectionStoreError, OSError, ValueError):
+            return
+
+    def _overlap_provider_labels(
+        self, project: object, selected_account_id: int | None
+    ) -> list[str]:
+        if selected_account_id is None:
+            return []
+        try:
+            snapshot = self._store.load().capabilities.get(selected_account_id)
+        except CloudConnectionStoreError:
+            return []
+        if snapshot is None:
+            return []
+        local = set(self._workspace.router_for(project).providers())
+        overlap = local.intersection(route.provider for route in snapshot.routes)
+        return sorted(PROVIDER_LABELS.get(provider, provider) for provider in overlap)
 
     def _connection_response(
         self, state: str, session: object | None
@@ -390,7 +455,7 @@ class CloudConnectionService:
             eligibility_reason=None,
             balance_label=_money_label(account.available_micro),
             balance_url=(
-                f"{self._client.origin}/settings/billing?account_id={account.id}"
+                f"{self._client.origin}/funding-accounts?account_id={account.id}"
                 if account.manage_billing
                 else None
             ),
