@@ -251,6 +251,7 @@ class CloudConnectionService:
             return self._pending.pop(authorization_id, None) is not None
 
     def sign_out(self) -> CloudConnectionSignOutResponse:
+        unreadable_profile = False
         with self._pending_lock:
             self._pending.clear()
             self._completed.clear()
@@ -259,6 +260,7 @@ class CloudConnectionService:
                     profile = self._store.load()
                 except CloudConnectionStoreError:
                     profile = None
+                    unreadable_profile = True
                 connection = profile.connection if profile is not None else None
                 try:
                     self._store.clear_connection()
@@ -268,7 +270,13 @@ class CloudConnectionService:
                     ) from exc
         revocation = "not_connected"
         warning = None
-        if connection is not None:
+        if unreadable_profile:
+            revocation = "failed"
+            warning = (
+                "Signed out locally, but the saved Cloud connection was unreadable. "
+                "Revoke this device in Frisket Cloud."
+            )
+        elif connection is not None:
             try:
                 revoked = self._client.revoke_session(connection.access_token)
                 revocation = "revoked" if revoked else "failed"

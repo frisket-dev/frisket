@@ -647,6 +647,34 @@ def test_sign_out_cancels_pending_device_authorizations(tmp_path):
     service.close()
 
 
+def test_sign_out_warns_when_missing_key_prevents_remote_revocation(tmp_path):
+    remote_requests: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        remote_requests.append(request.url.path)
+        return httpx.Response(204)
+
+    store = CloudConnectionStore(tmp_path / "profile")
+    store.save_connection("unreadable-token", _session())
+    store.key_path.unlink()
+    service = CloudConnectionService(
+        Workspace(tmp_path / "workspace"),
+        store=store,
+        client=CloudConnectionClient(
+            "https://app.frisket.dev", transport=httpx.MockTransport(handler)
+        ),
+    )
+
+    result = service.sign_out()
+
+    assert result.revocation == "failed"
+    assert result.warning is not None
+    assert "Revoke this device in Frisket Cloud" in result.warning
+    assert result.connection.state == "disconnected"
+    assert remote_requests == []
+    service.close()
+
+
 def test_project_account_is_bound_to_signed_in_user(tmp_path):
     store = CloudConnectionStore(tmp_path / "profile")
     store.save_connection("first", _session(user_id=7, account_id=41))

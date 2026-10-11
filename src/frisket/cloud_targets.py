@@ -52,6 +52,14 @@ from frisket.project_settings import read_project_settings
 
 CLOUD_MEDIA_TRANSPORT = "frisket.cloud.media.v1"
 CLOUD_LLM_TRANSPORT = "frisket.cloud.llm.v1"
+_CLOUD_EXECUTION_CAPABILITIES = frozenset(
+    {
+        CAPABILITY_LLM,
+        CAPABILITY_OCR,
+        CAPABILITY_TO_MARKDOWN,
+        CAPABILITY_TRANSCRIBE,
+    }
+)
 
 
 class _AccountIdentity(Protocol):
@@ -158,10 +166,16 @@ class _CloudRequiredExecutionTargetProvider:
                 target,
                 engines=tuple(
                     replace(support, unavailable_reason=reason)
+                    if support.capability in _CLOUD_EXECUTION_CAPABILITIES
+                    else support
                     for support in target.engines
                 ),
             )
             if target.egress_class == "third_party_api"
+            and any(
+                support.capability in _CLOUD_EXECUTION_CAPABILITIES
+                for support in target.engines
+            )
             else target
             for target in source.targets()
         )
@@ -175,8 +189,10 @@ class _CloudRequiredExecutionTargetProvider:
     def liveness_remedy(
         self, target_id: str, capability: str | None = None
     ) -> str | None:
-        if any(
-            target.id == target_id and target.egress_class == "third_party_api"
+        if capability in _CLOUD_EXECUTION_CAPABILITIES and any(
+            target.id == target_id
+            and target.egress_class == "third_party_api"
+            and any(support.capability == capability for support in target.engines)
             for target in self._targets
         ):
             return self._reason
@@ -194,6 +210,7 @@ class _CloudRequiredExecutionTargetProvider:
         return any(
             target.id == target_id
             and target.egress_class == "third_party_api"
+            and capability in _CLOUD_EXECUTION_CAPABILITIES
             and any(
                 support.capability == capability
                 and (
@@ -318,7 +335,7 @@ def cloud_execution_composition(
         return _block_cloud_first_fallback(
             base,
             settings,
-            preference=settings.cloud_execution_preference,
+            preference=settings.cloud_execution_preference or "cloud_first",
         )
     preference = settings.cloud_execution_preference or profile.preference
     connection = profile.connection

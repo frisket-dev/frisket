@@ -37,9 +37,12 @@ from frisket.execution.resolve_for_action import resolve_for_action
 from frisket.execution.targets import (
     CAPABILITY_LLM,
     CAPABILITY_OCR,
+    CAPABILITY_TRANSLATE,
     ExecutionTarget,
+    LLMOptionSupport,
     OcrOptionSupport,
     TargetEngineSupport,
+    TranslateOptionSupport,
 )
 from frisket.engine.store import Project
 from frisket.engine.runner import MapRunner
@@ -232,6 +235,144 @@ def test_cloud_first_keeps_an_inherent_local_engine_on_this_computer():
     assert not isinstance(outcome, Refusal)
     assert outcome.target.id == "local"
     assert outcome.facts.cloud_payer is None
+
+
+def test_cloud_first_disconnection_preserves_non_cloud_third_party_api(tmp_path):
+    class Provider:
+        target = ExecutionTarget(
+            id="deepl",
+            operator="deepl",
+            egress_class="third_party_api",
+            engines=(
+                TargetEngineSupport(
+                    engine="deepl",
+                    transport="deepl.v2",
+                    capability=CAPABILITY_TRANSLATE,
+                    options=TranslateOptionSupport(
+                        source_language=True,
+                        auto_detect_source=True,
+                    ),
+                ),
+            ),
+        )
+
+        def targets(self):
+            return (self.target,)
+
+        def connection(self, target_id):
+            return ConnectionConfig(token="deepl-key") if target_id == "deepl" else None
+
+    project = Project.create(tmp_path / "translate.frisket", name="Translate")
+    write_project_settings(
+        project,
+        ProjectSettings(
+            cloud_user_id=7,
+            cloud_account_id=41,
+            cloud_execution_preference="cloud_first",
+        ),
+    )
+    base = ExecutionComposition(
+        facts=CompositionFacts(edition="open", funding=OperatorBorne()),
+        provider=Provider(),
+        credential_use_context=CredentialUseContext.open(),
+    )
+    try:
+        composition = cloud_execution_composition(
+            base,
+            project,
+            store=CloudConnectionStore(tmp_path / "profile"),
+            client=object(),
+        )
+        outcome = resolve(
+            ResolutionRequest(
+                engine="deepl",
+                capability=CAPABILITY_TRANSLATE,
+                options={},
+            ),
+            composition.provider_for_resolution(),
+            composition.facts,
+        )
+    finally:
+        project.close()
+
+    assert not isinstance(outcome, Refusal)
+    assert outcome.target.id == "deepl"
+
+
+def test_unreadable_inherited_cloud_first_profile_does_not_use_own_key(tmp_path):
+    class Provider:
+        target = ExecutionTarget(
+            id="remote-api:openai",
+            operator="openai",
+            egress_class="third_party_api",
+            engines=(
+                TargetEngineSupport(
+                    engine="openai/gpt-5-mini",
+                    transport="remote",
+                    capability=CAPABILITY_LLM,
+                    options=LLMOptionSupport(
+                        structured_output=True,
+                        tools=True,
+                        vision=True,
+                        max_output_tokens=16_384,
+                    ),
+                ),
+            ),
+        )
+
+        def targets(self):
+            return (self.target,)
+
+        def connection(self, target_id):
+            return (
+                ConnectionConfig(token="openai-key")
+                if target_id == "remote-api:openai"
+                else None
+            )
+
+    project = Project.create(tmp_path / "llm.frisket", name="LLM")
+    write_project_settings(
+        project,
+        ProjectSettings(cloud_user_id=7, cloud_account_id=41),
+    )
+    store = CloudConnectionStore(tmp_path / "profile")
+    store.save_connection(
+        "cloud-token",
+        CloudSessionResponse(
+            user=CloudUser(id=7, email="user@example.test", display_name="User"),
+            expires_at="2099-01-01T00:00:00Z",
+            accounts=[_account()],
+        ),
+    )
+    store.set_preference("cloud_first")
+    store.key_path.unlink()
+    base = ExecutionComposition(
+        facts=CompositionFacts(edition="open", funding=OperatorBorne()),
+        provider=Provider(),
+        credential_use_context=CredentialUseContext.open(),
+    )
+    try:
+        composition = cloud_execution_composition(
+            base,
+            project,
+            store=store,
+            client=object(),
+        )
+        outcome = resolve(
+            ResolutionRequest(
+                engine="openai/gpt-5-mini",
+                capability=CAPABILITY_LLM,
+                options={},
+            ),
+            composition.provider_for_resolution(),
+            composition.facts,
+        )
+    finally:
+        project.close()
+
+    assert isinstance(outcome, Refusal)
+    assert outcome.target_id == "remote-api:openai"
+    assert "Reconnect Frisket Cloud" in outcome.remedy
 
 
 def test_cloud_llm_route_carries_typed_price_and_payer():
