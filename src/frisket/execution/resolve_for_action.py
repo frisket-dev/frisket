@@ -253,6 +253,15 @@ def _document_quantity_pages(
     One unknown row makes the total unknown, never a smaller number than the
     truth. Blank rows contribute zero.
     """
+    quantities = _document_row_quantities_pages(project, spec, recipe)
+    return None if quantities is None else sum(quantities.values())
+
+
+def _document_row_quantities_pages(
+    project: Any, spec: Mapping[str, Any], recipe: Any
+) -> dict[int, int] | None:
+    """Selected page count keyed by row, or ``None`` when any is unknown."""
+
     from frisket.engine.runner.row_inputs import is_empty_cell_value, row_values
     from frisket.engine.runner.validation import target_rows
     from frisket.engine.store.media_blobs import MediaBlobStore
@@ -260,13 +269,14 @@ def _document_quantity_pages(
     row_ids = target_rows(project, dict(spec))
     col_map = {c["name"]: c["id"] for c in project.columns(spec["sheet_id"])}
     blobs = MediaBlobStore(project)
-    total = 0
+    quantities: dict[int, int] = {}
     for row_id in row_ids:
         values = row_values(
             project, recipe, dict(spec), col_map, row_id, for_model=False
         )
         candidates = [v for v in values.values() if not is_empty_cell_value(v)]
         if not candidates:
+            quantities[int(row_id)] = 0
             continue
         if len(candidates) != 1:
             return None
@@ -298,20 +308,20 @@ def _document_quantity_pages(
                 or str(blob["mime"]) == "application/pdf"
             ):
                 return None
-            total += 1
+            quantities[int(row_id)] = 1
             continue
         if pages is None:
             # Use stored facts, not an authored cell's MIME declaration.
             if probe.get("kind") == "image" or (
                 not probe.get("kind") and str(blob["mime"]).startswith("image/")
             ):
-                total += 1
+                quantities[int(row_id)] = 1
                 continue
             return None
         if type(pages) is not int or pages <= 0:
             return None
-        total += pages
-    return total
+        quantities[int(row_id)] = pages
+    return quantities
 
 
 def _ocr_cost_basis(
@@ -346,13 +356,15 @@ def _ocr_cost_basis(
         is None
     ):
         return OperatorBorneZeroCost(), None
-    pages = _document_quantity_pages(project, spec, recipe)
+    row_pages = _document_row_quantities_pages(project, spec, recipe)
+    pages = None if row_pages is None else sum(row_pages.values())
     basis = quote_ocr(
         target_id=target_id,
         engine=engine,
         funding=funding,
         offering=offering,
         pages=pages,
+        row_pages=row_pages,
     )
     return basis, pages
 
@@ -564,13 +576,15 @@ def _to_markdown_cost_basis(
     if resolved is None:
         return OperatorBorneZeroCost(), None
     funding, target_id, engine, offering = resolved
-    pages = _document_quantity_pages(project, spec, recipe)
+    row_pages = _document_row_quantities_pages(project, spec, recipe)
+    pages = None if row_pages is None else sum(row_pages.values())
     basis = quote_to_markdown(
         target_id=target_id,
         engine=engine,
         funding=funding,
         offering=offering,
         pages=pages,
+        row_pages=row_pages,
     )
     return basis, pages
 

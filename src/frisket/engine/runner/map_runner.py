@@ -20,6 +20,13 @@ from dataclasses import dataclass, field, replace
 from typing import Any, Callable
 
 from frisket.ai.llm import ModelRouter
+from frisket.cloud_execution import (
+    CloudExecutionAttempt,
+    CloudExecutionTransportProvider,
+    CloudMediaExecutionBinding,
+    CloudPayerSubject,
+    cloud_quote_authority_for_row,
+)
 from frisket.execution.consent_coverage import (
     ConsentCoverage,
     effective_consent_coverage,
@@ -155,6 +162,7 @@ def _row_effect_identity(
     spec: dict[str, Any],
     values: dict[str, Any],
     out_cols: dict[str, int],
+    cloud_payer: Mapping[str, object] | None = None,
 ) -> tuple[str, str]:
     """Return a stable logical id and exact request/scope identity digest."""
 
@@ -185,6 +193,8 @@ def _row_effect_identity(
             (str(name), int(column_id)) for name, column_id in out_cols.items()
         ),
     }
+    if cloud_payer is not None:
+        identity_payload["cloud_payer"] = dict(cloud_payer)
     encoded = json.dumps(
         identity_payload,
         sort_keys=True,
@@ -1277,8 +1287,18 @@ class MapRunner:
             checkpoint_id: str | None = None
             checkpoint_identity: str | None = None
             checkpoint_created = False
+            checkpoint_should_complete = False
             recovered_response = False
             results: dict[str, dict[str, Any]]
+            cloud_payer = (
+                attempt.routed.binding.facts.cloud_payer
+                if attempt is not None and attempt.routed is not None
+                else None
+            )
+            if cloud_payer is not None and not isinstance(
+                cloud_payer, CloudPayerSubject
+            ):
+                raise TypeError("admitted Cloud payer has an invalid type")
             if (
                 row_effect_spends_or_meters(recipe, spec, self.router)
                 and getattr(recipe, "row_effect_checkpoint_owner", "runner") == "runner"
@@ -1290,6 +1310,9 @@ class MapRunner:
                     spec=spec,
                     values=values,
                     out_cols=out_cols,
+                    cloud_payer=(
+                        cloud_payer.to_snapshot() if cloud_payer is not None else None
+                    ),
                 )
                 checkpoint = self.run_store.row_effect_checkpoint(run_id, row_id)
                 if checkpoint is None:
@@ -1312,6 +1335,8 @@ class MapRunner:
                         checkpoint = self.run_store.row_effect_checkpoint(
                             run_id, row_id
                         )
+                    else:
+                        checkpoint_should_complete = True
                 if not checkpoint_created:
                     if checkpoint is None:
                         raise RecipeInvocationHalt(
@@ -1330,32 +1355,42 @@ class MapRunner:
                             "current row or call the provider again.",
                         )
                     if checkpoint.get("state") == "reserved":
-                        raise RecipeInvocationHalt(
-                            "external_effect_reconciliation_required",
-                            "A prior process may have reached the provider for this "
-                            "row, but no response was durably recorded; refusing "
-                            "another call until the effect is reconciled.",
-                        )
-                    if checkpoint.get("state") != "returned":
+                        if cloud_payer is None:
+                            raise RecipeInvocationHalt(
+                                "external_effect_reconciliation_required",
+                                "A prior process may have reached the provider for "
+                                "this row, but no response was durably recorded; "
+                                "refusing another call until the effect is reconciled.",
+                            )
+                        checkpoint_id = str(checkpoint["id"])
+                        checkpoint_should_complete = True
+                        checkpoint = None
+                    if checkpoint is None:
+                        pass
+                    elif checkpoint.get("state") != "returned":
                         raise RecipeInvocationHalt(
                             "external_effect_reconciliation_required",
                             "A row-effect checkpoint has an invalid state; refusing "
                             "another provider call until it is reconciled.",
                         )
-                    checkpoint_id = str(checkpoint["id"])
-                    results = _returned_row_response(checkpoint)
-                    if callable(capture_result_evidence) and input_capture is not None:
-                        capture_result_evidence(
-                            values,
-                            input_capture,
-                            results,
-                            spec,
-                            run_id=run_id,
-                            op_id=op_id,
-                            row_id=row_id,
-                            output_columns=out_cols,
-                        )
-                    recovered_response = True
+                    else:
+                        checkpoint_id = str(checkpoint["id"])
+                        results = _returned_row_response(checkpoint)
+                        if (
+                            callable(capture_result_evidence)
+                            and input_capture is not None
+                        ):
+                            capture_result_evidence(
+                                values,
+                                input_capture,
+                                results,
+                                spec,
+                                run_id=run_id,
+                                op_id=op_id,
+                                row_id=row_id,
+                                output_columns=out_cols,
+                            )
+                        recovered_response = True
 
             if not recovered_response:
                 if checkpoint_created and cancelled():
@@ -1375,6 +1410,56 @@ class MapRunner:
                     )
                     return
                 try:
+                    row_ctx = ctx
+                    if cloud_payer is not None:
+                        if (
+                            checkpoint_id is None
+                            or attempt is None
+                            or attempt.routed is None
+                        ):
+                            raise RecipeInvocationHalt(
+                                "promise_violation",
+                                "Cloud execution requires a durable admitted row effect",
+                            )
+                        provider = (
+                            self.execution_composition.provider
+                            if self.execution_composition is not None
+                            else None
+                        )
+                        target_id = attempt.routed.binding.facts.target_id
+                        if not isinstance(provider, CloudExecutionTransportProvider):
+                            raise RecipeInvocationHalt(
+                                "promise_violation",
+                                "Cloud execution transport is unavailable",
+                            )
+                        cloud_transport = provider.cloud_execution_transport(target_id)
+                        snapshot = attempt.routed.route.target_snapshot
+                        capability = snapshot.get("capability")
+                        if (
+                            cloud_transport is None
+                            or snapshot.get("transport") != "frisket.cloud.media.v1"
+                            or capability
+                            not in {"ocr", "transcribe", "document.convert"}
+                        ):
+                            raise RecipeInvocationHalt(
+                                "promise_violation",
+                                "Cloud media execution differs from its admitted route",
+                            )
+                        cloud_attempt = CloudExecutionAttempt(
+                            request_id=checkpoint_id,
+                            payer=cloud_payer,
+                            quote_authority=cloud_quote_authority_for_row(
+                                attempt.cost_basis, row_id=row_id
+                            ),
+                        )
+                        row_ctx = replace(
+                            ctx,
+                            cloud_execution=CloudMediaExecutionBinding(
+                                cloud_transport,
+                                cloud_attempt,
+                                capability,
+                            ),
+                        )
                     results = await execute_row(
                         self.project,
                         self.router,
@@ -1382,7 +1467,7 @@ class MapRunner:
                         recipe,
                         values,
                         spec,
-                        ctx,
+                        row_ctx,
                         row_id=row_id,
                         recorder=recorder,
                         output_field_names=tuple(out_cols),
@@ -1435,7 +1520,7 @@ class MapRunner:
                         row_id=row_id,
                         output_columns=out_cols,
                     )
-                if checkpoint_created:
+                if checkpoint_should_complete:
                     assert checkpoint_id is not None
                     assert checkpoint_identity is not None
                     returned_batch = [

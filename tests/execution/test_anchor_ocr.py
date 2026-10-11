@@ -48,6 +48,18 @@ from frisket.execution.provider import (
     ExecutionCompositionContext,
     open_execution_composition,
 )
+from frisket.cloud_targets import compose_cloud_targets
+from frisket.contracts.http.cloud_connection import (
+    CloudAccount,
+    CloudCapabilitiesResponse,
+    CloudCapabilityRoute,
+    CloudExecutionReceipt,
+    CloudExecutionResponse,
+    CloudOCROptionSupport,
+    CloudOCRResult,
+    CloudOCRUsage,
+    CloudUnitPrice,
+)
 from tests.execution_composition_helpers import open_attempt_authority
 
 DATALAB_FIXTURES = Path(__file__).parent.parent / "fixtures" / "datalab"
@@ -232,6 +244,135 @@ def test_anchor_ocr_local_run_pays_no_rent(tmp_path, monkeypatch, rapidocr_stub)
         ).fetchone()
         assert epoch is not None and epoch["route_id"] == route.id
         assert store.violations() == []
+    finally:
+        project.close()
+
+
+def test_cloud_ocr_reserves_durable_request_before_transport(tmp_path, monkeypatch):
+    """The row checkpoint is the Cloud Idempotency-Key and exists pre-egress."""
+
+    monkeypatch.setattr(
+        "frisket.ops.ocr_engines_local._rapidocr_model_root_dir",
+        lambda language=None: None,
+    )
+    project, sheet_id, _row_id = _ocr_project(tmp_path)
+    router = _NullRouter()
+
+    class Transport:
+        calls = []
+
+        async def execute_media(self, attempt, **request):
+            checkpoint = project.db.execute(
+                "SELECT state, identity FROM effect_checkpoints WHERE id=?",
+                (attempt.request_id,),
+            ).fetchone()
+            assert checkpoint is not None
+            assert checkpoint["state"] == "reserved"
+            assert attempt.quote_authority.maximum_charge_micro == 2_500
+            self.calls.append((attempt, request))
+            return CloudExecutionResponse(
+                execution_id="cloud-ocr-1",
+                status="completed",
+                route=CloudCapabilityRoute(
+                    capability="ocr",
+                    engine="rapidocr",
+                    provider="anthropic",
+                    lane="frisket_credits",
+                    route_revision="route-1",
+                    ready=True,
+                    blocker=None,
+                    price=CloudUnitPrice(
+                        kind="unit", unit="page", micro_per_unit=2_500
+                    ),
+                    options=CloudOCROptionSupport(
+                        kind="ocr",
+                        language=True,
+                        geometry=True,
+                        searchable_pdf=False,
+                    ),
+                ),
+                result=CloudOCRResult(
+                    pages=[{"page": 1, "text": "Cloud OCR", "blocks": []}]
+                ),
+                receipt=CloudExecutionReceipt(
+                    user_id=7,
+                    account_id=41,
+                    lane="frisket_credits",
+                    provider="anthropic",
+                    engine="rapidocr",
+                    charge_micro=2_500,
+                    provider_cost_micro=2_000,
+                    usage=CloudOCRUsage(kind="ocr", pages=1),
+                ),
+            )
+
+    transport = Transport()
+    base = open_execution_composition(
+        project, router, ExecutionCompositionContext.direct()
+    )
+    composition = compose_cloud_targets(
+        base,
+        user_id=7,
+        account=CloudAccount(
+            id=41,
+            name="Personal",
+            kind="personal",
+            balance_micro=50_000,
+            available_micro=50_000,
+            manage_billing=False,
+        ),
+        capabilities=CloudCapabilitiesResponse(
+            account_id=41,
+            routes=[
+                CloudCapabilityRoute(
+                    capability="ocr",
+                    engine="rapidocr",
+                    provider="anthropic",
+                    lane="frisket_credits",
+                    route_revision="route-1",
+                    ready=True,
+                    blocker=None,
+                    price=CloudUnitPrice(
+                        kind="unit", unit="page", micro_per_unit=2_500
+                    ),
+                    options=CloudOCROptionSupport(
+                        kind="ocr",
+                        language=True,
+                        geometry=True,
+                        searchable_pdf=False,
+                    ),
+                )
+            ],
+        ),
+        preference="cloud_first",
+        execution_transport=transport,
+    )
+    deps = ExecutorDeps(
+        execution_composition=composition,
+        consent_coverage=ConsentCoverage(instance_principal(project), Decimal("0")),
+    )
+    try:
+        request = _confirmed_request(
+            project,
+            _request(sheet_id),
+            router=router,
+            deps=deps,
+        )
+        result = run_action_spec(
+            project,
+            request,
+            project_id="cloud-ocr-anchor",
+            router=router,
+            deps=deps,
+        )
+        assert result.status == "completed", result.errors
+        assert len(transport.calls) == 1
+        [call] = project.db.execute(
+            "SELECT id, provider, credential_source FROM model_calls"
+        ).fetchall()
+        assert call["id"] == "cloud-ocr-1"
+        assert call["provider"] == "anthropic"
+        assert call["credential_source"] == "platform_key"
     finally:
         project.close()
 

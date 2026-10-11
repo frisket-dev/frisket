@@ -19,6 +19,7 @@ from frisket.cloud_execution import (
     CloudConfirmationRequired,
     HttpCloudExecutionTransport,
     cloud_execution_accounting,
+    cloud_quote_authority_for_row,
     cloud_llm_execution,
     cloud_llm_execution_scope,
     cloud_media_execution,
@@ -45,6 +46,8 @@ from frisket.ops.base import OpContext
 from frisket.engine.store.execution_routes import route_fact_hash
 from frisket.execution.promise_compiler import (
     OperatorBorneZeroCost,
+    PricedCostBasis,
+    UnpriceableCost,
     compile_route_promises,
 )
 from frisket.execution.resolver import RouteRowFacts
@@ -72,6 +75,34 @@ def test_cloud_attempt_carries_durable_id_and_exact_payer_without_a_secret():
     assert attempt.request_id == "cloud-request-1"
     assert attempt.payer.account_id == 41
     assert "token" not in repr(attempt).lower()
+
+
+def test_cloud_row_quote_authority_uses_only_the_admitted_row_allocation():
+    basis = PricedCostBasis(
+        pricing_key="cloud.ocr",
+        unit_rate="0.0025",
+        estimated_quantity="5",
+        quantity_unit="page",
+        terms_version="route-1",
+        quantity_rounding_mode="half_even",
+        quantity_rounding_decimal_places=6,
+        meter_key="pages",
+        meter_units_per_quantity_unit="1",
+        ceiling_mode="consented_quantity",
+        row_settlement_mode="quoted_successful_rows",
+        charge_authority="frisket_cloud_receipt",
+        row_quote_quantities=((11, "2"), (12, "3")),
+    )
+
+    authority = cloud_quote_authority_for_row(basis, row_id=11)
+
+    assert authority.maximum_charge_micro == 5_000
+
+
+def test_cloud_unknown_cost_consent_is_explicitly_unbounded():
+    authority = cloud_quote_authority_for_row(UnpriceableCost(), row_id=11)
+
+    assert authority.maximum_charge_micro is None
 
 
 @pytest.mark.parametrize("name", ["../secret.pdf", "folder/audio.wav", "", ".."])

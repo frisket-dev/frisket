@@ -250,8 +250,6 @@ def test_offering_meter_must_match_the_capability_measurement() -> None:
 @pytest.mark.parametrize(
     "capability,meter_key",
     [
-        ("ocr", "pages"),
-        ("document.convert", "pages"),
         ("translate", "characters"),
         ("geocode", "rows"),
         ("census_demographics", "rows"),
@@ -260,7 +258,7 @@ def test_offering_meter_must_match_the_capability_measurement() -> None:
 def test_quoted_successful_rows_is_rejected_when_quote_has_no_row_allocation(
     capability: str, meter_key: str
 ) -> None:
-    with pytest.raises(ValueError, match="supported only for transcribe"):
+    with pytest.raises(ValueError, match="pins per-row quantities"):
         replace(
             _offer(),
             match=CommercialOfferingMatch(
@@ -273,6 +271,28 @@ def test_quoted_successful_rows_is_rejected_when_quote_has_no_row_allocation(
                 row_settlement_mode="quoted_successful_rows",
             ),
         )
+
+
+@pytest.mark.parametrize(
+    "capability,meter_key",
+    [("transcribe", "audio_seconds"), ("ocr", "pages"), ("document.convert", "pages")],
+)
+def test_quoted_successful_rows_accepts_row_measured_media_capabilities(
+    capability: str, meter_key: str
+) -> None:
+    offering = replace(
+        _offer(),
+        match=CommercialOfferingMatch(
+            "synthetic-row-venue", capability, "synthetic-engine"
+        ),
+        settlement=CommercialSettlementTerms(
+            meter_key=meter_key,
+            meter_units_per_quantity_unit="1",
+            ceiling_mode="consented_quantity",
+            row_settlement_mode="quoted_successful_rows",
+        ),
+    )
+    assert offering.match.capability == capability
 
 
 @pytest.mark.parametrize(

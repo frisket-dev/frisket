@@ -12,6 +12,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from collections.abc import Iterator, Sequence
+from decimal import Decimal, ROUND_FLOOR
 from datetime import UTC, datetime
 from typing import (
     TYPE_CHECKING,
@@ -262,6 +263,63 @@ class CloudExecutionTransport(Protocol):
     async def cancel(
         self, attempt: CloudExecutionAttempt, execution_id: str
     ) -> CloudExecutionResponse: ...
+
+
+@runtime_checkable
+class CloudExecutionTransportProvider(Protocol):
+    """Resolve the runtime port for one already-admitted Cloud target."""
+
+    def cloud_execution_transport(
+        self, target_id: str
+    ) -> CloudExecutionTransport | None: ...
+
+
+def cloud_quote_authority_for_row(
+    cost_basis: object,
+    *,
+    row_id: int,
+) -> CloudQuoteAuthority:
+    """Project an admitted row's exact spend ceiling into Cloud units.
+
+    The attempt cost basis is already consent-bound. Cloud receives only the
+    allocation for this row, so a multi-row aggregate can never authorize one
+    row to consume another row's allowance.
+    """
+
+    from frisket.execution.promise_compiler import (
+        OperatorBorneZeroCost,
+        PricedCostBasis,
+        UnpriceableCost,
+    )
+
+    if isinstance(cost_basis, PricedCostBasis):
+        quantities = cost_basis.row_quote_quantities
+        if quantities is None:
+            raise CloudExecutionRefused(
+                "cloud_quote_unbound",
+                "Cloud execution requires an exact per-row quote allocation",
+            )
+        quantity = next(
+            (Decimal(raw) for candidate, raw in quantities if candidate == row_id),
+            None,
+        )
+        if quantity is None:
+            raise CloudExecutionRefused(
+                "cloud_quote_unbound",
+                "Cloud execution row is absent from its admitted quote",
+            )
+        micro = (
+            Decimal(cost_basis.unit_rate) * quantity * Decimal(1_000_000)
+        ).to_integral_value(rounding=ROUND_FLOOR)
+        return CloudQuoteAuthority(maximum_charge_micro=int(micro))
+    if isinstance(cost_basis, UnpriceableCost):
+        return CloudQuoteAuthority(maximum_charge_micro=None)
+    if isinstance(cost_basis, OperatorBorneZeroCost):
+        raise CloudExecutionRefused(
+            "cloud_quote_unbound",
+            "A paid Cloud route cannot use an operator-borne cost basis",
+        )
+    raise TypeError("unsupported Cloud execution cost basis")
 
 
 class HttpCloudExecutionTransport:

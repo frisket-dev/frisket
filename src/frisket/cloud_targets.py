@@ -14,7 +14,7 @@ from frisket.cloud_connection import (
     CloudConnectionStore,
     CloudConnectionStoreError,
 )
-from frisket.cloud_execution import CloudPayerSubject
+from frisket.cloud_execution import CloudExecutionTransport, CloudPayerSubject
 from frisket.contracts.http.cloud_connection import (
     CloudAccount,
     CloudCapabilitiesResponse,
@@ -64,11 +64,13 @@ class CloudExecutionTargetProvider:
         payers: dict[tuple[str, str, str], CloudPayerSubject],
         *,
         preference: str,
+        execution_transport: CloudExecutionTransport | None = None,
     ) -> None:
         self._source = source
         self._cloud_targets = tuple(cloud_targets)
         self._cloud_by_id = {target.id: target for target in self._cloud_targets}
         self._payers = dict(payers)
+        self._execution_transport = execution_transport
         source_targets = tuple(source.targets())
         self._targets = (
             self._cloud_targets + source_targets
@@ -91,6 +93,11 @@ class CloudExecutionTargetProvider:
         self, target_id: str, capability: str, engine: str
     ) -> CloudPayerSubject | None:
         return self._payers.get((target_id, capability, engine))
+
+    def cloud_execution_transport(
+        self, target_id: str
+    ) -> CloudExecutionTransport | None:
+        return self._execution_transport if target_id in self._cloud_by_id else None
 
     def liveness_remedy(
         self, target_id: str, capability: str | None = None
@@ -120,6 +127,7 @@ def compose_cloud_targets(
     account: CloudAccount,
     capabilities: CloudCapabilitiesResponse,
     preference: str,
+    execution_transport: CloudExecutionTransport | None = None,
 ) -> ExecutionComposition:
     """Attach one selected account's authoritative media routes to ``base``."""
 
@@ -166,7 +174,11 @@ def compose_cloud_targets(
     if not targets:
         return base
     provider = CloudExecutionTargetProvider(
-        base.provider, targets, payers, preference=preference
+        base.provider,
+        targets,
+        payers,
+        preference=preference,
+        execution_transport=execution_transport,
     )
     return replace(
         base,
@@ -182,6 +194,7 @@ def cloud_execution_composition(
     *,
     store: CloudConnectionStore,
     client: CloudConnectionClient,
+    execution_transport: CloudExecutionTransport | None = None,
 ) -> ExecutionComposition:
     """Build one project's account-bound Cloud view with one discovery call."""
 
@@ -221,6 +234,7 @@ def cloud_execution_composition(
         account=account,
         capabilities=capabilities,
         preference=preference,
+        execution_transport=execution_transport,
     )
 
 
@@ -320,7 +334,7 @@ def _offering(
             meter_key="audio_seconds" if expected_unit == "audio_second" else "pages",
             meter_units_per_quantity_unit="1",
             ceiling_mode="consented_quantity",
-            row_settlement_mode="all_metered",
+            row_settlement_mode="quoted_successful_rows",
         ),
         charge_authority="frisket_cloud_receipt",
         presentation=CommercialPresentation(

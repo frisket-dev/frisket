@@ -216,6 +216,15 @@ class _ResolutionTargetProvider:
         hook = getattr(self.source, "cloud_payer", None)
         return hook(target_id, capability, engine) if callable(hook) else None
 
+    def cloud_execution_transport(self, target_id: str) -> Any | None:
+        from frisket.cloud_execution import CloudExecutionTransportProvider
+
+        if not any(target.id == target_id for target in self.rows):
+            return None
+        if not isinstance(self.source, CloudExecutionTransportProvider):
+            return None
+        return self.source.cloud_execution_transport(target_id)
+
     def liveness_remedy(
         self, target_id: str, capability: str | None = None
     ) -> str | None:

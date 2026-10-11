@@ -43,6 +43,7 @@ from frisket.sdk.ops.transcription.faster_whisper import (
     faster_whisper_env as faster_whisper_env,
     faster_whisper_policy as faster_whisper_policy,
 )
+from frisket.sdk.ops.transcription.cloud import CloudTranscriptionAdapter
 from frisket.sdk.ops.transcription.hosted import OpenAITranscriptionAdapter
 from frisket.sdk.ops.transcription.parakeet import ParakeetAdapter, execution_scope
 from frisket.sdk.ops.transcription.sidecar import TranscriptionV1Adapter
@@ -58,6 +59,7 @@ TranscriptionAdapter = (
     | ParakeetAdapter
     | OpenAITranscriptionAdapter
     | TranscriptionV1Adapter
+    | CloudTranscriptionAdapter
 )
 
 
@@ -143,6 +145,8 @@ async def transcription_execution_scope(
 
 
 def _adapter_for(engine: str, transport: str | None) -> TranscriptionAdapter:
+    if transport == "frisket.cloud.media.v1":
+        return CloudTranscriptionAdapter()
     if transport == "local":
         if engine == "faster_whisper":
             return FasterWhisperAdapter()

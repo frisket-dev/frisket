@@ -124,6 +124,7 @@ def test_cloud_first_resolves_target_specific_payer_and_offering():
     )
     assert offering is not None
     assert offering.quote.unit_rate == "0.0025"
+    assert offering.settlement.row_settlement_mode == "quoted_successful_rows"
 
 
 def test_local_first_preserves_existing_local_route():

@@ -42,7 +42,9 @@ from frisket.execution.resolver import CandidateBinding, RouteRowFacts
 from frisket.execution.targets import ExecutionTarget
 from frisket.ops.base import OpContext
 from frisket.ops.ocr_engines_cloud import ocr_cloud
+from frisket.ops.ocr_engines import OcrEngines
 from frisket.sdk.ops.transcription.cloud import CloudTranscriptionAdapter
+from frisket.sdk.ops.transcribe_engines import run_transcription_engine
 
 
 ENGINE = "cloud-provider/media-model"
@@ -215,6 +217,36 @@ def test_cloud_ocr_requires_exact_typed_binding_before_opening_files(tmp_path):
         asyncio.run(ocr_cloud(ENGINE, [missing], OpContext(), {}))
 
 
+def test_ocr_dispatch_selects_cloud_from_the_admitted_transport(tmp_path):
+    page = tmp_path / "page.png"
+    page.write_bytes(b"page")
+    response = _response(
+        "ocr",
+        CloudOCRResult(pages=[{"page": 1, "text": "Cloud", "blocks": []}]),
+        CloudOCRUsage(kind="ocr", pages=1),
+        CloudOCROptionSupport(
+            kind="ocr", language=True, geometry=True, searchable_pdf=False
+        ),
+        engine=ENGINE,
+    )
+    transport = _Transport(response)
+    ctx = _ctx(transport, "ocr")
+    ctx.extras = _route_extras(ENGINE)
+
+    pages = asyncio.run(
+        OcrEngines().run_engine_on_pages(
+            ENGINE,
+            [page],
+            ctx,
+            usage={},
+            scratch=tmp_path,
+        )
+    )
+
+    assert pages[0]["text"] == "Cloud"
+    assert len(transport.calls) == 1
+
+
 def test_cloud_transcription_preserves_segments_speakers_words_and_receipt(tmp_path):
     audio = tmp_path / "source.wav"
     audio.write_bytes(b"RIFF-audio")
@@ -288,6 +320,41 @@ def test_cloud_transcription_preserves_segments_speakers_words_and_receipt(tmp_p
     assert calls[0]["id"] == "cloud-transcribe-execution-1"
     assert calls[0]["units"]["audio_seconds"] == 1.4
     assert out["cloud_receipt"]["charge_micro"] == 75_000
+
+
+def test_transcription_dispatch_selects_cloud_transport(tmp_path):
+    audio = tmp_path / "source.wav"
+    audio.write_bytes(b"RIFF-audio")
+    response = _response(
+        "transcribe",
+        CloudTranscriptionResult(
+            text="Cloud transcript", segments=[], language="en", duration=1.0
+        ),
+        CloudTranscriptionUsage(kind="transcribe", audio_seconds=1.0),
+        CloudTranscriptionOptionSupport(
+            kind="transcribe",
+            diarization_mode="optional",
+            speaker_hint="count",
+            language=True,
+            model_size=False,
+            vad=True,
+            context=True,
+        ),
+    )
+    transport = _Transport(response)
+
+    result = asyncio.run(
+        run_transcription_engine(
+            ENGINE,
+            str(audio),
+            {},
+            _ctx(transport, "transcribe"),
+            transport="frisket.cloud.media.v1",
+        )
+    )
+
+    assert result.output["text"] == "Cloud transcript"
+    assert len(transport.calls) == 1
 
 
 def _route_extras(engine: str) -> dict[str, Any]:

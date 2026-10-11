@@ -759,6 +759,7 @@ def quote_to_markdown(
     funding: Funding,
     offering: CommercialOffering | None,
     pages: int | None,
+    row_pages: Mapping[int, int] | None = None,
 ) -> CostBasis:
     """THE cost-basis mint for a document-conversion invocation.
 
@@ -768,6 +769,18 @@ def quote_to_markdown(
     published rates — which is exactly why the SKU key carries the capability
     and the venue rather than the venue alone.
     """
+    if offering is not None:
+        _require_offering_match(
+            offering=offering,
+            target_id=target_id,
+            capability=CAPABILITY_TO_MARKDOWN,
+            engine=engine,
+        )
+        return quote_commercial_offering(
+            offering=offering,
+            metered_quantity=pages,
+            row_metered_quantities=row_pages,
+        )
     return _quote_catalog_sku(
         capability=CAPABILITY_TO_MARKDOWN,
         target_id=target_id,

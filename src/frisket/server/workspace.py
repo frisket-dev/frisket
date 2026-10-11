@@ -574,6 +574,7 @@ class Workspace:
                     project,
                     store=self._cloud_connection_store,
                     client=self._cloud_connection_client,
+                    execution_transport=self.cloud_execution_transport,
                 )
             return composition
         return self._execution_composition_factory(project, effective_router, context)
