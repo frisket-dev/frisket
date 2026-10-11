@@ -258,6 +258,10 @@ def test_connected_cloud_model_runs_through_queued_worker_composition(
         def close(self):
             return None
 
+    store.save_capabilities(
+        CloudCapabilitiesResponse(account_id=41, routes=[Client.route()]),
+        expected_user_id=7,
+    )
     cloud_client = Client()
 
     class Transport:
@@ -330,7 +334,7 @@ def test_connected_cloud_model_runs_through_queued_worker_composition(
 
     assert challenge.status_code == 402, challenge.text
     assert "missing_provider_key" not in challenge.text
-    assert cloud_client.calls == 1
+    assert cloud_client.calls == 0
     action["confirmation"] = challenge.json()["errors"][0]["details"][
         "promise_set_hash"
     ]
@@ -340,13 +344,13 @@ def test_connected_cloud_model_runs_through_queued_worker_composition(
     )
     assert launched.status_code == 200, launched.text
     assert launched.json()["status"] == "queued"
-    assert cloud_client.calls == 2
+    assert cloud_client.calls == 0
 
     assert Worker(
         client.app.state.workspace.queue, client.app.state.workspace.registry
     ).run_once()
 
-    assert cloud_client.calls == 3
+    assert cloud_client.calls == 0
     assert len(transport.calls) == 2, [
         (job.status, job.error)
         for job in client.app.state.workspace.queue.list_jobs(limit=10)
