@@ -784,6 +784,25 @@ def resolve_for_action(
             for support in target.engines
         )
         if not cloud_llm:
+            fallback_route = resolve(
+                ResolutionRequest(
+                    engine=model,
+                    capability=CAPABILITY_LLM,
+                    options={},
+                ),
+                composition.provider_for_resolution(),
+                composition.facts,
+            )
+            blocks_fallback = getattr(
+                composition.provider, "blocks_cloud_fallback", None
+            )
+            if (
+                isinstance(fallback_route, Refusal)
+                and fallback_route.target_id is not None
+                and callable(blocks_fallback)
+                and blocks_fallback(fallback_route.target_id, CAPABILITY_LLM, model)
+            ):
+                return fallback_route
             return None
     # The recipe declares which capability it resolves for. Read as an
     # attribute, not with a getattr default, for the same reason
