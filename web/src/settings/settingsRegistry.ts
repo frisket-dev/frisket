@@ -187,7 +187,7 @@ export const SETTINGS_SECTIONS: readonly OpenSettingsSectionDefinition[] = [
     visibility: 'project',
     permission: 'owner',
     component: 'project.aiProviders',
-    summary: 'Cloud routing and project-scoped provider overrides.',
+    summary: 'Choose models, API keys, and a Cloud account for this project.',
   },
   {
     id: 'project.secrets',

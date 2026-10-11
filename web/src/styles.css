@@ -9575,15 +9575,22 @@ dialog.modal-card::backdrop {
   justify-items: start;
   gap: 10px;
   padding: 16px;
-  border: 1px solid #d9daf7;
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border));
   border-radius: 12px;
-  background: #fbfbfe;
+  background: color-mix(in srgb, var(--accent-bg) 24%, var(--bg));
   color: var(--text-mid);
   font-size: 13px;
   line-height: 1.45;
 }
 .cloud-connection-card h3,
 .cloud-connection-card p { margin: 0; }
+.cloud-connection-card a:not(.btn),
+.project-cloud-routing a {
+  color: var(--accent);
+  text-decoration: none;
+}
+.cloud-connection-card a:not(.btn):hover,
+.project-cloud-routing a:hover { text-decoration: underline; }
 .cloud-connection-card h3 {
   color: var(--text);
   font-size: 14px;
@@ -9664,8 +9671,8 @@ dialog.modal-card::backdrop {
   cursor: pointer;
 }
 .cloud-account-options label:has(input:checked) {
-  border-color: #c9cbf5;
-  background: #f7f7fe;
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent-bg) 35%, var(--bg));
 }
 .cloud-account-options label.is-disabled { cursor: default; opacity: 0.64; }
 .cloud-account-options input { margin-top: 3px; }
@@ -9699,8 +9706,8 @@ dialog.modal-card::backdrop {
   cursor: pointer;
 }
 .cloud-preference-options > label:has(input:checked) {
-  border-color: #c9cbf5;
-  background: #f7f7fe;
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent-bg) 35%, var(--bg));
 }
 .cloud-preference-options input { margin-top: 3px; }
 .cloud-preference-options strong,

@@ -374,6 +374,8 @@
   margin: 0;
 }
 .engine-selector__route a {
+  color: var(--accent);
+  text-decoration: none;
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -421,7 +423,7 @@
 
 .engine-selector__footer .cloud-local-key-card {
   padding: 15px;
-  border: 1px solid #e4ddd6;
+  border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--bg);
 }
@@ -439,8 +441,8 @@
 }
 
 .engine-selector__footer .cloud-credit-blocker {
-  border-color: #efddbe;
-  background: #fdf8ef;
+  border-color: color-mix(in srgb, var(--amber) 30%, var(--border));
+  background: var(--amber-bg);
 }
 
 .engine-selector__footer .settings-provider-key-form--compact {

@@ -90,7 +90,7 @@ export function ProjectCloudRoutingSettings({
   return <section className="settings-stack project-cloud-routing" data-testid="project-cloud-routing">
     <div className="settings-section-subhead">
       <h2>Frisket Cloud</h2>
-      <p>Choose the Cloud account for this project and how overlapping models should run.</p>
+      <p>Choose the Cloud account and which keys this project uses.</p>
     </div>
     {routing.connectionState !== 'connected' && (
       <CloudConnectionPanel client={connectionClient} variant="compact"
@@ -128,8 +128,8 @@ export function ProjectCloudRoutingSettings({
     <fieldset className="cloud-preference-options" disabled={!routing.canMutate || busy || routing.connectionState !== 'connected'}>
       <legend>When a model works with both</legend>
       <p className="settings-help">{overlap
-        ? `Both routes can run ${overlap}. Choose which one this project uses.`
-        : 'No configured provider currently overlaps, so this setting has no effect.'}</p>
+        ? `You can use ${overlap} through your own keys or Cloud.`
+        : 'This preference applies when a model is available through both your keys and Cloud.'}</p>
       <label>
         <input type="radio" name="cloud-preference" value="local_first"
           checked={routing.preference === 'local_first'}
