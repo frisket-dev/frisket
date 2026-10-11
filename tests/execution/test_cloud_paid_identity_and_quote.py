@@ -13,7 +13,6 @@ from frisket.engine.runner.map_runner import (
     _row_effect_identity,
 )
 from frisket.engine.store import Project
-from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
 from frisket.execution.resolve_for_action import _llm_cost_basis
 
 
@@ -41,56 +40,55 @@ def _identity(project: Project, *, run_id: int) -> tuple[str, str]:
     )
 
 
-def test_cloud_row_request_is_project_unique_and_reuses_only_unresolved_identity(
-    tmp_path,
-):
+def _new_cloud_row_request(
+    project: Project, *, checkpoint_id: str, identity: str, run_id: int
+) -> str:
+    owner, request_id, adopted = _cloud_row_request_id(
+        project,
+        current_checkpoint_id=checkpoint_id,
+        current_group_key=str(run_id),
+        current_unit_key="1",
+        action_kind="media.ocr",
+        identity=identity,
+        current_authorized_attempt_id="not-used-without-recovery",
+        run_id=run_id,
+        writer_attempt_id="not-used-without-recovery",
+        claim_token=None,
+        claimless_direct_effect=True,
+    )
+    assert owner == checkpoint_id
+    assert adopted is False
+    return request_id
+
+
+def test_cloud_row_request_is_project_unique_and_new_intent_uses_new_key(tmp_path):
     first = Project.create(tmp_path / "first.frisket")
     second = Project.create(tmp_path / "second.frisket")
     try:
         first_checkpoint, first_identity = _identity(first, run_id=1)
         second_checkpoint, second_identity = _identity(second, run_id=1)
 
-        first_request = _cloud_row_request_id(
+        first_request = _new_cloud_row_request(
             first,
-            current_checkpoint_id=first_checkpoint,
-            action_kind="media.ocr",
+            checkpoint_id=first_checkpoint,
             identity=first_identity,
+            run_id=1,
         )
-        second_request = _cloud_row_request_id(
+        second_request = _new_cloud_row_request(
             second,
-            current_checkpoint_id=second_checkpoint,
-            action_kind="media.ocr",
+            checkpoint_id=second_checkpoint,
             identity=second_identity,
+            run_id=1,
         )
         assert first_request != second_request
 
-        EffectCheckpointStore(first.db).reserve(
-            first_checkpoint,
-            family="row_effect",
-            group_key="1",
-            unit_key="1",
-            action_kind="media.ocr",
-            identity=first_identity,
-        )
         fresh_checkpoint, fresh_identity = _identity(first, run_id=2)
         assert fresh_identity == first_identity
-        recovered_request = _cloud_row_request_id(
+        later_request = _new_cloud_row_request(
             first,
-            current_checkpoint_id=fresh_checkpoint,
-            action_kind="media.ocr",
+            checkpoint_id=fresh_checkpoint,
             identity=fresh_identity,
-        )
-        assert recovered_request == first_request
-
-        first.db.execute(
-            "DELETE FROM effect_checkpoints WHERE id=?", (first_checkpoint,)
-        )
-        first.db.commit()
-        later_request = _cloud_row_request_id(
-            first,
-            current_checkpoint_id=fresh_checkpoint,
-            action_kind="media.ocr",
-            identity=fresh_identity,
+            run_id=2,
         )
         assert later_request != first_request
     finally:
