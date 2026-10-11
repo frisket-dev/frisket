@@ -9,6 +9,17 @@ export interface EngineSelectorFact {
   value: string | number | readonly string[];
 }
 
+/** The one execution route resolved by the server for this project/model. */
+export interface EngineSelectorRoute {
+  label: string;
+  billedTo?: string;
+  sendsDataTo?: string;
+  balanceLabel?: string;
+  balanceUrl?: string;
+  settingsUrl?: string;
+  hasAlternativeRoute?: boolean;
+}
+
 /** A caller-owned operation projected into the selected field's status copy. */
 export interface EngineSelectorActivity {
   label: string;
@@ -23,6 +34,7 @@ export interface EngineSelectorChoice {
   summary?: string;
   description?: string;
   facts?: readonly EngineSelectorFact[];
+  route?: EngineSelectorRoute;
   destination?: string;
   modelCardUrl?: string;
   status: EngineSelectorStatus;

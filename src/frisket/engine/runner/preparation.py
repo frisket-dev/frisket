@@ -42,6 +42,7 @@ class PreparedRun:
     op_id: int
     run_id: int
     row_count: int
+    resolution_bound: bool = False
     run_scope_run_id: int | None = None
 
 
@@ -716,5 +717,8 @@ def prepare_validated(
         op_id=op_id,
         run_id=run_id,
         row_count=row_count,
+        resolution_bound=(
+            validated.resolved_execution is not None or recipe.consumes_resolution
+        ),
         run_scope_run_id=run_scope_run_id,
     )

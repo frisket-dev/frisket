@@ -7,7 +7,7 @@ import logging
 import os
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from frisket.authoring.action_metadata import (
     action_available_in_edition,
@@ -49,7 +49,8 @@ from frisket.server.action_enqueue import (
 )
 from frisket.server.run_status import action_run_status_payload
 from frisket.server.workspace import Workspace
-from frisket.execution.provider import ExecutionCompositionContext
+from frisket.execution.provider import ExecutionComposition
+from frisket.execution.targets import CAPABILITY_LLM
 from frisket.engine.store import Project
 from frisket.engine.store.receipts import FINISHED_RECEIPT_STATUSES, ReceiptStore
 from frisket.engine.store.sources import SourceStore
@@ -238,6 +239,18 @@ class ActionRunService:
         # object; a later asynchronous worker execution deliberately resolves
         # its own fresh router from the registered factory.
         effective_router = self._workspace.action_execution_router_for(project)
+        request_composition: ExecutionComposition | None = None
+
+        def request_execution_composition() -> ExecutionComposition:
+            nonlocal request_composition
+            if request_composition is None:
+                request_composition = self._workspace.execution_composition_for(
+                    project,
+                    effective_router,
+                    execution_context,
+                )
+            return request_composition
+
         # This is the same choke point, with the same choice of
         # status="failed" over 402 — see _missing_model_key_result and
         # missing_model_key_error_for_request (server/action_enqueue.py) for
@@ -247,7 +260,7 @@ class ActionRunService:
             project_id,
             body,
             router=effective_router,
-            execution_context=execution_context,
+            execution_composition_for=request_execution_composition,
         )
         if model_key_result is not None:
             if self._workspace.require_explicit_provider_keys and any(
@@ -297,7 +310,9 @@ class ActionRunService:
                 queue=self._workspace.queue,
                 workspace_root=self._workspace.root,
                 router_for=lambda _project: effective_router,
-                execution_composition_for=self._workspace.execution_composition_for,
+                execution_composition_for=lambda _project, _router, _context: (
+                    request_execution_composition()
+                ),
                 active_runs=self._workspace.active_runs,
                 run_jobs=self._workspace.run_jobs,
                 queue_payload_extra=self._workspace.queue_payload_extra,
@@ -309,11 +324,7 @@ class ActionRunService:
         if queued_result is not None:
             return _action_run_response(queued_result)
 
-        execution_composition = self._workspace.execution_composition_for(
-            project,
-            effective_router,
-            execution_context,
-        )
+        execution_composition = request_execution_composition()
         direct_request_deps = request_executor_deps()
         result = run_action_spec(
             project,
@@ -539,7 +550,7 @@ class ActionRunService:
         body: dict[str, Any],
         *,
         router: ModelRouter,
-        execution_context: ExecutionCompositionContext,
+        execution_composition_for: Callable[[], ExecutionComposition],
     ) -> V1ActionResult | None:
         """None when the action's params carry no chat-completion `model`
         field, the field's provider needs no key (local/keyless, e.g.
@@ -568,11 +579,7 @@ class ActionRunService:
                 project,
                 body,
                 router,
-                execution_composition=self._workspace.execution_composition_for(
-                    project,
-                    router,
-                    execution_context,
-                ),
+                execution_composition=execution_composition_for(),
             )
             if router.adapter_for(provider) is None and not exact_replay:
                 return V1ActionResult(
@@ -586,6 +593,18 @@ class ActionRunService:
                 )
         error = missing_model_key_error_for_request(kind, params, router)
         if error is None:
+            return None
+        model = params.get("model")
+        composition = execution_composition_for()
+        if isinstance(model, str) and any(
+            composition.cloud_payer_for(
+                target_id=target.id,
+                capability=CAPABILITY_LLM,
+                engine=model,
+            )
+            is not None
+            for target in composition.resolution_targets()
+        ):
             return None
         return V1ActionResult(
             action={"kind": kind, "action_id": _new_id("act")},

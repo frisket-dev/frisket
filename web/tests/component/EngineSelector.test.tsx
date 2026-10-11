@@ -119,6 +119,39 @@ describe('EngineSelector', () => {
     expect(screen.getByText('No compatible runtime')).toBeVisible();
   });
 
+  it('shows the server-resolved route and keeps external billing separate from project settings', async () => {
+    const routed: EngineSelectorGroup[] = [{
+      id: 'google',
+      label: 'Google',
+      choices: [{
+        id: 'gemini', label: 'Gemini 2.5 Flash', summary: 'Riverton News · Frisket credits',
+        status: 'ready', canAuthor: true, canRun: true,
+        route: {
+          label: 'Riverton News · Frisket credits',
+          billedTo: 'Riverton News · Frisket credits',
+          sendsDataTo: 'Google via Frisket Cloud',
+          balanceLabel: '$182.40 balance',
+          balanceUrl: 'https://app.frisket.dev/accounts/42',
+          settingsUrl: '/p/project-a/settings/project/ai-providers',
+          hasAlternativeRoute: true,
+        },
+      }],
+    }];
+    render(<EngineSelector label="Model" groups={routed} value="gemini"
+      recentNamespace="cloud-route" onSelect={vi.fn()} />);
+
+    await userEvent.click(screen.getByRole('button', { name: /Gemini 2.5 Flash/ }));
+    const route = within(screen.getByTestId('engine-selector-route'));
+    expect(route.getByText('Riverton News · Frisket credits', { selector: 'strong' })).toBeVisible();
+    expect(route.getByText('Google via Frisket Cloud')).toBeVisible();
+    expect(route.getByRole('link', { name: /\$182.40 balance/ })).toHaveAttribute(
+      'href', 'https://app.frisket.dev/accounts/42',
+    );
+    expect(route.getByRole('link', { name: 'Change →' })).toHaveAttribute(
+      'href', '/p/project-a/settings/project/ai-providers',
+    );
+  });
+
   it('searches labels, summaries, and providers without reviving excluded recent ids', async () => {
     localStorage.setItem('frisket:engine-selector:recent:component-test', JSON.stringify(['removed', 'whisper']));
     renderSelector();

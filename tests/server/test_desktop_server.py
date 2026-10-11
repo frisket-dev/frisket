@@ -94,12 +94,17 @@ def test_desktop_launch_config_refuses_invalid_input_without_echoing_it(
     assert "leak-me" not in captured.err
 
 
-def test_desktop_launch_config_requires_an_integer_schema_one():
+def test_desktop_launch_config_requires_an_integer_schema_two():
     from frisket.server.desktop import DesktopLaunchError, read_launch_config
 
     for schema in (True, 1.0):
         payload = json.dumps(
-            {"schema": schema, "workspace": "/workspace", "token": TOKEN}
+            {
+                "schema": schema,
+                "workspace": "/workspace",
+                "profile_dir": "/profile",
+                "token": TOKEN,
+            }
         ).encode()
         with pytest.raises(DesktopLaunchError):
             read_launch_config(io.BytesIO(payload))
@@ -109,7 +114,12 @@ def test_desktop_main_reports_deliberately_safe_startup_errors(monkeypatch, caps
     from frisket.server import desktop
 
     payload = json.dumps(
-        {"schema": 1, "workspace": "/workspace", "token": TOKEN}
+        {
+            "schema": 2,
+            "workspace": "/workspace",
+            "profile_dir": "/profile",
+            "token": TOKEN,
+        }
     ).encode()
     monkeypatch.setattr(
         desktop.sys, "stdin", SimpleNamespace(buffer=io.BytesIO(payload))
@@ -279,7 +289,11 @@ def test_unexpected_worker_exit_stops_server_nonzero_and_cleans_up(
 
     assert (
         desktop._serve(
-            desktop.DesktopLaunchConfig(tmp_path / "workspace", TOKEN),
+            desktop.DesktopLaunchConfig(
+                workspace=tmp_path / "workspace",
+                profile_dir=tmp_path / "profile",
+                token=TOKEN,
+            ),
             ready_stdout=io.StringIO(),
         )
         == 1
@@ -337,6 +351,51 @@ def test_desktop_server_loads_cached_prices_before_creating_the_app(
     )
     with pytest.raises(AppReady):
         desktop._serve(
-            desktop.DesktopLaunchConfig(tmp_path / "workspace", TOKEN),
+            desktop.DesktopLaunchConfig(
+                workspace=tmp_path / "workspace",
+                profile_dir=tmp_path / "profile",
+                token=TOKEN,
+            ),
             ready_stdout=io.StringIO(),
         )
+
+
+def test_desktop_upgrade_keeps_existing_project_secrets_key(tmp_path, monkeypatch):
+    from frisket.ai.llm import pricing_refresh
+    from frisket.operability import structured_logging
+    from frisket.server import app as app_module, desktop, static_serving
+    from frisket.team.security.secrets import decrypt_secret, encrypt_secret
+
+    workspace = tmp_path / "workspace"
+    profile_dir = tmp_path / "profile"
+    legacy_key = workspace / ".frisket" / "secrets" / "master.key"
+    monkeypatch.delenv("FRISKET_SECRETS_MASTER_KEY", raising=False)
+    monkeypatch.setenv("FRISKET_SECRETS_KEY_FILE", str(legacy_key))
+    encrypted = encrypt_secret("existing-project-provider-key")
+
+    class AppReady(Exception):
+        pass
+
+    def create_app(*_args, **_kwargs):
+        assert os.environ["FRISKET_SECRETS_KEY_FILE"] == str(legacy_key)
+        assert decrypt_secret(encrypted) == "existing-project-provider-key"
+        raise AppReady
+
+    monkeypatch.setattr(pricing_refresh, "start_pricing_refresh", lambda: None)
+    monkeypatch.setattr(structured_logging, "configure_logging", lambda **_kwargs: None)
+    monkeypatch.setattr(app_module, "create_app", create_app)
+    monkeypatch.setattr(
+        static_serving, "packaged_static_dir", lambda: _static_dir(tmp_path)
+    )
+
+    with pytest.raises(AppReady):
+        desktop._serve(
+            desktop.DesktopLaunchConfig(
+                workspace=workspace,
+                profile_dir=profile_dir,
+                token=TOKEN,
+            ),
+            ready_stdout=io.StringIO(),
+        )
+
+    assert not (profile_dir / "secrets" / "master.key").exists()

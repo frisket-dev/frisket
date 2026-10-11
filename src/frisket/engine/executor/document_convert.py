@@ -10,12 +10,22 @@ from __future__ import annotations
 
 import asyncio
 import json
+import mimetypes
 import tempfile
 from pathlib import Path
 from typing import Any
 
 from frisket.actions.document_types import ConvertedDocument
 from frisket.actions.types import ColumnRef, Row, RowError
+from frisket.cloud_execution import (
+    CloudMediaUpload,
+    cloud_execution_accounting,
+    cloud_media_execution,
+)
+from frisket.contracts.http.cloud_connection import (
+    CloudDocumentConvertOptions,
+    CloudDocumentConvertResult,
+)
 from frisket.contracts.actions.schemas._engines import (
     TO_MARKDOWN_ENGINE_TABLE,
     engine_ids,
@@ -37,6 +47,7 @@ from frisket.execution.runtime_binding import ROUTE_OBSERVATION_KEY, bind_fact_t
 from frisket.execution.targets import CAPABILITY_TO_MARKDOWN
 from frisket.ops._sidecar import sidecar_post
 from frisket.ops.base import RecipeInvocationHalt
+from frisket.ops.integrations.hosted_error import HostedEngineError
 
 LIGHT_ENGINE = "markitdown"
 TRAFILATURA_HTML_ENGINE = "trafilatura_html"
@@ -56,6 +67,7 @@ _EXPECTED_TRANSPORT = {
     **{engine: "sidecar.convert" for engine in SIDECAR_ENGINES},
     DATALAB_ENGINE: "datalab.convert",
 }
+CLOUD_MEDIA_TRANSPORT = "frisket.cloud.media.v1"
 
 # Datalab's /convert accepts PDF/Word/PowerPoint/PNG/JPG/WebP — NOT html/text.
 # Pre-validated here BEFORE any network call so a local input-type mismatch
@@ -219,7 +231,9 @@ class _BoundDocumentConverter:
             scratch = Path(td)
             path, read = self._resolve_input(doc, scratch, media_typed=media_typed)
             self._enforce_pdf_limit(path, doc)
-            if engine == LIGHT_ENGINE:
+            if self._is_cloud_route():
+                markdown, ocr_used = await self._convert_cloud(engine, path)
+            elif engine == LIGHT_ENGINE:
                 markdown = await self._convert_markitdown(path, scratch)
             elif engine == TRAFILATURA_HTML_ENGINE:
                 markdown = self._convert_trafilatura_html(path)
@@ -255,12 +269,14 @@ class _BoundDocumentConverter:
         read["row_id"] = self._row_id
         read["column_id"] = column_id
         read["source_column"] = source.name
+        cloud_route = self._is_cloud_route()
+        tier = "hosted" if cloud_route else _engine_tier(engine)
         owner.calls_by_row.setdefault(self._row_id, []).append(
             {
                 "kind": "document_convert_read",
                 "engine": engine,
-                "tier": _engine_tier(engine),
-                "external": _engine_tier(engine) == "hosted",
+                "tier": tier,
+                "external": cloud_route or tier == "hosted",
                 "ocr_used": list(ocr_used),
                 "produced_markdown": bool(markdown),
                 "document_read": read,
@@ -394,8 +410,11 @@ class _BoundDocumentConverter:
         if admission is not None:
             engine = admission.route.engine
             snapshot = admission.route.target_snapshot
+            transport = snapshot.get("transport")
             expected = (
-                "opendocrouter.parse"
+                CLOUD_MEDIA_TRANSPORT
+                if transport == CLOUD_MEDIA_TRANSPORT
+                else "opendocrouter.parse"
                 if engine.startswith("opendocrouter/")
                 else _EXPECTED_TRANSPORT.get(engine)
             )
@@ -417,6 +436,14 @@ class _BoundDocumentConverter:
             )
         return self._owner._engine
 
+    def _is_cloud_route(self) -> bool:
+        admission = routed_admission_in_scope(self._ctx.extras)
+        return bool(
+            admission is not None
+            and admission.route.target_snapshot.get("transport")
+            == CLOUD_MEDIA_TRANSPORT
+        )
+
     def _route_connection(self) -> Any:
         """Use only the gateway connection admitted for this invocation."""
         admission = routed_admission_in_scope(self._ctx.extras)
@@ -427,6 +454,42 @@ class _BoundDocumentConverter:
         )
 
     # -- engines -----------------------------------------------------------
+
+    async def _convert_cloud(self, engine: str, path: Path) -> tuple[str, list]:
+        transport, attempt = cloud_media_execution(
+            self._ctx, CAPABILITY_TO_MARKDOWN, engine
+        )
+        if not path.exists():
+            raise RowError("invalid_input_ref", f"convert input not found: {path}")
+        with path.open("rb") as stream:
+            response = await transport.execute_media(
+                attempt,
+                capability=CAPABILITY_TO_MARKDOWN,
+                engine=engine,
+                options=CloudDocumentConvertOptions(),
+                uploads=(
+                    CloudMediaUpload(
+                        file_name=path.name,
+                        content_type=mimetypes.guess_type(path.name)[0]
+                        or "application/octet-stream",
+                        stream=stream,
+                    ),
+                ),
+            )
+        accounting = cloud_execution_accounting(
+            attempt, response, capability=CAPABILITY_TO_MARKDOWN
+        )
+        # Preserve a paid receipt even if Cloud returned a result for the wrong
+        # capability.  The row still fails, but its provider fact is durable.
+        self._store_hosted_accounting(accounting)
+        result = response.result
+        if not isinstance(result, CloudDocumentConvertResult):
+            raise HostedEngineError(
+                code="invalid_response",
+                message="Cloud document conversion returned no document result",
+                accounting=accounting,
+            )
+        return result.markdown, list(result.ocr_used)
 
     async def _convert_markitdown(self, path: Path, scratch: Path) -> str:
         if not path.exists():

@@ -296,6 +296,11 @@ def model_call_accounting(engine: str, wire_calls: list[LLMResponse]) -> dict[st
                 units=units,
                 warnings=[],
             ).as_dict()
+        elif resp.actual_accounting is not None:
+            model_calls.extend(
+                dict(model_call) for model_call in resp.actual_accounting.model_calls
+            )
+            model_call = None
         else:
             model_call = ModelCallMeta.provider_call(
                 capability="llm.complete",
@@ -314,23 +319,38 @@ def model_call_accounting(engine: str, wire_calls: list[LLMResponse]) -> dict[st
                 # false NULL.
                 duration_ms=resp.duration_ms,
             ).as_dict()
-        model_calls.append(model_call)
+        if model_call is not None:
+            model_calls.append(model_call)
         tokens["in"] += resp.tokens_in
         tokens["out"] += resp.tokens_out
         # resp.cost None = unpriced model; one unknown call makes the
         # row's total unknown (None), never silently $0
         if resp.cached:
             pass  # cache hits bill nothing
+        elif resp.actual_accounting is not None:
+            if resp.actual_accounting.cost is None:
+                tokens["cost"] = None
+            elif tokens["cost"] is not None:
+                tokens["cost"] += resp.actual_accounting.cost
         elif resp.cost is None:
             tokens["cost"] = None
         elif tokens["cost"] is not None:
             tokens["cost"] += resp.cost
-    return {
+    result = {
         "tokens_in": tokens["in"],
         "tokens_out": tokens["out"],
         "cost": tokens["cost"],
         "model_calls": model_calls,
     }
+    receipts = [
+        dict(receipt)
+        for resp in wire_calls
+        if not resp.cached and resp.actual_accounting is not None
+        for receipt in resp.actual_accounting.receipts
+    ]
+    if receipts:
+        result["execution_receipts"] = receipts
+    return result
 
 
 def _search_usage_dict(response: SearchResponse) -> dict[str, Any]:

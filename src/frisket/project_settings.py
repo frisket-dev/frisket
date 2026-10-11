@@ -12,7 +12,7 @@ and silently ignored forever.
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -38,6 +38,12 @@ class ProjectSettings(BaseModel):
             "frisket.ops.egress_policy.media_egress_policy."
         ),
     )
+    # Cloud account selection is deliberately project-local while the bearer
+    # credential remains installation-scoped.  The user id prevents a new
+    # signed-in person from inheriting an identically numbered account.
+    cloud_user_id: int | None = Field(default=None, gt=0)
+    cloud_account_id: int | None = Field(default=None, gt=0)
+    cloud_execution_preference: Literal["local_first", "cloud_first"] | None = None
 
 
 class ProjectSettingsPatch(BaseModel):
@@ -46,6 +52,9 @@ class ProjectSettingsPatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     media_allow_private_hosts: bool | None = None
+    cloud_user_id: int | None = Field(default=None, gt=0)
+    cloud_account_id: int | None = Field(default=None, gt=0)
+    cloud_execution_preference: Literal["local_first", "cloud_first"] | None = None
 
 
 def read_project_settings(project: Any) -> ProjectSettings:

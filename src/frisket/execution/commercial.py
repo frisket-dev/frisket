@@ -16,6 +16,7 @@ from typing import Literal
 from frisket.execution.targets import (
     CAPABILITY_CENSUS,
     CAPABILITY_GEOCODE,
+    CAPABILITY_LLM,
     CAPABILITY_OCR,
     CAPABILITY_TO_MARKDOWN,
     CAPABILITY_TRANSCRIBE,
@@ -27,6 +28,7 @@ from frisket.execution.targets import (
 )
 
 QUOTE_METER_KEY_BY_CAPABILITY: dict[str, str] = {
+    CAPABILITY_LLM: "cloud_effective_cost_micro",
     CAPABILITY_TRANSCRIBE: "audio_seconds",
     CAPABILITY_OCR: "pages",
     CAPABILITY_TO_MARKDOWN: "pages",
@@ -230,13 +232,18 @@ class CommercialOffering:
                 f"capability's quoted measurement: expected {expected_meter!r}, "
                 f"got {self.settlement.meter_key!r}"
             )
-        if (
-            self.settlement.row_settlement_mode == "quoted_successful_rows"
-            and self.match.capability != CAPABILITY_TRANSCRIBE
+        if self.settlement.row_settlement_mode == "quoted_successful_rows" and (
+            self.match.capability
+            not in {
+                CAPABILITY_LLM,
+                CAPABILITY_TRANSCRIBE,
+                CAPABILITY_OCR,
+                CAPABILITY_TO_MARKDOWN,
+            }
         ):
             raise ValueError(
-                "quoted_successful_rows settlement is supported only for "
-                "transcribe offerings, whose quote pins per-row quantities"
+                "quoted_successful_rows settlement requires a capability "
+                "whose quote pins per-row quantities"
             )
         require_clean("commercial charge_authority", self.charge_authority)
         if not isinstance(self.presentation, CommercialPresentation):

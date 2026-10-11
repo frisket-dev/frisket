@@ -16,6 +16,7 @@ def wire_accounting_meta(
 
     model_id = bare_model_name(model_name)
     calls: list[dict[str, Any]] = []
+    execution_receipts: list[dict[str, Any]] = []
     for wire in wire_responses:
         units = {"tokens_in": wire.tokens_in, "tokens_out": wire.tokens_out}
         if wire.output_limited:
@@ -30,6 +31,12 @@ def wire_accounting_meta(
                 units=units,
                 warnings=[],
             ).as_dict()
+        elif wire.actual_accounting is not None:
+            calls.extend(dict(call) for call in wire.actual_accounting.model_calls)
+            execution_receipts.extend(
+                dict(receipt) for receipt in wire.actual_accounting.receipts
+            )
+            continue
         else:
             call = ModelCallMeta.provider_call(
                 capability="llm.complete",
@@ -46,16 +53,27 @@ def wire_accounting_meta(
                 duration_ms=wire.duration_ms,
             ).as_dict()
         calls.append(call)
-    live_calls = [wire for wire in wire_responses if not wire.cached]
-    if not live_calls:
+    live_costs = [
+        (
+            wire.actual_accounting.cost
+            if wire.actual_accounting is not None
+            else wire.cost
+        )
+        for wire in wire_responses
+        if not wire.cached
+    ]
+    if not live_costs:
         cost: float | None = 0.0
-    elif any(wire.cost is None for wire in live_calls):
+    elif any(item is None for item in live_costs):
         cost = None
     else:
-        cost = sum(wire.cost for wire in live_calls)
-    return {
+        cost = sum(item for item in live_costs if item is not None)
+    result = {
         "tokens_in": sum(wire.tokens_in for wire in wire_responses),
         "tokens_out": sum(wire.tokens_out for wire in wire_responses),
         "cost": cost,
         "model_calls": calls,
     }
+    if execution_receipts:
+        result["execution_receipts"] = execution_receipts
+    return result

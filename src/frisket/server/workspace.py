@@ -11,7 +11,7 @@ from contextlib import AbstractContextManager
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from fastapi import HTTPException, Request
 from filelock import FileLock
@@ -70,8 +70,27 @@ from frisket.authoring.workbench.plugin_subprocess import (
     register_project_secret_fallback,
 )
 
+if TYPE_CHECKING:
+    from frisket.contracts.http.cloud_connection import CloudSessionResponse
+
 
 _log = logging.getLogger(__name__)
+
+
+class _SnapshotCloudConnectionStore:
+    """Reuse one request's profile while retaining the store's save fence."""
+
+    def __init__(self, store: Any, profile: Any) -> None:
+        self._store = store
+        self._profile = profile
+
+    def load(self) -> Any:
+        return self._profile
+
+    def save_capabilities(self, capabilities: Any, *, expected_user_id: int) -> Any:
+        return self._store.save_capabilities(
+            capabilities, expected_user_id=expected_user_id
+        )
 
 
 @runtime_checkable
@@ -166,6 +185,9 @@ class Workspace:
         project_qa_runtime_port: ProjectQARuntimePort | None = None,
         plugin_composition_policy: PluginCompositionPolicy | None = None,
         edition: str = "solo",
+        cloud_connection_store: Any | None = None,
+        cloud_connection_client: Any | None = None,
+        cloud_execution_transport: Any | None = None,
     ):
         if project_qa_runtime_port is not None and not isinstance(
             project_qa_runtime_port, ProjectQARuntimePort
@@ -192,6 +214,9 @@ class Workspace:
         self._execution_composition_factory = (
             execution_composition_factory or open_execution_composition
         )
+        self._cloud_connection_store = cloud_connection_store
+        self._cloud_connection_client = cloud_connection_client
+        self.cloud_execution_transport = cloud_execution_transport
         self._uses_open_execution_composition = execution_composition_factory is None
         self._models_gateway_connection_resolver = models_gateway_connection_resolver
         # The open/local server's cache-mode authority. FRISKET_CACHE_MODE
@@ -276,6 +301,13 @@ class Workspace:
                 if self._uses_open_execution_composition
                 else self._execution_composition_factory
             ),
+            execution_composition_overlay=(
+                self._cloud_execution_composition_overlay
+                if self.edition == "solo"
+                and self._cloud_connection_store is not None
+                and self._cloud_connection_client is not None
+                else None
+            ),
         )
         if enable_local_model_pull:
             # Local-tier-only: deliberately
@@ -308,6 +340,18 @@ class Workspace:
         # Internal only: public APIs stay run-id centric, but status polling
         # needs an O(1) way to reconcile terminal queue failures with run rows.
         self.run_jobs: dict[tuple[str, int], int] = {}
+        if (
+            self.project_qa_runtime_port is None
+            and self.edition == "solo"
+            and self._cloud_connection_store is not None
+            and self._cloud_connection_client is not None
+            and self.cloud_execution_transport is not None
+        ):
+            from frisket.server.cloud_project_qa_runtime import (
+                SoloCloudProjectQARuntimePort,
+            )
+
+            self.project_qa_runtime_port = SoloCloudProjectQARuntimePort(self)
 
     def _derived_project_opener(self) -> ProjectOpener | None:
         """The opener implied by this workspace's own declared configuration.
@@ -544,9 +588,61 @@ class Workspace:
         context: ExecutionCompositionContext,
     ) -> ExecutionComposition:
         """Build one request's composition from its exact effective router."""
+        composition, effective_router = self._base_execution_composition_for(
+            project, router, context
+        )
+        if not self._uses_open_execution_composition:
+            return composition
+        return self._cloud_execution_composition_overlay(
+            composition,
+            project,
+            effective_router,
+            context,
+        )
+
+    def selector_execution_composition_for(
+        self,
+        project: Project,
+        router: ModelRouter | None,
+        context: ExecutionCompositionContext,
+    ) -> tuple[ExecutionComposition, CloudSessionResponse | None]:
+        """Build selector composition and public Cloud facts from one profile."""
+
+        if not self.supports_cloud_connection():
+            return self.execution_composition_for(project, router, context), None
+        composition, effective_router = self._base_execution_composition_for(
+            project, router, context
+        )
+        from frisket.cloud_connection import CloudConnectionStoreError
+
+        try:
+            profile = self._cloud_connection_store.load()
+        except CloudConnectionStoreError:
+            return composition, None
+        if not self._uses_open_execution_composition:
+            connection = profile.connection
+            return composition, (connection.session if connection is not None else None)
+        composition = self._cloud_execution_composition_overlay(
+            composition,
+            project,
+            effective_router,
+            context,
+            cloud_store=_SnapshotCloudConnectionStore(
+                self._cloud_connection_store, profile
+            ),
+        )
+        connection = profile.connection
+        return composition, connection.session if connection is not None else None
+
+    def _base_execution_composition_for(
+        self,
+        project: Project,
+        router: ModelRouter | None,
+        context: ExecutionCompositionContext,
+    ) -> tuple[ExecutionComposition, ModelRouter]:
         effective_router = router if router is not None else self.router_for(project)
         if self._uses_open_execution_composition:
-            return open_execution_composition(
+            composition = open_execution_composition(
                 project,
                 effective_router,
                 context,
@@ -556,7 +652,55 @@ class Workspace:
                     and managed_local_models_configured(os.environ)
                 ),
             )
-        return self._execution_composition_factory(project, effective_router, context)
+            return composition, effective_router
+        return (
+            self._execution_composition_factory(project, effective_router, context),
+            effective_router,
+        )
+
+    def supports_cloud_connection(self) -> bool:
+        return (
+            self.edition == "solo"
+            and self._cloud_connection_store is not None
+            and self._cloud_connection_client is not None
+        )
+
+    def cloud_connection_origin(self) -> str | None:
+        """Return the fixed public Cloud origin, never connection credentials."""
+
+        origin = getattr(self._cloud_connection_client, "origin", None)
+        return origin if isinstance(origin, str) and origin else None
+
+    def _cloud_execution_composition_overlay(
+        self,
+        composition: ExecutionComposition,
+        project: Project,
+        router: ModelRouter,
+        context: ExecutionCompositionContext,
+        *,
+        cloud_store: Any = None,
+    ) -> ExecutionComposition:
+        """Add installation Cloud routes to one already-composed Solo view."""
+
+        del context
+        if (
+            self.edition != "solo"
+            or self._cloud_connection_store is None
+            or self._cloud_connection_client is None
+        ):
+            return composition
+        from frisket.cloud_targets import cloud_execution_composition
+
+        return cloud_execution_composition(
+            composition,
+            project,
+            store=(
+                cloud_store if cloud_store is not None else self._cloud_connection_store
+            ),
+            client=self._cloud_connection_client,
+            execution_transport=self.cloud_execution_transport,
+            router=router,
+        )
 
     @staticmethod
     def execution_composition_context_for(

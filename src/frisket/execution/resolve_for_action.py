@@ -62,6 +62,7 @@ from frisket.execution.commercial import CommercialOffering, CommercialPresentat
 from frisket.execution.promise_compiler import (
     CostBasis,
     OperatorBorneZeroCost,
+    PricedCostBasis,
     compile_route_promises,
 )
 from frisket.execution.price_book import (
@@ -81,6 +82,7 @@ from frisket.execution.targets import (
     CAPABILITY_CENSUS,
     CAPABILITY_CLASSIFY,
     CAPABILITY_GEOCODE,
+    CAPABILITY_LLM,
     CAPABILITY_OCR,
     CAPABILITY_TO_MARKDOWN,
     CAPABILITY_TRANSCRIBE,
@@ -146,6 +148,7 @@ _CAPABILITY_OPTION_KEYS: dict[str, tuple[str, ...]] = {
     CAPABILITY_TO_MARKDOWN: (),
     CAPABILITY_GEOCODE: ("structured_query",),
     CAPABILITY_CENSUS: (),
+    CAPABILITY_LLM: (),
 }
 
 
@@ -253,6 +256,15 @@ def _document_quantity_pages(
     One unknown row makes the total unknown, never a smaller number than the
     truth. Blank rows contribute zero.
     """
+    quantities = _document_row_quantities_pages(project, spec, recipe)
+    return None if quantities is None else sum(quantities.values())
+
+
+def _document_row_quantities_pages(
+    project: Any, spec: Mapping[str, Any], recipe: Any
+) -> dict[int, int] | None:
+    """Selected page count keyed by row, or ``None`` when any is unknown."""
+
     from frisket.engine.runner.row_inputs import is_empty_cell_value, row_values
     from frisket.engine.runner.validation import target_rows
     from frisket.engine.store.media_blobs import MediaBlobStore
@@ -260,13 +272,14 @@ def _document_quantity_pages(
     row_ids = target_rows(project, dict(spec))
     col_map = {c["name"]: c["id"] for c in project.columns(spec["sheet_id"])}
     blobs = MediaBlobStore(project)
-    total = 0
+    quantities: dict[int, int] = {}
     for row_id in row_ids:
         values = row_values(
             project, recipe, dict(spec), col_map, row_id, for_model=False
         )
         candidates = [v for v in values.values() if not is_empty_cell_value(v)]
         if not candidates:
+            quantities[int(row_id)] = 0
             continue
         if len(candidates) != 1:
             return None
@@ -298,20 +311,20 @@ def _document_quantity_pages(
                 or str(blob["mime"]) == "application/pdf"
             ):
                 return None
-            total += 1
+            quantities[int(row_id)] = 1
             continue
         if pages is None:
             # Use stored facts, not an authored cell's MIME declaration.
             if probe.get("kind") == "image" or (
                 not probe.get("kind") and str(blob["mime"]).startswith("image/")
             ):
-                total += 1
+                quantities[int(row_id)] = 1
                 continue
             return None
         if type(pages) is not int or pages <= 0:
             return None
-        total += pages
-    return total
+        quantities[int(row_id)] = pages
+    return quantities
 
 
 def _ocr_cost_basis(
@@ -346,13 +359,15 @@ def _ocr_cost_basis(
         is None
     ):
         return OperatorBorneZeroCost(), None
-    pages = _document_quantity_pages(project, spec, recipe)
+    row_pages = _document_row_quantities_pages(project, spec, recipe)
+    pages = None if row_pages is None else sum(row_pages.values())
     basis = quote_ocr(
         target_id=target_id,
         engine=engine,
         funding=funding,
         offering=offering,
         pages=pages,
+        row_pages=row_pages,
     )
     return basis, pages
 
@@ -564,13 +579,15 @@ def _to_markdown_cost_basis(
     if resolved is None:
         return OperatorBorneZeroCost(), None
     funding, target_id, engine, offering = resolved
-    pages = _document_quantity_pages(project, spec, recipe)
+    row_pages = _document_row_quantities_pages(project, spec, recipe)
+    pages = None if row_pages is None else sum(row_pages.values())
     basis = quote_to_markdown(
         target_id=target_id,
         engine=engine,
         funding=funding,
         offering=offering,
         pages=pages,
+        row_pages=row_pages,
     )
     return basis, pages
 
@@ -623,6 +640,122 @@ def _census_cost_basis(
     return basis, rows
 
 
+def _llm_rendered_calls(
+    project: Any,
+    spec: Mapping[str, Any],
+    recipe: Any,
+    row_ids: Sequence[int],
+) -> dict[int, Any]:
+    from frisket.engine.runner.row_inputs import row_values
+
+    col_map = {c["name"]: c["id"] for c in project.columns(spec["sheet_id"])}
+    return {
+        int(row_id): recipe.render(
+            row_values(project, recipe, dict(spec), col_map, int(row_id)), dict(spec)
+        )
+        for row_id in row_ids
+    }
+
+
+def _llm_options(rendered: Mapping[int, Any], recipe: Any) -> dict[str, Any]:
+    def has_image(value: Any) -> bool:
+        if isinstance(value, Mapping):
+            return any(
+                key in {"image", "image_url"} or has_image(item)
+                for key, item in value.items()
+            )
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+            return any(has_image(item) for item in value)
+        return False
+
+    calls = tuple(rendered.values())
+    return {
+        "structured_output": any(call.schema is not None for call in calls),
+        "tools": hasattr(recipe, "run_agent"),
+        "vision": any(has_image(call.messages) for call in calls),
+        "max_output_tokens": max((int(call.max_tokens) for call in calls), default=1),
+    }
+
+
+def _llm_cost_basis(
+    composition: ExecutionComposition,
+    resolution: Resolution,
+    rendered: Mapping[int, Any],
+    *,
+    recipe: Any,
+) -> tuple[CostBasis, int | None]:
+    from frisket.cloud_execution import cloud_llm_estimated_spend_micro
+    from frisket.contracts.http.cloud_connection import (
+        CloudLLMRequest,
+        CloudTokenPrice,
+    )
+
+    price_hook = getattr(composition.provider, "cloud_llm_price", None)
+    price = (
+        price_hook(resolution.target.id, resolution.facts.engine)
+        if callable(price_hook)
+        else None
+    )
+    if not isinstance(price, CloudTokenPrice):
+        raise ValueError("Cloud LLM route has no authoritative token price")
+
+    # Structured validation can issue changed repair requests, and agents can
+    # issue changed tool rounds.  Their initial render is not a spend bound;
+    # keep the known price terms while asking for explicit unknown-quantity
+    # consent.  A schema-less non-agent row has exactly one paid request.
+    bounded_one_call = not hasattr(recipe, "run_agent") and all(
+        call.schema is None for call in rendered.values()
+    )
+    row_micro: dict[int, int] = {}
+    if bounded_one_call:
+        for row_id, call in rendered.items():
+            row_micro[int(row_id)] = cloud_llm_estimated_spend_micro(
+                CloudLLMRequest(
+                    model=resolution.facts.engine,
+                    messages=call.messages,
+                    schema=None,
+                    max_tokens=call.max_tokens,
+                    temperature=0,
+                ),
+                price,
+            )
+
+    def usd(micro: int) -> str:
+        return format(Decimal(micro) / Decimal(1_000_000), "f")
+
+    payer = resolution.facts.cloud_payer
+    if payer is None:
+        raise ValueError("Cloud LLM route has no payer")
+    total_micro = sum(row_micro.values())
+    return (
+        PricedCostBasis(
+            pricing_key=(
+                f"frisket-cloud:{payer.account_id}:{payer.lane}:"
+                f"{payer.provider}:{CAPABILITY_LLM}:{payer.engine}"
+            ),
+            unit_rate="1",
+            estimated_quantity=usd(total_micro) if bounded_one_call else None,
+            quantity_unit="usd",
+            terms_version=payer.route_revision,
+            quantity_rounding_mode="exact",
+            quantity_rounding_decimal_places=None,
+            meter_key="cloud_effective_cost_micro",
+            meter_units_per_quantity_unit="1000000",
+            ceiling_mode="consented_quantity",
+            row_settlement_mode="quoted_successful_rows",
+            charge_authority="frisket_cloud_receipt",
+            row_quote_quantities=(
+                tuple(
+                    (row_id, usd(micro)) for row_id, micro in sorted(row_micro.items())
+                )
+                if bounded_one_call
+                else None
+            ),
+        ),
+        total_micro if bounded_one_call else None,
+    )
+
+
 # ---------------------------------------------------------------------------
 # The seam
 # ---------------------------------------------------------------------------
@@ -646,29 +779,77 @@ def resolve_for_action(
     ``ResolvedExecution`` carrying resolution + estimate basis + compiled
     promise set + cost basis + persistence policy.
     """
+    cloud_llm = False
+    rendered_llm: dict[int, Any] | None = None
     if not recipe.consumes_resolution:
-        return None
+        if not recipe.is_llm(dict(spec)):
+            return None
+        model = str(spec.get("model") or "")
+        cloud_llm = any(
+            support.capability == CAPABILITY_LLM
+            and support.engine == model
+            and composition.cloud_payer_for(
+                target_id=target.id,
+                capability=CAPABILITY_LLM,
+                engine=model,
+            )
+            is not None
+            for target in composition.resolution_targets()
+            for support in target.engines
+        )
+        if not cloud_llm:
+            fallback_route = resolve(
+                ResolutionRequest(
+                    engine=model,
+                    capability=CAPABILITY_LLM,
+                    options={},
+                ),
+                composition.provider_for_resolution(),
+                composition.facts,
+            )
+            blocks_fallback = getattr(
+                composition.provider, "blocks_cloud_fallback", None
+            )
+            if (
+                isinstance(fallback_route, Refusal)
+                and fallback_route.target_id is not None
+                and callable(blocks_fallback)
+                and blocks_fallback(fallback_route.target_id, CAPABILITY_LLM, model)
+            ):
+                return fallback_route
+            return None
     # The recipe declares which capability it resolves for. Read as an
     # attribute, not with a getattr default, for the same reason
     # ``consumes_resolution`` is: a recipe that consumes resolution without
     # saying what kind of work it is must fail loudly here, never resolve as
     # transcription by accident.
-    capability = recipe.execution_capability
-    if capability not in _CAPABILITY_COST_BASIS:
+    capability = CAPABILITY_LLM if cloud_llm else recipe.execution_capability
+    if capability != CAPABILITY_LLM and capability not in _CAPABILITY_COST_BASIS:
         raise ValueError(
             f"recipe '{getattr(recipe, 'name', recipe)}' declares "
             f"execution_capability={capability!r}, which no execution-seam "
             "capability serves"
         )
-    quote = _CAPABILITY_COST_BASIS[capability]
+    quote = _CAPABILITY_COST_BASIS.get(capability)
     raw_engine = (
-        resolve_geocode_engine(
-            spec, project, credential_context=composition.credential_use_context
+        str(spec["model"])
+        if capability == CAPABILITY_LLM
+        else (
+            resolve_geocode_engine(
+                spec, project, credential_context=composition.credential_use_context
+            )
+            if capability == CAPABILITY_GEOCODE
+            else str(spec.get("engine") or _default_engine(capability))
         )
-        if capability == CAPABILITY_GEOCODE
-        else str(spec.get("engine") or _default_engine(capability))
     )
     options = authored_options(spec, capability)
+    if capability == CAPABILITY_LLM:
+        if scope_row_ids is None:
+            from frisket.engine.runner.validation import target_rows
+
+            scope_row_ids = target_rows(project, dict(spec))
+        rendered_llm = _llm_rendered_calls(project, spec, recipe, scope_row_ids)
+        options = _llm_options(rendered_llm, recipe)
     request = ResolutionRequest(
         engine=raw_engine, options=options, capability=capability
     )
@@ -742,7 +923,13 @@ def resolve_for_action(
             quote_absent=True,
         )
 
-    if bounded_scratch_input is None:
+    if capability == CAPABILITY_LLM:
+        assert rendered_llm is not None
+        cost_basis, quantity = _llm_cost_basis(
+            composition, outcome, rendered_llm, recipe=recipe
+        )
+    elif bounded_scratch_input is None:
+        assert quote is not None
         cost_basis, quantity = quote(project, spec, recipe, outcome, composition)
     else:
         quantity = bounded_scratch_input.quantity
@@ -913,6 +1100,7 @@ _CAPABILITY_COST_BASIS: dict[str, Any] = {
     CAPABILITY_TO_MARKDOWN: _to_markdown_cost_basis,
     CAPABILITY_GEOCODE: _geocode_cost_basis,
     CAPABILITY_CENSUS: _census_cost_basis,
+    CAPABILITY_LLM: _llm_cost_basis,
 }
 
 
@@ -1236,14 +1424,15 @@ def gate_claims_payload(
 def target_snapshot(resolution: Resolution) -> dict[str, Any]:
     """The complete persisted dispatch snapshot."""
     support = resolution.support
-    return validated_target_snapshot(
-        {
-            "target_id": resolution.target.id,
-            "capability": support.capability,
-            "transport": support.transport,
-            "run_scoped": support.run_scoped,
-        }
-    )
+    snapshot: dict[str, Any] = {
+        "target_id": resolution.target.id,
+        "capability": support.capability,
+        "transport": support.transport,
+        "run_scoped": support.run_scoped,
+    }
+    if resolution.facts.cloud_payer is not None:
+        snapshot["cloud_payer"] = resolution.facts.cloud_payer.to_snapshot()
+    return validated_target_snapshot(snapshot)
 
 
 def record_resolved_execution(

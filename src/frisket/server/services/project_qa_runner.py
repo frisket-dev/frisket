@@ -36,11 +36,19 @@ from frisket.server.services.project_qa_web import (
     search_web as search_public_web,
 )
 from frisket.server.thread_worker import await_thread_worker
-from frisket.server.services.project_qa_research import ResearchSession
+from frisket.server.services.project_qa_research import (
+    ResearchSession,
+    model_actual_cost,
+)
 from frisket.server.services.project_qa_capabilities import (
     compose_project_qa_capabilities,
 )
 from frisket.ai.research.search import SearchService, SearchProviderError
+from frisket.cloud_execution import (
+    CloudLLMExecutionBinding,
+    cloud_llm_execution_scope,
+)
+from frisket.cloud_llm_checkpoint import CloudLLMCheckpointCoordinator
 
 
 MAX_MODEL_REQUESTS = 8
@@ -85,6 +93,7 @@ async def run_turn(
     *,
     on_call: Callable[[str], Awaitable[None]] | None = None,
     call_scope: Callable[[], AbstractContextManager[None]] | None = None,
+    cloud_llm_coordinator: CloudLLMCheckpointCoordinator | None = None,
     instrumentation: InstrumentationSettings | None = None,
     research: ResearchSession | None = None,
     search_service: SearchService | None = None,
@@ -127,6 +136,9 @@ async def run_turn(
         accounting = wire_accounting_meta(model_id, [response])
         [call] = accounting["model_calls"]
         call_id = str(call["id"])
+        unknown_research_cost = (
+            research is not None and model_actual_cost(response) is None
+        )
 
         async def record_and_settle() -> None:
             saved = await await_thread_worker(
@@ -141,14 +153,31 @@ async def run_turn(
                     "cost": accounting["cost"],
                 },
             )
-            if research is not None and response.cost is not None:
+            if research is not None and not unknown_research_cost:
                 await research.after_model(response)
-            if saved is not None and on_call is not None:
+            cloud_call_accounted = (
+                cloud_llm_coordinator is not None
+                and response.actual_accounting is not None
+                and not unknown_research_cost
+            )
+            direct_call_needs_settlement = (
+                cloud_llm_coordinator is None and saved is not None
+            )
+            if on_call is not None and (
+                cloud_call_accounted or direct_call_needs_settlement
+            ):
                 await on_call(call_id)
 
         await _complete_before_cancellation(record_and_settle())
-        if research is not None and response.cost is None:
+        if research is not None and unknown_research_cost:
             await research.after_model(response)
+
+    def request_scope() -> AbstractContextManager[None]:
+        if cloud_llm_coordinator is not None:
+            return cloud_llm_execution_scope(
+                CloudLLMExecutionBinding(coordinator=cloud_llm_coordinator)
+            )
+        return call_scope() if call_scope is not None else nullcontext()
 
     model = FrisketRouterModel(
         router,
@@ -156,7 +185,7 @@ async def run_turn(
         recipe_version="project_qa.v1",
         before_request=before_request,
         on_response=on_response,
-        request_context=call_scope,
+        request_context=request_scope,
     )
 
     async def recent_history() -> str:

@@ -183,11 +183,11 @@ export const SETTINGS_SECTIONS: readonly OpenSettingsSectionDefinition[] = [
     routePattern: projectRoute('ai-providers'),
     title: 'AI Providers',
     navGroup: 'Project',
-    searchLabels: ['project', 'ai providers', 'provider keys', 'models'],
+    searchLabels: ['project', 'ai providers', 'provider keys', 'models', 'cloud account', 'routing'],
     visibility: 'project',
     permission: 'owner',
     component: 'project.aiProviders',
-    summary: 'Project-scoped provider overrides.',
+    summary: 'Choose models, API keys, and a Cloud account for this project.',
   },
   {
     id: 'project.secrets',

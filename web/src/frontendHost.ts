@@ -15,6 +15,7 @@ export type {
   AdminOverviewSlotProps,
   EditionModule,
   EditionModuleDefinition,
+  PersonalProfileSlotProps,
   WatchControlSlotProps,
 } from './editions/module';
 export type {

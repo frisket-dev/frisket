@@ -107,6 +107,44 @@ class LLMToolCall(TypedDict):
 
 
 @dataclass
+class LLMActualAccounting:
+    """Authoritative accounting returned by an execution transport.
+
+    This carrier bypasses local price reconstruction when a transport already
+    returned a validated charge and provider-call fact.  It is runtime
+    evidence, not response-cache content.
+    """
+
+    cost: float | None
+    model_calls: tuple[dict[str, Any], ...]
+    receipts: tuple[dict[str, Any], ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.model_calls, tuple) or not isinstance(
+            self.receipts, tuple
+        ):
+            raise TypeError("actual LLM accounting facts must be immutable tuples")
+        if not self.model_calls or len(self.model_calls) != len(self.receipts):
+            raise ValueError(
+                "actual LLM accounting requires one receipt per model-call fact"
+            )
+        if not all(isinstance(item, dict) for item in self.model_calls + self.receipts):
+            raise TypeError("actual LLM accounting entries must be dictionaries")
+
+    @classmethod
+    def one(
+        cls,
+        *,
+        cost: float | None,
+        model_call: dict[str, Any],
+        receipt: dict[str, Any],
+    ) -> LLMActualAccounting:
+        """Build the common one-execution carrier without a listly call site."""
+
+        return cls(cost=cost, model_calls=(model_call,), receipts=(receipt,))
+
+
+@dataclass
 class LLMResponse:
     content: str | None
     data: dict[str, Any] | None
@@ -143,6 +181,10 @@ class LLMResponse:
     # Provider-neutral evidence that generation stopped at its output-token
     # limit. False keeps older cache payloads and response constructors valid.
     output_limited: bool = False
+    # Set only by transports whose server receipt is the actual accounting
+    # authority. Generic consumers use this fact verbatim instead of deriving
+    # payer, provider cost, or charge from the requested model.
+    actual_accounting: LLMActualAccounting | None = None
 
 
 def provider_from_model_id(model: str) -> str:

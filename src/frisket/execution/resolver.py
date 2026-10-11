@@ -56,7 +56,12 @@ from frisket.contracts.actions.schemas._engines import (
     find_engine,
 )
 from frisket.execution.credential_use import pinned_credential_source
-from frisket.execution.price_book import OperatorBorne, cost_posture_for
+from frisket.execution.price_book import (
+    ByokZero,
+    OperatorBorne,
+    PlatformMetered,
+    cost_posture_for,
+)
 from frisket.execution.provider import (
     CompositionFacts,
     ConnectionConfig,
@@ -66,6 +71,7 @@ from frisket.execution.targets import (
     CAPABILITY_CENSUS,
     CAPABILITY_CLASSIFY,
     CAPABILITY_GEOCODE,
+    CAPABILITY_LLM,
     CAPABILITY_OCR,
     CAPABILITY_TO_MARKDOWN,
     CAPABILITY_TRANSCRIBE,
@@ -75,6 +81,7 @@ from frisket.execution.targets import (
     EgressClass,
     ExecutionTarget,
     GeocodeOptionSupport,
+    LLMOptionSupport,
     OcrOptionSupport,
     TargetEngineSupport,
     TranslateOptionSupport,
@@ -82,6 +89,7 @@ from frisket.execution.targets import (
     require_clean,
     require_egress_class,
 )
+from frisket.cloud_execution import CloudPayerSubject
 
 if TYPE_CHECKING:  # annotation-only: importing the capability compiler at
     # runtime from this generic module is the cycle that made
@@ -147,6 +155,7 @@ class RouteRowFacts:
     region: str | None
     credential_source: str
     cost_posture: CostPosture
+    cloud_payer: CloudPayerSubject | None = None
 
     def __post_init__(self) -> None:
         require_clean("operator", self.operator)
@@ -155,6 +164,10 @@ class RouteRowFacts:
         require_egress_class(self.egress_class)
         if self.region is not None:  # honest absence: None or a real value
             require_clean("region", self.region)
+        if self.cloud_payer is not None and not isinstance(
+            self.cloud_payer, CloudPayerSubject
+        ):
+            raise TypeError("cloud_payer must be a CloudPayerSubject or None")
 
 
 @dataclass(frozen=True)
@@ -462,6 +475,31 @@ def _census_inability(
     return None
 
 
+def _llm_inability(
+    support: TargetEngineSupport, options: Mapping[str, Any] | Any
+) -> str | None:
+    declared = support.options
+    if not isinstance(declared, LLMOptionSupport):  # pragma: no cover
+        raise ValueError(
+            f"LLM support row for {support.engine!r} carries "
+            f"{type(declared).__name__} options"
+        )
+    if options.get("structured_output") is True and not declared.structured_output:
+        return "structured output"
+    if options.get("tools") is True and not declared.tools:
+        return "tool calls"
+    if options.get("vision") is True and not declared.vision:
+        return "image inputs"
+    requested_max = options.get("max_output_tokens")
+    if (
+        requested_max is not None
+        and declared.max_output_tokens is not None
+        and requested_max > declared.max_output_tokens
+    ):
+        return f"more than {declared.max_output_tokens} output tokens"
+    return None
+
+
 #: capability -> its ability checker. The table IS the generalization: adding
 #: a capability adds a row, never a branch inside a caller.
 _CAPABILITY_INABILITY = {
@@ -472,6 +510,7 @@ _CAPABILITY_INABILITY = {
     CAPABILITY_TO_MARKDOWN: _to_markdown_inability,
     CAPABILITY_GEOCODE: _geocode_inability,
     CAPABILITY_CENSUS: _census_inability,
+    CAPABILITY_LLM: _llm_inability,
 }
 
 #: capability -> the word a refusal uses for it. Display only; the identity is
@@ -484,6 +523,7 @@ _CAPABILITY_WORD = {
     CAPABILITY_TO_MARKDOWN: "document conversion",
     CAPABILITY_GEOCODE: "geocoding",
     CAPABILITY_CENSUS: "census enrichment",
+    CAPABILITY_LLM: "LLM completion",
 }
 
 
@@ -498,6 +538,19 @@ def capability_engine_table(capability: str) -> tuple[EngineDeclaration, ...]:
     silently ignore a substituted roster (the synthetic-table tests do exactly
     that, and a fence that stops seeing its double proves nothing).
     """
+    from frisket.ai.llm.model_catalog import MODEL_ENTRIES
+
+    llm_engines = tuple(
+        EngineDeclaration(
+            id=f"{provider}/{entry['id']}",
+            label=str(entry["label"]),
+            tier="local" if provider == "ollama" else "hosted",
+            provider=provider,
+            billable=provider != "ollama",
+        )
+        for provider, entries in MODEL_ENTRIES.items()
+        for entry in entries
+    )
     tables: dict[str, tuple[EngineDeclaration, ...]] = {
         CAPABILITY_CLASSIFY: CLASSIFY_ENGINE_TABLE,
         CAPABILITY_TRANSCRIBE: TRANSCRIBE_ENGINE_TABLE,
@@ -506,6 +559,7 @@ def capability_engine_table(capability: str) -> tuple[EngineDeclaration, ...]:
         CAPABILITY_TO_MARKDOWN: to_markdown_engine_table(),
         CAPABILITY_GEOCODE: GEOCODE_ENGINE_TABLE,
         CAPABILITY_CENSUS: CENSUS_ENGINE_TABLE,
+        CAPABILITY_LLM: llm_engines,
     }
     try:
         return tables[capability]
@@ -541,11 +595,20 @@ def preferred_static_choice(
         (target, support)
         for target in targets
         for support in target.engines
-        if support.capability == capability and support.engine == engine_id
+        if support.capability == capability
+        and (
+            support.engine == engine_id
+            or (
+                support.engine.endswith("/*")
+                and engine_id.startswith(support.engine[:-1])
+            )
+        )
     ]
     if not candidates:
         return None
     target, support = candidates[0]
+    if support.engine != engine_id:
+        support = replace(support, engine=engine_id)
     inability = support_inability(support, options)
     if inability is not None:
         return Refusal(
@@ -677,10 +740,27 @@ def _hosted_edition_facts(
 
 
 def _edition_facts(
-    target: ExecutionTarget, engine_id: str, composition: CompositionFacts
+    target: ExecutionTarget,
+    engine_id: str,
+    composition: CompositionFacts,
+    cloud_payer: CloudPayerSubject | None = None,
 ) -> RouteRowFacts:
     """THE edition dispatch. An unknown edition is a programming error, not a
     refusal: resolving it would fabricate operator/credential facts."""
+    if cloud_payer is not None:
+        funding = (
+            PlatformMetered() if cloud_payer.lane == "frisket_credits" else ByokZero()
+        )
+        return RouteRowFacts(
+            target_id=target.id,
+            engine=engine_id,
+            operator=target.operator,
+            egress_class=target.egress_class,
+            region=target.region,
+            credential_source=pinned_credential_source(funding),
+            cost_posture=cost_posture_for(funding),
+            cloud_payer=cloud_payer,
+        )
     if composition.edition == "open":
         return _open_edition_facts(target, engine_id)
     if composition.edition == "hosted":
@@ -715,6 +795,11 @@ def route_row_facts_from_row(route: Any) -> RouteRowFacts:
         region=route.region,
         credential_source=route.credential_source,
         cost_posture=route.cost_posture,
+        cloud_payer=(
+            CloudPayerSubject.from_snapshot(snapshot["cloud_payer"])
+            if "cloud_payer" in snapshot
+            else None
+        ),
     )
 
 
@@ -814,7 +899,11 @@ def resolve(
             (t, s)
             for t in targets
             for s in t.engines
-            if s.capability == capability and s.engine == engine_id
+            if s.capability == capability
+            and (
+                s.engine == engine_id
+                or (s.engine.endswith("/*") and engine_id.startswith(s.engine[:-1]))
+            )
         ]
         if not candidates:
             return Refusal(
@@ -839,6 +928,8 @@ def resolve(
                 engine=engine_id,
             )
         target, support = choice
+        if support.engine != engine_id:
+            support = replace(support, engine=engine_id)
         # O1 short-circuit: the static choice needed no probes; liveness is
         # checked ONLY for the chosen target. Dead chosen target ->
         # no_live_target with its remedy — never a walk to another venue
@@ -852,7 +943,13 @@ def resolve(
                 target_id=target.id,
             )
 
-    facts = _edition_facts(target, engine_id, composition)
+    payer_hook = getattr(provider, "cloud_payer", None)
+    cloud_payer = (
+        payer_hook(target.id, capability, engine_id) if callable(payer_hook) else None
+    )
+    if cloud_payer is not None and not isinstance(cloud_payer, CloudPayerSubject):
+        raise TypeError("execution provider cloud_payer must return CloudPayerSubject")
+    facts = _edition_facts(target, engine_id, composition, cloud_payer)
     estimate_basis = EstimateBasisInputs(hardware_class=connection.extra.get("gpu"))
     return Resolution(
         target=target,

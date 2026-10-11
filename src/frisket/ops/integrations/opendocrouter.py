@@ -294,7 +294,9 @@ async def parse_document(
     layout: bool = False,
     should_cancel: Callable[[], bool] | None = None,
     on_accounting: Callable[[dict], None] | None = None,
+    delete_on_cancel: bool = True,
 ) -> tuple[list[dict], dict]:
+    """Parse a document, optionally retaining interrupted jobs for reconciliation."""
     mime, count = input_details(path)
     headers = {"Authorization": f"Bearer {api_key}"}
     model = find_model(engine)
@@ -488,7 +490,7 @@ async def parse_document(
             exc.code == "accounting"
             or (job_url is not None and (remote_job or interrupted))
         )
-        delete_results = exc.code == "cancelled"
+        delete_results = exc.code == "cancelled" and delete_on_cancel
         if remote_job and job_url and not delete_results:
             exc.message += " Results are retained by OpenDocRouter for up to 24 hours; check the existing job before submitting again."
         pending_error = exc

@@ -967,11 +967,12 @@ async def _reduce_group_summary_checkpointed_loop(
         # accounting batch charge the key exactly once.  The run id keeps it
         # unique per purchase — a later action that legitimately re-buys the
         # same content mints a distinct fact.
-        call["id"] = f"reduce_group_summary_{int(envelope['run_id'])}_" + (
-            hashlib.sha256(
-                f"{group_key}|{plan['unit_key']}|{plan['identity']}".encode("utf-8")
-            ).hexdigest()
-        )
+        if response.actual_accounting is None:
+            call["id"] = f"reduce_group_summary_{int(envelope['run_id'])}_" + (
+                hashlib.sha256(
+                    f"{group_key}|{plan['unit_key']}|{plan['identity']}".encode("utf-8")
+                ).hexdigest()
+            )
         call["run_id"] = int(envelope["run_id"])
         accounting_batch = [{"row_id": None, "column_id": None, "model_calls": [call]}]
         require_model_call_ids(accounting_batch)
@@ -1035,6 +1036,12 @@ def _reduce_group_summary_model_call(model: str, response: Any) -> dict[str, Any
             units=units,
             warnings=[],
         ).as_dict()
+    if response.actual_accounting is not None:
+        if len(response.actual_accounting.model_calls) != 1:
+            raise RuntimeError(
+                "group summary requires one accounting fact per model response"
+            )
+        return dict(response.actual_accounting.model_calls[0])
     return ModelCallMeta.provider_call(
         capability="llm.complete",
         engine=model,

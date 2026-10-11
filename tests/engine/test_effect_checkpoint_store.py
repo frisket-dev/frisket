@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import pytest
 
+from frisket.contracts.action import Receipt
 from frisket.engine.store import Project
 from frisket.engine.store.effect_checkpoints import (
     AmbiguousReserved,
@@ -22,6 +23,9 @@ from frisket.engine.store.effect_checkpoints import (
     canonical_json,
     require_model_call_ids,
 )
+from frisket.engine.store.receipts import ReceiptStore
+from frisket.engine.store.runs import RunResultStore
+from frisket.execution.attempt import StaleAttemptWriter
 
 UNIT = {
     "family": "test_family",
@@ -52,6 +56,45 @@ def _reserved(store, **overrides):
     return f"cp-{unit['unit_key']}", unit
 
 
+def _claimless_attempt(project, attempt_id: str, *, state: str) -> int:
+    sheet = project.db.execute("SELECT id FROM sheets LIMIT 1").fetchone()
+    if sheet is None:
+        sheet_id = project.add_sheet("recovery")
+    else:
+        sheet_id = int(sheet[0])
+    op_id = project.append_op("map", {"recipe": "recovery"})
+    run_id = RunResultStore(project).start_run(op_id, sheet_id, "map.recovery")
+    project.db.execute(
+        "INSERT INTO execution_attempts "
+        "(id, run_id, seq, state, action_identity_hash, scope_json, created_at) "
+        "VALUES (?, ?, 0, ?, 'recovery', '[]', datetime('now'))",
+        (attempt_id, run_id, state),
+    )
+    if state == "dispatching":
+        project.db.execute(
+            "UPDATE runs SET current_attempt_id=? WHERE id=?", (attempt_id, run_id)
+        )
+    project.db.commit()
+    return run_id
+
+
+def _reserve_claimless(
+    store, checkpoint_id: str, *, run_id: int, attempt_id: str, group: str
+) -> None:
+    assert store.reserve(
+        checkpoint_id,
+        family="row_effect",
+        group_key=group,
+        unit_key="row-1",
+        action_kind="map.recovery",
+        identity="same-paid-intent",
+        authorized_attempt_id=attempt_id,
+        run_id=run_id,
+        writer_attempt_id=attempt_id,
+        claimless_direct_effect=True,
+    )
+
+
 def test_reserve_is_first_writer_wins(store) -> None:
     checkpoint_id, unit = _reserved(store)
     assert store.reserve(checkpoint_id, **unit) is False
@@ -69,6 +112,296 @@ def test_reserve_is_first_writer_wins(store) -> None:
     assert found["state"] == "reserved"
     assert found["payload"] is None
     assert found["accounting_persisted"] is False
+
+
+def test_adopt_reserved_recovery_moves_stable_id_to_current_writer(
+    project, store
+) -> None:
+    old_run = _claimless_attempt(project, "attempt-old", state="dispatching")
+    _reserve_claimless(
+        store, "stable-cloud-key", run_id=old_run, attempt_id="attempt-old", group="old"
+    )
+    project.db.execute(
+        "UPDATE execution_attempts SET state='halted' WHERE id='attempt-old'"
+    )
+    project.db.execute("UPDATE runs SET current_attempt_id=NULL WHERE id=?", (old_run,))
+    project.db.commit()
+    new_run = _claimless_attempt(project, "attempt-new", state="dispatching")
+    _reserve_claimless(
+        store,
+        "replacement-no-egress",
+        run_id=new_run,
+        attempt_id="attempt-new",
+        group="new",
+    )
+
+    adopted = store.adopt_reserved_for_recovery(
+        "stable-cloud-key",
+        current_checkpoint_id="replacement-no-egress",
+        family="row_effect",
+        source_group_key="old",
+        source_unit_key="row-1",
+        current_group_key="new",
+        current_unit_key="row-1",
+        action_kind="map.recovery",
+        identity="same-paid-intent",
+        current_authorized_attempt_id="attempt-new",
+        run_id=new_run,
+        writer_attempt_id="attempt-new",
+        claimless_direct_effect=True,
+    )
+
+    assert adopted["id"] == "stable-cloud-key"
+    assert adopted["group_key"] == "new"
+    assert adopted["authorized_attempt_id"] == "attempt-new"
+    assert store.get("replacement-no-egress") is None
+    store.complete(
+        "stable-cloud-key",
+        family="row_effect",
+        group_key="new",
+        unit_key="row-1",
+        action_kind="map.recovery",
+        identity="same-paid-intent",
+        payload={"response": "recovered"},
+        run_id=new_run,
+        writer_attempt_id="attempt-new",
+        claimless_direct_effect=True,
+    )
+
+
+@pytest.mark.parametrize(
+    (
+        "source_state",
+        "source_checkpoint_state",
+        "identity",
+        "replacement_state",
+        "error",
+    ),
+    [
+        (
+            "dispatching",
+            "reserved",
+            "same-paid-intent",
+            "reserved",
+            StaleAttemptWriter,
+        ),
+        ("halted", "reserved", "different-intent", "reserved", IdentityMismatch),
+        (
+            "halted",
+            "returned",
+            "same-paid-intent",
+            "reserved",
+            InvalidCheckpointState,
+        ),
+        (
+            "halted",
+            "reserved",
+            "same-paid-intent",
+            "returned",
+            InvalidCheckpointState,
+        ),
+    ],
+)
+def test_adopt_reserved_recovery_rejects_unsafe_state_without_mutation(
+    tmp_path,
+    source_state,
+    source_checkpoint_state,
+    identity,
+    replacement_state,
+    error,
+) -> None:
+    project = Project.create(
+        tmp_path / f"adopt-{source_state}-{replacement_state}.frisket"
+    )
+    store = EffectCheckpointStore(project.db)
+    try:
+        old_run = _claimless_attempt(project, "attempt-old", state="dispatching")
+        _reserve_claimless(
+            store,
+            "stable-cloud-key",
+            run_id=old_run,
+            attempt_id="attempt-old",
+            group="old",
+        )
+        if source_checkpoint_state == "returned":
+            store.complete(
+                "stable-cloud-key",
+                family="row_effect",
+                group_key="old",
+                unit_key="row-1",
+                action_kind="map.recovery",
+                identity="same-paid-intent",
+                payload={"response": "immutable"},
+                run_id=old_run,
+                writer_attempt_id="attempt-old",
+                claimless_direct_effect=True,
+            )
+        if source_state != "dispatching":
+            project.db.execute(
+                "UPDATE execution_attempts SET state=? WHERE id='attempt-old'",
+                (source_state,),
+            )
+            project.db.execute(
+                "UPDATE runs SET current_attempt_id=NULL WHERE id=?", (old_run,)
+            )
+            project.db.commit()
+        new_run = _claimless_attempt(project, "attempt-new", state="dispatching")
+        _reserve_claimless(
+            store,
+            "replacement-no-egress",
+            run_id=new_run,
+            attempt_id="attempt-new",
+            group="new",
+        )
+        if replacement_state == "returned":
+            store.complete(
+                "replacement-no-egress",
+                family="row_effect",
+                group_key="new",
+                unit_key="row-1",
+                action_kind="map.recovery",
+                identity="same-paid-intent",
+                payload={"response": "must-stay"},
+                run_id=new_run,
+                writer_attempt_id="attempt-new",
+                claimless_direct_effect=True,
+            )
+        before = store.list_all()
+
+        with pytest.raises(error):
+            store.adopt_reserved_for_recovery(
+                "stable-cloud-key",
+                current_checkpoint_id="replacement-no-egress",
+                family="row_effect",
+                source_group_key="old",
+                source_unit_key="row-1",
+                current_group_key="new",
+                current_unit_key="row-1",
+                action_kind="map.recovery",
+                identity=identity,
+                current_authorized_attempt_id="attempt-new",
+                run_id=new_run,
+                writer_attempt_id="attempt-new",
+                claimless_direct_effect=True,
+            )
+        assert store.list_all() == before
+    finally:
+        project.close()
+
+
+def test_adopt_reserved_recovery_rejects_noncurrent_target_owner(project, store):
+    old_run = _claimless_attempt(project, "attempt-old", state="dispatching")
+    _reserve_claimless(
+        store, "stable-cloud-key", run_id=old_run, attempt_id="attempt-old", group="old"
+    )
+    project.db.execute(
+        "UPDATE execution_attempts SET state='halted' WHERE id='attempt-old'"
+    )
+    project.db.execute("UPDATE runs SET current_attempt_id=NULL WHERE id=?", (old_run,))
+    project.db.commit()
+    new_run = _claimless_attempt(project, "attempt-new", state="dispatching")
+    project.db.execute(
+        "INSERT INTO execution_attempts "
+        "(id, run_id, seq, state, action_identity_hash, scope_json, created_at) "
+        "VALUES ('attempt-sibling', ?, 1, 'halted', 'recovery', '[]', datetime('now'))",
+        (new_run,),
+    )
+    project.db.commit()
+    assert store.reserve(
+        "replacement-no-egress",
+        family="row_effect",
+        group_key="new",
+        unit_key="row-1",
+        action_kind="map.recovery",
+        identity="same-paid-intent",
+        authorized_attempt_id="attempt-sibling",
+        run_id=new_run,
+        writer_attempt_id="attempt-new",
+        claimless_direct_effect=True,
+    )
+    before = store.list_all()
+
+    with pytest.raises(StaleAttemptWriter):
+        store.adopt_reserved_for_recovery(
+            "stable-cloud-key",
+            current_checkpoint_id="replacement-no-egress",
+            family="row_effect",
+            source_group_key="old",
+            source_unit_key="row-1",
+            current_group_key="new",
+            current_unit_key="row-1",
+            action_kind="map.recovery",
+            identity="same-paid-intent",
+            current_authorized_attempt_id="attempt-new",
+            run_id=new_run,
+            writer_attempt_id="attempt-new",
+            claimless_direct_effect=True,
+        )
+    assert store.list_all() == before
+
+
+def test_receipt_checkpoint_requires_its_exact_active_claimless_writer(
+    project, store
+) -> None:
+    receipt_id = "receipt-checkpoint-owner"
+    attempt_id = "attempt-checkpoint-owner"
+    ReceiptStore(project).insert_running(
+        Receipt(
+            receipt_id=receipt_id,
+            project_id="project",
+            action_id="preview",
+            action_kind="map.extract",
+            status="running",
+        )
+    )
+    project.db.execute(
+        "INSERT INTO execution_attempts "
+        "(id, receipt_id, seq, state, action_identity_hash, scope_json, created_at) "
+        "VALUES (?, ?, 0, 'dispatching', 'identity', '[1]', datetime('now'))",
+        (attempt_id, receipt_id),
+    )
+    project.db.commit()
+    owned = {
+        **UNIT,
+        "authorized_attempt_id": attempt_id,
+        "writer_attempt_id": attempt_id,
+        "claimless_direct_effect": True,
+    }
+
+    with pytest.raises(StaleAttemptWriter):
+        store.reserve(
+            "receipt-wrong-writer",
+            **{**owned, "writer_attempt_id": "attempt-sibling"},
+        )
+    with pytest.raises(StaleAttemptWriter):
+        store.reserve(
+            "receipt-run-mode",
+            **{**owned, "claimless_direct_effect": False},
+        )
+
+    assert store.reserve("receipt-owned", **owned) is True
+    assert (
+        store.complete(
+            "receipt-owned",
+            **UNIT,
+            payload={"ok": True},
+            **{
+                key: owned[key]
+                for key in (
+                    "writer_attempt_id",
+                    "claimless_direct_effect",
+                )
+            },
+        )
+        == 0.0
+    )
+    store.consume_and_retire(
+        "receipt-owned",
+        **UNIT,
+        writer_attempt_id=attempt_id,
+        claimless_direct_effect=True,
+    )
+    assert store.get("receipt-owned") is None
 
 
 def test_complete_runs_accounting_in_the_same_transaction(store) -> None:

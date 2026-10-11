@@ -141,5 +141,9 @@ def claim_display(
             f"Estimated provider cost {rendered}; this pre-run estimate is not a spending cap "
             f"({cost_posture_label(posture, presentation)})."
         )
+    if promise.field == "cloud_payer" and facts.cloud_payer is not None:
+        payer = facts.cloud_payer
+        lane = "Frisket credits" if payer.lane == "frisket_credits" else "account key"
+        return f"Billed to Cloud account {payer.account_id} via {lane}."
     # Open family: an unrecognized future claim still renders honestly.
     return f"This run claims {promise.field} = {promise.value!r}."

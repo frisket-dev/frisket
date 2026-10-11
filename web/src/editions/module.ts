@@ -32,12 +32,15 @@ export interface WatchControlSlotProps {
   readonly refreshWatches: () => void;
 }
 
+export type PersonalProfileSlotProps = Record<string, never>;
+
 export interface EditionModuleDefinition {
   readonly descriptor: EditionDescriptor;
   readonly routes?: readonly EditionRoute[];
   readonly settingsSections?: readonly EditionSettingsSection[];
   readonly walkthroughs?: readonly WalkthroughDefinition[];
   readonly AdminOverviewSlot?: ComponentType<AdminOverviewSlotProps>;
+  readonly PersonalProfileSlot?: ComponentType<PersonalProfileSlotProps>;
   readonly WatchControlSlot?: ComponentType<WatchControlSlotProps>;
 }
 
@@ -48,6 +51,7 @@ export interface EditionModule {
   readonly settingsSections: readonly ActiveSettingsSection[];
   readonly walkthroughs: readonly WalkthroughDefinition[];
   readonly AdminOverviewSlot?: ComponentType<AdminOverviewSlotProps>;
+  readonly PersonalProfileSlot?: ComponentType<PersonalProfileSlotProps>;
   readonly WatchControlSlot?: ComponentType<WatchControlSlotProps>;
 }
 
@@ -127,6 +131,7 @@ export function defineEditionModule(
         .map(immutableWalkthrough),
     ),
     AdminOverviewSlot: definition.AdminOverviewSlot,
+    PersonalProfileSlot: definition.PersonalProfileSlot,
     WatchControlSlot: definition.WatchControlSlot,
   });
 }

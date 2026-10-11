@@ -243,7 +243,7 @@ export function SettingsWorkspace({
   const [lastProject] = useState<ProjectInfo | null>(() => readSettingsProjectContext());
   const [projects, setProjects] = useState<ProjectInfo[] | null>(null);
   const [projectsError, setProjectsError] = useState<string | null>(null);
-  const { settingsSections: editionSections } = useEditionModule();
+  const { settingsSections: editionSections, PersonalProfileSlot } = useEditionModule();
   const definition: ActiveSettingsSection | null = editionSections.find(
     (candidate) => candidate.scope === route.scope && candidate.section === route.section,
   ) ?? null;
@@ -370,6 +370,7 @@ export function SettingsWorkspace({
                 route={route}
                 project={project}
                 identityMode={identityMode}
+                PersonalProfileSlot={PersonalProfileSlot}
               />
             )
           )}

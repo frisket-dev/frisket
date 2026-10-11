@@ -162,6 +162,23 @@ class OcrEngines:
         compare preview call through here, so an engine in the family table is
         dispatchable everywhere. ``engine`` must already be canonical; billable
         engines accumulate into ``usage``."""
+        from frisket.execution.attempt import routed_admission_in_scope
+
+        admission = routed_admission_in_scope(ctx.extras)
+        if (
+            admission is not None
+            and admission.route.target_snapshot.get("transport")
+            == "frisket.cloud.media.v1"
+        ):
+            from frisket.ops.ocr_engines_cloud import ocr_cloud
+
+            return await ocr_cloud(
+                engine,
+                page_paths,
+                ctx,
+                usage,
+                language=language,
+            )
         if engine == LIGHT_ENGINE:
             return await self._ocr_rapidocr(page_paths, scratch, language)
         if engine == "tesseract":

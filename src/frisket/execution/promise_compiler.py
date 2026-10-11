@@ -310,6 +310,15 @@ def compile_route_promises(
                 audience="system_promise",
             )
         )
+    if route.cloud_payer is not None:
+        rows.append(
+            Promise.make(
+                "cloud_payer",
+                "eq",
+                route.cloud_payer.to_snapshot(),
+                audience="user_claim",
+            )
+        )
     if isinstance(cost, PricedCostBasis):
         bound = cost.bound
         rows.append(

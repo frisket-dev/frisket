@@ -123,6 +123,30 @@ describe('SelectorField', () => {
     expect(dialog.getByText('Connect Cloudflare')).toBeInTheDocument();
   });
 
+  it('uses the specific Cloud remediation without repeating a generic blocker', async () => {
+    const payload = response();
+    const generic = 'Set up this model to run it.';
+    Object.assign(payload.groups[0].choices[0], {
+      label: 'GPT-5 mini', summary: 'Out of Frisket credits',
+      status: 'needs_setup', can_run: false,
+      blocker: { code: 'cloud_credits_required', message: generic, field: 'model' },
+      setup: {
+        kind: 'cloud', state: 'out_of_credits', account_id: 11,
+        account_name: 'Riverton News', add_credits_url: 'https://app.frisket.dev/credits',
+        balance_url: null, project_settings_url: '/settings', local_key: null,
+      },
+    });
+    render(<SelectorField projectId="project-a" label="Model"
+      query={{ schema_version: 'frisket.selector_choices_query.v1',
+        subject: { kind: 'action', action_id: 'map.classify', field: 'model', params: {} } }}
+      recentNamespace="cloud-remediation" load={vi.fn().mockResolvedValue(payload)} onSelect={vi.fn()} />);
+
+    await userEvent.click(await screen.findByRole('button', { name: /GPT-5 mini/ }));
+    const dialog = within(screen.getByTestId('engine-selector-dialog'));
+    expect(dialog.queryByText(generic)).not.toBeInTheDocument();
+    expect(dialog.getByText('Riverton News is out of Frisket credits')).toBeVisible();
+  });
+
 
   it('withholds a same-scope ready snapshot after failed refresh and throughout Retry until authoritative recovery', async () => {
     const ready = response();

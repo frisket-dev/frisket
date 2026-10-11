@@ -31,6 +31,7 @@ from frisket.redaction import redact_text
 from frisket.authoring.templates import column_template_names
 
 if TYPE_CHECKING:
+    from frisket.cloud_execution import CloudMediaExecutionBinding
     from frisket.execution.credential_use import CredentialUseContext
     from frisket.execution.provider import ExecutionLimits
 
@@ -597,3 +598,4 @@ class OpContext:
     # untrusted/nested action payload cannot pose as credential authority.
     credential_use_context: CredentialUseContext | None = None
     execution_limits: ExecutionLimits | None = None
+    cloud_execution: CloudMediaExecutionBinding | None = None

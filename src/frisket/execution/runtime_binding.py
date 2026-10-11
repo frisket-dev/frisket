@@ -172,6 +172,11 @@ _TRANSPORT_PROVIDER_KIND = {
     "remote": "platform_api",
     "datalab.convert": "platform_api",
     "opendocrouter.parse": "platform_api",
+    # Account-authorized Frisket Cloud execution. The receipt's typed payer
+    # identifies the underlying provider; this token identifies the Cloud
+    # purchase wire and is never a zero-tariff sidecar route.
+    "frisket.cloud.media.v1": "platform_api",
+    "frisket.cloud.llm.v1": "platform_api",
     # Third-party wires. Registered with the rest of the capability set and
     # inert until a recipe routes: every one of them is somebody else's HTTP
     # API reached over the operator's own key, which is what platform_api
@@ -332,15 +337,31 @@ def bind_fact_to_route(
         # invariant); divergence from the route pin is recorded by the
         # observation point below, never silently normalized away.
         actual_credential = str(bound.get("credential_source") or "none")
-    bound["provider"] = _provider_for_target(target_id, route.operator)
+    if transport in {"frisket.cloud.media.v1", "frisket.cloud.llm.v1"}:
+        payer = snapshot.get("cloud_payer")
+        if not isinstance(payer, Mapping):
+            raise ValueError(f"route {route.id} Cloud snapshot has no payer")
+        expected_provider = payer.get("provider")
+        if bound.get("provider") != expected_provider:
+            raise ValueError(
+                f"route {route.id} Cloud fact provider differs from its payer"
+            )
+        # cloud_execution_accounting validated these observed fields against
+        # the server receipt and admitted payer. Preserve that evidence rather
+        # than replacing the provider with the target operator ("frisket") or
+        # reclassifying an unknown provider cost as a fabricated tariff.
+        bound["provider"] = expected_provider
+        bound["cost_source"] = str(bound.get("cost_source") or "unknown")
+    else:
+        bound["provider"] = _provider_for_target(target_id, route.operator)
+        bound["cost_source"] = _route_cost_source(
+            route.cost_posture,
+            transport,
+            bound.get("provider_cost_usd"),
+            declared=call.get("cost_source"),
+        )
     bound["provider_kind"] = kind
     bound["credential_source"] = actual_credential
-    bound["cost_source"] = _route_cost_source(
-        route.cost_posture,
-        transport,
-        bound.get("provider_cost_usd"),
-        declared=call.get("cost_source"),
-    )
     observed: dict[str, Any] = {
         "provenance": binding_provenance_version(str(snapshot["capability"])),
         "target_id": target_id,

@@ -237,7 +237,8 @@ def test_retired_model_refuses_before_egress(png):
         install_catalog(original)
 
 
-def test_async_cancel_deletes_and_preserves_settled_cost(tmp_path):
+@pytest.mark.parametrize("delete_on_cancel", [True, False])
+def test_async_cancel_preserves_provider_evidence(tmp_path, delete_on_cancel):
     cancelled = False
     calls = []
 
@@ -250,9 +251,17 @@ def test_async_cancel_deletes_and_preserves_settled_cost(tmp_path):
         return httpx.Response(200, json=response(51, status="partial"))
 
     with pytest.raises(HostedEngineError) as error:
-        run(pdf(tmp_path, 51), handler, should_cancel=lambda: cancelled)
-    assert calls == ["POST", "DELETE", "GET"]
-    assert error.value.accounting["cost"] == 0.00397
+        run(
+            pdf(tmp_path, 51),
+            handler,
+            should_cancel=lambda: cancelled,
+            delete_on_cancel=delete_on_cancel,
+        )
+    assert calls == (["POST", "DELETE", "GET"] if delete_on_cancel else ["POST"])
+    assert error.value.accounting["cost"] == (0.00397 if delete_on_cancel else None)
+    assert error.value.accounting["model_calls"][0]["request_id"] == JOB
+    if not delete_on_cancel:
+        assert "retained" in error.value.message
 
 
 def test_async_recorded_job_replay(tmp_path, monkeypatch):

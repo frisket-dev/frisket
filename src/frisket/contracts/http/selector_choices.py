@@ -144,6 +144,27 @@ class SelectorProcessingDestination(WireModel):
     label: str
 
 
+class SelectorExecutionRoute(WireModel):
+    """Authoritative billing and destination projection for one choice."""
+
+    kind: Literal[
+        "local_engine",
+        "models_server",
+        "local_key",
+        "cloud_credits",
+        "cloud_account_key",
+        "none",
+    ]
+    label: str
+    billed_to: str | None = None
+    sends_data_to: str | None = None
+    account_id: int | None = Field(default=None, gt=0)
+    balance_label: str | None = None
+    balance_url: str | None = None
+    settings_url: str | None = None
+    has_alternative_route: bool
+
+
 class SelectorBlocker(WireModel):
     code: str
     message: str
@@ -208,13 +229,25 @@ class InstructionsSetup(WireModel):
     url: str | None = None
 
 
+class SelectorCloudSetup(WireModel):
+    kind: Literal["cloud"]
+    state: Literal["connect", "reconnect", "account_required", "out_of_credits"]
+    account_id: int | None = Field(default=None, gt=0)
+    account_name: str | None = None
+    balance_url: str | None = None
+    add_credits_url: str | None = None
+    project_settings_url: str | None = None
+    local_key: ApiKeySetup | None = None
+
+
 SelectorSetup = Annotated[
     ApiKeySetup
     | ModelsGatewaySetup
     | ArtifactDownloadSetup
     | EngineSetup
     | FirstUseDownloadSetup
-    | InstructionsSetup,
+    | InstructionsSetup
+    | SelectorCloudSetup,
     Field(discriminator="kind"),
 ]
 
@@ -228,6 +261,7 @@ class SelectorChoice(WireModel):
     authored_selection: AuthoredSelection
     resolved_target: SelectorResolvedTarget | None
     processing_destination: SelectorProcessingDestination
+    execution_route: SelectorExecutionRoute | None
     facts: list[SelectorFact]
     status: Literal["ready", "needs_setup", "working", "unavailable"]
     can_author: bool
@@ -277,11 +311,13 @@ __all__ = [
     "ModelsGatewaySetup",
     "NormalizedSelectorSubject",
     "SelectorBlocker",
+    "SelectorCloudSetup",
     "SelectorChoice",
     "SelectorChoiceGroup",
     "SelectorChoicesQuery",
     "SelectorChoicesResponse",
     "SelectorFact",
+    "SelectorExecutionRoute",
     "SelectorProcessingDestination",
     "SelectorResolvedTarget",
     "SelectorSetup",

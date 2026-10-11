@@ -383,7 +383,7 @@ def test_model_action_launch_reuses_one_router_across_preflight_and_queue(
             challenge = client.post(path, json=action)
             assert challenge.status_code == 402, challenge.text
             assert len(bases) == 1
-            assert composed == [bases[0], bases[0]]
+            assert composed == [bases[0]]
 
             promise_set_hash = challenge.json()["errors"][0]["details"][
                 "promise_set_hash"
@@ -396,6 +396,6 @@ def test_model_action_launch_reuses_one_router_across_preflight_and_queue(
             assert launched.status_code == 200, launched.text
             assert launched.json()["status"] == "queued"
             assert len(bases) == 1
-            assert composed == [bases[0], bases[0]]
+            assert composed == [bases[0]]
     finally:
         app.state.workspace.queue.close()

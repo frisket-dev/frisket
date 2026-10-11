@@ -20,6 +20,7 @@ from frisket.ai.models.metadata import (
 )
 from frisket.engine.store.credentials import ProviderSpendDelta
 from frisket.engine.store.effect_checkpoints import (
+    EffectCheckpointRef,
     EffectCheckpointStore,
     is_operator_attestation,
     require_model_call_ids,
@@ -2466,6 +2467,8 @@ class RunResultStore:
         identity: str,
         batch: list[dict[str, Any]],
         replay_response: dict[str, Any],
+        child_checkpoints: Collection[EffectCheckpointRef] = (),
+        supplemental_accounting: Collection[dict[str, Any]] = (),
         writer_attempt_id: str | None = None,
         claim_token: str | None = None,
         claimless_direct_effect: bool = False,
@@ -2486,7 +2489,8 @@ class RunResultStore:
         checkpoint path refuses it before anything is written.
         """
 
-        require_model_call_ids(batch)
+        accounting_batch = [*batch, *supplemental_accounting]
+        require_model_call_ids(accounting_batch)
 
         def accrue(checkpoint: dict[str, Any]) -> float:
             from frisket.engine.store.row_files import (
@@ -2505,15 +2509,30 @@ class RunResultStore:
                 writer_attempt_id=writer_attempt_id,
                 claim_token=claim_token,
             )
-            return self.write_returned_call_accounting(
+            cost = self.write_returned_call_accounting(
                 int(run_id),
-                batch,
+                accounting_batch,
                 writer_attempt_id=writer_attempt_id,
                 claim_token=claim_token,
                 claimless_direct_effect=claimless_direct_effect,
                 authorized_attempt_id=checkpoint["authorized_attempt_id"],
                 commit=False,
             )
+            for child in child_checkpoints:
+                self._effect_store().consume_and_retire(
+                    child.checkpoint_id,
+                    family=MODEL_CALL_CHECKPOINT_FAMILY,
+                    group_key=child.group_key,
+                    unit_key=child.unit_key,
+                    action_kind=child.action_kind,
+                    identity=child.identity,
+                    run_id=run_id,
+                    writer_attempt_id=writer_attempt_id,
+                    claim_token=claim_token,
+                    claimless_direct_effect=claimless_direct_effect,
+                    commit=False,
+                )
+            return cost
 
         cost = self._effect_store().complete(
             checkpoint_id,

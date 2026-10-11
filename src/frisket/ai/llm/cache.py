@@ -114,6 +114,10 @@ class ResponseCache:
     def put(self, key: str, resp: LLMResponse) -> None:
         payload = asdict(resp)
         payload["cached"] = False
+        # Server receipts are durable execution facts, not reusable response
+        # content. A replay is accounted as a cache hit and must not repeat a
+        # prior user's payer/charge evidence.
+        payload["actual_accounting"] = None
         self.db.execute(
             "INSERT INTO llm_cache (key, model, response) VALUES (?,?,?) "
             "ON CONFLICT(key) DO UPDATE SET response=excluded.response",

@@ -147,7 +147,7 @@ async function launch() {
   if (quitting) return;
   setStartupStatus({ phase: 'workspace', message: 'Opening your workspace…' });
   backend = await startBackend({
-    runtime, resourcesPath: resourcesPath(), workspace,
+    runtime, resourcesPath: resourcesPath(), workspace, profileDir: dataPath,
     onFailure: (error) => void recover(error),
   });
   if (quitting) {

@@ -254,6 +254,7 @@ class ModelRouter:
                 if env.get(env_name) and provider not in keys
             )
         self._adapters: dict[str, object] = {}
+        self._cloud_adapters: dict[str, object] = {}
         anth = keys.get("anthropic") or env.get("ANTHROPIC_API_KEY")
         if anth:
             self._configured_keys["anthropic"] = anth
@@ -367,6 +368,31 @@ class ModelRouter:
         calls (e.g. the transcribe recipe's remote /audio/transcriptions
         engine) borrow its credentials/base_url; the chat path stays
         complete() — the router deliberately has no audio path."""
+        return self._adapters.get(provider)
+
+    def register_cloud_adapter(self, model: str) -> None:
+        """Register Cloud execution for one exact routed model identity."""
+
+        from .cloud import CloudLLMAdapter, validate_cloud_model_id
+
+        model = validate_cloud_model_id(model)
+        if model in self._cloud_adapters:
+            raise ValueError(f"Cloud adapter already registered for {model!r}")
+        self._cloud_adapters[model] = CloudLLMAdapter()
+
+    def adapter_for_model(self, model: str):
+        """Return the exact Cloud, local-endpoint, or provider adapter for a model."""
+
+        cloud = self._cloud_adapters.get(model)
+        if cloud is not None:
+            return cloud
+        provider = provider_from_model_id(model)
+        if provider == "ollama":
+            try:
+                _endpoint, adapter, _bare_model = self.resolve_local_model(model)
+            except LLMError:
+                return None
+            return adapter
         return self._adapters.get(provider)
 
     def local_endpoint_url_for_model(self, model: str) -> str | None:
@@ -624,14 +650,15 @@ class ModelRouter:
         resp = await self._call_with_retry(
             req, credential_source=credential_source, trace=trace
         )
-        resp.provider = provider
-        resp.credential_source = credential_source
-        # This seam still holds the canonical endpoint-qualified identity after
-        # the local adapter receives its stripped wire model. Stamp the fact for
-        # custom adapters too; accounting never re-parses the model later.
-        resp.cost_source = (
-            model_cost_source(req.model) if resp.cost is not None else "unknown"
-        )
+        if resp.actual_accounting is None:
+            resp.provider = provider
+            resp.credential_source = credential_source
+            # This seam still holds the canonical endpoint-qualified identity after
+            # the local adapter receives its stripped wire model. Stamp the fact for
+            # custom adapters too; accounting never re-parses the model later.
+            resp.cost_source = (
+                model_cost_source(req.model) if resp.cost is not None else "unknown"
+            )
         if self.model_call_policy is not None:
             self.model_call_policy.after_live(req, resp, credential_source)
         if self.cache is not None and self.cache_mode in ("replay", "fresh"):
@@ -646,14 +673,24 @@ class ModelRouter:
         trace: ModelTrace | None = None,
     ) -> LLMResponse:
         provider = provider_from_model_id(req.model)
-        adapter = self._adapters.get(provider)
+        cloud_adapter = self._cloud_adapters.get(req.model)
+        if cloud_adapter is None:
+            from frisket.cloud_execution import cloud_llm_execution_bound
+
+            if cloud_llm_execution_bound(req.model):
+                from .cloud import CloudLLMAdapter
+
+                cloud_adapter = CloudLLMAdapter()
+        adapter = (
+            cloud_adapter if cloud_adapter is not None else self._adapters.get(provider)
+        )
         if adapter is None:
             raise LLMError(
                 f"no adapter for provider '{provider}' "
                 f"(configured: {', '.join(self._adapters)})"
             )
         wire_req = req
-        if provider == "ollama":
+        if provider == "ollama" and cloud_adapter is None:
             _endpoint, adapter, bare_model = self.resolve_local_model(req.model)
             wire_req = replace(req, model=f"ollama/{bare_model}")
         last: Exception | None = None
@@ -700,7 +737,7 @@ class ModelRouter:
                         return fabricated
                 if self.model_call_policy is not None:
                     self.model_call_policy.before_live(req, credential_source)
-                if provider == "ollama":
+                if provider == "ollama" and cloud_adapter is None:
                     assert isinstance(adapter, OpenAICompatAdapter)
                     resp = await adapter.complete(
                         wire_req,
@@ -709,7 +746,7 @@ class ModelRouter:
                     )
                 else:
                     resp = await adapter.complete(wire_req, self.client)
-                if provider == "ollama":
+                if provider == "ollama" and cloud_adapter is None:
                     resp.model = req.model
                 resp.duration_ms = _record(attempt, t0, outcome="ok")
                 return resp

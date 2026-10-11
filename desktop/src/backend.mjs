@@ -35,10 +35,10 @@ export function appendBounded(current, chunk) {
   return value.length > OUTPUT_LIMIT ? value.slice(-OUTPUT_LIMIT) : value;
 }
 
-/** @param {string} workspace @param {string} token */
-export function startupMessage(workspace, token) {
-  if (!path.isAbsolute(workspace)) throw new Error('desktop workspace must be absolute');
-  return `${JSON.stringify({ schema: 1, workspace, token })}\n`;
+/** @param {string} workspace @param {string} profileDir @param {string} token */
+export function startupMessage(workspace, profileDir, token) {
+  if (!path.isAbsolute(workspace) || !path.isAbsolute(profileDir)) throw new Error('desktop paths must be absolute');
+  return `${JSON.stringify({ schema: 2, workspace, profile_dir: profileDir, token })}\n`;
 }
 
 /** @param {string} host @param {number} port */
@@ -53,16 +53,16 @@ export function healthUrl(host, port) {
  * Start the private backend under the bundled guardian. The startup deadline
  * covers readiness and authenticated health, and every failed attempt awaits
  * the guardian's cleanup acknowledgement before a caller can retry.
- * @param {{ runtime: PreparedRuntime, resourcesPath: string, workspace: string, electronPid?: number, spawnProcess?: typeof nodeSpawn, fetchImpl?: typeof fetch, onFailure?: (error: Error) => void, readyTimeoutMs?: number, stopTimeoutMs?: number }} options
+ * @param {{ runtime: PreparedRuntime, resourcesPath: string, workspace: string, profileDir: string, electronPid?: number, spawnProcess?: typeof nodeSpawn, fetchImpl?: typeof fetch, onFailure?: (error: Error) => void, readyTimeoutMs?: number, stopTimeoutMs?: number }} options
  * @returns {Promise<DesktopBackend>}
  */
 export async function startBackend(options) {
   const {
-    runtime, resourcesPath, workspace, electronPid = process.pid,
+    runtime, resourcesPath, workspace, profileDir, electronPid = process.pid,
     spawnProcess = nodeSpawn, fetchImpl = globalThis.fetch,
     onFailure = () => {}, readyTimeoutMs = READY_TIMEOUT_MS, stopTimeoutMs = STOP_TIMEOUT_MS,
   } = options;
-  if (!runtime || !path.isAbsolute(runtime.python) || !runtime.env || !path.isAbsolute(resourcesPath) || !path.isAbsolute(workspace)) {
+  if (!runtime || !path.isAbsolute(runtime.python) || !runtime.env || !path.isAbsolute(resourcesPath) || !path.isAbsolute(workspace) || !path.isAbsolute(profileDir)) {
     throw new Error('invalid desktop backend configuration');
   }
   if (typeof fetchImpl !== 'function') throw new Error('desktop health check is unavailable');
@@ -148,7 +148,7 @@ export async function startBackend(options) {
   child.once('error', () => fail('Desktop backend could not be started.'));
   child.stdin?.once?.('error', () => fail('Desktop backend could not receive its startup configuration.'));
   try {
-    child.stdin?.end(startupMessage(workspace, token));
+    child.stdin?.end(startupMessage(workspace, profileDir, token));
     const announced = await within(readiness, remaining(deadline), new Error('Desktop backend did not become ready in time.'));
     if (lifecycleError || closeOutcome || observedOutcome(child)) throw lifecycleError || new Error('Desktop backend exited before health verification.');
     const healthSignal = timeoutSignal(remaining(deadline));

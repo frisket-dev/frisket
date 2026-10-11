@@ -352,6 +352,17 @@ def _case_local_team_surface(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
         "tenant.test_mcp_server.post",
         "tenant.update_mcp_server.patch",
     }
+    cloud_local_only = {
+        "tenant.begin_cloud_authorization.post",
+        "tenant.cancel_cloud_authorization.delete",
+        "tenant.delete_cloud_connection.delete",
+        "tenant.get_cloud_connection.get",
+        "tenant.get_cloud_preferences.get",
+        "tenant.get_project_cloud_routing.get",
+        "tenant.patch_cloud_preferences.patch",
+        "tenant.patch_project_cloud_routing.patch",
+        "tenant.poll_cloud_authorization.get",
+    }
     assert {
         "tenant.list_sources.get",
         "tenant.get_source_ep.get",
@@ -381,6 +392,9 @@ def _case_local_team_surface(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     assert mcp_local_only <= {entry.id for entry in members}
     assert mcp_local_only <= set(exporter.CANONICAL_OPERATION_IDS.values())
     assert mcp_local_only <= _operation_ids(document)
+    assert cloud_local_only <= {entry.id for entry in members}
+    assert cloud_local_only <= set(exporter.CANONICAL_OPERATION_IDS.values())
+    assert cloud_local_only <= _operation_ids(document)
     assert "tenant.import_followthemoney.post" in _operation_ids(document)
     assert "tenant.import_paste_confirm.post" in _operation_ids(document)
     assert {
@@ -389,8 +403,8 @@ def _case_local_team_surface(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
         "tenant.extraction_preview.post",
         "tenant.extraction_template_save.post",
     } <= _operation_ids(document)
-    assert len(BASE_ENDPOINT_CATALOG) == 319
-    assert len(members) == 252
+    assert len(BASE_ENDPOINT_CATALOG) == 328
+    assert len(members) == 261
     assert len(team_local_models) == 9
     assert team_browser_auth == {
         "outer.accept_project_invite.post",
@@ -399,8 +413,8 @@ def _case_local_team_surface(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
         "outer.request_link.post",
         "outer.logout.post",
     }
-    assert len(exporter.CANONICAL_OPERATION_IDS) == 262
-    assert len(_operation_ids(document)) == 266
+    assert len(exporter.CANONICAL_OPERATION_IDS) == 271
+    assert len(_operation_ids(document)) == 275
 
     for operation_id in (
         "tenant.review_runs_ep.get",
@@ -444,6 +458,7 @@ def _case_local_team_surface(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
         "tenant.update_local_endpoint.patch",
         "tenant.validate_provider_key.post",
         *mcp_local_only,
+        *cloud_local_only,
     }
     team_only = {
         "outer.admin_overview.get",

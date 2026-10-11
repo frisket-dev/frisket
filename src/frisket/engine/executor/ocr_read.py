@@ -83,7 +83,13 @@ class AdmittedOcrReader:
                 "promise_violation", "OCR requires its admitted engine"
             )
         expected = (
-            "local"
+            "frisket.cloud.media.v1"
+            if (
+                admission is not None
+                and admission.binding.facts.cloud_payer is not None
+            )
+            or (preview is not None and preview.facts.cloud_payer is not None)
+            else "local"
             if engine in engines.LOCAL_ENGINES
             else "sidecar.ocr"
             if engine in engines.SIDECAR_ENGINES

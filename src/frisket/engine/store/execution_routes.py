@@ -439,17 +439,25 @@ def route_fact_hash(
     region: str | None,
     credential_source: str,
     cost_posture: str,
+    cloud_payer: Mapping[str, Any] | None = None,
 ) -> str:
     """Canonical hash of the resolved route fact columns (§1.1)."""
+    material: dict[str, Any] = {
+        "cost_posture": cost_posture,
+        "credential_source": credential_source,
+        "egress_class": egress_class,
+        "operator": operator,
+        "region": region,
+    }
+    if cloud_payer is not None:
+        from frisket.cloud_execution import CloudPayerSubject
+
+        material["cloud_payer"] = CloudPayerSubject.from_snapshot(
+            cloud_payer
+        ).to_snapshot()
     return content_hash(
         DOMAIN_ROUTE_FACTS,
-        {
-            "cost_posture": cost_posture,
-            "credential_source": credential_source,
-            "egress_class": egress_class,
-            "operator": operator,
-            "region": region,
-        },
+        material,
     )
 
 
@@ -956,6 +964,7 @@ def _append_route_cas(
         region=region,
         credential_source=credential_source,
         cost_posture=cost_posture,
+        cloud_payer=target_snapshot.get("cloud_payer"),
     )
 
     def _reusable_successor() -> RouteRow | None:

@@ -43,6 +43,89 @@ function pull(overrides: Partial<ModelPullDto> = {}): ModelPullDto {
 }
 
 describe('SelectorSetup', () => {
+  it('shows Cloud first and reuses the validated project-key card as the local alternative', async () => {
+    request.mockImplementation((operation: string) => {
+      if (operation === 'tenant.get_cloud_connection.get') return Promise.resolve({
+        state: 'disconnected', identity: null, accounts: [], expires_at: null,
+        capabilities: { can_connect: true, can_reconnect: false, can_disconnect: false },
+      });
+      return Promise.reject(new Error(`Unexpected operation ${operation}`));
+    });
+    render(<SelectorSetup projectId="a" choice={choice({
+      kind: 'cloud', state: 'connect', account_id: null, account_name: null,
+      add_credits_url: null, balance_url: null, project_settings_url: null,
+      local_key: { kind: 'api_key', provider: 'gemini', scopes: [scope('project')] },
+    })} onChanged={vi.fn()} onEditingChange={vi.fn()} />);
+
+    expect(await screen.findByRole('heading', { name: 'Connect Frisket Cloud' })).toBeVisible();
+    expect(screen.getByText('Each person gets $5 of free Frisket credit every month.')).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Or use your own Google key' })).toBeVisible();
+    expect(screen.getByLabelText('API key')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Disconnect' })).not.toBeInTheDocument();
+  });
+
+  it('hard-stops an exhausted Cloud route with account-scoped remediation', () => {
+    render(<SelectorSetup projectId="a" choice={choice({
+      kind: 'cloud', state: 'out_of_credits', account_id: 11, account_name: 'Riverton News',
+      add_credits_url: 'https://app.frisket.dev/accounts/11/credits',
+      balance_url: 'https://app.frisket.dev/accounts/11',
+      project_settings_url: '/p/a/settings/project/ai-providers', local_key: null,
+    })} onChanged={vi.fn()} onEditingChange={vi.fn()} />);
+
+    expect(screen.getByText('Riverton News is out of Frisket credits')).toBeVisible();
+    expect(screen.getByText(/won’t switch to another key or account/)).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Add credits ↗' })).toHaveAttribute(
+      'href', 'https://app.frisket.dev/accounts/11/credits',
+    );
+    expect(screen.getByRole('link', { name: 'Project settings' })).toHaveAttribute(
+      'href', '/p/a/settings/project/ai-providers',
+    );
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it('reconnects Cloud without replacing the project funding account', async () => {
+    vi.useFakeTimers();
+    const expired = {
+      state: 'expired', identity: null, accounts: [], expires_at: '2026-10-10T12:00:00Z',
+      capabilities: { can_connect: false, can_reconnect: true, can_disconnect: false },
+    };
+    const connected = {
+      state: 'connected',
+      identity: { id: 7, display_name: 'Sam', email: 'sam@example.test' },
+      accounts: [{ id: 11, name: 'Riverton News', kind: 'organization', eligible: true,
+        eligibility_reason: null, balance_label: '$10.00 balance', balance_url: null }],
+      expires_at: '2027-01-11T00:00:00Z',
+      capabilities: { can_connect: false, can_reconnect: false, can_disconnect: true },
+    };
+    request.mockImplementation((operation: string, _options: unknown, map?: (value: unknown) => unknown) => {
+      const finish = (value: unknown) => Promise.resolve(map ? map(value) : value);
+      if (operation === 'tenant.get_cloud_connection.get') return finish(expired);
+      if (operation === 'tenant.begin_cloud_authorization.post') return finish({
+        id: 'reconnect-1', user_code: 'ABCD-1234',
+        verification_uri: 'https://app.frisket.dev/device', verification_uri_complete: null,
+        expires_at: '2026-10-11T03:00:00Z', poll_interval_seconds: 1,
+      });
+      if (operation === 'tenant.poll_cloud_authorization.get') return finish({
+        status: 'connected', connection: connected,
+      });
+      return Promise.reject(new Error(`Unexpected operation ${operation}`));
+    });
+    const changed = vi.fn();
+    render(<SelectorSetup projectId="a" choice={choice({
+      kind: 'cloud', state: 'reconnect', account_id: 11, account_name: 'Riverton News',
+      add_credits_url: null, balance_url: null, project_settings_url: null,
+      local_key: null,
+    })} onChanged={changed} onEditingChange={vi.fn()} />);
+
+    await act(async () => {});
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Reconnect' })); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(request.mock.calls.map(([operation]) => operation)).not.toContain(
+      'tenant.patch_project_cloud_routing.patch',
+    );
+    expect(changed).toHaveBeenCalledOnce();
+  });
+
   it('validates then turns the compact project-key action into Save with its real receipt', async () => {
     request.mockResolvedValueOnce(accepted).mockResolvedValueOnce({});
     const changed = vi.fn();

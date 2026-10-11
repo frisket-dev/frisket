@@ -84,6 +84,7 @@ from .structured_capabilities import (
     PROSE_JSON,
 )
 from .types import (
+    LLMActualAccounting,
     LLMRequest,
     LLMResponse,
     ModelRouterTransport,
@@ -940,12 +941,20 @@ def _sum_response(
     # one unknown live cost makes the live total unknown rather than a partial
     # number assembled from only the priced calls.
     live_calls = [response for response in wire_calls if not response.cached]
+    live_costs = [
+        (
+            response.actual_accounting.cost
+            if response.actual_accounting is not None
+            else response.cost
+        )
+        for response in live_calls
+    ]
     if not live_calls:
         total_cost = 0.0
-    elif any(response.cost is None for response in live_calls):
+    elif any(cost is None for cost in live_costs):
         total_cost = None
     else:
-        total_cost = sum(response.cost for response in live_calls)
+        total_cost = sum(cost for cost in live_costs if cost is not None)
     # Same shape as total_cost: the router already measured every live wire
     # attempt (clean + repairs), so their sum is the real wall time this
     # completion spent, not a fabricated NULL. A wholly-cached response or
@@ -957,6 +966,32 @@ def _sum_response(
         total_duration_ms = None
     else:
         total_duration_ms = sum(response.duration_ms for response in live_calls)
+    actuals = [
+        response.actual_accounting
+        for response in live_calls
+        if response.actual_accounting is not None
+    ]
+    if actuals and len(actuals) != len(live_calls):
+        raise RuntimeError(
+            "structured completion mixed receipt-authoritative and locally priced calls"
+        )
+    actual_accounting = (
+        LLMActualAccounting(
+            cost=sum(
+                accounting.cost for accounting in actuals if accounting.cost is not None
+            )
+            if all(accounting.cost is not None for accounting in actuals)
+            else None,
+            model_calls=tuple(
+                call for accounting in actuals for call in accounting.model_calls
+            ),
+            receipts=tuple(
+                receipt for accounting in actuals for receipt in accounting.receipts
+            ),
+        )
+        if actuals
+        else None
+    )
     return LLMResponse(
         content=last.content,
         data=data,
@@ -971,4 +1006,5 @@ def _sum_response(
         raw=last.raw,
         duration_ms=total_duration_ms,
         output_limited=last.output_limited,
+        actual_accounting=actual_accounting,
     )

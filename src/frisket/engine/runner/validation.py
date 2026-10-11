@@ -904,6 +904,41 @@ def _estimate_run(
         if scope_row_ids is None
         else [int(row_id) for row_id in scope_row_ids]
     )
+    if recipe.is_llm(spec) and isinstance(resolution, Refusal):
+        raise ExecutionResolutionRefused(resolution)
+    if recipe.is_llm(spec) and isinstance(resolution, ResolvedExecution):
+        bound = getattr(resolution.cost_basis, "bound", None)
+        out = {
+            "cost": None if bound is None else float(bound),
+            "cost_source": "cloud_route_quote" if bound is not None else "unknown",
+            "pricing_key": getattr(resolution.cost_basis, "pricing_key", None),
+            "rows": len(rows),
+            **_resolved_presentation_labels(
+                resolution,
+                cost_source="cloud_route_quote" if bound is not None else "unknown",
+            ),
+        }
+        if pricing_policy is None:
+            raise TypeError("estimate_run requires a pricing_policy for routed work")
+        rated = confirmation_estimate(recipe, spec, out, policy=pricing_policy)
+        bound_resolution = _bind_rated_quote(resolution, rated)
+        uncovered = project_uncovered_user_claims(
+            project,
+            bound_resolution.promise_set,
+            spec=spec,
+            run_id=resume_run_id,
+            consent_coverage=consent_coverage,
+        )
+        out = {**rated, "requires_confirmation": bool(uncovered)}
+        if uncovered:
+            out["claims"] = gate_claims_payload(
+                uncovered,
+                bound_resolution.resolution.facts,
+                bound_resolution.presentation,
+                has_cost_claim=True,
+            )
+            out["promise_set_hash"] = consented_set_hash(bound_resolution.promise_set)
+        return _EstimateRunResult(out, bound_resolution)
     if not recipe.is_llm(spec):
         if resolution is None and recipe.consumes_resolution:
             if composition is None:
@@ -1303,7 +1338,7 @@ def validate_spec(
                 )
                 if requires_confirmation and cost_gate is not None:
                     raise cost_gate
-                if not recipe.consumes_resolution:
+                if resolved_execution is None:
                     unrouted_confirmation_hash = context_hash
                     consent_basis = (
                         CONSENT_BASIS_CONFIRMED
@@ -1334,11 +1369,10 @@ def validate_spec(
             consent_coverage=consent_coverage,
         )
         backfill_est = backfill_result.presentation
-        if recipe.consumes_resolution:
-            if isinstance(resume_outcome, ResolvedExecution):
-                if backfill_result.bound_resolution is None:
-                    raise RuntimeError("routed estimate did not bind its consent quote")
-                resume_outcome = backfill_result.bound_resolution
+        if isinstance(resume_outcome, ResolvedExecution):
+            if backfill_result.bound_resolution is None:
+                raise RuntimeError("routed estimate did not bind its consent quote")
+            resume_outcome = backfill_result.bound_resolution
             claims_payload = backfill_est.get("claims")
             if claims_payload:
                 set_hash = backfill_est.get("promise_set_hash")
@@ -1418,7 +1452,10 @@ def validate_spec(
                     )
                     if requires_confirmation and cost_gate is not None:
                         raise cost_gate
-                if not recipe.consumes_resolution and not queued_resume:
+                if (
+                    not isinstance(resume_outcome, ResolvedExecution)
+                    and not queued_resume
+                ):
                     unrouted_confirmation_hash = context_hash
                     consent_basis = (
                         CONSENT_BASIS_CONFIRMED
@@ -1451,7 +1488,21 @@ def validate_spec(
     live_provider_effect = provider and (
         not recipe_is_llm or not model_call_cannot_go_live(router)
     )
-    if live_provider_effect:
+    cloud_payer = (
+        resolved_execution.resolution.facts.cloud_payer
+        if resolved_execution is not None
+        else None
+    )
+    cloud_llm_route = recipe_is_llm and any(
+        composition.cloud_payer_for(
+            target_id=target.id,
+            capability="llm.complete",
+            engine=model_name,
+        )
+        is not None
+        for target in composition.resolution_targets()
+    )
+    if live_provider_effect and cloud_payer is None and not cloud_llm_route:
         # Spend caps read durable project state and fail closed before key
         # remediation; a replay cache does not prove every row will hit.
         assert_provider_spend_cap(project, provider)

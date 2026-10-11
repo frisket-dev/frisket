@@ -16,6 +16,9 @@ afterEach(() => {
 describe('named browser auth operations', () => {
   it('returns browser-navigation URLs for sign-in and connected-account OAuth', () => {
     expect(oidcSignInUrl('work sso')).toBe('/auth/oidc/work%20sso');
+    expect(oidcSignInUrl('work sso', '/device?user_code=A')).toBe(
+      '/auth/oidc/work%20sso?returnTo=%2Fdevice%3Fuser_code%3DA',
+    );
     expect(googleOAuthStartUrl()).toBe('/api/org/oauth/google/start');
   });
 

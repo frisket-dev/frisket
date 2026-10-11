@@ -100,6 +100,7 @@ PROMISE_FIELDS: Mapping[str, tuple[str, ...]] = {
     "egress_class": ("eq", "satisfies_order"),
     "region": ("eq",),
     "cost": ("le", "unbounded"),
+    "cloud_payer": ("eq",),
 }
 
 # The schema's own hashed-field lists (§1.1): anything outside these lists

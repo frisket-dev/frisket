@@ -210,6 +210,21 @@ class _ResolutionTargetProvider:
             return None
         return self.source.connection(target_id)
 
+    def cloud_payer(self, target_id: str, capability: str, engine: str) -> Any | None:
+        if not any(target.id == target_id for target in self.rows):
+            return None
+        hook = getattr(self.source, "cloud_payer", None)
+        return hook(target_id, capability, engine) if callable(hook) else None
+
+    def cloud_execution_transport(self, target_id: str) -> Any | None:
+        from frisket.cloud_execution import CloudExecutionTransportProvider
+
+        if not any(target.id == target_id for target in self.rows):
+            return None
+        if not isinstance(self.source, CloudExecutionTransportProvider):
+            return None
+        return self.source.cloud_execution_transport(target_id)
+
     def liveness_remedy(
         self, target_id: str, capability: str | None = None
     ) -> str | None:
@@ -291,11 +306,6 @@ class ExecutionComposition:
             )
         if not isinstance(self.included, tuple):
             raise TypeError("execution composition included must be an immutable tuple")
-        if self.facts.edition == "open" and self.offerings:
-            raise ValueError(
-                "open/local/team execution compositions cannot supply commercial "
-                "offerings"
-            )
         targets = {target.id: target for target in self.provider.targets()}
 
         def validate_match(match: Any, *, kind: str) -> tuple[str, str, str]:
@@ -331,6 +341,19 @@ class ExecutionComposition:
                     "CommercialOffering values"
                 )
             match = offering.match
+            if (
+                self.facts.edition == "open"
+                and self.cloud_payer_for(
+                    target_id=match.target_id,
+                    capability=match.capability,
+                    engine=match.engine,
+                )
+                is None
+            ):
+                raise ValueError(
+                    "open execution compositions cannot supply commercial "
+                    "offerings except for an exact account-authorized Cloud target"
+                )
             key = validate_match(match, kind="commercial offering")
             if key in seen:
                 raise ValueError(f"duplicate commercial offering match {key!r}")
@@ -362,6 +385,14 @@ class ExecutionComposition:
             ),
             None,
         )
+
+    def cloud_payer_for(
+        self, *, target_id: str, capability: str, engine: str
+    ) -> Any | None:
+        """Return the account payer attached to one exact Cloud route."""
+
+        hook = getattr(self.provider, "cloud_payer", None)
+        return hook(target_id, capability, engine) if callable(hook) else None
 
     def includes_execution_match(
         self, *, target_id: str, capability: str, engine: str
@@ -486,6 +517,16 @@ class ExecutionComposition:
         )
         if offering is not None:
             return offering.presentation
+        hook = getattr(self.provider, "cloud_presentation", None)
+        if callable(hook):
+            presentation = hook(target_id, capability, engine)
+            if presentation is not None:
+                if not isinstance(presentation, CommercialPresentation):
+                    raise TypeError(
+                        "execution provider cloud_presentation must return "
+                        "CommercialPresentation"
+                    )
+                return presentation
         return None
 
 
@@ -540,6 +581,10 @@ class ExecutionCompositionContext:
 
 ExecutionCompositionFactory = Callable[
     [Any, Any, ExecutionCompositionContext], ExecutionComposition
+]
+ExecutionCompositionOverlay = Callable[
+    [ExecutionComposition, Any, Any, ExecutionCompositionContext],
+    ExecutionComposition,
 ]
 
 

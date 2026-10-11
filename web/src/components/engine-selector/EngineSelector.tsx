@@ -18,6 +18,7 @@ import type {
   EngineSelectorProps,
   EngineSelectorStatus,
 } from './types';
+import { EngineRouteDetails } from './EngineRouteDetails';
 import './EngineSelector.css';
 
 const RECENT_LIMIT = 3;
@@ -551,6 +552,7 @@ export function EngineSelector({
                       })}
                     </dl>
                   )}
+                  {previewedChoice.route && <EngineRouteDetails route={previewedChoice.route} />}
                   {previewedChoice.blocker && <p className="engine-selector__blocker">{previewedChoice.blocker}</p>}
                 </> : <p className="engine-selector__empty">No choices are available.</p>}
                   {previewedChoice && (renderDetailFooter || (mobileDetail && previewedChoice.canAuthor && previewedChoice.status !== 'unavailable')) && (

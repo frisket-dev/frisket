@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from frisket.ai.llm.types import LLMRequest, LLMResponse
+from frisket.ai.llm.types import LLMActualAccounting, LLMRequest, LLMResponse
 from frisket.engine.store import Project
 from frisket.engine.store.project_qa import ProjectQAStore
 from frisket.engine.store.project_qa_research import ProjectQAResearchStore
@@ -62,6 +62,68 @@ async def test_model_budget_settles_once_and_revocation_blocks_next_request(
         with pytest.raises(PermissionError):
             await session.before_model(request)
         assert ledger.get(run["id"])["turn_count"] == 1
+    finally:
+        project.close()
+
+
+@pytest.mark.anyio
+async def test_model_budget_uses_authoritative_cloud_cost_and_zero_for_cache(
+    tmp_path, monkeypatch
+):
+    from frisket.ai.llm.pricing import PRICES
+
+    monkeypatch.setitem(PRICES, "gpt-4o", (2.5, 10.0))
+    project = Project.create(tmp_path / "research.frisket", name="Research")
+    try:
+        qa = ProjectQAStore(project)
+        thread = qa.create_thread(title="Research")
+        turn = qa.submit_turn(thread["id"], request_id="one", question="Analyze")
+        ledger = ProjectQAResearchStore(project)
+        run = ledger.create(
+            turn_id=turn["id"],
+            actor="reporter",
+            budget_micros=1_000_000,
+            currency="USD",
+            write_mode="ask_overwrite",
+            max_turns=None,
+        )
+        session = ResearchSession(ledger, run["id"], authorize=lambda: None)
+        request = LLMRequest(
+            model="openai/gpt-4o",
+            messages=[{"role": "user", "content": "Analyze"}],
+            max_tokens=100,
+        )
+
+        await session.before_model(request)
+        cloud = LLMResponse(
+            content="Done",
+            data=None,
+            model=request.model,
+            tokens_in=10,
+            tokens_out=10,
+            cost=0.000_001,
+            actual_accounting=LLMActualAccounting.one(
+                cost=0.000_321,
+                model_call={"id": "cloud-call"},
+                receipt={"execution_id": "cloud-call"},
+            ),
+        )
+        await session.after_model(cloud)
+
+        await session.before_model(request)
+        cached = LLMResponse(
+            content="Cached",
+            data=None,
+            model=request.model,
+            tokens_in=10,
+            tokens_out=10,
+            cost=0.5,
+            cached=True,
+        )
+        await session.after_model(cached)
+
+        assert ledger.budget_summary(run["id"])["settled_micros"] == 321
+        assert ledger.budget_summary(run["id"])["reserved_micros"] == 0
     finally:
         project.close()
 

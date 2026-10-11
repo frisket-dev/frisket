@@ -84,6 +84,7 @@ from frisket.execution.targets import (
     CAPABILITY_CENSUS as CAPABILITY_CENSUS,
     CAPABILITY_CLASSIFY as CAPABILITY_CLASSIFY,
     CAPABILITY_GEOCODE as CAPABILITY_GEOCODE,
+    CAPABILITY_LLM as CAPABILITY_LLM,
     CAPABILITY_OCR as CAPABILITY_OCR,
     CAPABILITY_TO_MARKDOWN as CAPABILITY_TO_MARKDOWN,
     CAPABILITY_TRANSCRIBE as CAPABILITY_TRANSCRIBE,
@@ -102,6 +103,7 @@ from frisket.execution.targets import (
     ClassifyOptionSupport,
     ExecutionTarget,
     GeocodeOptionSupport,
+    LLMOptionSupport,
     OcrOptionSupport,
     TargetEngineSupport,
     ToMarkdownOptionSupport,
@@ -330,6 +332,19 @@ def _remote_wildcard_support(provider: str) -> TargetEngineSupport:
                 "context": False,
                 "clean": False,
             }
+        ),
+    )
+
+
+def _remote_llm_wildcard_support(provider: str) -> TargetEngineSupport:
+    return TargetEngineSupport(
+        engine=f"{provider}/*",
+        transport="remote",
+        capability=CAPABILITY_LLM,
+        options=LLMOptionSupport(
+            structured_output=True,
+            tools=True,
+            vision=True,
         ),
     )
 
@@ -624,6 +639,7 @@ def build_static_targets(
                         if entry.provider == provider
                     ),
                     _remote_ocr_wildcard_support(provider),
+                    _remote_llm_wildcard_support(provider),
                 ),
             )
             for provider in ROUTER_PROVIDER_KEY_ENV
@@ -648,6 +664,7 @@ _API_KEY_VENUE_WORK: dict[str, str] = {
 _REMOTE_API_WORK: dict[str, str] = {
     CAPABILITY_TRANSCRIBE: "remote transcription",
     CAPABILITY_OCR: "remote vision-model OCR",
+    CAPABILITY_LLM: "remote model completion",
 }
 
 
