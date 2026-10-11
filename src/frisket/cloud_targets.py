@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Sequence
-from dataclasses import replace
-from decimal import Decimal
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from typing import Any
+from decimal import Decimal
+from typing import Any, Protocol
 
 from frisket.cloud_connection import (
     CloudClientError,
@@ -17,7 +17,6 @@ from frisket.cloud_connection import (
 )
 from frisket.cloud_execution import CloudExecutionTransport, CloudPayerSubject
 from frisket.contracts.http.cloud_connection import (
-    CloudAccount,
     CloudCapabilitiesResponse,
     CloudCapabilityRoute,
     CloudLLMOptionSupport,
@@ -54,6 +53,17 @@ from frisket.project_settings import read_project_settings
 
 CLOUD_MEDIA_TRANSPORT = "frisket.cloud.media.v1"
 CLOUD_LLM_TRANSPORT = "frisket.cloud.llm.v1"
+
+
+class _AccountIdentity(Protocol):
+    id: int
+    name: str
+
+
+@dataclass(frozen=True, slots=True)
+class _UnavailableAccount:
+    id: int
+    name: str = "Selected Cloud account"
 
 
 def cloud_target_id(account_id: int, lane: str, provider: str) -> str:
@@ -142,7 +152,7 @@ def compose_cloud_targets(
     base: ExecutionComposition,
     *,
     user_id: int,
-    account: CloudAccount,
+    account: _AccountIdentity,
     capabilities: CloudCapabilitiesResponse,
     preference: str,
     execution_transport: CloudExecutionTransport | None = None,
@@ -245,7 +255,7 @@ def cloud_execution_composition(
     except CloudConnectionStoreError:
         return base
     connection = profile.connection
-    if connection is None or _expired(connection.session.expires_at):
+    if connection is None:
         return base
     settings = read_project_settings(project)
     if (
@@ -261,14 +271,47 @@ def cloud_execution_composition(
         ),
         None,
     )
+    snapshot = profile.capabilities.get(settings.cloud_account_id)
+    unavailable_reason: str | None = None
+    if _expired(connection.session.expires_at):
+        unavailable_reason = "Reconnect Frisket Cloud and retry."
+        capabilities = snapshot
+    elif account is None:
+        unavailable_reason = "The selected Frisket Cloud account is unavailable."
+        capabilities = snapshot
+    else:
+        try:
+            capabilities = client.capabilities(connection.access_token, account.id)
+            if capabilities.account_id != account.id:
+                raise ValueError("Cloud capabilities name a different account")
+        except (CloudClientError, ValueError):
+            unavailable_reason = (
+                "Frisket Cloud is temporarily unavailable. Retry to use this route."
+            )
+            capabilities = snapshot
+        else:
+            try:
+                profile = store.save_capabilities(
+                    capabilities,
+                    expected_user_id=connection.session.user.id,
+                )
+            except (CloudConnectionStoreError, OSError):
+                # The connection may have changed after discovery. Preserve the
+                # exact discovered roster only as unavailable so it cannot send
+                # data or spend under a stale installation identity.
+                unavailable_reason = (
+                    "Frisket Cloud connection changed. Refresh and retry."
+                )
+    if capabilities is None:
+        # This installation has never seen an authoritative route roster for
+        # the selected account. The connection/settings endpoints surface the
+        # setup failure; inventing a shadow catalog here could block unrelated
+        # local models that Cloud never offered.
+        return base
+    if unavailable_reason is not None:
+        capabilities = _blocked_capabilities(capabilities, unavailable_reason)
     if account is None:
-        return base
-    try:
-        capabilities = client.capabilities(connection.access_token, account.id)
-    except (CloudClientError, ValueError):
-        # Discovery failure cannot impede unrelated local execution. A fresh
-        # paid dispatch still rechecks the account and route at Cloud.
-        return base
+        account = _UnavailableAccount(settings.cloud_account_id)
     preference = settings.cloud_execution_preference or profile.preference
     return compose_cloud_targets(
         base,
@@ -360,7 +403,7 @@ def _offering(
     route: CloudCapabilityRoute,
     capability: str,
     target_id: str,
-    account: CloudAccount,
+    account: _AccountIdentity,
 ) -> CommercialOffering | None:
     price = route.price
     billing = (
@@ -430,6 +473,24 @@ def _offering(
             venue_label="Frisket Cloud",
             billing_label=billing,
         ),
+    )
+
+
+def _blocked_capabilities(
+    capabilities: CloudCapabilitiesResponse, reason: str
+) -> CloudCapabilitiesResponse:
+    return capabilities.model_copy(
+        update={
+            "routes": [
+                route.model_copy(
+                    update={
+                        "ready": False,
+                        "blocker": reason,
+                    }
+                )
+                for route in capabilities.routes
+            ]
+        }
     )
 
 

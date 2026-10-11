@@ -7,7 +7,7 @@ import pytest
 from frisket.ai.llm import ModelRouter
 from frisket.contracts.action import Receipt
 from frisket.cloud_execution import CloudExecutionAttempt
-from frisket.cloud_connection import CloudConnectionStore
+from frisket.cloud_connection import CloudClientError, CloudConnectionStore
 from frisket.cloud_targets import cloud_execution_composition, compose_cloud_targets
 from frisket.contracts.http.cloud_connection import (
     CloudAccount,
@@ -517,6 +517,7 @@ def test_project_composition_fetches_selected_account_capabilities_once(tmp_path
         project.close()
 
     assert client.calls == 1
+    assert store.load().capabilities[41].routes == _capabilities().routes
     assert (
         composition.cloud_payer_for(
             target_id="frisket-cloud:41:frisket_credits:anthropic",
@@ -525,3 +526,87 @@ def test_project_composition_fetches_selected_account_capabilities_once(tmp_path
         ).user_id
         == 7
     )
+
+
+def test_capability_fetch_failure_blocks_last_known_cloud_routes(tmp_path):
+    project = Project.create(tmp_path / "project.frisket", name="Project")
+    write_project_settings(
+        project,
+        ProjectSettings(
+            cloud_user_id=7,
+            cloud_account_id=41,
+            cloud_execution_preference="cloud_first",
+        ),
+    )
+    store = CloudConnectionStore(tmp_path / "profile")
+    store.save_connection(
+        "installation-token",
+        CloudSessionResponse(
+            user=CloudUser(id=7, email="user@example.test", display_name="User"),
+            expires_at="2099-01-01T00:00:00Z",
+            accounts=[_account()],
+        ),
+    )
+    store.save_capabilities(_capabilities(), expected_user_id=7)
+
+    class Client:
+        def capabilities(self, _token, _account_id):
+            raise CloudClientError("cloud_unreachable", retryable=True)
+
+    try:
+        composition = cloud_execution_composition(
+            _base(), project, store=store, client=Client()
+        )
+        outcome = resolve(
+            ResolutionRequest(engine="rapidocr", capability=CAPABILITY_OCR, options={}),
+            composition.provider_for_resolution(),
+            composition.facts,
+        )
+    finally:
+        project.close()
+
+    assert isinstance(outcome, Refusal)
+    assert outcome.target_id == "frisket-cloud:41:frisket_credits:anthropic"
+    assert "temporarily unavailable" in outcome.remedy
+
+
+def test_expired_connection_blocks_snapshot_without_fetch_or_local_fallback(tmp_path):
+    project = Project.create(tmp_path / "project.frisket", name="Project")
+    write_project_settings(
+        project,
+        ProjectSettings(
+            cloud_user_id=7,
+            cloud_account_id=41,
+            cloud_execution_preference="cloud_first",
+        ),
+    )
+    store = CloudConnectionStore(tmp_path / "profile")
+    store.save_connection(
+        "expired-token",
+        CloudSessionResponse(
+            user=CloudUser(id=7, email="user@example.test", display_name="User"),
+            expires_at="2020-01-01T00:00:00Z",
+            accounts=[_account()],
+        ),
+    )
+    store.save_capabilities(_capabilities(), expected_user_id=7)
+
+    class Client:
+        def capabilities(self, _token, _account_id):
+            raise AssertionError("expired connections must not make a discovery call")
+
+    try:
+        composition = cloud_execution_composition(
+            _base(), project, store=store, client=Client()
+        )
+        outcome = resolve(
+            ResolutionRequest(engine="rapidocr", capability=CAPABILITY_OCR, options={}),
+            composition.provider_for_resolution(),
+            composition.facts,
+        )
+    finally:
+        project.close()
+
+    assert isinstance(outcome, Refusal)
+    assert outcome.target_id == "frisket-cloud:41:frisket_credits:anthropic"
+    assert "Reconnect" in outcome.remedy

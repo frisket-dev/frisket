@@ -197,13 +197,29 @@ class CloudConnectionStore:
             )
 
     def save_capabilities(
-        self, capabilities: CloudCapabilitiesResponse
+        self,
+        capabilities: CloudCapabilitiesResponse,
+        *,
+        expected_user_id: int,
     ) -> StoredCloudProfile:
+        if type(expected_user_id) is not int or expected_user_id < 1:
+            raise ValueError("expected Cloud user id must be a positive integer")
         with self._lock():
             current = self._load_unlocked()
             if current.connection is None:
                 raise CloudConnectionStoreError(
                     "Frisket Cloud must be connected before capabilities can be saved"
+                )
+            if current.connection.session.user.id != expected_user_id:
+                raise CloudConnectionStoreError(
+                    "Frisket Cloud user changed while capabilities were fetched"
+                )
+            if not any(
+                account.id == capabilities.account_id
+                for account in current.connection.session.accounts
+            ):
+                raise CloudConnectionStoreError(
+                    "Frisket Cloud account changed while capabilities were fetched"
                 )
             snapshots = {**current.capabilities, capabilities.account_id: capabilities}
             key = load_or_create_secret_key(self.key_path)

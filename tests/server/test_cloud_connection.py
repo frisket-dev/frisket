@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from frisket.cloud_connection import (
     CloudConnectionClient,
     CloudConnectionStore,
+    CloudConnectionStoreError,
     StoredCloudConnection,
     validate_cloud_origin,
 )
@@ -173,7 +174,7 @@ def test_capability_snapshots_are_user_bound_and_survive_same_user_refresh(tmp_p
     store = CloudConnectionStore(tmp_path / "profile")
     store.save_connection("first", _session(user_id=7, account_id=41))
 
-    saved = store.save_capabilities(_capabilities(account_id=41))
+    saved = store.save_capabilities(_capabilities(account_id=41), expected_user_id=7)
 
     assert saved.capabilities[41].routes[0].route_revision == "route-1"
     store.save_connection("refreshed", _session(user_id=7, account_id=99))
@@ -181,8 +182,34 @@ def test_capability_snapshots_are_user_bound_and_survive_same_user_refresh(tmp_p
 
     store.save_connection("different-user", _session(user_id=8, account_id=41))
     assert store.load().capabilities == {}
-    store.save_capabilities(_capabilities(account_id=41, revision="route-2"))
+    store.save_capabilities(
+        _capabilities(account_id=41, revision="route-2"), expected_user_id=8
+    )
     assert store.clear_connection().capabilities == {}
+    assert store.load().capabilities == {}
+
+
+def test_capability_snapshot_refuses_a_concurrent_user_change(tmp_path):
+    store = CloudConnectionStore(tmp_path / "profile")
+    store.save_connection("user-a", _session(user_id=7, account_id=41))
+    fetched_as_a = _capabilities(account_id=41)
+    store.save_connection("user-b", _session(user_id=8, account_id=41))
+
+    with pytest.raises(CloudConnectionStoreError, match="user changed"):
+        store.save_capabilities(fetched_as_a, expected_user_id=7)
+
+    assert store.load().capabilities == {}
+
+
+def test_capability_snapshot_refuses_a_concurrent_account_change(tmp_path):
+    store = CloudConnectionStore(tmp_path / "profile")
+    store.save_connection("first", _session(user_id=7, account_id=41))
+    fetched_for_41 = _capabilities(account_id=41)
+    store.save_connection("refreshed", _session(user_id=7, account_id=99))
+
+    with pytest.raises(CloudConnectionStoreError, match="account changed"):
+        store.save_capabilities(fetched_for_41, expected_user_id=7)
+
     assert store.load().capabilities == {}
 
 
