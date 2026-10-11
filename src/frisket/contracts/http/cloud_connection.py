@@ -84,7 +84,7 @@ class CloudAccount(WireModel):
     id: int = Field(gt=0)
     name: str = Field(min_length=1)
     kind: CloudAccountKind
-    balance_micro: int = Field(ge=0)
+    balance_micro: int
     available_micro: int = Field(ge=0)
     manage_billing: bool
 
@@ -393,7 +393,7 @@ class CloudExecutionReceipt(WireModel):
     lane: CloudLane
     provider: str = Field(min_length=1)
     engine: str = Field(min_length=1)
-    charged_micro: int = Field(ge=0)
+    charge_micro: int = Field(ge=0)
     provider_cost_micro: int | None = Field(default=None, ge=0)
     usage: CloudExecutionUsage
 
