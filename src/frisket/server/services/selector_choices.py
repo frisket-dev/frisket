@@ -117,7 +117,11 @@ class _SelectorCloudContext:
         if state is None:
             return None
         if state == "connected":
-            if payer_lane == "frisket_credits" and self.available_micro == 0:
+            if (
+                payer_lane == "frisket_credits"
+                and self.available_micro is not None
+                and self.available_micro <= 0
+            ):
                 state = "out_of_credits"
             else:
                 return None
