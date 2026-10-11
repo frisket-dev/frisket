@@ -286,6 +286,49 @@ def test_remote_fact_without_price_is_unknown():
     assert bound["cost_source"] == "unknown"
 
 
+def test_cloud_fact_preserves_receipt_validated_provider_and_cost_source():
+    payer = {
+        "user_id": 7,
+        "account_id": 41,
+        "lane": "frisket_credits",
+        "provider": "anthropic",
+        "engine": "anthropic/claude-haiku-4-5",
+        "route_revision": "route-1",
+    }
+    snapshot = _snapshot(
+        "frisket-cloud:41:frisket_credits:anthropic",
+        "frisket.cloud.media.v1",
+        capability="ocr",
+    )
+    snapshot["cloud_payer"] = payer
+    route = _route(
+        engine=payer["engine"],
+        target_snapshot=snapshot,
+        operator="frisket",
+        egress_class="frisket_shared",
+        credential_source="platform_key",
+        cost_posture="platform_metered",
+    )
+
+    bound = bind_fact_to_route(
+        route,
+        {
+            "engine": payer["engine"],
+            "provider": "anthropic",
+            "provider_cost_usd": 0.012,
+            "credential_source": "platform_key",
+            "cost_source": "provider_reported",
+        },
+        {},
+    )
+
+    assert bound["provider"] == "anthropic"
+    assert bound["provider_kind"] == "platform_api"
+    assert bound["cost_source"] == "provider_reported"
+    assert bound["credential_source"] == "platform_key"
+    assert _observation(bound)["observed"]["target_id"].startswith("frisket-cloud:")
+
+
 def test_org_key_posture_maps_to_provider_billed():
     route = _route(
         engine="openai/whisper-1",

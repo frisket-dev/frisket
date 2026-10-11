@@ -45,6 +45,7 @@ TranscriptionTransport = Literal[
     "local",
     "remote",
     "frisket.transcription.v1",
+    "frisket.cloud.media.v1",
 ]
 #: The wires an OCR engine is spoken to over. A separate Literal from
 #: ``TranscriptionTransport`` on purpose: they overlap on ``local`` and
@@ -61,7 +62,12 @@ TranscriptionTransport = Literal[
 #: - ``datalab.convert``  — Datalab's hosted /convert(output_format=json) API;
 #: - ``remote``           — a router-served ``provider/model`` VLM.
 OcrTransport = Literal[
-    "local", "sidecar.ocr", "datalab.convert", "opendocrouter.parse", "remote"
+    "local",
+    "sidecar.ocr",
+    "datalab.convert",
+    "opendocrouter.parse",
+    "remote",
+    "frisket.cloud.media.v1",
 ]
 
 #: The wires a to_markdown engine is spoken to over. ``datalab.convert`` is
@@ -70,7 +76,11 @@ OcrTransport = Literal[
 #: venue and a wire and differ in the SKU they meter, which is why transport is
 #: a target-row field and the capability is a separate declaration beside it.
 ToMarkdownTransport = Literal[
-    "local", "sidecar.convert", "datalab.convert", "opendocrouter.parse"
+    "local",
+    "sidecar.convert",
+    "datalab.convert",
+    "opendocrouter.parse",
+    "frisket.cloud.media.v1",
 ]
 
 #: The wires a translate engine is spoken to over. ``local`` covers both local

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import io
+import json
 
+import httpx
 import pytest
 
+from frisket.cloud_connection import CloudConnectionStore
 from frisket.cloud_execution import (
     CloudExecutionAttempt,
     CloudExecutionRefused,
@@ -11,16 +14,27 @@ from frisket.cloud_execution import (
     CloudMediaUpload,
     CloudPayerSubject,
     CloudQuoteAuthority,
+    CloudConfirmationRequired,
+    HttpCloudExecutionTransport,
     cloud_execution_accounting,
     cloud_media_execution,
 )
 from frisket.contracts.http.cloud_connection import (
+    CloudAccount,
     CloudCapabilityRoute,
+    CloudExecutionQuote,
+    CloudLLMOptionSupport,
+    CloudLLMUsage,
     CloudExecutionReceipt,
     CloudExecutionResponse,
     CloudOCROptionSupport,
+    CloudOCROptions,
     CloudOCRResult,
     CloudOCRUsage,
+    CloudQuoteChallenge,
+    CloudSessionResponse,
+    CloudUser,
+    CloudLLMRequest,
 )
 from frisket.ops.base import OpContext
 from frisket.engine.store.execution_routes import route_fact_hash
@@ -98,6 +112,228 @@ def _response(*, account_id: int = 41) -> CloudExecutionResponse:
             provider_cost_micro=None,
             usage=CloudOCRUsage(kind="ocr", pages=2),
         ),
+    )
+
+
+def _store(tmp_path) -> CloudConnectionStore:
+    store = CloudConnectionStore(tmp_path / "cloud-profile")
+    store.save_connection(
+        "installation-bearer",
+        CloudSessionResponse(
+            user=CloudUser(id=7, email="user@example.test", display_name="User"),
+            expires_at="2099-01-01T00:00:00Z",
+            accounts=[
+                CloudAccount(
+                    id=41,
+                    name="Personal",
+                    kind="personal",
+                    balance_micro=1_000_000,
+                    available_micro=1_000_000,
+                    manage_billing=True,
+                )
+            ],
+        ),
+    )
+    return store
+
+
+def _quote(*, charge_micro: int | None = 25_000) -> CloudQuoteChallenge:
+    return CloudQuoteChallenge(
+        error="needs_confirmation",
+        confirmation="quote-confirmation",
+        quote=CloudExecutionQuote(
+            account_id=41,
+            route_revision="route-1",
+            lane="frisket_credits",
+            provider="anthropic",
+            engine="anthropic/claude-haiku-4-5",
+            estimated_charge_micro=charge_micro,
+            provider_cost_micro=None,
+            expires_at="2099-01-01T00:00:00Z",
+        ),
+    )
+
+
+def _llm_request() -> CloudLLMRequest:
+    return CloudLLMRequest(
+        model="anthropic/claude-haiku-4-5",
+        messages=[{"role": "user", "content": "hello"}],
+        max_tokens=32,
+        temperature=0,
+    )
+
+
+@pytest.mark.asyncio
+async def test_http_transport_echoes_only_an_exact_authorized_quote(tmp_path):
+    seen: list[tuple[str | None, str, str]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(
+            (
+                request.headers.get("X-Frisket-Confirmation"),
+                request.headers["Idempotency-Key"],
+                request.headers["Authorization"],
+            )
+        )
+        if len(seen) == 1:
+            return httpx.Response(409, json=_quote().model_dump(mode="json"))
+        return httpx.Response(200, json=_llm_response().model_dump(mode="json"))
+
+    transport = HttpCloudExecutionTransport(
+        _store(tmp_path),
+        "https://cloud.example.test",
+        http_transport=httpx.MockTransport(handler),
+    )
+    attempt = CloudExecutionAttempt(
+        "durable-request-1", _payer(), CloudQuoteAuthority(25_000)
+    )
+
+    response = await transport.execute_llm(attempt, _llm_request())
+
+    assert response.execution_id == "cloud-execution-1"
+    assert seen == [
+        (None, "durable-request-1", "Bearer installation-bearer"),
+        ("quote-confirmation", "durable-request-1", "Bearer installation-bearer"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_http_transport_does_not_echo_quote_above_local_ceiling(tmp_path):
+    requests = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal requests
+        requests += 1
+        return httpx.Response(409, json=_quote(charge_micro=25_001).model_dump(mode="json"))
+
+    transport = HttpCloudExecutionTransport(
+        _store(tmp_path),
+        "https://cloud.example.test",
+        http_transport=httpx.MockTransport(handler),
+    )
+    attempt = CloudExecutionAttempt(
+        "durable-request-1", _payer(), CloudQuoteAuthority(25_000)
+    )
+
+    with pytest.raises(CloudConfirmationRequired):
+        await transport.execute_llm(attempt, _llm_request())
+    assert requests == 1
+
+
+@pytest.mark.asyncio
+async def test_http_transport_retries_uncertain_post_with_identical_key_and_body(
+    tmp_path,
+):
+    seen: list[tuple[str, bytes]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        body = await request.aread()
+        seen.append((request.headers["Idempotency-Key"], body))
+        if len(seen) == 1:
+            raise httpx.ConnectError("lost response", request=request)
+        return httpx.Response(200, json=_llm_response().model_dump(mode="json"))
+
+    transport = HttpCloudExecutionTransport(
+        _store(tmp_path),
+        "https://cloud.example.test",
+        http_transport=httpx.MockTransport(handler),
+    )
+    attempt = CloudExecutionAttempt("durable-request-1", _payer(), None)
+
+    await transport.execute_llm(attempt, _llm_request())
+
+    assert len(seen) == 2
+    assert seen[0] == seen[1]
+
+
+@pytest.mark.asyncio
+async def test_http_media_transport_repeats_plural_files_field(tmp_path):
+    captured = b""
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal captured
+        captured = await request.aread()
+        return httpx.Response(200, json=_response().model_dump(mode="json"))
+
+    transport = HttpCloudExecutionTransport(
+        _store(tmp_path),
+        "https://cloud.example.test",
+        http_transport=httpx.MockTransport(handler),
+    )
+    attempt = CloudExecutionAttempt("durable-request-1", _payer(), None)
+
+    await transport.execute_media(
+        attempt,
+        capability="ocr",
+        engine=attempt.payer.engine,
+        options=CloudOCROptions(geometry=True),
+        uploads=[
+            CloudMediaUpload("page-1.png", "image/png", io.BytesIO(b"one")),
+            CloudMediaUpload("page-2.png", "image/png", io.BytesIO(b"two")),
+        ],
+    )
+
+    assert captured.count(b'name="files"') == 2
+    assert b'name="file"' not in captured
+    metadata = json.loads(
+        captured.split(b'name="metadata"', 1)[1]
+        .split(b"\r\n\r\n", 1)[1]
+        .split(b"\r\n", 1)[0]
+    )
+    assert metadata["account_id"] == 41
+    assert metadata["options"]["geometry"] is True
+
+
+@pytest.mark.asyncio
+async def test_http_transport_projects_execution_conflict_as_safe_refusal(tmp_path):
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            409,
+            json={
+                "error": "execution_conflict",
+                "message": "request differs",
+                "retryable": False,
+            },
+        )
+
+    transport = HttpCloudExecutionTransport(
+        _store(tmp_path),
+        "https://cloud.example.test",
+        http_transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(CloudExecutionRefused) as error:
+        await transport.execute_llm(
+            CloudExecutionAttempt("durable-request-1", _payer(), None),
+            _llm_request(),
+        )
+    assert error.value.code == "execution_conflict"
+
+
+def _llm_response() -> CloudExecutionResponse:
+    response = _response()
+    return response.model_copy(
+        update={
+            "route": response.route.model_copy(
+                update={
+                    "capability": "llm.complete",
+                    "options": CloudLLMOptionSupport(
+                        kind="llm",
+                        structured_output=True,
+                        tools=True,
+                        vision=False,
+                    ),
+                }
+            ),
+            "result": None,
+            "receipt": response.receipt.model_copy(
+                update={
+                    "usage": CloudLLMUsage(
+                        kind="llm.complete", tokens_in=2, tokens_out=3
+                    )
+                }
+            ),
+        }
     )
 
 

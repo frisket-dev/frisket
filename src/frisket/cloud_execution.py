@@ -7,6 +7,7 @@ cannot choose another account, lane, provider, or route revision.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from collections.abc import Sequence
 from typing import (
@@ -20,13 +21,21 @@ from typing import (
     runtime_checkable,
 )
 
+import httpx
+from pydantic import ValidationError
+
 from frisket.contracts.http.cloud_connection import (
     CloudDocumentConvertOptions,
+    CloudDocumentExecutionMetadata,
+    CloudErrorResponse,
     CloudExecutionResponse,
+    CloudLLMExecutionRequest,
     CloudLLMRequest,
     CloudLane,
+    CloudOCRExecutionMetadata,
     CloudOCROptions,
     CloudQuoteChallenge,
+    CloudTranscriptionExecutionMetadata,
 )
 from frisket.contracts.transcription_sidecar import TranscriptionOptions
 
@@ -195,6 +204,15 @@ class CloudConfirmationRequired(CloudExecutionRefused):
         self.challenge = challenge
 
 
+class _CloudOutcomeUncertain(CloudExecutionRefused):
+    """The create response was not observed, so the same key may be replayed."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "cloud_unreachable", "Frisket Cloud is unavailable", retryable=True
+        )
+
+
 @runtime_checkable
 class CloudExecutionTransport(Protocol):
     """Execute or recover one fixed Cloud purchase.
@@ -222,12 +240,383 @@ class CloudExecutionTransport(Protocol):
     ) -> CloudExecutionResponse: ...
 
     async def recover(
-        self, attempt: CloudExecutionAttempt
+        self, attempt: CloudExecutionAttempt, execution_id: str
     ) -> CloudExecutionResponse: ...
 
     async def cancel(
-        self, attempt: CloudExecutionAttempt
+        self, attempt: CloudExecutionAttempt, execution_id: str
     ) -> CloudExecutionResponse: ...
+
+
+class HttpCloudExecutionTransport:
+    """Fixed-origin Cloud execution transport backed by installation storage."""
+
+    _TERMINAL = frozenset(
+        {"completed", "failed", "cancelled", "reconciliation_required"}
+    )
+
+    def __init__(
+        self,
+        store: Any,
+        origin: str,
+        *,
+        http_transport: httpx.AsyncBaseTransport | None = None,
+        timeout_seconds: float = 60.0,
+        poll_interval_seconds: float = 0.5,
+        max_poll_seconds: float = 30 * 60,
+    ) -> None:
+        from frisket.cloud_connection import validate_cloud_origin
+
+        self._store = store
+        self._origin = validate_cloud_origin(origin)
+        self._http_transport = http_transport
+        self._timeout = timeout_seconds
+        self._poll_interval = poll_interval_seconds
+        self._max_poll_seconds = max_poll_seconds
+
+    async def execute_llm(
+        self,
+        attempt: CloudExecutionAttempt,
+        request: CloudLLMRequest,
+    ) -> CloudExecutionResponse:
+        self._require_engine(attempt, request.model)
+        body = CloudLLMExecutionRequest(
+            account_id=attempt.payer.account_id,
+            route_revision=attempt.payer.route_revision,
+            request=request,
+        ).model_dump(mode="json", by_alias=True)
+
+        async def send(confirmation: str | None) -> httpx.Response:
+            return await self._request(
+                "POST",
+                "/api/desktop/v1/llm-executions",
+                attempt=attempt,
+                confirmation=confirmation,
+                json=body,
+            )
+
+        response = await self._create(attempt, send)
+        response = await self._await_terminal(attempt, response)
+        return self._validate_response(attempt, response, "llm.complete")
+
+    async def execute_media(
+        self,
+        attempt: CloudExecutionAttempt,
+        *,
+        capability: CloudMediaCapability,
+        engine: str,
+        options: CloudMediaOptions,
+        uploads: Sequence[CloudMediaUpload],
+    ) -> CloudExecutionResponse:
+        self._require_engine(attempt, engine)
+        upload_list = tuple(uploads)
+        if not upload_list or (capability != "ocr" and len(upload_list) != 1):
+            expected = "one or more files" if capability == "ocr" else "exactly one file"
+            raise CloudExecutionRefused(
+                "invalid_request", f"Cloud {capability} requires {expected}"
+            )
+        metadata = self._media_metadata(attempt, capability, engine, options)
+        positions = [self._stream_position(upload) for upload in upload_list]
+
+        async def send(confirmation: str | None) -> httpx.Response:
+            for upload, position in zip(upload_list, positions, strict=True):
+                upload.stream.seek(position)
+            return await self._request(
+                "POST",
+                "/api/desktop/v1/media-executions",
+                attempt=attempt,
+                confirmation=confirmation,
+                data={
+                    "metadata": metadata.model_dump_json(
+                        by_alias=True, exclude_none=True
+                    )
+                },
+                files=[
+                    (
+                        "files",
+                        (upload.file_name, upload.stream, upload.content_type),
+                    )
+                    for upload in upload_list
+                ],
+            )
+
+        response = await self._create(attempt, send)
+        response = await self._await_terminal(attempt, response)
+        return self._validate_response(attempt, response, capability)
+
+    async def recover(
+        self, attempt: CloudExecutionAttempt, execution_id: str
+    ) -> CloudExecutionResponse:
+        response = await self._request(
+            "GET",
+            self._execution_path(execution_id),
+            attempt=attempt,
+        )
+        return self._validate_response(attempt, self._parse_execution(response))
+
+    async def cancel(
+        self, attempt: CloudExecutionAttempt, execution_id: str
+    ) -> CloudExecutionResponse:
+        response = await self._request(
+            "DELETE",
+            self._execution_path(execution_id),
+            attempt=attempt,
+        )
+        return self._validate_response(attempt, self._parse_execution(response))
+
+    async def _create(
+        self, attempt: CloudExecutionAttempt, send: Any
+    ) -> CloudExecutionResponse:
+        response = await self._retry_uncertain_create(send, None)
+        if response.status_code == 409:
+            if self._error_code(response) != "needs_confirmation":
+                self._raise_error(response)
+            challenge = self._parse_quote(response)
+            authority = attempt.quote_authority
+            if authority is None or not self._quote_is_authorized(
+                attempt, challenge, authority
+            ):
+                raise CloudConfirmationRequired(challenge)
+            response = await self._retry_uncertain_create(send, challenge.confirmation)
+        return self._parse_execution(response)
+
+    async def _retry_uncertain_create(
+        self, send: Any, confirmation: str | None
+    ) -> httpx.Response:
+        last_error: _CloudOutcomeUncertain | None = None
+        for _attempt_number in range(2):
+            try:
+                return await send(confirmation)
+            except _CloudOutcomeUncertain as exc:
+                last_error = exc
+        assert last_error is not None
+        raise last_error
+
+    async def _await_terminal(
+        self, attempt: CloudExecutionAttempt, response: CloudExecutionResponse
+    ) -> CloudExecutionResponse:
+        if response.status in self._TERMINAL:
+            return response
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self._max_poll_seconds
+        current = response
+        while current.status not in self._TERMINAL:
+            if loop.time() >= deadline:
+                raise CloudExecutionRefused(
+                    "cloud_execution_pending",
+                    "Cloud execution is still running",
+                    retryable=True,
+                )
+            await asyncio.sleep(self._poll_interval)
+            current = await self.recover(attempt, current.execution_id)
+        return current
+
+    async def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        attempt: CloudExecutionAttempt,
+        confirmation: str | None = None,
+        **kwargs: Any,
+    ) -> httpx.Response:
+        token = self._access_token()
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {token}",
+            "Idempotency-Key": attempt.request_id,
+        }
+        if confirmation is not None:
+            headers["X-Frisket-Confirmation"] = confirmation
+        try:
+            async with httpx.AsyncClient(
+                base_url=self._origin,
+                transport=self._http_transport,
+                timeout=self._timeout,
+                follow_redirects=False,
+            ) as client:
+                response = await client.request(
+                    method, path, headers=headers, **kwargs
+                )
+        except httpx.HTTPError as exc:
+            raise _CloudOutcomeUncertain() from exc
+        if response.is_redirect:
+            raise CloudExecutionRefused(
+                "cloud_redirect_refused", "Frisket Cloud returned an unsafe redirect"
+            )
+        if response.status_code in {200, 202, 409}:
+            return response
+        self._raise_error(response)
+        raise AssertionError("Cloud error projection returned")
+
+    def _access_token(self) -> str:
+        from frisket.cloud_connection import CloudConnectionStoreError
+
+        try:
+            connection = self._store.load().connection
+        except CloudConnectionStoreError as exc:
+            raise CloudExecutionRefused(
+                "connection_expired", "Reconnect Frisket Cloud"
+            ) from exc
+        if connection is None:
+            raise CloudExecutionRefused(
+                "connection_expired", "Connect Frisket Cloud before running"
+            )
+        return connection.access_token
+
+    @staticmethod
+    def _parse_execution(response: httpx.Response) -> CloudExecutionResponse:
+        try:
+            return CloudExecutionResponse.model_validate(response.json())
+        except (ValueError, TypeError, ValidationError) as exc:
+            raise CloudExecutionRefused(
+                "cloud_protocol_error", "Frisket Cloud returned an invalid execution"
+            ) from exc
+
+    @staticmethod
+    def _parse_quote(response: httpx.Response) -> CloudQuoteChallenge:
+        try:
+            return CloudQuoteChallenge.model_validate(response.json())
+        except (ValueError, TypeError, ValidationError) as exc:
+            raise CloudExecutionRefused(
+                "cloud_protocol_error", "Frisket Cloud returned an invalid quote"
+            ) from exc
+
+    @staticmethod
+    def _error_code(response: httpx.Response) -> object:
+        try:
+            payload = response.json()
+        except (ValueError, TypeError):
+            return None
+        return payload.get("error") if isinstance(payload, dict) else None
+
+    @staticmethod
+    def _quote_is_authorized(
+        attempt: CloudExecutionAttempt,
+        challenge: CloudQuoteChallenge,
+        authority: CloudQuoteAuthority,
+    ) -> bool:
+        payer = attempt.payer
+        quote = challenge.quote
+        if (
+            quote.account_id != payer.account_id
+            or quote.route_revision != payer.route_revision
+            or quote.lane != payer.lane
+            or quote.provider != payer.provider
+            or quote.engine != payer.engine
+        ):
+            return False
+        ceiling = authority.maximum_charge_micro
+        charge = quote.estimated_charge_micro
+        return ceiling is None or (charge is not None and charge <= ceiling)
+
+    @staticmethod
+    def _media_metadata(
+        attempt: CloudExecutionAttempt,
+        capability: CloudMediaCapability,
+        engine: str,
+        options: CloudMediaOptions,
+    ) -> Any:
+        common = {
+            "account_id": attempt.payer.account_id,
+            "route_revision": attempt.payer.route_revision,
+            "capability": capability,
+            "engine": engine,
+            "options": options,
+        }
+        if capability == "ocr" and isinstance(options, CloudOCROptions):
+            return CloudOCRExecutionMetadata(**common)
+        if capability == "transcribe" and isinstance(options, TranscriptionOptions):
+            return CloudTranscriptionExecutionMetadata(**common)
+        if capability == "document.convert" and isinstance(
+            options, CloudDocumentConvertOptions
+        ):
+            return CloudDocumentExecutionMetadata(**common)
+        raise CloudExecutionRefused(
+            "invalid_request", "Cloud media options do not match the capability"
+        )
+
+    @staticmethod
+    def _stream_position(upload: CloudMediaUpload) -> int:
+        if not callable(getattr(upload.stream, "seek", None)) or not callable(
+            getattr(upload.stream, "tell", None)
+        ):
+            raise CloudExecutionRefused(
+                "invalid_request", "Cloud upload stream must be seekable"
+            )
+        try:
+            return int(upload.stream.tell())
+        except (OSError, ValueError) as exc:
+            raise CloudExecutionRefused(
+                "invalid_request", "Cloud upload stream position is unavailable"
+            ) from exc
+
+    @staticmethod
+    def _require_engine(attempt: CloudExecutionAttempt, engine: str) -> None:
+        if engine != attempt.payer.engine:
+            raise CloudExecutionRefused(
+                "route_changed", "Cloud request engine differs from its admitted route"
+            )
+
+    @staticmethod
+    def _validate_response(
+        attempt: CloudExecutionAttempt,
+        response: CloudExecutionResponse,
+        capability: str | None = None,
+    ) -> CloudExecutionResponse:
+        payer = attempt.payer
+        route = response.route
+        if (
+            (capability is not None and route.capability != capability)
+            or route.engine != payer.engine
+            or route.provider != payer.provider
+            or route.lane != payer.lane
+            or route.route_revision != payer.route_revision
+        ):
+            raise CloudExecutionRefused(
+                "route_changed", "Cloud response differs from the admitted route"
+            )
+        receipt = response.receipt
+        if receipt is not None and (
+            receipt.user_id != payer.user_id
+            or receipt.account_id != payer.account_id
+            or receipt.engine != payer.engine
+            or receipt.provider != payer.provider
+            or receipt.lane != payer.lane
+        ):
+            raise CloudExecutionRefused(
+                "route_changed", "Cloud response differs from the admitted payer"
+            )
+        return response
+
+    @staticmethod
+    def _execution_path(execution_id: str) -> str:
+        if (
+            not execution_id
+            or execution_id != execution_id.strip()
+            or "/" in execution_id
+            or "\\" in execution_id
+        ):
+            raise CloudExecutionRefused(
+                "invalid_request", "Cloud execution id is invalid"
+            )
+        return f"/api/desktop/v1/executions/{execution_id}"
+
+    @staticmethod
+    def _raise_error(response: httpx.Response) -> None:
+        try:
+            error = CloudErrorResponse.model_validate(response.json())
+        except (ValueError, TypeError, ValidationError):
+            raise CloudExecutionRefused(
+                "cloud_unavailable",
+                "Frisket Cloud could not complete the request",
+                retryable=response.status_code >= 500,
+            ) from None
+        raise CloudExecutionRefused(
+            error.error,
+            error.message,
+            retryable=error.retryable or response.status_code >= 500,
+        )
 
 
 def cloud_media_execution(
