@@ -112,9 +112,11 @@ class CloudQuoteAuthority:
     """Existing local consent that may answer one exact Cloud quote.
 
     Presence means the action/Ask gate already authorized this route.
-    ``maximum_charge_micro=None`` is an explicitly authorized unbounded cost,
-    distinct from an absent authority.  The transport still compares every
-    quote payer/route field to :class:`CloudPayerSubject` before echoing it.
+    ``maximum_charge_micro=None`` is an explicitly authorized unbounded spend,
+    distinct from an absent authority. For a credits lane this bounds the
+    Frisket charge; for an account-key lane it bounds the provider-direct cost.
+    The transport still compares every quote payer/route field to
+    :class:`CloudPayerSubject` before echoing it.
     """
 
     maximum_charge_micro: int | None
@@ -554,8 +556,12 @@ class HttpCloudExecutionTransport:
         ):
             return False
         ceiling = authority.maximum_charge_micro
-        charge = quote.estimated_charge_micro
-        return ceiling is None or (charge is not None and charge <= ceiling)
+        spend = (
+            quote.provider_cost_micro
+            if payer.lane == "account_key"
+            else quote.estimated_charge_micro
+        )
+        return ceiling is None or (spend is not None and spend <= ceiling)
 
     @staticmethod
     def _media_metadata(

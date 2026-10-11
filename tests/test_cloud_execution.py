@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+from dataclasses import replace
 
 import httpx
 import pytest
@@ -156,6 +157,20 @@ def _quote(*, charge_micro: int | None = 25_000) -> CloudQuoteChallenge:
     )
 
 
+def _account_key_quote(
+    *,
+    provider_cost_micro: int | None,
+) -> CloudQuoteChallenge:
+    quote = _quote(charge_micro=0).quote.model_copy(
+        update={"lane": "account_key", "provider_cost_micro": provider_cost_micro}
+    )
+    return CloudQuoteChallenge(
+        error="needs_confirmation",
+        confirmation="account-key-confirmation",
+        quote=quote,
+    )
+
+
 def _llm_request() -> CloudLLMRequest:
     return CloudLLMRequest(
         model="anthropic/claude-haiku-4-5",
@@ -222,6 +237,25 @@ async def test_http_transport_does_not_echo_quote_above_local_ceiling(tmp_path):
     with pytest.raises(CloudConfirmationRequired):
         await transport.execute_llm(attempt, _llm_request())
     assert requests == 1
+
+
+def test_account_key_quote_ceiling_binds_provider_cost_not_zero_cloud_charge():
+    authority = CloudQuoteAuthority(25_000)
+    attempt = CloudExecutionAttempt(
+        "durable-request-1",
+        replace(_payer(), lane="account_key"),
+        authority,
+    )
+
+    assert HttpCloudExecutionTransport._quote_is_authorized(
+        attempt, _account_key_quote(provider_cost_micro=25_000), authority
+    )
+    assert not HttpCloudExecutionTransport._quote_is_authorized(
+        attempt, _account_key_quote(provider_cost_micro=25_001), authority
+    )
+    assert not HttpCloudExecutionTransport._quote_is_authorized(
+        attempt, _account_key_quote(provider_cost_micro=None), authority
+    )
 
 
 @pytest.mark.asyncio
