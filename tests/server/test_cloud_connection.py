@@ -336,6 +336,79 @@ def test_minted_token_is_revoked_if_connection_cannot_be_persisted(
     service.close()
 
 
+@pytest.mark.parametrize("existing_token", [None, "still-valid-prior-token"])
+def test_write_then_raise_does_not_retain_revoked_token(
+    tmp_path, monkeypatch, existing_token
+):
+    requests: list[tuple[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append((request.method, request.url.path))
+        if request.url.path.endswith("device-authorizations"):
+            return httpx.Response(
+                200,
+                json={
+                    "device_code": "private-device-secret",
+                    "user_code": "ABCD-EFGH",
+                    "verification_uri": "https://app.frisket.dev/device",
+                    "verification_uri_complete": "https://app.frisket.dev/device?code=ABCD-EFGH",
+                    "expires_in": 600,
+                    "interval": 5,
+                },
+            )
+        if request.url.path.endswith("/token"):
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": "new-token-to-revoke",
+                    "token_type": "Bearer",
+                    "expires_in": 3600,
+                },
+            )
+        if request.url.path.endswith("/session") and request.method == "GET":
+            return httpx.Response(200, json=_session().model_dump(mode="json"))
+        if request.url.path.endswith("/session") and request.method == "DELETE":
+            assert request.headers["authorization"] == "Bearer new-token-to-revoke"
+            return httpx.Response(204)
+        raise AssertionError(request.url)
+
+    store = CloudConnectionStore(tmp_path / "profile")
+    if existing_token is not None:
+        store.save_connection(existing_token, _session())
+    write = store._write_unlocked
+    should_fail = True
+
+    def write_then_raise(payload):
+        nonlocal should_fail
+        write(payload)
+        if should_fail:
+            should_fail = False
+            raise OSError("simulated directory fsync failure after replace")
+
+    monkeypatch.setattr(store, "_write_unlocked", write_then_raise)
+    ticks = [100.0]
+    service = CloudConnectionService(
+        Workspace(tmp_path / "workspace"),
+        store=store,
+        client=CloudConnectionClient(
+            "https://app.frisket.dev", transport=httpx.MockTransport(handler)
+        ),
+        clock=lambda: ticks[0],
+        wall_clock=lambda: datetime(2026, 10, 11, tzinfo=UTC),
+    )
+    authorization_id = service.begin_authorization().id
+    ticks[0] = 105.0
+
+    with pytest.raises(CloudConnectionServiceError) as exc_info:
+        service.poll_authorization(authorization_id)
+
+    assert exc_info.value.status == 503
+    connection = store.load().connection
+    assert (connection.access_token if connection else None) == existing_token
+    assert ("DELETE", "/api/desktop/v1/session") in requests
+    service.close()
+
+
 def test_sign_out_clears_local_token_when_remote_revocation_fails(tmp_path):
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(503, json={"error": "unavailable"})

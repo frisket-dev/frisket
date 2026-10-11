@@ -157,6 +157,7 @@ class CloudConnectionStore:
             raise ValueError("Cloud access token cannot be empty")
         with self._lock():
             preference = self._preference_unlocked()
+            previous = self.path.read_bytes() if self.path.exists() else None
             key = load_or_create_secret_key(self.key_path)
             payload = {
                 "version": _STATE_VERSION,
@@ -166,7 +167,14 @@ class CloudConnectionStore:
                     "session": session.model_dump(mode="json", by_alias=True),
                 },
             }
-            self._write_unlocked(payload)
+            try:
+                self._write_unlocked(payload)
+            except OSError:
+                try:
+                    self._restore_unlocked(previous)
+                except OSError:
+                    pass
+                raise
             return StoredCloudProfile(
                 connection=StoredCloudConnection(access_token, session),
                 preference=preference,
@@ -262,8 +270,23 @@ class CloudConnectionStore:
         return preference if preference in {"local_first", "cloud_first"} else "local_first"
 
     def _write_unlocked(self, payload: dict[str, Any]) -> None:
+        encoded = (
+            json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n"
+        ).encode("utf-8")
+        self._replace_unlocked(encoded)
+
+    def _restore_unlocked(self, previous: bytes | None) -> None:
+        if previous is not None:
+            self._replace_unlocked(previous)
+            return
+        try:
+            self.path.unlink()
+        except FileNotFoundError:
+            return
+        self._sync_profile_dir()
+
+    def _replace_unlocked(self, encoded: bytes) -> None:
         self._ensure_profile_dir()
-        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n"
         fd, temp_name = tempfile.mkstemp(
             dir=str(self.profile_dir), prefix=".cloud-connection-", suffix=".tmp"
         )
@@ -272,7 +295,7 @@ class CloudConnectionStore:
                 os.chmod(temp_name, 0o600)
             except OSError:
                 pass
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            with os.fdopen(fd, "wb") as handle:
                 handle.write(encoded)
                 handle.flush()
                 os.fsync(handle.fileno())
@@ -281,18 +304,22 @@ class CloudConnectionStore:
                 self.path.chmod(0o600)
             except OSError:
                 pass
-            if os.name != "nt":
-                directory_fd = os.open(self.profile_dir, os.O_RDONLY)
-                try:
-                    os.fsync(directory_fd)
-                finally:
-                    os.close(directory_fd)
+            self._sync_profile_dir()
         except OSError:
             try:
                 os.unlink(temp_name)
             except OSError:
                 pass
             raise
+
+    def _sync_profile_dir(self) -> None:
+        if os.name == "nt":
+            return
+        directory_fd = os.open(self.profile_dir, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
 
 
 class CloudConnectionClient:
