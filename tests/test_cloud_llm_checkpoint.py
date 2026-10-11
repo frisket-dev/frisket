@@ -294,6 +294,56 @@ def test_changed_request_gets_new_child_and_only_remaining_allowance(tmp_path):
     asyncio.run(scenario())
 
 
+def test_explicit_unknown_quantity_covers_distinct_tool_and_repair_calls(tmp_path):
+    async def scenario() -> None:
+        project = Project.create(tmp_path / "project.frisket")
+        transport = _Transport(
+            [
+                _response(execution_id="exec-1", charge_micro=20),
+                _response(execution_id="exec-2", charge_micro=30),
+            ]
+        )
+        coordinator = _coordinator(project, transport, ceiling=None)
+        initial = _request(message="find a source").model_copy(
+            update={
+                "tools": [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "search",
+                            "description": "Search project sources",
+                            "parameters": {"type": "object", "properties": {}},
+                        },
+                    }
+                ]
+            }
+        )
+        repair = initial.model_copy(
+            update={
+                "messages": [
+                    *initial.messages,
+                    {"role": "assistant", "content": "invalid result"},
+                    {
+                        "role": "user",
+                        "content": "Return a corrected result with the required field.",
+                    },
+                ]
+            }
+        )
+
+        await coordinator.execute(initial)
+        await coordinator.execute(repair)
+
+        first_attempt, second_attempt = [call[0] for call in transport.calls]
+        assert first_attempt.request_id != second_attempt.request_id
+        assert first_attempt.quote_authority.maximum_charge_micro is None
+        assert second_attempt.quote_authority.maximum_charge_micro is None
+        assert len(coordinator.returned_checkpoints) == 2
+        project.close()
+
+    asyncio.run(scenario())
+
+
 def test_account_key_unknown_receipt_cost_remains_fail_closed_for_later_call(tmp_path):
     async def scenario() -> None:
         project = Project.create(tmp_path / "project.frisket")

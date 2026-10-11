@@ -681,7 +681,9 @@ def _llm_cost_basis(
     composition: ExecutionComposition,
     resolution: Resolution,
     rendered: Mapping[int, Any],
-) -> tuple[CostBasis, int]:
+    *,
+    recipe: Any,
+) -> tuple[CostBasis, int | None]:
     from frisket.cloud_execution import cloud_llm_estimated_spend_micro
     from frisket.contracts.http.cloud_connection import (
         CloudLLMRequest,
@@ -697,18 +699,26 @@ def _llm_cost_basis(
     if not isinstance(price, CloudTokenPrice):
         raise ValueError("Cloud LLM route has no authoritative token price")
 
+    # Structured validation can issue changed repair requests, and agents can
+    # issue changed tool rounds.  Their initial render is not a spend bound;
+    # keep the known price terms while asking for explicit unknown-quantity
+    # consent.  A schema-less non-agent row has exactly one paid request.
+    bounded_one_call = not hasattr(recipe, "run_agent") and all(
+        call.schema is None for call in rendered.values()
+    )
     row_micro: dict[int, int] = {}
-    for row_id, call in rendered.items():
-        row_micro[int(row_id)] = cloud_llm_estimated_spend_micro(
-            CloudLLMRequest(
-                model=resolution.facts.engine,
-                messages=call.messages,
-                schema=call.schema,
-                max_tokens=call.max_tokens,
-                temperature=0,
-            ),
-            price,
-        )
+    if bounded_one_call:
+        for row_id, call in rendered.items():
+            row_micro[int(row_id)] = cloud_llm_estimated_spend_micro(
+                CloudLLMRequest(
+                    model=resolution.facts.engine,
+                    messages=call.messages,
+                    schema=None,
+                    max_tokens=call.max_tokens,
+                    temperature=0,
+                ),
+                price,
+            )
 
     def usd(micro: int) -> str:
         return format(Decimal(micro) / Decimal(1_000_000), "f")
@@ -724,7 +734,7 @@ def _llm_cost_basis(
                 f"{payer.provider}:{CAPABILITY_LLM}:{payer.engine}"
             ),
             unit_rate="1",
-            estimated_quantity=usd(total_micro),
+            estimated_quantity=usd(total_micro) if bounded_one_call else None,
             quantity_unit="usd",
             terms_version=payer.route_revision,
             quantity_rounding_mode="exact",
@@ -734,11 +744,15 @@ def _llm_cost_basis(
             ceiling_mode="consented_quantity",
             row_settlement_mode="quoted_successful_rows",
             charge_authority="frisket_cloud_receipt",
-            row_quote_quantities=tuple(
-                (row_id, usd(micro)) for row_id, micro in sorted(row_micro.items())
+            row_quote_quantities=(
+                tuple(
+                    (row_id, usd(micro)) for row_id, micro in sorted(row_micro.items())
+                )
+                if bounded_one_call
+                else None
             ),
         ),
-        total_micro,
+        total_micro if bounded_one_call else None,
     )
 
 
@@ -911,7 +925,9 @@ def resolve_for_action(
 
     if capability == CAPABILITY_LLM:
         assert rendered_llm is not None
-        cost_basis, quantity = _llm_cost_basis(composition, outcome, rendered_llm)
+        cost_basis, quantity = _llm_cost_basis(
+            composition, outcome, rendered_llm, recipe=recipe
+        )
     elif bounded_scratch_input is None:
         assert quote is not None
         cost_basis, quantity = quote(project, spec, recipe, outcome, composition)

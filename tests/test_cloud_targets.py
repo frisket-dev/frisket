@@ -423,7 +423,9 @@ def test_local_first_omits_cloud_llm_when_exact_local_adapter_exists():
     )
 
 
-def test_cloud_llm_action_quote_is_allocated_to_exact_rows(tmp_path):
+def test_structured_cloud_llm_action_requires_explicit_unknown_quantity_consent(
+    tmp_path,
+):
     from frisket.actions.system import typed_action_for_request
     from frisket.engine.executor.map_rows_action import (
         _typed_map_rows_plan,
@@ -477,9 +479,13 @@ def test_cloud_llm_action_quote_is_allocated_to_exact_rows(tmp_path):
     assert resolved is not None and not isinstance(resolved, Refusal)
     assert isinstance(resolved.cost_basis, PricedCostBasis)
     assert resolved.cost_basis.meter_key == "cloud_effective_cost_micro"
-    assert resolved.cost_basis.row_quote_quantities[0][0] == row_id
-    assert resolved.cost_basis.bound is not None
-    assert resolved.cost_basis.bound > 0
+    assert resolved.cost_basis.row_quote_quantities is None
+    assert resolved.cost_basis.bound is None
+    [cost_claim] = [
+        claim for claim in resolved.promise_set.promises if claim.field == "cost"
+    ]
+    assert cost_claim.op == "unbounded"
+    assert cost_claim.basis["pricing_key"] == resolved.cost_basis.pricing_key
 
 
 def test_cloud_llm_map_run_uses_routed_transport_and_retires_child_checkpoint(
