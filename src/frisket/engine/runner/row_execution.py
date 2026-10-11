@@ -154,6 +154,7 @@ async def execute_row(
                 extras={**ctx.extras, "router": router, "row_id": row_id},
                 credential_use_context=ctx.credential_use_context,
                 execution_limits=ctx.execution_limits,
+                cloud_execution=ctx.cloud_execution,
             )
             data, meta = await recipe.run_agent(values, spec, row_ctx, router)
         elif recipe.is_llm(spec):
@@ -168,6 +169,7 @@ async def execute_row(
                     extras={**ctx.extras, "router": router, "row_id": row_id},
                     credential_use_context=ctx.credential_use_context,
                     execution_limits=ctx.execution_limits,
+                    cloud_execution=ctx.cloud_execution,
                 )
                 if ctx.extras.get("router") is not None
                 else OpContext(
@@ -176,6 +178,7 @@ async def execute_row(
                     extras={**ctx.extras, "row_id": row_id},
                     credential_use_context=ctx.credential_use_context,
                     execution_limits=ctx.execution_limits,
+                    cloud_execution=ctx.cloud_execution,
                 )
             )
             data = await recipe.execute(values, spec, row_ctx)

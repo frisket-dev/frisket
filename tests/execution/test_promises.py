@@ -533,7 +533,13 @@ def test_make_is_strict_about_vocabulary():
     # a pre-effect USE constraint at the adapter now, not a run-start promise.
     with pytest.raises(ValueError):
         Promise.make("credential_source", "eq", "local")
-    assert sorted(PROMISE_FIELDS) == ["cost", "egress_class", "operator", "region"]
+    assert sorted(PROMISE_FIELDS) == [
+        "cloud_payer",
+        "cost",
+        "egress_class",
+        "operator",
+        "region",
+    ]
 
 
 def test_current_row_schema_refuses_retired_or_missing_keys():

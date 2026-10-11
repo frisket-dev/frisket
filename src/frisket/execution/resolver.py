@@ -82,6 +82,7 @@ from frisket.execution.targets import (
     require_clean,
     require_egress_class,
 )
+from frisket.cloud_execution import CloudPayerSubject
 
 if TYPE_CHECKING:  # annotation-only: importing the capability compiler at
     # runtime from this generic module is the cycle that made
@@ -147,6 +148,7 @@ class RouteRowFacts:
     region: str | None
     credential_source: str
     cost_posture: CostPosture
+    cloud_payer: CloudPayerSubject | None = None
 
     def __post_init__(self) -> None:
         require_clean("operator", self.operator)
@@ -155,6 +157,10 @@ class RouteRowFacts:
         require_egress_class(self.egress_class)
         if self.region is not None:  # honest absence: None or a real value
             require_clean("region", self.region)
+        if self.cloud_payer is not None and not isinstance(
+            self.cloud_payer, CloudPayerSubject
+        ):
+            raise TypeError("cloud_payer must be a CloudPayerSubject or None")
 
 
 @dataclass(frozen=True)
@@ -715,6 +721,11 @@ def route_row_facts_from_row(route: Any) -> RouteRowFacts:
         region=route.region,
         credential_source=route.credential_source,
         cost_posture=route.cost_posture,
+        cloud_payer=(
+            CloudPayerSubject.from_snapshot(snapshot["cloud_payer"])
+            if "cloud_payer" in snapshot
+            else None
+        ),
     )
 
 

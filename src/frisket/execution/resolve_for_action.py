@@ -1236,14 +1236,15 @@ def gate_claims_payload(
 def target_snapshot(resolution: Resolution) -> dict[str, Any]:
     """The complete persisted dispatch snapshot."""
     support = resolution.support
-    return validated_target_snapshot(
-        {
-            "target_id": resolution.target.id,
-            "capability": support.capability,
-            "transport": support.transport,
-            "run_scoped": support.run_scoped,
-        }
-    )
+    snapshot: dict[str, Any] = {
+        "target_id": resolution.target.id,
+        "capability": support.capability,
+        "transport": support.transport,
+        "run_scoped": support.run_scoped,
+    }
+    if resolution.facts.cloud_payer is not None:
+        snapshot["cloud_payer"] = resolution.facts.cloud_payer.to_snapshot()
+    return validated_target_snapshot(snapshot)
 
 
 def record_resolved_execution(

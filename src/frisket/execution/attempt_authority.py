@@ -944,6 +944,8 @@ def admit_routed(
         "egress_class": binding.target.egress_class,
         "region": binding.target.region,
     }
+    if binding.facts.cloud_payer is not None:
+        observed["cloud_payer"] = binding.facts.cloud_payer.to_snapshot()
     work_scope_snapshot: dict[str, Any] | None = None
     if any(
         isinstance((promise.basis or {}).get("work_scope"), Mapping)

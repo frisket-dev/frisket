@@ -325,10 +325,12 @@ def validated_target_snapshot(value: object) -> dict[str, object]:
 
     if not isinstance(value, Mapping):
         raise ValueError("target snapshot must be an object")
-    if set(value) != TARGET_SNAPSHOT_KEYS:
+    keys = set(value)
+    if keys not in {TARGET_SNAPSHOT_KEYS, TARGET_SNAPSHOT_KEYS | {"cloud_payer"}}:
         raise ValueError(
             "target snapshot must contain exactly "
-            "target_id, capability, transport, and run_scoped"
+            "target_id, capability, transport, and run_scoped, with an "
+            "optional typed cloud_payer"
         )
     target_id = value["target_id"]
     capability = value["capability"]
@@ -343,12 +345,20 @@ def validated_target_snapshot(value: object) -> dict[str, object]:
         raise ValueError(f"transport {transport!r} is not a {capability!r} wire")
     if not isinstance(run_scoped, bool):
         raise ValueError("run_scoped must be a bool")
-    return {
+    snapshot: dict[str, object] = {
         "target_id": target_id,
         "capability": capability,
         "transport": transport,
         "run_scoped": run_scoped,
     }
+    if "cloud_payer" in value:
+        from frisket.cloud_execution import CloudPayerSubject
+
+        payer = value["cloud_payer"]
+        if not isinstance(payer, Mapping):
+            raise ValueError("cloud_payer must be an object")
+        snapshot["cloud_payer"] = CloudPayerSubject.from_snapshot(payer).to_snapshot()
+    return snapshot
 
 
 @dataclass(frozen=True)
