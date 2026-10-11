@@ -437,6 +437,39 @@ def test_row_execution_carries_the_router_measurement_onto_the_fact() -> None:
     assert durations == [321, None]
 
 
+def test_wire_accounting_preserves_authoritative_execution_fact_and_receipt() -> None:
+    from frisket.ai.llm.types import LLMActualAccounting
+    from frisket.ai.models.accounting import wire_accounting_meta
+
+    fact = {
+        "id": "cloud-execution-1",
+        "provider": "anthropic",
+        "provider_cost_usd": None,
+        "cost_source": "unknown",
+        "units": {"cloud_charge_micro": 25_000, "cloud_account_id": 41},
+    }
+    receipt = {"execution_id": "cloud-execution-1", "charge_micro": 25_000}
+    response = LLMResponse(
+        content="ok",
+        data=None,
+        tokens_in=10,
+        tokens_out=2,
+        cost=999.0,
+        model="anthropic/model-a",
+        actual_accounting=LLMActualAccounting(
+            cost=0.025,
+            model_call=fact,
+            receipt=receipt,
+        ),
+    )
+
+    meta = wire_accounting_meta("anthropic/model-a", [response])
+
+    assert meta["cost"] == 0.025
+    assert meta["model_calls"] == [fact]
+    assert meta["execution_receipts"] == [receipt]
+
+
 def test_replayed_response_reports_no_duration(tmp_path) -> None:
     """A cassette holds whatever the original live call took. Replaying it made
     no wire call, so re-reporting that number would be a fabricated fact — the

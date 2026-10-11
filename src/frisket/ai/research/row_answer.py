@@ -296,6 +296,8 @@ def model_call_accounting(engine: str, wire_calls: list[LLMResponse]) -> dict[st
                 units=units,
                 warnings=[],
             ).as_dict()
+        elif resp.actual_accounting is not None:
+            model_call = dict(resp.actual_accounting.model_call)
         else:
             model_call = ModelCallMeta.provider_call(
                 capability="llm.complete",
@@ -321,16 +323,29 @@ def model_call_accounting(engine: str, wire_calls: list[LLMResponse]) -> dict[st
         # row's total unknown (None), never silently $0
         if resp.cached:
             pass  # cache hits bill nothing
+        elif resp.actual_accounting is not None:
+            if resp.actual_accounting.cost is None:
+                tokens["cost"] = None
+            elif tokens["cost"] is not None:
+                tokens["cost"] += resp.actual_accounting.cost
         elif resp.cost is None:
             tokens["cost"] = None
         elif tokens["cost"] is not None:
             tokens["cost"] += resp.cost
-    return {
+    result = {
         "tokens_in": tokens["in"],
         "tokens_out": tokens["out"],
         "cost": tokens["cost"],
         "model_calls": model_calls,
     }
+    receipts = [
+        dict(resp.actual_accounting.receipt)
+        for resp in wire_calls
+        if not resp.cached and resp.actual_accounting is not None
+    ]
+    if receipts:
+        result["execution_receipts"] = receipts
+    return result
 
 
 def _search_usage_dict(response: SearchResponse) -> dict[str, Any]:
