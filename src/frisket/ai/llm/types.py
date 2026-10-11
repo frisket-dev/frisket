@@ -116,8 +116,32 @@ class LLMActualAccounting:
     """
 
     cost: float | None
-    model_call: dict[str, Any]
-    receipt: dict[str, Any]
+    model_calls: tuple[dict[str, Any], ...]
+    receipts: tuple[dict[str, Any], ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.model_calls, tuple) or not isinstance(
+            self.receipts, tuple
+        ):
+            raise TypeError("actual LLM accounting facts must be immutable tuples")
+        if not self.model_calls or len(self.model_calls) != len(self.receipts):
+            raise ValueError(
+                "actual LLM accounting requires one receipt per model-call fact"
+            )
+        if not all(isinstance(item, dict) for item in self.model_calls + self.receipts):
+            raise TypeError("actual LLM accounting entries must be dictionaries")
+
+    @classmethod
+    def one(
+        cls,
+        *,
+        cost: float | None,
+        model_call: dict[str, Any],
+        receipt: dict[str, Any],
+    ) -> LLMActualAccounting:
+        """Build the common one-execution carrier without a listly call site."""
+
+        return cls(cost=cost, model_calls=(model_call,), receipts=(receipt,))
 
 
 @dataclass

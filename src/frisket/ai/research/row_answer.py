@@ -297,7 +297,10 @@ def model_call_accounting(engine: str, wire_calls: list[LLMResponse]) -> dict[st
                 warnings=[],
             ).as_dict()
         elif resp.actual_accounting is not None:
-            model_call = dict(resp.actual_accounting.model_call)
+            model_calls.extend(
+                dict(model_call) for model_call in resp.actual_accounting.model_calls
+            )
+            model_call = None
         else:
             model_call = ModelCallMeta.provider_call(
                 capability="llm.complete",
@@ -316,7 +319,8 @@ def model_call_accounting(engine: str, wire_calls: list[LLMResponse]) -> dict[st
                 # false NULL.
                 duration_ms=resp.duration_ms,
             ).as_dict()
-        model_calls.append(model_call)
+        if model_call is not None:
+            model_calls.append(model_call)
         tokens["in"] += resp.tokens_in
         tokens["out"] += resp.tokens_out
         # resp.cost None = unpriced model; one unknown call makes the
@@ -339,9 +343,10 @@ def model_call_accounting(engine: str, wire_calls: list[LLMResponse]) -> dict[st
         "model_calls": model_calls,
     }
     receipts = [
-        dict(resp.actual_accounting.receipt)
+        dict(receipt)
         for resp in wire_calls
         if not resp.cached and resp.actual_accounting is not None
+        for receipt in resp.actual_accounting.receipts
     ]
     if receipts:
         result["execution_receipts"] = receipts

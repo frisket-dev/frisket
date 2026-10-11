@@ -456,7 +456,7 @@ def test_wire_accounting_preserves_authoritative_execution_fact_and_receipt() ->
         tokens_out=2,
         cost=999.0,
         model="anthropic/model-a",
-        actual_accounting=LLMActualAccounting(
+        actual_accounting=LLMActualAccounting.one(
             cost=0.025,
             model_call=fact,
             receipt=receipt,
@@ -468,6 +468,46 @@ def test_wire_accounting_preserves_authoritative_execution_fact_and_receipt() ->
     assert meta["cost"] == 0.025
     assert meta["model_calls"] == [fact]
     assert meta["execution_receipts"] == [receipt]
+
+
+def test_structured_sum_preserves_each_authoritative_execution_receipt() -> None:
+    from frisket.ai.llm.structured import _sum_response
+    from frisket.ai.llm.types import LLMActualAccounting
+
+    responses = []
+    for index, charge in enumerate((10_000, 15_000), start=1):
+        execution_id = f"cloud-execution-{index}"
+        responses.append(
+            LLMResponse(
+                content='{"value":"ok"}',
+                data={"value": "ok"},
+                tokens_in=index,
+                tokens_out=1,
+                cost=999.0,
+                model="anthropic/model-a",
+                provider="anthropic",
+                actual_accounting=LLMActualAccounting.one(
+                    cost=charge / 1_000_000,
+                    model_call={"id": execution_id, "provider": "anthropic"},
+                    receipt={
+                        "execution_id": execution_id,
+                        "charge_micro": charge,
+                    },
+                ),
+            )
+        )
+
+    combined = _sum_response("anthropic/model-a", responses, {"value": "ok"})
+
+    assert combined.cost == 0.025
+    assert combined.actual_accounting is not None
+    assert [call["id"] for call in combined.actual_accounting.model_calls] == [
+        "cloud-execution-1",
+        "cloud-execution-2",
+    ]
+    assert [
+        receipt["charge_micro"] for receipt in combined.actual_accounting.receipts
+    ] == [10_000, 15_000]
 
 
 def test_replayed_response_reports_no_duration(tmp_path) -> None:

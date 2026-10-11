@@ -32,8 +32,11 @@ def wire_accounting_meta(
                 warnings=[],
             ).as_dict()
         elif wire.actual_accounting is not None:
-            call = dict(wire.actual_accounting.model_call)
-            execution_receipts.append(dict(wire.actual_accounting.receipt))
+            calls.extend(dict(call) for call in wire.actual_accounting.model_calls)
+            execution_receipts.extend(
+                dict(receipt) for receipt in wire.actual_accounting.receipts
+            )
+            continue
         else:
             call = ModelCallMeta.provider_call(
                 capability="llm.complete",

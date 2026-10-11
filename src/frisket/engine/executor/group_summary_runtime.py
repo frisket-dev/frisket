@@ -1035,6 +1035,12 @@ def _reduce_group_summary_model_call(model: str, response: Any) -> dict[str, Any
             units=units,
             warnings=[],
         ).as_dict()
+    if response.actual_accounting is not None:
+        if len(response.actual_accounting.model_calls) != 1:
+            raise RuntimeError(
+                "group summary requires one accounting fact per model response"
+            )
+        return dict(response.actual_accounting.model_calls[0])
     return ModelCallMeta.provider_call(
         capability="llm.complete",
         engine=model,
