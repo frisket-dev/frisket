@@ -219,10 +219,26 @@ class CloudMediaUpload:
 
 
 class CloudExecutionRefused(HostedEngineError):
-    """A typed pre-effect Cloud refusal safe to surface locally."""
+    """A typed Cloud refusal or terminal failure safe to surface locally."""
 
-    def __init__(self, code: str, message: str, *, retryable: bool = False) -> None:
-        super().__init__(code=code, message=message, retryable=retryable)
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        retryable: bool = False,
+        accounting: dict[str, Any] | None = None,
+        provider_job_accepted: bool = False,
+        post_egress_ambiguous: bool = False,
+    ) -> None:
+        super().__init__(
+            code=code,
+            message=message,
+            retryable=retryable,
+            accounting=accounting,
+            provider_job_accepted=provider_job_accepted,
+            post_egress_ambiguous=post_egress_ambiguous,
+        )
 
 
 class CloudConfirmationRequired(CloudExecutionRefused):
@@ -421,7 +437,7 @@ class HttpCloudExecutionTransport:
         response = await self._create(attempt, send)
         response = await self._await_terminal(attempt, response)
         response = self._validate_response(attempt, response, "llm.complete")
-        return self._require_success(response)
+        return self._require_success(attempt, response, "llm.complete")
 
     async def execute_media(
         self,
@@ -469,7 +485,7 @@ class HttpCloudExecutionTransport:
         response = await self._create(attempt, send)
         response = await self._await_terminal(attempt, response)
         response = self._validate_response(attempt, response, capability)
-        return self._require_success(response)
+        return self._require_success(attempt, response, capability)
 
     async def recover(
         self, attempt: CloudExecutionAttempt, execution_id: str
@@ -481,7 +497,9 @@ class HttpCloudExecutionTransport:
         )
         parsed = self._validate_response(attempt, self._parse_execution(response))
         return (
-            self._require_success(parsed) if parsed.status in self._TERMINAL else parsed
+            self._require_success(attempt, parsed, parsed.route.capability)
+            if parsed.status in self._TERMINAL
+            else parsed
         )
 
     async def cancel(
@@ -494,7 +512,9 @@ class HttpCloudExecutionTransport:
         )
         parsed = self._validate_response(attempt, self._parse_execution(response))
         return (
-            self._require_success(parsed) if parsed.status in self._TERMINAL else parsed
+            self._require_success(attempt, parsed, parsed.route.capability)
+            if parsed.status in self._TERMINAL
+            else parsed
         )
 
     async def _create(
@@ -763,13 +783,28 @@ class HttpCloudExecutionTransport:
         return f"/api/desktop/v1/executions/{execution_id}"
 
     @staticmethod
-    def _require_success(response: CloudExecutionResponse) -> CloudExecutionResponse:
+    def _require_success(
+        attempt: CloudExecutionAttempt,
+        response: CloudExecutionResponse,
+        capability: str,
+    ) -> CloudExecutionResponse:
         if response.status == "completed":
             return response
+        accounting = (
+            cloud_execution_accounting(attempt, response, capability=capability)
+            if response.receipt is not None
+            else None
+        )
+        unresolved = response.status == "reconciliation_required"
         error = response.error
         if error is not None:
             raise CloudExecutionRefused(
-                error.error, error.message, retryable=error.retryable
+                error.error,
+                error.message,
+                retryable=error.retryable,
+                accounting=accounting,
+                provider_job_accepted=unresolved,
+                post_egress_ambiguous=unresolved,
             )
         default_code = {
             "failed": "provider_failed",
@@ -780,6 +815,9 @@ class HttpCloudExecutionTransport:
             default_code,
             "Frisket Cloud execution did not complete",
             retryable=False,
+            accounting=accounting,
+            provider_job_accepted=unresolved,
+            post_egress_ambiguous=unresolved,
         )
 
     @staticmethod

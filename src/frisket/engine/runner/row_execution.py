@@ -42,7 +42,8 @@ from frisket.engine.runner.row_inputs import row_source_values_empty
 from frisket.engine.sandbox.shim import SandboxTeardownError
 from frisket.engine.store import Project
 from frisket.engine.store.runs import TERMINAL_FAILURE_OUTCOMES
-from frisket.execution.attempt import StaleAttemptWriter
+from frisket.execution.attempt import StaleAttemptWriter, routed_admission_in_scope
+from frisket.execution.runtime_binding import bind_fact_to_route
 from frisket.operability.trace import TraceWriter, TracingRouter
 
 # The sidecar prefix a grounded field's justification carries so
@@ -303,6 +304,23 @@ async def execute_row(
         raise
     except HostedEngineError as e:
         persist_trace(error=safe_error(e.code, e, max_chars=500).text)
+        if e.accounting is not None:
+            admission = routed_admission_in_scope(ctx.extras)
+            calls = e.accounting.get("model_calls")
+            if admission is not None and calls:
+                if not isinstance(calls, list) or not all(
+                    isinstance(call, dict) for call in calls
+                ):
+                    raise RecipeInvocationHalt(
+                        "promise_violation",
+                        "Hosted failure accounting has invalid model-call facts.",
+                    ) from e
+                e.accounting = {
+                    **e.accounting,
+                    "model_calls": [
+                        bind_fact_to_route(admission.route, call) for call in calls
+                    ],
+                }
         if e.provider_job_accepted or e.post_egress_ambiguous:
             # Preserve the reservation while an accepted provider job may finish.
             raise RecipeInvocationHalt(

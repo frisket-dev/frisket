@@ -521,6 +521,81 @@ async def test_http_transport_preserves_terminal_failure_code(tmp_path):
     assert error.value.retryable is False
 
 
+@pytest.mark.asyncio
+async def test_http_transport_preserves_terminal_failure_receipt_accounting(tmp_path):
+    terminal = _llm_response().model_copy(
+        update={
+            "status": "failed",
+            "error": CloudErrorResponse(
+                error="provider_failed",
+                message="Provider charged before failing",
+                retryable=False,
+                execution_id="cloud-execution-1",
+            ),
+        }
+    )
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=terminal.model_dump(mode="json"))
+
+    transport = HttpCloudExecutionTransport(
+        _store(tmp_path),
+        "https://cloud.example.test",
+        http_transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(CloudExecutionRefused) as error:
+        await transport.execute_llm(
+            CloudExecutionAttempt("durable-request-1", _payer(), None),
+            _llm_request(),
+        )
+
+    assert error.value.code == "provider_failed"
+    assert error.value.accounting is not None
+    assert error.value.accounting["cost"] == 0.025
+    assert error.value.accounting["cloud_receipt"]["charge_micro"] == 25_000
+    assert error.value.provider_job_accepted is False
+    assert error.value.post_egress_ambiguous is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("with_receipt", [False, True])
+async def test_http_transport_marks_reconciliation_as_ambiguous(tmp_path, with_receipt):
+    response = _llm_response()
+    terminal = response.model_copy(
+        update={
+            "status": "reconciliation_required",
+            "receipt": response.receipt if with_receipt else None,
+            "error": CloudErrorResponse(
+                error="reconciliation_required",
+                message="Provider outcome needs reconciliation",
+                retryable=False,
+                execution_id="cloud-execution-1",
+            ),
+        }
+    )
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=terminal.model_dump(mode="json"))
+
+    transport = HttpCloudExecutionTransport(
+        _store(tmp_path),
+        "https://cloud.example.test",
+        http_transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(CloudExecutionRefused) as error:
+        await transport.execute_llm(
+            CloudExecutionAttempt("durable-request-1", _payer(), None),
+            _llm_request(),
+        )
+
+    assert error.value.code == "reconciliation_required"
+    assert error.value.provider_job_accepted is True
+    assert error.value.post_egress_ambiguous is True
+    assert (error.value.accounting is not None) is with_receipt
+
+
 def _llm_response() -> CloudExecutionResponse:
     response = _response()
     return response.model_copy(
