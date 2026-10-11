@@ -517,6 +517,16 @@ class ExecutionComposition:
         )
         if offering is not None:
             return offering.presentation
+        hook = getattr(self.provider, "cloud_presentation", None)
+        if callable(hook):
+            presentation = hook(target_id, capability, engine)
+            if presentation is not None:
+                if not isinstance(presentation, CommercialPresentation):
+                    raise TypeError(
+                        "execution provider cloud_presentation must return "
+                        "CommercialPresentation"
+                    )
+                return presentation
         return None
 
 

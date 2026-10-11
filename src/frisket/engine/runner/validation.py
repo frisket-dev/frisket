@@ -904,6 +904,41 @@ def _estimate_run(
         if scope_row_ids is None
         else [int(row_id) for row_id in scope_row_ids]
     )
+    if recipe.is_llm(spec) and isinstance(resolution, Refusal):
+        raise ExecutionResolutionRefused(resolution)
+    if recipe.is_llm(spec) and isinstance(resolution, ResolvedExecution):
+        bound = getattr(resolution.cost_basis, "bound", None)
+        out = {
+            "cost": None if bound is None else float(bound),
+            "cost_source": "cloud_route_quote" if bound is not None else "unknown",
+            "pricing_key": getattr(resolution.cost_basis, "pricing_key", None),
+            "rows": len(rows),
+            **_resolved_presentation_labels(
+                resolution,
+                cost_source="cloud_route_quote" if bound is not None else "unknown",
+            ),
+        }
+        if pricing_policy is None:
+            raise TypeError("estimate_run requires a pricing_policy for routed work")
+        rated = confirmation_estimate(recipe, spec, out, policy=pricing_policy)
+        bound_resolution = _bind_rated_quote(resolution, rated)
+        uncovered = project_uncovered_user_claims(
+            project,
+            bound_resolution.promise_set,
+            spec=spec,
+            run_id=resume_run_id,
+            consent_coverage=consent_coverage,
+        )
+        out = {**rated, "requires_confirmation": bool(uncovered)}
+        if uncovered:
+            out["claims"] = gate_claims_payload(
+                uncovered,
+                bound_resolution.resolution.facts,
+                bound_resolution.presentation,
+                has_cost_claim=True,
+            )
+            out["promise_set_hash"] = consented_set_hash(bound_resolution.promise_set)
+        return _EstimateRunResult(out, bound_resolution)
     if not recipe.is_llm(spec):
         if resolution is None and recipe.consumes_resolution:
             if composition is None:

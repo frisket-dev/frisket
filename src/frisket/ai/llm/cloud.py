@@ -9,7 +9,7 @@ import httpx
 from frisket.cloud_execution import (
     CloudExecutionRefused,
     cloud_execution_accounting,
-    cloud_llm_execution,
+    execute_bound_cloud_llm,
 )
 from frisket.contracts.http.cloud_connection import (
     CloudLLMRequest,
@@ -40,7 +40,6 @@ class CloudLLMAdapter:
         request: LLMRequest,
         _client: httpx.AsyncClient,
     ) -> LLMResponse:
-        transport, attempt = cloud_llm_execution(request.model)
         wire = CloudLLMRequest(
             model=request.model,
             messages=request.messages,
@@ -52,7 +51,7 @@ class CloudLLMAdapter:
             tools=request.tools,
             reasoning_policy=request.reasoning_policy,
         )
-        response = await transport.execute_llm(attempt, wire)
+        attempt, response = await execute_bound_cloud_llm(wire)
         accounting = cloud_execution_accounting(
             attempt, response, capability="llm.complete"
         )

@@ -165,8 +165,19 @@ class CloudMediaExecutionBinding:
 class CloudLLMExecutionBinding:
     """The transport and authority scoped to one admitted LLM call."""
 
-    transport: CloudExecutionTransport
-    attempt: CloudExecutionAttempt
+    transport: CloudExecutionTransport | None = None
+    attempt: CloudExecutionAttempt | None = None
+    coordinator: Any | None = None
+
+    def __post_init__(self) -> None:
+        fixed = self.transport is not None or self.attempt is not None
+        if fixed and (
+            self.transport is None
+            or not isinstance(self.attempt, CloudExecutionAttempt)
+        ):
+            raise TypeError("Cloud LLM fixed binding is incomplete")
+        if fixed == (self.coordinator is not None):
+            raise ValueError("Cloud LLM binding requires exactly one execution mode")
 
 
 _cloud_llm_binding: ContextVar[CloudLLMExecutionBinding | None] = ContextVar(
@@ -800,11 +811,48 @@ def cloud_llm_execution(
             "cloud_execution_unbound",
             "Cloud LLM execution requires an admitted paid attempt",
         )
+    if binding.attempt is None or binding.transport is None:
+        raise CloudExecutionRefused(
+            "cloud_execution_unbound",
+            "Cloud LLM execution requires a fixed admitted attempt",
+        )
     if binding.attempt.payer.engine != model:
         raise CloudExecutionRefused(
             "route_changed", "Cloud LLM model differs from its admitted route"
         )
     return binding.transport, binding.attempt
+
+
+def cloud_llm_execution_bound(model: str) -> bool:
+    """Whether the current task carries an exact admitted Cloud model route."""
+
+    binding = _cloud_llm_binding.get()
+    if not isinstance(binding, CloudLLMExecutionBinding):
+        return False
+    if binding.coordinator is not None:
+        return binding.coordinator.payer.engine == model
+    return binding.attempt is not None and binding.attempt.payer.engine == model
+
+
+async def execute_bound_cloud_llm(
+    request: CloudLLMRequest,
+) -> tuple[CloudExecutionAttempt, CloudExecutionResponse]:
+    """Execute through the fixed legacy binding or durable call coordinator."""
+
+    binding = _cloud_llm_binding.get()
+    if not isinstance(binding, CloudLLMExecutionBinding):
+        raise CloudExecutionRefused(
+            "cloud_execution_unbound",
+            "Cloud LLM execution requires an admitted paid attempt",
+        )
+    if binding.coordinator is not None:
+        if binding.coordinator.payer.engine != request.model:
+            raise CloudExecutionRefused(
+                "route_changed", "Cloud LLM model differs from its admitted route"
+            )
+        return await binding.coordinator.execute(request)
+    transport, attempt = cloud_llm_execution(request.model)
+    return attempt, await transport.execute_llm(attempt, request)
 
 
 def cloud_execution_accounting(
@@ -861,6 +909,11 @@ def cloud_execution_accounting(
         {
             "requests": 1,
             "cloud_charge_micro": receipt.charge_micro,
+            "cloud_effective_cost_micro": (
+                receipt.provider_cost_micro
+                if receipt.lane == "account_key"
+                else receipt.charge_micro
+            ),
             "cloud_user_id": receipt.user_id,
             "cloud_account_id": receipt.account_id,
             "cloud_lane": receipt.lane,

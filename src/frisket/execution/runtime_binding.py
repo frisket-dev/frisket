@@ -176,6 +176,7 @@ _TRANSPORT_PROVIDER_KIND = {
     # identifies the underlying provider; this token identifies the Cloud
     # purchase wire and is never a zero-tariff sidecar route.
     "frisket.cloud.media.v1": "platform_api",
+    "frisket.cloud.llm.v1": "platform_api",
     # Third-party wires. Registered with the rest of the capability set and
     # inert until a recipe routes: every one of them is somebody else's HTTP
     # API reached over the operator's own key, which is what platform_api
@@ -336,7 +337,7 @@ def bind_fact_to_route(
         # invariant); divergence from the route pin is recorded by the
         # observation point below, never silently normalized away.
         actual_credential = str(bound.get("credential_source") or "none")
-    if transport == "frisket.cloud.media.v1":
+    if transport in {"frisket.cloud.media.v1", "frisket.cloud.llm.v1"}:
         payer = snapshot.get("cloud_payer")
         if not isinstance(payer, Mapping):
             raise ValueError(f"route {route.id} Cloud snapshot has no payer")

@@ -674,6 +674,13 @@ class ModelRouter:
     ) -> LLMResponse:
         provider = provider_from_model_id(req.model)
         cloud_adapter = self._cloud_adapters.get(req.model)
+        if cloud_adapter is None:
+            from frisket.cloud_execution import cloud_llm_execution_bound
+
+            if cloud_llm_execution_bound(req.model):
+                from .cloud import CloudLLMAdapter
+
+                cloud_adapter = CloudLLMAdapter()
         adapter = (
             cloud_adapter if cloud_adapter is not None else self._adapters.get(provider)
         )

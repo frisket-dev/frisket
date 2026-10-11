@@ -61,6 +61,7 @@ CAPABILITY_CLASSIFY = "classify"
 CAPABILITY_TO_MARKDOWN = "document.convert"
 CAPABILITY_GEOCODE = "geocode"
 CAPABILITY_CENSUS = "census_demographics"
+CAPABILITY_LLM = "llm.complete"
 EXECUTION_CAPABILITIES: frozenset[str] = frozenset(
     {
         CAPABILITY_TRANSCRIBE,
@@ -70,6 +71,7 @@ EXECUTION_CAPABILITIES: frozenset[str] = frozenset(
         CAPABILITY_TO_MARKDOWN,
         CAPABILITY_GEOCODE,
         CAPABILITY_CENSUS,
+        CAPABILITY_LLM,
     }
 )
 
@@ -131,6 +133,7 @@ Transport = Union[
     GeocodeTransport,
     CensusTransport,
     ClassifyTransport,
+    Literal["frisket.cloud.llm.v1"],
 ]
 
 #: capability -> the wires THAT capability's engines may be spoken to over.
@@ -151,6 +154,7 @@ CAPABILITY_TRANSPORTS: dict[str, frozenset[str]] = {
     CAPABILITY_GEOCODE: frozenset(get_args(GeocodeTransport)),
     CAPABILITY_CENSUS: frozenset(get_args(CensusTransport)),
     CAPABILITY_CLASSIFY: frozenset(get_args(ClassifyTransport)),
+    CAPABILITY_LLM: frozenset({"remote", "frisket.cloud.llm.v1"}),
 }
 
 
@@ -158,6 +162,17 @@ class ClassifyOptionSupport(BaseModel):
     """Classification fields and context are supported by every target."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
+
+
+class LLMOptionSupport(BaseModel):
+    """Capabilities of one account-bound Cloud model route."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    structured_output: bool = False
+    tools: bool = False
+    vision: bool = False
+    max_output_tokens: int | None = None
 
 
 class OcrOptionSupport(BaseModel):
@@ -277,6 +292,7 @@ OptionSupport = Union[
     GeocodeOptionSupport,
     CensusOptionSupport,
     ClassifyOptionSupport,
+    LLMOptionSupport,
 ]
 
 #: Which option-support type each capability declares. One table, consulted by
@@ -291,6 +307,7 @@ CAPABILITY_OPTION_SUPPORT: dict[str, type] = {
     CAPABILITY_GEOCODE: GeocodeOptionSupport,
     CAPABILITY_CENSUS: CensusOptionSupport,
     CAPABILITY_CLASSIFY: ClassifyOptionSupport,
+    CAPABILITY_LLM: LLMOptionSupport,
 }
 
 # (The categorical-implication lattice used to be declared twice: here, as

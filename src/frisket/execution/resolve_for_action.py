@@ -52,7 +52,7 @@ from frisket.execution.consent_coverage import (
     effective_consent_coverage,
 )
 from dataclasses import dataclass, replace
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_CEILING, Decimal, InvalidOperation
 from math import isfinite
 from typing import Any, Mapping, Sequence
 
@@ -62,6 +62,7 @@ from frisket.execution.commercial import CommercialOffering, CommercialPresentat
 from frisket.execution.promise_compiler import (
     CostBasis,
     OperatorBorneZeroCost,
+    PricedCostBasis,
     compile_route_promises,
 )
 from frisket.execution.price_book import (
@@ -81,6 +82,7 @@ from frisket.execution.targets import (
     CAPABILITY_CENSUS,
     CAPABILITY_CLASSIFY,
     CAPABILITY_GEOCODE,
+    CAPABILITY_LLM,
     CAPABILITY_OCR,
     CAPABILITY_TO_MARKDOWN,
     CAPABILITY_TRANSCRIBE,
@@ -146,6 +148,7 @@ _CAPABILITY_OPTION_KEYS: dict[str, tuple[str, ...]] = {
     CAPABILITY_TO_MARKDOWN: (),
     CAPABILITY_GEOCODE: ("structured_query",),
     CAPABILITY_CENSUS: (),
+    CAPABILITY_LLM: (),
 }
 
 
@@ -637,6 +640,105 @@ def _census_cost_basis(
     return basis, rows
 
 
+def _llm_rendered_calls(
+    project: Any,
+    spec: Mapping[str, Any],
+    recipe: Any,
+    row_ids: Sequence[int],
+) -> dict[int, Any]:
+    from frisket.engine.runner.row_inputs import row_values
+
+    col_map = {c["name"]: c["id"] for c in project.columns(spec["sheet_id"])}
+    return {
+        int(row_id): recipe.render(
+            row_values(project, recipe, dict(spec), col_map, int(row_id)), dict(spec)
+        )
+        for row_id in row_ids
+    }
+
+
+def _llm_options(rendered: Mapping[int, Any], recipe: Any) -> dict[str, Any]:
+    def has_image(value: Any) -> bool:
+        if isinstance(value, Mapping):
+            return any(
+                key in {"image", "image_url"} or has_image(item)
+                for key, item in value.items()
+            )
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+            return any(has_image(item) for item in value)
+        return False
+
+    calls = tuple(rendered.values())
+    return {
+        "structured_output": any(call.schema is not None for call in calls),
+        "tools": hasattr(recipe, "run_agent"),
+        "vision": any(has_image(call.messages) for call in calls),
+        "max_output_tokens": max((int(call.max_tokens) for call in calls), default=1),
+    }
+
+
+def _llm_cost_basis(
+    composition: ExecutionComposition,
+    resolution: Resolution,
+    rendered: Mapping[int, Any],
+) -> tuple[CostBasis, int]:
+    from frisket.ai.llm import estimate_tokens
+    from frisket.contracts.http.cloud_connection import CloudTokenPrice
+
+    price_hook = getattr(composition.provider, "cloud_llm_price", None)
+    price = (
+        price_hook(resolution.target.id, resolution.facts.engine)
+        if callable(price_hook)
+        else None
+    )
+    if not isinstance(price, CloudTokenPrice):
+        raise ValueError("Cloud LLM route has no authoritative token price")
+
+    row_micro: dict[int, int] = {}
+    for row_id, call in rendered.items():
+        tokens_in = estimate_tokens(
+            json.dumps(call.messages, sort_keys=True, separators=(",", ":"))
+        )
+        raw_micro = (
+            Decimal(tokens_in) * price.input_micro_per_million_tokens
+            + Decimal(call.max_tokens) * price.output_micro_per_million_tokens
+        ) / Decimal(1_000_000)
+        row_micro[int(row_id)] = int(
+            raw_micro.to_integral_value(rounding=ROUND_CEILING)
+        )
+
+    def usd(micro: int) -> str:
+        return format(Decimal(micro) / Decimal(1_000_000), "f")
+
+    payer = resolution.facts.cloud_payer
+    if payer is None:
+        raise ValueError("Cloud LLM route has no payer")
+    total_micro = sum(row_micro.values())
+    return (
+        PricedCostBasis(
+            pricing_key=(
+                f"frisket-cloud:{payer.account_id}:{payer.lane}:"
+                f"{payer.provider}:{CAPABILITY_LLM}:{payer.engine}"
+            ),
+            unit_rate="1",
+            estimated_quantity=usd(total_micro),
+            quantity_unit="usd",
+            terms_version=payer.route_revision,
+            quantity_rounding_mode="exact",
+            quantity_rounding_decimal_places=None,
+            meter_key="cloud_effective_cost_micro",
+            meter_units_per_quantity_unit="1000000",
+            ceiling_mode="consented_quantity",
+            row_settlement_mode="quoted_successful_rows",
+            charge_authority="frisket_cloud_receipt",
+            row_quote_quantities=tuple(
+                (row_id, usd(micro)) for row_id, micro in sorted(row_micro.items())
+            ),
+        ),
+        total_micro,
+    )
+
+
 # ---------------------------------------------------------------------------
 # The seam
 # ---------------------------------------------------------------------------
@@ -660,29 +762,58 @@ def resolve_for_action(
     ``ResolvedExecution`` carrying resolution + estimate basis + compiled
     promise set + cost basis + persistence policy.
     """
+    cloud_llm = False
+    rendered_llm: dict[int, Any] | None = None
     if not recipe.consumes_resolution:
-        return None
+        if not recipe.is_llm(dict(spec)):
+            return None
+        model = str(spec.get("model") or "")
+        cloud_llm = any(
+            support.capability == CAPABILITY_LLM
+            and support.engine == model
+            and composition.cloud_payer_for(
+                target_id=target.id,
+                capability=CAPABILITY_LLM,
+                engine=model,
+            )
+            is not None
+            for target in composition.resolution_targets()
+            for support in target.engines
+        )
+        if not cloud_llm:
+            return None
     # The recipe declares which capability it resolves for. Read as an
     # attribute, not with a getattr default, for the same reason
     # ``consumes_resolution`` is: a recipe that consumes resolution without
     # saying what kind of work it is must fail loudly here, never resolve as
     # transcription by accident.
-    capability = recipe.execution_capability
-    if capability not in _CAPABILITY_COST_BASIS:
+    capability = CAPABILITY_LLM if cloud_llm else recipe.execution_capability
+    if capability != CAPABILITY_LLM and capability not in _CAPABILITY_COST_BASIS:
         raise ValueError(
             f"recipe '{getattr(recipe, 'name', recipe)}' declares "
             f"execution_capability={capability!r}, which no execution-seam "
             "capability serves"
         )
-    quote = _CAPABILITY_COST_BASIS[capability]
+    quote = _CAPABILITY_COST_BASIS.get(capability)
     raw_engine = (
-        resolve_geocode_engine(
-            spec, project, credential_context=composition.credential_use_context
+        str(spec["model"])
+        if capability == CAPABILITY_LLM
+        else (
+            resolve_geocode_engine(
+                spec, project, credential_context=composition.credential_use_context
+            )
+            if capability == CAPABILITY_GEOCODE
+            else str(spec.get("engine") or _default_engine(capability))
         )
-        if capability == CAPABILITY_GEOCODE
-        else str(spec.get("engine") or _default_engine(capability))
     )
     options = authored_options(spec, capability)
+    if capability == CAPABILITY_LLM:
+        if scope_row_ids is None:
+            from frisket.engine.runner.validation import target_rows
+
+            scope_row_ids = target_rows(project, dict(spec))
+        rendered_llm = _llm_rendered_calls(project, spec, recipe, scope_row_ids)
+        options = _llm_options(rendered_llm, recipe)
     request = ResolutionRequest(
         engine=raw_engine, options=options, capability=capability
     )
@@ -756,7 +887,11 @@ def resolve_for_action(
             quote_absent=True,
         )
 
-    if bounded_scratch_input is None:
+    if capability == CAPABILITY_LLM:
+        assert rendered_llm is not None
+        cost_basis, quantity = _llm_cost_basis(composition, outcome, rendered_llm)
+    elif bounded_scratch_input is None:
+        assert quote is not None
         cost_basis, quantity = quote(project, spec, recipe, outcome, composition)
     else:
         quantity = bounded_scratch_input.quantity
@@ -927,6 +1062,7 @@ _CAPABILITY_COST_BASIS: dict[str, Any] = {
     CAPABILITY_TO_MARKDOWN: _to_markdown_cost_basis,
     CAPABILITY_GEOCODE: _geocode_cost_basis,
     CAPABILITY_CENSUS: _census_cost_basis,
+    CAPABILITY_LLM: _llm_cost_basis,
 }
 
 

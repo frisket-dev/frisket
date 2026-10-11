@@ -71,6 +71,7 @@ from frisket.execution.targets import (
     CAPABILITY_CENSUS,
     CAPABILITY_CLASSIFY,
     CAPABILITY_GEOCODE,
+    CAPABILITY_LLM,
     CAPABILITY_OCR,
     CAPABILITY_TO_MARKDOWN,
     CAPABILITY_TRANSCRIBE,
@@ -80,6 +81,7 @@ from frisket.execution.targets import (
     EgressClass,
     ExecutionTarget,
     GeocodeOptionSupport,
+    LLMOptionSupport,
     OcrOptionSupport,
     TargetEngineSupport,
     TranslateOptionSupport,
@@ -473,6 +475,31 @@ def _census_inability(
     return None
 
 
+def _llm_inability(
+    support: TargetEngineSupport, options: Mapping[str, Any] | Any
+) -> str | None:
+    declared = support.options
+    if not isinstance(declared, LLMOptionSupport):  # pragma: no cover
+        raise ValueError(
+            f"LLM support row for {support.engine!r} carries "
+            f"{type(declared).__name__} options"
+        )
+    if options.get("structured_output") is True and not declared.structured_output:
+        return "structured output"
+    if options.get("tools") is True and not declared.tools:
+        return "tool calls"
+    if options.get("vision") is True and not declared.vision:
+        return "image inputs"
+    requested_max = options.get("max_output_tokens")
+    if (
+        requested_max is not None
+        and declared.max_output_tokens is not None
+        and requested_max > declared.max_output_tokens
+    ):
+        return f"more than {declared.max_output_tokens} output tokens"
+    return None
+
+
 #: capability -> its ability checker. The table IS the generalization: adding
 #: a capability adds a row, never a branch inside a caller.
 _CAPABILITY_INABILITY = {
@@ -483,6 +510,7 @@ _CAPABILITY_INABILITY = {
     CAPABILITY_TO_MARKDOWN: _to_markdown_inability,
     CAPABILITY_GEOCODE: _geocode_inability,
     CAPABILITY_CENSUS: _census_inability,
+    CAPABILITY_LLM: _llm_inability,
 }
 
 #: capability -> the word a refusal uses for it. Display only; the identity is
@@ -495,6 +523,7 @@ _CAPABILITY_WORD = {
     CAPABILITY_TO_MARKDOWN: "document conversion",
     CAPABILITY_GEOCODE: "geocoding",
     CAPABILITY_CENSUS: "census enrichment",
+    CAPABILITY_LLM: "LLM completion",
 }
 
 
@@ -509,6 +538,19 @@ def capability_engine_table(capability: str) -> tuple[EngineDeclaration, ...]:
     silently ignore a substituted roster (the synthetic-table tests do exactly
     that, and a fence that stops seeing its double proves nothing).
     """
+    from frisket.ai.llm.model_catalog import MODEL_ENTRIES
+
+    llm_engines = tuple(
+        EngineDeclaration(
+            id=f"{provider}/{entry['id']}",
+            label=str(entry["label"]),
+            tier="local" if provider == "ollama" else "hosted",
+            provider=provider,
+            billable=provider != "ollama",
+        )
+        for provider, entries in MODEL_ENTRIES.items()
+        for entry in entries
+    )
     tables: dict[str, tuple[EngineDeclaration, ...]] = {
         CAPABILITY_CLASSIFY: CLASSIFY_ENGINE_TABLE,
         CAPABILITY_TRANSCRIBE: TRANSCRIBE_ENGINE_TABLE,
@@ -517,6 +559,7 @@ def capability_engine_table(capability: str) -> tuple[EngineDeclaration, ...]:
         CAPABILITY_TO_MARKDOWN: to_markdown_engine_table(),
         CAPABILITY_GEOCODE: GEOCODE_ENGINE_TABLE,
         CAPABILITY_CENSUS: CENSUS_ENGINE_TABLE,
+        CAPABILITY_LLM: llm_engines,
     }
     try:
         return tables[capability]
@@ -552,11 +595,20 @@ def preferred_static_choice(
         (target, support)
         for target in targets
         for support in target.engines
-        if support.capability == capability and support.engine == engine_id
+        if support.capability == capability
+        and (
+            support.engine == engine_id
+            or (
+                support.engine.endswith("/*")
+                and engine_id.startswith(support.engine[:-1])
+            )
+        )
     ]
     if not candidates:
         return None
     target, support = candidates[0]
+    if support.engine != engine_id:
+        support = replace(support, engine=engine_id)
     inability = support_inability(support, options)
     if inability is not None:
         return Refusal(
@@ -847,7 +899,11 @@ def resolve(
             (t, s)
             for t in targets
             for s in t.engines
-            if s.capability == capability and s.engine == engine_id
+            if s.capability == capability
+            and (
+                s.engine == engine_id
+                or (s.engine.endswith("/*") and engine_id.startswith(s.engine[:-1]))
+            )
         ]
         if not candidates:
             return Refusal(
@@ -872,6 +928,8 @@ def resolve(
                 engine=engine_id,
             )
         target, support = choice
+        if support.engine != engine_id:
+            support = replace(support, engine=engine_id)
         # O1 short-circuit: the static choice needed no probes; liveness is
         # checked ONLY for the chosen target. Dead chosen target ->
         # no_live_target with its remedy — never a walk to another venue

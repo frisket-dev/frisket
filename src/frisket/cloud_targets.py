@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from dataclasses import replace
 from decimal import Decimal
 from datetime import UTC, datetime
+from typing import Any
 
 from frisket.cloud_connection import (
     CloudClientError,
@@ -19,6 +20,8 @@ from frisket.contracts.http.cloud_connection import (
     CloudAccount,
     CloudCapabilitiesResponse,
     CloudCapabilityRoute,
+    CloudLLMOptionSupport,
+    CloudTokenPrice,
     CloudUnitPrice,
 )
 from frisket.contracts.transcription_sidecar import TranscriptionOptionSupport
@@ -37,10 +40,12 @@ from frisket.execution.provider import (
     ExecutionTargetProvider,
 )
 from frisket.execution.targets import (
+    CAPABILITY_LLM,
     CAPABILITY_OCR,
     CAPABILITY_TO_MARKDOWN,
     CAPABILITY_TRANSCRIBE,
     ExecutionTarget,
+    LLMOptionSupport,
     OcrOptionSupport,
     TargetEngineSupport,
     ToMarkdownOptionSupport,
@@ -48,6 +53,7 @@ from frisket.execution.targets import (
 from frisket.project_settings import read_project_settings
 
 CLOUD_MEDIA_TRANSPORT = "frisket.cloud.media.v1"
+CLOUD_LLM_TRANSPORT = "frisket.cloud.llm.v1"
 
 
 def cloud_target_id(account_id: int, lane: str, provider: str) -> str:
@@ -62,6 +68,8 @@ class CloudExecutionTargetProvider:
         source: ExecutionTargetProvider,
         cloud_targets: Sequence[ExecutionTarget],
         payers: dict[tuple[str, str, str], CloudPayerSubject],
+        llm_prices: dict[tuple[str, str], CloudTokenPrice],
+        presentations: dict[tuple[str, str, str], CommercialPresentation],
         *,
         preference: str,
         execution_transport: CloudExecutionTransport | None = None,
@@ -70,6 +78,8 @@ class CloudExecutionTargetProvider:
         self._cloud_targets = tuple(cloud_targets)
         self._cloud_by_id = {target.id: target for target in self._cloud_targets}
         self._payers = dict(payers)
+        self._llm_prices = dict(llm_prices)
+        self._presentations = dict(presentations)
         self._execution_transport = execution_transport
         source_targets = tuple(source.targets())
         self._targets = (
@@ -98,6 +108,14 @@ class CloudExecutionTargetProvider:
         self, target_id: str
     ) -> CloudExecutionTransport | None:
         return self._execution_transport if target_id in self._cloud_by_id else None
+
+    def cloud_llm_price(self, target_id: str, engine: str) -> CloudTokenPrice | None:
+        return self._llm_prices.get((target_id, engine))
+
+    def cloud_presentation(
+        self, target_id: str, capability: str, engine: str
+    ) -> CommercialPresentation | None:
+        return self._presentations.get((target_id, capability, engine))
 
     def liveness_remedy(
         self, target_id: str, capability: str | None = None
@@ -128,15 +146,26 @@ def compose_cloud_targets(
     capabilities: CloudCapabilitiesResponse,
     preference: str,
     execution_transport: CloudExecutionTransport | None = None,
+    router: Any | None = None,
 ) -> ExecutionComposition:
-    """Attach one selected account's authoritative media routes to ``base``."""
+    """Attach one selected account's authoritative execution routes to ``base``."""
 
     grouped: dict[str, list[TargetEngineSupport]] = defaultdict(list)
     payers: dict[tuple[str, str, str], CloudPayerSubject] = {}
+    llm_prices: dict[tuple[str, str], CloudTokenPrice] = {}
+    presentations: dict[tuple[str, str, str], CommercialPresentation] = {}
     offerings: list[CommercialOffering] = []
     included: list[ExactExecutionMatch] = []
     for route in capabilities.routes:
         capability = _media_capability(route)
+        if route.capability == CAPABILITY_LLM:
+            if (
+                preference == "local_first"
+                and router is not None
+                and router.adapter_for_model(route.engine) is not None
+            ):
+                continue
+            capability = CAPABILITY_LLM
         if capability is None:
             continue
         target_id = cloud_target_id(account.id, route.lane, route.provider)
@@ -151,6 +180,16 @@ def compose_cloud_targets(
             route_revision=route.route_revision,
         )
         payers[(target_id, capability, route.engine)] = payer
+        presentations[(target_id, capability, route.engine)] = CommercialPresentation(
+            venue_label="Frisket Cloud",
+            billing_label=(
+                f"{account.name} provider account"
+                if route.lane == "account_key"
+                else f"{account.name} Cloud credits"
+            ),
+        )
+        if capability == CAPABILITY_LLM and isinstance(route.price, CloudTokenPrice):
+            llm_prices[(target_id, route.engine)] = route.price
         offering = _offering(route, capability, target_id, account)
         if offering is None:
             included.append(
@@ -177,6 +216,8 @@ def compose_cloud_targets(
         base.provider,
         targets,
         payers,
+        llm_prices,
+        presentations,
         preference=preference,
         execution_transport=execution_transport,
     )
@@ -195,6 +236,7 @@ def cloud_execution_composition(
     store: CloudConnectionStore,
     client: CloudConnectionClient,
     execution_transport: CloudExecutionTransport | None = None,
+    router: Any | None = None,
 ) -> ExecutionComposition:
     """Build one project's account-bound Cloud view with one discovery call."""
 
@@ -235,6 +277,7 @@ def cloud_execution_composition(
         capabilities=capabilities,
         preference=preference,
         execution_transport=execution_transport,
+        router=router,
     )
 
 
@@ -262,8 +305,25 @@ def _support(route: CloudCapabilityRoute, capability: str) -> TargetEngineSuppor
     unavailable = (
         route.blocker or "Cloud route unavailable" if not route.ready else None
     )
-    if unavailable is None and not isinstance(route.price, CloudUnitPrice):
+    expected_price = CloudTokenPrice if capability == CAPABILITY_LLM else CloudUnitPrice
+    if unavailable is None and not isinstance(route.price, expected_price):
         unavailable = "Cloud route has no authoritative price"
+    if capability == CAPABILITY_LLM:
+        options = route.options
+        if not isinstance(options, CloudLLMOptionSupport):
+            raise ValueError("Cloud LLM route has invalid option support")
+        return TargetEngineSupport(
+            engine=route.engine,
+            transport=CLOUD_LLM_TRANSPORT,
+            capability=capability,
+            options=LLMOptionSupport(
+                structured_output=options.structured_output,
+                tools=options.tools,
+                vision=options.vision,
+                max_output_tokens=options.max_output_tokens,
+            ),
+            unavailable_reason=unavailable,
+        )
     if capability == CAPABILITY_OCR:
         options = route.options
         return TargetEngineSupport(
@@ -345,6 +405,7 @@ def _offering(
 
 
 __all__ = [
+    "CLOUD_LLM_TRANSPORT",
     "CLOUD_MEDIA_TRANSPORT",
     "CloudExecutionTargetProvider",
     "cloud_target_id",
