@@ -37,6 +37,7 @@ would have failed opaquely per row, or worse.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from fastapi.testclient import TestClient
@@ -269,13 +270,16 @@ def test_connected_cloud_model_runs_through_queued_worker_composition(
 
         async def execute_llm(self, attempt, request):
             self.calls.append((attempt, request))
+            assert request.schema_ is not None
+            [field] = request.schema_["properties"]
+            data = {field: {"value": "Alice"}}
             return CloudExecutionResponse(
                 execution_id=f"cloud-key-gate-execution-{len(self.calls)}",
                 status="completed",
                 route=Client.route(),
                 result=CloudLLMResult(
-                    content='{"entity":"Alice"}',
-                    data={"entity": "Alice"},
+                    content=json.dumps(data),
+                    data=data,
                     tokens_in=4,
                     tokens_out=2,
                     cost=0.000001,
@@ -351,19 +355,24 @@ def test_connected_cloud_model_runs_through_queued_worker_composition(
     ).run_once()
 
     assert cloud_client.calls == 0
-    assert len(transport.calls) == 2, [
+    assert len(transport.calls) == 1, [
         (job.status, job.error)
         for job in client.app.state.workspace.queue.list_jobs(limit=10)
     ]
-    first_attempt, second_attempt = [call[0] for call in transport.calls]
-    assert first_attempt.request_id != second_attempt.request_id
+    assert transport.calls[0][0].quote_authority.maximum_charge_micro is None
+    sheet = client.get(
+        f"/api/projects/{project_id}/sheets/{imported.json()['sheet_id']}/data"
+    )
+    assert sheet.status_code == 200, sheet.text
+    sheet_data = sheet.json()
+    entity_column = next(
+        column for column in sheet_data["columns"] if column["name"] == "entity"
+    )
+    assert sheet_data["rows"][0]["cells"][str(entity_column["id"])] == "Alice"
     facts = project.db.execute(
         "SELECT id,provider,credential_source,epoch_id FROM model_calls"
     ).fetchall()
-    assert {fact["id"] for fact in facts} == {
-        "cloud-key-gate-execution-1",
-        "cloud-key-gate-execution-2",
-    }
+    assert {fact["id"] for fact in facts} == {"cloud-key-gate-execution-1"}
     assert {fact["provider"] for fact in facts} == {"gemini"}
     assert {fact["credential_source"] for fact in facts} == {"platform_key"}
     assert all(fact["epoch_id"] is not None for fact in facts)
