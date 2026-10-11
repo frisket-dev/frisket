@@ -296,7 +296,8 @@ class HttpCloudExecutionTransport:
 
         response = await self._create(attempt, send)
         response = await self._await_terminal(attempt, response)
-        return self._validate_response(attempt, response, "llm.complete")
+        response = self._validate_response(attempt, response, "llm.complete")
+        return self._require_success(response)
 
     async def execute_media(
         self,
@@ -343,7 +344,8 @@ class HttpCloudExecutionTransport:
 
         response = await self._create(attempt, send)
         response = await self._await_terminal(attempt, response)
-        return self._validate_response(attempt, response, capability)
+        response = self._validate_response(attempt, response, capability)
+        return self._require_success(response)
 
     async def recover(
         self, attempt: CloudExecutionAttempt, execution_id: str
@@ -353,7 +355,10 @@ class HttpCloudExecutionTransport:
             self._execution_path(execution_id),
             attempt=attempt,
         )
-        return self._validate_response(attempt, self._parse_execution(response))
+        parsed = self._validate_response(attempt, self._parse_execution(response))
+        return (
+            self._require_success(parsed) if parsed.status in self._TERMINAL else parsed
+        )
 
     async def cancel(
         self, attempt: CloudExecutionAttempt, execution_id: str
@@ -363,7 +368,10 @@ class HttpCloudExecutionTransport:
             self._execution_path(execution_id),
             attempt=attempt,
         )
-        return self._validate_response(attempt, self._parse_execution(response))
+        parsed = self._validate_response(attempt, self._parse_execution(response))
+        return (
+            self._require_success(parsed) if parsed.status in self._TERMINAL else parsed
+        )
 
     async def _create(
         self, attempt: CloudExecutionAttempt, send: Any
@@ -625,6 +633,26 @@ class HttpCloudExecutionTransport:
                 "invalid_request", "Cloud execution id is invalid"
             )
         return f"/api/desktop/v1/executions/{execution_id}"
+
+    @staticmethod
+    def _require_success(response: CloudExecutionResponse) -> CloudExecutionResponse:
+        if response.status == "completed":
+            return response
+        error = response.error
+        if error is not None:
+            raise CloudExecutionRefused(
+                error.error, error.message, retryable=error.retryable
+            )
+        default_code = {
+            "failed": "provider_failed",
+            "cancelled": "cancelled",
+            "reconciliation_required": "reconciliation_required",
+        }.get(response.status, "cloud_protocol_error")
+        raise CloudExecutionRefused(
+            default_code,
+            "Frisket Cloud execution did not complete",
+            retryable=False,
+        )
 
     @staticmethod
     def _raise_error(response: httpx.Response) -> None:

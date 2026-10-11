@@ -379,10 +379,7 @@ class CloudDocumentConvertUsage(WireModel):
 
 
 CloudExecutionUsage = Annotated[
-    CloudLLMUsage
-    | CloudOCRUsage
-    | CloudTranscriptionUsage
-    | CloudDocumentConvertUsage,
+    CloudLLMUsage | CloudOCRUsage | CloudTranscriptionUsage | CloudDocumentConvertUsage,
     Field(discriminator="kind"),
 ]
 
@@ -396,14 +393,6 @@ class CloudExecutionReceipt(WireModel):
     charge_micro: int = Field(ge=0)
     provider_cost_micro: int | None = Field(default=None, ge=0)
     usage: CloudExecutionUsage
-
-
-class CloudExecutionResponse(WireModel):
-    execution_id: str = Field(min_length=1)
-    status: CloudExecutionStatus
-    route: CloudCapabilityRoute
-    result: CloudExecutionResult | None
-    receipt: CloudExecutionReceipt | None
 
 
 class CloudErrorResponse(WireModel):
@@ -421,10 +410,21 @@ class CloudErrorResponse(WireModel):
         "result_expired",
         "execution_conflict",
         "provider_failed",
+        "cancelled",
+        "reconciliation_required",
     ]
     message: str
     retryable: bool = False
     execution_id: str | None = None
+
+
+class CloudExecutionResponse(WireModel):
+    execution_id: str = Field(min_length=1)
+    status: CloudExecutionStatus
+    route: CloudCapabilityRoute
+    result: CloudExecutionResult | None
+    receipt: CloudExecutionReceipt | None
+    error: CloudErrorResponse | None = None
 
 
 # Local backend -> renderer DTOs. These never contain device_code/access_token.
@@ -511,11 +511,18 @@ class ProjectCloudRoutingPatch(WireModel):
     def _at_least_one_field(self) -> "ProjectCloudRoutingPatch":
         if not self.model_fields_set:
             raise ValueError("at least one cloud routing field is required")
-        if "selected_account_id" in self.model_fields_set and self.selected_account_id is None:
+        if (
+            "selected_account_id" in self.model_fields_set
+            and self.selected_account_id is None
+        ):
             raise ValueError("selected_account_id cannot be null")
         if "preference" in self.model_fields_set and self.preference is None:
             raise ValueError("preference cannot be null")
         return self
 
 
-__all__ = [name for name in globals() if name.startswith("Cloud") or name.startswith("ProjectCloud")]
+__all__ = [
+    name
+    for name in globals()
+    if name.startswith("Cloud") or name.startswith("ProjectCloud")
+]

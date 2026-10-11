@@ -23,6 +23,7 @@ from frisket.contracts.http.cloud_connection import (
     CloudAccount,
     CloudCapabilityRoute,
     CloudExecutionQuote,
+    CloudErrorResponse,
     CloudLLMOptionSupport,
     CloudLLMUsage,
     CloudExecutionReceipt,
@@ -350,6 +351,41 @@ async def test_http_transport_refuses_reconnected_user_before_network(tmp_path):
         )
     assert error.value.code == "account_forbidden"
     assert requests == 0
+
+
+@pytest.mark.asyncio
+async def test_http_transport_preserves_terminal_failure_code(tmp_path):
+    terminal = _llm_response().model_copy(
+        update={
+            "status": "failed",
+            "result": None,
+            "receipt": None,
+            "error": CloudErrorResponse(
+                error="provider_failed",
+                message="Provider refused the request",
+                retryable=False,
+                execution_id="cloud-execution-1",
+            ),
+        }
+    )
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=terminal.model_dump(mode="json"))
+
+    transport = HttpCloudExecutionTransport(
+        _store(tmp_path),
+        "https://cloud.example.test",
+        http_transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(CloudExecutionRefused) as error:
+        await transport.execute_llm(
+            CloudExecutionAttempt("durable-request-1", _payer(), None),
+            _llm_request(),
+        )
+    assert error.value.code == "provider_failed"
+    assert str(error.value) == "Provider refused the request"
+    assert error.value.retryable is False
 
 
 def _llm_response() -> CloudExecutionResponse:
