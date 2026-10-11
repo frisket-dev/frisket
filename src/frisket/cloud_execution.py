@@ -8,6 +8,7 @@ cannot choose another account, lane, provider, or route revision.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Sequence
 from typing import BinaryIO, Literal, Protocol, TypeAlias, runtime_checkable
 
 from frisket.contracts.http.cloud_connection import (
@@ -50,6 +51,26 @@ class CloudPayerSubject:
 
 
 @dataclass(frozen=True, slots=True)
+class CloudQuoteAuthority:
+    """Existing local consent that may answer one exact Cloud quote.
+
+    Presence means the action/Ask gate already authorized this route.
+    ``maximum_charge_micro=None`` is an explicitly authorized unbounded cost,
+    distinct from an absent authority.  The transport still compares every
+    quote payer/route field to :class:`CloudPayerSubject` before echoing it.
+    """
+
+    maximum_charge_micro: int | None
+
+    def __post_init__(self) -> None:
+        if self.maximum_charge_micro is not None and (
+            isinstance(self.maximum_charge_micro, bool)
+            or self.maximum_charge_micro < 0
+        ):
+            raise ValueError("Cloud quote ceiling must be non-negative")
+
+
+@dataclass(frozen=True, slots=True)
 class CloudExecutionAttempt:
     """Durable request identity plus the authority fixed by local admission.
 
@@ -61,7 +82,7 @@ class CloudExecutionAttempt:
 
     request_id: str
     payer: CloudPayerSubject
-    may_confirm_quote: bool
+    quote_authority: CloudQuoteAuthority | None
 
     def __post_init__(self) -> None:
         if (
@@ -142,7 +163,7 @@ class CloudExecutionTransport(Protocol):
         capability: CloudMediaCapability,
         engine: str,
         options: CloudMediaOptions,
-        upload: CloudMediaUpload,
+        uploads: Sequence[CloudMediaUpload],
     ) -> CloudExecutionResponse: ...
 
     async def recover(

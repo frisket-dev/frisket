@@ -8,6 +8,7 @@ from frisket.cloud_execution import (
     CloudExecutionAttempt,
     CloudMediaUpload,
     CloudPayerSubject,
+    CloudQuoteAuthority,
 )
 
 
@@ -26,7 +27,7 @@ def test_cloud_attempt_carries_durable_id_and_exact_payer_without_a_secret():
     attempt = CloudExecutionAttempt(
         request_id="cloud-request-1",
         payer=_payer(),
-        may_confirm_quote=True,
+        quote_authority=CloudQuoteAuthority(maximum_charge_micro=25_000),
     )
 
     assert attempt.request_id == "cloud-request-1"
