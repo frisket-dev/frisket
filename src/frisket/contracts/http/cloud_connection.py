@@ -212,6 +212,8 @@ class CloudLLMExecutionRequest(WireModel):
 
 class CloudOCROptions(WireModel):
     language: str | None = Field(default=None, min_length=1)
+    geometry: bool = False
+    searchable_pdf: bool = False
 
 
 class CloudDocumentConvertOptions(WireModel):
@@ -310,6 +312,7 @@ class CloudOCRBlock(WireModel):
 
 
 class CloudOCRPage(WireModel):
+    page: int = Field(ge=1)
     text: str
     blocks: list[CloudOCRBlock]
 
