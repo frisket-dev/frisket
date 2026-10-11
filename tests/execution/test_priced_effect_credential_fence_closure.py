@@ -30,6 +30,7 @@ from frisket.execution.targets import (
     CAPABILITY_CENSUS,
     CAPABILITY_CLASSIFY,
     CAPABILITY_GEOCODE,
+    CAPABILITY_LLM,
     CAPABILITY_OCR,
     CAPABILITY_TO_MARKDOWN,
     CAPABILITY_TRANSCRIBE,
@@ -343,6 +344,24 @@ _FENCE_PROBES: dict[str, _Probe] = {
     CAPABILITY_CLASSIFY: _classify_probe,
 }
 
+# LLM calls do not receive an OpContext credential resolver: account-authorized
+# Cloud LLM execution carries its immutable user/account/lane subject in the
+# durable CloudExecutionAttempt instead. HttpCloudExecutionTransport checks the
+# current installation session against that subject before constructing or
+# sending the HTTP request. The reconnect-to-another-user, shared-account case
+# is proved with zero requests in
+# tests/test_cloud_execution.py::test_http_transport_refuses_reconnected_user_before_network.
+_SEPARATE_PAYER_FENCE_PROOFS = {
+    CAPABILITY_LLM: "HttpCloudExecutionTransport._access_token",
+}
+
+
+def test_every_execution_capability_has_one_payer_fence_authority() -> None:
+    assert set(_FENCE_PROBES).isdisjoint(_SEPARATE_PAYER_FENCE_PROOFS)
+    assert set(_FENCE_PROBES) | set(_SEPARATE_PAYER_FENCE_PROOFS) == set(
+        EXECUTION_CAPABILITIES
+    )
+
 
 def test_payer_fence_requires_the_trusted_credential_context() -> None:
     with pytest.raises(TypeError, match="required keyword-only argument: 'context'"):
@@ -360,7 +379,6 @@ async def test_every_priced_capability_refuses_owner_mismatch_before_effect(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    assert set(_FENCE_PROBES) == set(EXECUTION_CAPABILITIES)
     effects: list[str] = []
 
     with pytest.raises(
