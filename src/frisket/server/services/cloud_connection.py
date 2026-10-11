@@ -15,6 +15,7 @@ from frisket.cloud_connection import (
     CloudConnectionClient,
     CloudConnectionStore,
     CloudConnectionStoreError,
+    StoredCloudProfile,
 )
 from frisket.contracts.http.cloud_connection import (
     CloudAccount,
@@ -90,15 +91,44 @@ class CloudConnectionService:
         self._pending: dict[str, _PendingAuthorization] = {}
         self._completed: dict[str, tuple[datetime, CloudConnectionResponse]] = {}
         self._pending_lock = threading.Lock()
+        self._connection_lock = threading.Lock()
 
     def close(self) -> None:
         self._client.close()
 
     def connection(self) -> CloudConnectionResponse:
+        with self._connection_lock:
+            return self._refresh_connection()
+
+    def _refresh_connection(self) -> CloudConnectionResponse:
         try:
             profile = self._store.load()
         except CloudConnectionStoreError:
             return self._connection_response("expired", None)
+        stored = self._stored_connection(profile)
+        connection = profile.connection
+        if connection is None or stored.state != "connected":
+            return stored
+        try:
+            session = self._client.session(connection.access_token)
+        except CloudClientError as exc:
+            if exc.status in {401, 403} or exc.code == "invalid_local_credential":
+                return self._connection_response("expired", connection.session)
+            return stored
+        try:
+            self._store.save_connection(connection.access_token, session)
+        except (CloudConnectionStoreError, OSError):
+            return stored
+        return self._connection_response("connected", session)
+
+    def _stored_connection(
+        self, profile: StoredCloudProfile | None = None
+    ) -> CloudConnectionResponse:
+        if profile is None:
+            try:
+                profile = self._store.load()
+            except CloudConnectionStoreError:
+                return self._connection_response("expired", None)
         connection = profile.connection
         if connection is None:
             return self._connection_response("disconnected", None)
@@ -157,13 +187,13 @@ class CloudConnectionService:
                 return CloudDeviceAuthorizationPollResponse(
                     id=authorization_id,
                     status="expired",
-                    connection=self.connection(),
+                    connection=self._stored_connection(),
                 )
             if self._clock() < pending.next_poll_at:
                 return CloudDeviceAuthorizationPollResponse(
                     id=authorization_id,
                     status="pending",
-                    connection=self.connection(),
+                    connection=self._stored_connection(),
                 )
             try:
                 answer = self._client.poll_token(pending.device_code)
@@ -189,11 +219,12 @@ class CloudConnectionService:
                 return CloudDeviceAuthorizationPollResponse(
                     id=authorization_id,
                     status=status,
-                    connection=self.connection(),
+                    connection=self._stored_connection(),
                 )
             try:
-                session = self._client.session(answer.access_token)
-                self._store.save_connection(answer.access_token, session)
+                with self._connection_lock:
+                    session = self._client.session(answer.access_token)
+                    self._store.save_connection(answer.access_token, session)
             except (CloudClientError, CloudConnectionStoreError, OSError) as exc:
                 try:
                     self._client.revoke_session(answer.access_token)
@@ -206,7 +237,7 @@ class CloudConnectionService:
                 # A token grant is single-use. Never poll the same device code
                 # again, even if local persistence failed after token delivery.
                 self._pending.pop(authorization_id, None)
-            connection = self.connection()
+            connection = self._stored_connection()
             self._completed[authorization_id] = (pending.expires_at, connection)
             return CloudDeviceAuthorizationPollResponse(
                 id=authorization_id,
@@ -222,17 +253,18 @@ class CloudConnectionService:
         with self._pending_lock:
             self._pending.clear()
             self._completed.clear()
-            try:
-                profile = self._store.load()
-            except CloudConnectionStoreError:
-                profile = None
-            connection = profile.connection if profile is not None else None
-            try:
-                self._store.clear_connection()
-            except (CloudConnectionStoreError, OSError) as exc:
-                raise CloudConnectionServiceError(
-                    500, "The local Cloud connection could not be cleared"
-                ) from exc
+            with self._connection_lock:
+                try:
+                    profile = self._store.load()
+                except CloudConnectionStoreError:
+                    profile = None
+                connection = profile.connection if profile is not None else None
+                try:
+                    self._store.clear_connection()
+                except (CloudConnectionStoreError, OSError) as exc:
+                    raise CloudConnectionServiceError(
+                        500, "The local Cloud connection could not be cleared"
+                    ) from exc
         revocation = "not_connected"
         warning = None
         if connection is not None:
@@ -247,7 +279,7 @@ class CloudConnectionService:
                 revocation = "failed"
                 warning = "Signed out locally, but Frisket Cloud could not confirm remote revocation."
         return CloudConnectionSignOutResponse(
-            connection=self.connection(), revocation=revocation, warning=warning
+            connection=self._stored_connection(), revocation=revocation, warning=warning
         )
 
     def preferences(self) -> CloudConnectionPreferencesResponse:
@@ -267,17 +299,17 @@ class CloudConnectionService:
         return CloudConnectionPreferencesResponse(preference=profile.preference)
 
     def project_routing(self, project_id: str) -> ProjectCloudRoutingResponse:
+        return self._project_routing(project_id, self.connection())
+
+    def _project_routing(
+        self, project_id: str, connection: CloudConnectionResponse
+    ) -> ProjectCloudRoutingResponse:
         project = self._workspace.get(project_id)
         settings = read_project_settings(project)
-        connection = self.connection()
         signed_user_id = connection.identity.id if connection.identity else None
-        eligible_ids = {
-            account.id for account in connection.accounts if account.eligible
-        }
         selected = (
             settings.cloud_account_id
             if settings.cloud_user_id == signed_user_id
-            and settings.cloud_account_id in eligible_ids
             else None
         )
         inherited = settings.cloud_execution_preference is None
@@ -304,6 +336,7 @@ class CloudConnectionService:
         project = self._workspace.get(project_id)
         settings = read_project_settings(project)
         updates: dict[str, object] = {}
+        connection = None
         if "preference" in patch.model_fields_set:
             updates["cloud_execution_preference"] = patch.preference
         if "selected_account_id" in patch.model_fields_set:
@@ -320,7 +353,9 @@ class CloudConnectionService:
             updates["cloud_user_id"] = connection.identity.id
             updates["cloud_account_id"] = patch.selected_account_id
         write_project_settings(project, settings.model_copy(update=updates))
-        return self.project_routing(project_id)
+        return self._project_routing(
+            project_id, connection if connection is not None else self.connection()
+        )
 
     def _connection_response(
         self, state: str, session: object | None

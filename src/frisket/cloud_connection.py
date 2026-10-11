@@ -69,6 +69,7 @@ class StoredCloudConnection:
 class StoredCloudProfile:
     connection: StoredCloudConnection | None
     preference: str
+    capabilities: dict[int, CloudCapabilitiesResponse] = field(default_factory=dict)
 
 
 def cloud_profile_dir(env: Mapping[str, str] | None = None) -> Path:
@@ -85,9 +86,7 @@ def cloud_profile_dir(env: Mapping[str, str] | None = None) -> Path:
         return path
     if sys.platform == "win32":
         base = values.get("APPDATA", "").strip()
-        return (
-            Path(base) if base else Path.home() / "AppData" / "Roaming"
-        ) / "Frisket"
+        return (Path(base) if base else Path.home() / "AppData" / "Roaming") / "Frisket"
     if sys.platform == "darwin":
         return Path.home() / "Library" / "Application Support" / "Frisket"
     base = values.get("XDG_CONFIG_HOME", "").strip()
@@ -139,7 +138,9 @@ class CloudConnectionStore:
     """Atomic owner-only profile state with an encrypted bearer token."""
 
     def __init__(self, profile_dir: str | Path | None = None) -> None:
-        self.profile_dir = Path(profile_dir) if profile_dir is not None else cloud_profile_dir()
+        self.profile_dir = (
+            Path(profile_dir) if profile_dir is not None else cloud_profile_dir()
+        )
         if not self.profile_dir.is_absolute():
             raise CloudConnectionStoreError("Cloud profile directory must be absolute")
         self.path = self.profile_dir / _STATE_FILENAME
@@ -157,6 +158,17 @@ class CloudConnectionStore:
             raise ValueError("Cloud access token cannot be empty")
         with self._lock():
             preference = self._preference_unlocked()
+            capabilities: dict[int, CloudCapabilitiesResponse] = {}
+            try:
+                current = self._load_unlocked()
+            except CloudConnectionStoreError:
+                current = None
+            if (
+                current is not None
+                and current.connection is not None
+                and current.connection.session.user.id == session.user.id
+            ):
+                capabilities = current.capabilities
             previous = self.path.read_bytes() if self.path.exists() else None
             key = load_or_create_secret_key(self.key_path)
             payload = {
@@ -166,6 +178,9 @@ class CloudConnectionStore:
                     "access_token": encrypt_secret(access_token, master_key=key),
                     "session": session.model_dump(mode="json", by_alias=True),
                 },
+                "capabilities": self._capabilities_payload(
+                    session.user.id, capabilities
+                ),
             }
             try:
                 self._write_unlocked(payload)
@@ -178,6 +193,40 @@ class CloudConnectionStore:
             return StoredCloudProfile(
                 connection=StoredCloudConnection(access_token, session),
                 preference=preference,
+                capabilities=capabilities,
+            )
+
+    def save_capabilities(
+        self, capabilities: CloudCapabilitiesResponse
+    ) -> StoredCloudProfile:
+        with self._lock():
+            current = self._load_unlocked()
+            if current.connection is None:
+                raise CloudConnectionStoreError(
+                    "Frisket Cloud must be connected before capabilities can be saved"
+                )
+            snapshots = {**current.capabilities, capabilities.account_id: capabilities}
+            key = load_or_create_secret_key(self.key_path)
+            payload = {
+                "version": _STATE_VERSION,
+                "preference": current.preference,
+                "connection": {
+                    "access_token": encrypt_secret(
+                        current.connection.access_token, master_key=key
+                    ),
+                    "session": current.connection.session.model_dump(
+                        mode="json", by_alias=True
+                    ),
+                },
+                "capabilities": self._capabilities_payload(
+                    current.connection.session.user.id, snapshots
+                ),
+            }
+            self._write_unlocked(payload)
+            return StoredCloudProfile(
+                connection=current.connection,
+                preference=current.preference,
+                capabilities=snapshots,
             )
 
     def clear_connection(self) -> StoredCloudProfile:
@@ -187,9 +236,12 @@ class CloudConnectionStore:
                 "version": _STATE_VERSION,
                 "preference": preference,
                 "connection": None,
+                "capabilities": None,
             }
             self._write_unlocked(payload)
-            return StoredCloudProfile(connection=None, preference=preference)
+            return StoredCloudProfile(
+                connection=None, preference=preference, capabilities={}
+            )
 
     def set_preference(self, preference: str) -> StoredCloudProfile:
         if preference not in {"local_first", "cloud_first"}:
@@ -200,6 +252,7 @@ class CloudConnectionStore:
                 "version": _STATE_VERSION,
                 "preference": preference,
                 "connection": None,
+                "capabilities": None,
             }
             if current.connection is not None:
                 key = load_or_create_secret_key(self.key_path)
@@ -211,9 +264,14 @@ class CloudConnectionStore:
                         mode="json", by_alias=True
                     ),
                 }
+                payload["capabilities"] = self._capabilities_payload(
+                    current.connection.session.user.id, current.capabilities
+                )
             self._write_unlocked(payload)
             return StoredCloudProfile(
-                connection=current.connection, preference=preference
+                connection=current.connection,
+                preference=preference,
+                capabilities=current.capabilities,
             )
 
     def _lock(self) -> FileLock:
@@ -232,7 +290,10 @@ class CloudConnectionStore:
             return StoredCloudProfile(connection=None, preference="local_first")
         try:
             payload = json.loads(self.path.read_text(encoding="utf-8"))
-            if not isinstance(payload, dict) or payload.get("version") != _STATE_VERSION:
+            if (
+                not isinstance(payload, dict)
+                or payload.get("version") != _STATE_VERSION
+            ):
                 raise ValueError("unsupported state version")
             preference = payload.get("preference", "local_first")
             if preference not in {"local_first", "cloud_first"}:
@@ -248,11 +309,21 @@ class CloudConnectionStore:
             key = load_or_create_secret_key(self.key_path)
             token = decrypt_secret(ciphertext, master_key=key)
             session = CloudSessionResponse.model_validate(value.get("session"))
+            capabilities = self._load_capabilities(
+                payload.get("capabilities"), session.user.id
+            )
             return StoredCloudProfile(
                 connection=StoredCloudConnection(token, session),
                 preference=preference,
+                capabilities=capabilities,
             )
-        except (OSError, ValueError, TypeError, ValidationError, json.JSONDecodeError) as exc:
+        except (
+            OSError,
+            ValueError,
+            TypeError,
+            ValidationError,
+            json.JSONDecodeError,
+        ) as exc:
             raise CloudConnectionStoreError(
                 "Frisket Cloud connection state is unreadable; reconnect this installation"
             ) from exc
@@ -264,10 +335,52 @@ class CloudConnectionStore:
             return "local_first"
         try:
             payload = json.loads(self.path.read_text(encoding="utf-8"))
-            preference = payload.get("preference") if isinstance(payload, dict) else None
+            preference = (
+                payload.get("preference") if isinstance(payload, dict) else None
+            )
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
             return "local_first"
-        return preference if preference in {"local_first", "cloud_first"} else "local_first"
+        return (
+            preference
+            if preference in {"local_first", "cloud_first"}
+            else "local_first"
+        )
+
+    @staticmethod
+    def _capabilities_payload(
+        user_id: int, capabilities: Mapping[int, CloudCapabilitiesResponse]
+    ) -> dict[str, Any]:
+        return {
+            "user_id": user_id,
+            "by_account_id": {
+                str(account_id): response.model_dump(mode="json", by_alias=True)
+                for account_id, response in capabilities.items()
+            },
+        }
+
+    @staticmethod
+    def _load_capabilities(
+        value: object, signed_user_id: int
+    ) -> dict[int, CloudCapabilitiesResponse]:
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise ValueError("capabilities must be an object")
+        if value.get("user_id") != signed_user_id:
+            return {}
+        by_account_id = value.get("by_account_id")
+        if not isinstance(by_account_id, dict):
+            raise ValueError("capability snapshots must be an object")
+        capabilities: dict[int, CloudCapabilitiesResponse] = {}
+        for key, raw in by_account_id.items():
+            if not isinstance(key, str) or not key.isdecimal():
+                raise ValueError("capability account id must be an integer")
+            account_id = int(key)
+            response = CloudCapabilitiesResponse.model_validate(raw)
+            if response.account_id != account_id:
+                raise ValueError("capability account id does not match its key")
+            capabilities[account_id] = response
+        return capabilities
 
     def _write_unlocked(self, payload: dict[str, Any]) -> None:
         encoded = (
@@ -415,7 +528,9 @@ class CloudConnectionClient:
         except httpx.HTTPError as exc:
             raise CloudClientError("cloud_unreachable", retryable=True) from exc
         if response.is_redirect:
-            raise CloudClientError("cloud_redirect_refused", status=response.status_code)
+            raise CloudClientError(
+                "cloud_redirect_refused", status=response.status_code
+            )
         if response.status_code not in allowed_statuses:
             raise CloudClientError(
                 "cloud_unauthorized"

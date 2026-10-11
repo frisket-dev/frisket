@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 from datetime import UTC, datetime
+from threading import Event
 
 import httpx
 import pytest
@@ -46,6 +47,32 @@ def _session(*, user_id: int = 7, account_id: int = 41) -> CloudSessionResponse:
                 balance_micro=5_000_000,
                 available_micro=4_500_000,
                 manage_billing=True,
+            )
+        ],
+    )
+
+
+def _capabilities(
+    *, account_id: int = 41, revision: str = "route-1"
+) -> CloudCapabilitiesResponse:
+    return CloudCapabilitiesResponse(
+        account_id=account_id,
+        routes=[
+            CloudCapabilityRoute(
+                capability="ocr",
+                engine="rapidocr",
+                provider="frisket",
+                lane="frisket_credits",
+                route_revision=revision,
+                ready=True,
+                blocker=None,
+                price=CloudUnitPrice(kind="unit", unit="page", micro_per_unit=2500),
+                options=CloudOCROptionSupport(
+                    kind="ocr",
+                    language=True,
+                    geometry=True,
+                    searchable_pdf=False,
+                ),
             )
         ],
     )
@@ -142,6 +169,109 @@ def test_capabilities_client_uses_selected_account_and_bearer():
     assert capabilities.routes[0].route_revision == "route-1"
 
 
+def test_capability_snapshots_are_user_bound_and_survive_same_user_refresh(tmp_path):
+    store = CloudConnectionStore(tmp_path / "profile")
+    store.save_connection("first", _session(user_id=7, account_id=41))
+
+    saved = store.save_capabilities(_capabilities(account_id=41))
+
+    assert saved.capabilities[41].routes[0].route_revision == "route-1"
+    store.save_connection("refreshed", _session(user_id=7, account_id=99))
+    assert store.load().capabilities[41].account_id == 41
+
+    store.save_connection("different-user", _session(user_id=8, account_id=41))
+    assert store.load().capabilities == {}
+    store.save_capabilities(_capabilities(account_id=41, revision="route-2"))
+    assert store.clear_connection().capabilities == {}
+    assert store.load().capabilities == {}
+
+
+def test_explicit_connection_fetch_refreshes_cloud_session(tmp_path):
+    session_fetches = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal session_fetches
+        assert request.url.path.endswith("/session")
+        session_fetches += 1
+        return httpx.Response(
+            200, json=_session(user_id=7, account_id=99).model_dump(mode="json")
+        )
+
+    store = CloudConnectionStore(tmp_path / "profile")
+    store.save_connection("token", _session(user_id=7, account_id=41))
+    service = CloudConnectionService(
+        Workspace(tmp_path / "workspace"),
+        store=store,
+        client=CloudConnectionClient(
+            "https://app.frisket.dev", transport=httpx.MockTransport(handler)
+        ),
+    )
+
+    connection = service.connection()
+
+    assert session_fetches == 1
+    assert [account.id for account in connection.accounts] == [99]
+    assert store.load().connection.session.accounts[0].id == 99
+    service.close()
+
+
+def test_explicit_connection_fetch_maps_revoked_token_to_expired(tmp_path):
+    store = CloudConnectionStore(tmp_path / "profile")
+    store.save_connection("revoked", _session())
+    service = CloudConnectionService(
+        Workspace(tmp_path / "workspace"),
+        store=store,
+        client=CloudConnectionClient(
+            "https://app.frisket.dev",
+            transport=httpx.MockTransport(
+                lambda _request: httpx.Response(401, json={})
+            ),
+        ),
+    )
+
+    connection = service.connection()
+
+    assert connection.state == "expired"
+    assert connection.identity.id == 7
+    assert connection.capabilities.can_reconnect is True
+    service.close()
+
+
+def test_sign_out_cannot_be_overwritten_by_in_flight_session_refresh(tmp_path):
+    refresh_started = Event()
+    allow_refresh = Event()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path.endswith("/session"):
+            refresh_started.set()
+            assert allow_refresh.wait(timeout=5)
+            return httpx.Response(200, json=_session().model_dump(mode="json"))
+        if request.method == "DELETE" and request.url.path.endswith("/session"):
+            return httpx.Response(204)
+        raise AssertionError(request.url)
+
+    store = CloudConnectionStore(tmp_path / "profile")
+    store.save_connection("token", _session())
+    service = CloudConnectionService(
+        Workspace(tmp_path / "workspace"),
+        store=store,
+        client=CloudConnectionClient(
+            "https://app.frisket.dev", transport=httpx.MockTransport(handler)
+        ),
+    )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        refreshing = pool.submit(service.connection)
+        assert refresh_started.wait(timeout=5)
+        signing_out = pool.submit(service.sign_out)
+        allow_refresh.set()
+        assert refreshing.result(timeout=5).state == "connected"
+        assert signing_out.result(timeout=5).connection.state == "disconnected"
+
+    assert store.load().connection is None
+    service.close()
+
+
 def test_device_flow_keeps_secrets_server_side_and_coalesces_early_poll(tmp_path):
     requests: list[httpx.Request] = []
     token_polls = 0
@@ -210,6 +340,13 @@ def test_device_flow_keeps_secrets_server_side_and_coalesces_early_poll(tmp_path
     assert connected.connection.identity.id == 7
     assert "private-access-token" not in connected.model_dump_json()
     assert token_polls == 2
+    assert (
+        sum(
+            request.method == "GET" and request.url.path.endswith("/session")
+            for request in requests
+        )
+        == 1
+    )
     service.close()
 
 
@@ -374,7 +511,8 @@ def test_write_then_raise_does_not_retain_revoked_token(
 
     store = CloudConnectionStore(tmp_path / "profile")
     if existing_token is not None:
-        store.save_connection(existing_token, _session())
+        store.save_connection(existing_token, _session(user_id=8, account_id=88))
+        store.set_preference("cloud_first")
     write = store._write_unlocked
     should_fail = True
 
@@ -403,8 +541,13 @@ def test_write_then_raise_does_not_retain_revoked_token(
         service.poll_authorization(authorization_id)
 
     assert exc_info.value.status == 503
-    connection = store.load().connection
+    profile = store.load()
+    connection = profile.connection
     assert (connection.access_token if connection else None) == existing_token
+    if existing_token is not None:
+        assert connection.session.user.id == 8
+        assert connection.session.accounts[0].id == 88
+        assert profile.preference == "cloud_first"
     assert ("DELETE", "/api/desktop/v1/session") in requests
     service.close()
 
@@ -493,6 +636,41 @@ def test_project_account_is_bound_to_signed_in_user(tmp_path):
     changed_user = service.project_routing(project_id)
     assert changed_user.selected_account_id is None
     assert changed_user.preference == "cloud_first"
+    service.close()
+
+
+def test_project_keeps_same_users_unavailable_selected_account(tmp_path):
+    current_session = [_session(user_id=7, account_id=41)]
+    session_fetches = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal session_fetches
+        assert request.url.path.endswith("/session")
+        session_fetches += 1
+        return httpx.Response(200, json=current_session[0].model_dump(mode="json"))
+
+    store = CloudConnectionStore(tmp_path / "profile")
+    store.save_connection("token", current_session[0])
+    workspace = Workspace(tmp_path / "workspace")
+    project_id = workspace.create("Unavailable Cloud account")["id"]
+    service = CloudConnectionService(
+        workspace,
+        store=store,
+        client=CloudConnectionClient(
+            "https://app.frisket.dev", transport=httpx.MockTransport(handler)
+        ),
+    )
+    selected = service.patch_project_routing(
+        project_id, ProjectCloudRoutingPatch(selected_account_id=41)
+    )
+    assert selected.selected_account_id == 41
+
+    current_session[0] = _session(user_id=7, account_id=99)
+    unavailable = service.project_routing(project_id)
+
+    assert session_fetches == 2
+    assert unavailable.selected_account_id == 41
+    assert [account.id for account in unavailable.accounts] == [99]
     service.close()
 
 
