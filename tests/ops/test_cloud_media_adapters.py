@@ -39,7 +39,14 @@ from frisket.execution.attempt import (
 from frisket.execution.promise_compiler import OperatorBorneZeroCost
 from frisket.execution.provider import ConnectionConfig
 from frisket.execution.resolver import CandidateBinding, RouteRowFacts
-from frisket.execution.targets import ExecutionTarget
+from frisket.execution.targets import (
+    CAPABILITY_OCR,
+    CAPABILITY_TO_MARKDOWN,
+    ExecutionTarget,
+    OcrOptionSupport,
+    TargetEngineSupport,
+    ToMarkdownOptionSupport,
+)
 from frisket.ops.base import OpContext
 from frisket.ops.ocr_engines_cloud import ocr_cloud
 from frisket.ops.ocr_engines import OcrEngines
@@ -132,17 +139,33 @@ class _Transport:
         return self.response
 
 
-def _ctx(transport: _Transport, capability: str, *, engine: str = ENGINE) -> OpContext:
+def _ctx(
+    transport: _Transport,
+    capability: str,
+    *,
+    engine: str = ENGINE,
+    ocr_geometry: bool = True,
+) -> OpContext:
     return OpContext(
+        extras=(
+            _route_extras(
+                engine,
+                capability=CAPABILITY_OCR,
+                option_support=OcrOptionSupport(geometry=ocr_geometry),
+            )
+            if capability == "ocr"
+            else {}
+        ),
         cloud_execution=CloudMediaExecutionBinding(
             transport=transport,
             attempt=_attempt(engine=engine),
             capability=capability,
-        )
+        ),
     )
 
 
 def test_cloud_ocr_batches_page_streams_once_and_preserves_geometry(tmp_path):
+    engine = "dots.mocr"
     first = tmp_path / "page-1.png"
     second = tmp_path / "page-2.png"
     first.write_bytes(b"first-page")
@@ -169,15 +192,16 @@ def test_cloud_ocr_batches_page_streams_once_and_preserves_geometry(tmp_path):
         CloudOCROptionSupport(
             kind="ocr", language=True, geometry=True, searchable_pdf=False
         ),
+        engine=engine,
     )
     transport = _Transport(response)
     usage: dict[str, Any] = {}
 
     pages = asyncio.run(
         ocr_cloud(
-            ENGINE,
+            engine,
             [first, second],
-            _ctx(transport, "ocr"),
+            _ctx(transport, "ocr", engine=engine, ocr_geometry=True),
             usage,
             language="en",
         )
@@ -210,11 +234,60 @@ def test_cloud_ocr_batches_page_streams_once_and_preserves_geometry(tmp_path):
     assert fact["units"]["cloud_account_id"] == 41
 
 
+def test_cloud_ocr_disables_geometry_for_admitted_plain_text_route(tmp_path):
+    engine = "glm-ocr"
+    page = tmp_path / "page.png"
+    page.write_bytes(b"page")
+    response = _response(
+        "ocr",
+        CloudOCRResult(pages=[{"page": 1, "text": "Plain text", "blocks": []}]),
+        CloudOCRUsage(kind="ocr", pages=1),
+        CloudOCROptionSupport(
+            kind="ocr", language=True, geometry=False, searchable_pdf=False
+        ),
+        engine=engine,
+    )
+    transport = _Transport(response)
+
+    pages = asyncio.run(
+        ocr_cloud(
+            engine,
+            [page],
+            _ctx(transport, "ocr", engine=engine, ocr_geometry=False),
+            {},
+        )
+    )
+
+    assert transport.calls[0]["options"].geometry is False
+    assert pages == [{"page": 1, "text": "Plain text", "blocks": []}]
+
+
 def test_cloud_ocr_requires_exact_typed_binding_before_opening_files(tmp_path):
     missing = tmp_path / "missing.png"
 
     with pytest.raises(CloudExecutionRefused, match="admitted paid attempt"):
         asyncio.run(ocr_cloud(ENGINE, [missing], OpContext(), {}))
+
+
+def test_cloud_ocr_requires_admitted_engine_support_before_egress(tmp_path):
+    page = tmp_path / "page.png"
+    page.write_bytes(b"page")
+    response = _response(
+        "ocr",
+        CloudOCRResult(pages=[{"page": 1, "text": "", "blocks": []}]),
+        CloudOCRUsage(kind="ocr", pages=1),
+        CloudOCROptionSupport(
+            kind="ocr", language=True, geometry=True, searchable_pdf=False
+        ),
+    )
+    transport = _Transport(response)
+    ctx = _ctx(transport, "ocr")
+    ctx.extras = {}
+
+    with pytest.raises(CloudExecutionRefused, match="exact admitted engine support"):
+        asyncio.run(ocr_cloud(ENGINE, [page], ctx, {}))
+
+    assert transport.calls == []
 
 
 def test_ocr_dispatch_selects_cloud_from_the_admitted_transport(tmp_path):
@@ -231,7 +304,6 @@ def test_ocr_dispatch_selects_cloud_from_the_admitted_transport(tmp_path):
     )
     transport = _Transport(response)
     ctx = _ctx(transport, "ocr")
-    ctx.extras = _route_extras(ENGINE)
 
     pages = asyncio.run(
         OcrEngines().run_engine_on_pages(
@@ -357,7 +429,14 @@ def test_transcription_dispatch_selects_cloud_transport(tmp_path):
     assert len(transport.calls) == 1
 
 
-def _route_extras(engine: str) -> dict[str, Any]:
+def _route_extras(
+    engine: str,
+    *,
+    capability: str = CAPABILITY_TO_MARKDOWN,
+    option_support: OcrOptionSupport | ToMarkdownOptionSupport | None = None,
+) -> dict[str, Any]:
+    if option_support is None:
+        option_support = ToMarkdownOptionSupport()
     payer = _payer(engine=engine)
     facts = RouteRowFacts(
         target_id="frisket-cloud:41:frisket_credits:cloud-provider",
@@ -380,7 +459,7 @@ def _route_extras(engine: str) -> dict[str, Any]:
         options={},
         target_snapshot={
             "target_id": facts.target_id,
-            "capability": "document.convert",
+            "capability": capability,
             "transport": "frisket.cloud.media.v1",
             "run_scoped": False,
             "cloud_payer": payer.to_snapshot(),
@@ -400,6 +479,14 @@ def _route_extras(engine: str) -> dict[str, Any]:
             id=facts.target_id,
             operator=facts.operator,
             egress_class=facts.egress_class,
+            engines=(
+                TargetEngineSupport(
+                    engine=engine,
+                    transport="frisket.cloud.media.v1",
+                    capability=capability,
+                    options=option_support,
+                ),
+            ),
         ),
     )
     return {
