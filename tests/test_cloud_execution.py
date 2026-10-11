@@ -10,6 +10,7 @@ from frisket.cloud_connection import CloudConnectionStore
 from frisket.cloud_execution import (
     CloudExecutionAttempt,
     CloudExecutionRefused,
+    CloudLLMExecutionBinding,
     CloudMediaExecutionBinding,
     CloudMediaUpload,
     CloudPayerSubject,
@@ -17,6 +18,8 @@ from frisket.cloud_execution import (
     CloudConfirmationRequired,
     HttpCloudExecutionTransport,
     cloud_execution_accounting,
+    cloud_llm_execution,
+    cloud_llm_execution_scope,
     cloud_media_execution,
 )
 from frisket.contracts.http.cloud_connection import (
@@ -423,6 +426,39 @@ def test_media_binding_refuses_an_engine_other_than_the_admitted_route():
 
     with pytest.raises(CloudExecutionRefused, match="engine differs"):
         cloud_media_execution(ctx, "ocr", "another/model")
+
+
+def test_llm_binding_is_scoped_and_validates_the_admitted_model():
+    attempt = CloudExecutionAttempt("request-1", _payer(), None)
+    transport = object()
+    binding = CloudLLMExecutionBinding(transport, attempt)
+
+    with pytest.raises(CloudExecutionRefused) as unbound:
+        cloud_llm_execution(attempt.payer.engine)
+    assert unbound.value.code == "cloud_execution_unbound"
+
+    with cloud_llm_execution_scope(binding):
+        assert cloud_llm_execution(attempt.payer.engine) == (transport, attempt)
+        with pytest.raises(CloudExecutionRefused) as changed:
+            cloud_llm_execution("another/model")
+        assert changed.value.code == "route_changed"
+
+    with pytest.raises(CloudExecutionRefused) as reset:
+        cloud_llm_execution(attempt.payer.engine)
+    assert reset.value.code == "cloud_execution_unbound"
+
+
+def test_llm_binding_nested_scope_restores_the_outer_attempt():
+    outer = CloudExecutionAttempt("request-outer", _payer(), None)
+    inner_payer = _payer()
+    inner = CloudExecutionAttempt("request-inner", inner_payer, None)
+    outer_binding = CloudLLMExecutionBinding(object(), outer)
+    inner_binding = CloudLLMExecutionBinding(object(), inner)
+
+    with cloud_llm_execution_scope(outer_binding):
+        with cloud_llm_execution_scope(inner_binding):
+            assert cloud_llm_execution(inner_payer.engine)[1] is inner
+        assert cloud_llm_execution(outer.payer.engine)[1] is outer
 
 
 def test_cloud_accounting_preserves_charge_and_unknown_provider_cost():

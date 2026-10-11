@@ -8,8 +8,10 @@ cannot choose another account, lane, provider, or route revision.
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime
 from typing import (
     TYPE_CHECKING,
@@ -154,6 +156,19 @@ class CloudMediaExecutionBinding:
     transport: CloudExecutionTransport
     attempt: CloudExecutionAttempt
     capability: CloudMediaCapability
+
+
+@dataclass(frozen=True, slots=True)
+class CloudLLMExecutionBinding:
+    """The transport and authority scoped to one admitted LLM call."""
+
+    transport: CloudExecutionTransport
+    attempt: CloudExecutionAttempt
+
+
+_cloud_llm_binding: ContextVar[CloudLLMExecutionBinding | None] = ContextVar(
+    "frisket_cloud_llm_execution", default=None
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -691,6 +706,39 @@ def cloud_media_execution(
     if binding.attempt.payer.engine != engine:
         raise CloudExecutionRefused(
             "route_changed", "Cloud media engine differs from its admitted route"
+        )
+    return binding.transport, binding.attempt
+
+
+@contextmanager
+def cloud_llm_execution_scope(
+    binding: CloudLLMExecutionBinding,
+) -> Iterator[None]:
+    """Bind one admitted Cloud LLM purchase to the current async task."""
+
+    if not isinstance(binding, CloudLLMExecutionBinding):
+        raise TypeError("Cloud LLM execution binding is invalid")
+    token = _cloud_llm_binding.set(binding)
+    try:
+        yield
+    finally:
+        _cloud_llm_binding.reset(token)
+
+
+def cloud_llm_execution(
+    model: str,
+) -> tuple[CloudExecutionTransport, CloudExecutionAttempt]:
+    """Return the exact Cloud LLM binding admitted for ``model``."""
+
+    binding = _cloud_llm_binding.get()
+    if not isinstance(binding, CloudLLMExecutionBinding):
+        raise CloudExecutionRefused(
+            "cloud_execution_unbound",
+            "Cloud LLM execution requires an admitted paid attempt",
+        )
+    if binding.attempt.payer.engine != model:
+        raise CloudExecutionRefused(
+            "route_changed", "Cloud LLM model differs from its admitted route"
         )
     return binding.transport, binding.attempt
 
