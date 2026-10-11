@@ -321,6 +321,18 @@ class Workspace:
         # Internal only: public APIs stay run-id centric, but status polling
         # needs an O(1) way to reconcile terminal queue failures with run rows.
         self.run_jobs: dict[tuple[str, int], int] = {}
+        if (
+            self.project_qa_runtime_port is None
+            and self.edition == "solo"
+            and self._cloud_connection_store is not None
+            and self._cloud_connection_client is not None
+            and self.cloud_execution_transport is not None
+        ):
+            from frisket.server.cloud_project_qa_runtime import (
+                SoloCloudProjectQARuntimePort,
+            )
+
+            self.project_qa_runtime_port = SoloCloudProjectQARuntimePort(self)
 
     def _derived_project_opener(self) -> ProjectOpener | None:
         """The opener implied by this workspace's own declared configuration.
