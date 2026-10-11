@@ -83,6 +83,7 @@ from frisket.engine.runner.validation import (
 )
 from frisket.engine.sandbox.shim import SandboxTeardownError
 from frisket.engine.store import Project
+from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
 from frisket.engine.store.output_claims import ClaimLeaseRenewalFailed
 from frisket.engine.store.result_generations import (
     GenerationSealedError,
@@ -230,9 +231,16 @@ def _cloud_row_request_id(
     project: Project,
     *,
     current_checkpoint_id: str,
+    current_group_key: str,
+    current_unit_key: str,
     action_kind: str,
     identity: str,
-) -> str:
+    current_authorized_attempt_id: str,
+    run_id: int,
+    writer_attempt_id: str,
+    claim_token: str | None,
+    claimless_direct_effect: bool,
+) -> tuple[str, str, bool]:
     """Return the globally scoped Cloud key for this unresolved row effect.
 
     A fresh run may be the only way to recover after a create response was
@@ -254,9 +262,33 @@ def _cloud_row_request_id(
         # reservation without exposing the current uncommitted checkpoint.
         with project.read_snapshot() as snapshot:
             prior = snapshot.db.execute(query, params).fetchone()
-    owner_checkpoint_id = (
-        str(prior["id"]) if prior is not None else current_checkpoint_id
-    )
+    owner_checkpoint_id = current_checkpoint_id
+    adopted = False
+    if prior is not None:
+        owner_checkpoint_id = str(prior["id"])
+        source = EffectCheckpointStore(project.db).get(owner_checkpoint_id)
+        if source is None:
+            raise RecipeInvocationHalt(
+                "external_effect_reconciliation_required",
+                "The prior Cloud reservation disappeared during recovery.",
+            )
+        EffectCheckpointStore(project.db).adopt_reserved_for_recovery(
+            owner_checkpoint_id,
+            current_checkpoint_id=current_checkpoint_id,
+            family="row_effect",
+            source_group_key=str(source["group_key"]),
+            source_unit_key=str(source["unit_key"]),
+            current_group_key=current_group_key,
+            current_unit_key=current_unit_key,
+            action_kind=action_kind,
+            identity=identity,
+            current_authorized_attempt_id=current_authorized_attempt_id,
+            run_id=run_id,
+            writer_attempt_id=writer_attempt_id,
+            claim_token=claim_token,
+            claimless_direct_effect=claimless_direct_effect,
+        )
+        adopted = True
     logical = {
         "schema_version": "frisket.cloud_map_row_request.v1",
         "project_storage_identity": project.storage_identity,
@@ -265,7 +297,11 @@ def _cloud_row_request_id(
     encoded = json.dumps(
         logical, sort_keys=True, separators=(",", ":"), allow_nan=False
     ).encode("utf-8")
-    return "cloud_row_" + hashlib.sha256(encoded).hexdigest()
+    return (
+        owner_checkpoint_id,
+        "cloud_row_" + hashlib.sha256(encoded).hexdigest(),
+        adopted,
+    )
 
 
 def _returned_row_response(checkpoint: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -1467,12 +1503,31 @@ class MapRunner:
                             "promise_violation",
                             "Cloud execution requires a durable admitted row effect",
                         )
-                    cloud_request_id = _cloud_row_request_id(
-                        self.project,
-                        current_checkpoint_id=checkpoint_id,
-                        action_kind=spec["action_kind"],
-                        identity=checkpoint_identity,
+                    if attempt is None:
+                        raise RecipeInvocationHalt(
+                            "promise_violation",
+                            "Cloud execution requires an authorized attempt",
+                        )
+                    checkpoint_id, cloud_request_id, adopted_checkpoint = (
+                        _cloud_row_request_id(
+                            self.project,
+                            current_checkpoint_id=checkpoint_id,
+                            current_group_key=str(run_id),
+                            current_unit_key=str(row_id),
+                            action_kind=spec["action_kind"],
+                            identity=checkpoint_identity,
+                            current_authorized_attempt_id=attempt.attempt_id,
+                            run_id=run_id,
+                            writer_attempt_id=attempt.attempt_id,
+                            claim_token=claim_token,
+                            claimless_direct_effect=self.claimless_direct_effect,
+                        )
                     )
+                    if adopted_checkpoint:
+                        # This reservation may already have reached Cloud in a
+                        # prior run.  A local refusal or cancellation cannot
+                        # prove no egress and must not discard its recovery key.
+                        checkpoint_created = False
                 if checkpoint_created and cancelled():
                     assert checkpoint_id is not None
                     assert checkpoint_identity is not None

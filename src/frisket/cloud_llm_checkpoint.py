@@ -145,6 +145,32 @@ class CloudLLMCheckpointCoordinator:
                 "Cloud LLM checkpoint disappeared before execution",
             )
         self._verify_row(row, identity=identity, payload=payload)
+        if (
+            not created
+            and row["state"] == "reserved"
+            and row.get("authorized_attempt_id") != self.writer_attempt_id
+        ):
+            if self.run_id is None or self.writer_attempt_id is None:
+                raise CloudExecutionRefused(
+                    "external_effect_reconciliation_required",
+                    "Cloud LLM recovery has no current run writer",
+                )
+            row = store.adopt_reserved_for_recovery(
+                checkpoint_id,
+                current_checkpoint_id=checkpoint_id,
+                family=_FAMILY,
+                source_group_key=self.group_key,
+                source_unit_key=unit_key,
+                current_group_key=self.group_key,
+                current_unit_key=unit_key,
+                action_kind=self.action_kind,
+                identity=identity,
+                current_authorized_attempt_id=self.writer_attempt_id,
+                run_id=self.run_id,
+                writer_attempt_id=self.writer_attempt_id,
+                claim_token=self.claim_token,
+                claimless_direct_effect=self.claimless_direct_effect,
+            )
         attempt = CloudExecutionAttempt(
             request_id=checkpoint_id,
             payer=self.payer,

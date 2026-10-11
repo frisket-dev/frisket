@@ -449,8 +449,10 @@ def test_cloud_ocr_reserves_durable_request_before_transport(tmp_path):
         project.close()
 
 
-def test_cloud_ocr_fresh_run_replays_unresolved_purchase_key(tmp_path, monkeypatch):
-    """A lost create response is recovered by the next exact run, without rebuy."""
+def test_cloud_ocr_recovery_retires_key_before_intentional_third_run(
+    tmp_path, monkeypatch
+):
+    """Recovery replays once; a later intentional run makes a new purchase."""
 
     monkeypatch.setattr(
         "frisket.ops.ocr_engines_local._rapidocr_model_root_dir",
@@ -584,6 +586,33 @@ def test_cloud_ocr_fresh_run_replays_unresolved_purchase_key(tmp_path, monkeypat
         assert second.status == "completed", second.errors
         assert transport.calls[0] == transport.calls[1]
         assert len(transport.purchases) == 1
+
+        third_action = {
+            **_request(sheet_id, engine=engine),
+            "idempotency_key": "ocr-intentional-third-run",
+            "output_names": {
+                "text": "ocr_text_third",
+                "blocks": "ocr_text_blocks_third",
+            },
+        }
+        third = run_action_spec(
+            project,
+            third_action,
+            project_id="cloud-ocr-anchor",
+            router=router,
+            deps=deps,
+        )
+
+        assert third.status == "completed", third.errors
+        assert transport.calls[2] != transport.calls[1]
+        assert len(transport.purchases) == 2
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM effect_checkpoints "
+                "WHERE family='row_effect' AND state='reserved'"
+            ).fetchone()[0]
+            == 0
+        )
     finally:
         project.close()
 

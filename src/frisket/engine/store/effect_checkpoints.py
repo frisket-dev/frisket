@@ -308,6 +308,141 @@ class EffectCheckpointStore:
             ).rowcount
         return inserted == 1
 
+    def adopt_reserved_for_recovery(
+        self,
+        checkpoint_id: str,
+        *,
+        current_checkpoint_id: str,
+        family: str,
+        source_group_key: str,
+        source_unit_key: str,
+        current_group_key: str,
+        current_unit_key: str,
+        action_kind: str,
+        identity: str,
+        current_authorized_attempt_id: str,
+        run_id: int,
+        writer_attempt_id: str,
+        claim_token: str | None = None,
+        claimless_direct_effect: bool = False,
+    ) -> dict[str, Any]:
+        """Transfer one exact ambiguous reservation to a fresh run writer.
+
+        Recovery must keep the original checkpoint id because it is also the
+        provider idempotency key.  A row-effect caller first creates its usual
+        no-egress reservation for the fresh run and supplies that id as
+        ``current_checkpoint_id``; this transaction removes that replacement
+        before moving the old reservation.  A child model-call checkpoint is
+        already keyed by the stable parent request, so it supplies its own id
+        for both arguments and only its authorized attempt changes.
+
+        Only a terminal source attempt may be adopted.  Returned evidence is
+        immutable and the current writer still passes the ordinary claim
+        fence; recovery therefore adds no cross-run completion exception.
+        """
+
+        from frisket.execution.attempt import (
+            TERMINAL_ATTEMPT_STATES,
+            StaleAttemptWriter,
+        )
+
+        if current_authorized_attempt_id != writer_attempt_id:
+            raise StaleAttemptWriter(
+                "checkpoint recovery must authorize the current writer attempt"
+            )
+        same_checkpoint = checkpoint_id == current_checkpoint_id
+        if same_checkpoint and (
+            source_group_key != current_group_key or source_unit_key != current_unit_key
+        ):
+            raise ValueError(
+                "an in-place checkpoint recovery cannot change logical coordinates"
+            )
+
+        with self._txn():
+            source = self._verified_unit(
+                checkpoint_id,
+                family=family,
+                group_key=source_group_key,
+                unit_key=source_unit_key,
+                action_kind=action_kind,
+                identity=identity,
+                expected_state="reserved",
+            )
+            source_attempt_id = source.get("authorized_attempt_id")
+            source_attempt = (
+                None
+                if not isinstance(source_attempt_id, str) or not source_attempt_id
+                else self.db.execute(
+                    "SELECT state FROM execution_attempts WHERE id=?",
+                    (source_attempt_id,),
+                ).fetchone()
+            )
+            if (
+                source_attempt is None
+                or str(source_attempt["state"]) not in TERMINAL_ATTEMPT_STATES
+            ):
+                state = None if source_attempt is None else source_attempt["state"]
+                raise StaleAttemptWriter(
+                    "checkpoint recovery requires a terminal source attempt; "
+                    f"found {state!r}"
+                )
+
+            self._fence_writer(
+                run_id=run_id,
+                writer_attempt_id=writer_attempt_id,
+                claim_token=claim_token,
+                claimless_direct_effect=claimless_direct_effect,
+                authorized_attempt_id=current_authorized_attempt_id,
+            )
+
+            if not same_checkpoint:
+                current = self._verified_unit(
+                    current_checkpoint_id,
+                    family=family,
+                    group_key=current_group_key,
+                    unit_key=current_unit_key,
+                    action_kind=action_kind,
+                    identity=identity,
+                    expected_state="reserved",
+                )
+                if (
+                    current.get("authorized_attempt_id")
+                    != current_authorized_attempt_id
+                ):
+                    raise StaleAttemptWriter(
+                        "the replacement reservation is not owned by the current writer"
+                    )
+                deleted = self.db.execute(
+                    "DELETE FROM effect_checkpoints WHERE id=? AND state='reserved' "
+                    "AND authorized_attempt_id=?",
+                    (current_checkpoint_id, current_authorized_attempt_id),
+                ).rowcount
+                if deleted != 1:
+                    raise CheckpointLost(
+                        "the no-egress replacement reservation changed during recovery"
+                    )
+
+            updated = self.db.execute(
+                "UPDATE effect_checkpoints SET group_key=?, unit_key=?, "
+                "authorized_attempt_id=? WHERE id=? AND state='reserved' "
+                "AND authorized_attempt_id=?",
+                (
+                    current_group_key,
+                    current_unit_key,
+                    current_authorized_attempt_id,
+                    checkpoint_id,
+                    source_attempt_id,
+                ),
+            ).rowcount
+            if updated != 1:
+                raise CheckpointLost(
+                    "the source reservation changed during recovery adoption"
+                )
+            adopted = self.get(checkpoint_id)
+            if adopted is None:
+                raise CheckpointLost("the adopted checkpoint disappeared")
+            return adopted
+
     def returned_for_replay(
         self,
         *,

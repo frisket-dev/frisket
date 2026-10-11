@@ -24,6 +24,7 @@ from frisket.contracts.http.cloud_connection import (
     CloudTokenPrice,
 )
 from frisket.engine.store import Project
+from frisket.engine.store.runs import RunResultStore
 
 MODEL = "anthropic/claude-sonnet-4-5"
 
@@ -144,6 +145,25 @@ def _coordinator(project, transport, *, payer=None, ceiling=100):
     )
 
 
+def _claimless_run(project, *, attempt_id: str, state: str = "dispatching"):
+    sheet_id = project.db.execute("SELECT id FROM sheets LIMIT 1").fetchone()[0]
+    op_id = project.append_op("map", {"recipe": "extract"})
+    run_id = RunResultStore(project).start_run(op_id, sheet_id, "map.extract")
+    project.db.execute(
+        "INSERT INTO execution_attempts "
+        "(id, run_id, seq, state, action_identity_hash, scope_json, created_at) "
+        "VALUES (?, ?, 0, ?, 'cloud-llm-recovery', '[]', datetime('now'))",
+        (attempt_id, run_id, state),
+    )
+    if state == "dispatching":
+        project.db.execute(
+            "UPDATE runs SET current_attempt_id=? WHERE id=?",
+            (attempt_id, run_id),
+        )
+    project.db.commit()
+    return run_id
+
+
 def test_returned_request_replays_locally_and_changed_payer_refuses(tmp_path):
     async def scenario() -> None:
         project = Project.create(tmp_path / "project.frisket")
@@ -182,6 +202,69 @@ def test_reserved_request_reposts_identical_id_and_body(tmp_path):
         [(second_attempt, second_request)] = recovered.calls
         assert second_attempt.request_id == first_attempt.request_id
         assert second_request == first_request
+        project.close()
+
+    asyncio.run(scenario())
+
+
+def test_reserved_request_is_adopted_by_fresh_run_writer(tmp_path):
+    async def scenario() -> None:
+        project = Project.create(tmp_path / "fresh-run.frisket")
+        project.add_sheet("S")
+        first_run = _claimless_run(project, attempt_id="attempt-first")
+        uncertain = _Transport([RuntimeError("lost response")])
+        first = CloudLLMCheckpointCoordinator(
+            project,
+            uncertain,
+            payer=_payer(),
+            quote_authority=CloudQuoteAuthority(100),
+            group_key="map:stable-parent-key",
+            action_kind="map.extract",
+            run_id=first_run,
+            writer_attempt_id="attempt-first",
+            claimless_direct_effect=True,
+        )
+        with pytest.raises(RuntimeError, match="lost response"):
+            await first.execute(_request())
+        project.db.execute(
+            "UPDATE execution_attempts SET state='halted' WHERE id='attempt-first'"
+        )
+        project.db.execute(
+            "UPDATE runs SET current_attempt_id=NULL WHERE id=?", (first_run,)
+        )
+        project.db.commit()
+
+        second_run = _claimless_run(project, attempt_id="attempt-second")
+        recovered_transport = _Transport([_response(execution_id="exec-1")])
+        recovered = CloudLLMCheckpointCoordinator(
+            project,
+            recovered_transport,
+            payer=_payer(),
+            quote_authority=CloudQuoteAuthority(100),
+            group_key="map:stable-parent-key",
+            action_kind="map.extract",
+            run_id=second_run,
+            writer_attempt_id="attempt-second",
+            claimless_direct_effect=True,
+        )
+        await recovered.execute(_request())
+
+        [(first_attempt, first_request)] = uncertain.calls
+        [(second_attempt, second_request)] = recovered_transport.calls
+        assert second_attempt.request_id == first_attempt.request_id
+        assert second_request == first_request
+        row = project.db.execute(
+            "SELECT state, authorized_attempt_id FROM effect_checkpoints WHERE id=?",
+            (second_attempt.request_id,),
+        ).fetchone()
+        assert tuple(row) == ("returned", "attempt-second")
+        recovered.retire_returned()
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM effect_checkpoints WHERE family='model_call'"
+            ).fetchone()[0]
+            == 0
+        )
         project.close()
 
     asyncio.run(scenario())
