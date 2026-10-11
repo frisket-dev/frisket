@@ -340,6 +340,7 @@ def test_solo_workspace_routes_ask_through_selected_cloud_account(tmp_path):
                 model=MODEL,
             ),
         )
+        run_task = service._tasks[(project, turn["id"])]  # noqa: SLF001
 
         for _ in range(100):
             saved = ProjectQAStore(project).get_turn(turn["id"])
@@ -347,6 +348,11 @@ def test_solo_workspace_routes_ask_through_selected_cloud_account(tmp_path):
                 break
             await asyncio.sleep(0.01)
         assert saved["status"] == "completed", saved["error_summary"]
+        # ``finalize_turn`` publishes the terminal status before the same task
+        # retires its receipt-backed Cloud checkpoints. Join that task so this
+        # assertion observes the completed service lifecycle, not event-loop
+        # scheduling between those two ordered writes.
+        await asyncio.wait_for(asyncio.shield(run_task), 5)
         assert len(transport.calls) == 2
         allowance = usd_to_micros(workspace.cost_preapproval_usd)
         assert transport.calls[0][0].quote_authority.maximum_charge_micro == allowance
