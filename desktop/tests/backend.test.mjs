@@ -40,6 +40,7 @@ test('backend launches through guardian, authenticates health, and waits for gua
   assert.deepEqual(call.args.slice(0, 6), ['-I', '/app/resources/python/frisket/runtime/_guard.py', '71', '8', '/private/python', '-I']);
   assert.equal(call.options.detached, true);
   assert.match(child.input, /"workspace":"\/data\/workspace"/);
+  assert.match(child.input, /"profile_dir":"\/data\/profile"/);
   await backend.stop();
   assert.equal(child.signal, 'SIGTERM');
 });

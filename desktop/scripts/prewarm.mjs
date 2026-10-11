@@ -73,7 +73,7 @@ if (stageModels) {
   await mkdir(workspace, { recursive: true });
   let backendFailure;
   const backend = await startBackend({
-    runtime, resourcesPath, workspace,
+    runtime, resourcesPath, workspace, profileDir: dataPath,
     onFailure: (error) => { backendFailure = error; },
   });
   try {
