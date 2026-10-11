@@ -9,9 +9,14 @@ from __future__ import annotations
 from contextlib import AbstractContextManager
 from typing import Any, Protocol, runtime_checkable
 
+from frisket.cloud_llm_checkpoint import CloudLLMCheckpointCoordinator
+
 
 @runtime_checkable
 class ProjectQATurnRuntime(Protocol):
+    @property
+    def cloud_llm_coordinator(self) -> CloudLLMCheckpointCoordinator | None: ...
+
     def call_scope(self, router: Any) -> AbstractContextManager[None]: ...
 
     def settle_call(self, *, project: Any, turn_id: str, call_id: str) -> None: ...

@@ -24,6 +24,16 @@ from frisket.execution.pricing_policy import usd_to_micros
 from frisket.server.thread_worker import await_thread_worker
 
 
+def model_actual_cost(response: LLMResponse) -> float | None:
+    """Return the cost this research budget actually incurred."""
+
+    if response.cached:
+        return 0.0
+    if response.actual_accounting is not None:
+        return response.actual_accounting.cost
+    return response.cost
+
+
 class ResearchPaused(Exception):
     """An ordinary pause needing user input, not an agent/provider failure."""
 
@@ -177,7 +187,8 @@ class ResearchSession:
         operation = self._model_operation.get()
         if operation is None:
             raise RuntimeError("Research model usage has no admitted request")
-        if response.cost is None:
+        actual_cost = model_actual_cost(response)
+        if actual_cost is None:
             # Preserve the commitment when actual cost is unavailable. Continuing
             # with invented zero-cost usage would silently replenish the budget.
             await self.pause({"kind": "unknown_cost", "operation": "model"})
@@ -187,7 +198,7 @@ class ResearchSession:
             self.id,
             operation_id=operation[0],
             payload_identity=operation[1],
-            actual_micros=usd_to_micros(response.cost),
+            actual_micros=usd_to_micros(actual_cost),
         )
 
     async def search(self, service: SearchService, query: str) -> SearchResponse:

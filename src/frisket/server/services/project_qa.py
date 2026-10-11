@@ -43,6 +43,7 @@ from frisket.server.services.project_qa_tracing import (
 from frisket.server.thread_worker import await_thread_worker
 from frisket.server.workspace import Workspace
 from frisket.server.project_qa_runtime import ProjectQATurnRuntime
+from frisket.cloud_llm_checkpoint import CloudLLMCheckpointCoordinator
 from frisket.server.services.project_qa_authority import BackgroundAskContext
 from frisket.server.services.project_qa_research import ResearchSession
 from frisket.server.services.project_qa_capabilities import ProjectQACapabilityError
@@ -590,6 +591,12 @@ class ProjectQAService:
         diagnostic = None
         model = turn["model"]
         budget = asyncio.timeout(None if research else 180)
+        cloud_coordinator: CloudLLMCheckpointCoordinator | None = (
+            getattr(runtime, "cloud_llm_coordinator", None)
+            if runtime is not None
+            else None
+        )
+        accounted_cloud_calls: set[str] = set()
         try:
             if (await await_thread_worker(store.get_turn, turn["id"]))[
                 "status"
@@ -600,7 +607,9 @@ class ProjectQAService:
             tracing = self._tracing
 
             async def settle_call(call_id: str) -> None:
-                if runtime is not None:
+                if cloud_coordinator is not None:
+                    accounted_cloud_calls.add(call_id)
+                elif runtime is not None:
                     await await_thread_worker(
                         runtime.settle_call,
                         project=project,
@@ -668,6 +677,7 @@ class ProjectQAService:
                             if runtime is not None
                             else nullcontext()
                         ),
+                        cloud_llm_coordinator=cloud_coordinator,
                         instrumentation=(
                             tracing.instrumentation if tracing is not None else None
                         ),
@@ -745,6 +755,10 @@ class ProjectQAService:
                 error_summary=error,
                 diagnostic=diagnostic,
             )
+            if cloud_coordinator is not None:
+                returned = cloud_coordinator.returned_checkpoints
+                if returned and len(accounted_cloud_calls) >= len(returned):
+                    await await_thread_worker(cloud_coordinator.retire_returned)
 
     async def _close_runtime(self, runtime: ProjectQATurnRuntime) -> None:
         try:
