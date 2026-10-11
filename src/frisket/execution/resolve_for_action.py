@@ -52,7 +52,7 @@ from frisket.execution.consent_coverage import (
     effective_consent_coverage,
 )
 from dataclasses import dataclass, replace
-from decimal import ROUND_CEILING, Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation
 from math import isfinite
 from typing import Any, Mapping, Sequence
 
@@ -682,8 +682,11 @@ def _llm_cost_basis(
     resolution: Resolution,
     rendered: Mapping[int, Any],
 ) -> tuple[CostBasis, int]:
-    from frisket.ai.llm import estimate_tokens
-    from frisket.contracts.http.cloud_connection import CloudTokenPrice
+    from frisket.cloud_execution import cloud_llm_estimated_spend_micro
+    from frisket.contracts.http.cloud_connection import (
+        CloudLLMRequest,
+        CloudTokenPrice,
+    )
 
     price_hook = getattr(composition.provider, "cloud_llm_price", None)
     price = (
@@ -696,15 +699,15 @@ def _llm_cost_basis(
 
     row_micro: dict[int, int] = {}
     for row_id, call in rendered.items():
-        tokens_in = estimate_tokens(
-            json.dumps(call.messages, sort_keys=True, separators=(",", ":"))
-        )
-        raw_micro = (
-            Decimal(tokens_in) * price.input_micro_per_million_tokens
-            + Decimal(call.max_tokens) * price.output_micro_per_million_tokens
-        ) / Decimal(1_000_000)
-        row_micro[int(row_id)] = int(
-            raw_micro.to_integral_value(rounding=ROUND_CEILING)
+        row_micro[int(row_id)] = cloud_llm_estimated_spend_micro(
+            CloudLLMRequest(
+                model=resolution.facts.engine,
+                messages=call.messages,
+                schema=call.schema,
+                max_tokens=call.max_tokens,
+                temperature=0,
+            ),
+            price,
         )
 
     def usd(micro: int) -> str:

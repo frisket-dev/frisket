@@ -8,11 +8,12 @@ cannot choose another account, lane, provider, or route revision.
 from __future__ import annotations
 
 import asyncio
+import json
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from collections.abc import Iterator, Sequence
-from decimal import Decimal, ROUND_FLOOR
+from decimal import Decimal, ROUND_CEILING
 from datetime import UTC, datetime
 from typing import (
     TYPE_CHECKING,
@@ -35,6 +36,7 @@ from frisket.contracts.http.cloud_connection import (
     CloudExecutionResponse,
     CloudLLMExecutionRequest,
     CloudLLMRequest,
+    CloudTokenPrice,
     CloudLane,
     CloudOCRExecutionMetadata,
     CloudOCROptions,
@@ -42,6 +44,7 @@ from frisket.contracts.http.cloud_connection import (
     CloudTranscriptionExecutionMetadata,
 )
 from frisket.contracts.transcription_sidecar import TranscriptionOptions
+from frisket.ops.integrations.hosted_error import HostedEngineError
 
 if TYPE_CHECKING:
     from frisket.ops.base import OpContext
@@ -215,13 +218,11 @@ class CloudMediaUpload:
             raise TypeError("Cloud upload stream must be readable")
 
 
-class CloudExecutionRefused(RuntimeError):
+class CloudExecutionRefused(HostedEngineError):
     """A typed pre-effect Cloud refusal safe to surface locally."""
 
     def __init__(self, code: str, message: str, *, retryable: bool = False) -> None:
-        super().__init__(message)
-        self.code = code
-        self.retryable = retryable
+        super().__init__(code=code, message=message, retryable=retryable)
 
 
 class CloudConfirmationRequired(CloudExecutionRefused):
@@ -239,6 +240,7 @@ class _CloudOutcomeUncertain(CloudExecutionRefused):
         super().__init__(
             "cloud_unreachable", "Frisket Cloud is unavailable", retryable=True
         )
+        self.post_egress_ambiguous = True
 
 
 @runtime_checkable
@@ -306,6 +308,11 @@ def cloud_quote_authority_for_row(
     if isinstance(cost_basis, PricedCostBasis):
         quantities = cost_basis.row_quote_quantities
         if quantities is None:
+            if cost_basis.estimated_quantity is None:
+                # Reaching this effect site means the unbounded cost claim was
+                # already admitted. Preserve that explicit authority without
+                # inventing a numeric ceiling for an unmeasurable row.
+                return CloudQuoteAuthority(maximum_charge_micro=None)
             raise CloudExecutionRefused(
                 "cloud_quote_unbound",
                 "Cloud execution requires an exact per-row quote allocation",
@@ -319,10 +326,10 @@ def cloud_quote_authority_for_row(
                 "cloud_quote_unbound",
                 "Cloud execution row is absent from its admitted quote",
             )
-        micro = (
-            Decimal(cost_basis.unit_rate) * quantity * Decimal(1_000_000)
-        ).to_integral_value(rounding=ROUND_FLOOR)
-        return CloudQuoteAuthority(maximum_charge_micro=int(micro))
+        rate_micro = Decimal(cost_basis.unit_rate) * Decimal(1_000_000)
+        micro = (rate_micro * quantity).to_integral_value(rounding=ROUND_CEILING)
+        maximum = 0 if rate_micro == 0 else max(1, int(micro))
+        return CloudQuoteAuthority(maximum_charge_micro=maximum)
     if isinstance(cost_basis, UnpriceableCost):
         return CloudQuoteAuthority(maximum_charge_micro=None)
     if isinstance(cost_basis, OperatorBorneZeroCost):
@@ -331,6 +338,37 @@ def cloud_quote_authority_for_row(
             "A paid Cloud route cannot use an operator-borne cost basis",
         )
     raise TypeError("unsupported Cloud execution cost basis")
+
+
+def cloud_llm_estimated_spend_micro(
+    request: CloudLLMRequest,
+    price: CloudTokenPrice,
+) -> int:
+    """Match the Cloud service's quote over one exact LLM wire request."""
+
+    if not isinstance(request, CloudLLMRequest):
+        raise TypeError("Cloud LLM quote request is invalid")
+    if not isinstance(price, CloudTokenPrice):
+        raise TypeError("Cloud LLM quote price is invalid")
+    from frisket.ai.llm import estimate_tokens
+
+    input_text = json.dumps(
+        {
+            "messages": request.messages,
+            "schema": request.schema_,
+            "tools": request.tools,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+    raw = (
+        Decimal(estimate_tokens(input_text))
+        * Decimal(price.input_micro_per_million_tokens)
+        + Decimal(request.max_tokens) * Decimal(price.output_micro_per_million_tokens)
+    ) / Decimal(1_000_000)
+    return int(raw.to_integral_value(rounding=ROUND_CEILING))
 
 
 class HttpCloudExecutionTransport:

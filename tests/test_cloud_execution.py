@@ -105,6 +105,49 @@ def test_cloud_unknown_cost_consent_is_explicitly_unbounded():
     assert authority.maximum_charge_micro is None
 
 
+def test_cloud_priced_unknown_quantity_consent_is_explicitly_unbounded():
+    basis = PricedCostBasis(
+        pricing_key="cloud.document.convert",
+        unit_rate="0.01",
+        estimated_quantity=None,
+        quantity_unit="page",
+        terms_version="route-1",
+        quantity_rounding_mode="half_even",
+        quantity_rounding_decimal_places=6,
+        meter_key="pages",
+        meter_units_per_quantity_unit="1",
+        ceiling_mode="consented_quantity",
+        row_settlement_mode="quoted_successful_rows",
+        charge_authority="frisket_cloud_receipt",
+    )
+
+    authority = cloud_quote_authority_for_row(basis, row_id=11)
+
+    assert authority.maximum_charge_micro is None
+
+
+def test_cloud_fractional_unit_quote_matches_server_ceiling_rounding():
+    basis = PricedCostBasis(
+        pricing_key="cloud.transcribe",
+        unit_rate="0.000133",
+        estimated_quantity="10.5",
+        quantity_unit="audio_second",
+        terms_version="route-1",
+        quantity_rounding_mode="half_even",
+        quantity_rounding_decimal_places=6,
+        meter_key="audio_seconds",
+        meter_units_per_quantity_unit="1",
+        ceiling_mode="consented_quantity",
+        row_settlement_mode="quoted_successful_rows",
+        charge_authority="frisket_cloud_receipt",
+        row_quote_quantities=((11, "10.5"),),
+    )
+
+    authority = cloud_quote_authority_for_row(basis, row_id=11)
+
+    assert authority.maximum_charge_micro == 1_397
+
+
 @pytest.mark.parametrize("name", ["../secret.pdf", "folder/audio.wav", "", ".."])
 def test_cloud_upload_refuses_paths(name):
     with pytest.raises(ValueError, match="plain file name"):
@@ -316,6 +359,27 @@ async def test_http_transport_retries_uncertain_post_with_identical_key_and_body
 
 
 @pytest.mark.asyncio
+async def test_http_transport_marks_lost_create_response_as_ambiguous(tmp_path):
+    async def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("lost response", request=request)
+
+    transport = HttpCloudExecutionTransport(
+        _store(tmp_path),
+        "https://cloud.example.test",
+        http_transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(CloudExecutionRefused) as error:
+        await transport.execute_llm(
+            CloudExecutionAttempt("durable-request-1", _payer(), None),
+            _llm_request(),
+        )
+
+    assert error.value.code == "cloud_unreachable"
+    assert error.value.post_egress_ambiguous is True
+
+
+@pytest.mark.asyncio
 async def test_http_media_transport_repeats_plural_files_field(tmp_path):
     captured = b""
 
@@ -377,6 +441,7 @@ async def test_http_transport_projects_execution_conflict_as_safe_refusal(tmp_pa
             _llm_request(),
         )
     assert error.value.code == "execution_conflict"
+    assert error.value.post_egress_ambiguous is False
 
 
 @pytest.mark.asyncio

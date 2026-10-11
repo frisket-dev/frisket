@@ -6,6 +6,7 @@ import pytest
 
 from frisket.ai.llm import LLMRequest, ModelRouter
 from frisket.cloud_execution import (
+    CloudExecutionRefused,
     CloudLLMExecutionBinding,
     CloudPayerSubject,
     CloudQuoteAuthority,
@@ -99,6 +100,23 @@ def _response(*, execution_id: str, charge_micro: int = 20) -> CloudExecutionRes
     )
 
 
+def _account_key_response(*, execution_id: str) -> CloudExecutionResponse:
+    response = _response(execution_id=execution_id, charge_micro=0)
+    assert response.receipt is not None
+    return response.model_copy(
+        update={
+            "route": response.route.model_copy(update={"lane": "account_key"}),
+            "receipt": response.receipt.model_copy(
+                update={
+                    "lane": "account_key",
+                    "charge_micro": 0,
+                    "provider_cost_micro": None,
+                }
+            ),
+        }
+    )
+
+
 class _Transport:
     def __init__(
         self,
@@ -188,6 +206,32 @@ def test_changed_request_gets_new_child_and_only_remaining_allowance(tmp_path):
         assert first_attempt.quote_authority.maximum_charge_micro == 100
         assert second_attempt.quote_authority.maximum_charge_micro == 80
         assert len(coordinator.returned_checkpoints) == 2
+        project.close()
+
+    asyncio.run(scenario())
+
+
+def test_account_key_unknown_receipt_cost_remains_fail_closed_for_later_call(tmp_path):
+    async def scenario() -> None:
+        project = Project.create(tmp_path / "project.frisket")
+        payer = CloudPayerSubject(**{**_payer().to_snapshot(), "lane": "account_key"})
+        transport = _Transport(
+            [
+                _account_key_response(execution_id="exec-1"),
+                _account_key_response(execution_id="exec-2"),
+            ]
+        )
+        coordinator = _coordinator(project, transport, payer=payer, ceiling=100)
+
+        await coordinator.execute(_request(message="first"))
+        with pytest.raises(
+            CloudExecutionRefused,
+            match="Cloud LLM checkpoint has invalid spend accounting",
+        ):
+            await coordinator.execute(_request(message="second"))
+
+        [first_attempt] = [call[0] for call in transport.calls]
+        assert first_attempt.quote_authority.maximum_charge_micro == 100
         project.close()
 
     asyncio.run(scenario())

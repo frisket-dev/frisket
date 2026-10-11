@@ -148,6 +148,16 @@ _ROW_EFFECT_IDENTITY_IGNORED_SPEC_KEYS = frozenset(
         "consented_promise_set_hash",
         "halted_code",
         "halted_reason",
+        # Output-generation preconditions change from absent to the columns
+        # created by a failed first run. They fence local publication, not the
+        # provider request, so an exact lost-response retry must retain its
+        # Cloud purchase identity.
+        "output_target_preconditions",
+        "output_names",
+        "child_output_names",
+        "expected_output_columns",
+        "replace_existing",
+        "overwrite",
         # Selection is represented exactly by run_id + row_id.  A backfill may
         # spell its delta differently while asking the same row operation.
         "row_ids",
@@ -157,6 +167,7 @@ _ROW_EFFECT_IDENTITY_IGNORED_SPEC_KEYS = frozenset(
 
 def _row_effect_identity(
     *,
+    project_storage_identity: str,
     run_id: int,
     row_id: int,
     recipe: Recipe,
@@ -178,24 +189,34 @@ def _row_effect_identity(
             json.dumps(logical, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()
     )
-    semantic_spec = {
-        str(key): value
-        for key, value in spec.items()
-        if key not in _ROW_EFFECT_IDENTITY_IGNORED_SPEC_KEYS
-    }
-    identity_payload = {
-        "schema_version": "frisket.map_row_effect_identity.v1",
-        **logical,
-        "action_kind": spec["action_kind"],
-        "action_version": recipe.version,
-        "spec": semantic_spec,
-        "values": values,
-        "output_columns": sorted(
-            (str(name), int(column_id)) for name, column_id in out_cols.items()
-        ),
-    }
-    if cloud_payer is not None:
-        identity_payload["cloud_payer"] = dict(cloud_payer)
+    if cloud_payer is None:
+        identity_payload = {
+            "schema_version": "frisket.map_row_effect_identity.v1",
+            **logical,
+            "action_kind": spec["action_kind"],
+            "action_version": recipe.version,
+            "spec": spec,
+            "values": values,
+            "output_columns": sorted(
+                (str(name), int(column_id)) for name, column_id in out_cols.items()
+            ),
+        }
+    else:
+        semantic_spec = {
+            str(key): value
+            for key, value in spec.items()
+            if key not in _ROW_EFFECT_IDENTITY_IGNORED_SPEC_KEYS
+        }
+        identity_payload = {
+            "schema_version": "frisket.cloud_map_row_effect_identity.v1",
+            "project_storage_identity": project_storage_identity,
+            "row_id": int(row_id),
+            "action_kind": spec["action_kind"],
+            "action_version": recipe.version,
+            "spec": semantic_spec,
+            "values": values,
+            "cloud_payer": dict(cloud_payer),
+        }
     encoded = json.dumps(
         identity_payload,
         sort_keys=True,
@@ -203,6 +224,48 @@ def _row_effect_identity(
         allow_nan=False,
     ).encode("utf-8")
     return checkpoint_id, hashlib.sha256(encoded).hexdigest()
+
+
+def _cloud_row_request_id(
+    project: Project,
+    *,
+    current_checkpoint_id: str,
+    action_kind: str,
+    identity: str,
+) -> str:
+    """Return the globally scoped Cloud key for this unresolved row effect.
+
+    A fresh run may be the only way to recover after a create response was
+    lost. Reuse only an exact prior reserved semantic identity; completed rows
+    have been consumed and therefore mint a new purchase on an intentional
+    later run.
+    """
+
+    query = (
+        "SELECT id FROM effect_checkpoints "
+        "WHERE family='row_effect' AND action_kind=? AND identity=? "
+        "AND state='reserved' AND id<>? ORDER BY created_at, id LIMIT 1"
+    )
+    params = (action_kind, identity, current_checkpoint_id)
+    prior = project.db.execute(query, params).fetchone()
+    if prior is None:
+        # A reopened worker may have started its SQLite snapshot before the
+        # preceding failed run committed. The fresh read sees that committed
+        # reservation without exposing the current uncommitted checkpoint.
+        with project.read_snapshot() as snapshot:
+            prior = snapshot.db.execute(query, params).fetchone()
+    owner_checkpoint_id = (
+        str(prior["id"]) if prior is not None else current_checkpoint_id
+    )
+    logical = {
+        "schema_version": "frisket.cloud_map_row_request.v1",
+        "project_storage_identity": project.storage_identity,
+        "row_checkpoint_id": owner_checkpoint_id,
+    }
+    encoded = json.dumps(
+        logical, sort_keys=True, separators=(",", ":"), allow_nan=False
+    ).encode("utf-8")
+    return "cloud_row_" + hashlib.sha256(encoded).hexdigest()
 
 
 def _returned_row_response(checkpoint: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -1291,6 +1354,7 @@ class MapRunner:
             checkpoint_created = False
             checkpoint_should_complete = False
             recovered_response = False
+            cloud_request_id: str | None = None
             cloud_llm_coordinator: CloudLLMCheckpointCoordinator | None = None
             results: dict[str, dict[str, Any]]
             cloud_payer = (
@@ -1307,6 +1371,7 @@ class MapRunner:
                 and getattr(recipe, "row_effect_checkpoint_owner", "runner") == "runner"
             ):
                 checkpoint_id, checkpoint_identity = _row_effect_identity(
+                    project_storage_identity=self.project.storage_identity,
                     run_id=run_id,
                     row_id=row_id,
                     recipe=recipe,
@@ -1396,6 +1461,18 @@ class MapRunner:
                         recovered_response = True
 
             if not recovered_response:
+                if cloud_payer is not None:
+                    if checkpoint_id is None or checkpoint_identity is None:
+                        raise RecipeInvocationHalt(
+                            "promise_violation",
+                            "Cloud execution requires a durable admitted row effect",
+                        )
+                    cloud_request_id = _cloud_row_request_id(
+                        self.project,
+                        current_checkpoint_id=checkpoint_id,
+                        action_kind=spec["action_kind"],
+                        identity=checkpoint_identity,
+                    )
                 if checkpoint_created and cancelled():
                     assert checkpoint_id is not None
                     assert checkpoint_identity is not None
@@ -1418,6 +1495,7 @@ class MapRunner:
                     if cloud_payer is not None:
                         if (
                             checkpoint_id is None
+                            or cloud_request_id is None
                             or attempt is None
                             or attempt.routed is None
                         ):
@@ -1435,8 +1513,8 @@ class MapRunner:
                             self.execution_composition,
                             attempt,
                             row_id=row_id,
-                            request_id=checkpoint_id,
-                            group_key=f"map:{run_id}:row:{row_id}",
+                            request_id=cloud_request_id,
+                            group_key=f"map:{cloud_request_id}",
                             action_kind=spec["action_kind"],
                             run_id=run_id,
                             claim_token=claim_token,
