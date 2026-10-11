@@ -76,9 +76,7 @@ def test_cloud_upload_refuses_paths(name):
 
 
 def test_cloud_upload_retains_only_a_safe_name_type_and_stream():
-    upload = CloudMediaUpload(
-        "source.pdf", "application/pdf", io.BytesIO(b"%PDF-test")
-    )
+    upload = CloudMediaUpload("source.pdf", "application/pdf", io.BytesIO(b"%PDF-test"))
 
     assert upload.file_name == "source.pdf"
     assert upload.stream.read() == b"%PDF-test"
@@ -204,7 +202,9 @@ async def test_http_transport_does_not_echo_quote_above_local_ceiling(tmp_path):
     def handler(_request: httpx.Request) -> httpx.Response:
         nonlocal requests
         requests += 1
-        return httpx.Response(409, json=_quote(charge_micro=25_001).model_dump(mode="json"))
+        return httpx.Response(
+            409, json=_quote(charge_micro=25_001).model_dump(mode="json")
+        )
 
     transport = HttpCloudExecutionTransport(
         _store(tmp_path),
@@ -310,6 +310,48 @@ async def test_http_transport_projects_execution_conflict_as_safe_refusal(tmp_pa
     assert error.value.code == "execution_conflict"
 
 
+@pytest.mark.asyncio
+async def test_http_transport_refuses_reconnected_user_before_network(tmp_path):
+    store = _store(tmp_path)
+    store.save_connection(
+        "user-8-bearer",
+        CloudSessionResponse(
+            user=CloudUser(id=8, email="other@example.test", display_name="Other"),
+            expires_at="2099-01-01T00:00:00Z",
+            accounts=[
+                CloudAccount(
+                    id=41,
+                    name="Shared",
+                    kind="organization",
+                    balance_micro=1_000_000,
+                    available_micro=1_000_000,
+                    manage_billing=True,
+                )
+            ],
+        ),
+    )
+    requests = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal requests
+        requests += 1
+        return httpx.Response(200, json=_llm_response().model_dump(mode="json"))
+
+    transport = HttpCloudExecutionTransport(
+        store,
+        "https://cloud.example.test",
+        http_transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(CloudExecutionRefused) as error:
+        await transport.execute_llm(
+            CloudExecutionAttempt("durable-request-1", _payer(), None),
+            _llm_request(),
+        )
+    assert error.value.code == "account_forbidden"
+    assert requests == 0
+
+
 def _llm_response() -> CloudExecutionResponse:
     response = _response()
     return response.model_copy(
@@ -365,9 +407,7 @@ def test_cloud_accounting_refuses_a_changed_account():
     attempt = CloudExecutionAttempt("request-1", _payer(), None)
 
     with pytest.raises(CloudExecutionRefused, match="differs"):
-        cloud_execution_accounting(
-            attempt, _response(account_id=99), capability="ocr"
-        )
+        cloud_execution_accounting(attempt, _response(account_id=99), capability="ocr")
 
 
 def test_cloud_payer_changes_route_and_consent_identity_only_when_present():

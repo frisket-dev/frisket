@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -118,8 +119,7 @@ class CloudQuoteAuthority:
 
     def __post_init__(self) -> None:
         if self.maximum_charge_micro is not None and (
-            isinstance(self.maximum_charge_micro, bool)
-            or self.maximum_charge_micro < 0
+            isinstance(self.maximum_charge_micro, bool) or self.maximum_charge_micro < 0
         ):
             raise ValueError("Cloud quote ceiling must be non-negative")
 
@@ -154,7 +154,6 @@ class CloudMediaExecutionBinding:
     transport: CloudExecutionTransport
     attempt: CloudExecutionAttempt
     capability: CloudMediaCapability
-
 
 
 @dataclass(frozen=True, slots=True)
@@ -311,7 +310,9 @@ class HttpCloudExecutionTransport:
         self._require_engine(attempt, engine)
         upload_list = tuple(uploads)
         if not upload_list or (capability != "ocr" and len(upload_list) != 1):
-            expected = "one or more files" if capability == "ocr" else "exactly one file"
+            expected = (
+                "one or more files" if capability == "ocr" else "exactly one file"
+            )
             raise CloudExecutionRefused(
                 "invalid_request", f"Cloud {capability} requires {expected}"
             )
@@ -420,7 +421,7 @@ class HttpCloudExecutionTransport:
         confirmation: str | None = None,
         **kwargs: Any,
     ) -> httpx.Response:
-        token = self._access_token()
+        token = self._access_token(attempt)
         headers = {
             "Accept": "application/json",
             "Authorization": f"Bearer {token}",
@@ -435,9 +436,7 @@ class HttpCloudExecutionTransport:
                 timeout=self._timeout,
                 follow_redirects=False,
             ) as client:
-                response = await client.request(
-                    method, path, headers=headers, **kwargs
-                )
+                response = await client.request(method, path, headers=headers, **kwargs)
         except httpx.HTTPError as exc:
             raise _CloudOutcomeUncertain() from exc
         if response.is_redirect:
@@ -449,7 +448,7 @@ class HttpCloudExecutionTransport:
         self._raise_error(response)
         raise AssertionError("Cloud error projection returned")
 
-    def _access_token(self) -> str:
+    def _access_token(self, attempt: CloudExecutionAttempt) -> str:
         from frisket.cloud_connection import CloudConnectionStoreError
 
         try:
@@ -461,6 +460,31 @@ class HttpCloudExecutionTransport:
         if connection is None:
             raise CloudExecutionRefused(
                 "connection_expired", "Connect Frisket Cloud before running"
+            )
+        try:
+            expires_at = datetime.fromisoformat(
+                connection.session.expires_at.replace("Z", "+00:00")
+            )
+        except (TypeError, ValueError) as exc:
+            raise CloudExecutionRefused(
+                "connection_expired", "Reconnect Frisket Cloud"
+            ) from exc
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+        payer = attempt.payer
+        if expires_at.astimezone(UTC) <= datetime.now(UTC):
+            raise CloudExecutionRefused("connection_expired", "Reconnect Frisket Cloud")
+        if connection.session.user.id != payer.user_id:
+            raise CloudExecutionRefused(
+                "account_forbidden",
+                "The signed-in Cloud user differs from the admitted payer",
+            )
+        if not any(
+            account.id == payer.account_id for account in connection.session.accounts
+        ):
+            raise CloudExecutionRefused(
+                "account_forbidden",
+                "The admitted Cloud account is no longer available",
             )
         return connection.access_token
 
@@ -717,7 +741,9 @@ def cloud_execution_accounting(
         cost_source="provider_reported" if provider_cost is not None else "unknown",
         units=units,
         request_id=response.execution_id,
-        warnings=([] if provider_cost is not None else ["Cloud provider cost is unknown"]),
+        warnings=(
+            [] if provider_cost is not None else ["Cloud provider cost is unknown"]
+        ),
         duration_ms=None,
     ).as_dict()
     return {
