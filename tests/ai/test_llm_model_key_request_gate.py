@@ -43,6 +43,17 @@ from fastapi.testclient import TestClient
 
 from frisket.contracts.action import ActionResult
 from frisket.ai.llm import ModelRouter, ResponseCache
+from frisket.cloud_connection import CloudConnectionStore
+from frisket.contracts.http.cloud_connection import (
+    CloudAccount,
+    CloudCapabilitiesResponse,
+    CloudCapabilityRoute,
+    CloudLLMOptionSupport,
+    CloudSessionResponse,
+    CloudTokenPrice,
+    CloudUser,
+)
+from frisket.project_settings import ProjectSettings, write_project_settings
 from frisket.server.action_enqueue import missing_model_key_error_for_request
 from frisket.server.app import create_app
 from frisket.server.services.action_runs import v1_action_result_http_status
@@ -177,6 +188,96 @@ def test_provider_with_configured_key_passes_the_gate(tmp_path) -> None:
         json=_extract_action(),
     )
     assert response.status_code != 400 or "missing_provider_key" not in response.text
+
+
+def test_connected_cloud_model_passes_key_gate_with_one_capability_fetch(
+    tmp_path,
+) -> None:
+    model = "gemini/gemini-2.5-flash-lite"
+    store = CloudConnectionStore(tmp_path / "profile")
+    store.save_connection(
+        "installation-token",
+        CloudSessionResponse(
+            user=CloudUser(id=7, email="user@example.test", display_name="User"),
+            expires_at="2099-01-01T00:00:00Z",
+            accounts=[
+                CloudAccount(
+                    id=41,
+                    name="Personal",
+                    kind="personal",
+                    balance_micro=100,
+                    available_micro=100,
+                    manage_billing=True,
+                )
+            ],
+        ),
+    )
+
+    class Client:
+        origin = "https://app.frisket.dev"
+        calls = 0
+
+        def capabilities(self, token, account_id):
+            assert token == "installation-token"
+            assert account_id == 41
+            self.calls += 1
+            return CloudCapabilitiesResponse(
+                account_id=41,
+                routes=[
+                    CloudCapabilityRoute(
+                        capability="llm.complete",
+                        engine=model,
+                        provider="gemini",
+                        lane="frisket_credits",
+                        route_revision="route-1",
+                        ready=True,
+                        blocker=None,
+                        price=CloudTokenPrice(
+                            kind="tokens",
+                            input_micro_per_million_tokens=1,
+                            output_micro_per_million_tokens=1,
+                        ),
+                        options=CloudLLMOptionSupport(
+                            kind="llm",
+                            structured_output=True,
+                            tools=True,
+                            vision=True,
+                            max_output_tokens=4096,
+                        ),
+                    )
+                ],
+            )
+
+        def close(self):
+            return None
+
+    cloud_client = Client()
+    client = TestClient(
+        create_app(
+            tmp_path / "workspace",
+            router=ModelRouter(cache=None, cache_mode="off"),
+            cloud_connection_store=store,
+            cloud_connection_client=cloud_client,
+        )
+    )
+    project_id = _project_id(client)
+    project = client.app.state.workspace.get(project_id)
+    write_project_settings(
+        project,
+        ProjectSettings(
+            cloud_user_id=7,
+            cloud_account_id=41,
+            cloud_execution_preference="cloud_first",
+        ),
+    )
+
+    response = client.post(
+        f"/api/projects/{project_id}/actions/v1/run",
+        json=_extract_action(model=model),
+    )
+
+    assert "missing_provider_key" not in response.text
+    assert cloud_client.calls == 1
 
 
 def test_ollama_model_never_gated_local_keyless(tmp_path) -> None:
