@@ -41,7 +41,7 @@ export function CloudProfileSettings({
       <h2>Frisket Cloud</h2>
       <p>Connect this Frisket installation to use Cloud accounts and credits in local projects.</p>
     </div>
-    <CloudConnectionPanel client={connectionClient} variant="profile" allowDisconnect />
+    <CloudConnectionPanel client={connectionClient} variant="profile" allowSignOut />
     {preference && <fieldset className="cloud-preference-options" disabled={busy}>
       <legend>Default for new projects</legend>
       <p className="settings-help">Used when a model can run with both a local key and Cloud.</p>

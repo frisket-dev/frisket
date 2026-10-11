@@ -81,8 +81,8 @@ export function ProjectCloudRoutingSettings({
     </section>;
   }
 
-  const eligibleAccounts = routing.accounts.filter((account) => account.eligible);
-  const selected = eligibleAccounts.find((account) => account.id === routing.selectedAccountId) ?? null;
+  const selected = routing.accounts.find((account) => account.id === routing.selectedAccountId) ?? null;
+  const selectedAccountUnavailable = routing.selectedAccountId !== null && !selected?.eligible;
   const overlap = routing.overlapProviderLabels.length
     ? routing.overlapProviderLabels.join(', ')
     : null;
@@ -94,16 +94,22 @@ export function ProjectCloudRoutingSettings({
     </div>
     {routing.connectionState !== 'connected' && (
       <CloudConnectionPanel client={connectionClient} variant="compact"
-        onSelectAccount={(id) => patch({ selectedAccountId: id }, true).then(() => undefined)}
+        intent={routing.connectionState === 'expired' ? 'reconnect' : 'connect'}
+        onSelectAccount={routing.connectionState === 'expired' ? undefined
+          : (id) => patch({ selectedAccountId: id }, true).then(() => undefined)}
         onChanged={() => { load(); }} />
     )}
-    {routing.connectionState === 'connected' && <label className="settings-form-field">
+    {routing.connectionState === 'connected' && <label className="settings-field">
       <span>Cloud account for this project</span>
-      <select value={selected?.id ?? ''} disabled={!routing.canMutate || busy}
+      <select value={routing.selectedAccountId ?? ''} disabled={!routing.canMutate || busy}
         onChange={(event) => void patch({ selectedAccountId: Number(event.currentTarget.value) })}>
         <option value="" disabled>Choose an account</option>
-        {eligibleAccounts.map((account) => <option key={account.id} value={account.id}>
-          {account.name} · {cloudAccountKindLabel(account.kind)}
+        {routing.selectedAccountId !== null && !selected && <option value={routing.selectedAccountId} disabled>
+          Previously selected account · unavailable
+        </option>}
+        {routing.accounts.map((account) => <option key={account.id} value={account.id}
+          disabled={!account.eligible}>
+          {account.name} · {cloudAccountKindLabel(account.kind)}{account.eligible ? '' : ' · unavailable'}
         </option>)}
       </select>
       {selected?.balanceLabel && <small className="settings-help">
@@ -112,6 +118,12 @@ export function ProjectCloudRoutingSettings({
           : <>Frisket credits · {selected.balanceLabel}</>}
       </small>}
     </label>}
+    {routing.connectionState === 'connected' && selectedAccountUnavailable && (
+      <div className="settings-inline-error" role="alert">
+        {selected?.name ?? 'The selected Cloud account'} can no longer fund this project.
+        Choose another eligible account; Frisket won’t switch it automatically.
+      </div>
+    )}
 
     <fieldset className="cloud-preference-options" disabled={!routing.canMutate || busy || routing.connectionState !== 'connected'}>
       <legend>When a model works with both</legend>
@@ -127,6 +139,7 @@ export function ProjectCloudRoutingSettings({
       </label>
       <label>
         <input type="radio" name="cloud-preference" value="cloud_first"
+          disabled={selectedAccountUnavailable}
           checked={routing.preference === 'cloud_first'}
           onChange={() => void patch({ preference: 'cloud_first' })} />
         <span><strong>Use {selected?.name ?? 'the project’s Cloud account'}</strong>

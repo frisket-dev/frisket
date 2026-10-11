@@ -39,23 +39,23 @@ afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); });
 describe('CloudConnectionPanel', () => {
   it('completes the shared device flow and exposes installation sign-out only in Profile', async () => {
     vi.useFakeTimers();
-    vi.spyOn(window, 'open').mockReturnValue(null);
     const api = client();
-    render(<CloudConnectionPanel client={api} variant="profile" allowDisconnect />);
+    render(<CloudConnectionPanel client={api} variant="profile" allowSignOut />);
     await act(async () => {});
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: /sign in with browser/i })); });
     expect(screen.getByText('KQ4F-7M2D')).toBeVisible();
-    expect(window.open).toHaveBeenCalledWith('https://app.frisket.dev/device', '_blank', 'noopener,noreferrer');
+    expect(screen.getByRole('link', { name: /open sign-in page/i })).toHaveAttribute(
+      'href', 'https://app.frisket.dev/device',
+    );
     await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
     expect(screen.getByTestId('cloud-connection-connected')).toHaveTextContent('Sam Rivera');
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Disconnect' })); });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Sign out' })); });
     expect(api.disconnect).toHaveBeenCalledOnce();
     expect(screen.getByRole('button', { name: /sign in with browser/i })).toBeVisible();
   });
 
   it('keeps the project account step in context and never offers Disconnect inline', async () => {
     vi.useFakeTimers();
-    vi.spyOn(window, 'open').mockReturnValue(null);
     const api = client();
     const selectAccount = vi.fn().mockResolvedValue(undefined);
     render(<CloudConnectionPanel client={api} variant="compact" onSelectAccount={selectAccount} />);
@@ -72,7 +72,6 @@ describe('CloudConnectionPanel', () => {
 
   it('returns a declined authorization to the connect card with one actionable error', async () => {
     vi.useFakeTimers();
-    vi.spyOn(window, 'open').mockReturnValue(null);
     const api = client({
       pollAuthorization: vi.fn().mockResolvedValue({ status: 'declined', connection: disconnected() }),
     });

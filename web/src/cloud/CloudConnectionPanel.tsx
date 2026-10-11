@@ -48,7 +48,7 @@ export interface CloudConnectionClient {
 interface CloudConnectionPanelProps {
   client: CloudConnectionClient;
   variant: 'profile' | 'compact';
-  allowDisconnect?: boolean;
+  allowSignOut?: boolean;
   promptForAccount?: boolean;
   intent?: 'connect' | 'reconnect';
   onSelectAccount?(accountId: number): Promise<void>;
@@ -66,7 +66,7 @@ const connectionError = (caught: unknown): string => (
 export function CloudConnectionPanel({
   client,
   variant,
-  allowDisconnect = false,
+  allowSignOut = false,
   promptForAccount = false,
   intent,
   onSelectAccount,
@@ -173,7 +173,6 @@ export function CloudConnectionPanel({
       const started = await client.startAuthorization(controller.signal);
       setAuthorization(started);
       setPhase('waiting');
-      window.open(started.verificationUriComplete ?? started.verificationUri, '_blank', 'noopener,noreferrer');
       poll(started);
     } catch (caught) {
       if (!controller.signal.aborted) {
@@ -212,7 +211,7 @@ export function CloudConnectionPanel({
     }
   };
 
-  const disconnect = async () => {
+  const signOut = async () => {
     setBusy(true);
     setError(null);
     const controller = new AbortController();
@@ -241,6 +240,11 @@ export function CloudConnectionPanel({
       <p>Check that this code matches the one shown by Frisket Cloud.</p>
       <strong className="cloud-connection-code">{authorization.userCode}</strong>
       <div className="cloud-connection-actions">
+        <a className="btn btn-primary"
+          href={authorization.verificationUriComplete ?? authorization.verificationUri}
+          target="_blank" rel="noreferrer">
+          Open sign-in page <ExternalLink size={14} aria-hidden />
+        </a>
         <button className="btn" type="button" onClick={() => void cancel()}>Cancel</button>
         <button className="btn" type="button" onClick={() => {
           void navigator.clipboard.writeText(
@@ -293,9 +297,9 @@ export function CloudConnectionPanel({
         </ul>
       )}
       {phase === 'connected' && variant === 'compact' && <p className="cloud-connection-success">This project can now use Frisket Cloud.</p>}
-      {allowDisconnect && connection.capabilities.canDisconnect && (
-        <button className="btn" type="button" disabled={busy} onClick={() => void disconnect()}>
-          <LogOut size={14} /> {busy ? 'Disconnecting…' : 'Disconnect'}
+      {allowSignOut && connection.capabilities.canDisconnect && (
+        <button className="btn" type="button" disabled={busy} onClick={() => void signOut()}>
+          <LogOut size={14} /> {busy ? 'Signing out…' : 'Sign out'}
         </button>
       )}
       {error && <p className="cloud-connection-error" role="alert">{error}</p>}

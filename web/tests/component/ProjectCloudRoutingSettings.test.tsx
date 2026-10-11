@@ -25,7 +25,7 @@ const connectionClient: CloudConnectionClient = {
   cancelAuthorization: vi.fn(), disconnect: vi.fn(),
 };
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe('ProjectCloudRoutingSettings', () => {
   it('patches only the project account and overlap preference and never offers disconnect', async () => {
@@ -67,5 +67,62 @@ describe('ProjectCloudRoutingSettings', () => {
     expect(screen.getByRole('radio', { name: /Use your keys/ })).toBeChecked();
     expect(screen.getByRole('radio', { name: /Use the project’s Cloud account/ })).toBeDisabled();
     expect(screen.queryByRole('button', { name: /disconnect/i })).not.toBeInTheDocument();
+  });
+
+  it('reconnects the installation without changing the project funding account', async () => {
+    const api: ProjectCloudRoutingClient = {
+      get: vi.fn().mockResolvedValue(routing({ connectionState: 'expired' })),
+      patch: vi.fn(),
+    };
+    const reconnectClient: CloudConnectionClient = {
+      getConnection: vi.fn().mockResolvedValue({
+        state: 'expired', identity: null, accounts: [],
+        capabilities: { canConnect: false, canReconnect: true, canDisconnect: false },
+      }),
+      startAuthorization: vi.fn().mockResolvedValue({ id: 'reconnect-1', userCode: 'ABCD-1234',
+        verificationUri: 'https://app.frisket.dev/device', expiresAt: '2026-10-11T03:00:00Z', pollIntervalSeconds: 1 }),
+      pollAuthorization: vi.fn().mockResolvedValue({
+        status: 'connected',
+        connection: {
+          state: 'connected', identity: { id: 7, displayName: 'Sam', email: 'sam@example.test' },
+          accounts: routing().accounts,
+          capabilities: { canConnect: false, canReconnect: false, canDisconnect: true },
+        },
+      }),
+      cancelAuthorization: vi.fn().mockResolvedValue(undefined),
+      disconnect: vi.fn(),
+    };
+    render(<ProjectCloudRoutingSettings projectId="project-a"
+      connectionClient={reconnectClient} routingClient={api} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Reconnect' }));
+    await screen.findByRole('link', { name: /Open sign-in page/ });
+    await waitFor(() => expect(reconnectClient.pollAuthorization).toHaveBeenCalled(), {
+      timeout: 2_000,
+    });
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('keeps an ineligible selected account visible and asks for an explicit replacement', async () => {
+    const api: ProjectCloudRoutingClient = {
+      get: vi.fn().mockResolvedValue(routing({
+        preference: 'cloud_first',
+        accounts: [{
+          id: 11, name: 'Riverton News', kind: 'organization', eligible: false,
+          eligibilityReason: 'Membership changed.', balanceLabel: '$182.40 balance',
+        }, routing().accounts[1]],
+      })),
+      patch: vi.fn(),
+    };
+    render(<ProjectCloudRoutingSettings projectId="project-a"
+      connectionClient={connectionClient} routingClient={api} />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Riverton News can no longer fund this project',
+    );
+    expect(screen.getByRole('combobox', { name: /Cloud account/ })).toHaveValue('11');
+    expect(screen.getByRole('option', { name: /Riverton News.*unavailable/ })).toBeDisabled();
+    expect(screen.getByRole('radio', { name: /Use Riverton News/ })).toBeDisabled();
+    expect(api.patch).not.toHaveBeenCalled();
   });
 });

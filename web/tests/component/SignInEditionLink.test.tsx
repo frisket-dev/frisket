@@ -40,6 +40,7 @@ afterEach(() => {
   vi.clearAllMocks();
   window.history.replaceState({}, '', '/');
   window.sessionStorage.clear();
+  window.localStorage.clear();
 });
 
 const runtimeConfig = {
@@ -184,7 +185,7 @@ describe('SignIn edition links', () => {
 
     expect(resumePendingDeviceApproval(
       { pathname: '/', search: '' },
-      window.sessionStorage,
+      window.localStorage,
     )).toBe('/device?user_code=KQ4F-7M2D');
   });
 });

@@ -88,7 +88,8 @@ function displayChoice(choice: SelectorChoice): EngineSelectorChoice {
     canAuthor: choice.can_author,
     canRun: choice.can_run,
     blocker: hasActionableCredentialSetup(choice)
-      && (choice.blocker?.code === 'provider_key_required' || choice.blocker?.code === 'models_gateway_required')
+      && (setup?.kind === 'cloud' || choice.blocker?.code === 'provider_key_required'
+        || choice.blocker?.code === 'models_gateway_required')
       ? undefined : choice.blocker?.message,
     activity: active ? {
       label: choice.active_operation ? operation.display_name

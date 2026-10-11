@@ -168,9 +168,9 @@ function CloudSetupPanel({ setup, projectId, onChanged, onEditingChange }: {
     <CloudConnectionPanel client={cloudConnectionApi} variant="compact"
       intent={setup.state === 'reconnect' ? 'reconnect' : 'connect'}
       promptForAccount={setup.state === 'account_required'}
-      onSelectAccount={(selectedAccountId) => projectCloudRoutingApi.patch(
-        projectId, { selectedAccountId },
-      ).then(() => undefined)} onChanged={onChanged} />
+      onSelectAccount={setup.state === 'reconnect' ? undefined : (selectedAccountId) => (
+        projectCloudRoutingApi.patch(projectId, { selectedAccountId }).then(() => undefined)
+      )} onChanged={onChanged} />
     {localKey && <section className="selector-setup cloud-local-key-card">
       <h3>Or use your own {providerName(localKey.provider)} key</h3>
       <p className="settings-help">Your API key works like a password and stays in this project.</p>

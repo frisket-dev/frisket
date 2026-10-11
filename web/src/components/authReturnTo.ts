@@ -39,7 +39,7 @@ function deviceApprovalPath(candidate: string): string | null {
 
 export function rememberPendingDeviceApproval(
   candidate: string,
-  storage: Storage = window.sessionStorage,
+  storage: Storage = window.localStorage,
   now = Date.now(),
 ): void {
   const path = deviceApprovalPath(candidate);
@@ -75,10 +75,10 @@ function clearPendingDeviceApproval(storage: Storage): void {
   try { storage.removeItem(PENDING_DEVICE_APPROVAL_KEY); } catch { /* ignored */ }
 }
 
-/** Consume a pending device continuation only after the identity probe succeeds. */
+/** Consume a cross-tab device continuation only after the identity probe succeeds. */
 export function resumePendingDeviceApproval(
   location: Pick<Location, 'pathname' | 'search'>,
-  storage: Storage = window.sessionStorage,
+  storage: Storage = window.localStorage,
   now = Date.now(),
 ): string | null {
   const pending = pendingDeviceApproval(storage, now);
