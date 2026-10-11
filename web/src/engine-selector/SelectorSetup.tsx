@@ -148,6 +148,10 @@ export function SelectorSetup(props: SelectorSetupProps) {
       return <DownloadSetupPanel key={`${props.projectId}:${props.choice.choice_id}:${setup.kind}:${setup.scope}:${setup.setup_ref}`} setup={setup} activeOperation={props.choice.active_operation} onChanged={props.onChanged}
         sharedProgress={props.sharedProgress} operationError={props.operationError} />;
     case 'first_use_download': return <p className="settings-help">{setup.disclosure}</p>;
-    case 'instructions': return <section className="selector-setup"><strong>{setup.title}</strong><ol>{setup.steps.map((step) => <li key={step}>{step}</li>)}</ol>{setup.url && <a href={setup.url} target="_blank" rel="noreferrer">Learn more</a>}</section>;
+    case 'instructions': {
+      const steps = setup.steps.filter((step) => step !== props.choice.blocker?.message);
+      if (!steps.length && !setup.url) return null;
+      return <section className="selector-setup"><strong>{setup.title}</strong><ol>{steps.map((step) => <li key={step}>{step}</li>)}</ol>{setup.url && <a href={setup.url} target="_blank" rel="noreferrer">Learn more</a>}</section>;
+    }
   }
 }
