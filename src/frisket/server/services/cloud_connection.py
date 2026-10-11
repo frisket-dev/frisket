@@ -82,10 +82,13 @@ class CloudConnectionService:
         self._workspace = workspace
         self._store = store
         self._client = client
-        self._device_name = (device_name or socket.gethostname() or "Frisket Desktop")[:120]
+        self._device_name = (device_name or socket.gethostname() or "Frisket Desktop")[
+            :120
+        ]
         self._clock = clock
         self._wall_clock = wall_clock
         self._pending: dict[str, _PendingAuthorization] = {}
+        self._completed: dict[str, tuple[datetime, CloudConnectionResponse]] = {}
         self._pending_lock = threading.Lock()
 
     def close(self) -> None:
@@ -111,7 +114,9 @@ class CloudConnectionService:
         try:
             issued = self._client.issue_device_authorization(self._device_name)
         except CloudClientError as exc:
-            raise CloudConnectionServiceError(503, "Frisket Cloud is unavailable") from exc
+            raise CloudConnectionServiceError(
+                503, "Frisket Cloud is unavailable"
+            ) from exc
         now = self._wall_clock()
         pending = _PendingAuthorization(
             id=secrets.token_urlsafe(18),
@@ -134,7 +139,19 @@ class CloudConnectionService:
         with self._pending_lock:
             pending = self._pending.get(authorization_id)
             if pending is None:
-                raise CloudConnectionServiceError(404, "Cloud sign-in request not found")
+                completed = self._completed.get(authorization_id)
+                if completed is not None:
+                    expires_at, connection = completed
+                    if expires_at > self._wall_clock():
+                        return CloudDeviceAuthorizationPollResponse(
+                            id=authorization_id,
+                            status="connected",
+                            connection=connection,
+                        )
+                    self._completed.pop(authorization_id, None)
+                raise CloudConnectionServiceError(
+                    404, "Cloud sign-in request not found"
+                )
             if pending.expires_at <= self._wall_clock():
                 self._pending.pop(authorization_id, None)
                 return CloudDeviceAuthorizationPollResponse(
@@ -178,6 +195,10 @@ class CloudConnectionService:
                 session = self._client.session(answer.access_token)
                 self._store.save_connection(answer.access_token, session)
             except (CloudClientError, CloudConnectionStoreError, OSError) as exc:
+                try:
+                    self._client.revoke_session(answer.access_token)
+                except CloudClientError:
+                    pass
                 raise CloudConnectionServiceError(
                     503, "Frisket Cloud sign-in could not be completed"
                 ) from exc
@@ -185,10 +206,12 @@ class CloudConnectionService:
                 # A token grant is single-use. Never poll the same device code
                 # again, even if local persistence failed after token delivery.
                 self._pending.pop(authorization_id, None)
+            connection = self.connection()
+            self._completed[authorization_id] = (pending.expires_at, connection)
             return CloudDeviceAuthorizationPollResponse(
                 id=authorization_id,
                 status="connected",
-                connection=self.connection(),
+                connection=connection,
             )
 
     def cancel_authorization(self, authorization_id: str) -> bool:
@@ -198,6 +221,7 @@ class CloudConnectionService:
     def sign_out(self) -> CloudConnectionSignOutResponse:
         with self._pending_lock:
             self._pending.clear()
+            self._completed.clear()
             try:
                 profile = self._store.load()
             except CloudConnectionStoreError:
@@ -216,12 +240,12 @@ class CloudConnectionService:
                 revoked = self._client.revoke_session(connection.access_token)
                 revocation = "revoked" if revoked else "failed"
                 if not revoked:
-                    warning = "Signed out locally; the remote device was already unavailable."
+                    warning = (
+                        "Signed out locally; the remote device was already unavailable."
+                    )
             except CloudClientError:
                 revocation = "failed"
-                warning = (
-                    "Signed out locally, but Frisket Cloud could not confirm remote revocation."
-                )
+                warning = "Signed out locally, but Frisket Cloud could not confirm remote revocation."
         return CloudConnectionSignOutResponse(
             connection=self.connection(), revocation=revocation, warning=warning
         )
@@ -247,7 +271,9 @@ class CloudConnectionService:
         settings = read_project_settings(project)
         connection = self.connection()
         signed_user_id = connection.identity.id if connection.identity else None
-        eligible_ids = {account.id for account in connection.accounts if account.eligible}
+        eligible_ids = {
+            account.id for account in connection.accounts if account.eligible
+        }
         selected = (
             settings.cloud_account_id
             if settings.cloud_user_id == signed_user_id
@@ -255,11 +281,13 @@ class CloudConnectionService:
             else None
         )
         inherited = settings.cloud_execution_preference is None
-        preference = (
-            self.preferences().preference
-            if inherited
-            else settings.cloud_execution_preference
-        )
+        if inherited:
+            try:
+                preference = self.preferences().preference
+            except CloudConnectionServiceError:
+                preference = "local_first"
+        else:
+            preference = settings.cloud_execution_preference
         return ProjectCloudRoutingResponse(
             connection_state=connection.state,
             selected_account_id=selected,
@@ -356,9 +384,18 @@ class CloudConnectionService:
 
     def _discard_expired_pending(self) -> None:
         now = self._wall_clock()
-        expired = [key for key, value in self._pending.items() if value.expires_at <= now]
+        expired = [
+            key for key, value in self._pending.items() if value.expires_at <= now
+        ]
         for key in expired:
             self._pending.pop(key, None)
+        expired_completed = [
+            key
+            for key, (expires_at, _connection) in self._completed.items()
+            if expires_at <= now
+        ]
+        for key in expired_completed:
+            self._completed.pop(key, None)
 
 
 __all__ = ["CloudConnectionService", "CloudConnectionServiceError"]

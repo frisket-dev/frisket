@@ -188,7 +188,7 @@ def _serve(config: DesktopLaunchConfig, *, ready_stdout: TextIO) -> int:
 
     workspace = config.workspace.resolve()
     profile_dir = config.profile_dir.resolve()
-    secret_key = profile_dir / "secrets" / "master.key"
+    secret_key = workspace / ".frisket" / "secrets" / "master.key"
     state = StandaloneRuntimeState()
     worker: subprocess.Popen | None = None
     model_server = None

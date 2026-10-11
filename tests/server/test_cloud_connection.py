@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 from datetime import UTC, datetime
@@ -64,7 +65,9 @@ def test_installation_store_encrypts_token_outside_workspace(tmp_path):
     assert not (workspace / ".frisket").exists()
     if os.name != "nt":
         assert (profile / "cloud_connection.json").stat().st_mode & 0o777 == 0o600
-        assert (profile / "secrets" / "cloud_connection.key").stat().st_mode & 0o777 == 0o600
+        assert (
+            profile / "secrets" / "cloud_connection.key"
+        ).stat().st_mode & 0o777 == 0o600
 
 
 def test_corrupt_connection_can_be_cleared_or_replaced(tmp_path):
@@ -117,9 +120,7 @@ def test_capabilities_client_uses_selected_account_and_bearer():
                     route_revision="route-1",
                     ready=True,
                     blocker=None,
-                    price=CloudUnitPrice(
-                        kind="unit", unit="page", micro_per_unit=2500
-                    ),
+                    price=CloudUnitPrice(kind="unit", unit="page", micro_per_unit=2500),
                     options=CloudOCROptionSupport(
                         kind="ocr",
                         language=True,
@@ -212,6 +213,129 @@ def test_device_flow_keeps_secrets_server_side_and_coalesces_early_poll(tmp_path
     service.close()
 
 
+def test_concurrent_completed_polls_reuse_connected_state(tmp_path):
+    token_polls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal token_polls
+        if request.url.path.endswith("device-authorizations"):
+            return httpx.Response(
+                200,
+                json={
+                    "device_code": "single-use-device-secret",
+                    "user_code": "ABCD-EFGH",
+                    "verification_uri": "https://app.frisket.dev/device",
+                    "verification_uri_complete": "https://app.frisket.dev/device?code=ABCD-EFGH",
+                    "expires_in": 600,
+                    "interval": 5,
+                },
+            )
+        if request.url.path.endswith("/token"):
+            token_polls += 1
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": "single-minted-token",
+                    "token_type": "Bearer",
+                    "expires_in": 3600,
+                },
+            )
+        if request.url.path.endswith("/session"):
+            return httpx.Response(200, json=_session().model_dump(mode="json"))
+        raise AssertionError(request.url)
+
+    ticks = [100.0]
+    service = CloudConnectionService(
+        Workspace(tmp_path / "workspace"),
+        store=CloudConnectionStore(tmp_path / "profile"),
+        client=CloudConnectionClient(
+            "https://app.frisket.dev", transport=httpx.MockTransport(handler)
+        ),
+        clock=lambda: ticks[0],
+        wall_clock=lambda: datetime(2026, 10, 11, tzinfo=UTC),
+    )
+    authorization_id = service.begin_authorization().id
+    ticks[0] = 105.0
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(service.poll_authorization, [authorization_id] * 4))
+
+    assert [result.status for result in results] == ["connected"] * 4
+    assert token_polls == 1
+
+    assert service.sign_out().revocation == "revoked"
+    with pytest.raises(CloudConnectionServiceError) as exc_info:
+        service.poll_authorization(authorization_id)
+    assert exc_info.value.status == 404
+    service.close()
+
+
+@pytest.mark.parametrize("failure_stage", ["session", "save"])
+def test_minted_token_is_revoked_if_connection_cannot_be_persisted(
+    tmp_path, failure_stage
+):
+    requests: list[tuple[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append((request.method, request.url.path))
+        if request.url.path.endswith("device-authorizations"):
+            return httpx.Response(
+                200,
+                json={
+                    "device_code": "private-device-secret",
+                    "user_code": "ABCD-EFGH",
+                    "verification_uri": "https://app.frisket.dev/device",
+                    "verification_uri_complete": "https://app.frisket.dev/device?code=ABCD-EFGH",
+                    "expires_in": 600,
+                    "interval": 5,
+                },
+            )
+        if request.url.path.endswith("/token"):
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": "minted-but-unusable",
+                    "token_type": "Bearer",
+                    "expires_in": 3600,
+                },
+            )
+        if request.url.path.endswith("/session") and request.method == "GET":
+            if failure_stage == "session":
+                return httpx.Response(503, json={"error": "unavailable"})
+            return httpx.Response(200, json=_session().model_dump(mode="json"))
+        if request.url.path.endswith("/session") and request.method == "DELETE":
+            assert request.headers["authorization"] == "Bearer minted-but-unusable"
+            return httpx.Response(204)
+        raise AssertionError(request.url)
+
+    ticks = [100.0]
+
+    class Store(CloudConnectionStore):
+        def save_connection(self, access_token, session):
+            if failure_stage == "save":
+                raise OSError("simulated local persistence failure")
+            return super().save_connection(access_token, session)
+
+    service = CloudConnectionService(
+        Workspace(tmp_path / "workspace"),
+        store=Store(tmp_path / "profile"),
+        client=CloudConnectionClient(
+            "https://app.frisket.dev", transport=httpx.MockTransport(handler)
+        ),
+        clock=lambda: ticks[0],
+        wall_clock=lambda: datetime(2026, 10, 11, tzinfo=UTC),
+    )
+    authorization_id = service.begin_authorization().id
+    ticks[0] = 105.0
+
+    with pytest.raises(CloudConnectionServiceError) as exc_info:
+        service.poll_authorization(authorization_id)
+
+    assert exc_info.value.status == 503
+    assert ("DELETE", "/api/desktop/v1/session") in requests
+    service.close()
+
+
 def test_sign_out_clears_local_token_when_remote_revocation_fails(tmp_path):
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(503, json={"error": "unavailable"})
@@ -286,9 +410,7 @@ def test_project_account_is_bound_to_signed_in_user(tmp_path):
 
     selected = service.patch_project_routing(
         project_id,
-        ProjectCloudRoutingPatch(
-            selected_account_id=41, preference="cloud_first"
-        ),
+        ProjectCloudRoutingPatch(selected_account_id=41, preference="cloud_first"),
     )
     assert selected.selected_account_id == 41
     assert selected.preference == "cloud_first"
@@ -353,3 +475,31 @@ def test_local_http_endpoints_project_connection_without_exposing_bearer(tmp_pat
         assert selected.status_code == 200
         assert selected.json()["selected_account_id"] == 41
         assert selected.json()["preference_inherited"] is False
+
+
+def test_corrupt_connection_does_not_break_project_routing(tmp_path):
+    from frisket.server.app import create_app
+
+    store = CloudConnectionStore(tmp_path / "profile")
+    store.profile_dir.mkdir(parents=True)
+    store.path.write_text("not-json", encoding="utf-8")
+    app = create_app(
+        tmp_path / "workspace",
+        cloud_connection_store=store,
+        cloud_connection_client=CloudConnectionClient(
+            "https://app.frisket.dev",
+            transport=httpx.MockTransport(
+                lambda _request: httpx.Response(500, json={})
+            ),
+        ),
+        serve_spa=False,
+    )
+    project_id = app.state.workspace.create("Corrupt Cloud profile")["id"]
+
+    with TestClient(app) as client:
+        response = client.get(f"/api/projects/{project_id}/cloud-routing")
+
+    assert response.status_code == 200
+    assert response.json()["connection_state"] == "expired"
+    assert response.json()["preference"] == "local_first"
+    assert response.json()["preference_inherited"] is True
