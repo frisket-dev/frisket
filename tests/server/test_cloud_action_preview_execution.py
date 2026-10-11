@@ -191,6 +191,7 @@ class _Transport:
 
 def _client(tmp_path) -> tuple[TestClient, _Transport]:
     store = CloudConnectionStore(tmp_path / "profile")
+    cloud_client = _CloudClient()
     store.save_connection(
         "installation-token",
         CloudSessionResponse(
@@ -208,12 +209,15 @@ def _client(tmp_path) -> tuple[TestClient, _Transport]:
             ],
         ),
     )
+    store.save_capabilities(
+        cloud_client.capabilities("installation-token", 41), expected_user_id=7
+    )
     transport = _Transport()
     app = create_app(
         tmp_path / "workspace",
         router=ModelRouter(use_env_keys=False, cache_mode="off", max_retries=0),
         cloud_connection_store=store,
-        cloud_connection_client=_CloudClient(),
+        cloud_connection_client=cloud_client,
         cloud_execution_transport=transport,
         serve_spa=False,
     )

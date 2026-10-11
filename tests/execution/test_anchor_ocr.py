@@ -253,15 +253,12 @@ def test_anchor_ocr_local_run_pays_no_rent(tmp_path, monkeypatch, rapidocr_stub)
         project.close()
 
 
-def test_cloud_ocr_reserves_durable_request_before_transport(tmp_path, monkeypatch):
+def test_cloud_ocr_reserves_durable_request_before_transport(tmp_path):
     """The project-scoped Cloud key is bound after durable row reservation."""
 
-    monkeypatch.setattr(
-        "frisket.ops.ocr_engines_local._rapidocr_model_root_dir",
-        lambda language=None: None,
-    )
     project, sheet_id, _row_id = _ocr_project(tmp_path)
     router = _NullRouter()
+    engine = "datalab"
 
     class Transport:
         calls = []
@@ -282,7 +279,7 @@ def test_cloud_ocr_reserves_durable_request_before_transport(tmp_path, monkeypat
                 status="completed",
                 route=CloudCapabilityRoute(
                     capability="ocr",
-                    engine="rapidocr",
+                    engine=engine,
                     provider="anthropic",
                     lane="frisket_credits",
                     route_revision="route-1",
@@ -306,7 +303,7 @@ def test_cloud_ocr_reserves_durable_request_before_transport(tmp_path, monkeypat
                     account_id=41,
                     lane="frisket_credits",
                     provider="anthropic",
-                    engine="rapidocr",
+                    engine=engine,
                     charge_micro=2_500,
                     provider_cost_micro=2_000,
                     usage=CloudOCRUsage(kind="ocr", pages=1),
@@ -333,7 +330,7 @@ def test_cloud_ocr_reserves_durable_request_before_transport(tmp_path, monkeypat
             routes=[
                 CloudCapabilityRoute(
                     capability="ocr",
-                    engine="rapidocr",
+                    engine=engine,
                     provider="anthropic",
                     lane="frisket_credits",
                     route_revision="route-1",
@@ -361,7 +358,7 @@ def test_cloud_ocr_reserves_durable_request_before_transport(tmp_path, monkeypat
     try:
         request = _confirmed_request(
             project,
-            _request(sheet_id),
+            _request(sheet_id, engine=engine),
             router=router,
             deps=deps,
         )
