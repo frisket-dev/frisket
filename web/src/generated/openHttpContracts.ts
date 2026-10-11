@@ -442,9 +442,21 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
+      "id": "tenant.begin_cloud_authorization.post",
+      "method": "POST",
+      "path": "/api/cloud-connection/device-authorizations",
+      "request": null
+    },
+    {
       "id": "tenant.browse_sheet_documents.get",
       "method": "GET",
       "path": "/api/projects/{pid}/sheets/{sheet_id}/documents",
+      "request": null
+    },
+    {
+      "id": "tenant.cancel_cloud_authorization.delete",
+      "method": "DELETE",
+      "path": "/api/cloud-connection/device-authorizations/{authorization_id}",
       "request": null
     },
     {
@@ -632,6 +644,12 @@ export const HTTP_CONTRACT_ARTIFACT = {
         "mediaType": "application/json",
         "required": true
       }
+    },
+    {
+      "id": "tenant.delete_cloud_connection.delete",
+      "method": "DELETE",
+      "path": "/api/cloud-connection",
+      "request": null
     },
     {
       "id": "tenant.delete_local_endpoint.delete",
@@ -853,6 +871,18 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
+      "id": "tenant.get_cloud_connection.get",
+      "method": "GET",
+      "path": "/api/cloud-connection",
+      "request": null
+    },
+    {
+      "id": "tenant.get_cloud_preferences.get",
+      "method": "GET",
+      "path": "/api/cloud-connection/preferences",
+      "request": null
+    },
+    {
       "id": "tenant.get_import_session.get",
       "method": "GET",
       "path": "/api/projects/{pid}/import/files/sessions/{ref}",
@@ -892,6 +922,12 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "id": "tenant.get_project.get",
       "method": "GET",
       "path": "/api/projects/{pid}",
+      "request": null
+    },
+    {
+      "id": "tenant.get_project_cloud_routing.get",
+      "method": "GET",
+      "path": "/api/projects/{pid}/cloud-routing",
       "request": null
     },
     {
@@ -1267,6 +1303,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
+      "id": "tenant.patch_cloud_preferences.patch",
+      "method": "PATCH",
+      "path": "/api/cloud-connection/preferences",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
       "id": "tenant.patch_notification_channel.patch",
       "method": "PATCH",
       "path": "/api/projects/{pid}/notification-channels/{channel_id}",
@@ -1279,6 +1324,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "id": "tenant.patch_notification_route.patch",
       "method": "PATCH",
       "path": "/api/projects/{pid}/notification-routes/{route_id}",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
+      "id": "tenant.patch_project_cloud_routing.patch",
+      "method": "PATCH",
+      "path": "/api/projects/{pid}/cloud-routing",
       "request": {
         "mediaType": "application/json",
         "required": true
@@ -1310,6 +1364,12 @@ export const HTTP_CONTRACT_ARTIFACT = {
         "mediaType": "application/json",
         "required": true
       }
+    },
+    {
+      "id": "tenant.poll_cloud_authorization.get",
+      "method": "GET",
+      "path": "/api/cloud-connection/device-authorizations/{authorization_id}",
+      "request": null
     },
     {
       "id": "tenant.product_telemetry_installation.post",
@@ -3828,6 +3888,129 @@ export type HttpClientErrorReportRequest = ({
 })) | ((null))) | (string) | (((string)) | ((null))) | undefined;
 });
 
+export type HttpCloudConnectionPreferencesPatch = ({
+  "preference": ("local_first" | "cloud_first") & (string);
+});
+
+export type HttpCloudConnectionPreferencesResponse = ({
+  "preference": ("local_first" | "cloud_first") & (string);
+});
+
+type HttpCloudConnectionResponse_CloudConnectionAccountSummary = ({
+  "balance_label"?: (((string)) | ((null)));
+  "balance_url"?: (((string)) | ((null)));
+  "eligibility_reason"?: (((string)) | ((null)));
+  "eligible": (boolean);
+  "id": (number);
+  "kind": ("personal" | "organization") & (string);
+  "name": (string);
+});
+
+type HttpCloudConnectionResponse_CloudConnectionCapabilities = ({
+  "can_connect": (boolean);
+  "can_disconnect": (boolean);
+  "can_reconnect": (boolean);
+});
+
+type HttpCloudConnectionResponse_CloudConnectionIdentity = ({
+  "display_name": (string);
+  "email": (string);
+  "id": (number);
+});
+
+export type HttpCloudConnectionResponse = ({
+  "accounts": (Array<(HttpCloudConnectionResponse_CloudConnectionAccountSummary)>);
+  "capabilities": (HttpCloudConnectionResponse_CloudConnectionCapabilities);
+  "expires_at"?: (((string)) | ((null)));
+  "identity": (((HttpCloudConnectionResponse_CloudConnectionIdentity)) | ((null)));
+  "state": ("disconnected" | "connected" | "expired") & (string);
+});
+
+type HttpCloudConnectionSignOutResponse_CloudConnectionAccountSummary = ({
+  "balance_label"?: (((string)) | ((null)));
+  "balance_url"?: (((string)) | ((null)));
+  "eligibility_reason"?: (((string)) | ((null)));
+  "eligible": (boolean);
+  "id": (number);
+  "kind": ("personal" | "organization") & (string);
+  "name": (string);
+});
+
+type HttpCloudConnectionSignOutResponse_CloudConnectionCapabilities = ({
+  "can_connect": (boolean);
+  "can_disconnect": (boolean);
+  "can_reconnect": (boolean);
+});
+
+type HttpCloudConnectionSignOutResponse_CloudConnectionIdentity = ({
+  "display_name": (string);
+  "email": (string);
+  "id": (number);
+});
+
+type HttpCloudConnectionSignOutResponse_CloudConnectionResponse = ({
+  "accounts": (Array<(HttpCloudConnectionSignOutResponse_CloudConnectionAccountSummary)>);
+  "capabilities": (HttpCloudConnectionSignOutResponse_CloudConnectionCapabilities);
+  "expires_at"?: (((string)) | ((null)));
+  "identity": (((HttpCloudConnectionSignOutResponse_CloudConnectionIdentity)) | ((null)));
+  "state": ("disconnected" | "connected" | "expired") & (string);
+});
+
+export type HttpCloudConnectionSignOutResponse = ({
+  "connection": (HttpCloudConnectionSignOutResponse_CloudConnectionResponse);
+  "revocation": ("revoked" | "not_connected" | "failed") & (string);
+  "warning"?: (((string)) | ((null)));
+});
+
+export type HttpCloudDeviceAuthorizationCancelResponse = ({
+  "cancelled": (boolean);
+});
+
+type HttpCloudDeviceAuthorizationPollResponse_CloudConnectionAccountSummary = ({
+  "balance_label"?: (((string)) | ((null)));
+  "balance_url"?: (((string)) | ((null)));
+  "eligibility_reason"?: (((string)) | ((null)));
+  "eligible": (boolean);
+  "id": (number);
+  "kind": ("personal" | "organization") & (string);
+  "name": (string);
+});
+
+type HttpCloudDeviceAuthorizationPollResponse_CloudConnectionCapabilities = ({
+  "can_connect": (boolean);
+  "can_disconnect": (boolean);
+  "can_reconnect": (boolean);
+});
+
+type HttpCloudDeviceAuthorizationPollResponse_CloudConnectionIdentity = ({
+  "display_name": (string);
+  "email": (string);
+  "id": (number);
+});
+
+type HttpCloudDeviceAuthorizationPollResponse_CloudConnectionResponse = ({
+  "accounts": (Array<(HttpCloudDeviceAuthorizationPollResponse_CloudConnectionAccountSummary)>);
+  "capabilities": (HttpCloudDeviceAuthorizationPollResponse_CloudConnectionCapabilities);
+  "expires_at"?: (((string)) | ((null)));
+  "identity": (((HttpCloudDeviceAuthorizationPollResponse_CloudConnectionIdentity)) | ((null)));
+  "state": ("disconnected" | "connected" | "expired") & (string);
+});
+
+export type HttpCloudDeviceAuthorizationPollResponse = ({
+  "connection": (HttpCloudDeviceAuthorizationPollResponse_CloudConnectionResponse);
+  "id": (string);
+  "status": ("pending" | "declined" | "expired" | "connected") & (string);
+});
+
+export type HttpCloudDeviceAuthorizationStartResponse = ({
+  "expires_at": (string);
+  "id": (string);
+  "poll_interval_seconds": (number);
+  "user_code": (string);
+  "verification_uri": (string);
+  "verification_uri_complete"?: (((string)) | ((null)));
+});
+
 export type HttpClusterPreviewRequest = ({
   "input_column"?: JsonValue;
   "key_template"?: JsonValue;
@@ -6217,6 +6400,10 @@ type HttpInline_64f1fc6f91179544_AskThread = ({
 
 export type HttpInline_64f1fc6f91179544 = (Array<(HttpInline_64f1fc6f91179544_AskThread)>);
 
+export type HttpInline_71f070a8ac7483cb = ({
+  "authorization_id": (string);
+});
+
 export type HttpInline_751e88b11b84ef2b = ({
   "pid": (string);
   "thread_id": (string);
@@ -8356,6 +8543,31 @@ export type HttpProjectAttemptsPage = ({
   "total": (number);
 });
 
+export type HttpProjectCloudRoutingPatch = ({
+  "preference"?: ((("local_first" | "cloud_first") & (string)) | ((null)));
+  "selected_account_id"?: (((number)) | ((null)));
+});
+
+type HttpProjectCloudRoutingResponse_CloudConnectionAccountSummary = ({
+  "balance_label"?: (((string)) | ((null)));
+  "balance_url"?: (((string)) | ((null)));
+  "eligibility_reason"?: (((string)) | ((null)));
+  "eligible": (boolean);
+  "id": (number);
+  "kind": ("personal" | "organization") & (string);
+  "name": (string);
+});
+
+export type HttpProjectCloudRoutingResponse = ({
+  "accounts": (Array<(HttpProjectCloudRoutingResponse_CloudConnectionAccountSummary)>);
+  "can_mutate": (boolean);
+  "connection_state": ("disconnected" | "connected" | "expired") & (string);
+  "overlap_provider_labels": (Array<(string)>);
+  "preference": ("local_first" | "cloud_first") & (string);
+  "preference_inherited": (boolean);
+  "selected_account_id": (((number)) | ((null)));
+});
+
 export type HttpProjectCompactResponse = ({
   "blobs_removed": (number);
   "bytes_freed": (number);
@@ -9620,6 +9832,7 @@ type HttpSelectorChoicesResponse_SelectorChoice = ({
   "can_run": (boolean);
   "choice_id": (string);
   "description": (string);
+  "execution_route": (((HttpSelectorChoicesResponse_SelectorExecutionRoute)) | ((null)));
   "facts": (Array<(((HttpSelectorChoicesResponse_SelectorTextFact)) | ((HttpSelectorChoicesResponse_SelectorListFact)) | ((HttpSelectorChoicesResponse_SelectorRateFact)))>);
   "is_current": (boolean);
   "is_default": (boolean);
@@ -9627,7 +9840,7 @@ type HttpSelectorChoicesResponse_SelectorChoice = ({
   "model_card_url": (((string)) | ((null)));
   "processing_destination": (HttpSelectorChoicesResponse_SelectorProcessingDestination);
   "resolved_target": (((HttpSelectorChoicesResponse_SelectorResolvedTarget)) | ((null)));
-  "setup": (((((HttpSelectorChoicesResponse_ApiKeySetup)) | ((HttpSelectorChoicesResponse_ModelsGatewaySetup)) | ((HttpSelectorChoicesResponse_ArtifactDownloadSetup)) | ((HttpSelectorChoicesResponse_EngineSetup)) | ((HttpSelectorChoicesResponse_FirstUseDownloadSetup)) | ((HttpSelectorChoicesResponse_InstructionsSetup)))) | ((null)));
+  "setup": (((((HttpSelectorChoicesResponse_ApiKeySetup)) | ((HttpSelectorChoicesResponse_ModelsGatewaySetup)) | ((HttpSelectorChoicesResponse_ArtifactDownloadSetup)) | ((HttpSelectorChoicesResponse_EngineSetup)) | ((HttpSelectorChoicesResponse_FirstUseDownloadSetup)) | ((HttpSelectorChoicesResponse_InstructionsSetup)) | ((HttpSelectorChoicesResponse_SelectorCloudSetup)))) | ((null)));
   "status": ("ready" | "needs_setup" | "working" | "unavailable") & (string);
   "summary": (string);
 });
@@ -9638,6 +9851,29 @@ type HttpSelectorChoicesResponse_SelectorChoiceGroup = ({
   "kind": ("local" | "server" | "provider") & (string);
   "label": (string);
   "status": ("ready" | "needs_setup" | "working" | "unavailable") & (string);
+});
+
+type HttpSelectorChoicesResponse_SelectorCloudSetup = ({
+  "account_id"?: (((number)) | ((null)));
+  "account_name"?: (((string)) | ((null)));
+  "add_credits_url"?: (((string)) | ((null)));
+  "balance_url"?: (((string)) | ((null)));
+  "kind": ("cloud") & (string);
+  "local_key"?: (((HttpSelectorChoicesResponse_ApiKeySetup)) | ((null)));
+  "project_settings_url"?: (((string)) | ((null)));
+  "state": ("connect" | "reconnect" | "account_required" | "out_of_credits") & (string);
+});
+
+type HttpSelectorChoicesResponse_SelectorExecutionRoute = ({
+  "account_id"?: (((number)) | ((null)));
+  "balance_label"?: (((string)) | ((null)));
+  "balance_url"?: (((string)) | ((null)));
+  "billed_to"?: (((string)) | ((null)));
+  "has_alternative_route": (boolean);
+  "kind": ("local_engine" | "models_server" | "local_key" | "cloud_credits" | "cloud_account_key" | "none") & (string);
+  "label": (string);
+  "sends_data_to"?: (((string)) | ((null)));
+  "settings_url"?: (((string)) | ((null)));
 });
 
 type HttpSelectorChoicesResponse_SelectorListFact = ({
@@ -11660,6 +11896,15 @@ export type HttpContractOperationMap = {
       readonly "500": HttpInline_487c3cda92b800f4;
     };
   };
+  readonly "tenant.begin_cloud_authorization.post": {
+    readonly pathParams: HttpInline_d746974fa9afd5e9;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpCloudDeviceAuthorizationStartResponse;
+      readonly "503": HttpError;
+    };
+  };
   readonly "tenant.browse_sheet_documents.get": {
     readonly pathParams: HttpInline_fa1495952891aea0;
     readonly query: HttpInline_7d6bd08839bc6472;
@@ -11671,6 +11916,15 @@ export type HttpContractOperationMap = {
       readonly "403": HttpError;
       readonly "404": HttpError;
       readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.cancel_cloud_authorization.delete": {
+    readonly pathParams: HttpInline_71f070a8ac7483cb;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpCloudDeviceAuthorizationCancelResponse;
       readonly "500": HttpError;
     };
   };
@@ -12015,6 +12269,16 @@ export type HttpContractOperationMap = {
       readonly "409": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.delete_cloud_connection.delete": {
+    readonly pathParams: HttpInline_d746974fa9afd5e9;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpCloudConnectionSignOutResponse;
+      readonly "500": HttpError;
+      readonly "503": HttpError;
     };
   };
   readonly "tenant.delete_local_endpoint.delete": {
@@ -12420,6 +12684,24 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
+  readonly "tenant.get_cloud_connection.get": {
+    readonly pathParams: HttpInline_d746974fa9afd5e9;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpCloudConnectionResponse;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.get_cloud_preferences.get": {
+    readonly pathParams: HttpInline_d746974fa9afd5e9;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpCloudConnectionPreferencesResponse;
+      readonly "500": HttpError;
+    };
+  };
   readonly "tenant.get_import_session.get": {
     readonly pathParams: HttpInline_8527488b5f6abaa7;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -12516,6 +12798,17 @@ export type HttpContractOperationMap = {
       readonly "200": HttpProject;
       readonly "401": HttpError;
       readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.get_project_cloud_routing.get": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpProjectCloudRoutingResponse;
       readonly "404": HttpError;
       readonly "409": HttpError;
       readonly "500": HttpError;
@@ -13231,6 +13524,16 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
+  readonly "tenant.patch_cloud_preferences.patch": {
+    readonly pathParams: HttpInline_d746974fa9afd5e9;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpCloudConnectionPreferencesPatch;
+    readonly responses: {
+      readonly "200": HttpCloudConnectionPreferencesResponse;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
   readonly "tenant.patch_notification_channel.patch": {
     readonly pathParams: HttpInline_e581724f37bc5d5c;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -13255,6 +13558,18 @@ export type HttpContractOperationMap = {
       readonly "400": HttpError;
       readonly "401": HttpError;
       readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.patch_project_cloud_routing.patch": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpProjectCloudRoutingPatch;
+    readonly responses: {
+      readonly "200": HttpProjectCloudRoutingResponse;
       readonly "404": HttpError;
       readonly "409": HttpError;
       readonly "422": HttpError;
@@ -13302,6 +13617,16 @@ export type HttpContractOperationMap = {
       readonly "409": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.poll_cloud_authorization.get": {
+    readonly pathParams: HttpInline_71f070a8ac7483cb;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpCloudDeviceAuthorizationPollResponse;
+      readonly "404": HttpError;
+      readonly "503": HttpError;
     };
   };
   readonly "tenant.product_telemetry_installation.post": {
