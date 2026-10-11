@@ -77,9 +77,8 @@ function displayChoice(choice: SelectorChoice): EngineSelectorChoice {
     status: choice.status,
     canAuthor: choice.can_author,
     canRun: choice.can_run,
-    blocker: (setup?.kind === 'instructions' && setup.steps.includes(choice.blocker?.message ?? '')) || (hasActionableCredentialSetup(choice)
+    blocker: hasActionableCredentialSetup(choice)
       && (choice.blocker?.code === 'provider_key_required' || choice.blocker?.code === 'models_gateway_required')
-    )
       ? undefined : choice.blocker?.message,
     activity: active ? {
       label: choice.active_operation ? operation.display_name

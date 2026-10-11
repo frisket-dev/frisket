@@ -648,7 +648,8 @@ def test_clef_setup_distinguishes_gateway_and_cloudflare(
         if choice["authored_selection"].get("engine") == "clef"
     )
     assert clef["setup"]["title"] == "Connect Cloudflare"
-    assert clef["status"] == "needs_setup"
+    assert clef["status"] == "unavailable"
+    assert not clef["can_author"]
     assert not clef["can_run"]
     assert clef["blocker"]["message"] in clef["setup"]["steps"]
     assert "environment running frisket" in " ".join(clef["setup"]["steps"])

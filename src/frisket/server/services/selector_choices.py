@@ -932,7 +932,6 @@ class SelectorChoiceService:
                         "blocked_by_operation": blocked or operation,
                     }
             elif not available and active_target_id == CLOUDFLARE_CLEF_TARGET_ID:
-                status = "needs_setup"
                 setup = {
                     "kind": "instructions",
                     "title": "Connect Cloudflare",
@@ -941,8 +940,13 @@ class SelectorChoiceService:
                             engine.get("error")
                             or "Configure your Cloudflare credentials."
                         ),
-                        "Use your Cloudflare account ID and a Workers AI API token. "
-                        "Set them in the environment running frisket, then restart frisket.",
+                        (
+                            "Use your Cloudflare account ID and a Workers AI API token. "
+                            "Set them in the environment running frisket, then restart frisket."
+                            if self._edition == "solo"
+                            else "Ask the server administrator to configure these Cloudflare "
+                            "credentials and restart frisket."
+                        ),
                     ],
                     "url": None,
                 }

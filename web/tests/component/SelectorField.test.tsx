@@ -106,15 +106,17 @@ describe('SelectorField', () => {
     const payload = response();
     const message = 'Set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN to enable Cloudflare Clef classification.';
     Object.assign(payload.groups[0].choices[0], {
-      label: 'Cloudflare Clef', status: 'needs_setup', can_run: false,
+      label: 'Cloudflare Clef', status: 'unavailable', can_author: false, can_run: false,
       facts: [{ kind: 'rate', label: 'Cloudflare Clef classification (per input token)', amount: 0.00000024, currency: 'USD', unit: 'input_token', source_url: null, updated: null }],
       blocker: { code: 'engine_unavailable', message, field: null },
-      setup: { kind: 'instructions', title: 'Connect Cloudflare', steps: [message], url: null },
+      setup: { kind: 'instructions', title: 'Connect Cloudflare', steps: [message, 'Configure these credentials in the server environment.'], url: null },
     });
     render(<SelectorField projectId="project-a" label="Model"
       query={{ schema_version: 'frisket.selector_choices_query.v1', subject: { kind: 'action', action_id: 'map.classify', field: 'engine', params: {} } }}
       recentNamespace="clef-setup" load={vi.fn().mockResolvedValue(payload)} onSelect={vi.fn()} />);
-    await userEvent.click(await screen.findByRole('button', { name: /Cloudflare Clef/ }));
+    const trigger = await screen.findByRole('button', { name: /Cloudflare Clef/ });
+    expect(trigger).toHaveTextContent(message);
+    await userEvent.click(trigger);
     const dialog = within(screen.getByTestId('engine-selector-dialog'));
     expect(dialog.getByText('$0.24 per million input tokens')).toBeInTheDocument();
     expect(dialog.getAllByText(message)).toHaveLength(1);
