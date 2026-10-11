@@ -13,7 +13,7 @@ from frisket.engine.store.runs import RunResultStore
 from frisket.execution.attempt import ATTEMPT_EXTRA, AttemptCommitment
 from frisket.execution.resolve_for_action import SCRATCH_PREVIEW_UNIT_ID
 from frisket.execution.resolver import ResolvedExecution
-from frisket.ops.base import OpContext
+from frisket.ops.base import OpContext, RecipeInvocationHalt
 from frisket.ops.cost_source import estimate_from_cost_basis
 
 
@@ -73,7 +73,9 @@ class ScratchActionPreviewRunContext:
     resolved_execution: ResolvedExecution
     receipt_id: str | None
     attempt: AttemptCommitment | None
+    action_kind: str
     router: Any
+    composition: Any
     credential_use_context: Any
     execution_limits: Any
     progress: Callable[[int, int | None], None]
@@ -92,12 +94,40 @@ class ScratchActionPreviewRunContext:
         }
         if self.attempt is not None:
             extras[ATTEMPT_EXTRA] = self.attempt
+        cloud_execution = None
+        if self.attempt is not None:
+            from frisket.cloud_runtime_binding import cloud_runtime_binding
+
+            binding = cloud_runtime_binding(
+                self.project,
+                self.composition,
+                self.attempt,
+                row_id=SCRATCH_PREVIEW_UNIT_ID,
+                request_id=(
+                    f"preview:{self.attempt.receipt_id}:row:{SCRATCH_PREVIEW_UNIT_ID}"
+                ),
+                group_key=(
+                    f"preview:{self.attempt.receipt_id}:row:{SCRATCH_PREVIEW_UNIT_ID}"
+                ),
+                action_kind=self.action_kind,
+                run_id=None,
+                claim_token=None,
+                claimless_direct_effect=True,
+            )
+            if binding is not None:
+                cloud_execution = binding.media_binding
+                if binding.llm_coordinator is not None:
+                    raise RecipeInvocationHalt(
+                        "promise_violation",
+                        "Scratch media preview received a Cloud LLM route",
+                    )
         return OpContext(
             project=self.project,
             http=http if http is not None else getattr(self.router, "client", None),
             extras=extras,
             credential_use_context=self.credential_use_context,
             execution_limits=self.execution_limits,
+            cloud_execution=cloud_execution,
         )
 
     @property

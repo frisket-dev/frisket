@@ -22,15 +22,11 @@ from typing import Any, Callable
 
 from frisket.ai.llm import ModelRouter
 from frisket.cloud_execution import (
-    CloudExecutionAttempt,
-    CloudExecutionTransportProvider,
-    CloudLLMExecutionBinding,
-    CloudMediaExecutionBinding,
     CloudPayerSubject,
     cloud_llm_execution_scope,
-    cloud_quote_authority_for_row,
 )
 from frisket.cloud_llm_checkpoint import CloudLLMCheckpointCoordinator
+from frisket.cloud_runtime_binding import cloud_runtime_binding
 from frisket.execution.consent_coverage import (
     ConsentCoverage,
     effective_consent_coverage,
@@ -1418,6 +1414,7 @@ class MapRunner:
                     return
                 try:
                     row_ctx = ctx
+                    cloud_llm_binding = None
                     if cloud_payer is not None:
                         if (
                             checkpoint_id is None
@@ -1428,77 +1425,39 @@ class MapRunner:
                                 "promise_violation",
                                 "Cloud execution requires a durable admitted row effect",
                             )
-                        provider = (
-                            self.execution_composition.provider
-                            if self.execution_composition is not None
-                            else None
-                        )
-                        target_id = attempt.routed.binding.facts.target_id
-                        if not isinstance(provider, CloudExecutionTransportProvider):
+                        if self.execution_composition is None:
                             raise RecipeInvocationHalt(
                                 "promise_violation",
                                 "Cloud execution transport is unavailable",
                             )
-                        cloud_transport = provider.cloud_execution_transport(target_id)
-                        snapshot = attempt.routed.route.target_snapshot
-                        capability = snapshot.get("capability")
-                        if cloud_transport is None:
+                        runtime_binding = cloud_runtime_binding(
+                            self.project,
+                            self.execution_composition,
+                            attempt,
+                            row_id=row_id,
+                            request_id=checkpoint_id,
+                            group_key=f"map:{run_id}:row:{row_id}",
+                            action_kind=spec["action_kind"],
+                            run_id=run_id,
+                            claim_token=claim_token,
+                            claimless_direct_effect=self.claimless_direct_effect,
+                        )
+                        if runtime_binding is None:
                             raise RecipeInvocationHalt(
                                 "promise_violation",
-                                "Cloud execution transport is unavailable",
+                                "Cloud execution lost its admitted payer",
                             )
-                        quote_authority = cloud_quote_authority_for_row(
-                            attempt.cost_basis, row_id=row_id
-                        )
-                        transport_kind = snapshot.get("transport")
-                        if (
-                            transport_kind == "frisket.cloud.media.v1"
-                            and capability
-                            in {
-                                "ocr",
-                                "transcribe",
-                                "document.convert",
-                            }
-                        ):
-                            cloud_attempt = CloudExecutionAttempt(
-                                request_id=checkpoint_id,
-                                payer=cloud_payer,
-                                quote_authority=quote_authority,
-                            )
+                        if runtime_binding.media_binding is not None:
                             row_ctx = replace(
                                 ctx,
-                                cloud_execution=CloudMediaExecutionBinding(
-                                    cloud_transport,
-                                    cloud_attempt,
-                                    capability,
-                                ),
-                            )
-                        elif (
-                            transport_kind == "frisket.cloud.llm.v1"
-                            and capability == "llm.complete"
-                        ):
-                            cloud_llm_coordinator = CloudLLMCheckpointCoordinator(
-                                self.project,
-                                cloud_transport,
-                                payer=cloud_payer,
-                                quote_authority=quote_authority,
-                                group_key=f"map:{run_id}:row:{row_id}",
-                                action_kind=spec["action_kind"],
-                                run_id=run_id,
-                                writer_attempt_id=attempt.attempt_id,
-                                claim_token=claim_token,
-                                claimless_direct_effect=self.claimless_direct_effect,
+                                cloud_execution=runtime_binding.media_binding,
                             )
                         else:
-                            raise RecipeInvocationHalt(
-                                "promise_violation",
-                                "Cloud execution differs from its admitted route",
-                            )
+                            cloud_llm_coordinator = runtime_binding.llm_coordinator
+                            cloud_llm_binding = runtime_binding.llm_binding
                     with (
-                        cloud_llm_execution_scope(
-                            CloudLLMExecutionBinding(coordinator=cloud_llm_coordinator)
-                        )
-                        if cloud_llm_coordinator is not None
+                        cloud_llm_execution_scope(cloud_llm_binding)
+                        if cloud_llm_binding is not None
                         else nullcontext()
                     ):
                         results = await execute_row(

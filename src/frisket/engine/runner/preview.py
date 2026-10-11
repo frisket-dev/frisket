@@ -13,11 +13,14 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
+from contextlib import nullcontext
+from dataclasses import dataclass, replace
 from typing import Any, Callable
 
 from frisket.ai.llm import ModelRouter
-from frisket.ops.base import OpContext, Recipe
+from frisket.cloud_execution import cloud_llm_execution_scope
+from frisket.cloud_runtime_binding import CloudRuntimeBinding, cloud_runtime_binding
+from frisket.ops.base import OpContext, Recipe, RecipeInvocationHalt
 from frisket.redaction import safe_error
 from frisket.engine.runner import validation
 from frisket.engine.runner.batch_normalization import normalize_batch_row
@@ -47,6 +50,7 @@ from frisket.execution.attempt import (
     require_receipt_attempt_writer,
 )
 from frisket.execution.attempt_authority import attempt_identity
+from frisket.execution.runtime_binding import bind_fact_to_route
 
 # Preview values are a small sample computed for a look and thrown away.
 # The client caps the sample to this many rows before requesting;
@@ -320,12 +324,51 @@ async def run_preview(
     done = 0
     accounted_rows: set[int] = set()
 
-    def record_row(row_id: int, cells: Mapping[str, dict[str, Any]]) -> None:
+    def record_row(
+        row_id: int,
+        cells: Mapping[str, dict[str, Any]],
+        cloud_binding: CloudRuntimeBinding | None = None,
+    ) -> None:
         if attempt is None:
             return
+        supplemental: list[dict[str, Any]] = []
+        coordinator = (
+            cloud_binding.llm_coordinator if cloud_binding is not None else None
+        )
+        returned_call_ids = {
+            str(call.get("id"))
+            for cell in cells.values()
+            for call in cell.get("model_calls", ())
+            if isinstance(call, dict) and call.get("id")
+        }
+        if cloud_binding is not None:
+            for cell in cells.values():
+                cell["model_calls"] = [
+                    bind_fact_to_route(cloud_binding.route, call)
+                    if isinstance(call, dict)
+                    else call
+                    for call in cell.get("model_calls", ())
+                ]
+        if coordinator is not None:
+            for entry in coordinator.returned_accounting:
+                calls = [
+                    bind_fact_to_route(cloud_binding.route, call)
+                    for call in entry.get("model_calls", ())
+                    if isinstance(call, dict)
+                    and str(call.get("id")) not in returned_call_ids
+                ]
+                if calls:
+                    supplemental.append(
+                        {
+                            "row_id": row_id,
+                            "column_id": None,
+                            **entry,
+                            "model_calls": calls,
+                        }
+                    )
         batch = [
             {**cell, "row_id": row_id, "column_id": None} for cell in cells.values()
-        ]
+        ] + supplemental
         run_store.write_returned_call_accounting(
             None,
             batch,
@@ -345,11 +388,22 @@ async def run_preview(
             outcomes,
             writer_attempt_id=attempt.attempt_id,
         )
+        if coordinator is not None:
+            coordinator.retire_returned()
         accounted_rows.add(row_id)
 
     primary: BaseException | None = None
     try:
         if not recipe.is_llm(spec) and hasattr(recipe, "execute_batch"):
+            if (
+                attempt is not None
+                and attempt.routed is not None
+                and attempt.routed.binding.facts.cloud_payer is not None
+            ):
+                raise RecipeInvocationHalt(
+                    "promise_violation",
+                    "Cloud preview batch execution has no admitted effect identity",
+                )
             # Batch recipes compute the whole sample at once; cancel is checked
             # before dispatch and while collecting per-row results.
             values_by_row = {
@@ -425,21 +479,51 @@ async def run_preview(
                         for_model=recipe.is_llm(spec),
                         column_types=source_column_types,
                     )
-                    cells = await execute_row(
-                        project,
-                        router,
-                        throttle,
-                        recipe,
-                        row_input_values,
-                        spec,
-                        ctx,
-                        row_id=row_id,
-                        recorder=None,
-                        required_output_field_names=required_field_names,
-                        managed_publication=managed_publication,
+                    row_ctx = ctx
+                    cloud_binding = None
+                    if attempt is not None:
+                        cloud_binding = cloud_runtime_binding(
+                            project,
+                            composition,
+                            attempt,
+                            row_id=row_id,
+                            request_id=(f"preview:{attempt.receipt_id}:row:{row_id}"),
+                            group_key=f"preview:{attempt.receipt_id}:row:{row_id}",
+                            action_kind=spec["action_kind"],
+                            run_id=None,
+                            claim_token=None,
+                            claimless_direct_effect=True,
+                        )
+                        if (
+                            cloud_binding is not None
+                            and cloud_binding.media_binding is not None
+                        ):
+                            row_ctx = replace(
+                                ctx, cloud_execution=cloud_binding.media_binding
+                            )
+                    llm_binding = (
+                        cloud_binding.llm_binding if cloud_binding is not None else None
                     )
+                    with (
+                        cloud_llm_execution_scope(llm_binding)
+                        if llm_binding is not None
+                        else nullcontext()
+                    ):
+                        cells = await execute_row(
+                            project,
+                            router,
+                            throttle,
+                            recipe,
+                            row_input_values,
+                            spec,
+                            row_ctx,
+                            row_id=row_id,
+                            recorder=None,
+                            required_output_field_names=required_field_names,
+                            managed_publication=managed_publication,
+                        )
                     async with lock:
-                        record_row(row_id, cells)
+                        record_row(row_id, cells, cloud_binding)
                         # Cancellation fence: mirror the durable path — a
                         # cancel observed by the time this row's cells are
                         # ready drops them, so a cancelled preview persists

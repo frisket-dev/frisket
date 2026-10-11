@@ -331,7 +331,9 @@ class ActionPreviewRunService:
                             if receipt is not None
                             else None,
                             attempt=attempt,
+                            action_kind=plan.action_kind,
                             router=router,
+                            composition=composition,
                             credential_use_context=composition.credential_use_context,
                             execution_limits=composition.limits,
                             progress=progress_cb,

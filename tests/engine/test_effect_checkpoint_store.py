@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import pytest
 
+from frisket.contracts.action import Receipt
 from frisket.engine.store import Project
 from frisket.engine.store.effect_checkpoints import (
     AmbiguousReserved,
@@ -22,6 +23,8 @@ from frisket.engine.store.effect_checkpoints import (
     canonical_json,
     require_model_call_ids,
 )
+from frisket.engine.store.receipts import ReceiptStore
+from frisket.execution.attempt import StaleAttemptWriter
 
 UNIT = {
     "family": "test_family",
@@ -69,6 +72,70 @@ def test_reserve_is_first_writer_wins(store) -> None:
     assert found["state"] == "reserved"
     assert found["payload"] is None
     assert found["accounting_persisted"] is False
+
+
+def test_receipt_checkpoint_requires_its_exact_active_claimless_writer(
+    project, store
+) -> None:
+    receipt_id = "receipt-checkpoint-owner"
+    attempt_id = "attempt-checkpoint-owner"
+    ReceiptStore(project).insert_running(
+        Receipt(
+            receipt_id=receipt_id,
+            project_id="project",
+            action_id="preview",
+            action_kind="map.extract",
+            status="running",
+        )
+    )
+    project.db.execute(
+        "INSERT INTO execution_attempts "
+        "(id, receipt_id, seq, state, action_identity_hash, scope_json, created_at) "
+        "VALUES (?, ?, 0, 'dispatching', 'identity', '[1]', datetime('now'))",
+        (attempt_id, receipt_id),
+    )
+    project.db.commit()
+    owned = {
+        **UNIT,
+        "authorized_attempt_id": attempt_id,
+        "writer_attempt_id": attempt_id,
+        "claimless_direct_effect": True,
+    }
+
+    with pytest.raises(StaleAttemptWriter):
+        store.reserve(
+            "receipt-wrong-writer",
+            **{**owned, "writer_attempt_id": "attempt-sibling"},
+        )
+    with pytest.raises(StaleAttemptWriter):
+        store.reserve(
+            "receipt-run-mode",
+            **{**owned, "claimless_direct_effect": False},
+        )
+
+    assert store.reserve("receipt-owned", **owned) is True
+    assert (
+        store.complete(
+            "receipt-owned",
+            **UNIT,
+            payload={"ok": True},
+            **{
+                key: owned[key]
+                for key in (
+                    "writer_attempt_id",
+                    "claimless_direct_effect",
+                )
+            },
+        )
+        == 0.0
+    )
+    store.consume_and_retire(
+        "receipt-owned",
+        **UNIT,
+        writer_attempt_id=attempt_id,
+        claimless_direct_effect=True,
+    )
+    assert store.get("receipt-owned") is None
 
 
 def test_complete_runs_accounting_in_the_same_transaction(store) -> None:

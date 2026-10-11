@@ -808,9 +808,29 @@ class EffectCheckpointStore:
                 "a run-scoped checkpoint supplied no immutable authorized attempt"
             )
         if run_id is None:
-            raise StaleAttemptWriter(
-                "an attempt-owned checkpoint mutation supplied no run id"
+            owner = self.db.execute(
+                "SELECT run_id, receipt_id FROM execution_attempts WHERE id=?",
+                (authorized_attempt_id,),
+            ).fetchone()
+            if (
+                owner is None
+                or owner["run_id"] is not None
+                or owner["receipt_id"] is None
+                or writer_attempt_id != authorized_attempt_id
+                or claim_token is not None
+                or not claimless_direct_effect
+            ):
+                raise StaleAttemptWriter(
+                    "receipt checkpoint mutation requires its authorized writer"
+                )
+            from frisket.execution.attempt import require_receipt_attempt_writer
+
+            require_receipt_attempt_writer(
+                self,
+                str(owner["receipt_id"]),
+                authorized_attempt_id,
             )
+            return
         owner = self.db.execute(
             "SELECT run_id FROM execution_attempts WHERE id=?",
             (authorized_attempt_id,),

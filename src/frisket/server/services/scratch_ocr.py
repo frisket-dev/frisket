@@ -181,7 +181,11 @@ def paid_ocr_scratch_plan(
             }
             recipe_impl = OcrEngines(cancelled=context.cancel_event.is_set)
             async with AsyncExitStack() as stack:
-                if canonical_engine == LIGHT_ENGINE:
+                if (
+                    canonical_engine == LIGHT_ENGINE
+                    and resolved.resolution.support.transport
+                    != "frisket.cloud.media.v1"
+                ):
                     recipe_impl.pool = await stack.enter_async_context(
                         rapidocr_execution_scope(
                             expected_rows=1,
