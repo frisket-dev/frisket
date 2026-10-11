@@ -118,6 +118,7 @@ from frisket.server.routes.models_gateway import register_models_gateway_routes
 from frisket.server.routes.cloud_connection import register_cloud_connection_routes
 from frisket.server.services.cloud_connection import CloudConnectionService
 from frisket.cloud_connection import CloudConnectionClient, CloudConnectionStore
+from frisket.cloud_execution import CloudExecutionTransport, HttpCloudExecutionTransport
 from frisket.server.services.models_gateway import ModelsGatewayService
 from frisket.server.services.import_sessions import (
     ImportSessionService,
@@ -374,6 +375,7 @@ def create_app(
     cloud_connection_client: CloudConnectionClient | None = None,
     cloud_profile_dir: str | Path | None = None,
     cloud_origin: str | None = None,
+    cloud_execution_transport: CloudExecutionTransport | None = None,
 ) -> FastAPI:
     # The deployment's price list (frisket.execution.pricing_policy), installed
     # process-wide because the fourteen sites that mint a money confirmation
@@ -468,6 +470,30 @@ def create_app(
 
         register_models_gateway_routes(app, service=gateway_service)
 
+    resolved_cloud_store = (
+        cloud_connection_store
+        if cloud_connection_store is not None
+        else CloudConnectionStore(cloud_profile_dir)
+        if edition == "solo"
+        else None
+    )
+    resolved_cloud_client = (
+        cloud_connection_client
+        if cloud_connection_client is not None
+        else CloudConnectionClient(cloud_origin)
+        if edition == "solo"
+        else None
+    )
+    resolved_cloud_transport = cloud_execution_transport
+    if (
+        resolved_cloud_transport is None
+        and resolved_cloud_store is not None
+        and resolved_cloud_client is not None
+    ):
+        resolved_cloud_transport = HttpCloudExecutionTransport(
+            resolved_cloud_store, resolved_cloud_client.origin
+        )
+
     ws = server_workspace.Workspace(
         Path(workspace_root),
         router,
@@ -501,6 +527,9 @@ def create_app(
         direct_action_receipt_settlement_port=(direct_action_receipt_settlement_port),
         project_qa_runtime_port=project_qa_runtime_port,
         edition=edition,
+        cloud_connection_store=resolved_cloud_store,
+        cloud_connection_client=resolved_cloud_client,
+        cloud_execution_transport=resolved_cloud_transport,
     )
     stale_run_grace_seconds = (
         DEFAULT_RUN_STATUS_GRACE_SECONDS
@@ -525,18 +554,12 @@ def create_app(
         )
     app.state.workspace = ws
     if edition == "solo":
+        assert resolved_cloud_store is not None
+        assert resolved_cloud_client is not None
         cloud_service = CloudConnectionService(
             ws,
-            store=(
-                cloud_connection_store
-                if cloud_connection_store is not None
-                else CloudConnectionStore(cloud_profile_dir)
-            ),
-            client=(
-                cloud_connection_client
-                if cloud_connection_client is not None
-                else CloudConnectionClient(cloud_origin)
-            ),
+            store=resolved_cloud_store,
+            client=resolved_cloud_client,
         )
         app.state.cloud_connection_service = cloud_service
         register_cloud_connection_routes(app, service=cloud_service)

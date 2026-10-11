@@ -56,7 +56,12 @@ from frisket.contracts.actions.schemas._engines import (
     find_engine,
 )
 from frisket.execution.credential_use import pinned_credential_source
-from frisket.execution.price_book import OperatorBorne, cost_posture_for
+from frisket.execution.price_book import (
+    ByokZero,
+    OperatorBorne,
+    PlatformMetered,
+    cost_posture_for,
+)
 from frisket.execution.provider import (
     CompositionFacts,
     ConnectionConfig,
@@ -683,10 +688,27 @@ def _hosted_edition_facts(
 
 
 def _edition_facts(
-    target: ExecutionTarget, engine_id: str, composition: CompositionFacts
+    target: ExecutionTarget,
+    engine_id: str,
+    composition: CompositionFacts,
+    cloud_payer: CloudPayerSubject | None = None,
 ) -> RouteRowFacts:
     """THE edition dispatch. An unknown edition is a programming error, not a
     refusal: resolving it would fabricate operator/credential facts."""
+    if cloud_payer is not None:
+        funding = (
+            PlatformMetered() if cloud_payer.lane == "frisket_credits" else ByokZero()
+        )
+        return RouteRowFacts(
+            target_id=target.id,
+            engine=engine_id,
+            operator=target.operator,
+            egress_class=target.egress_class,
+            region=target.region,
+            credential_source=pinned_credential_source(funding),
+            cost_posture=cost_posture_for(funding),
+            cloud_payer=cloud_payer,
+        )
     if composition.edition == "open":
         return _open_edition_facts(target, engine_id)
     if composition.edition == "hosted":
@@ -863,7 +885,13 @@ def resolve(
                 target_id=target.id,
             )
 
-    facts = _edition_facts(target, engine_id, composition)
+    payer_hook = getattr(provider, "cloud_payer", None)
+    cloud_payer = (
+        payer_hook(target.id, capability, engine_id) if callable(payer_hook) else None
+    )
+    if cloud_payer is not None and not isinstance(cloud_payer, CloudPayerSubject):
+        raise TypeError("execution provider cloud_payer must return CloudPayerSubject")
+    facts = _edition_facts(target, engine_id, composition, cloud_payer)
     estimate_basis = EstimateBasisInputs(hardware_class=connection.extra.get("gpu"))
     return Resolution(
         target=target,

@@ -166,6 +166,9 @@ class Workspace:
         project_qa_runtime_port: ProjectQARuntimePort | None = None,
         plugin_composition_policy: PluginCompositionPolicy | None = None,
         edition: str = "solo",
+        cloud_connection_store: Any | None = None,
+        cloud_connection_client: Any | None = None,
+        cloud_execution_transport: Any | None = None,
     ):
         if project_qa_runtime_port is not None and not isinstance(
             project_qa_runtime_port, ProjectQARuntimePort
@@ -192,6 +195,9 @@ class Workspace:
         self._execution_composition_factory = (
             execution_composition_factory or open_execution_composition
         )
+        self._cloud_connection_store = cloud_connection_store
+        self._cloud_connection_client = cloud_connection_client
+        self.cloud_execution_transport = cloud_execution_transport
         self._uses_open_execution_composition = execution_composition_factory is None
         self._models_gateway_connection_resolver = models_gateway_connection_resolver
         # The open/local server's cache-mode authority. FRISKET_CACHE_MODE
@@ -546,7 +552,7 @@ class Workspace:
         """Build one request's composition from its exact effective router."""
         effective_router = router if router is not None else self.router_for(project)
         if self._uses_open_execution_composition:
-            return open_execution_composition(
+            composition = open_execution_composition(
                 project,
                 effective_router,
                 context,
@@ -556,6 +562,20 @@ class Workspace:
                     and managed_local_models_configured(os.environ)
                 ),
             )
+            if (
+                self.edition == "solo"
+                and self._cloud_connection_store is not None
+                and self._cloud_connection_client is not None
+            ):
+                from frisket.cloud_targets import cloud_execution_composition
+
+                composition = cloud_execution_composition(
+                    composition,
+                    project,
+                    store=self._cloud_connection_store,
+                    client=self._cloud_connection_client,
+                )
+            return composition
         return self._execution_composition_factory(project, effective_router, context)
 
     @staticmethod

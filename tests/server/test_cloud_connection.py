@@ -16,7 +16,11 @@ from frisket.cloud_connection import (
 )
 from frisket.contracts.http.cloud_connection import (
     CloudAccount,
+    CloudCapabilitiesResponse,
+    CloudCapabilityRoute,
+    CloudOCROptionSupport,
     CloudSessionResponse,
+    CloudUnitPrice,
     CloudUser,
     ProjectCloudRoutingPatch,
 )
@@ -96,6 +100,45 @@ def test_secret_bearing_connection_repr_is_redacted():
 def test_cloud_origin_refuses_non_origin_or_insecure_remote_values(value):
     with pytest.raises(ValueError, match="invalid Frisket Cloud origin"):
         validate_cloud_origin(value)
+
+
+def test_capabilities_client_uses_selected_account_and_bearer():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/desktop/v1/accounts/41/capabilities"
+        assert request.headers["authorization"] == "Bearer installation-token"
+        payload = CloudCapabilitiesResponse(
+            account_id=41,
+            routes=[
+                CloudCapabilityRoute(
+                    capability="ocr",
+                    engine="rapidocr",
+                    provider="frisket",
+                    lane="frisket_credits",
+                    route_revision="route-1",
+                    ready=True,
+                    blocker=None,
+                    price=CloudUnitPrice(
+                        kind="unit", unit="page", micro_per_unit=2500
+                    ),
+                    options=CloudOCROptionSupport(
+                        kind="ocr",
+                        language=True,
+                        geometry=True,
+                        searchable_pdf=False,
+                    ),
+                )
+            ],
+        )
+        return httpx.Response(200, json=payload.model_dump(mode="json"))
+
+    client = CloudConnectionClient(
+        "https://app.frisket.dev", transport=httpx.MockTransport(handler)
+    )
+
+    capabilities = client.capabilities("installation-token", 41)
+
+    assert capabilities.account_id == 41
+    assert capabilities.routes[0].route_revision == "route-1"
 
 
 def test_device_flow_keeps_secrets_server_side_and_coalesces_early_poll(tmp_path):
