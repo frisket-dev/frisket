@@ -236,6 +236,7 @@ class CloudConnectionService:
                     status=status,
                     connection=self._stored_connection(),
                 )
+            credential_saved = False
             try:
                 with self._connection_lock:
                     session = self._client.session(answer.access_token)
@@ -244,22 +245,25 @@ class CloudConnectionService:
                         initiating_project_id=initiating_project_id,
                     )
                     self._store.save_connection(answer.access_token, session)
+                    credential_saved = True
             except (
                 CloudClientError,
                 CloudConnectionStoreError,
+                HTTPException,
                 OSError,
                 ProjectModelRouteError,
                 RouteError,
                 sqlite3.Error,
             ) as exc:
-                try:
-                    self._client.revoke_session(answer.access_token)
-                except CloudClientError:
-                    pass
                 raise CloudConnectionServiceError(
                     503, "Frisket Cloud sign-in could not be completed"
                 ) from exc
             finally:
+                if not credential_saved:
+                    try:
+                        self._client.revoke_session(answer.access_token)
+                    except CloudClientError:
+                        pass
                 # A token grant is single-use. Never poll the same device code
                 # again, even if local persistence failed after token delivery.
                 self._pending.pop(authorization_id, None)

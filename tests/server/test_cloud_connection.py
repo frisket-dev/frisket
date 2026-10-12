@@ -10,6 +10,7 @@ from threading import Event
 
 import httpx
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from frisket.cloud_connection import (
@@ -552,7 +553,8 @@ def test_concurrent_completed_polls_reuse_connected_state(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "failure_stage", ["session", "pin_route", "pin_sqlite", "save"]
+    "failure_stage",
+    ["session", "pin_http", "pin_route", "pin_runtime", "pin_sqlite", "save"],
 )
 def test_minted_token_is_revoked_if_connection_cannot_be_persisted(
     tmp_path, monkeypatch, failure_stage
@@ -609,7 +611,9 @@ def test_minted_token_is_revoked_if_connection_cannot_be_persisted(
         wall_clock=lambda: datetime(2026, 10, 11, tzinfo=UTC),
     )
     pin_failure = {
+        "pin_http": HTTPException(404, "project disappeared during sign-in"),
         "pin_route": RouteError(409, "project changed during sign-in"),
+        "pin_runtime": RuntimeError("unexpected pin failure"),
         "pin_sqlite": sqlite3.OperationalError("database is locked"),
     }.get(failure_stage)
     if pin_failure is not None:
@@ -625,10 +629,16 @@ def test_minted_token_is_revoked_if_connection_cannot_be_persisted(
     authorization_id = service.begin_authorization().id
     ticks[0] = 105.0
 
-    with pytest.raises(CloudConnectionServiceError) as exc_info:
+    expected_error = (
+        RuntimeError if failure_stage == "pin_runtime" else CloudConnectionServiceError
+    )
+    with pytest.raises(expected_error) as exc_info:
         service.poll_authorization(authorization_id)
 
-    assert exc_info.value.status == 503
+    if isinstance(exc_info.value, CloudConnectionServiceError):
+        assert exc_info.value.status == 503
+    else:
+        assert str(exc_info.value) == "unexpected pin failure"
     assert ("DELETE", "/api/desktop/v1/session") in requests
     service.close()
 
