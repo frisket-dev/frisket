@@ -176,6 +176,30 @@ describe('SelectorSetup', () => {
     expect(screen.getByLabelText('API key')).toHaveValue('draft-key');
   });
 
+  it('keeps the selector editing lock while another configuration panel remains open', async () => {
+    const editing = vi.fn();
+    const view = render(<SelectorSetup projectId="project-a" choice={choice(null, [
+      { kind: 'api_key', provider: 'gemini', scopes: [scope('project')] },
+      { kind: 'models_gateway', scopes: [scope('organization')] },
+    ])} onChanged={vi.fn()} onEditingChange={editing} />);
+
+    const keyAction = screen.getByRole('button', { name: /Use your own Google API key/ });
+    const gatewayAction = screen.getByRole('button', { name: 'Configure models server' });
+    await userEvent.click(keyAction);
+    expect(editing).toHaveBeenCalledTimes(1);
+    expect(editing).toHaveBeenLastCalledWith(true);
+    await userEvent.click(gatewayAction);
+    expect(editing).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(keyAction);
+    expect(keyAction).toHaveAttribute('aria-expanded', 'false');
+    expect(gatewayAction).toHaveAttribute('aria-expanded', 'true');
+    expect(editing).toHaveBeenCalledTimes(1);
+
+    view.unmount();
+    expect(editing).toHaveBeenNthCalledWith(2, false);
+  });
+
   it('shows selector-wide Cloud discovery without claiming support for the inspected model', async () => {
     request.mockImplementation((operation: string) => {
       if (operation === 'tenant.get_cloud_connection.get') return Promise.resolve({

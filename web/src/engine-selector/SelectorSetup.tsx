@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { HttpSelectorChoicesResponse, SelectorChoice } from '../api/selectorChoices';
 import { createProjectProviderKeysApi } from '../api/projectProviderKeys';
 import { createLocalProvidersApi } from '../api/localProviders';
@@ -11,7 +11,7 @@ import { ModelsGatewayForm } from './ModelsGatewayForm';
 import type { ModelsGatewayScope } from '../api/modelsGateway';
 import { cloudConnectionApi, projectCloudRoutingApi } from '../api/cloudConnection';
 import { CloudConnectionPanel } from '../cloud/CloudConnectionPanel';
-import { useSetupRequests } from './setupLifetime';
+import { useSetupEditing, useSetupRequests } from './setupLifetime';
 
 export interface SelectorSetupProps {
   projectId: string; choice: SelectorChoice; onChanged(): void; onEditingChange(editing: boolean): void;
@@ -26,6 +26,7 @@ type GatewayScope = CredentialSetup['scopes'][number] & { scope: ModelsGatewaySc
 type DownloadSetup = Extract<Setup, { kind: 'engine_setup' | 'artifact_download' }>;
 type CloudSetup = Extract<Setup, { kind: 'cloud' }>;
 type ConfigurationAction = SelectorChoice['configuration_actions'][number];
+type EditingReporter = (owner: string, editing: boolean) => void;
 const requestError = () => new Error('Setup request failed');
 const workspace = createLocalProvidersApi(requestError);
 const projectKeys = createProjectProviderKeysApi(requestError);
@@ -233,6 +234,19 @@ function SetupPanel({ setup, ...props }: SelectorSetupProps & { setup: Setup }) 
   }
 }
 
+function useOwnedEditing(editingOwner: string, reportEditing: EditingReporter) {
+  return useSetupEditing(useCallback(
+    (editing: boolean) => reportEditing(editingOwner, editing),
+    [editingOwner, reportEditing],
+  ));
+}
+
+function OwnedSetupPanel({ editingOwner, reportEditing, ...props }:
+  SelectorSetupProps & { setup: Setup; editingOwner: string; reportEditing: EditingReporter }) {
+  const editing = useOwnedEditing(editingOwner, reportEditing);
+  return <SetupPanel {...props} onEditingChange={editing} />;
+}
+
 function configurationLabel(action: ConfigurationAction): string {
   switch (action.kind) {
     case 'api_key': return `Use your own ${providerName(action.provider)} API key`;
@@ -242,15 +256,17 @@ function configurationLabel(action: ConfigurationAction): string {
   }
 }
 
-function ConfigurationActionPanel({ action, initiallyExpanded, ...props }:
-  SelectorSetupProps & { action: ConfigurationAction; initiallyExpanded: boolean }) {
+function ConfigurationActionPanel({ action, initiallyExpanded, editingOwner, reportEditing, ...props }:
+  SelectorSetupProps & { action: ConfigurationAction; initiallyExpanded: boolean;
+    editingOwner: string; reportEditing: EditingReporter }) {
   const [expanded, setExpanded] = useState(initiallyExpanded);
   const label = configurationLabel(action);
-  const panel = <SetupPanel {...props} setup={action} />;
+  const editing = useOwnedEditing(editingOwner, reportEditing);
+  const panel = <SetupPanel {...props} onEditingChange={editing} setup={action} />;
   const toggle = () => {
     const next = !expanded;
     setExpanded(next);
-    props.onEditingChange(next);
+    editing(next);
   };
   if (initiallyExpanded) {
     return <section className="selector-configuration-action is-expanded">
@@ -265,21 +281,44 @@ function ConfigurationActionPanel({ action, initiallyExpanded, ...props }:
   </section>;
 }
 
+function useEditingOwners(onEditingChange: (editing: boolean) => void): EditingReporter {
+  const owners = useRef(new Set<string>());
+  const callback = useRef(onEditingChange);
+  useEffect(() => { callback.current = onEditingChange; });
+  useEffect(() => () => {
+    const wasEditing = owners.current.size > 0;
+    owners.current.clear();
+    if (wasEditing) callback.current(false);
+  }, []);
+  return useCallback((owner: string, editing: boolean) => {
+    const wasEditing = owners.current.size > 0;
+    if (editing) owners.current.add(owner);
+    else owners.current.delete(owner);
+    const isEditing = owners.current.size > 0;
+    if (isEditing !== wasEditing) callback.current(isEditing);
+  }, []);
+}
+
 export function SelectorSetup(props: SelectorSetupProps) {
+  const reportEditing = useEditingOwners(props.onEditingChange);
   const activeSetup = props.choice.setup;
   const configurationActions = props.choice.configuration_actions;
   const genericCloudSetup = activeSetup?.kind === 'cloud' ? null : props.cloudSetup;
+  const activeOwner = activeSetup
+    ? `${props.projectId}:${props.choice.choice_id}:active:${setupKey(activeSetup)}`
+    : null;
   if (!activeSetup && configurationActions.length === 0 && !genericCloudSetup) return null;
   return <div className="selector-setup-stack">
-    {activeSetup && <SetupPanel
-      key={`${props.projectId}:${props.choice.choice_id}:${setupKey(activeSetup)}`}
-      {...props} setup={activeSetup} />}
-    {configurationActions.map((action) => (
-      <ConfigurationActionPanel
-        key={`${props.projectId}:${props.choice.choice_id}:${setupKey(action)}`}
+    {activeSetup && activeOwner && <OwnedSetupPanel key={activeOwner} {...props} setup={activeSetup}
+      editingOwner={activeOwner} reportEditing={reportEditing} />}
+    {configurationActions.map((action) => {
+      const owner = `${props.projectId}:${props.choice.choice_id}:configuration:${setupKey(action)}`;
+      return <ConfigurationActionPanel
+        key={owner}
         {...props} action={action}
+        editingOwner={owner} reportEditing={reportEditing}
         initiallyExpanded={props.choice.status !== 'ready'} />
-    ))}
+    })}
     {genericCloudSetup && <section key={`${props.projectId}:generic-cloud`}
       className="selector-generic-cloud-setup">
       {genericCloudSetup.state === 'connect' &&
