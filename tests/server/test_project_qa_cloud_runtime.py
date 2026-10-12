@@ -6,6 +6,8 @@ from contextlib import contextmanager
 import pytest
 
 from frisket.ai.llm import ModelRouter
+from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
+from frisket.authoring.project_ask import default_project_ask_model
 from frisket.cloud_connection import CloudConnectionStore
 from frisket.cloud_execution import (
     CloudExecutionRefused,
@@ -30,6 +32,7 @@ from frisket.contracts.http.cloud_connection import (
 from frisket.contracts.http.project_qa import AskThreadCreate, AskTurnRequest
 from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
 from frisket.engine.store.project_qa import ProjectQAStore
+from frisket.engine.runner.validation import NetworkDisabled
 from frisket.execution.pricing_policy import usd_to_micros
 from frisket.execution.resolver import Refusal
 from frisket.project_settings import ProjectSettings, write_project_settings
@@ -39,6 +42,14 @@ from frisket.server.workspace import Workspace
 
 
 MODEL = "anthropic/claude-sonnet-4-5"
+FLASH_LITE = "gemini/gemini-3.5-flash-lite"
+
+
+class SnapshotOnlyClient:
+    origin = "https://cloud.example.test"
+
+    def capabilities(self, _token, _account_id):
+        raise AssertionError("Ask composition must use the stored capability snapshot")
 
 
 def _account() -> CloudAccount:
@@ -52,14 +63,16 @@ def _account() -> CloudAccount:
     )
 
 
-def _capabilities(*, ready: bool = True) -> CloudCapabilitiesResponse:
+def _capabilities(
+    *, ready: bool = True, model: str = MODEL
+) -> CloudCapabilitiesResponse:
     return CloudCapabilitiesResponse(
         account_id=41,
         routes=[
             CloudCapabilityRoute(
                 capability="llm.complete",
-                engine=MODEL,
-                provider="anthropic",
+                engine=model,
+                provider=model.split("/", 1)[0],
                 lane="frisket_credits",
                 route_revision="route-1",
                 ready=ready,
@@ -157,6 +170,153 @@ def test_ask_does_not_bypass_a_selected_own_route_refusal(tmp_path, monkeypatch)
         project.close()
 
     assert exc_info.value.code == "execution_route_unavailable"
+
+
+def test_project_ask_default_uses_the_only_cloud_catalog_model(tmp_path):
+    store = CloudConnectionStore(tmp_path / "profile")
+    store.save_connection(
+        "installation-token",
+        CloudSessionResponse(
+            user=CloudUser(id=7, email="user@example.test", display_name="User"),
+            expires_at="2099-01-01T00:00:00Z",
+            accounts=[_account()],
+        ),
+    )
+    store.save_capabilities(_capabilities(model=FLASH_LITE), expected_user_id=7)
+    workspace = Workspace(
+        tmp_path / "workspace",
+        router=ModelRouter(use_env_keys=False, cache_mode="off"),
+        cloud_connection_store=store,
+        cloud_connection_client=SnapshotOnlyClient(),
+    )
+    project_id = workspace.create("Ask")["id"]
+    project = workspace.get(project_id)
+    write_project_settings(
+        project,
+        ProjectSettings(
+            cloud_user_id=7,
+            cloud_account_id=41,
+            cloud_execution_preference="cloud_first",
+        ),
+    )
+    router = workspace.router_for(project)
+    composition = workspace.execution_composition_for(
+        project,
+        router,
+        workspace.edition_execution_composition_context_for(),
+    )
+
+    try:
+        assert default_project_ask_model(router, composition) == FLASH_LITE
+    finally:
+        project.close()
+
+
+def test_ask_blocks_selected_cloud_and_own_key_routes_when_network_is_off(
+    tmp_path,
+):
+    store = CloudConnectionStore(tmp_path / "profile")
+    store.save_connection(
+        "installation-token",
+        CloudSessionResponse(
+            user=CloudUser(id=7, email="user@example.test", display_name="User"),
+            expires_at="2099-01-01T00:00:00Z",
+            accounts=[_account()],
+        ),
+    )
+    store.save_capabilities(_capabilities(), expected_user_id=7)
+    cloud_workspace = Workspace(
+        tmp_path / "cloud-workspace",
+        router=ModelRouter(use_env_keys=False, cache_mode="off"),
+        cloud_connection_store=store,
+        cloud_connection_client=SnapshotOnlyClient(),
+    )
+    cloud_project = cloud_workspace.get(cloud_workspace.create("Cloud Ask")["id"])
+    write_project_settings(
+        cloud_project,
+        ProjectSettings(
+            cloud_user_id=7,
+            cloud_account_id=41,
+            cloud_execution_preference="cloud_first",
+        ),
+    )
+    cloud_project.set_network_policy(mode="off")
+    cloud_qa = ProjectQAStore(cloud_project)
+    cloud_thread = cloud_qa.create_thread(title="Cloud route")
+    cloud_turn = cloud_qa.submit_turn(
+        cloud_thread["id"],
+        request_id="cloud-network-off",
+        question="Do not send this prompt",
+        model=MODEL,
+    )
+
+    own_workspace = Workspace(
+        tmp_path / "own-workspace",
+        router=ModelRouter(
+            keys={"anthropic": "configured"},
+            use_env_keys=False,
+            cache_mode="off",
+        ),
+    )
+    own_project = own_workspace.get(own_workspace.create("Own Ask")["id"])
+    own_project.set_network_policy(mode="off")
+    own_qa = ProjectQAStore(own_project)
+    own_thread = own_qa.create_thread(title="Own route")
+    own_turn = own_qa.submit_turn(
+        own_thread["id"],
+        request_id="own-network-off",
+        question="Do not send this prompt",
+        model=MODEL,
+    )
+
+    try:
+        with pytest.raises(NetworkDisabled, match="execution_route:frisket_shared"):
+            SoloCloudProjectQARuntimePort(cloud_workspace)._prepare_turn(
+                cloud_project, cloud_turn["id"]
+            )
+        with pytest.raises(NetworkDisabled, match="execution_route:third_party_api"):
+            SoloCloudProjectQARuntimePort(own_workspace)._prepare_turn(
+                own_project, own_turn["id"]
+            )
+    finally:
+        cloud_project.close()
+        own_project.close()
+
+
+def test_ask_allows_a_configured_local_endpoint_when_network_is_off(tmp_path):
+    endpoint = LocalModelEndpointConfig(
+        endpoint_id="test-local",
+        display_name="Local test server",
+        origin="http://127.0.0.1:11434",
+        source="local_file",
+    )
+    workspace = Workspace(
+        tmp_path / "workspace",
+        router=ModelRouter(
+            use_env_keys=False,
+            cache_mode="off",
+            local_endpoints=(endpoint,),
+        ),
+    )
+    project = workspace.get(workspace.create("Local Ask")["id"])
+    project.set_network_policy(mode="off")
+    qa = ProjectQAStore(project)
+    thread = qa.create_thread(title="Local route")
+    turn = qa.submit_turn(
+        thread["id"],
+        request_id="local-network-off",
+        question="Keep this prompt local",
+        model="ollama/@test-local/qwen2.5",
+    )
+
+    try:
+        runtime = SoloCloudProjectQARuntimePort(workspace)._prepare_turn(
+            project, turn["id"]
+        )
+    finally:
+        project.close()
+
+    assert runtime.cloud_llm_coordinator is None
 
 
 class CloudTransport:

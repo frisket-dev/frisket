@@ -15,6 +15,7 @@ from frisket.cloud_execution import (
 from frisket.cloud_llm_checkpoint import CloudLLMCheckpointCoordinator
 from frisket.cloud_targets import CLOUD_LLM_TRANSPORT, cloud_fallback_is_blocked
 from frisket.engine.store.project_qa import ProjectQAStore
+from frisket.engine.runner.validation import assert_selected_egress_policy
 from frisket.execution.pricing_policy import usd_to_micros
 from frisket.execution.resolver import Refusal, ResolutionRequest, resolve
 from frisket.execution.targets import CAPABILITY_LLM
@@ -84,6 +85,11 @@ class SoloCloudProjectQARuntimePort:
             composition.facts,
         )
         if isinstance(outcome, Refusal):
+            if (
+                outcome.target_id is None
+                and router.local_endpoint_url_for_model(model) is not None
+            ):
+                return SoloCloudProjectQATurnRuntime()
             cloud_route = bool(
                 outcome.target_id
                 and (
@@ -103,6 +109,7 @@ class SoloCloudProjectQARuntimePort:
                 outcome.remedy,
             )
 
+        assert_selected_egress_policy(project, outcome.facts.egress_class)
         payer = outcome.facts.cloud_payer
         if payer is None:
             return SoloCloudProjectQATurnRuntime()

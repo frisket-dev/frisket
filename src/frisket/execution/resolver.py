@@ -16,12 +16,13 @@ validate have no pins:
 - ``whisper`` (the advertised convenience alias) -> local, always
 
 VENUE NEVER DEPENDS ON LIVENESS OR OPTIONAL CONTROLS: a fresh canonical
-name picks the first declaration-order target (local-first), then validates
-authored options against that target. Liveness is checked ONLY for that
-chosen target (the static choice needs no probes). A chosen-but-dead target
-is a ``no_live_target`` refusal with its remedy; an option that target cannot
-honor is a ``no_capable_target`` refusal. Resolution never walks to another
-venue because a toggle was enabled. This keeps network policy, estimates,
+name ranks declared targets by configuration presence, the provider's
+selection rank, then declaration order, and validates authored options only
+against that target. Liveness is checked ONLY for that chosen target (the
+static choice needs no probes). A chosen-but-dead target is a
+``no_live_target`` refusal with its remedy; an option that target cannot honor
+is a ``no_capable_target`` refusal. Resolution never walks to another venue
+because a toggle was enabled. This keeps network policy, estimates,
 concurrency scoping, previews, and the catalog on one deterministic target;
 a venue flip remains an explicit, separately bound choice.
 
@@ -973,7 +974,8 @@ def resolve(
                 remedy=(f"no execution target declares engine {engine_id!r}"),
                 engine=engine_id,
             )
-        # One deterministic choice: the first declaration-order candidate.
+        # One deterministic choice: configuration presence, provider rank,
+        # then declaration order.
         # Optional controls are validated on it and cannot retarget a run.
         # The same probe-free function backs every dispatch-side consumer, so
         # the venue the resolver binds is the venue policy/estimate/preview

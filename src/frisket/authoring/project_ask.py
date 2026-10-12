@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import Field, JsonValue, model_validator
 
 from frisket.ai.llm import ModelRouter
+from frisket.ai.llm.model_catalog import MODEL_ENTRIES
 from frisket.contracts.http.models import WireModel
 from frisket.execution.provider import ExecutionComposition
 from frisket.execution.resolver import preferred_resolved_engine
@@ -21,6 +22,17 @@ _PROJECT_ASK_MODEL_BY_PROVIDER: tuple[tuple[str, str], ...] = (
 )
 
 
+def project_ask_model_candidates() -> tuple[str, ...]:
+    """Return every catalog Ask model in stable product-preference order."""
+    preferred = [model for _provider, model in _PROJECT_ASK_MODEL_BY_PROVIDER]
+    catalog = [
+        f"{provider}/{entry['id']}"
+        for provider, entries in MODEL_ENTRIES.items()
+        for entry in entries
+    ]
+    return tuple(dict.fromkeys([*preferred, *catalog]))
+
+
 def default_project_ask_model(
     router: ModelRouter, composition: ExecutionComposition | None = None
 ) -> str:
@@ -28,7 +40,7 @@ def default_project_ask_model(
 
     if composition is not None:
         selected = preferred_resolved_engine(
-            tuple(model for _provider, model in _PROJECT_ASK_MODEL_BY_PROVIDER),
+            project_ask_model_candidates(),
             composition.provider_for_resolution(),
             composition.facts,
             options={"tools": True},

@@ -775,19 +775,22 @@ def assert_network_policy(
     egressing on such a path after the project flips ``off``. The policy
     is read at validate/dispatch time and never joins the idempotency
     hash or run identity."""
-    capability = (
-        None
-        if selected_egress_class in {"none", "operator_lan"}
-        else (
-            f"execution_route:{selected_egress_class}"
-            if selected_egress_class is not None
-            else remote_capability_for_spec(recipe, spec)
-        )
-    )
+    if selected_egress_class is not None:
+        assert_selected_egress_policy(project, selected_egress_class)
+        return
+    capability = remote_capability_for_spec(recipe, spec)
     if capability is None:
         return
     if project.effective_network_policy() == "off":
         raise NetworkDisabled(capability)
+
+
+def assert_selected_egress_policy(project: Project, egress_class: str) -> None:
+    """Apply the project network gate to one already-selected route."""
+    if egress_class in {"none", "operator_lan"}:
+        return
+    if project.effective_network_policy() == "off":
+        raise NetworkDisabled(f"execution_route:{egress_class}")
 
 
 def unestimated_cost(recipe: Recipe, spec: dict) -> dict[str, Any]:
