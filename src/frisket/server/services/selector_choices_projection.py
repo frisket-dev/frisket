@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote
 
 from frisket.actions.translate_types import TranslationOptions
+from frisket.cloud_targets import cloud_fallback_is_blocked
 from frisket.execution.definitions import MODELS_GATEWAY_TARGET_ID
 from frisket.execution.provider import ExecutionComposition
+from frisket.execution.resolver import Refusal, preferred_resolved_engine
 from frisket.execution.targets import ExecutionTarget
 from frisket.ops.integrations.opus_mt import resolve_pair_codes
 from frisket.server.provider_config import PROVIDER_LABELS
@@ -52,6 +55,8 @@ def _credential_source(
     raw = router.credential_source_for(provider) if raw_source is None else raw_source
     if raw == "project_key":
         return "project"
+    if raw in {"env", "environment"}:
+        return "environment"
     if raw in {"org_byok", "org_key"}:
         return "organization"
     if raw in {"platform_key", "platform"}:
@@ -64,20 +69,21 @@ def _credential_source(
 def _default_action_model(
     choices: list[dict[str, Any]], composition: ExecutionComposition
 ) -> str | None:
-    # Target order already encodes the installation's local/Cloud preference.
-    # Keep the curated model order within each target.
-    ready = [
-        choice
+    models = [
+        model
         for choice in choices
-        if choice["status"] == "ready"
-        and isinstance(choice["authored_selection"].get("model"), str)
+        if isinstance((model := choice["authored_selection"].get("model")), str)
+        and model
     ]
-    for target in composition.resolution_targets():
-        for choice in ready:
-            if _mapping(choice.get("resolved_target")).get("target_id") == target.id:
-                return choice["authored_selection"]["model"]
-    # Unresolved model choices and unconfigured installations retain their
-    # catalog fallback; previewing an engine never selects it.
+    preferred = preferred_resolved_engine(
+        models,
+        composition.provider_for_resolution(),
+        composition.facts,
+    )
+    if preferred is not None:
+        return preferred
+    # Custom local endpoints are catalog-owned rather than static target rows;
+    # unconfigured installations retain their curated catalog fallback.
     for status in ("ready", "needs_setup"):
         for choice in choices:
             selection = choice["authored_selection"]
@@ -140,6 +146,7 @@ def _choice(
     can_run: bool,
     blocker: dict[str, Any] | None,
     setup: dict[str, Any] | None,
+    configuration_actions: list[dict[str, Any]] | None = None,
     execution_route: dict[str, Any] | None = None,
     active_operation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -159,6 +166,7 @@ def _choice(
         "can_run": can_run,
         "blocker": blocker,
         "setup": setup,
+        "configuration_actions": configuration_actions or [],
         "active_operation": active_operation,
         "is_default": False,
         "is_current": False,
@@ -208,17 +216,6 @@ def _execution_route(
         billed_to = label
         sends_data_to = provider
         account_id = None
-    alternatives = sum(
-        support.capability == capability
-        and (
-            support.engine == engine
-            or (
-                support.engine.endswith("/*") and engine.startswith(support.engine[:-1])
-            )
-        )
-        for candidate in composition.resolution_targets()
-        for support in candidate.engines
-    )
     return {
         "kind": kind,
         "label": label,
@@ -228,8 +225,217 @@ def _execution_route(
         "balance_label": balance_label if payer is not None else None,
         "balance_url": balance_url if payer is not None else None,
         "settings_url": settings_url,
-        "has_alternative_route": alternatives > 1,
+        "has_alternative_route": _has_exact_cloud_overlap(
+            composition, capability=capability, engine=engine
+        ),
     }
+
+
+def _matching_targets(
+    composition: ExecutionComposition, *, capability: str, engine: str
+) -> tuple[ExecutionTarget, ...]:
+    """Return each target that declares this exact authored work once."""
+
+    return tuple(
+        target
+        for target in composition.resolution_targets()
+        if any(
+            support.capability == capability
+            and (
+                support.engine == engine
+                or (
+                    support.engine.endswith("/*")
+                    and engine.startswith(support.engine[:-1])
+                )
+            )
+            for support in target.engines
+        )
+    )
+
+
+def _has_exact_cloud_overlap(
+    composition: ExecutionComposition, *, capability: str, engine: str
+) -> bool:
+    """Whether this engine has both an exact Cloud offer and an own venue."""
+
+    cloud = False
+    own = False
+    for target in _matching_targets(composition, capability=capability, engine=engine):
+        payer = composition.cloud_payer_for(
+            target_id=target.id, capability=capability, engine=engine
+        )
+        if payer is None:
+            own = True
+        else:
+            cloud = True
+    return cloud and own
+
+
+def _target_for_outcome(
+    composition: ExecutionComposition, outcome: Any
+) -> ExecutionTarget | None:
+    if not isinstance(outcome, Refusal):
+        return outcome.target
+    if outcome.target_id is None:
+        return None
+    return next(
+        (
+            target
+            for target in composition.resolution_targets()
+            if target.id == outcome.target_id
+        ),
+        None,
+    )
+
+
+def _configuration_action_key(action: Mapping[str, Any]) -> tuple[Any, ...] | None:
+    kind = action.get("kind")
+    if kind == "api_key":
+        return kind, action.get("provider")
+    if kind == "models_gateway":
+        return (kind,)
+    if kind in {"engine_setup", "artifact_download"}:
+        return kind, action.get("scope"), action.get("setup_ref")
+    return None
+
+
+def _configuration_actions(
+    *actions: dict[str, Any] | None,
+    active_setup: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Deduplicate passive configuration operations and exclude remediation."""
+
+    active_key = _configuration_action_key(active_setup or {})
+    seen: set[tuple[Any, ...]] = set()
+    result: list[dict[str, Any]] = []
+    for action in actions:
+        if action is None:
+            continue
+        key = _configuration_action_key(action)
+        if key is None or key == active_key or key in seen:
+            continue
+        seen.add(key)
+        result.append(action)
+    return result
+
+
+@dataclass(frozen=True)
+class _ExecutionPresentation:
+    target: ExecutionTarget | None
+    resolved_target: dict[str, Any] | None
+    processing_destination: dict[str, str]
+    execution_route: dict[str, Any] | None
+    status: str
+    blocker: dict[str, Any] | None
+    setup: dict[str, Any] | None
+    active_operation: dict[str, Any] | None
+
+
+def _execution_presentation(
+    composition: ExecutionComposition,
+    outcome: Any,
+    *,
+    capability: str,
+    engine: str,
+    fallback_target: dict[str, Any] | None,
+    fallback_destination: dict[str, str],
+    status: str,
+    blocker: dict[str, Any] | None,
+    setup: dict[str, Any] | None,
+    active_operation: dict[str, Any] | None = None,
+    cloud_setup_for_lane: Callable[[str | None], dict[str, Any] | None] | None = None,
+    balance_label: str | None = None,
+    balance_url: str | None = None,
+    settings_url: str | None = None,
+    policy_forbidden: bool = False,
+    preserve_unbound_catalog: bool = False,
+) -> _ExecutionPresentation:
+    """Project one selected route without choosing or probing another payer."""
+
+    refusal = outcome if isinstance(outcome, Refusal) else None
+    target = _target_for_outcome(composition, outcome)
+    resolved_target = fallback_target
+    destination = fallback_destination
+    route = None
+    payer = None
+    if target is not None:
+        resolved_target = {
+            "target_id": target.id,
+            "operator": target.operator,
+            "egress_class": target.egress_class,
+        }
+        destination = _destination(target.egress_class, target.operator)
+        payer = composition.cloud_payer_for(
+            target_id=target.id, capability=capability, engine=engine
+        )
+        route = _execution_route(
+            composition,
+            target,
+            capability=capability,
+            engine=engine,
+            balance_label=balance_label,
+            balance_url=balance_url,
+            settings_url=settings_url,
+        )
+
+    if policy_forbidden:
+        return _ExecutionPresentation(
+            target,
+            resolved_target,
+            destination,
+            route,
+            status,
+            blocker,
+            setup,
+            active_operation,
+        )
+
+    if refusal is None:
+        if payer is not None:
+            status = "ready"
+            blocker = None
+            setup = None
+            active_operation = None
+    else:
+        refusal_blocker = {
+            "code": refusal.family,
+            "message": refusal.remedy,
+            "field": None,
+        }
+        selected_cloud_blocker = payer is not None or (
+            refusal.target_id is not None
+            and cloud_fallback_is_blocked(
+                composition,
+                target_id=refusal.target_id,
+                capability=capability,
+                engine=engine,
+            )
+        )
+        if selected_cloud_blocker:
+            blocker = refusal_blocker
+            setup = (
+                cloud_setup_for_lane(payer.lane if payer is not None else None)
+                if cloud_setup_for_lane is not None
+                else None
+            )
+            active_operation = None
+            status = "needs_setup" if setup is not None else "unavailable"
+        elif not (preserve_unbound_catalog and refusal.target_id is None):
+            if blocker is None or status == "ready":
+                blocker = refusal_blocker
+            if status not in {"working", "needs_setup"}:
+                status = "unavailable"
+
+    return _ExecutionPresentation(
+        target,
+        resolved_target,
+        destination,
+        route,
+        status,
+        blocker,
+        setup,
+        active_operation,
+    )
 
 
 def _response(
@@ -241,6 +447,7 @@ def _response(
     current_selection: dict[str, Any] | None,
     default_selection: dict[str, Any] | None,
     server_labels: Mapping[str, str] | None = None,
+    cloud_setup: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     current_key = _selection_key(current_selection) if current_selection else None
     default_key = _selection_key(default_selection) if default_selection else None
@@ -259,7 +466,7 @@ def _response(
         orphan = _orphan(current_selection)
         current_choice_id = orphan["choice_id"]
     return {
-        "schema_version": "frisket.selector_choices.v1",
+        "schema_version": "frisket.selector_choices.v2",
         "project_id": project_id,
         "subject": subject,
         "depends_on": depends_on,
@@ -267,6 +474,7 @@ def _response(
         "default_choice_id": default_choice_id,
         "groups": _groups(choices, server_labels),
         "orphaned_current": orphan,
+        "cloud_setup": cloud_setup,
     }
 
 

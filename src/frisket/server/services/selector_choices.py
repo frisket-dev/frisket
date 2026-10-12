@@ -18,8 +18,6 @@ from urllib.parse import quote
 
 from frisket.authoring.action_metadata import action_available_in_edition
 from frisket.ai.embeddings.capabilities import resolve_embedding_capability
-from frisket.authoring.project_ask import default_project_ask_model
-from frisket.cloud_targets import cloud_fallback_is_blocked
 from frisket.contracts.http.selector_choices import (
     ActionSelectorSubject,
     ProjectAskSelectorSubject,
@@ -49,7 +47,6 @@ from frisket.execution.resolver import (
     preferred_static_choice,
     resolve,
 )
-from frisket.execution.targets import ExecutionTarget
 from frisket.execution.targets import CAPABILITY_GEOCODE, CAPABILITY_LLM
 from frisket.project_settings import read_project_settings
 from frisket.server.action_catalog_hints import (
@@ -80,12 +77,15 @@ from frisket.server.services.selector_choices_projection import (
     _model_selection,
     _engine_selection,
     _choice,
+    _configuration_actions,
     _execution_route,
+    _execution_presentation,
+    _matching_targets,
+    _target_for_outcome,
     _response,
     _server_labels,
     _engine_depends_on,
     _engine_destination,
-    _destination,
     _engine_facts,
     _model_facts,
     _model_target,
@@ -112,7 +112,6 @@ class _SelectorCloudContext:
     def setup(
         self,
         *,
-        local_key: dict[str, Any] | None,
         payer_lane: str | None = None,
     ) -> dict[str, Any] | None:
         state = self.state
@@ -137,7 +136,6 @@ class _SelectorCloudContext:
             if state == "out_of_credits"
             else None,
             "project_settings_url": self.project_settings_url,
-            "local_key": local_key,
         }
 
 
@@ -193,23 +191,6 @@ def _cloud_context(
         balance_url,
         add_credits_url,
         project_settings_url,
-    )
-
-
-def _target_for_outcome(
-    composition: ExecutionComposition, outcome: Any
-) -> ExecutionTarget | None:
-    if not isinstance(outcome, Refusal):
-        return outcome.target
-    if outcome.target_id is None:
-        return None
-    return next(
-        (
-            target
-            for target in composition.resolution_targets()
-            if target.id == outcome.target_id
-        ),
-        None,
     )
 
 
@@ -518,6 +499,7 @@ class SelectorChoiceService:
             current_selection=current_selection,
             default_selection=default_selection,
             server_labels=_server_labels(provider_catalog),
+            cloud_setup=cloud.setup(),
         )
 
     def _project_ask_choices(
@@ -547,8 +529,11 @@ class SelectorChoiceService:
             depends_on=[],
             choices=choices,
             current_selection=_model_selection(subject.model),
-            default_selection=_model_selection(default_project_ask_model(router)),
+            default_selection=_model_selection(
+                _default_action_model(choices, composition)
+            ),
             server_labels=_server_labels(provider_catalog),
+            cloud_setup=cloud.setup(),
         )
 
     def _embedding_choices(
@@ -692,7 +677,7 @@ class SelectorChoiceService:
                     capabilities=capabilities,
                     credential_source=_optional_str(provider.get("credential_source")),
                 )
-                if not configured and not local_http and provider_id in ENV_VAR
+                if not local_http and provider_id in ENV_VAR
                 else None
             )
             spend = (
@@ -766,68 +751,22 @@ class SelectorChoiceService:
                     composition.provider_for_resolution(),
                     composition.facts,
                 )
-                refusal = outcome if isinstance(outcome, Refusal) else None
-                resolved = _target_for_outcome(composition, outcome)
-                payer = (
-                    composition.cloud_payer_for(
-                        target_id=resolved.id,
-                        capability=CAPABILITY_LLM,
-                        engine=model["id"],
-                    )
-                    if resolved is not None
-                    else None
+                presentation = _execution_presentation(
+                    composition,
+                    outcome,
+                    capability=CAPABILITY_LLM,
+                    engine=model["id"],
+                    fallback_target=target,
+                    fallback_destination=destination,
+                    status=status,
+                    blocker=blocker,
+                    setup=setup,
+                    cloud_setup_for_lane=lambda lane: cloud.setup(payer_lane=lane),
+                    balance_label=_balance_label(cloud),
+                    balance_url=cloud.balance_url,
+                    settings_url=cloud.project_settings_url,
+                    preserve_unbound_catalog=local_http,
                 )
-                execution_route = None
-                if resolved is not None and (refusal is None or payer is not None):
-                    target = {
-                        "target_id": resolved.id,
-                        "operator": resolved.operator,
-                        "egress_class": resolved.egress_class,
-                    }
-                    destination = _destination(resolved.egress_class, resolved.operator)
-                    execution_route = _execution_route(
-                        composition,
-                        resolved,
-                        capability=CAPABILITY_LLM,
-                        engine=model["id"],
-                        balance_label=_balance_label(cloud),
-                        balance_url=cloud.balance_url,
-                        settings_url=cloud.project_settings_url,
-                    )
-                if payer is not None:
-                    if refusal is None:
-                        status = "ready"
-                        blocker = None
-                        setup = None
-                    else:
-                        blocker = {
-                            "code": refusal.family,
-                            "message": refusal.remedy,
-                            "field": None,
-                        }
-                        setup = cloud.setup(
-                            local_key=provider_setup, payer_lane=payer.lane
-                        )
-                        status = "needs_setup" if setup is not None else "unavailable"
-                elif (
-                    refusal is not None
-                    and refusal.target_id is not None
-                    and cloud_fallback_is_blocked(
-                        composition,
-                        target_id=refusal.target_id,
-                        capability=CAPABILITY_LLM,
-                        engine=model["id"],
-                    )
-                ):
-                    blocker = {
-                        "code": refusal.family,
-                        "message": refusal.remedy,
-                        "field": None,
-                    }
-                    setup = cloud.setup(local_key=provider_setup)
-                    status = "needs_setup" if setup is not None else "unavailable"
-                elif status == "needs_setup" and provider_setup is not None:
-                    setup = cloud.setup(local_key=provider_setup) or provider_setup
                 choices.append(
                     _choice(
                         selection=selection,
@@ -835,16 +774,21 @@ class SelectorChoiceService:
                         summary="",
                         description="",
                         model_card_url=None,
-                        resolved_target=target,
-                        processing_destination=destination,
+                        resolved_target=presentation.resolved_target,
+                        processing_destination=presentation.processing_destination,
                         facts=facts,
-                        status=status,
+                        status=presentation.status,
                         can_author=capabilities.may_author_actions
-                        and status != "unavailable",
-                        can_run=capabilities.may_run_actions and status == "ready",
-                        blocker=blocker,
-                        setup=setup,
-                        execution_route=execution_route,
+                        and presentation.status != "unavailable",
+                        can_run=capabilities.may_run_actions
+                        and presentation.status == "ready",
+                        blocker=presentation.blocker,
+                        setup=presentation.setup,
+                        configuration_actions=_configuration_actions(
+                            provider_setup,
+                            active_setup=presentation.setup,
+                        ),
+                        execution_route=presentation.execution_route,
                     )
                 )
         return choices
@@ -936,6 +880,64 @@ class SelectorChoiceService:
             ),
         )
 
+    def _engine_configuration_candidates(
+        self,
+        *,
+        router: Any,
+        project: Any,
+        composition: ExecutionComposition,
+        capability: str,
+        engine: str,
+        capabilities: SelectorCapabilities,
+        candidate_setup: dict[str, Any] | None,
+    ) -> list[dict[str, Any] | None]:
+        """Existing setup operations for own venues matching one exact engine."""
+
+        actions: list[dict[str, Any] | None] = [candidate_setup]
+        own_targets = [
+            target
+            for target in _matching_targets(
+                composition, capability=capability, engine=engine
+            )
+            if composition.cloud_payer_for(
+                target_id=target.id,
+                capability=capability,
+                engine=engine,
+            )
+            is None
+        ]
+        if any(target.id == MODELS_GATEWAY_TARGET_ID for target in own_targets):
+            actions.append(self._setup.models_gateway(capabilities))
+
+        provider = (
+            "datalab" if engine == "datalab" else _provider_from_qualified(engine)
+        )
+        if provider in ENV_VAR and own_targets:
+            actions.append(
+                self._setup.api_key(
+                    router=router,
+                    project=project,
+                    provider=cast(str, provider),
+                    capabilities=capabilities,
+                )
+            )
+
+        provider_for_resolution = composition.provider_for_resolution()
+        if engine == "docling" and any(
+            target.id == LOCAL_MODELS_TARGET_ID
+            and provider_for_resolution.configuration(target.id, capability, engine)
+            == "not_configured"
+            for target in own_targets
+        ):
+            actions.append(self._setup.engine_setup(DOCLING_SETUP_REF, capabilities))
+        if engine == "parakeet-tdt" and any(
+            target.id == "local-onnx" for target in own_targets
+        ):
+            actions.append(
+                self._setup.engine_setup(PARAKEET_TDT_SETUP_REF, capabilities)
+            )
+        return actions
+
     def _engine_choices(
         self,
         *,
@@ -996,12 +998,11 @@ class SelectorChoiceService:
                 if execution_capability is not None
                 else None
             )
-            refusal = outcome if isinstance(outcome, Refusal) else None
             static_choice = (
                 preferred_static_choice(
                     engine_id,
                     authored_options(params, execution_capability),
-                    list(targets.values()),
+                    composition.provider_for_resolution(),
                     capability=execution_capability,
                 )
                 if execution_capability is not None
@@ -1034,15 +1035,6 @@ class SelectorChoiceService:
             destination = _engine_destination(engine, target)
             available = bool(engine.get("available"))
             policy_forbidden = _network_off(project) and engine.get("tier") == "hosted"
-            payer = (
-                composition.cloud_payer_for(
-                    target_id=target.id,
-                    capability=execution_capability,
-                    engine=engine_id,
-                )
-                if target is not None and execution_capability is not None
-                else None
-            )
             status = "ready" if available else "unavailable"
             blocker = (
                 None
@@ -1316,40 +1308,49 @@ class SelectorChoiceService:
                     ],
                     "url": None,
                 }
-            if payer is not None and not policy_forbidden:
-                operation = None
-                if refusal is None:
-                    status = "ready"
-                    blocker = None
-                    setup = None
-                else:
-                    blocker = {
-                        "code": refusal.family,
-                        "message": refusal.remedy,
-                        "field": None,
-                    }
-                    setup = cloud.setup(local_key=None, payer_lane=payer.lane)
-                    status = "needs_setup" if setup is not None else "unavailable"
-            elif (
-                refusal is not None
-                and refusal.target_id is not None
-                and execution_capability is not None
-                and cloud_fallback_is_blocked(
+            candidate_setup = setup
+            presentation = (
+                _execution_presentation(
                     composition,
-                    target_id=refusal.target_id,
+                    outcome,
                     capability=execution_capability,
                     engine=engine_id,
+                    fallback_target=resolved_target,
+                    fallback_destination=destination,
+                    status=status,
+                    blocker=blocker,
+                    setup=setup,
+                    active_operation=operation,
+                    cloud_setup_for_lane=lambda lane: cloud.setup(payer_lane=lane),
+                    balance_label=_balance_label(cloud),
+                    balance_url=cloud.balance_url,
+                    settings_url=cloud.project_settings_url,
+                    policy_forbidden=policy_forbidden,
                 )
-                and not policy_forbidden
-            ):
-                operation = None
-                blocker = {
-                    "code": refusal.family,
-                    "message": refusal.remedy,
-                    "field": None,
-                }
-                setup = cloud.setup(local_key=None)
-                status = "needs_setup" if setup is not None else "unavailable"
+                if outcome is not None and execution_capability is not None
+                else None
+            )
+            if presentation is not None:
+                target = presentation.target
+                resolved_target = presentation.resolved_target
+                destination = presentation.processing_destination
+                status = presentation.status
+                blocker = presentation.blocker
+                setup = presentation.setup
+                operation = presentation.active_operation
+            configuration_candidates = (
+                self._engine_configuration_candidates(
+                    router=router,
+                    project=project,
+                    composition=composition,
+                    capability=execution_capability,
+                    engine=engine_id,
+                    capabilities=capabilities,
+                    candidate_setup=candidate_setup,
+                )
+                if execution_capability is not None
+                else [candidate_setup]
+            )
             choices.append(
                 _choice(
                     selection=selection,
@@ -1366,15 +1367,18 @@ class SelectorChoiceService:
                     can_run=capabilities.may_run_actions and status == "ready",
                     blocker=blocker,
                     setup=setup,
+                    configuration_actions=_configuration_actions(
+                        *configuration_candidates,
+                        active_setup=setup,
+                    ),
                     execution_route=(
-                        _execution_route(
+                        presentation.execution_route
+                        if presentation is not None
+                        else _execution_route(
                             composition,
                             target,
                             capability=execution_capability,
                             engine=engine_id,
-                            balance_label=_balance_label(cloud),
-                            balance_url=cloud.balance_url,
-                            settings_url=cloud.project_settings_url,
                         )
                         if target is not None and execution_capability is not None
                         else None
@@ -1399,6 +1403,16 @@ class SelectorChoiceService:
         placeholder = bool(row.get("dimension_discovery_required")) and not model
         status = "ready" if available else "unavailable"
         setup = None
+        provider_setup = (
+            self._setup.api_key(
+                router=router,
+                project=project,
+                provider=provider,
+                capabilities=capabilities,
+            )
+            if provider in ENV_VAR
+            else None
+        )
         reason = row.get("disabled_reason") or row.get("error")
         blocker = None
         if not available:
@@ -1418,12 +1432,7 @@ class SelectorChoiceService:
                 }
             elif provider in ENV_VAR:
                 status = "needs_setup"
-                setup = self._setup.api_key(
-                    router=router,
-                    project=project,
-                    provider=provider,
-                    capabilities=capabilities,
-                )
+                setup = provider_setup
                 blocker = {
                     "code": "provider_key_required",
                     "message": str(reason or "Provider setup is required."),
@@ -1450,6 +1459,10 @@ class SelectorChoiceService:
             can_run=capabilities.may_run_actions and status == "ready",
             blocker=blocker,
             setup=setup,
+            configuration_actions=_configuration_actions(
+                provider_setup,
+                active_setup=setup,
+            ),
         )
 
 

@@ -17,7 +17,7 @@ from frisket.contracts.http.models import WireModel
 
 
 SELECTOR_CHOICES_QUERY_SCHEMA_VERSION = "frisket.selector_choices_query.v1"
-SELECTOR_CHOICES_SCHEMA_VERSION = "frisket.selector_choices.v1"
+SELECTOR_CHOICES_SCHEMA_VERSION = "frisket.selector_choices.v2"
 
 
 class ActionSelectorSubject(WireModel):
@@ -237,7 +237,12 @@ class SelectorCloudSetup(WireModel):
     balance_url: str | None = None
     add_credits_url: str | None = None
     project_settings_url: str | None = None
-    local_key: ApiKeySetup | None = None
+
+
+SelectorConfigurationAction = Annotated[
+    ApiKeySetup | ModelsGatewaySetup | ArtifactDownloadSetup | EngineSetup,
+    Field(discriminator="kind"),
+]
 
 
 SelectorSetup = Annotated[
@@ -268,6 +273,7 @@ class SelectorChoice(WireModel):
     can_run: bool
     blocker: SelectorBlocker | None
     setup: SelectorSetup | None
+    configuration_actions: list[SelectorConfigurationAction]
     active_operation: ModelPull | None
     is_default: bool
     is_current: bool
@@ -282,7 +288,7 @@ class SelectorChoiceGroup(WireModel):
 
 
 class SelectorChoicesResponse(WireModel):
-    schema_version: Literal["frisket.selector_choices.v1"]
+    schema_version: Literal["frisket.selector_choices.v2"]
     project_id: str
     subject: NormalizedSelectorSubject
     depends_on: list[str]
@@ -290,6 +296,7 @@ class SelectorChoicesResponse(WireModel):
     default_choice_id: str | None
     groups: list[SelectorChoiceGroup]
     orphaned_current: SelectorChoice | None
+    cloud_setup: SelectorCloudSetup | None
 
 
 __all__ = [
@@ -314,6 +321,7 @@ __all__ = [
     "SelectorCloudSetup",
     "SelectorChoice",
     "SelectorChoiceGroup",
+    "SelectorConfigurationAction",
     "SelectorChoicesQuery",
     "SelectorChoicesResponse",
     "SelectorFact",

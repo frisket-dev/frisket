@@ -199,7 +199,7 @@ def test_viewer_can_load_an_incomplete_action_draft_without_mutation_authority(
 
     assert response.status_code == 200, response.text
     payload = response.json()
-    assert payload["schema_version"] == "frisket.selector_choices.v1"
+    assert payload["schema_version"] == "frisket.selector_choices.v2"
     assert payload["project_id"] == project_id
     assert payload["subject"] == {
         "kind": "action",
@@ -1254,6 +1254,7 @@ def test_model_choices_reuse_provider_setup_credential_and_spend_facts_within_re
     assert all(row["can_run"] for row in openai)
     assert setup_reads == Counter(
         {
+            "openai": 1,
             "anthropic": 1,
             "gemini": 1,
             "openrouter": 1,
@@ -1289,6 +1290,7 @@ def test_model_choices_reuse_provider_setup_credential_and_spend_facts_within_re
     )
     assert setup_reads == Counter(
         {
+            "openai": 2,
             "anthropic": 2,
             "gemini": 2,
             "openrouter": 2,

@@ -26,9 +26,11 @@ function choice(selection: Selection, label: string, available: boolean, reason?
       : selection.kind === 'engine_model' ? selection.model ?? selection.engine : selection.engine,
     description: '', facts: [], resolved_target: null,
     processing_destination: { kind: 'unknown', label: 'Test execution target' },
+    execution_route: null,
     status: available ? 'ready' : 'unavailable', can_author: available, can_run: available,
     blocker: available ? null : { code: 'fixture_unavailable', message: reason ?? 'Unavailable in this catalog', field: null },
-    setup: null, active_operation: null, model_card_url: null, is_current: false, is_default: false,
+    setup: null, configuration_actions: [], active_operation: null, model_card_url: null,
+    is_current: false, is_default: false,
   };
 }
 
@@ -110,10 +112,11 @@ export function actionSelectorResponse(
   if (preferred) preferred.is_default = true;
   const orphan = current && !selected ? choice(current, engine ?? model ?? 'Saved choice', false, 'Saved choice is not offered') : null;
   if (orphan) orphan.is_current = true;
-  return { schema_version: 'frisket.selector_choices.v1', project_id: projectId,
+  return { schema_version: 'frisket.selector_choices.v2', project_id: projectId,
     subject: { kind: 'action', action_id: entry.kind, field: subject.field },
     depends_on: hasEngine ? mixed ? ['engine', 'model'] : ['engine'] : ['model'], current_choice_id: selected?.choice_id ?? orphan?.choice_id ?? null,
-    default_choice_id: preferred?.choice_id ?? null, groups, orphaned_current: orphan };
+    default_choice_id: preferred?.choice_id ?? null, groups, orphaned_current: orphan,
+    cloud_setup: null };
 }
 
 export function selectorTrigger() {

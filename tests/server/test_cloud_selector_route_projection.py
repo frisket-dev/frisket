@@ -296,8 +296,15 @@ def test_selector_projects_the_composed_cloud_model_route(
         "balance_label": "$4.50 balance",
         "balance_url": "https://cloud.example.test/funding-accounts?account_id=41",
         "settings_url": "/p/cloud-selector/settings/project/ai-providers",
-        "has_alternative_route": preference == "cloud_first",
+        "has_alternative_route": True,
     }
+    assert selected["setup"] is None
+    assert [action["kind"] for action in selected["configuration_actions"]] == [
+        "api_key"
+    ]
+    assert selected["configuration_actions"][0]["provider"] == "openai"
+    assert response.json()["schema_version"] == "frisket.selector_choices.v2"
+    assert response.json()["cloud_setup"] is None
     assert profile_loads == 1
 
 
@@ -349,6 +356,8 @@ def test_exhausted_cloud_credit_route_stays_selected_and_offers_credits(
     assert selected["setup"]["add_credits_url"] == (
         "https://cloud.example.test/billing-checkout?account_id=41"
     )
+    assert selected["configuration_actions"][0]["kind"] == "api_key"
+    assert selected["configuration_actions"][0]["provider"] == "datalab"
 
 
 def test_zero_balance_does_not_block_account_key_route(tmp_path, monkeypatch) -> None:
@@ -415,13 +424,14 @@ def test_connected_installation_without_project_account_requests_account_once(
         )
 
     assert response.status_code == 200, response.text
-    selected = next(
-        choice for choice in _choices(response.json()) if choice["is_current"]
-    )
+    payload = response.json()
+    selected = next(choice for choice in _choices(payload) if choice["is_current"])
     assert selected["status"] == "needs_setup"
-    assert selected["setup"]["kind"] == "cloud"
-    assert selected["setup"]["state"] == "account_required"
-    assert selected["setup"]["local_key"]["kind"] == "api_key"
+    assert selected["setup"]["kind"] == "api_key"
+    assert selected["configuration_actions"] == []
+    assert payload["cloud_setup"]["kind"] == "cloud"
+    assert payload["cloud_setup"]["state"] == "account_required"
+    assert "local_key" not in payload["cloud_setup"]
 
 
 def test_cloud_first_disconnected_installation_does_not_use_configured_local_key(
@@ -453,7 +463,11 @@ def test_cloud_first_disconnected_installation_does_not_use_configured_local_key
     assert selected["status"] == "needs_setup"
     assert selected["setup"]["kind"] == "cloud"
     assert selected["setup"]["state"] == "connect"
-    assert selected["setup"]["local_key"] is None
+    assert "local_key" not in selected["setup"]
+    assert selected["configuration_actions"][0]["kind"] == "api_key"
+    assert any(
+        scope["configured"] for scope in selected["configuration_actions"][0]["scopes"]
+    )
     assert selected["can_run"] is False
     assert "must-not-be-used" not in response.text
 
@@ -721,6 +735,62 @@ def test_blocked_cloud_route_keeps_local_api_key_setup_available(tmp_path):
         choice for choice in _choices(response.json()) if choice["is_current"]
     )
     assert selected["can_run"] is False
-    assert selected["status"] == "needs_setup"
-    assert selected["setup"]["kind"] == "api_key"
-    assert selected["setup"]["provider"] == "openai"
+    assert selected["status"] == "unavailable"
+    assert selected["setup"] is None
+    assert selected["configuration_actions"][0]["kind"] == "api_key"
+    assert selected["configuration_actions"][0]["provider"] == "openai"
+
+
+def test_unrelated_cloud_model_is_not_reported_as_an_alternative_route(tmp_path):
+    route = _llm_route().model_copy(update={"engine": "openai/gpt-5-mini"})
+    client, _workspace, _store, pid = _cloud_selector_app(
+        tmp_path,
+        routes=[route],
+        preference="local_first",
+        local_keys={"gemini": "configured-key"},
+    )
+
+    with client:
+        response = client.post(
+            f"/api/projects/{pid}/selector-choices",
+            json={
+                "schema_version": "frisket.selector_choices_query.v1",
+                "subject": {
+                    "kind": "project_ask",
+                    "model": "gemini/gemini-3.5-flash",
+                },
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    selected = next(
+        choice for choice in _choices(response.json()) if choice["is_current"]
+    )
+    assert selected["execution_route"]["kind"] == "local_key"
+    assert selected["execution_route"]["has_alternative_route"] is False
+
+
+def test_embedding_projection_never_invents_cloud_setup(tmp_path):
+    client, _workspace, _store, pid = _cloud_selector_app(
+        tmp_path,
+        routes=[_llm_route()],
+        selected_account=False,
+    )
+
+    with client:
+        response = client.post(
+            f"/api/projects/{pid}/selector-choices",
+            json={
+                "schema_version": "frisket.selector_choices_query.v1",
+                "subject": {"kind": "embedding"},
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["cloud_setup"] is None
+    assert all(
+        choice["execution_route"] is None
+        and all(action["kind"] != "cloud" for action in choice["configuration_actions"])
+        for choice in _choices(payload)
+    )
