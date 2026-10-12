@@ -24,6 +24,8 @@ export type {
   PostureCapabilities,
 } from './editions/posture';
 export { OpenEditionRoot } from './entries/OpenEditionRoot';
+export { ProviderKeyForm, type ProviderKeyFormProps } from './engine-selector/ProviderKeyForm';
+export type { ProviderValidateResult } from './api/types';
 export { mountEdition } from './entries/mount';
 export type { EditionRoute } from './routes/openRoutes';
 export { useShellIdentity, type ShellIdentity } from './shellIdentity';
