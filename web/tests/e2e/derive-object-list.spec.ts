@@ -13,6 +13,7 @@ import {
   importCsv,
   listSheets,
   openAction,
+  setProjectModelRoute,
   sheetData,
   type WireSheet,
   uniqueName,
@@ -246,6 +247,7 @@ async function waitForSheet(
 
 test('derive materializes arrays of typed objects into a child sheet', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-derive-object-list'));
+  await setProjectModelRoute(page.request, pid, MODEL, 'own');
   const sheetId = await importCsv(page.request, pid, 'episodes.csv', CSV);
   primeDeriveObjectCache(pid, sheetId);
   await exposeReplayModel(page, pid);

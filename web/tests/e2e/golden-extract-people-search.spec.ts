@@ -13,6 +13,7 @@ import {
   listSheets,
   openPalette,
   openProject,
+  setProjectModelRoute,
   sheetData,
   uniqueName,
 } from './helpers';
@@ -274,6 +275,7 @@ async function runPeopleDeriveComposite(
 
 test('derived People values render decoded text and stay AI-marked through search', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-golden-people-search'));
+  await setProjectModelRoute(page.request, pid, MODEL, 'own');
   const csv =
     'episode,summary\n' +
     `${csvEscape('JRE #2322 - Devon Larratt')},${csvEscape(SOURCE_SUMMARY)}\n`;

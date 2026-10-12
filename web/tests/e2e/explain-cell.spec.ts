@@ -18,6 +18,7 @@ import {
   importCsv,
   openAction,
   openCellDrawer,
+  setProjectModelRoute,
   sheetColumns,
   uniqueName,
 } from './helpers';
@@ -176,6 +177,7 @@ test('Explain this cell shows the exact prompt + raw output, rendered XSS-safe',
   page,
 }) => {
   const pid = await createProject(page.request, uniqueName('e2e-explain-cache'));
+  await setProjectModelRoute(page.request, pid, MODEL, 'own');
   const sheetId = await importCsv(page.request, pid, `snippets-${Date.now()}.csv`, CSV);
   primeExplainCache(pid, sheetId);
   await exposeReplayBackedClassifyEngine(page, pid);
