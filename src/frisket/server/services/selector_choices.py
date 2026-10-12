@@ -61,6 +61,7 @@ from frisket.server.provider_config import (
 from frisket.server.route_errors import RouteError
 from frisket.server.workspace import Workspace
 from frisket.server.services.selector_choices_setup import SelectorSetupService
+from frisket.server.services.project_ask_defaults import project_ask_inventory
 from frisket.server.services.selector_choices_capabilities import (
     SelectorCapabilities,
     SelectorCapabilitiesFor,
@@ -530,6 +531,11 @@ class SelectorChoiceService:
         subject: ProjectAskSelectorSubject,
         capabilities: SelectorCapabilities,
     ) -> dict[str, Any]:
+        candidate_models, direct_models, spend_by_provider = project_ask_inventory(
+            provider_catalog,
+            router=router,
+            project=project,
+        )
         choices = self._model_choices(
             router=router,
             project=project,
@@ -538,22 +544,8 @@ class SelectorChoiceService:
             composition=composition,
             cloud=cloud,
             selection_kind="model",
+            provider_spend_states=spend_by_provider,
         )
-        candidate_models = [
-            model
-            for choice in choices
-            if choice["status"] in {"ready", "needs_setup"}
-            and isinstance((model := choice["authored_selection"].get("model")), str)
-            and model
-        ]
-        direct_models = [
-            model
-            for choice in choices
-            if choice["status"] == "ready"
-            and isinstance((model := choice["authored_selection"].get("model")), str)
-            and model
-            and _mapping(choice.get("resolved_target")).get("egress_class") is None
-        ]
         network_off = _network_off(project)
         return _response(
             project_id,
@@ -694,6 +686,7 @@ class SelectorChoiceService:
         cloud: _SelectorCloudContext,
         selection_kind: str,
         engine: str | None = None,
+        provider_spend_states: Mapping[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         choices: list[dict[str, Any]] = []
         for provider in provider_catalog.get("providers", []):
@@ -720,7 +713,9 @@ class SelectorChoiceService:
                 else None
             )
             spend = (
-                project.provider_spend_state(provider_id)
+                provider_spend_states.get(provider_id)
+                if provider_spend_states is not None
+                else project.provider_spend_state(provider_id)
                 if configured and provider.get("credential_source") == "project_key"
                 else None
             )

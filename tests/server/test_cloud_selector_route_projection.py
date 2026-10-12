@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from fastapi import FastAPI
@@ -770,6 +772,95 @@ def test_network_off_defaults_ask_and_actions_to_reachable_local_model(
         )
         assert turn.status_code == 200, turn.text
         assert turn.json()["model"] == model
+
+
+def test_omitted_ask_model_refuses_before_admission_when_network_off(tmp_path) -> None:
+    client, workspace, _store, project_id = _cloud_selector_app(
+        tmp_path,
+        routes=[],
+        preference="local_first",
+        router=ModelRouter(use_env_keys=False),
+    )
+    workspace.get(project_id).set_network_policy(mode="off")
+    project_qa = ProjectQAService(workspace)
+    register_project_qa_routes(client.app, service=project_qa)
+    client.app.router.add_event_handler("shutdown", project_qa.shutdown)
+
+    with client:
+        threads = f"/api/projects/{project_id}/qa/threads"
+        thread = client.post(threads, json={"scope": {"kind": "project"}}).json()
+        response = client.post(
+            f"{threads}/{thread['id']}/turns",
+            json={
+                "request_id": "network-off-no-default",
+                "question": "What changed?",
+                "scope": {"kind": "project"},
+            },
+        )
+        assert response.status_code == 409, response.text
+        detail = client.get(f"{threads}/{thread['id']}").json()
+        assert detail["active_turn"] is None
+        assert detail["history"]["events"] == []
+
+
+def test_omitted_ask_model_uses_selector_eligible_spend_inventory(
+    tmp_path, monkeypatch
+) -> None:
+    def spend(_project, provider):
+        return SimpleNamespace(
+            over_cap=provider == "anthropic",
+            cap_enforceable=True,
+        )
+
+    monkeypatch.setattr(
+        "frisket.engine.store.Project.provider_spend_state",
+        spend,
+    )
+    router = ModelRouter(
+        keys={"anthropic": "capped", "openai": "available"},
+        key_sources={"anthropic": "project_key", "openai": "project_key"},
+        use_env_keys=False,
+    )
+    client, workspace, _store, project_id = _cloud_selector_app(
+        tmp_path,
+        routes=[],
+        preference="local_first",
+        router=router,
+    )
+
+    async def run_turn(_project, _router, _turn, _store):
+        return {}
+
+    project_qa = ProjectQAService(workspace, runner=run_turn)
+    register_project_qa_routes(client.app, service=project_qa)
+    client.app.router.add_event_handler("shutdown", project_qa.shutdown)
+
+    with client:
+        selector = client.post(
+            f"/api/projects/{project_id}/selector-choices",
+            json={
+                "schema_version": "frisket.selector_choices_query.v1",
+                "subject": {"kind": "project_ask"},
+            },
+        )
+        assert selector.status_code == 200, selector.text
+        default = next(
+            choice for choice in _choices(selector.json()) if choice["is_default"]
+        )
+        assert default["authored_selection"]["model"] == "openai/gpt-5.6-terra"
+
+        threads = f"/api/projects/{project_id}/qa/threads"
+        thread = client.post(threads, json={"scope": {"kind": "project"}}).json()
+        turn = client.post(
+            f"{threads}/{thread['id']}/turns",
+            json={
+                "request_id": "spend-eligible-default",
+                "question": "What changed?",
+                "scope": {"kind": "project"},
+            },
+        )
+        assert turn.status_code == 200, turn.text
+        assert turn.json()["model"] == "openai/gpt-5.6-terra"
 
 
 def test_configuration_actions_require_mutation_authority(tmp_path) -> None:

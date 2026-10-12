@@ -41,6 +41,7 @@ from frisket.server.services.project_qa_tracing import (
     build_project_qa_tracing,
 )
 from frisket.server.provider_config import build_provider_catalog
+from frisket.server.services.project_ask_defaults import project_ask_inventory
 from frisket.server.thread_worker import await_thread_worker
 from frisket.server.workspace import Workspace
 from frisket.server.project_qa_runtime import ProjectQATurnRuntime
@@ -79,37 +80,6 @@ _KNOWN_TOOLS = frozenset(
         "search_web",
     }
 )
-
-
-def _project_ask_catalog_models(
-    workspace: Workspace, router: Any
-) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """Return the existing picker inventory and its ready direct-local subset."""
-
-    catalog = build_provider_catalog(
-        workspace.root,
-        network_off=False,
-        local_endpoints=router.local_endpoints,
-        local_endpoint_authority=(
-            "instance" if workspace.edition == "solo" else "organization"
-        ),
-    )
-    candidates: list[str] = []
-    direct: list[str] = []
-    for provider in catalog.get("providers", []):
-        if not isinstance(provider, dict):
-            continue
-        local_ready = provider.get("kind") == "local_http" and bool(
-            provider.get("reachable")
-        )
-        for model in provider.get("models", []):
-            model_id = model.get("id") if isinstance(model, dict) else None
-            if not isinstance(model_id, str) or not model_id:
-                continue
-            candidates.append(model_id)
-            if local_ready:
-                direct.append(model_id)
-    return tuple(dict.fromkeys(candidates)), tuple(dict.fromkeys(direct))
 
 
 _TOOL_RETRY_RE = re.compile(r"^Tool '([^']+)' exceeded max retries count of \d+$")
@@ -538,8 +508,22 @@ class ProjectQAService:
                         router,
                         self.workspace.edition_execution_composition_context_for(),
                     )
-                    candidate_models, direct_models = _project_ask_catalog_models(
-                        self.workspace, router
+                    provider_catalog = build_provider_catalog(
+                        self.workspace.root,
+                        network_off=False,
+                        local_endpoints=router.local_endpoints,
+                        local_endpoint_authority=(
+                            "instance"
+                            if self.workspace.edition == "solo"
+                            else "organization"
+                        ),
+                    )
+                    candidate_models, direct_models, _spend_by_provider = (
+                        project_ask_inventory(
+                            provider_catalog,
+                            router=router,
+                            project=project,
+                        )
                     )
                     network_off = project.effective_network_policy() == "off"
                     default_model = default_project_ask_model(
@@ -550,6 +534,11 @@ class ProjectQAService:
                         network_off=network_off,
                         allow_setup_fallback=not network_off,
                     )
+                    if default_model is None:
+                        raise ProjectQAConflictError(
+                            "No runnable Project Ask model is available. Choose a "
+                            "model or change the project's network setting."
+                        )
                 setup = (
                     self._research_setup(
                         project_id, project, values["research"], context
