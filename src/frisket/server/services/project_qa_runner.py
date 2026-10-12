@@ -18,6 +18,7 @@ from pydantic_ai.usage import UsageLimitExceeded, UsageLimits
 from pydantic_graph import End
 
 from frisket.ai.llm.structured import FrisketRouterModel
+from frisket.ai.llm.router import model_call_cannot_go_live
 from frisket.ai.llm.types import LLMRequest, LLMResponse, provider_from_model_id
 from frisket.ai.models.accounting import wire_accounting_meta
 from frisket.ai.research.row_answer import fetch_page, search_web_results
@@ -25,7 +26,10 @@ from frisket.authoring.project_ask import (
     ProjectAskRegisteredActionDraft,
     default_project_ask_model,
 )
-from frisket.engine.runner.validation import assert_provider_spend_cap
+from frisket.engine.runner.validation import (
+    assert_provider_spend_cap,
+    assert_selected_egress_policy,
+)
 from frisket.engine.store import Project
 from frisket.engine.store.project_qa import ProjectQAConflictError, ProjectQAStore
 from frisket.querysets import BUILTIN_FILTER_OPERATORS
@@ -99,6 +103,8 @@ async def run_turn(
     search_service: SearchService | None = None,
     action_host: Any = None,
     execution: Any = None,
+    selected_model: str | None = None,
+    selected_egress_class: str | None = None,
 ) -> dict[str, Any]:
     """Investigate one admitted turn; the caller owns terminalization."""
 
@@ -123,9 +129,15 @@ async def run_turn(
         research=research is not None,
     )
     tool_lock = asyncio.Lock()
-    model_id = turn["model"] or default_project_ask_model(router)
+    model_id = selected_model or turn["model"] or default_project_ask_model(router)
 
     async def before_request(request: LLMRequest) -> None:
+        if selected_egress_class is not None and not model_call_cannot_go_live(router):
+            await await_thread_worker(
+                assert_selected_egress_policy,
+                project,
+                selected_egress_class,
+            )
         provider = provider_from_model_id(request.model)
         if router.credential_source_for(provider) == "project_key":
             await await_thread_worker(assert_provider_spend_cap, project, provider)

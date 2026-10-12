@@ -10,6 +10,10 @@ from __future__ import annotations
 
 import pytest
 
+from frisket.ai.models.gateway_config import (
+    InvalidModelsGatewayConfig,
+    ModelsGatewayConnection,
+)
 from frisket.execution.provider import CompositionFacts
 from frisket.execution.resolver import (
     Refusal,
@@ -27,6 +31,7 @@ from frisket.execution.definitions import (
     parakeet_artifacts_present,
 )
 from frisket.execution.promises import PromiseSet
+from frisket.execution.targets import CAPABILITY_LLM, CAPABILITY_TRANSLATE
 
 # Every activation env name the definitions read, plus the HF cache selectors
 # the parakeet probe resolves through — cleared per test so the host machine's
@@ -606,14 +611,24 @@ def test_remote_api_key_decrypt_failure_is_loud(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-env")
 
     class _UndecryptableProject:
+        def provider_key_catalog_rows(self):
+            return {"openai": {"provider": "openai"}}
+
         def provider_model_keys(self) -> dict[str, str]:
             raise ProviderKeyDecryptError("openai")
 
     provider = StaticExecutionTargetProvider(secrets=_UndecryptableProject())
 
-    with pytest.raises(ProviderKeyDecryptError) as excinfo:
-        provider.connection("remote-api:openai")
-    assert "openai" in str(excinfo.value)
+    outcome = resolve(
+        ResolutionRequest(engine="openai/gpt-5-mini", capability=CAPABILITY_LLM),
+        provider,
+        OPEN,
+    )
+
+    assert isinstance(outcome, Refusal)
+    assert outcome.family == "no_live_target"
+    assert outcome.target_id == "remote-api:openai"
+    assert "could not be decrypted" in outcome.remedy
 
 
 def test_remote_api_liveness_remedy_names_the_capability(monkeypatch):
@@ -660,6 +675,158 @@ def test_liveness_remedy_hook_predating_capability_still_answers():
         _liveness_remedy(_OldProvider(), "remote-api:openai", "ocr")
         == "old-style remedy for remote-api:openai"
     )
+
+
+def test_gateway_configuration_presence_is_cached_across_models():
+    calls = 0
+
+    def invalid_partial_gateway():
+        nonlocal calls
+        calls += 1
+        raise InvalidModelsGatewayConfig("models gateway token is required")
+
+    provider = StaticExecutionTargetProvider(
+        models_gateway_resolver=invalid_partial_gateway
+    )
+
+    assert provider.configuration("models-gateway", "ocr", "docling") == "configured"
+    assert (
+        provider.configuration("models-gateway", "transcribe", "whisper-turbo")
+        == "configured"
+    )
+    assert calls == 1
+
+
+def test_gateway_connection_lookup_remains_live_after_presence_is_cached():
+    calls = 0
+    connections = iter(
+        (
+            None,
+            ModelsGatewayConnection(
+                origin="https://models-one.example.test",
+                token="token-one",
+                source="stored",
+            ),
+            ModelsGatewayConnection(
+                origin="https://models-two.example.test",
+                token="token-two",
+                source="stored",
+            ),
+        )
+    )
+
+    def missing_gateway():
+        nonlocal calls
+        calls += 1
+        return next(connections)
+
+    provider = StaticExecutionTargetProvider(models_gateway_resolver=missing_gateway)
+
+    assert provider.configuration("models-gateway", "ocr", "docling") == (
+        "not_configured"
+    )
+    assert provider.connection("models-gateway").base_url == (
+        "https://models-one.example.test"
+    )
+    assert (
+        provider.configuration("models-gateway", "transcribe", "whisper-turbo")
+        == "not_configured"
+    )
+    assert provider.connection("models-gateway").base_url == (
+        "https://models-two.example.test"
+    )
+    assert calls == 3
+
+
+def test_gateway_configuration_read_error_is_a_typed_refusal():
+    def unreadable_gateway():
+        raise ValueError("stored gateway configuration is unreadable")
+
+    provider = StaticExecutionTargetProvider(models_gateway_resolver=unreadable_gateway)
+
+    outcome = resolve(
+        ResolutionRequest(engine="whisper-turbo"),
+        provider,
+        OPEN,
+    )
+
+    assert isinstance(outcome, Refusal)
+    assert outcome.family == "no_live_target"
+    assert outcome.target_id == "models-gateway"
+    assert "configuration" in outcome.remedy.lower()
+
+
+def test_remote_api_configuration_uses_project_key_presence_without_decrypting():
+    class _Project:
+        def provider_key_catalog_rows(self):
+            return {"openai": {"provider": "openai"}}
+
+        def provider_model_keys(self):
+            raise AssertionError(
+                "configuration presence must not decrypt provider keys"
+            )
+
+    provider = StaticExecutionTargetProvider(secrets=_Project())
+
+    assert (
+        provider.configuration("remote-api:openai", CAPABILITY_LLM, "openai/gpt-5-mini")
+        == "configured"
+    )
+
+
+@pytest.mark.parametrize(
+    ("target_id", "configured_method"),
+    [
+        ("datalab", "provider_key_catalog_rows"),
+        ("deepl", "secret_rows"),
+    ],
+)
+def test_external_configuration_uses_non_secret_project_metadata(
+    target_id, configured_method
+):
+    class _Project:
+        def provider_key_catalog_rows(self):
+            return {"datalab": {"provider": "datalab"}}
+
+        def secret_rows(self):
+            return [{"name": "DEEPL_API_KEY"}]
+
+        def provider_model_keys(self):
+            raise AssertionError(
+                "configuration presence must not decrypt provider keys"
+            )
+
+        def secret_plaintext(self, _name):
+            raise AssertionError(
+                "configuration presence must not decrypt project secrets"
+            )
+
+    project = _Project()
+    assert callable(getattr(project, configured_method))
+    provider = StaticExecutionTargetProvider(secrets=project, env={})
+
+    assert provider.configuration(target_id, "ocr", target_id) == "configured"
+
+
+def test_selected_broken_project_secret_is_a_typed_refusal():
+    class _Project:
+        def secret_rows(self):
+            return [{"name": "DEEPL_API_KEY"}]
+
+        def secret_plaintext(self, _name):
+            raise RuntimeError("secret-diagnostic-must-not-leak")
+
+    outcome = resolve(
+        ResolutionRequest(engine="deepl", capability=CAPABILITY_TRANSLATE),
+        StaticExecutionTargetProvider(secrets=_Project(), env={}),
+        OPEN,
+    )
+
+    assert isinstance(outcome, Refusal)
+    assert outcome.family == "no_live_target"
+    assert outcome.target_id == "deepl"
+    assert "could not be read safely" in outcome.remedy
+    assert "secret-diagnostic-must-not-leak" not in outcome.remedy
 
 
 def test_unknown_engine_is_no_capable_target():

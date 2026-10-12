@@ -9831,6 +9831,7 @@ type HttpSelectorChoicesResponse_SelectorChoice = ({
   "can_author": (boolean);
   "can_run": (boolean);
   "choice_id": (string);
+  "configuration_actions": (Array<(((HttpSelectorChoicesResponse_ApiKeySetup)) | ((HttpSelectorChoicesResponse_ModelsGatewaySetup)) | ((HttpSelectorChoicesResponse_ArtifactDownloadSetup)) | ((HttpSelectorChoicesResponse_EngineSetup)))>);
   "description": (string);
   "execution_route": (((HttpSelectorChoicesResponse_SelectorExecutionRoute)) | ((null)));
   "facts": (Array<(((HttpSelectorChoicesResponse_SelectorTextFact)) | ((HttpSelectorChoicesResponse_SelectorListFact)) | ((HttpSelectorChoicesResponse_SelectorRateFact)))>);
@@ -9859,7 +9860,6 @@ type HttpSelectorChoicesResponse_SelectorCloudSetup = ({
   "add_credits_url"?: (((string)) | ((null)));
   "balance_url"?: (((string)) | ((null)));
   "kind": ("cloud") & (string);
-  "local_key"?: (((HttpSelectorChoicesResponse_ApiKeySetup)) | ((null)));
   "project_settings_url"?: (((string)) | ((null)));
   "state": ("connect" | "reconnect" | "account_required" | "out_of_credits") & (string);
 });
@@ -9920,13 +9920,14 @@ type HttpSelectorChoicesResponse_SelectorTextFact = ({
 });
 
 export type HttpSelectorChoicesResponse = ({
+  "cloud_setup": (((HttpSelectorChoicesResponse_SelectorCloudSetup)) | ((null)));
   "current_choice_id": (((string)) | ((null)));
   "default_choice_id": (((string)) | ((null)));
   "depends_on": (Array<(string)>);
   "groups": (Array<(HttpSelectorChoicesResponse_SelectorChoiceGroup)>);
   "orphaned_current": (((HttpSelectorChoicesResponse_SelectorChoice)) | ((null)));
   "project_id": (string);
-  "schema_version": ("frisket.selector_choices.v1") & (string);
+  "schema_version": ("frisket.selector_choices.v2") & (string);
   "subject": (((HttpSelectorChoicesResponse_NormalizedActionSelectorSubject)) | ((HttpSelectorChoicesResponse_NormalizedProjectAskSelectorSubject)) | ((HttpSelectorChoicesResponse_NormalizedEmbeddingSelectorSubject)));
 });
 

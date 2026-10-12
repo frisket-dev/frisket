@@ -157,7 +157,6 @@ def test_cloud_adapter_round_trips_request_result_and_receipt_accounting():
         transport = _CloudTransport()
         attempt = _attempt()
         router = _router()
-        router.register_cloud_adapter(MODEL)
         request = LLMRequest(
             model=MODEL,
             messages=[
@@ -251,7 +250,6 @@ def test_cloud_adapter_preserves_tools_and_provider_details():
         transport = _CloudTransport()
         attempt = _attempt()
         router = _router()
-        router.register_cloud_adapter(MODEL)
         request = LLMRequest(
             model=MODEL,
             messages=[{"role": "user", "content": "Look up Ada."}],
@@ -291,7 +289,6 @@ def test_public_structured_completion_preserves_cloud_receipt():
         transport = _CloudTransport(_response(output_limited=False))
         attempt = _attempt()
         router = _router()
-        router.register_cloud_adapter(MODEL)
         try:
             with cloud_llm_execution_scope(
                 CloudLLMExecutionBinding(transport, attempt)
@@ -322,39 +319,29 @@ def test_public_structured_completion_preserves_cloud_receipt():
     asyncio.run(scenario())
 
 
-def test_cloud_registration_is_exact_model_and_never_falls_back_when_unbound():
+def test_cloud_binding_dispatches_without_overriding_configured_adapter():
     async def scenario() -> None:
         direct = _DirectAdapter()
         router = _router(direct)
-        router.register_cloud_adapter(MODEL)
         try:
-            assert router.adapter_for_model(MODEL) is not direct
-            assert router.adapter_for_model(OTHER_MODEL) is direct
-            assert router.adapter_for("anthropic") is direct
-            with pytest.raises(CloudExecutionRefused) as error:
-                await router.complete_transport(
+            assert router.adapter_for_model(MODEL) is direct
+            transport = _CloudTransport()
+            with cloud_llm_execution_scope(
+                CloudLLMExecutionBinding(transport, _attempt())
+            ):
+                result = await router.complete_transport(
                     LLMRequest(
                         model=MODEL,
                         messages=[{"role": "user", "content": "hello"}],
                     )
                 )
-            assert error.value.code == "cloud_execution_unbound"
+            assert result.content == '{"answer":"Ada"}'
             assert direct.calls == 0
+            assert len(transport.calls) == 1
         finally:
             await router.aclose()
 
     asyncio.run(scenario())
-
-
-def test_cloud_registration_rejects_duplicates_and_invalid_model_ids():
-    router = _router()
-    router.register_cloud_adapter(MODEL)
-
-    with pytest.raises(ValueError, match="already registered"):
-        router.register_cloud_adapter(MODEL)
-    for invalid in ("anthropic", "anthropic/", "/model", " anthropic/model"):
-        with pytest.raises(ValueError, match="qualified"):
-            router.register_cloud_adapter(invalid)
 
 
 def test_cloud_adapter_refuses_receipt_from_another_account():
@@ -362,7 +349,6 @@ def test_cloud_adapter_refuses_receipt_from_another_account():
         transport = _CloudTransport(_response(account_id=99))
         attempt = _attempt()
         router = _router()
-        router.register_cloud_adapter(MODEL)
         try:
             with cloud_llm_execution_scope(
                 CloudLLMExecutionBinding(transport, attempt)

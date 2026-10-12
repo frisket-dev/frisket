@@ -46,15 +46,16 @@ function catalog(active: ModelPullDto | null = null, ready = false): HttpSelecto
     is_current: true, is_default: true, can_author: true, can_run: ready,
     status: ready ? 'ready' : active ? 'working' : 'needs_setup', blocker: null,
     active_operation: active, model_card_url: null,
+    configuration_actions: [],
     setup: ready ? null : { kind: 'engine_setup', scope: 'workspace', setup_ref: setupRef,
       can_mutate: true, can_start: !active, blocked_by_operation: null },
   };
   return {
-    schema_version: 'frisket.selector_choices.v1', project_id: 'project-a',
+    schema_version: 'frisket.selector_choices.v2', project_id: 'project-a',
     subject: { kind: 'action', action_id: 'transcribe', field: 'engine' }, depends_on: [],
     current_choice_id: choice.choice_id, default_choice_id: choice.choice_id,
     groups: [{ group_id: 'local', kind: 'local', label: 'Local', status: choice.status, choices: [choice] }],
-    orphaned_current: null,
+    orphaned_current: null, cloud_setup: null,
   };
 }
 

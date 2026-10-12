@@ -5,6 +5,7 @@ from __future__ import annotations
 from contextlib import AbstractContextManager, nullcontext
 from typing import TYPE_CHECKING, Any
 
+from frisket.ai.llm import model_call_cannot_go_live
 from frisket.ai.model_defaults import DEFAULT_MAX_OUTPUT_TOKENS
 from frisket.authoring.project_ask import default_project_ask_model
 from frisket.cloud_execution import (
@@ -15,6 +16,7 @@ from frisket.cloud_execution import (
 from frisket.cloud_llm_checkpoint import CloudLLMCheckpointCoordinator
 from frisket.cloud_targets import CLOUD_LLM_TRANSPORT, cloud_fallback_is_blocked
 from frisket.engine.store.project_qa import ProjectQAStore
+from frisket.engine.runner.validation import assert_selected_egress_policy
 from frisket.execution.pricing_policy import usd_to_micros
 from frisket.execution.resolver import Refusal, ResolutionRequest, resolve
 from frisket.execution.targets import CAPABILITY_LLM
@@ -28,9 +30,13 @@ class SoloCloudProjectQATurnRuntime:
     """One Ask turn's optional Cloud checkpoint coordinator."""
 
     def __init__(
-        self, coordinator: CloudLLMCheckpointCoordinator | None = None
+        self,
+        coordinator: CloudLLMCheckpointCoordinator | None = None,
+        *,
+        selected_egress_class: str | None = None,
     ) -> None:
         self.cloud_llm_coordinator = coordinator
+        self.selected_egress_class = selected_egress_class
 
     def call_scope(self, _router: Any) -> AbstractContextManager[None]:
         return nullcontext()
@@ -64,12 +70,12 @@ class SoloCloudProjectQARuntimePort:
     ) -> SoloCloudProjectQATurnRuntime:
         turn = ProjectQAStore(project).get_turn(turn_id)
         router = self._workspace.router_for(project)
-        model = turn["model"] or default_project_ask_model(router)
         composition = self._workspace.execution_composition_for(
             project,
             router,
             self._workspace.edition_execution_composition_context_for(),
         )
+        model = turn["model"] or default_project_ask_model(router, composition)
         provider = composition.provider_for_resolution()
         outcome = resolve(
             ResolutionRequest(
@@ -84,21 +90,39 @@ class SoloCloudProjectQARuntimePort:
             composition.facts,
         )
         if isinstance(outcome, Refusal):
-            if outcome.target_id and (
-                outcome.target_id.startswith("frisket-cloud:")
-                or cloud_fallback_is_blocked(
-                    composition,
-                    target_id=outcome.target_id,
-                    capability=CAPABILITY_LLM,
-                    engine=model,
-                )
+            if (
+                outcome.target_id is None
+                and router.local_endpoint_url_for_model(model) is not None
             ):
-                raise CloudExecutionRefused("cloud_route_unavailable", outcome.remedy)
-            return SoloCloudProjectQATurnRuntime()
+                return SoloCloudProjectQATurnRuntime(
+                    selected_egress_class="operator_lan"
+                )
+            cloud_route = bool(
+                outcome.target_id
+                and (
+                    outcome.target_id.startswith("frisket-cloud:")
+                    or cloud_fallback_is_blocked(
+                        composition,
+                        target_id=outcome.target_id,
+                        capability=CAPABILITY_LLM,
+                        engine=model,
+                    )
+                )
+            )
+            raise CloudExecutionRefused(
+                "cloud_route_unavailable"
+                if cloud_route
+                else "execution_route_unavailable",
+                outcome.remedy,
+            )
 
+        if not model_call_cannot_go_live(router):
+            assert_selected_egress_policy(project, outcome.facts.egress_class)
         payer = outcome.facts.cloud_payer
         if payer is None:
-            return SoloCloudProjectQATurnRuntime()
+            return SoloCloudProjectQATurnRuntime(
+                selected_egress_class=outcome.facts.egress_class
+            )
         if outcome.support.transport != CLOUD_LLM_TRANSPORT:
             raise CloudExecutionRefused(
                 "cloud_route_invalid", "The selected Cloud model route is invalid"
@@ -128,7 +152,10 @@ class SoloCloudProjectQARuntimePort:
             action_kind="project.ask",
             claimless_direct_effect=True,
         )
-        return SoloCloudProjectQATurnRuntime(coordinator)
+        return SoloCloudProjectQATurnRuntime(
+            coordinator,
+            selected_egress_class=outcome.facts.egress_class,
+        )
 
 
 __all__ = ["SoloCloudProjectQARuntimePort", "SoloCloudProjectQATurnRuntime"]

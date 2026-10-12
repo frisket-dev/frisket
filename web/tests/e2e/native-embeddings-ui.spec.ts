@@ -107,7 +107,7 @@ function embeddingSelectorResponse(
     choice.provider === subject.provider && choice.model === subject.model
   )) ?? EMBEDDING_CHOICES[0];
   return {
-    schema_version: 'frisket.selector_choices.v1',
+    schema_version: 'frisket.selector_choices.v2',
     project_id: pid,
     subject: {
       kind: 'embedding',
@@ -134,12 +134,14 @@ function embeddingSelectorResponse(
           authored_selection: { kind: 'embedding', provider: choice.provider, model: choice.model },
           resolved_target: null,
           processing_destination: choice.destination,
+          execution_route: null,
           facts: [],
           status: choice.status,
           can_author: choice.canAuthor,
           can_run: choice.canRun,
           blocker: choice.blocker ? { code: 'unavailable', field: null, message: choice.blocker } : null,
           setup: null,
+          configuration_actions: [],
           active_operation: null,
           is_default: choice.choiceId === EMBEDDING_CHOICES[0].choiceId,
           is_current: choice.choiceId === currentChoice.choiceId,
@@ -147,6 +149,7 @@ function embeddingSelectorResponse(
       };
     }),
     orphaned_current: null,
+    cloud_setup: null,
   };
 }
 

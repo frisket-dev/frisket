@@ -40,6 +40,8 @@ from frisket.server.services.project_qa_tracing import (
     ProjectQATracing,
     build_project_qa_tracing,
 )
+from frisket.server.provider_config import build_provider_catalog
+from frisket.server.services.project_ask_defaults import project_ask_inventory
 from frisket.server.thread_worker import await_thread_worker
 from frisket.server.workspace import Workspace
 from frisket.server.project_qa_runtime import ProjectQATurnRuntime
@@ -78,6 +80,8 @@ _KNOWN_TOOLS = frozenset(
         "search_web",
     }
 )
+
+
 _TOOL_RETRY_RE = re.compile(r"^Tool '([^']+)' exceeded max retries count of \d+$")
 _CITATION_RETRY = "Use only current-turn citation IDs returned by the tools; reopen prior sources first."
 
@@ -496,6 +500,45 @@ class ProjectQAService:
                 values = body.model_dump()
                 values["scope"] = body.scope.model_dump(exclude_none=True)
                 validate_scope(project, values["scope"])
+                default_model = None
+                if not values.get("model"):
+                    router = self.workspace.router_for(project)
+                    composition = self.workspace.execution_composition_for(
+                        project,
+                        router,
+                        self.workspace.edition_execution_composition_context_for(),
+                    )
+                    provider_catalog = build_provider_catalog(
+                        self.workspace.root,
+                        network_off=False,
+                        local_endpoints=router.local_endpoints,
+                        local_endpoint_authority=(
+                            "instance"
+                            if self.workspace.edition == "solo"
+                            else "organization"
+                        ),
+                    )
+                    candidate_models, direct_models, _spend_by_provider = (
+                        project_ask_inventory(
+                            provider_catalog,
+                            router=router,
+                            project=project,
+                        )
+                    )
+                    network_off = project.effective_network_policy() == "off"
+                    default_model = default_project_ask_model(
+                        router,
+                        composition,
+                        candidate_models=candidate_models,
+                        directly_runnable_models=direct_models,
+                        network_off=network_off,
+                        allow_setup_fallback=not network_off,
+                    )
+                    if default_model is None:
+                        raise ProjectQAConflictError(
+                            "No runnable Project Ask model is available. Choose a "
+                            "model or change the project's network setting."
+                        )
                 setup = (
                     self._research_setup(
                         project_id, project, values["research"], context
@@ -503,7 +546,12 @@ class ProjectQAService:
                     if body.research
                     else None
                 )
-                turn = store.submit_turn(thread_id, **values, submitted_by=actor)
+                turn = store.submit_turn(
+                    thread_id,
+                    **values,
+                    default_model=default_model,
+                    submitted_by=actor,
+                )
                 if setup is not None and turn["status"] == "running":
                     ledger = ProjectQAResearchStore(project)
                     try:
@@ -603,7 +651,28 @@ class ProjectQAService:
             ] == "stopping":
                 return
             router = await await_thread_worker(self.workspace.router_for, project)
-            model = model or default_project_ask_model(router)
+            if not model:
+                composition = await await_thread_worker(
+                    self.workspace.execution_composition_for,
+                    project,
+                    router,
+                    self.workspace.edition_execution_composition_context_for(),
+                )
+                model = default_project_ask_model(router, composition)
+            selected_egress_class = (
+                getattr(runtime, "selected_egress_class", None)
+                if runtime is not None
+                else None
+            )
+            if selected_egress_class is None:
+                endpoint_for_model = getattr(
+                    router, "local_endpoint_url_for_model", None
+                )
+                selected_egress_class = (
+                    "operator_lan"
+                    if callable(endpoint_for_model) and endpoint_for_model(model)
+                    else "third_party_api"
+                )
             tracing = self._tracing
 
             async def settle_call(call_id: str) -> None:
@@ -684,6 +753,8 @@ class ProjectQAService:
                         research=research,
                         action_host=host,
                         execution=execution,
+                        selected_model=model,
+                        selected_egress_class=selected_egress_class,
                         search_service=(
                             self._search_service_factory()
                             if self._search_service_factory

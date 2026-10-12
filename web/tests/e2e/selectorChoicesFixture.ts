@@ -28,7 +28,9 @@ function choice(fixture: SelectorChoiceFixture, currentChoiceId: string | null) 
     can_run: fixture.canRun ?? !unavailable,
     choice_id: fixture.choiceId,
     description: fixture.description ?? '',
+    execution_route: null,
     facts: [],
+    configuration_actions: [],
     is_current: fixture.choiceId === currentChoiceId,
     is_default: false,
     label: fixture.label,
@@ -55,7 +57,7 @@ export function selectorChoicesResponse({
   orphanedCurrent?: SelectorChoiceFixture | null;
 }) {
   return {
-    schema_version: 'frisket.selector_choices.v1',
+    schema_version: 'frisket.selector_choices.v2',
     project_id: projectId,
     subject,
     depends_on: ['engine', 'model'],
@@ -69,6 +71,7 @@ export function selectorChoicesResponse({
       choices: group.choices.map((item) => choice(item, currentChoiceId)),
     })),
     orphaned_current: orphanedCurrent ? choice(orphanedCurrent, currentChoiceId) : null,
+    cloud_setup: null,
   };
 }
 

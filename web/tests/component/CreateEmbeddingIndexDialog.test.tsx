@@ -24,15 +24,16 @@ function serveChoices(otherProviders = false) {
     const model = subject.model ?? 'default';
     const choiceId = `${provider}:${model}`;
     const response: HttpSelectorChoicesResponse = {
-      schema_version: 'frisket.selector_choices.v1', project_id: 'embedding-project',
+      schema_version: 'frisket.selector_choices.v2', project_id: 'embedding-project',
       subject: { kind: 'embedding', provider, model }, depends_on: [],
       current_choice_id: choiceId, default_choice_id: choiceId, orphaned_current: null,
+      cloud_setup: null,
       groups: [{ group_id: provider, kind: 'local', label: provider, status: 'ready', choices: [{
         choice_id: choiceId, label: 'Embedding model', summary: '', description: '', facts: [],
         model_card_url: null, authored_selection: { kind: 'embedding', provider, model },
         resolved_target: null, processing_destination: { kind: 'local', label: 'On this device' },
         status: 'ready', can_author: true, can_run: true, blocker: null, setup: null,
-        active_operation: null, is_current: true, is_default: false,
+        active_operation: null, configuration_actions: [], is_current: true, is_default: false,
       }] }],
     };
     if (otherProviders) {

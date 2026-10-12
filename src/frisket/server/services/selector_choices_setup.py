@@ -57,6 +57,12 @@ class SelectorSetupService:
             workspace_status = {"source": "env"}
         project_row = project.provider_key_catalog_rows().get(provider)
         source = _credential_source(router, provider, raw_source=credential_source)
+        environment_configured = (
+            workspace_status.get("source") == "env" or source == "environment"
+        )
+        workspace_configured = (
+            workspace_status.get("source") == "local_file" or source == "workspace"
+        )
         org_configured = source == "organization"
         platform_configured = source == "platform"
         env_name = ENV_VAR[provider]
@@ -66,11 +72,9 @@ class SelectorSetupService:
             "scopes": [
                 {
                     "scope": "environment",
-                    "configured": workspace_status.get("source") == "env",
+                    "configured": environment_configured,
                     "can_mutate": False,
-                    "source": "environment"
-                    if workspace_status.get("source") == "env"
-                    else "missing",
+                    "source": "environment" if environment_configured else "missing",
                     "environment_names": [env_name],
                     "settings_location": None,
                     "hint": workspace_status.get("hint")
@@ -79,12 +83,10 @@ class SelectorSetupService:
                 },
                 {
                     "scope": "workspace",
-                    "configured": workspace_status.get("source") == "local_file",
+                    "configured": workspace_configured,
                     "can_mutate": capabilities.configure_workspace_credentials
                     and provider in KEY_PROVIDERS,
-                    "source": "workspace"
-                    if workspace_status.get("source") == "local_file"
-                    else "missing",
+                    "source": "workspace" if workspace_configured else "missing",
                     "environment_names": [env_name],
                     "settings_location": "workspace_ai_providers",
                     "hint": workspace_status.get("hint")
@@ -162,6 +164,21 @@ class SelectorSetupService:
                     "hint": _optional_str(passive.get("token_hint")),
                 },
             ],
+        }
+
+    def engine_setup(
+        self, setup_ref: str, capabilities: SelectorCapabilities
+    ) -> dict[str, Any]:
+        operation, blocked = self.model_pull_operations(setup_ref)
+        return {
+            "kind": "engine_setup",
+            "setup_ref": setup_ref,
+            "scope": "workspace" if self._edition == "solo" else "organization",
+            "can_mutate": capabilities.manage_model_downloads,
+            "can_start": capabilities.manage_model_downloads
+            and operation is None
+            and blocked is None,
+            "blocked_by_operation": blocked or operation,
         }
 
     def model_pull_operations(

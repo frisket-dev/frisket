@@ -254,7 +254,6 @@ class ModelRouter:
                 if env.get(env_name) and provider not in keys
             )
         self._adapters: dict[str, object] = {}
-        self._cloud_adapters: dict[str, object] = {}
         anth = keys.get("anthropic") or env.get("ANTHROPIC_API_KEY")
         if anth:
             self._configured_keys["anthropic"] = anth
@@ -370,22 +369,8 @@ class ModelRouter:
         complete() — the router deliberately has no audio path."""
         return self._adapters.get(provider)
 
-    def register_cloud_adapter(self, model: str) -> None:
-        """Register Cloud execution for one exact routed model identity."""
-
-        from .cloud import CloudLLMAdapter, validate_cloud_model_id
-
-        model = validate_cloud_model_id(model)
-        if model in self._cloud_adapters:
-            raise ValueError(f"Cloud adapter already registered for {model!r}")
-        self._cloud_adapters[model] = CloudLLMAdapter()
-
     def adapter_for_model(self, model: str):
-        """Return the exact Cloud, local-endpoint, or provider adapter for a model."""
-
-        cloud = self._cloud_adapters.get(model)
-        if cloud is not None:
-            return cloud
+        """Return the configured local-endpoint or provider adapter for a model."""
         provider = provider_from_model_id(model)
         if provider == "ollama":
             try:
@@ -673,14 +658,13 @@ class ModelRouter:
         trace: ModelTrace | None = None,
     ) -> LLMResponse:
         provider = provider_from_model_id(req.model)
-        cloud_adapter = self._cloud_adapters.get(req.model)
-        if cloud_adapter is None:
-            from frisket.cloud_execution import cloud_llm_execution_bound
+        cloud_adapter = None
+        from frisket.cloud_execution import cloud_llm_execution_bound
 
-            if cloud_llm_execution_bound(req.model):
-                from .cloud import CloudLLMAdapter
+        if cloud_llm_execution_bound(req.model):
+            from .cloud import CloudLLMAdapter
 
-                cloud_adapter = CloudLLMAdapter()
+            cloud_adapter = CloudLLMAdapter()
         adapter = (
             cloud_adapter if cloud_adapter is not None else self._adapters.get(provider)
         )

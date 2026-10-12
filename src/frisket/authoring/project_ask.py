@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection, Sequence
 from typing import Literal
 
 from pydantic import Field, JsonValue, model_validator
 
 from frisket.ai.llm import ModelRouter
+from frisket.ai.llm.model_catalog import MODEL_ENTRIES
 from frisket.contracts.http.models import WireModel
+from frisket.execution.provider import ExecutionComposition
+from frisket.execution.resolver import preferred_resolved_engine
 
 
 PROJECT_ASK_MODEL = "anthropic/claude-sonnet-5"
@@ -19,8 +23,50 @@ _PROJECT_ASK_MODEL_BY_PROVIDER: tuple[tuple[str, str], ...] = (
 )
 
 
-def default_project_ask_model(router: ModelRouter) -> str:
-    """Choose the configured provider's Project Ask default model."""
+def project_ask_model_candidates(
+    available_models: Sequence[str] | None = None,
+) -> tuple[str, ...]:
+    """Return every catalog Ask model in stable product-preference order."""
+    preferred = [model for _provider, model in _PROJECT_ASK_MODEL_BY_PROVIDER]
+    catalog = [
+        f"{provider}/{entry['id']}"
+        for provider, entries in MODEL_ENTRIES.items()
+        for entry in entries
+    ]
+    ordered = tuple(dict.fromkeys([*preferred, *catalog]))
+    if available_models is None:
+        return ordered
+    available = tuple(dict.fromkeys(available_models))
+    available_set = frozenset(available)
+    return tuple(model for model in ordered if model in available_set) + tuple(
+        model for model in available if model not in ordered
+    )
+
+
+def default_project_ask_model(
+    router: ModelRouter,
+    composition: ExecutionComposition | None = None,
+    *,
+    candidate_models: Sequence[str] | None = None,
+    directly_runnable_models: Collection[str] = (),
+    network_off: bool = False,
+    allow_setup_fallback: bool = False,
+) -> str | None:
+    """Choose Project Ask's default through the request's execution policy."""
+
+    if composition is not None:
+        candidates = project_ask_model_candidates(candidate_models)
+        selected = preferred_resolved_engine(
+            candidates,
+            composition.provider_for_resolution(),
+            composition.facts,
+            options={"tools": True},
+            allowed_egress_classes={"none", "operator_lan"} if network_off else None,
+            directly_runnable_engines=directly_runnable_models,
+        )
+        if selected is not None or candidate_models is not None:
+            return selected or (candidates[0] if allow_setup_fallback else None)
+        return PROJECT_ASK_MODEL
 
     configured = router.configured_keys()
     for provider, model in _PROJECT_ASK_MODEL_BY_PROVIDER:

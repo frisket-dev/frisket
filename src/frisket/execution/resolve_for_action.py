@@ -87,6 +87,8 @@ from frisket.execution.targets import (
     CAPABILITY_TO_MARKDOWN,
     CAPABILITY_TRANSCRIBE,
     CAPABILITY_TRANSLATE,
+    LLMOptionSupport,
+    TargetEngineSupport,
     validated_target_snapshot,
 )
 from frisket.execution.promises import (
@@ -95,7 +97,11 @@ from frisket.execution.promises import (
     PromiseSet,
     promise_rows_hash,
 )
-from frisket.execution.provider import ExecutionComposition
+from frisket.execution.provider import (
+    ExecutionComposition,
+    ExecutionTargetProvider,
+    TargetConfigurationError,
+)
 from frisket.execution.resolver import (
     Persistence,
     Refusal,
@@ -105,6 +111,7 @@ from frisket.execution.resolver import (
     RouteRowFacts,
     _canonical_engine,
     resolve,
+    support_inability,
 )
 
 # The authored option keys a runner spec may carry, PER CAPABILITY; these
@@ -761,6 +768,58 @@ def _llm_cost_basis(
 # ---------------------------------------------------------------------------
 
 
+def _llm_refusal_requires_execution_admission(
+    refusal: Refusal,
+    *,
+    composition: ExecutionComposition,
+    provider: ExecutionTargetProvider,
+    engine: str,
+) -> bool:
+    """Whether an ordinary LLM action must honor the execution refusal.
+
+    Cloud payer selection and Cloud-first fallback blocks are admission
+    authority, as are ability and malformed/live-target failures.  A plain
+    own-key target with no configured credential remains ModelRouter's
+    responsibility: that path owns replay, confirmation ordering, and the
+    established missing-provider-key error.
+    """
+    target_id = refusal.target_id
+    if target_id is None:
+        return False
+    if (
+        composition.cloud_payer_for(
+            target_id=target_id,
+            capability=CAPABILITY_LLM,
+            engine=engine,
+        )
+        is not None
+    ):
+        return True
+    blocks_fallback = getattr(composition.provider, "blocks_cloud_fallback", None)
+    if callable(blocks_fallback) and blocks_fallback(target_id, CAPABILITY_LLM, engine):
+        return True
+    if refusal.family != "no_live_target":
+        return True
+    try:
+        configuration = provider.configuration(target_id, CAPABILITY_LLM, engine)
+    except TargetConfigurationError:
+        return True
+    return configuration != "not_configured"
+
+
+def _llm_support_is_unrestricted(support: TargetEngineSupport) -> bool:
+    """Whether rendered request shape cannot change this support answer."""
+
+    options = support.options
+    return (
+        isinstance(options, LLMOptionSupport)
+        and options.structured_output
+        and options.tools
+        and options.vision
+        and options.max_output_tokens is None
+    )
+
+
 def resolve_for_action(
     project: Any,
     spec: Mapping[str, Any],
@@ -779,51 +838,21 @@ def resolve_for_action(
     ``ResolvedExecution`` carrying resolution + estimate basis + compiled
     promise set + cost basis + persistence policy.
     """
-    cloud_llm = False
+    llm_route_check = False
     rendered_llm: dict[int, Any] | None = None
     if not recipe.consumes_resolution:
         if not recipe.is_llm(dict(spec)):
             return None
-        model = str(spec.get("model") or "")
-        cloud_llm = any(
-            support.capability == CAPABILITY_LLM
-            and support.engine == model
-            and composition.cloud_payer_for(
-                target_id=target.id,
-                capability=CAPABILITY_LLM,
-                engine=model,
-            )
-            is not None
-            for target in composition.resolution_targets()
-            for support in target.engines
-        )
-        if not cloud_llm:
-            fallback_route = resolve(
-                ResolutionRequest(
-                    engine=model,
-                    capability=CAPABILITY_LLM,
-                    options={},
-                ),
-                composition.provider_for_resolution(),
-                composition.facts,
-            )
-            blocks_fallback = getattr(
-                composition.provider, "blocks_cloud_fallback", None
-            )
-            if (
-                isinstance(fallback_route, Refusal)
-                and fallback_route.target_id is not None
-                and callable(blocks_fallback)
-                and blocks_fallback(fallback_route.target_id, CAPABILITY_LLM, model)
-            ):
-                return fallback_route
+        model = spec.get("model")
+        if not isinstance(model, str) or not model.strip():
             return None
+        llm_route_check = True
     # The recipe declares which capability it resolves for. Read as an
     # attribute, not with a getattr default, for the same reason
     # ``consumes_resolution`` is: a recipe that consumes resolution without
     # saying what kind of work it is must fail loudly here, never resolve as
     # transcription by accident.
-    capability = CAPABILITY_LLM if cloud_llm else recipe.execution_capability
+    capability = CAPABILITY_LLM if llm_route_check else recipe.execution_capability
     if capability != CAPABILITY_LLM and capability not in _CAPABILITY_COST_BASIS:
         raise ValueError(
             f"recipe '{getattr(recipe, 'name', recipe)}' declares "
@@ -843,23 +872,24 @@ def resolve_for_action(
         )
     )
     options = authored_options(spec, capability)
-    if capability == CAPABILITY_LLM:
-        if scope_row_ids is None:
-            from frisket.engine.runner.validation import target_rows
-
-            scope_row_ids = target_rows(project, dict(spec))
-        rendered_llm = _llm_rendered_calls(project, spec, recipe, scope_row_ids)
-        options = _llm_options(rendered_llm, recipe)
     request = ResolutionRequest(
         engine=raw_engine, options=options, capability=capability
     )
     canonical_engine = _canonical_engine(raw_engine, capability)
+    resolution_provider = composition.provider_for_resolution()
     outcome = resolve(
         request,
-        composition.provider_for_resolution(),
+        resolution_provider,
         composition.facts,
     )
     if isinstance(outcome, Refusal):
+        if llm_route_check and not _llm_refusal_requires_execution_admission(
+            outcome,
+            composition=composition,
+            provider=resolution_provider,
+            engine=outcome.engine or raw_engine,
+        ):
+            return None
         engine = outcome.engine
         if engine is not None:
             raw_declares = _target_rows_declare_engine(
@@ -886,6 +916,37 @@ def resolve_for_action(
                 # their ordinary invalid-engine refusal semantics.
                 outcome = replace(outcome, quote_absent=True)
         return outcome
+
+    if (
+        llm_route_check
+        and outcome.facts.cloud_payer is None
+        and _llm_support_is_unrestricted(outcome.support)
+    ):
+        # Own-key LLM execution retains the router machinery, but only after
+        # the same route chooser has selected it successfully. Candidate
+        # membership alone can never switch the payer to Cloud.
+        return None
+
+    if capability == CAPABILITY_LLM:
+        if scope_row_ids is None:
+            from frisket.engine.runner.validation import target_rows
+
+            scope_row_ids = target_rows(project, dict(spec))
+        rendered_llm = _llm_rendered_calls(project, spec, recipe, scope_row_ids)
+        options = _llm_options(rendered_llm, recipe)
+        inability = support_inability(outcome.support, options)
+        if inability is not None:
+            return Refusal(
+                family="no_capable_target",
+                remedy=(
+                    f"target '{outcome.target.id}' for engine "
+                    f"{outcome.facts.engine!r} does not support {inability}"
+                ),
+                engine=outcome.facts.engine,
+                target_id=outcome.target.id,
+            )
+        if llm_route_check and outcome.facts.cloud_payer is None:
+            return None
 
     selected_offering = composition.offering_for(
         target_id=outcome.target.id,

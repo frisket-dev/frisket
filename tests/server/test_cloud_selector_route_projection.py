@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from frisket.ai.llm import ModelRouter
+from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
+from frisket.ai.models.gateway_config import ModelsGatewayConnection
 from frisket.cloud_connection import CloudConnectionStore
 from frisket.contracts.http.cloud_connection import (
     CloudAccount,
@@ -21,7 +25,9 @@ from frisket.contracts.http.cloud_connection import (
 from frisket.execution.provider import open_execution_composition
 from frisket.project_settings import ProjectSettings, write_project_settings
 from frisket.server.route_errors import register_route_error_handler
+from frisket.server.routes.project_qa import register_project_qa_routes
 from frisket.server.routes.selector_choices import register_selector_choices_routes
+from frisket.server.services.project_qa import ProjectQAService
 from frisket.server.services.selector_choices import SelectorCapabilities
 from frisket.server.workspace import Workspace
 
@@ -36,8 +42,13 @@ def _cloud_selector_app(
     connected: bool = True,
     preference: str = "cloud_first",
     local_keys: dict[str, str] | None = None,
+    router: ModelRouter | None = None,
     execution_composition_factory=None,
+    models_gateway_connection_resolver=None,
+    capabilities: SelectorCapabilities | None = None,
 ):
+    if router is not None and local_keys is not None:
+        raise ValueError("pass router or local_keys, not both")
     account = CloudAccount(
         id=41,
         name="Investigations",
@@ -74,11 +85,14 @@ def _cloud_selector_app(
         cloud_connection_store=store,
         cloud_connection_client=Client(),
         router=(
-            ModelRouter(keys=local_keys, use_env_keys=False)
+            router
+            if router is not None
+            else ModelRouter(keys=local_keys, use_env_keys=False)
             if local_keys is not None
             else None
         ),
         execution_composition_factory=execution_composition_factory,
+        models_gateway_connection_resolver=models_gateway_connection_resolver,
         enable_local_model_pull=False,
     )
     project_id = workspace.create("Cloud selector", project_id="cloud-selector")["id"]
@@ -95,8 +109,17 @@ def _cloud_selector_app(
     register_selector_choices_routes(
         app,
         workspace=workspace,
-        capabilities_for=lambda _request, _pid: SelectorCapabilities(
-            may_author_actions=True, may_run_actions=True
+        capabilities_for=lambda _request, _pid: (
+            capabilities
+            or SelectorCapabilities(
+                may_author_actions=True,
+                may_run_actions=True,
+                configure_workspace_credentials=True,
+                configure_project_credentials=True,
+                configure_organization_credentials=True,
+                manage_model_downloads=True,
+                configure_models_gateway=True,
+            )
         ),
     )
     return TestClient(app), workspace, store, project_id
@@ -193,6 +216,7 @@ def test_cloud_first_selector_keeps_local_engine_on_this_computer(
         enable_local_model_pull=False,
     )
     project_id = workspace.create("Cloud selector", project_id="cloud-selector")["id"]
+    workspace.get(project_id).set_network_policy(mode="off")
     write_project_settings(
         workspace.get(project_id),
         ProjectSettings(
@@ -236,6 +260,191 @@ def test_cloud_first_selector_keeps_local_engine_on_this_computer(
     assert selected["execution_route"]["kind"] == "local_engine"
     assert selected["execution_route"]["account_id"] is None
     assert selected["execution_route"]["billed_to"] is None
+
+
+def test_network_off_keeps_exact_cloud_llm_choice_and_refuses_selected_route(
+    tmp_path,
+) -> None:
+    client, workspace, _store, project_id = _cloud_selector_app(
+        tmp_path, routes=[_llm_route()]
+    )
+    workspace.get(project_id).set_network_policy(mode="off")
+
+    with client:
+        response = client.post(
+            f"/api/projects/{project_id}/selector-choices",
+            json={
+                "schema_version": "frisket.selector_choices_query.v1",
+                "subject": {
+                    "kind": "project_ask",
+                    "model": "openai/gpt-5-mini",
+                },
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    selected = next(
+        choice for choice in _choices(response.json()) if choice["is_current"]
+    )
+    assert selected["resolved_target"]["target_id"].startswith("frisket-cloud:41:")
+    assert selected["execution_route"]["kind"] == "cloud_credits"
+    assert selected["status"] == "unavailable"
+    assert selected["can_run"] is False
+    assert selected["blocker"]["code"] == "project_network_off"
+    assert selected["setup"] is None
+
+
+def test_network_off_refuses_exact_cloud_media_but_keeps_gateway_lan(
+    tmp_path,
+) -> None:
+    cloud_route = CloudCapabilityRoute(
+        capability="ocr",
+        engine="paddleocr-vl",
+        provider="frisket",
+        lane="account_key",
+        route_revision="ocr-paddle-route-1",
+        ready=True,
+        blocker=None,
+        price=CloudUnitPrice(kind="unit", unit="page", micro_per_unit=0),
+        options=CloudOCROptionSupport(
+            kind="ocr", language=True, geometry=True, searchable_pdf=False
+        ),
+    )
+    client, workspace, _store, project_id = _cloud_selector_app(
+        tmp_path, routes=[cloud_route]
+    )
+    workspace.get(project_id).set_network_policy(mode="off")
+
+    with client:
+        response = client.post(
+            f"/api/projects/{project_id}/selector-choices",
+            json={
+                "schema_version": "frisket.selector_choices_query.v1",
+                "subject": {
+                    "kind": "action",
+                    "action_id": "media.ocr",
+                    "field": "engine",
+                    "params": {"engine": "paddleocr-vl"},
+                },
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    selected = next(
+        choice for choice in _choices(response.json()) if choice["is_current"]
+    )
+    assert selected["resolved_target"]["target_id"].startswith("frisket-cloud:41:")
+    assert selected["execution_route"]["kind"] == "cloud_account_key"
+    assert selected["status"] == "unavailable"
+    assert selected["can_run"] is False
+    assert selected["blocker"]["code"] == "project_network_off"
+
+    lan_client, lan_workspace, _store, lan_project_id = _cloud_selector_app(
+        tmp_path / "lan",
+        routes=[],
+        models_gateway_connection_resolver=lambda: ModelsGatewayConnection(
+            origin="https://models.example.test",
+            token="fixture-token",
+            source="stored",
+        ),
+    )
+    lan_workspace.get(lan_project_id).set_network_policy(mode="off")
+    with lan_client:
+        lan_response = lan_client.post(
+            f"/api/projects/{lan_project_id}/selector-choices",
+            json={
+                "schema_version": "frisket.selector_choices_query.v1",
+                "subject": {
+                    "kind": "action",
+                    "action_id": "media.ocr",
+                    "field": "engine",
+                    "params": {"engine": "paddleocr-vl"},
+                },
+            },
+        )
+
+    assert lan_response.status_code == 200, lan_response.text
+    lan_selected = next(
+        choice for choice in _choices(lan_response.json()) if choice["is_current"]
+    )
+    assert lan_selected["resolved_target"] == {
+        "target_id": "models-gateway",
+        "operator": "self",
+        "egress_class": "operator_lan",
+    }
+    assert lan_selected["status"] == "ready"
+    assert lan_selected["can_run"] is True
+
+
+def test_cloud_only_project_ask_default_matches_the_persisted_turn(tmp_path) -> None:
+    model = "gemini/gemini-3.5-flash-lite"
+    route = _llm_route().model_copy(update={"engine": model, "provider": "gemini"})
+    client, workspace, _store, project_id = _cloud_selector_app(
+        tmp_path, routes=[route]
+    )
+    observed_turn_models: list[str | None] = []
+
+    async def run_turn(_project, _router, turn, _store):
+        observed_turn_models.append(turn["model"])
+        return {}
+
+    project_qa = ProjectQAService(workspace, runner=run_turn)
+    register_project_qa_routes(client.app, service=project_qa)
+    client.app.router.add_event_handler("shutdown", project_qa.shutdown)
+
+    with client:
+        choices_response = client.post(
+            f"/api/projects/{project_id}/selector-choices",
+            json={
+                "schema_version": "frisket.selector_choices_query.v1",
+                "subject": {"kind": "project_ask"},
+            },
+        )
+        assert choices_response.status_code == 200, choices_response.text
+        default = next(
+            choice
+            for choice in _choices(choices_response.json())
+            if choice["is_default"]
+        )
+        assert default["authored_selection"] == {"kind": "model", "model": model}
+        assert default["execution_route"]["kind"] == "cloud_credits"
+
+        threads = f"/api/projects/{project_id}/qa/threads"
+        thread_response = client.post(threads, json={"scope": {"kind": "project"}})
+        assert thread_response.status_code == 200, thread_response.text
+        turn_response = client.post(
+            f"{threads}/{thread_response.json()['id']}/turns",
+            json={
+                "request_id": "cloud-only-default",
+                "question": "What changed?",
+                "scope": {"kind": "project"},
+            },
+        )
+        assert turn_response.status_code == 200, turn_response.text
+        assert turn_response.json()["model"] == model
+
+        explicit_response = client.post(
+            f"/api/projects/{project_id}/selector-choices",
+            json={
+                "schema_version": "frisket.selector_choices_query.v1",
+                "subject": {
+                    "kind": "project_ask",
+                    "model": "openai/gpt-5-mini",
+                },
+            },
+        )
+        assert explicit_response.status_code == 200, explicit_response.text
+        explicit = next(
+            choice
+            for choice in _choices(explicit_response.json())
+            if choice["is_current"]
+        )
+        assert explicit["authored_selection"] == {
+            "kind": "model",
+            "model": "openai/gpt-5-mini",
+        }
+
+    assert observed_turn_models == [model]
 
 
 @pytest.mark.parametrize(
@@ -296,8 +505,15 @@ def test_selector_projects_the_composed_cloud_model_route(
         "balance_label": "$4.50 balance",
         "balance_url": "https://cloud.example.test/funding-accounts?account_id=41",
         "settings_url": "/p/cloud-selector/settings/project/ai-providers",
-        "has_alternative_route": preference == "cloud_first",
+        "has_alternative_route": True,
     }
+    assert selected["setup"] is None
+    assert [action["kind"] for action in selected["configuration_actions"]] == [
+        "api_key"
+    ]
+    assert selected["configuration_actions"][0]["provider"] == "openai"
+    assert response.json()["schema_version"] == "frisket.selector_choices.v2"
+    assert response.json()["cloud_setup"] is None
     assert profile_loads == 1
 
 
@@ -349,6 +565,8 @@ def test_exhausted_cloud_credit_route_stays_selected_and_offers_credits(
     assert selected["setup"]["add_credits_url"] == (
         "https://cloud.example.test/billing-checkout?account_id=41"
     )
+    assert selected["configuration_actions"][0]["kind"] == "api_key"
+    assert selected["configuration_actions"][0]["provider"] == "datalab"
 
 
 def test_zero_balance_does_not_block_account_key_route(tmp_path, monkeypatch) -> None:
@@ -415,13 +633,14 @@ def test_connected_installation_without_project_account_requests_account_once(
         )
 
     assert response.status_code == 200, response.text
-    selected = next(
-        choice for choice in _choices(response.json()) if choice["is_current"]
-    )
+    payload = response.json()
+    selected = next(choice for choice in _choices(payload) if choice["is_current"])
     assert selected["status"] == "needs_setup"
-    assert selected["setup"]["kind"] == "cloud"
-    assert selected["setup"]["state"] == "account_required"
-    assert selected["setup"]["local_key"]["kind"] == "api_key"
+    assert selected["setup"]["kind"] == "api_key"
+    assert selected["configuration_actions"] == []
+    assert payload["cloud_setup"]["kind"] == "cloud"
+    assert payload["cloud_setup"]["state"] == "account_required"
+    assert "local_key" not in payload["cloud_setup"]
 
 
 def test_cloud_first_disconnected_installation_does_not_use_configured_local_key(
@@ -453,9 +672,250 @@ def test_cloud_first_disconnected_installation_does_not_use_configured_local_key
     assert selected["status"] == "needs_setup"
     assert selected["setup"]["kind"] == "cloud"
     assert selected["setup"]["state"] == "connect"
-    assert selected["setup"]["local_key"] is None
+    assert selected["execution_route"] is None
+    assert "local_key" not in selected["setup"]
+    assert selected["configuration_actions"][0]["kind"] == "api_key"
+    assert any(
+        scope["configured"] for scope in selected["configuration_actions"][0]["scopes"]
+    )
     assert selected["can_run"] is False
     assert "must-not-be-used" not in response.text
+
+
+def test_network_off_defaults_ask_and_actions_to_reachable_local_model(
+    tmp_path, monkeypatch
+) -> None:
+    model = "ollama/@desktop/qwen3:8b"
+    endpoint = LocalModelEndpointConfig(
+        endpoint_id="desktop",
+        display_name="Desktop models",
+        origin="http://127.0.0.1:11434",
+        source="local_file",
+    )
+
+    def local_catalog(_root, candidate, _env, *, authority):
+        assert candidate == endpoint
+        return {
+            "endpoint_id": endpoint.endpoint_id,
+            "label": endpoint.display_name,
+            "kind": "local_http",
+            "read_only": False,
+            "models": [
+                {"id": model, "label": "qwen3:8b", "price": None, "local": True}
+            ],
+            "reachable": True,
+            "origin": endpoint.origin,
+            "authority": authority,
+            "source": "stored",
+            "detail": None,
+            "protocol": "ollama_native",
+            "auth_status": "ok",
+            "token_configured": False,
+            "provisioning_token_configured": False,
+            "edge_auth": False,
+            "pull_enabled": False,
+            "installed_models": ["qwen3:8b"],
+        }
+
+    monkeypatch.setattr(
+        "frisket.server.provider_config.local_endpoint_catalog_entry", local_catalog
+    )
+    client, workspace, _store, project_id = _cloud_selector_app(
+        tmp_path,
+        routes=[],
+        preference="local_first",
+        router=ModelRouter(local_endpoints=(endpoint,), use_env_keys=False),
+    )
+    workspace.get(project_id).set_network_policy(mode="off")
+
+    async def run_turn(_project, _router, turn, _store):
+        return {}
+
+    project_qa = ProjectQAService(workspace, runner=run_turn)
+    register_project_qa_routes(client.app, service=project_qa)
+    client.app.router.add_event_handler("shutdown", project_qa.shutdown)
+
+    with client:
+        for subject in (
+            {
+                "kind": "action",
+                "action_id": "map.extract",
+                "field": "engine",
+                "params": {"engine": "llm"},
+            },
+            {"kind": "project_ask"},
+        ):
+            response = client.post(
+                f"/api/projects/{project_id}/selector-choices",
+                json={
+                    "schema_version": "frisket.selector_choices_query.v1",
+                    "subject": subject,
+                },
+            )
+            assert response.status_code == 200, response.text
+            default = next(
+                choice for choice in _choices(response.json()) if choice["is_default"]
+            )
+            assert default["authored_selection"]["model"] == model
+            assert default["status"] == "ready"
+            assert default["can_run"] is True
+
+        threads = f"/api/projects/{project_id}/qa/threads"
+        thread = client.post(threads, json={"scope": {"kind": "project"}}).json()
+        turn = client.post(
+            f"{threads}/{thread['id']}/turns",
+            json={
+                "request_id": "network-off-local-default",
+                "question": "What changed?",
+                "scope": {"kind": "project"},
+            },
+        )
+        assert turn.status_code == 200, turn.text
+        assert turn.json()["model"] == model
+
+
+def test_omitted_ask_model_refuses_before_admission_when_network_off(tmp_path) -> None:
+    client, workspace, _store, project_id = _cloud_selector_app(
+        tmp_path,
+        routes=[],
+        preference="local_first",
+        router=ModelRouter(use_env_keys=False),
+    )
+    workspace.get(project_id).set_network_policy(mode="off")
+    project_qa = ProjectQAService(workspace)
+    register_project_qa_routes(client.app, service=project_qa)
+    client.app.router.add_event_handler("shutdown", project_qa.shutdown)
+
+    with client:
+        threads = f"/api/projects/{project_id}/qa/threads"
+        thread = client.post(threads, json={"scope": {"kind": "project"}}).json()
+        response = client.post(
+            f"{threads}/{thread['id']}/turns",
+            json={
+                "request_id": "network-off-no-default",
+                "question": "What changed?",
+                "scope": {"kind": "project"},
+            },
+        )
+        assert response.status_code == 409, response.text
+        detail = client.get(f"{threads}/{thread['id']}").json()
+        assert detail["active_turn"] is None
+        assert detail["history"]["events"] == []
+
+
+def test_omitted_ask_model_uses_selector_eligible_spend_inventory(
+    tmp_path, monkeypatch
+) -> None:
+    def spend(_project, provider):
+        return SimpleNamespace(
+            over_cap=provider == "anthropic",
+            cap_enforceable=True,
+        )
+
+    monkeypatch.setattr(
+        "frisket.engine.store.Project.provider_spend_state",
+        spend,
+    )
+    router = ModelRouter(
+        keys={"anthropic": "capped", "openai": "available"},
+        key_sources={"anthropic": "project_key", "openai": "project_key"},
+        use_env_keys=False,
+    )
+    client, workspace, _store, project_id = _cloud_selector_app(
+        tmp_path,
+        routes=[],
+        preference="local_first",
+        router=router,
+    )
+
+    async def run_turn(_project, _router, _turn, _store):
+        return {}
+
+    project_qa = ProjectQAService(workspace, runner=run_turn)
+    register_project_qa_routes(client.app, service=project_qa)
+    client.app.router.add_event_handler("shutdown", project_qa.shutdown)
+
+    with client:
+        selector = client.post(
+            f"/api/projects/{project_id}/selector-choices",
+            json={
+                "schema_version": "frisket.selector_choices_query.v1",
+                "subject": {"kind": "project_ask"},
+            },
+        )
+        assert selector.status_code == 200, selector.text
+        default = next(
+            choice for choice in _choices(selector.json()) if choice["is_default"]
+        )
+        assert default["authored_selection"]["model"] == "openai/gpt-5.6-terra"
+
+        threads = f"/api/projects/{project_id}/qa/threads"
+        thread = client.post(threads, json={"scope": {"kind": "project"}}).json()
+        turn = client.post(
+            f"{threads}/{thread['id']}/turns",
+            json={
+                "request_id": "spend-eligible-default",
+                "question": "What changed?",
+                "scope": {"kind": "project"},
+            },
+        )
+        assert turn.status_code == 200, turn.text
+        assert turn.json()["model"] == "openai/gpt-5.6-terra"
+
+
+def test_configuration_actions_require_mutation_authority(tmp_path) -> None:
+    client, _workspace, _store, project_id = _cloud_selector_app(
+        tmp_path,
+        routes=[_llm_route()],
+        capabilities=SelectorCapabilities(
+            may_author_actions=True,
+            may_run_actions=True,
+        ),
+    )
+
+    with client:
+        response = client.post(
+            f"/api/projects/{project_id}/selector-choices",
+            json={
+                "schema_version": "frisket.selector_choices_query.v1",
+                "subject": {
+                    "kind": "project_ask",
+                    "model": "openai/gpt-5-mini",
+                },
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    selected = next(
+        choice for choice in _choices(response.json()) if choice["is_current"]
+    )
+    assert selected["status"] == "ready"
+    assert selected["configuration_actions"] == []
+
+
+def test_local_only_action_omits_generic_cloud_setup(tmp_path) -> None:
+    client, _workspace, _store, project_id = _cloud_selector_app(
+        tmp_path,
+        routes=[],
+        selected_account=False,
+    )
+
+    with client:
+        response = client.post(
+            f"/api/projects/{project_id}/selector-choices",
+            json={
+                "schema_version": "frisket.selector_choices_query.v1",
+                "subject": {
+                    "kind": "action",
+                    "action_id": "enrich.geocode",
+                    "field": "engine",
+                    "params": {"engine": "auto"},
+                },
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["cloud_setup"] is None
 
 
 def test_cloud_first_different_user_does_not_use_configured_local_key(
@@ -721,6 +1181,62 @@ def test_blocked_cloud_route_keeps_local_api_key_setup_available(tmp_path):
         choice for choice in _choices(response.json()) if choice["is_current"]
     )
     assert selected["can_run"] is False
-    assert selected["status"] == "needs_setup"
-    assert selected["setup"]["kind"] == "api_key"
-    assert selected["setup"]["provider"] == "openai"
+    assert selected["status"] == "unavailable"
+    assert selected["setup"] is None
+    assert selected["configuration_actions"][0]["kind"] == "api_key"
+    assert selected["configuration_actions"][0]["provider"] == "openai"
+
+
+def test_unrelated_cloud_model_is_not_reported_as_an_alternative_route(tmp_path):
+    route = _llm_route().model_copy(update={"engine": "openai/gpt-5-mini"})
+    client, _workspace, _store, pid = _cloud_selector_app(
+        tmp_path,
+        routes=[route],
+        preference="local_first",
+        local_keys={"gemini": "configured-key"},
+    )
+
+    with client:
+        response = client.post(
+            f"/api/projects/{pid}/selector-choices",
+            json={
+                "schema_version": "frisket.selector_choices_query.v1",
+                "subject": {
+                    "kind": "project_ask",
+                    "model": "gemini/gemini-3.5-flash",
+                },
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    selected = next(
+        choice for choice in _choices(response.json()) if choice["is_current"]
+    )
+    assert selected["execution_route"]["kind"] == "local_key"
+    assert selected["execution_route"]["has_alternative_route"] is False
+
+
+def test_embedding_projection_never_invents_cloud_setup(tmp_path):
+    client, _workspace, _store, pid = _cloud_selector_app(
+        tmp_path,
+        routes=[_llm_route()],
+        selected_account=False,
+    )
+
+    with client:
+        response = client.post(
+            f"/api/projects/{pid}/selector-choices",
+            json={
+                "schema_version": "frisket.selector_choices_query.v1",
+                "subject": {"kind": "embedding"},
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["cloud_setup"] is None
+    assert all(
+        choice["execution_route"] is None
+        and all(action["kind"] != "cloud" for action in choice["configuration_actions"])
+        for choice in _choices(payload)
+    )

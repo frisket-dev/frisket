@@ -57,6 +57,18 @@ async function waitForExtractSelector(page: Page, navigate: () => Promise<unknow
   return selected!;
 }
 
+async function fillExtractionForm(page: Page): Promise<void> {
+  await page.getByTestId('text-source-mode-template').click();
+  await page.getByTestId('text-source-template-input').fill('{{text}}');
+  await page.getByLabel('Field 1 name').fill('entity');
+  await page.getByLabel('Field 1 type').selectOption('text');
+  await page.getByLabel('Field 1 description').fill('Person named in the text');
+  await page.getByTestId('field-instruction').fill('Extract the named person.');
+  await page.getByTestId('field-citation_mode').selectOption('none');
+  await expect(page.getByTestId('generated-action-preview')).toBeEnabled();
+
+}
+
 async function confirmPreviewCost(page: Page): Promise<void> {
   const modal = page.getByTestId('cost-gate-modal');
   await expect(modal).toBeVisible();
@@ -66,10 +78,10 @@ async function confirmPreviewCost(page: Page): Promise<void> {
   await confirm.click();
 }
 
-test('browser sign-in makes Cloud credits the durable Extract default and previews without a local key', async ({
+test('Cloud connection, own-key setup and media selectors share the project routing preference', async ({
   page,
   request,
-}) => {
+}, testInfo) => {
   await page.addInitScript(() => {
     localStorage.setItem(
       'frisket:product-telemetry:v1',
@@ -130,14 +142,7 @@ test('browser sign-in makes Cloud credits the durable Extract default and previe
   await expect(page.getByTestId('field-engine').locator('.engine-selector__trigger'))
     .toContainText('Gemini 3.5 Flash-Lite');
 
-  await page.getByTestId('text-source-mode-template').click();
-  await page.getByTestId('text-source-template-input').fill('{{text}}');
-  await page.getByLabel('Field 1 name').fill('entity');
-  await page.getByLabel('Field 1 type').selectOption('text');
-  await page.getByLabel('Field 1 description').fill('Person named in the text');
-  await page.getByTestId('field-instruction').fill('Extract the named person.');
-  await page.getByTestId('field-citation_mode').selectOption('none');
-  await expect(page.getByTestId('generated-action-preview')).toBeEnabled();
+  await fillExtractionForm(page);
 
   const completed = page.waitForResponse(async (response) => (
     response.request().method() === 'GET'
@@ -160,4 +165,81 @@ test('browser sign-in makes Cloud credits the durable Extract default and previe
     { timeout: 30_000 },
   );
   await expect(page.getByTestId('preview-accounting')).toContainText('Model cost:');
+  // A working Cloud route must not hide the alternative credential form.
+  await page.goto(actionURL);
+  await page.getByTestId('field-engine').locator('.engine-selector__trigger').click();
+  await dialog.getByRole('button', { name: /Use your own.*key/i }).click();
+  await dialog.getByLabel('API key', { exact: true }).fill('e2e-personal-gemini-key');
+  await dialog.getByRole('button', { name: 'Test', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
+  await dialog.screenshot({ path: testInfo.outputPath('cloud-own-key-setup.png') });
+  const savedSelector = page.waitForResponse(async (response) => {
+    if (response.request().method() !== 'POST' || !response.url().endsWith('/selector-choices') || !response.ok()) return false;
+    const payload = await response.json() as SelectorResponse;
+    return payload.groups.flatMap((group) => group.choices).some((choice) => (
+      choice.authored_selection.model === 'gemini/gemini-3.5-flash-lite'
+      && choice.execution_route?.kind === 'local_key' && choice.can_run
+    ));
+  });
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await savedSelector;
+  await expect(dialog).toContainText(/Your Gemini API key/);
+  await page.keyboard.press('Escape');
+
+  await fillExtractionForm(page);
+  const ownPreview = page.waitForResponse(async (response) => (
+    response.request().method() === 'GET'
+    && response.url().includes(`/api/projects/${projectId}/actions/v1/preview/`)
+    && response.ok() && (await response.json()).status === 'done'
+  ));
+  await page.getByTestId('generated-action-preview').click();
+  const ownResult = await (await ownPreview).json();
+  expect(Object.values(ownResult.result.rows)).toEqual([
+    expect.objectContaining({ entity: expect.objectContaining({ value: 'Alice via own key' }) }),
+  ]);
+
+  await page.goto(`/p/${projectId}/settings/project/ai-providers`);
+  await routing.getByRole('radio', { name: /^Use Investigations/ }).click();
+  await expect(routing.getByRole('radio', { name: /^Use Investigations/ })).toBeChecked();
+  await expect(routing.getByRole('radio', { name: /^Use Investigations/ })).toBeEnabled();
+  await waitForExtractSelector(page, () => page.goto(actionURL));
+  await page.getByTestId('field-engine').locator('.engine-selector__trigger').click();
+  await expect(dialog.getByRole('button', { name: /Use your own.*key/i })).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  for (const [action, engineId] of [
+    ['media.ocr', 'paddleocr-vl'],
+    ['media.transcribe', 'whisper-turbo'],
+  ]) {
+    const mediaSelector = page.waitForResponse((response) => (
+      response.request().method() === 'POST' && response.url().endsWith('/selector-choices') && response.ok()
+    ));
+    await page.goto(`/p/${projectId}/s/${sheetId}/action/${action}`);
+    const payload = await (await mediaSelector).json() as SelectorResponse;
+    const media = payload.groups.flatMap((group) => group.choices)
+      .find((choice) => choice.authored_selection.engine === engineId);
+    expect(media).toMatchObject({
+      execution_route: { kind: 'cloud_credits', account_id: 41 },
+      status: 'ready', can_run: true,
+    });
+    await page.getByTestId('field-engine').locator('.engine-selector__trigger').click();
+    await dialog.getByRole('searchbox').fill(engineId === 'paddleocr-vl' ? 'Paddle' : 'Whisper');
+    await dialog.locator(`[data-choice-id="${media!.choice_id}"]`).click();
+    await page.getByTestId('field-engine').locator('.engine-selector__trigger').click();
+    await expect(dialog).toContainText('Frisket Cloud');
+    await dialog.getByRole('button', { name: /Configure models server/i }).click();
+    const guide = dialog.getByRole('link', { name: 'Models server setup guide' });
+    const url = dialog.getByLabel('Gateway URL');
+    const token = dialog.getByLabel('Gateway token');
+    const testButton = dialog.getByRole('button', { name: 'Test', exact: true });
+    const boxes = await Promise.all([guide, url, token, testButton].map((item) => item.boundingBox()));
+    for (let index = 1; index < boxes.length; index++) {
+      expect(boxes[index]!.y).toBeGreaterThanOrEqual(boxes[index - 1]!.y + boxes[index - 1]!.height);
+    }
+    await dialog.screenshot({ path: testInfo.outputPath(`${engineId}-cloud-gateway.png`) });
+    await testButton.scrollIntoViewIfNeeded();
+    await dialog.screenshot({ path: testInfo.outputPath(`${engineId}-gateway-fields.png`) });
+    await page.keyboard.press('Escape');
+  }
+
 });

@@ -16,12 +16,13 @@ validate have no pins:
 - ``whisper`` (the advertised convenience alias) -> local, always
 
 VENUE NEVER DEPENDS ON LIVENESS OR OPTIONAL CONTROLS: a fresh canonical
-name picks the first declaration-order target (local-first), then validates
-authored options against that target. Liveness is checked ONLY for that
-chosen target (the static choice needs no probes). A chosen-but-dead target
-is a ``no_live_target`` refusal with its remedy; an option that target cannot
-honor is a ``no_capable_target`` refusal. Resolution never walks to another
-venue because a toggle was enabled. This keeps network policy, estimates,
+name ranks declared targets by configuration presence, the provider's
+selection rank, then declaration order, and validates authored options only
+against that target. Liveness is checked ONLY for that chosen target (the
+static choice needs no probes). A chosen-but-dead target is a
+``no_live_target`` refusal with its remedy; an option that target cannot honor
+is a ``no_capable_target`` refusal. Resolution never walks to another venue
+because a toggle was enabled. This keeps network policy, estimates,
 concurrency scoping, previews, and the catalog on one deterministic target;
 a venue flip remains an explicit, separately bound choice.
 
@@ -40,7 +41,7 @@ but is not activated/available — carries a remedy), ``policy_denied`` and
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -66,6 +67,7 @@ from frisket.execution.provider import (
     CompositionFacts,
     ConnectionConfig,
     ExecutionTargetProvider,
+    TargetConfigurationError,
 )
 from frisket.execution.targets import (
     CAPABILITY_CENSUS,
@@ -567,33 +569,46 @@ def capability_engine_table(capability: str) -> tuple[EngineDeclaration, ...]:
         raise ValueError(f"unknown execution capability {capability!r}") from None
 
 
-def preferred_static_choice(
-    raw_engine: str,
-    options: Mapping[str, Any],
-    targets: Sequence[ExecutionTarget],
-    *,
-    capability: str = CAPABILITY_TRANSCRIBE,
-) -> tuple[ExecutionTarget, TargetEngineSupport] | Refusal | None:
-    """The preference WITHOUT liveness — the deterministic static choice
-    every surface classifies from: the first declaration-order candidate.
-    Options are then checked against that chosen target, never used to select
-    a different venue. The answer is pure and probe-free, so dispatch-side
-    consumers (concurrency scope, estimates, previews, and egress policy)
-    key on the same target the resolver binds.
+def _candidate_targets(
+    source: Sequence[ExecutionTarget] | ExecutionTargetProvider,
+) -> tuple[ExecutionTarget, ...]:
+    target_hook = getattr(source, "targets", None)
+    return tuple(target_hook()) if callable(target_hook) else tuple(source)
 
-    Returns the chosen ``(target, support)`` pair; a ``no_capable_target``
-    ``Refusal`` when its target cannot honor the authored options (options
-    are refused, never silently ignored or used to retarget); or ``None``
-    for unknown symbols, free-form ``provider/model`` ids (their remote-api
-    target is keyed by provider, not preference), and symbols the static
-    targets simply do not declare (callers keep their own fallbacks/
-    messages for those)."""
+
+def _configuration_rank(
+    source: Sequence[ExecutionTarget] | ExecutionTargetProvider,
+    target: ExecutionTarget,
+    capability: str,
+    engine: str,
+) -> tuple[int, int]:
+    if not callable(getattr(source, "targets", None)):
+        # Bare target sequences are retained solely for the SDK's semantic
+        # fallback. Request providers implement the complete policy port.
+        return (0, 0)
+    configured = source.configuration(target.id, capability, engine)
+    if configured not in {"configured", "not_configured"}:
+        raise TypeError(
+            "execution provider configuration must return configured or not_configured"
+        )
+    rank = source.selection_rank(target.id, capability, engine)
+    if isinstance(rank, bool) or not isinstance(rank, int):
+        raise TypeError("execution provider selection_rank must return int")
+    return (0 if configured == "configured" else 1, rank)
+
+
+def _ranked_static_candidates(
+    raw_engine: str,
+    source: Sequence[ExecutionTarget] | ExecutionTargetProvider,
+    *,
+    capability: str,
+) -> list[tuple[ExecutionTarget, TargetEngineSupport]] | Refusal | None:
     engine_id = _canonical_engine(raw_engine, capability)
     if engine_id is None:
         return None
     candidates = [
         (target, support)
-        for target in targets
+        for target in _candidate_targets(source)
         for support in target.engines
         if support.capability == capability
         and (
@@ -604,6 +619,53 @@ def preferred_static_choice(
             )
         )
     ]
+    if not candidates:
+        return []
+    try:
+        ranked = sorted(
+            enumerate(candidates),
+            key=lambda row: (
+                *_configuration_rank(source, row[1][0], capability, engine_id),
+                row[0],
+            ),
+        )
+    except TargetConfigurationError as exc:
+        return Refusal(
+            family="no_live_target",
+            remedy=exc.remedy,
+            engine=engine_id,
+            target_id=exc.target_id,
+        )
+    return [candidate for _index, candidate in ranked]
+
+
+def preferred_static_choice(
+    raw_engine: str,
+    options: Mapping[str, Any],
+    source: Sequence[ExecutionTarget] | ExecutionTargetProvider,
+    *,
+    capability: str = CAPABILITY_TRANSCRIBE,
+) -> tuple[ExecutionTarget, TargetEngineSupport] | Refusal | None:
+    """The deterministic static choice every surface classifies from.
+
+    Candidates, including wildcard support for free-form ``provider/model``
+    ids, rank by configuration presence, provider selection rank, then
+    declaration order. Options are checked only on that chosen target and
+    never select a different venue. The answer is probe-free, so dispatch-side
+    consumers (concurrency scope, estimates, previews, and egress policy) key
+    on the same target the resolver binds.
+
+    Returns the chosen ``(target, support)`` pair; a ``no_capable_target``
+    ``Refusal`` when its target cannot honor the authored options (options
+    are refused, never silently ignored or used to retarget); or ``None``
+    for unknown symbols or symbols no target declares (callers keep their own
+    fallbacks/messages for those)."""
+    engine_id = _canonical_engine(raw_engine, capability)
+    candidates = _ranked_static_candidates(raw_engine, source, capability=capability)
+    if candidates is None:
+        return None
+    if isinstance(candidates, Refusal):
+        return candidates
     if not candidates:
         return None
     target, support = candidates[0]
@@ -685,6 +747,35 @@ def _liveness_remedy(
         f"Execution target '{target_id}' is not currently available; "
         "configure it and retry."
     )
+
+
+def _live_connection(
+    provider: ExecutionTargetProvider,
+    target_id: str,
+    *,
+    engine: str,
+) -> ConnectionConfig | Refusal | None:
+    """Read the chosen target once and preserve typed configuration failures."""
+
+    try:
+        return provider.connection(target_id)
+    except TargetConfigurationError as exc:
+        return Refusal(
+            family="no_live_target",
+            remedy=exc.remedy,
+            engine=engine,
+            target_id=exc.target_id,
+        )
+    except ValueError:
+        return Refusal(
+            family="no_live_target",
+            remedy=(
+                f"Fix the configuration for target '{target_id}' and retry; "
+                "its connection settings could not be read safely."
+            ),
+            engine=engine,
+            target_id=target_id,
+        )
 
 
 def _open_edition_facts(target: ExecutionTarget, engine_id: str) -> RouteRowFacts:
@@ -811,7 +902,8 @@ def resolve(
     """Map one capability request to its single target, or refuse.
 
     Pure over ``provider``; sync; exactly one ``connection`` probe (the
-    mapped target's) — no enumeration of other targets' liveness.
+    configured/preferred target's) — no enumeration of other targets'
+    liveness.
     """
     capability = request.capability
     engine_id = _canonical_engine(request.engine, capability)
@@ -828,7 +920,7 @@ def resolve(
 
     targets = list(provider.targets())
     static_choice = preferred_static_choice(
-        request.engine, request.options, targets, capability=capability
+        request.engine, request.options, provider, capability=capability
     )
     if "/" in engine_id and static_choice is None:
         provider_name = engine_id.partition("/")[0]
@@ -886,7 +978,13 @@ def resolve(
                 engine=engine_id,
                 target_id=target.id,
             )
-        connection = provider.connection(target.id)
+        connection = _live_connection(
+            provider,
+            target.id,
+            engine=engine_id,
+        )
+        if isinstance(connection, Refusal):
+            return connection
         if connection is None:
             return Refusal(
                 family="no_live_target",
@@ -911,14 +1009,13 @@ def resolve(
                 remedy=(f"no execution target declares engine {engine_id!r}"),
                 engine=engine_id,
             )
-        # One deterministic choice: the first declaration-order candidate.
+        # One deterministic choice: configuration presence, provider rank,
+        # then declaration order.
         # Optional controls are validated on it and cannot retarget a run.
         # The same probe-free function backs every dispatch-side consumer, so
         # the venue the resolver binds is the venue policy/estimate/preview
         # classified.
-        choice = preferred_static_choice(
-            request.engine, request.options, targets, capability=capability
-        )
+        choice = static_choice
         if isinstance(choice, Refusal):
             return choice
         if choice is None:  # pragma: no cover - guarded by the checks above
@@ -934,7 +1031,13 @@ def resolve(
         # checked ONLY for the chosen target. Dead chosen target ->
         # no_live_target with its remedy — never a walk to another venue
         # (a venue flip is a claims change, §10).
-        connection = provider.connection(target.id)
+        connection = _live_connection(
+            provider,
+            target.id,
+            engine=engine_id,
+        )
+        if isinstance(connection, Refusal):
+            return connection
         if connection is None:
             return Refusal(
                 family="no_live_target",
@@ -958,6 +1061,57 @@ def resolve(
         estimate_basis=estimate_basis,
         connection=connection,
     )
+
+
+def preferred_resolved_engine(
+    engines: Sequence[str],
+    provider: ExecutionTargetProvider,
+    composition: CompositionFacts,
+    *,
+    capability: str = CAPABILITY_LLM,
+    options: Mapping[str, Any] | None = None,
+    allowed_egress_classes: Collection[str] | None = None,
+    directly_runnable_engines: Collection[str] = (),
+) -> str | None:
+    """Choose a ready engine through the same route policy as execution.
+
+    ``directly_runnable_engines`` is an explicit caller-owned inventory for
+    engines such as configured local HTTP models that do not have a static
+    execution target. It is considered only when no declared target resolves.
+    """
+    rows: list[tuple[int, int, str]] = []
+    direct_rows: list[tuple[int, str]] = []
+    direct = frozenset(directly_runnable_engines)
+    allowed = (
+        frozenset(allowed_egress_classes)
+        if allowed_egress_classes is not None
+        else None
+    )
+    for index, engine in enumerate(engines):
+        outcome = resolve(
+            ResolutionRequest(
+                engine=engine,
+                capability=capability,
+                options=options or {},
+            ),
+            provider,
+            composition,
+        )
+        if isinstance(outcome, Refusal):
+            if engine in direct:
+                direct_rows.append((index, engine))
+            continue
+        if allowed is not None and outcome.target.egress_class not in allowed:
+            if engine in direct:
+                direct_rows.append((index, engine))
+            continue
+        _configured, route_rank = _configuration_rank(
+            provider, outcome.target, capability, outcome.facts.engine
+        )
+        rows.append((route_rank, index, engine))
+    if rows:
+        return min(rows)[2]
+    return min(direct_rows)[1] if direct_rows else None
 
 
 def candidate_binding(

@@ -441,6 +441,7 @@ class ProjectQAStore:
         question: str,
         scope: Mapping[str, Any] | None = None,
         model: str | None = None,
+        default_model: str | None = None,
         web: bool = False,
         suggest_actions: bool = True,
         research: Mapping[str, Any] | None = None,
@@ -455,6 +456,8 @@ class ProjectQAStore:
         ):
             raise ValueError("submitted_by must be a non-empty string or null")
         saved_scope, saved_model = _scope(scope), _model(model)
+        saved_default_model = _model(default_model)
+        persisted_model = saved_model or saved_default_model
         saved_research = (
             _json_object(research, name="research") if research is not None else None
         )
@@ -475,10 +478,15 @@ class ProjectQAStore:
             ).fetchone()
             if existing is not None:
                 turn = self._turn_record(existing)
+                expected_model = (
+                    turn["model"]
+                    if saved_model is None and saved_default_model is not None
+                    else saved_model
+                )
                 expected = (
                     question,
                     saved_scope,
-                    saved_model,
+                    expected_model,
                     saved_web,
                     saved_suggest,
                     saved_research,
@@ -513,7 +521,7 @@ class ProjectQAStore:
                     request_id,
                     question,
                     _json(saved_scope),
-                    saved_model,
+                    persisted_model,
                     int(saved_web),
                     int(saved_suggest),
                     _json(saved_research),
@@ -536,13 +544,19 @@ class ProjectQAStore:
                 thread["web"],
                 thread["suggest_actions"],
                 thread["research"],
-            ) != (saved_scope, saved_model, saved_web, saved_suggest, saved_research)
+            ) != (
+                saved_scope,
+                persisted_model,
+                saved_web,
+                saved_suggest,
+                saved_research,
+            )
             if preferences_changed:
                 db.execute(
                     "UPDATE project_qa_threads SET scope_json=?,model=?,web=?,suggest_actions=?,research_json=?,revision=revision+1,updated_at=? WHERE id=?",
                     (
                         _json(saved_scope),
-                        saved_model,
+                        persisted_model,
                         int(saved_web),
                         int(saved_suggest),
                         _json(saved_research),

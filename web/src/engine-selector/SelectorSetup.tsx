@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import type { SelectorChoice } from '../api/selectorChoices';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import type { HttpSelectorChoicesResponse, SelectorChoice } from '../api/selectorChoices';
 import { createProjectProviderKeysApi } from '../api/projectProviderKeys';
 import { createLocalProvidersApi } from '../api/localProviders';
 import { createTeamLocalModelsApi } from '../api/teamLocalModels';
@@ -11,10 +11,11 @@ import { ModelsGatewayForm } from './ModelsGatewayForm';
 import type { ModelsGatewayScope } from '../api/modelsGateway';
 import { cloudConnectionApi, projectCloudRoutingApi } from '../api/cloudConnection';
 import { CloudConnectionPanel } from '../cloud/CloudConnectionPanel';
-import { useSetupRequests } from './setupLifetime';
+import { useSetupEditing, useSetupRequests } from './setupLifetime';
 
 export interface SelectorSetupProps {
   projectId: string; choice: SelectorChoice; onChanged(): void; onEditingChange(editing: boolean): void;
+  cloudSetup?: HttpSelectorChoicesResponse['cloud_setup'];
   /** SelectorField already owns the durable pull poll for its trigger and panel. */
   sharedProgress?: boolean;
   operationError?: boolean;
@@ -24,6 +25,8 @@ type CredentialSetup = Extract<Setup, { kind: 'api_key' | 'models_gateway' }>;
 type GatewayScope = CredentialSetup['scopes'][number] & { scope: ModelsGatewayScope };
 type DownloadSetup = Extract<Setup, { kind: 'engine_setup' | 'artifact_download' }>;
 type CloudSetup = Extract<Setup, { kind: 'cloud' }>;
+type ConfigurationAction = SelectorChoice['configuration_actions'][number];
+type EditingReporter = (owner: string, editing: boolean) => void;
 const requestError = () => new Error('Setup request failed');
 const workspace = createLocalProvidersApi(requestError);
 const projectKeys = createProjectProviderKeysApi(requestError);
@@ -145,12 +148,27 @@ const providerName = (provider: string): string => ({
   datalab: 'Datalab', opendocrouter: 'OpenDocRouter',
 })[provider] ?? provider;
 
-function CloudSetupPanel({ setup, projectId, onChanged, onEditingChange }: {
+function CloudSetupPanel({ setup, projectId, onChanged }: {
   setup: CloudSetup;
   projectId: string;
   onChanged(): void;
-  onEditingChange(editing: boolean): void;
 }) {
+  const [checking, setChecking] = useState(false);
+  const [checkError, setCheckError] = useState(false);
+  const { begin } = useSetupRequests();
+  const recheck = async () => {
+    if (checking) return;
+    const request = begin();
+    setChecking(true); setCheckError(false);
+    try {
+      await projectCloudRoutingApi.get(projectId, request.signal);
+      if (request.isCurrent()) onChanged();
+    } catch {
+      if (request.isCurrent()) setCheckError(true);
+    } finally {
+      if (request.isCurrent()) setChecking(false);
+    }
+  };
   if (setup.state === 'out_of_credits') {
     return <section className="selector-setup cloud-credit-blocker">
       <strong>{setup.account_name ?? 'This account'} is out of Frisket credits</strong>
@@ -159,11 +177,14 @@ function CloudSetupPanel({ setup, projectId, onChanged, onEditingChange }: {
         {setup.add_credits_url && <a className="btn btn-primary" href={setup.add_credits_url}
           target="_blank" rel="noreferrer">Add credits ↗</a>}
         {setup.project_settings_url && <a className="btn" href={setup.project_settings_url}>Project settings</a>}
+        <button className="btn" type="button" disabled={checking} onClick={() => void recheck()}>
+          {checking ? 'Checking…' : 'Recheck'}
+        </button>
       </div>
+      {checkError && <p role="alert">Could not refresh Cloud account details. Try again.</p>}
     </section>;
   }
 
-  const localKey = setup.local_key;
   return <div className="cloud-setup-options">
     <CloudConnectionPanel client={cloudConnectionApi} variant="compact"
       intent={setup.state === 'reconnect' ? 'reconnect' : 'connect'}
@@ -171,26 +192,38 @@ function CloudSetupPanel({ setup, projectId, onChanged, onEditingChange }: {
       onSelectAccount={setup.state === 'reconnect' ? undefined : (selectedAccountId) => (
         projectCloudRoutingApi.patch(projectId, { selectedAccountId }).then(() => undefined)
       )} onChanged={onChanged} />
-    {localKey && <section className="selector-setup cloud-local-key-card">
-      <h3>Or use your own {providerName(localKey.provider)} key</h3>
-      <p className="settings-help">Your API key works like a password and stays in this project.</p>
-      <CredentialSetupPanel setup={localKey} projectId={projectId}
-        onChanged={onChanged} onEditingChange={onEditingChange} />
-    </section>}
   </div>;
 }
 
-export function SelectorSetup(props: SelectorSetupProps) {
-  const setup = props.choice.setup;
-  if (!setup) return null;
-  const key = `${props.projectId}:${props.choice.choice_id}:${JSON.stringify(setup)}`;
+function setupKey(setup: Setup): string {
+  switch (setup.kind) {
+    case 'api_key':
+      return `api-key:${setup.provider}:${setup.scopes.map((scope) => scope.scope).sort().join(',')}`;
+    case 'models_gateway':
+      return `models-gateway:${setup.scopes.map((scope) => scope.scope).sort().join(',')}`;
+    case 'artifact_download': case 'engine_setup':
+      return `${setup.kind}:${setup.scope}:${setup.setup_ref}`;
+    case 'cloud':
+      return `cloud:${setup.state}:${setup.account_id ?? 'none'}`;
+    case 'first_use_download':
+      return 'first-use-download';
+    case 'instructions':
+      return `instructions:${setup.title}`;
+  }
+}
+
+function SetupPanel({ setup, ...props }: SelectorSetupProps & { setup: Setup }) {
+  const activeOperation = (setup.kind === 'artifact_download' || setup.kind === 'engine_setup')
+    && props.choice.active_operation?.model === setup.setup_ref
+    ? props.choice.active_operation
+    : null;
   switch (setup.kind) {
     case 'api_key': case 'models_gateway':
-      return <CredentialSetupPanel key={key} {...props} setup={setup} />;
+      return <CredentialSetupPanel {...props} setup={setup} />;
     case 'cloud':
-      return <CloudSetupPanel key={key} {...props} setup={setup} />;
+      return <CloudSetupPanel {...props} setup={setup} />;
     case 'artifact_download': case 'engine_setup':
-      return <DownloadSetupPanel key={`${props.projectId}:${props.choice.choice_id}:${setup.kind}:${setup.scope}:${setup.setup_ref}`} setup={setup} activeOperation={props.choice.active_operation} onChanged={props.onChanged}
+      return <DownloadSetupPanel setup={setup} activeOperation={activeOperation} onChanged={props.onChanged}
         sharedProgress={props.sharedProgress} operationError={props.operationError} />;
     case 'first_use_download': return <p className="settings-help">{setup.disclosure}</p>;
     case 'instructions': {
@@ -199,4 +232,106 @@ export function SelectorSetup(props: SelectorSetupProps) {
       return <section className="selector-setup"><strong>{setup.title}</strong><ol>{steps.map((step) => <li key={step}>{step}</li>)}</ol>{setup.url && <a href={setup.url} target="_blank" rel="noreferrer">Learn more</a>}</section>;
     }
   }
+}
+
+function useOwnedEditing(editingOwner: string, reportEditing: EditingReporter) {
+  return useSetupEditing(useCallback(
+    (editing: boolean) => reportEditing(editingOwner, editing),
+    [editingOwner, reportEditing],
+  ));
+}
+
+function OwnedSetupPanel({ editingOwner, reportEditing, ...props }:
+  SelectorSetupProps & { setup: Setup; editingOwner: string; reportEditing: EditingReporter }) {
+  const editing = useOwnedEditing(editingOwner, reportEditing);
+  return <SetupPanel {...props} onEditingChange={editing} />;
+}
+
+function configurationLabel(action: ConfigurationAction, choice: SelectorChoice): string {
+  switch (action.kind) {
+    case 'api_key': return choice.status === 'ready' && choice.execution_route?.kind === 'local_key'
+      ? 'Change API key'
+      : `Use your own ${providerName(action.provider)} API key`;
+    case 'models_gateway': return 'Configure models server';
+    case 'engine_setup': return 'Set up on this computer';
+    case 'artifact_download': return 'Download for local use';
+  }
+}
+
+function ConfigurationActionPanel({ action, initiallyExpanded, editingOwner, reportEditing, ...props }:
+  SelectorSetupProps & { action: ConfigurationAction; initiallyExpanded: boolean;
+    editingOwner: string; reportEditing: EditingReporter }) {
+  const [expanded, setExpanded] = useState(initiallyExpanded);
+  const [hasExpanded, setHasExpanded] = useState(initiallyExpanded);
+  const panelId = useId();
+  const label = configurationLabel(action, props.choice);
+  const panelEditing = useOwnedEditing(`${editingOwner}:panel`, reportEditing);
+  const formEditing = useOwnedEditing(`${editingOwner}:form`, reportEditing);
+  const panel = <SetupPanel {...props} onEditingChange={formEditing} setup={action} />;
+  const toggle = () => {
+    const next = !expanded;
+    setExpanded(next);
+    if (next) setHasExpanded(true);
+    panelEditing(next);
+  };
+  if (initiallyExpanded) {
+    return <section className="selector-configuration-action is-expanded">
+      <h3>{label}</h3>
+      {panel}
+    </section>;
+  }
+  return <section className={`selector-configuration-action${expanded ? ' is-expanded' : ''}`}>
+    <button type="button" className="selector-configuration-toggle" aria-expanded={expanded}
+      aria-controls={panelId}
+      onClick={toggle}>{label}<span aria-hidden>{expanded ? '−' : '+'}</span></button>
+    <div id={panelId} hidden={!expanded}>{hasExpanded && panel}</div>
+  </section>;
+}
+
+function useEditingOwners(onEditingChange: (editing: boolean) => void): EditingReporter {
+  const owners = useRef(new Set<string>());
+  const callback = useRef(onEditingChange);
+  useEffect(() => { callback.current = onEditingChange; });
+  useEffect(() => () => {
+    const wasEditing = owners.current.size > 0;
+    owners.current.clear();
+    if (wasEditing) callback.current(false);
+  }, []);
+  return useCallback((owner: string, editing: boolean) => {
+    const wasEditing = owners.current.size > 0;
+    if (editing) owners.current.add(owner);
+    else owners.current.delete(owner);
+    const isEditing = owners.current.size > 0;
+    if (isEditing !== wasEditing) callback.current(isEditing);
+  }, []);
+}
+
+export function SelectorSetup(props: SelectorSetupProps) {
+  const reportEditing = useEditingOwners(props.onEditingChange);
+  const activeSetup = props.choice.setup;
+  const configurationActions = props.choice.configuration_actions;
+  const genericCloudSetup = activeSetup?.kind === 'cloud' ? null : props.cloudSetup;
+  const activeOwner = activeSetup
+    ? `${props.projectId}:${props.choice.choice_id}:active:${setupKey(activeSetup)}`
+    : null;
+  if (!activeSetup && configurationActions.length === 0 && !genericCloudSetup) return null;
+  return <div className="selector-setup-stack">
+    {activeSetup && activeOwner && <OwnedSetupPanel key={activeOwner} {...props} setup={activeSetup}
+      editingOwner={activeOwner} reportEditing={reportEditing} />}
+    {configurationActions.map((action) => {
+      const owner = `${props.projectId}:${props.choice.choice_id}:configuration:${setupKey(action)}`;
+      return <ConfigurationActionPanel
+        key={owner}
+        {...props} action={action}
+        editingOwner={owner} reportEditing={reportEditing}
+        initiallyExpanded={props.choice.status !== 'ready'} />
+    })}
+    {genericCloudSetup && <section key={`${props.projectId}:generic-cloud`}
+      className="selector-generic-cloud-setup">
+      {genericCloudSetup.state === 'connect' &&
+        <p className="settings-help">Connect Frisket Cloud to see available models.</p>}
+      <SetupPanel key={`${props.projectId}:${setupKey(genericCloudSetup)}`}
+        {...props} setup={genericCloudSetup} />
+    </section>}
+  </div>;
 }

@@ -199,7 +199,7 @@ def test_viewer_can_load_an_incomplete_action_draft_without_mutation_authority(
 
     assert response.status_code == 200, response.text
     payload = response.json()
-    assert payload["schema_version"] == "frisket.selector_choices.v1"
+    assert payload["schema_version"] == "frisket.selector_choices.v2"
     assert payload["project_id"] == project_id
     assert payload["subject"] == {
         "kind": "action",
@@ -914,6 +914,50 @@ def test_busy_setup_embeds_actual_operation_without_removing_download_authority(
     )
 
 
+def test_ready_parakeet_does_not_offer_redundant_engine_setup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "frisket.server.services.selector_choices.parakeet_runtime_present",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "frisket.server.services.selector_choices.parakeet_setup_ready",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "frisket.execution.definitions.parakeet_runtime_present", lambda: True
+    )
+    monkeypatch.setattr(
+        "frisket.execution.definitions.parakeet_artifacts_present", lambda: True
+    )
+    client, _workspace, project_id = _app(
+        tmp_path / "ready-parakeet",
+        capabilities_for=lambda _request, _pid: SelectorCapabilities(
+            may_author_actions=True,
+            may_run_actions=True,
+            manage_model_downloads=True,
+        ),
+    )
+
+    response = client.post(
+        f"/api/projects/{project_id}/selector-choices",
+        json=_query(
+            {
+                "kind": "action",
+                "action_id": "media.transcribe",
+                "field": "engine",
+                "params": {"engine": "parakeet-tdt"},
+            }
+        ),
+    )
+
+    assert response.status_code == 200, response.text
+    current = next(row for row in _choices(response.json()) if row["is_current"])
+    assert current["status"] == "ready"
+    assert current["configuration_actions"] == []
+
+
 def test_passive_gateway_status_projects_owner_scope_and_mutation_policy(
     tmp_path: Path,
 ) -> None:
@@ -1254,6 +1298,7 @@ def test_model_choices_reuse_provider_setup_credential_and_spend_facts_within_re
     assert all(row["can_run"] for row in openai)
     assert setup_reads == Counter(
         {
+            "openai": 1,
             "anthropic": 1,
             "gemini": 1,
             "openrouter": 1,
@@ -1289,6 +1334,7 @@ def test_model_choices_reuse_provider_setup_credential_and_spend_facts_within_re
     )
     assert setup_reads == Counter(
         {
+            "openai": 2,
             "anthropic": 2,
             "gemini": 2,
             "openrouter": 2,

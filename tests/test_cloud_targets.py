@@ -13,6 +13,7 @@ from frisket.contracts.http.cloud_connection import (
     CloudAccount,
     CloudCapabilitiesResponse,
     CloudCapabilityRoute,
+    CloudDocumentConvertOptionSupport,
     CloudExecutionReceipt,
     CloudExecutionResponse,
     CloudLLMOptionSupport,
@@ -31,17 +32,21 @@ from frisket.execution.provider import (
     CompositionFacts,
     ConnectionConfig,
     ExecutionComposition,
+    TargetConfigurationError,
 )
 from frisket.execution.resolver import Refusal, ResolutionRequest, resolve
 from frisket.execution.resolve_for_action import resolve_for_action
 from frisket.execution.targets import (
     CAPABILITY_LLM,
     CAPABILITY_OCR,
+    CAPABILITY_TO_MARKDOWN,
     CAPABILITY_TRANSLATE,
     ExecutionTarget,
     LLMOptionSupport,
+    LOCAL_MODELS_TARGET_ID,
     OcrOptionSupport,
     TargetEngineSupport,
+    ToMarkdownOptionSupport,
     TranslateOptionSupport,
 )
 from frisket.engine.store import Project
@@ -50,6 +55,8 @@ from frisket.engine.runner.validation import ClaimsGate
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.project_settings import ProjectSettings, write_project_settings
+
+CLOUD_OCR_ENGINE = "paddleocr-vl"
 
 
 class _LocalProvider:
@@ -74,6 +81,14 @@ class _LocalProvider:
     def connection(self, target_id):
         return ConnectionConfig() if target_id == "local" else None
 
+    def configuration(self, target_id, capability, engine):
+        del capability, engine
+        return "configured" if target_id == "local" else "not_configured"
+
+    def selection_rank(self, target_id, capability, engine):
+        del target_id, capability, engine
+        return 0
+
 
 class _EmptyProvider:
     def targets(self):
@@ -83,9 +98,18 @@ class _EmptyProvider:
         del target_id
         return None
 
+    def configuration(self, target_id, capability, engine):
+        del target_id, capability, engine
+        return "not_configured"
+
+    def selection_rank(self, target_id, capability, engine):
+        del target_id, capability, engine
+        return 0
+
 
 class _OpenAIProvider:
-    def __init__(self) -> None:
+    def __init__(self, *, configured: bool = True) -> None:
+        self.configured = configured
         self.target = ExecutionTarget(
             id="remote-api:openai",
             operator="openai",
@@ -116,9 +140,21 @@ class _OpenAIProvider:
     def connection(self, target_id):
         return (
             ConnectionConfig(token="configured-media-key")
-            if target_id == "remote-api:openai"
+            if target_id == "remote-api:openai" and self.configured
             else None
         )
+
+    def configuration(self, target_id, capability, engine):
+        del capability, engine
+        return (
+            "configured"
+            if target_id == "remote-api:openai" and self.configured
+            else "not_configured"
+        )
+
+    def selection_rank(self, target_id, capability, engine):
+        del target_id, capability, engine
+        return 0
 
 
 def _base() -> ExecutionComposition:
@@ -137,10 +173,10 @@ def _base_without_local_route() -> ExecutionComposition:
     )
 
 
-def _base_with_openai_route() -> ExecutionComposition:
+def _base_with_openai_route(*, configured: bool = True) -> ExecutionComposition:
     return ExecutionComposition(
         facts=CompositionFacts(edition="open", funding=OperatorBorne()),
-        provider=_OpenAIProvider(),
+        provider=_OpenAIProvider(configured=configured),
         credential_use_context=CredentialUseContext.open(),
     )
 
@@ -162,7 +198,7 @@ def _capabilities(*, ready: bool = True) -> CloudCapabilitiesResponse:
         routes=[
             CloudCapabilityRoute(
                 capability="ocr",
-                engine="rapidocr",
+                engine=CLOUD_OCR_ENGINE,
                 provider="anthropic",
                 lane="frisket_credits",
                 route_revision="route-1",
@@ -219,7 +255,9 @@ def test_cloud_first_resolves_target_specific_payer_and_offering():
     )
 
     outcome = resolve(
-        ResolutionRequest(engine="rapidocr", capability=CAPABILITY_OCR, options={}),
+        ResolutionRequest(
+            engine=CLOUD_OCR_ENGINE, capability=CAPABILITY_OCR, options={}
+        ),
         composition.provider_for_resolution(),
         composition.facts,
     )
@@ -234,7 +272,7 @@ def test_cloud_first_resolves_target_specific_payer_and_offering():
     offering = composition.offering_for(
         target_id=outcome.target.id,
         capability=CAPABILITY_OCR,
-        engine="rapidocr",
+        engine=CLOUD_OCR_ENGINE,
     )
     assert offering is not None
     assert offering.quote.unit_rate == "0.0025"
@@ -282,6 +320,105 @@ def test_cloud_first_keeps_an_inherent_local_engine_on_this_computer():
     assert outcome.facts.cloud_payer is None
 
 
+@pytest.mark.parametrize("preference", ["local_first", "cloud_first"])
+def test_installed_managed_local_route_precedes_other_own_venues(preference):
+    class Provider:
+        targets_by_priority = (
+            ExecutionTarget(
+                id="models-gateway",
+                operator="self",
+                egress_class="operator_lan",
+                engines=(
+                    TargetEngineSupport(
+                        engine="docling",
+                        transport="sidecar.convert",
+                        capability=CAPABILITY_TO_MARKDOWN,
+                        options=ToMarkdownOptionSupport(),
+                    ),
+                ),
+            ),
+            ExecutionTarget(
+                id=LOCAL_MODELS_TARGET_ID,
+                operator="self",
+                egress_class="none",
+                engines=(
+                    TargetEngineSupport(
+                        engine="docling",
+                        transport="sidecar.convert",
+                        capability=CAPABILITY_TO_MARKDOWN,
+                        options=ToMarkdownOptionSupport(),
+                    ),
+                ),
+            ),
+        )
+
+        def targets(self):
+            return self.targets_by_priority
+
+        def connection(self, target_id):
+            return (
+                ConnectionConfig()
+                if target_id
+                in {
+                    "models-gateway",
+                    LOCAL_MODELS_TARGET_ID,
+                }
+                else None
+            )
+
+        def configuration(self, target_id, capability, engine):
+            del capability, engine
+            return (
+                "configured"
+                if target_id in {"models-gateway", LOCAL_MODELS_TARGET_ID}
+                else "not_configured"
+            )
+
+        def selection_rank(self, target_id, capability, engine):
+            del target_id, capability, engine
+            return 0
+
+    base = ExecutionComposition(
+        facts=CompositionFacts(edition="open", funding=OperatorBorne()),
+        provider=Provider(),
+        credential_use_context=CredentialUseContext.open(),
+    )
+    capabilities = CloudCapabilitiesResponse(
+        account_id=41,
+        routes=[
+            CloudCapabilityRoute(
+                capability="document.convert",
+                engine="docling",
+                provider="docling",
+                lane="frisket_credits",
+                route_revision="docling-route-1",
+                ready=True,
+                blocker=None,
+                price=CloudUnitPrice(kind="unit", unit="page", micro_per_unit=2_500),
+                options=CloudDocumentConvertOptionSupport(kind="document.convert"),
+            )
+        ],
+    )
+    composition = compose_cloud_targets(
+        base,
+        user_id=7,
+        account=_account(),
+        capabilities=capabilities,
+        preference=preference,
+    )
+
+    outcome = resolve(
+        ResolutionRequest(
+            engine="docling", capability=CAPABILITY_TO_MARKDOWN, options={}
+        ),
+        composition.provider_for_resolution(),
+        composition.facts,
+    )
+
+    assert not isinstance(outcome, Refusal)
+    assert outcome.target.id == LOCAL_MODELS_TARGET_ID
+
+
 def test_cloud_first_disconnection_preserves_non_cloud_third_party_api(tmp_path):
     class Provider:
         target = ExecutionTarget(
@@ -306,6 +443,14 @@ def test_cloud_first_disconnection_preserves_non_cloud_third_party_api(tmp_path)
 
         def connection(self, target_id):
             return ConnectionConfig(token="deepl-key") if target_id == "deepl" else None
+
+        def configuration(self, target_id, capability, engine):
+            del capability, engine
+            return "configured" if target_id == "deepl" else "not_configured"
+
+        def selection_rank(self, target_id, capability, engine):
+            del target_id, capability, engine
+            return 0
 
     project = Project.create(tmp_path / "translate.frisket", name="Translate")
     write_project_settings(
@@ -344,6 +489,85 @@ def test_cloud_first_disconnection_preserves_non_cloud_third_party_api(tmp_path)
     assert outcome.target.id == "deepl"
 
 
+@pytest.mark.parametrize(
+    ("target_id", "egress_class", "blocked"),
+    [
+        ("models-gateway", "operator_lan", True),
+        (LOCAL_MODELS_TARGET_ID, "none", False),
+    ],
+)
+def test_signed_out_cloud_first_blocks_nonlocal_routes_but_preserves_local(
+    tmp_path, target_id, egress_class, blocked
+):
+    class Provider:
+        target = ExecutionTarget(
+            id=target_id,
+            operator="self",
+            egress_class=egress_class,
+            engines=(
+                TargetEngineSupport(
+                    engine="docling",
+                    transport="sidecar.convert",
+                    capability=CAPABILITY_TO_MARKDOWN,
+                    options=ToMarkdownOptionSupport(),
+                ),
+            ),
+        )
+
+        def targets(self):
+            return (self.target,)
+
+        def connection(self, candidate_id):
+            return ConnectionConfig() if candidate_id == target_id else None
+
+        def configuration(self, candidate_id, capability, engine):
+            del capability, engine
+            return "configured" if candidate_id == target_id else "not_configured"
+
+        def selection_rank(self, candidate_id, capability, engine):
+            del candidate_id, capability, engine
+            return 0
+
+    project = Project.create(tmp_path / f"{target_id}.frisket", name="Document")
+    write_project_settings(
+        project,
+        ProjectSettings(
+            cloud_user_id=7,
+            cloud_account_id=41,
+            cloud_execution_preference="cloud_first",
+        ),
+    )
+    base = ExecutionComposition(
+        facts=CompositionFacts(edition="open", funding=OperatorBorne()),
+        provider=Provider(),
+        credential_use_context=CredentialUseContext.open(),
+    )
+    try:
+        composition = cloud_execution_composition(
+            base,
+            project,
+            store=CloudConnectionStore(tmp_path / "profile"),
+            client=object(),
+        )
+        outcome = resolve(
+            ResolutionRequest(
+                engine="docling", capability=CAPABILITY_TO_MARKDOWN, options={}
+            ),
+            composition.provider_for_resolution(),
+            composition.facts,
+        )
+    finally:
+        project.close()
+
+    if blocked:
+        assert isinstance(outcome, Refusal)
+        assert outcome.target_id == target_id
+        assert "Reconnect Frisket Cloud" in outcome.remedy
+    else:
+        assert not isinstance(outcome, Refusal)
+        assert outcome.target.id == target_id
+
+
 def test_unreadable_inherited_cloud_first_profile_does_not_use_own_key(tmp_path):
     class Provider:
         target = ExecutionTarget(
@@ -374,6 +598,16 @@ def test_unreadable_inherited_cloud_first_profile_does_not_use_own_key(tmp_path)
                 if target_id == "remote-api:openai"
                 else None
             )
+
+        def configuration(self, target_id, capability, engine):
+            del capability, engine
+            return (
+                "configured" if target_id == "remote-api:openai" else "not_configured"
+            )
+
+        def selection_rank(self, target_id, capability, engine):
+            del target_id, capability, engine
+            return 0
 
     project = Project.create(tmp_path / "llm.frisket", name="LLM")
     write_project_settings(
@@ -418,6 +652,7 @@ def test_unreadable_inherited_cloud_first_profile_does_not_use_own_key(tmp_path)
     assert isinstance(outcome, Refusal)
     assert outcome.target_id == "remote-api:openai"
     assert "Reconnect Frisket Cloud" in outcome.remedy
+    assert "does not support Reconnect" not in outcome.remedy
 
 
 def test_cloud_llm_route_carries_typed_price_and_payer():
@@ -474,6 +709,10 @@ def test_local_first_omits_cloud_llm_when_exact_local_adapter_exists():
     assert not isinstance(outcome, Refusal)
     assert outcome.target.id == "remote-api:openai"
     assert outcome.facts.cloud_payer is None
+    assert {target.id for target in composition.provider.targets()} >= {
+        "remote-api:openai",
+        "frisket-cloud:41:frisket_credits:openai",
+    }
 
 
 def test_local_first_uses_cloud_llm_when_local_adapter_is_missing():
@@ -502,9 +741,68 @@ def test_local_first_uses_cloud_llm_when_local_adapter_is_missing():
     )
 
     assert not isinstance(outcome, Refusal)
+    assert outcome.target.id == "remote-api:openai"
+    assert outcome.facts.cloud_payer is None
+
+
+def test_local_first_uses_configured_cloud_route_when_own_key_is_missing():
+    composition = compose_cloud_targets(
+        _base_with_openai_route(configured=False),
+        user_id=7,
+        account=_account(),
+        capabilities=_llm_capabilities(),
+        preference="local_first",
+    )
+
+    outcome = resolve(
+        ResolutionRequest(
+            engine="openai/gpt-5-mini",
+            capability=CAPABILITY_LLM,
+            options={},
+        ),
+        composition.provider_for_resolution(),
+        composition.facts,
+    )
+
+    assert not isinstance(outcome, Refusal)
     assert outcome.target.id == "frisket-cloud:41:frisket_credits:openai"
-    assert outcome.support.transport == "frisket.cloud.llm.v1"
     assert outcome.facts.cloud_payer is not None
+
+
+def test_local_first_broken_own_key_refuses_without_switching_to_cloud():
+    class Provider(_OpenAIProvider):
+        def connection(self, target_id):
+            raise TargetConfigurationError(
+                target_id,
+                "Re-enter the configured OpenAI key; it could not be decrypted.",
+            )
+
+    base = ExecutionComposition(
+        facts=CompositionFacts(edition="open", funding=OperatorBorne()),
+        provider=Provider(),
+        credential_use_context=CredentialUseContext.open(),
+    )
+    composition = compose_cloud_targets(
+        base,
+        user_id=7,
+        account=_account(),
+        capabilities=_llm_capabilities(),
+        preference="local_first",
+    )
+
+    outcome = resolve(
+        ResolutionRequest(
+            engine="openai/gpt-5-mini",
+            capability=CAPABILITY_LLM,
+            options={},
+        ),
+        composition.provider_for_resolution(),
+        composition.facts,
+    )
+
+    assert isinstance(outcome, Refusal)
+    assert outcome.target_id == "remote-api:openai"
+    assert "could not be decrypted" in outcome.remedy
 
 
 def test_local_first_preserves_media_route_when_cloud_target_also_has_llm():
@@ -560,7 +858,7 @@ def test_local_first_preserves_media_route_when_cloud_target_also_has_llm():
     )
 
     assert not isinstance(llm, Refusal)
-    assert llm.target.id == "frisket-cloud:41:frisket_credits:openai"
+    assert llm.target.id == "remote-api:openai"
     assert not isinstance(media, Refusal)
     assert media.target.id == "remote-api:openai"
     assert media.facts.cloud_payer is None
@@ -616,10 +914,40 @@ def test_structured_cloud_llm_action_requires_explicit_unknown_quantity_consent(
             composition=composition,
             scope_row_ids=[row_id],
         )
+        own_key = resolve_for_action(
+            project,
+            spec,
+            recipe,
+            composition=compose_cloud_targets(
+                _base_with_openai_route(),
+                user_id=7,
+                account=_account(),
+                capabilities=_llm_capabilities(),
+                preference="local_first",
+            ),
+            scope_row_ids=[row_id],
+        )
+        blocked_cloud = resolve_for_action(
+            project,
+            spec,
+            recipe,
+            composition=compose_cloud_targets(
+                _base_with_openai_route(),
+                user_id=7,
+                account=_account(),
+                capabilities=_llm_capabilities(ready=False),
+                preference="cloud_first",
+            ),
+            scope_row_ids=[row_id],
+        )
     finally:
         project.close()
 
     assert resolved is not None and not isinstance(resolved, Refusal)
+    assert own_key is None
+    assert isinstance(blocked_cloud, Refusal)
+    assert blocked_cloud.target_id == "frisket-cloud:41:frisket_credits:openai"
+    assert "Add credits" in blocked_cloud.remedy
     assert isinstance(resolved.cost_basis, PricedCostBasis)
     assert resolved.cost_basis.meter_key == "cloud_effective_cost_micro"
     assert resolved.cost_basis.row_quote_quantities is None
@@ -796,7 +1124,9 @@ def test_blocked_cloud_first_route_does_not_fall_back_to_local():
     )
 
     outcome = resolve(
-        ResolutionRequest(engine="rapidocr", capability=CAPABILITY_OCR, options={}),
+        ResolutionRequest(
+            engine=CLOUD_OCR_ENGINE, capability=CAPABILITY_OCR, options={}
+        ),
         composition.provider_for_resolution(),
         composition.facts,
     )
@@ -850,7 +1180,7 @@ def test_project_composition_reads_selected_account_capabilities_without_network
         composition.cloud_payer_for(
             target_id="frisket-cloud:41:frisket_credits:anthropic",
             capability="ocr",
-            engine="rapidocr",
+            engine=CLOUD_OCR_ENGINE,
         ).user_id
         == 7
     )
@@ -886,7 +1216,9 @@ def test_project_composition_uses_last_known_capabilities_without_refetch(tmp_pa
             _base_without_local_route(), project, store=store, client=Client()
         )
         outcome = resolve(
-            ResolutionRequest(engine="rapidocr", capability=CAPABILITY_OCR, options={}),
+            ResolutionRequest(
+                engine=CLOUD_OCR_ENGINE, capability=CAPABILITY_OCR, options={}
+            ),
             composition.provider_for_resolution(),
             composition.facts,
         )
@@ -927,7 +1259,9 @@ def test_expired_connection_blocks_snapshot_without_fetch_or_local_fallback(tmp_
             _base_without_local_route(), project, store=store, client=Client()
         )
         outcome = resolve(
-            ResolutionRequest(engine="rapidocr", capability=CAPABILITY_OCR, options={}),
+            ResolutionRequest(
+                engine=CLOUD_OCR_ENGINE, capability=CAPABILITY_OCR, options={}
+            ),
             composition.provider_for_resolution(),
             composition.facts,
         )

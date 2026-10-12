@@ -34,6 +34,7 @@ from frisket.engine.store import Project
 from frisket.execution.commercial import CommercialOffering
 from frisket.execution.price_book import PlatformMetered
 from frisket.execution.provider import ExecutionComposition
+from frisket.execution.resolver import Refusal, preferred_static_choice
 from frisket.execution.targets import ExecutionTarget, TargetEngineSupport
 from frisket.contracts.transcription_sidecar import TranscriptionOptionSupport
 
@@ -589,9 +590,27 @@ def _project_execution_composition_engines(
         if existing_targets or platform_metered or capability == "transcribe":
             engine["targets"] = target_hints
 
-        # Match the resolver's declaration-order choice.
+        # Match the resolver's configured/preferred static choice.
         if candidates:
-            preferred_target, _preferred_support = candidates[0]
+            preferred = preferred_static_choice(
+                engine_id,
+                {},
+                composition.provider_for_resolution(),
+                capability=capability,
+            )
+            if isinstance(preferred, tuple):
+                preferred_target = preferred[0]
+            elif isinstance(preferred, Refusal) and preferred.target_id is not None:
+                preferred_target = next(
+                    (
+                        target
+                        for target, _support in candidates
+                        if target.id == preferred.target_id
+                    ),
+                    candidates[0][0],
+                )
+            else:
+                preferred_target = candidates[0][0]
             # The active target is a catalog fact even when it is currently
             # unavailable or lacks a commercial offer. The form must not
             # reconstruct declaration order and accidentally unlock a later

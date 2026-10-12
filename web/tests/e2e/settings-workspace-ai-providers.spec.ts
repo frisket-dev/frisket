@@ -28,7 +28,7 @@ function askSelectorResponse(
 ): HttpSelectorChoicesResponse {
   const current = subject.model === 'ollama/qwen' ? 'ollama-qwen' : 'local-semantic';
   return {
-    schema_version: 'frisket.selector_choices.v1',
+    schema_version: 'frisket.selector_choices.v2',
     project_id: pid,
     subject: { kind: 'project_ask' },
     depends_on: [],
@@ -39,7 +39,8 @@ function askSelectorResponse(
         choice_id: 'local-semantic', label: 'Local semantic', summary: 'On this computer', description: '',
         model_card_url: null, authored_selection: { kind: 'model', model: 'local/semantic' },
         resolved_target: null, processing_destination: { kind: 'local', label: 'On this computer' },
-        facts: [], status: 'ready', can_author: true, can_run: true, blocker: null, setup: null,
+        execution_route: null, facts: [], status: 'ready', can_author: true, can_run: true,
+        blocker: null, setup: null, configuration_actions: [],
         active_operation: null, is_default: true, is_current: current === 'local-semantic',
       }],
     }, {
@@ -47,11 +48,13 @@ function askSelectorResponse(
         choice_id: 'ollama-qwen', label: 'Qwen', summary: 'On this computer', description: '',
         model_card_url: null, authored_selection: { kind: 'model', model: 'ollama/qwen' },
         resolved_target: null, processing_destination: { kind: 'local', label: 'On this computer' },
-        facts: [], status: 'ready', can_author: true, can_run: true, blocker: null, setup: null,
+        execution_route: null, facts: [], status: 'ready', can_author: true, can_run: true,
+        blocker: null, setup: null, configuration_actions: [],
         active_operation: null, is_default: false, is_current: current === 'ollama-qwen',
       }],
     }],
     orphaned_current: null,
+    cloud_setup: null,
   };
 }
 

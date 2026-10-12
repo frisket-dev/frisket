@@ -124,18 +124,29 @@ interface ActiveOperation {
   scope: ModelPullScope;
 }
 
-function isDownloadSetup(setup: HttpSelectorChoicesResponse['groups'][number]['choices'][number]['setup']): setup is Extract<NonNullable<typeof setup>, { kind: 'engine_setup' | 'artifact_download' }> {
+type SelectorChoiceWire = HttpSelectorChoicesResponse['groups'][number]['choices'][number];
+type DownloadSetup = Extract<NonNullable<SelectorChoiceWire['setup']>, { kind: 'engine_setup' | 'artifact_download' }>;
+
+function isDownloadSetup(setup: SelectorChoiceWire['setup'] | SelectorChoiceWire['configuration_actions'][number]): setup is DownloadSetup {
   return setup?.kind === 'engine_setup' || setup?.kind === 'artifact_download';
+}
+
+function downloadSetups(choice: SelectorChoiceWire): DownloadSetup[] {
+  return [choice.setup, ...choice.configuration_actions].filter(isDownloadSetup);
 }
 
 function activeOperation(response: HttpSelectorChoicesResponse): ActiveOperation | null {
   const choices = response.groups.flatMap((group) => group.choices);
   if (response.orphaned_current) choices.push(response.orphaned_current);
   for (const choice of choices) {
-    if (!isDownloadSetup(choice.setup)) continue;
-    const operation = choice.active_operation ?? choice.setup.blocked_by_operation;
-    if (operation?.status === 'pending' || operation?.status === 'running') {
-      return { id: operation.id, scope: choice.setup.scope };
+    for (const setup of downloadSetups(choice)) {
+      const active = choice.active_operation?.model === setup.setup_ref
+        ? choice.active_operation
+        : null;
+      const operation = active ?? setup.blocked_by_operation;
+      if (operation?.status === 'pending' || operation?.status === 'running') {
+        return { id: operation.id, scope: setup.scope };
+      }
     }
   }
   return null;
@@ -151,9 +162,16 @@ function replaceOperation(
     const setup = isDownloadSetup(choice.setup) && choice.setup.blocked_by_operation?.id === pull.id
       ? { ...choice.setup, blocked_by_operation: pull }
       : choice.setup;
-    if (active === choice.active_operation && setup === choice.setup) return choice;
+    let actionsChanged = false;
+    const configurationActions = choice.configuration_actions.map((action) => {
+      if (!isDownloadSetup(action) || action.blocked_by_operation?.id !== pull.id) return action;
+      actionsChanged = true;
+      return { ...action, blocked_by_operation: pull };
+    });
+    if (active === choice.active_operation && setup === choice.setup && !actionsChanged) return choice;
     changed = true;
-    return { ...choice, active_operation: active, setup };
+    return { ...choice, active_operation: active, setup,
+      configuration_actions: actionsChanged ? configurationActions : choice.configuration_actions };
   };
   const groups = response.groups.map((group) => ({
     ...group,

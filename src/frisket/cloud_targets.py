@@ -22,6 +22,12 @@ from frisket.contracts.http.cloud_connection import (
     CloudTokenPrice,
     CloudUnitPrice,
 )
+from frisket.contracts.actions.schemas._engines import (
+    OCR_ENGINE_TABLE,
+    TRANSCRIBE_ENGINE_TABLE,
+    find_engine,
+    to_markdown_engine_table,
+)
 from frisket.contracts.transcription_sidecar import TranscriptionOptionSupport
 from frisket.execution.commercial import (
     CommercialOffering,
@@ -36,6 +42,7 @@ from frisket.execution.provider import (
     ExactExecutionMatch,
     ExecutionComposition,
     ExecutionTargetProvider,
+    TargetConfiguration,
 )
 from frisket.execution.targets import (
     CAPABILITY_LLM,
@@ -44,6 +51,7 @@ from frisket.execution.targets import (
     CAPABILITY_TRANSCRIBE,
     ExecutionTarget,
     LLMOptionSupport,
+    LOCAL_MODELS_TARGET_ID,
     OcrOptionSupport,
     TargetEngineSupport,
     ToMarkdownOptionSupport,
@@ -89,7 +97,6 @@ class CloudExecutionTargetProvider:
         presentations: dict[tuple[str, str, str], CommercialPresentation],
         *,
         preference: str,
-        shadowed_llm_engines: frozenset[str] = frozenset(),
         execution_transport: CloudExecutionTransport | None = None,
     ) -> None:
         self._source = source
@@ -99,34 +106,33 @@ class CloudExecutionTargetProvider:
         self._llm_prices = dict(llm_prices)
         self._presentations = dict(presentations)
         self._execution_transport = execution_transport
-        source_targets = tuple(
-            replace(
-                target,
-                engines=tuple(
-                    support
-                    for support in target.engines
-                    if not (
-                        support.capability == CAPABILITY_LLM
-                        and any(
-                            support.engine == engine
-                            or support.engine.endswith("/*")
-                            and engine.startswith(support.engine[:-1])
-                            for engine in shadowed_llm_engines
-                        )
-                    )
-                ),
-            )
-            for target in source.targets()
-        )
-        source_targets = tuple(target for target in source_targets if target.engines)
-        self._targets = (
-            self._cloud_targets + source_targets
-            if preference == "cloud_first"
-            else source_targets + self._cloud_targets
-        )
+        self._preference = preference
+        self._source_targets = tuple(source.targets())
+        self._source_by_id = {target.id: target for target in self._source_targets}
+        self._targets = self._source_targets + self._cloud_targets
 
     def targets(self) -> tuple[ExecutionTarget, ...]:
         return self._targets
+
+    def configuration(
+        self, target_id: str, capability: str, engine: str
+    ) -> TargetConfiguration:
+        if target_id in self._cloud_by_id:
+            return "configured"
+        return self._source.configuration(target_id, capability, engine)
+
+    def selection_rank(self, target_id: str, capability: str, engine: str) -> int:
+        if (
+            target_id == LOCAL_MODELS_TARGET_ID
+            and target_id in self._source_by_id
+            and self.configuration(target_id, capability, engine) == "configured"
+        ):
+            # The installed, app-managed local runtime is the preferred own
+            # venue regardless of who should pay when Cloud is also usable.
+            return 0
+        if target_id in self._cloud_by_id:
+            return 1 if self._preference == "cloud_first" else 2
+        return 2 if self._preference == "cloud_first" else 1
 
     def connection(self, target_id: str) -> ConnectionConfig | None:
         target = self._cloud_by_id.get(target_id)
@@ -176,22 +182,27 @@ class CloudExecutionTargetProvider:
 
 
 class _CloudRequiredExecutionTargetProvider:
-    """Block own-key egress when a saved Cloud-first payer is unavailable."""
+    """Block non-local execution when a saved Cloud-first payer is unavailable."""
 
-    def __init__(self, source: ExecutionTargetProvider, reason: str) -> None:
+    def __init__(
+        self,
+        source: ExecutionTargetProvider,
+        inability: str,
+        reconnect_remedy: str,
+    ) -> None:
         self._source = source
-        self._reason = reason
+        self._reconnect_remedy = reconnect_remedy
         self._targets = tuple(
             replace(
                 target,
                 engines=tuple(
-                    replace(support, unavailable_reason=reason)
+                    replace(support, unavailable_reason=inability)
                     if support.capability in _CLOUD_EXECUTION_CAPABILITIES
                     else support
                     for support in target.engines
                 ),
             )
-            if target.egress_class == "third_party_api"
+            if target.egress_class != "none"
             and any(
                 support.capability in _CLOUD_EXECUTION_CAPABILITIES
                 for support in target.engines
@@ -203,6 +214,14 @@ class _CloudRequiredExecutionTargetProvider:
     def targets(self) -> tuple[ExecutionTarget, ...]:
         return self._targets
 
+    def configuration(
+        self, target_id: str, capability: str, engine: str
+    ) -> TargetConfiguration:
+        return self._source.configuration(target_id, capability, engine)
+
+    def selection_rank(self, target_id: str, capability: str, engine: str) -> int:
+        return self._source.selection_rank(target_id, capability, engine)
+
     def connection(self, target_id: str) -> ConnectionConfig | None:
         return self._source.connection(target_id)
 
@@ -211,11 +230,11 @@ class _CloudRequiredExecutionTargetProvider:
     ) -> str | None:
         if capability in _CLOUD_EXECUTION_CAPABILITIES and any(
             target.id == target_id
-            and target.egress_class == "third_party_api"
+            and target.egress_class != "none"
             and any(support.capability == capability for support in target.engines)
             for target in self._targets
         ):
-            return self._reason
+            return self._reconnect_remedy
         hook = getattr(self._source, "liveness_remedy", None)
         if not callable(hook):
             return None
@@ -229,7 +248,7 @@ class _CloudRequiredExecutionTargetProvider:
     ) -> bool:
         return any(
             target.id == target_id
-            and target.egress_class == "third_party_api"
+            and target.egress_class != "none"
             and capability in _CLOUD_EXECUTION_CAPABILITIES
             and any(
                 support.capability == capability
@@ -262,28 +281,14 @@ def compose_cloud_targets(
     presentations: dict[tuple[str, str, str], CommercialPresentation] = {}
     offerings: list[CommercialOffering] = []
     included: list[ExactExecutionMatch] = []
-    shadowed_llm_engines: set[str] = set()
     for route in capabilities.routes:
         capability = _media_capability(route)
         if route.capability == CAPABILITY_LLM:
-            if (
-                preference == "local_first"
-                and router is not None
-                and router.adapter_for_model(route.engine) is not None
-            ):
-                continue
             capability = CAPABILITY_LLM
         if capability is None:
             continue
-        if _base_has_inherent_local_route(base, capability, route.engine):
+        if _explicitly_local_engine(capability, route.engine):
             continue
-        if (
-            capability == CAPABILITY_LLM
-            and preference == "local_first"
-            and router is not None
-            and route.ready
-        ):
-            shadowed_llm_engines.add(route.engine)
         target_id = cloud_target_id(account.id, route.lane, route.provider)
         support = _support(route, capability)
         grouped[target_id].append(support)
@@ -335,7 +340,6 @@ def compose_cloud_targets(
         llm_prices,
         presentations,
         preference=preference,
-        shadowed_llm_engines=frozenset(shadowed_llm_engines),
         execution_transport=execution_transport,
     )
     return replace(
@@ -437,27 +441,24 @@ def _block_cloud_first_fallback(
         base,
         provider=_CloudRequiredExecutionTargetProvider(
             base.provider,
+            (
+                "execution through the project's selected payer while "
+                "Frisket Cloud is disconnected. Reconnect Frisket Cloud and retry."
+            ),
             "Reconnect Frisket Cloud to use the project's selected payer.",
         ),
     )
 
 
-def _base_has_inherent_local_route(
-    base: ExecutionComposition, capability: str, engine: str
-) -> bool:
-    return any(
-        target.egress_class == "none"
-        and any(
-            support.capability == capability
-            and (
-                support.engine == engine
-                or support.engine.endswith("/*")
-                and engine.startswith(support.engine[:-1])
-            )
-            for support in target.engines
-        )
-        for target in base.resolution_targets()
-    )
+def _explicitly_local_engine(capability: str, engine: str) -> bool:
+    tables = {
+        CAPABILITY_OCR: OCR_ENGINE_TABLE,
+        CAPABILITY_TRANSCRIBE: TRANSCRIBE_ENGINE_TABLE,
+        CAPABILITY_TO_MARKDOWN: to_markdown_engine_table(),
+    }
+    table = tables.get(capability)
+    declaration = find_engine(table, engine) if table is not None else None
+    return declaration is not None and declaration.tier == "local"
 
 
 def _expired(value: str) -> bool:

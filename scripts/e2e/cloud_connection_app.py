@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import threading
 from pathlib import Path
 from urllib.parse import parse_qs
+from unittest.mock import PropertyMock, patch
+from functools import partial
 
 import httpx
 import uvicorn
@@ -23,6 +26,9 @@ from frisket.contracts.http.cloud_connection import (
     CloudLLMOptionSupport,
     CloudLLMResult,
     CloudLLMUsage,
+    CloudOCROptionSupport,
+    CloudTranscriptionOptionSupport,
+    CloudUnitPrice,
     CloudOAuthError,
     CloudSessionResponse,
     CloudTokenPrice,
@@ -30,6 +36,7 @@ from frisket.contracts.http.cloud_connection import (
     CloudUser,
 )
 from frisket.server.app import create_app
+from frisket.server import provider_config
 
 
 _ACCESS_TOKEN = "cloud-e2e-access-token"
@@ -83,6 +90,82 @@ def _route() -> CloudCapabilityRoute:
     )
 
 
+def _media_routes() -> list[CloudCapabilityRoute]:
+    return [
+        CloudCapabilityRoute(
+            capability="ocr",
+            engine="paddleocr-vl",
+            provider="models-gateway",
+            lane="frisket_credits",
+            route_revision="cloud-e2e-ocr-v1",
+            ready=True,
+            blocker=None,
+            price=CloudUnitPrice(kind="unit", unit="page", micro_per_unit=100),
+            options=CloudOCROptionSupport(
+                kind="ocr",
+                language=True,
+                geometry=True,
+                searchable_pdf=False,
+            ),
+        ),
+        CloudCapabilityRoute(
+            capability="transcribe",
+            engine="whisper-turbo",
+            provider="models-gateway",
+            lane="frisket_credits",
+            route_revision="cloud-e2e-transcribe-v1",
+            ready=True,
+            blocker=None,
+            price=CloudUnitPrice(kind="unit", unit="audio_second", micro_per_unit=10),
+            options=CloudTranscriptionOptionSupport(
+                kind="transcribe",
+                diarization_mode="none",
+                speaker_hint="none",
+                language=True,
+                model_size=False,
+                vad=False,
+                context=False,
+            ),
+        ),
+    ]
+
+
+def _provider_probe(request: httpx.Request) -> httpx.Response:
+    assert request.method == "GET"
+    assert (
+        str(request.url)
+        == "https://generativelanguage.googleapis.com/v1beta/openai/models"
+    )
+    assert request.headers["Authorization"] == "Bearer e2e-personal-gemini-key"
+    return httpx.Response(200, json={"data": [{"id": "gemini-3.5-flash-lite"}]})
+
+
+def _provider_completion(request: httpx.Request) -> httpx.Response:
+    assert request.method == "POST"
+    assert str(request.url) == (
+        "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+    )
+    assert request.headers["Authorization"] == "Bearer e2e-personal-gemini-key"
+    body = json.loads(request.content)
+    assert body["model"] == "gemini-3.5-flash-lite"
+    assert "Alice signed the agreement." in json.dumps(body["messages"])
+    return httpx.Response(
+        200,
+        json={
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": json.dumps({"entity": "Alice via own key"}),
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 8, "completion_tokens": 2},
+        },
+    )
+
+
 class _ExternalCloud:
     def __init__(self) -> None:
         self._token_polls = 0
@@ -132,7 +215,7 @@ class _ExternalCloud:
             self._assert_bearer(request)
             capabilities = CloudCapabilitiesResponse(
                 account_id=_ACCOUNT_ID,
-                routes=[_route()],
+                routes=[_route(), *_media_routes()],
             )
             return httpx.Response(200, json=capabilities.model_dump(mode="json"))
         if request.method == "DELETE" and path == "/api/desktop/v1/session":
@@ -228,14 +311,31 @@ def _parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = _parser().parse_args()
-    uvicorn.run(
-        build_app(
-            workspace=args.workspace.resolve(),
-            static_dir=args.static_dir.resolve(),
-        ),
-        host="127.0.0.1",
-        port=args.port,
-    )
+    # Keep admission, adapters, receipts and credential storage real. Only
+    # external Cloud/provider responses are deterministic network substitutes.
+    inference = httpx.AsyncClient(transport=httpx.MockTransport(_provider_completion))
+    try:
+        with httpx.Client(transport=httpx.MockTransport(_provider_probe)) as client:
+            probe = partial(provider_config.probe_provider, client=client)
+            with (
+                patch.object(provider_config, "probe_provider", probe),
+                patch.object(
+                    ModelRouter,
+                    "client",
+                    new_callable=PropertyMock,
+                    return_value=inference,
+                ),
+            ):
+                uvicorn.run(
+                    build_app(
+                        workspace=args.workspace.resolve(),
+                        static_dir=args.static_dir.resolve(),
+                    ),
+                    host="127.0.0.1",
+                    port=args.port,
+                )
+    finally:
+        asyncio.run(inference.aclose())
 
 
 if __name__ == "__main__":

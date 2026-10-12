@@ -838,7 +838,13 @@ def test_local_http_endpoints_project_connection_without_exposing_bearer(tmp_pat
         assert selected.json()["preference_inherited"] is False
 
 
-def test_corrupt_connection_does_not_break_project_routing(tmp_path):
+@pytest.mark.parametrize(
+    ("saved_binding", "expected_preference"),
+    [(False, "local_first"), (True, "cloud_first")],
+)
+def test_corrupt_connection_does_not_break_project_routing(
+    tmp_path, saved_binding, expected_preference
+):
     from frisket.server.app import create_app
 
     store = CloudConnectionStore(tmp_path / "profile")
@@ -856,11 +862,20 @@ def test_corrupt_connection_does_not_break_project_routing(tmp_path):
         serve_spa=False,
     )
     project_id = app.state.workspace.create("Corrupt Cloud profile")["id"]
+    if saved_binding:
+        project = app.state.workspace.get(project_id)
+        try:
+            write_project_settings(
+                project,
+                ProjectSettings(cloud_user_id=7, cloud_account_id=41),
+            )
+        finally:
+            project.close()
 
     with TestClient(app) as client:
         response = client.get(f"/api/projects/{project_id}/cloud-routing")
 
     assert response.status_code == 200
     assert response.json()["connection_state"] == "expired"
-    assert response.json()["preference"] == "local_first"
+    assert response.json()["preference"] == expected_preference
     assert response.json()["preference_inherited"] is True

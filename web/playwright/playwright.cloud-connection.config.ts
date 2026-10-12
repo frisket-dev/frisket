@@ -66,6 +66,7 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     ...devices['Desktop Chrome'],
     viewport: { width: 1600, height: 900 },
+    deviceScaleFactor: 2,
   },
   webServer: {
     command: durationWrappedServerCommand({

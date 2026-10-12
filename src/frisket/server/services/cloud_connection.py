@@ -328,7 +328,12 @@ class CloudConnectionService:
             try:
                 preference = self.preferences().preference
             except CloudConnectionServiceError:
-                preference = "local_first"
+                preference = (
+                    "cloud_first"
+                    if settings.cloud_user_id is not None
+                    and settings.cloud_account_id is not None
+                    else "local_first"
+                )
         else:
             preference = settings.cloud_execution_preference
         return ProjectCloudRoutingResponse(
