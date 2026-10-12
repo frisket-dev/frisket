@@ -192,6 +192,32 @@ test('Per-model routes survive key setup and drive real Cloud and own previews',
     .toHaveAttribute('aria-pressed', 'true');
   await page.keyboard.press('Escape');
 
+  // The saved own-key route links directly to the existing provider settings
+  // at the narrow two-pane layout boundary.
+  await page.setViewportSize({ width: 720, height: 900 });
+  const narrowProjection = page.waitForResponse((response) => (
+    response.request().method() === 'POST'
+    && response.url().endsWith('/selector-choices')
+    && response.ok()
+  ));
+  await page.goto(actionURL);
+  const narrowPayload = await (await narrowProjection).json() as SelectorResponse;
+  expect(narrowPayload.groups.flatMap((group) => group.choices).find((choice) => (
+    choice.authored_selection.model === 'gemini/gemini-3.5-flash-lite'
+  ))).toMatchObject({ execution_route: { kind: 'local_key' }, status: 'ready', can_run: true });
+  await page.getByTestId('field-engine').locator('.engine-selector__trigger').click();
+  await dialog.getByRole('searchbox').fill('Gemini 3.5 Flash-Lite');
+  await dialog.locator(`[data-choice-id="${defaultChoice.choice_id}"]`).hover();
+  await expect(dialog.getByRole('button', { name: 'Your Gemini key', exact: true }))
+    .toHaveAttribute('title', 'Your Gemini key');
+  await expect(dialog.getByRole('link', { name: 'Your Gemini API key →' })).toHaveAttribute(
+    'href', `/p/${projectId}/settings/project/ai-providers`,
+  );
+  await expect(dialog.getByRole('button', { name: 'Change API key' })).toHaveCount(0);
+  await dialog.screenshot({ path: testInfo.outputPath('narrow-configured-gemini-key.png') });
+  await page.keyboard.press('Escape');
+  await page.setViewportSize({ width: 1600, height: 900 });
+
   await fillExtractionForm(page);
   const ownPreview = page.waitForResponse(async (response) => (
     response.request().method() === 'GET'
@@ -250,6 +276,40 @@ test('Per-model routes survive key setup and drive real Cloud and own previews',
     await dialog.screenshot({ path: testInfo.outputPath(`${engineId}-gateway-fields.png`) });
     await page.keyboard.press('Escape');
   }
+
+  await page.setViewportSize({ width: 720, height: 900 });
+  const openDocRouterSelector = page.waitForResponse((response) => (
+    response.request().method() === 'POST'
+    && response.url().endsWith('/selector-choices')
+    && response.ok()
+  ));
+  await page.goto(`/p/${projectId}/s/${sheetId}/action/media.ocr`);
+  const openDocRouterPayload = await (await openDocRouterSelector).json() as SelectorResponse;
+  const openDocRouter = openDocRouterPayload.groups.flatMap((group) => group.choices)
+    .find((choice) => choice.authored_selection.engine?.startsWith('opendocrouter/'));
+  expect(openDocRouter).toBeDefined();
+  await page.getByTestId('field-engine').locator('.engine-selector__trigger').click();
+  await dialog.getByRole('searchbox').fill('OpenDocRouter');
+  await dialog.locator(`[data-choice-id="${openDocRouter!.choice_id}"]`).hover();
+  const openDocRouterRoute = dialog.getByRole('button', {
+    name: 'Your OpenDocRouter key', exact: true,
+  });
+  await expect(openDocRouterRoute).toHaveAttribute('title', 'Your OpenDocRouter key');
+  const openDocRouterWidths = await dialog.evaluate((element) => {
+    const routeControl = element.querySelector<HTMLElement>('.engine-selector__route-control-body')!;
+    const button = element.querySelector<HTMLElement>('[data-testid="model-route-own"]')!;
+    const controlBounds = routeControl.getBoundingClientRect();
+    const buttonBounds = button.getBoundingClientRect();
+    return {
+      dialog: [element.scrollWidth, element.clientWidth],
+      buttonWithinControl: buttonBounds.right <= controlBounds.right + 1,
+    };
+  });
+  expect(openDocRouterWidths.dialog[0]).toBeLessThanOrEqual(openDocRouterWidths.dialog[1]);
+  expect(openDocRouterWidths.buttonWithinControl).toBe(true);
+  await dialog.screenshot({ path: testInfo.outputPath('narrow-opendocrouter-route.png') });
+  await page.keyboard.press('Escape');
+  await page.setViewportSize({ width: 1600, height: 900 });
 
   await page.goto(`/p/${projectId}/s/${sheetId}/action/media.ocr`);
   await page.getByTestId('field-engine').locator('.engine-selector__trigger').click();

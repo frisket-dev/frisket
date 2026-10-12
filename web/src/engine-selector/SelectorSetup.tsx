@@ -245,11 +245,9 @@ function OwnedSetupPanel({ editingOwner, reportEditing, ...props }:
   return <SetupPanel {...props} onEditingChange={editing} />;
 }
 
-function configurationLabel(action: ConfigurationAction, choice: SelectorChoice): string {
+function configurationLabel(action: ConfigurationAction): string {
   switch (action.kind) {
-    case 'api_key': return choice.status === 'ready' && choice.execution_route?.kind === 'local_key'
-      ? 'Change API key'
-      : `Use your own ${providerName(action.provider)} API key`;
+    case 'api_key': return `Use your own ${providerName(action.provider)} API key`;
     case 'models_gateway': return 'Configure models server';
     case 'engine_setup': return 'Set up on this computer';
     case 'artifact_download': return 'Download for local use';
@@ -262,7 +260,7 @@ function ConfigurationActionPanel({ action, initiallyExpanded, editingOwner, rep
   const [expanded, setExpanded] = useState(initiallyExpanded);
   const [hasExpanded, setHasExpanded] = useState(initiallyExpanded);
   const panelId = useId();
-  const label = configurationLabel(action, props.choice);
+  const label = configurationLabel(action);
   const panelEditing = useOwnedEditing(`${editingOwner}:panel`, reportEditing);
   const formEditing = useOwnedEditing(`${editingOwner}:form`, reportEditing);
   const panel = <SetupPanel {...props} onEditingChange={formEditing} setup={action} />;
@@ -309,7 +307,11 @@ export function SelectorSetup(props: SelectorSetupProps) {
   const activeSetup = props.choice.setup;
   const configurationActions = props.choice.route_selection
     ? []
-    : props.choice.configuration_actions;
+    : props.choice.configuration_actions.filter((action) => !(
+        action.kind === 'api_key'
+        && props.choice.status === 'ready'
+        && props.choice.execution_route?.kind === 'local_key'
+      ));
   const genericCloudSetup = activeSetup?.kind === 'cloud' ? null : props.cloudSetup;
   const activeOwner = activeSetup
     ? `${props.projectId}:${props.choice.choice_id}:active:${setupKey(activeSetup)}`

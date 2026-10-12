@@ -359,6 +359,7 @@ def _route_option(
     options: Mapping[str, Any],
     route: ModelRoute,
     cloud_unknown: bool,
+    network_off: bool,
     cloud_eligible: bool = True,
     unsupported_cloud_provider: str | None = None,
 ) -> tuple[dict[str, Any], ExecutionTarget | None]:
@@ -392,6 +393,15 @@ def _route_option(
         else None
     )
     label = "Frisket Cloud" if route == "cloud" else _own_route_label(target)
+    if (network_off and route == "cloud") or _network_policy_forbids_target(
+        network_off, target
+    ):
+        return {
+            "id": route,
+            "label": label,
+            "status": "unavailable",
+            "disabled_reason": "This project's network setting is off.",
+        }, target
     if choice is None:
         if route == "cloud" and cloud_unknown:
             return {
@@ -472,6 +482,7 @@ def _route_selection(
     selected: ModelRoute,
     can_mutate: bool,
     cloud_unknown: bool,
+    network_off: bool,
 ) -> dict[str, Any] | None:
     model_id = canonical_model_route_id(engine, capability)
     if composition.model_routes is None or model_id is None:
@@ -483,6 +494,7 @@ def _route_selection(
         options=options,
         route="own",
         cloud_unknown=cloud_unknown,
+        network_off=network_off,
     )
     own_provider = (
         PROVIDER_LABELS.get(_own_target.operator, _own_target.operator)
@@ -498,6 +510,7 @@ def _route_selection(
         options=options,
         route="cloud",
         cloud_unknown=cloud_unknown,
+        network_off=network_off,
         cloud_eligible=cloud_route_eligible(engine, capability),
         unsupported_cloud_provider=own_provider,
     )

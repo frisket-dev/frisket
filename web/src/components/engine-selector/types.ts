@@ -11,6 +11,7 @@ export interface EngineSelectorFact {
 
 /** The one execution route resolved by the server for this project/model. */
 export interface EngineSelectorRoute {
+  kind?: string;
   label: string;
   billedTo?: string;
   credentialLabel?: string;
@@ -19,6 +20,13 @@ export interface EngineSelectorRoute {
   balanceUrl?: string;
   settingsUrl?: string;
   hasAlternativeRoute?: boolean;
+}
+
+/** List-only route availability. Detail and execution state still describe
+ * the selected route; this summary stays stable while that route changes. */
+export interface EngineSelectorAvailability {
+  label: string;
+  status: EngineSelectorStatus;
 }
 
 /** A caller-owned operation projected into the selected field's status copy. */
@@ -36,6 +44,7 @@ export interface EngineSelectorChoice {
   description?: string;
   facts?: readonly EngineSelectorFact[];
   route?: EngineSelectorRoute;
+  availability?: EngineSelectorAvailability;
   destination?: string;
   modelCardUrl?: string;
   status: EngineSelectorStatus;

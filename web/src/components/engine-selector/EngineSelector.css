@@ -375,10 +375,15 @@
   color: var(--text-light);
 }
 
-.engine-selector__route-control-body { min-width: 0; }
+.engine-selector__route-control-body {
+  min-width: 0;
+  overflow: hidden;
+}
 
 .engine-selector__route-toggle.segmented {
   display: inline-flex;
+  max-width: 100%;
+  overflow: hidden;
   gap: 2px;
   padding: 2px;
   flex-wrap: nowrap;
@@ -388,6 +393,9 @@
 
 .engine-selector__route-toggle.segmented button {
   gap: 7px;
+  min-width: 0;
+  max-width: 180px;
+  overflow: hidden;
   min-height: 28px;
   padding: 5px 12px;
   border: 0;
@@ -395,6 +403,13 @@
   color: var(--text-mid);
   font-size: 13.5px;
   line-height: 1;
+  white-space: nowrap;
+}
+
+.engine-selector__route-toggle .segmented-option-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -510,10 +525,6 @@
   align-items: center;
   gap: 4px;
   margin: 6px 0 10px;
-}
-
-.engine-selector__footer .provider-key-setup-card__storage {
-  grid-column: 1 / -1;
 }
 
 .engine-selector__footer .cloud-setup-options {
