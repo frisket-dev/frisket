@@ -16,6 +16,7 @@ from filelock import FileLock
 from pydantic import ValidationError
 
 from frisket.contracts.http.cloud_connection import (
+    CloudAccountProviderKeysResponse,
     CloudCapabilitiesResponse,
     CloudDeviceAuthorizationRequest,
     CloudDeviceAuthorizationResponse,
@@ -518,11 +519,24 @@ class CloudConnectionClient:
             "GET",
             f"/api/desktop/v1/accounts/{account_id}/capabilities",
             headers=self._bearer(access_token),
+            params={"include_unconfigured": "true"},
         )
         capabilities = self._parse(response, CloudCapabilitiesResponse)
         if capabilities.account_id != account_id:
             raise CloudClientError("invalid_cloud_response")
         return capabilities
+
+    def provider_keys(
+        self, access_token: str, account_id: int
+    ) -> CloudAccountProviderKeysResponse:
+        if isinstance(account_id, bool) or account_id < 1:
+            raise ValueError("Cloud account id must be a positive integer")
+        response = self._request(
+            "GET",
+            f"/api/desktop/v1/accounts/{account_id}/provider-keys",
+            headers=self._bearer(access_token),
+        )
+        return self._parse(response, CloudAccountProviderKeysResponse)
 
     def revoke_session(self, access_token: str) -> bool:
         response = self._request(
