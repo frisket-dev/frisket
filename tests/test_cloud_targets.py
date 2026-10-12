@@ -13,6 +13,7 @@ from frisket.contracts.http.cloud_connection import (
     CloudAccount,
     CloudCapabilitiesResponse,
     CloudCapabilityRoute,
+    CloudDocumentConvertOptionSupport,
     CloudExecutionReceipt,
     CloudExecutionResponse,
     CloudLLMOptionSupport,
@@ -31,17 +32,21 @@ from frisket.execution.provider import (
     CompositionFacts,
     ConnectionConfig,
     ExecutionComposition,
+    TargetConfigurationError,
 )
 from frisket.execution.resolver import Refusal, ResolutionRequest, resolve
 from frisket.execution.resolve_for_action import resolve_for_action
 from frisket.execution.targets import (
     CAPABILITY_LLM,
     CAPABILITY_OCR,
+    CAPABILITY_TO_MARKDOWN,
     CAPABILITY_TRANSLATE,
     ExecutionTarget,
     LLMOptionSupport,
+    LOCAL_MODELS_TARGET_ID,
     OcrOptionSupport,
     TargetEngineSupport,
+    ToMarkdownOptionSupport,
     TranslateOptionSupport,
 )
 from frisket.engine.store import Project
@@ -315,6 +320,105 @@ def test_cloud_first_keeps_an_inherent_local_engine_on_this_computer():
     assert outcome.facts.cloud_payer is None
 
 
+@pytest.mark.parametrize("preference", ["local_first", "cloud_first"])
+def test_installed_managed_local_route_precedes_other_own_venues(preference):
+    class Provider:
+        targets_by_priority = (
+            ExecutionTarget(
+                id="models-gateway",
+                operator="self",
+                egress_class="operator_lan",
+                engines=(
+                    TargetEngineSupport(
+                        engine="docling",
+                        transport="sidecar.convert",
+                        capability=CAPABILITY_TO_MARKDOWN,
+                        options=ToMarkdownOptionSupport(),
+                    ),
+                ),
+            ),
+            ExecutionTarget(
+                id=LOCAL_MODELS_TARGET_ID,
+                operator="self",
+                egress_class="none",
+                engines=(
+                    TargetEngineSupport(
+                        engine="docling",
+                        transport="sidecar.convert",
+                        capability=CAPABILITY_TO_MARKDOWN,
+                        options=ToMarkdownOptionSupport(),
+                    ),
+                ),
+            ),
+        )
+
+        def targets(self):
+            return self.targets_by_priority
+
+        def connection(self, target_id):
+            return (
+                ConnectionConfig()
+                if target_id
+                in {
+                    "models-gateway",
+                    LOCAL_MODELS_TARGET_ID,
+                }
+                else None
+            )
+
+        def configuration(self, target_id, capability, engine):
+            del capability, engine
+            return (
+                "configured"
+                if target_id in {"models-gateway", LOCAL_MODELS_TARGET_ID}
+                else "not_configured"
+            )
+
+        def selection_rank(self, target_id, capability, engine):
+            del target_id, capability, engine
+            return 0
+
+    base = ExecutionComposition(
+        facts=CompositionFacts(edition="open", funding=OperatorBorne()),
+        provider=Provider(),
+        credential_use_context=CredentialUseContext.open(),
+    )
+    capabilities = CloudCapabilitiesResponse(
+        account_id=41,
+        routes=[
+            CloudCapabilityRoute(
+                capability="document.convert",
+                engine="docling",
+                provider="docling",
+                lane="frisket_credits",
+                route_revision="docling-route-1",
+                ready=True,
+                blocker=None,
+                price=CloudUnitPrice(kind="unit", unit="page", micro_per_unit=2_500),
+                options=CloudDocumentConvertOptionSupport(kind="document.convert"),
+            )
+        ],
+    )
+    composition = compose_cloud_targets(
+        base,
+        user_id=7,
+        account=_account(),
+        capabilities=capabilities,
+        preference=preference,
+    )
+
+    outcome = resolve(
+        ResolutionRequest(
+            engine="docling", capability=CAPABILITY_TO_MARKDOWN, options={}
+        ),
+        composition.provider_for_resolution(),
+        composition.facts,
+    )
+
+    assert not isinstance(outcome, Refusal)
+    assert outcome.target.id == LOCAL_MODELS_TARGET_ID
+
+
 def test_cloud_first_disconnection_preserves_non_cloud_third_party_api(tmp_path):
     class Provider:
         target = ExecutionTarget(
@@ -383,6 +487,85 @@ def test_cloud_first_disconnection_preserves_non_cloud_third_party_api(tmp_path)
 
     assert not isinstance(outcome, Refusal)
     assert outcome.target.id == "deepl"
+
+
+@pytest.mark.parametrize(
+    ("target_id", "egress_class", "blocked"),
+    [
+        ("models-gateway", "operator_lan", True),
+        (LOCAL_MODELS_TARGET_ID, "none", False),
+    ],
+)
+def test_signed_out_cloud_first_blocks_nonlocal_routes_but_preserves_local(
+    tmp_path, target_id, egress_class, blocked
+):
+    class Provider:
+        target = ExecutionTarget(
+            id=target_id,
+            operator="self",
+            egress_class=egress_class,
+            engines=(
+                TargetEngineSupport(
+                    engine="docling",
+                    transport="sidecar.convert",
+                    capability=CAPABILITY_TO_MARKDOWN,
+                    options=ToMarkdownOptionSupport(),
+                ),
+            ),
+        )
+
+        def targets(self):
+            return (self.target,)
+
+        def connection(self, candidate_id):
+            return ConnectionConfig() if candidate_id == target_id else None
+
+        def configuration(self, candidate_id, capability, engine):
+            del capability, engine
+            return "configured" if candidate_id == target_id else "not_configured"
+
+        def selection_rank(self, candidate_id, capability, engine):
+            del candidate_id, capability, engine
+            return 0
+
+    project = Project.create(tmp_path / f"{target_id}.frisket", name="Document")
+    write_project_settings(
+        project,
+        ProjectSettings(
+            cloud_user_id=7,
+            cloud_account_id=41,
+            cloud_execution_preference="cloud_first",
+        ),
+    )
+    base = ExecutionComposition(
+        facts=CompositionFacts(edition="open", funding=OperatorBorne()),
+        provider=Provider(),
+        credential_use_context=CredentialUseContext.open(),
+    )
+    try:
+        composition = cloud_execution_composition(
+            base,
+            project,
+            store=CloudConnectionStore(tmp_path / "profile"),
+            client=object(),
+        )
+        outcome = resolve(
+            ResolutionRequest(
+                engine="docling", capability=CAPABILITY_TO_MARKDOWN, options={}
+            ),
+            composition.provider_for_resolution(),
+            composition.facts,
+        )
+    finally:
+        project.close()
+
+    if blocked:
+        assert isinstance(outcome, Refusal)
+        assert outcome.target_id == target_id
+        assert "Reconnect Frisket Cloud" in outcome.remedy
+    else:
+        assert not isinstance(outcome, Refusal)
+        assert outcome.target.id == target_id
 
 
 def test_unreadable_inherited_cloud_first_profile_does_not_use_own_key(tmp_path):
@@ -583,6 +766,42 @@ def test_local_first_uses_configured_cloud_route_when_own_key_is_missing():
     assert not isinstance(outcome, Refusal)
     assert outcome.target.id == "frisket-cloud:41:frisket_credits:openai"
     assert outcome.facts.cloud_payer is not None
+
+
+def test_local_first_broken_own_key_refuses_without_switching_to_cloud():
+    class Provider(_OpenAIProvider):
+        def connection(self, target_id):
+            raise TargetConfigurationError(
+                target_id,
+                "Re-enter the configured OpenAI key; it could not be decrypted.",
+            )
+
+    base = ExecutionComposition(
+        facts=CompositionFacts(edition="open", funding=OperatorBorne()),
+        provider=Provider(),
+        credential_use_context=CredentialUseContext.open(),
+    )
+    composition = compose_cloud_targets(
+        base,
+        user_id=7,
+        account=_account(),
+        capabilities=_llm_capabilities(),
+        preference="local_first",
+    )
+
+    outcome = resolve(
+        ResolutionRequest(
+            engine="openai/gpt-5-mini",
+            capability=CAPABILITY_LLM,
+            options={},
+        ),
+        composition.provider_for_resolution(),
+        composition.facts,
+    )
+
+    assert isinstance(outcome, Refusal)
+    assert outcome.target_id == "remote-api:openai"
+    assert "could not be decrypted" in outcome.remedy
 
 
 def test_local_first_preserves_media_route_when_cloud_target_also_has_llm():

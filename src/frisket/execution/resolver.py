@@ -749,6 +749,35 @@ def _liveness_remedy(
     )
 
 
+def _live_connection(
+    provider: ExecutionTargetProvider,
+    target_id: str,
+    *,
+    engine: str,
+) -> ConnectionConfig | Refusal | None:
+    """Read the chosen target once and preserve typed configuration failures."""
+
+    try:
+        return provider.connection(target_id)
+    except TargetConfigurationError as exc:
+        return Refusal(
+            family="no_live_target",
+            remedy=exc.remedy,
+            engine=engine,
+            target_id=exc.target_id,
+        )
+    except ValueError:
+        return Refusal(
+            family="no_live_target",
+            remedy=(
+                f"Fix the configuration for target '{target_id}' and retry; "
+                "its connection settings could not be read safely."
+            ),
+            engine=engine,
+            target_id=target_id,
+        )
+
+
 def _open_edition_facts(target: ExecutionTarget, engine_id: str) -> RouteRowFacts:
     """§3.2 composition-resolved rules for edition="open" (anchor O1): the
     operator runs and pays for everything — credentials are the operator's
@@ -949,7 +978,13 @@ def resolve(
                 engine=engine_id,
                 target_id=target.id,
             )
-        connection = provider.connection(target.id)
+        connection = _live_connection(
+            provider,
+            target.id,
+            engine=engine_id,
+        )
+        if isinstance(connection, Refusal):
+            return connection
         if connection is None:
             return Refusal(
                 family="no_live_target",
@@ -996,7 +1031,13 @@ def resolve(
         # checked ONLY for the chosen target. Dead chosen target ->
         # no_live_target with its remedy — never a walk to another venue
         # (a venue flip is a claims change, §10).
-        connection = provider.connection(target.id)
+        connection = _live_connection(
+            provider,
+            target.id,
+            engine=engine_id,
+        )
+        if isinstance(connection, Refusal):
+            return connection
         if connection is None:
             return Refusal(
                 family="no_live_target",

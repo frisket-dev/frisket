@@ -51,6 +51,7 @@ from frisket.execution.targets import (
     CAPABILITY_TRANSCRIBE,
     ExecutionTarget,
     LLMOptionSupport,
+    LOCAL_MODELS_TARGET_ID,
     OcrOptionSupport,
     TargetEngineSupport,
     ToMarkdownOptionSupport,
@@ -121,18 +122,17 @@ class CloudExecutionTargetProvider:
         return self._source.configuration(target_id, capability, engine)
 
     def selection_rank(self, target_id: str, capability: str, engine: str) -> int:
-        if target_id in self._cloud_by_id:
-            return 0 if self._preference == "cloud_first" else 1
-        target = self._source_by_id.get(target_id)
         if (
-            target is not None
-            and target.egress_class == "none"
+            target_id == LOCAL_MODELS_TARGET_ID
+            and target_id in self._source_by_id
             and self.configuration(target_id, capability, engine) == "configured"
         ):
-            # Installed managed-local work stays local under either payer
-            # preference. Explicit local identities never gain Cloud routes.
+            # The installed, app-managed local runtime is the preferred own
+            # venue regardless of who should pay when Cloud is also usable.
             return 0
-        return 1 if self._preference == "cloud_first" else 0
+        if target_id in self._cloud_by_id:
+            return 1 if self._preference == "cloud_first" else 2
+        return 2 if self._preference == "cloud_first" else 1
 
     def connection(self, target_id: str) -> ConnectionConfig | None:
         target = self._cloud_by_id.get(target_id)
@@ -182,7 +182,7 @@ class CloudExecutionTargetProvider:
 
 
 class _CloudRequiredExecutionTargetProvider:
-    """Block own-key egress when a saved Cloud-first payer is unavailable."""
+    """Block non-local execution when a saved Cloud-first payer is unavailable."""
 
     def __init__(self, source: ExecutionTargetProvider, reason: str) -> None:
         self._source = source
@@ -197,7 +197,7 @@ class _CloudRequiredExecutionTargetProvider:
                     for support in target.engines
                 ),
             )
-            if target.egress_class == "third_party_api"
+            if target.egress_class != "none"
             and any(
                 support.capability in _CLOUD_EXECUTION_CAPABILITIES
                 for support in target.engines
@@ -225,7 +225,7 @@ class _CloudRequiredExecutionTargetProvider:
     ) -> str | None:
         if capability in _CLOUD_EXECUTION_CAPABILITIES and any(
             target.id == target_id
-            and target.egress_class == "third_party_api"
+            and target.egress_class != "none"
             and any(support.capability == capability for support in target.engines)
             for target in self._targets
         ):
@@ -243,7 +243,7 @@ class _CloudRequiredExecutionTargetProvider:
     ) -> bool:
         return any(
             target.id == target_id
-            and target.egress_class == "third_party_api"
+            and target.egress_class != "none"
             and capability in _CLOUD_EXECUTION_CAPABILITIES
             and any(
                 support.capability == capability

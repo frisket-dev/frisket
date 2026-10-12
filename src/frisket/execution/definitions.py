@@ -715,7 +715,6 @@ class StaticExecutionTargetProvider:
         self._configuration_cache: dict[
             str, TargetConfiguration | TargetConfigurationError
         ] = {}
-        self._connection_cache: dict[str, ConnectionConfig | None | Exception] = {}
 
     def targets(self) -> Sequence[ExecutionTarget]:
         return tuple(
@@ -744,6 +743,18 @@ class StaticExecutionTargetProvider:
         return configured
 
     def _configuration(self, target_id: str) -> TargetConfiguration:
+        try:
+            return self._configuration_unchecked(target_id)
+        except TargetConfigurationError:
+            raise
+        except Exception as exc:
+            raise TargetConfigurationError(
+                target_id,
+                f"Fix the configuration for target '{target_id}' and retry; "
+                "its settings could not be read safely.",
+            ) from exc
+
+    def _configuration_unchecked(self, target_id: str) -> TargetConfiguration:
         if target_id not in self._by_id:
             return "not_configured"
         if target_id in {LOCAL_TARGET_ID, LOCAL_ONNX_TARGET_ID}:
@@ -755,24 +766,43 @@ class StaticExecutionTargetProvider:
                 try:
                     gateway = self._models_gateway_resolver()
                 except InvalidModelsGatewayConfig:
-                    self._connection_cache[target_id] = None
                     return "configured"
-                connection = self._models_gateway_connection_from(gateway)
-                self._connection_cache[target_id] = connection
-                return "configured" if connection is not None else "not_configured"
+                return "configured" if gateway is not None else "not_configured"
             if (
                 self._get(MODELS_GATEWAY_URL_ENV) is not None
                 or self._get(MODELS_GATEWAY_TOKEN_ENV) is not None
             ):
                 # A partial gateway configuration is present but blocked.
                 return "configured"
-        try:
-            connection = self._connection(target_id)
-        except (InvalidModelsGatewayConfig, ValueError) as exc:
-            raise TargetConfigurationError(
-                target_id,
-                self.liveness_remedy(target_id) or "Fix this route's configuration.",
-            ) from exc
+        if target_id in _DOCUMENT_PROVIDERS:
+            present = self._credential_configuration(
+                _DOCUMENT_PROVIDERS[target_id].env_var,
+                provider=target_id,
+            )
+            if present is not None:
+                return "configured" if present else "not_configured"
+        if target_id == CLOUDFLARE_CLEF_TARGET_ID:
+            token_present = self._credential_configuration(CLOUDFLARE_API_TOKEN_ENV)
+            if token_present is not None:
+                return (
+                    "configured"
+                    if self._get(CLOUDFLARE_ACCOUNT_ID_ENV) is not None or token_present
+                    else "not_configured"
+                )
+        if target_id in {NOMINATIM_TARGET_ID, US_CENSUS_TARGET_ID}:
+            return "configured"
+        api_key_venue = _API_KEY_VENUES.get(target_id)
+        if api_key_venue is not None:
+            env_name, _provider = api_key_venue
+            present = self._credential_configuration(env_name)
+            if present is not None:
+                return "configured" if present else "not_configured"
+        if target_id.startswith(REMOTE_API_TARGET_ID_PREFIX):
+            provider = target_id[len(REMOTE_API_TARGET_ID_PREFIX) :]
+            present = self._remote_api_configuration(provider)
+            if present is not None:
+                return "configured" if present else "not_configured"
+        connection = self._uncached_connection(target_id)
         return "configured" if connection is not None else "not_configured"
 
     def selection_rank(self, target_id: str, capability: str, engine: str) -> int:
@@ -781,23 +811,19 @@ class StaticExecutionTargetProvider:
 
     def connection(self, target_id: str) -> ConnectionConfig | None:
         self.probe_counts[target_id] = self.probe_counts.get(target_id, 0) + 1
-        return self._connection(target_id)
-
-    def _connection(self, target_id: str) -> ConnectionConfig | None:
-        if target_id in {LOCAL_ONNX_TARGET_ID, LOCAL_MODELS_TARGET_ID}:
-            return self._uncached_connection(target_id)
-        if target_id in self._connection_cache:
-            cached = self._connection_cache[target_id]
-            if isinstance(cached, Exception):
-                raise cached
-            return cached
         try:
-            connection = self._uncached_connection(target_id)
-        except Exception as exc:
-            self._connection_cache[target_id] = exc
+            return self._uncached_connection(target_id)
+        except TargetConfigurationError:
             raise
-        self._connection_cache[target_id] = connection
-        return connection
+        except ValueError:
+            # Callers that use the provider directly historically receive
+            # validation errors. The resolver normalizes them to a refusal at
+            # the request boundary.
+            raise
+        except Exception as exc:
+            raise TargetConfigurationError(
+                target_id, self._safe_connection_error_remedy(target_id, exc)
+            ) from exc
 
     def _uncached_connection(self, target_id: str) -> ConnectionConfig | None:
         if target_id not in self._by_id:
@@ -892,6 +918,82 @@ class StaticExecutionTargetProvider:
                     f"{_REMOTE_API_WORK.get(capability or '', 'remote engines')}."
                 )
         return None
+
+    def _safe_connection_error_remedy(self, target_id: str, error: Exception) -> str:
+        from frisket.engine.store.credentials import ProviderKeyDecryptError
+
+        if isinstance(error, ProviderKeyDecryptError):
+            return str(error)
+        return (
+            f"Fix the configuration for target '{target_id}' and retry; "
+            "its connection settings could not be read safely."
+        )
+
+    def _remote_api_configuration(self, provider: str) -> bool | None:
+        known = False
+        sources = getattr(self._router, "configured_key_sources", None)
+        if callable(sources):
+            configured = sources()
+            if not isinstance(configured, Mapping):
+                raise TypeError("configured_key_sources must return a mapping")
+            known = True
+            if provider in configured:
+                return True
+        keys = getattr(self._router, "configured_keys", None)
+        if callable(keys):
+            configured = keys()
+            if not isinstance(configured, Mapping):
+                raise TypeError("configured_keys must return a mapping")
+            known = True
+            if provider in configured:
+                return True
+        project_key = self._project_provider_key_configuration(provider)
+        if project_key is not None:
+            known = True
+            if project_key:
+                return True
+        key_env = ROUTER_PROVIDER_KEY_ENV.get(provider)
+        if key_env is not None and self._get(key_env) is not None:
+            return True
+        return False if known else None
+
+    def _credential_configuration(
+        self, env_name: str, *, provider: str | None = None
+    ) -> bool | None:
+        if self._get(env_name) is not None:
+            return True
+        known = False
+        if provider is not None:
+            project_key = self._project_provider_key_configuration(provider)
+            if project_key is not None:
+                known = True
+                if project_key:
+                    return True
+        secret = self._project_secret_configuration(env_name)
+        if secret is not None:
+            known = True
+            if secret:
+                return True
+        return False if known else None
+
+    def _project_provider_key_configuration(self, provider: str) -> bool | None:
+        reader = getattr(self._secrets, "provider_key_catalog_rows", None)
+        if not callable(reader):
+            return None
+        rows = reader()
+        if not isinstance(rows, Mapping):
+            raise TypeError("provider_key_catalog_rows must return a mapping")
+        return provider in rows
+
+    def _project_secret_configuration(self, name: str) -> bool | None:
+        reader = getattr(self._secrets, "secret_rows", None)
+        if not callable(reader):
+            return None
+        rows = reader()
+        try:
+            return any(str(row["name"]) == name for row in rows)
+        except (KeyError, IndexError, TypeError) as exc:
+            raise TypeError("secret_rows must return rows with a name") from exc
 
     def _get(self, name: str) -> str | None:
         environ = os.environ if self._env_override is None else self._env_override
@@ -1005,10 +1107,7 @@ class StaticExecutionTargetProvider:
         reader = getattr(self._secrets, "secret_plaintext", None)
         if not callable(reader):
             return None
-        try:
-            value = reader(name)
-        except Exception:  # noqa: BLE001 - a broken secret store is not a key
-            return None
+        value = reader(name)
         return str(value).strip() or None if value else None
 
     def _project_provider_key(self, provider: str) -> str | None:
