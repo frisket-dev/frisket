@@ -175,6 +175,17 @@ def test_local_app_serves_spa_with_api_precedence(tmp_path, monkeypatch):
     assert route.status_code == 200
     assert "frisket local app" in route.text
 
+    # Dotted action IDs are browser routes, not missing static assets. A real
+    # document navigation advertises HTML even though the final path segment
+    # looks like a filename.
+    dotted_route = client.get(
+        "/p/sample-project/s/1/action/map.extract",
+        headers={"accept": "text/html,application/xhtml+xml"},
+    )
+    assert dotted_route.status_code == 200
+    assert "frisket local app" in dotted_route.text
+    assert dotted_route.headers["cache-control"] == "no-cache, must-revalidate"
+
     # API routes take precedence over the SPA mount
     health = client.get("/api/health")
     assert health.status_code == 200
@@ -184,9 +195,13 @@ def test_local_app_serves_spa_with_api_precedence(tmp_path, monkeypatch):
     assert "text/html" not in health.headers.get("content-type", "")
 
     # unknown API path must NOT fall back to index.html
-    missing_api = client.get("/api/no-such-route")
+    missing_api = client.get("/api/no-such-route", headers={"accept": "text/html"})
     assert missing_api.status_code == 404
     assert "frisket local app" not in missing_api.text
+
+    missing_auth = client.get("/auth/no-such-route", headers={"accept": "text/html"})
+    assert missing_auth.status_code == 404
+    assert "frisket local app" not in missing_auth.text
 
 
 def test_local_app_serves_non_enumerated_client_routes_not_just_an_allowlist(
@@ -216,7 +231,12 @@ def test_local_app_serves_non_enumerated_client_routes_not_just_an_allowlist(
     assert client.get("/api/no-such-route").status_code == 404
 
     # a missing static file with an extension is a real 404, not the SPA
-    assert client.get("/missing.js").status_code == 404
+    assert (
+        client.get(
+            "/missing.js", headers={"accept": "application/javascript,*/*;q=0.8"}
+        ).status_code
+        == 404
+    )
 
 
 def test_local_app_dev_mode_is_api_only(tmp_path, monkeypatch):

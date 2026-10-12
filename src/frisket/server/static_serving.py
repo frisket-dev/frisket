@@ -43,6 +43,7 @@ from typing import Any
 from fastapi import FastAPI, Response
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.routing import Match, Mount, get_route_path
 from starlette.types import Scope
@@ -141,7 +142,12 @@ class SPAStaticFiles(StaticFiles):
             response = await super().get_response(path, scope)
             return self._apply_static_cache_headers(path, response)
         except StarletteHTTPException as exc:
-            if exc.status_code == 404 and "." not in Path(path).name:
+            accepts_html = any(
+                value.partition(";")[0].strip().lower() == "text/html"
+                for header in Headers(scope=scope).getlist("accept")
+                for value in header.split(",")
+            )
+            if exc.status_code == 404 and ("." not in Path(path).name or accepts_html):
                 return self._index_response()
             raise
 
