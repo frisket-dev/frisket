@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from frisket.ai.llm import ModelRouter
+from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
 from frisket.ai.models.gateway_config import ModelsGatewayConnection
 from frisket.cloud_connection import CloudConnectionStore
 from frisket.contracts.http.cloud_connection import (
@@ -39,9 +40,13 @@ def _cloud_selector_app(
     connected: bool = True,
     preference: str = "cloud_first",
     local_keys: dict[str, str] | None = None,
+    router: ModelRouter | None = None,
     execution_composition_factory=None,
     models_gateway_connection_resolver=None,
+    capabilities: SelectorCapabilities | None = None,
 ):
+    if router is not None and local_keys is not None:
+        raise ValueError("pass router or local_keys, not both")
     account = CloudAccount(
         id=41,
         name="Investigations",
@@ -78,7 +83,9 @@ def _cloud_selector_app(
         cloud_connection_store=store,
         cloud_connection_client=Client(),
         router=(
-            ModelRouter(keys=local_keys, use_env_keys=False)
+            router
+            if router is not None
+            else ModelRouter(keys=local_keys, use_env_keys=False)
             if local_keys is not None
             else None
         ),
@@ -100,8 +107,15 @@ def _cloud_selector_app(
     register_selector_choices_routes(
         app,
         workspace=workspace,
-        capabilities_for=lambda _request, _pid: SelectorCapabilities(
-            may_author_actions=True, may_run_actions=True
+        capabilities_for=lambda _request, _pid: capabilities
+        or SelectorCapabilities(
+            may_author_actions=True,
+            may_run_actions=True,
+            configure_workspace_credentials=True,
+            configure_project_credentials=True,
+            configure_organization_credentials=True,
+            manage_model_downloads=True,
+            configure_models_gateway=True,
         ),
     )
     return TestClient(app), workspace, store, project_id
@@ -654,6 +668,7 @@ def test_cloud_first_disconnected_installation_does_not_use_configured_local_key
     assert selected["status"] == "needs_setup"
     assert selected["setup"]["kind"] == "cloud"
     assert selected["setup"]["state"] == "connect"
+    assert selected["execution_route"] is None
     assert "local_key" not in selected["setup"]
     assert selected["configuration_actions"][0]["kind"] == "api_key"
     assert any(
@@ -661,6 +676,157 @@ def test_cloud_first_disconnected_installation_does_not_use_configured_local_key
     )
     assert selected["can_run"] is False
     assert "must-not-be-used" not in response.text
+
+
+def test_network_off_defaults_ask_and_actions_to_reachable_local_model(
+    tmp_path, monkeypatch
+) -> None:
+    model = "ollama/@desktop/qwen3:8b"
+    endpoint = LocalModelEndpointConfig(
+        endpoint_id="desktop",
+        display_name="Desktop models",
+        origin="http://127.0.0.1:11434",
+        source="local_file",
+    )
+
+    def local_catalog(_root, candidate, _env, *, authority):
+        assert candidate == endpoint
+        return {
+            "endpoint_id": endpoint.endpoint_id,
+            "label": endpoint.display_name,
+            "kind": "local_http",
+            "read_only": False,
+            "models": [
+                {"id": model, "label": "qwen3:8b", "price": None, "local": True}
+            ],
+            "reachable": True,
+            "origin": endpoint.origin,
+            "authority": authority,
+            "source": "stored",
+            "detail": None,
+            "protocol": "ollama_native",
+            "auth_status": "ok",
+            "token_configured": False,
+            "provisioning_token_configured": False,
+            "edge_auth": False,
+            "pull_enabled": False,
+            "installed_models": ["qwen3:8b"],
+        }
+
+    monkeypatch.setattr(
+        "frisket.server.provider_config.local_endpoint_catalog_entry", local_catalog
+    )
+    client, workspace, _store, project_id = _cloud_selector_app(
+        tmp_path,
+        routes=[],
+        preference="local_first",
+        router=ModelRouter(local_endpoints=(endpoint,), use_env_keys=False),
+    )
+    workspace.get(project_id).set_network_policy(mode="off")
+    observed_models: list[str | None] = []
+
+    async def run_turn(_project, _router, turn, _store):
+        observed_models.append(turn["model"])
+        return {}
+
+    project_qa = ProjectQAService(workspace, runner=run_turn)
+    register_project_qa_routes(client.app, service=project_qa)
+    client.app.router.add_event_handler("shutdown", project_qa.shutdown)
+
+    with client:
+        for subject in (
+            {
+                "kind": "action",
+                "action_id": "map.extract",
+                "field": "engine",
+                "params": {"engine": "llm"},
+            },
+            {"kind": "project_ask"},
+        ):
+            response = client.post(
+                f"/api/projects/{project_id}/selector-choices",
+                json={
+                    "schema_version": "frisket.selector_choices_query.v1",
+                    "subject": subject,
+                },
+            )
+            assert response.status_code == 200, response.text
+            default = next(
+                choice for choice in _choices(response.json()) if choice["is_default"]
+            )
+            assert default["authored_selection"]["model"] == model
+            assert default["status"] == "ready"
+            assert default["can_run"] is True
+
+        threads = f"/api/projects/{project_id}/qa/threads"
+        thread = client.post(threads, json={"scope": {"kind": "project"}}).json()
+        turn = client.post(
+            f"{threads}/{thread['id']}/turns",
+            json={
+                "request_id": "network-off-local-default",
+                "question": "What changed?",
+                "scope": {"kind": "project"},
+            },
+        )
+        assert turn.status_code == 200, turn.text
+        assert turn.json()["model"] == model
+
+    assert observed_models == [model]
+
+
+def test_configuration_actions_require_mutation_authority(tmp_path) -> None:
+    client, _workspace, _store, project_id = _cloud_selector_app(
+        tmp_path,
+        routes=[_llm_route()],
+        capabilities=SelectorCapabilities(
+            may_author_actions=True,
+            may_run_actions=True,
+        ),
+    )
+
+    with client:
+        response = client.post(
+            f"/api/projects/{project_id}/selector-choices",
+            json={
+                "schema_version": "frisket.selector_choices_query.v1",
+                "subject": {
+                    "kind": "project_ask",
+                    "model": "openai/gpt-5-mini",
+                },
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    selected = next(
+        choice for choice in _choices(response.json()) if choice["is_current"]
+    )
+    assert selected["status"] == "ready"
+    assert selected["configuration_actions"] == []
+
+
+def test_local_only_action_omits_generic_cloud_setup(tmp_path) -> None:
+    client, _workspace, _store, project_id = _cloud_selector_app(
+        tmp_path,
+        routes=[],
+        selected_account=False,
+    )
+
+    with client:
+        response = client.post(
+            f"/api/projects/{project_id}/selector-choices",
+            json={
+                "schema_version": "frisket.selector_choices_query.v1",
+                "subject": {
+                    "kind": "action",
+                    "action_id": "enrich.geocode",
+                    "field": "engine",
+                    "params": {"engine": "auto"},
+                },
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["cloud_setup"] is None
 
 
 def test_cloud_first_different_user_does_not_use_configured_local_key(

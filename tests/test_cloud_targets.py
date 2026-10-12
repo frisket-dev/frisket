@@ -652,6 +652,7 @@ def test_unreadable_inherited_cloud_first_profile_does_not_use_own_key(tmp_path)
     assert isinstance(outcome, Refusal)
     assert outcome.target_id == "remote-api:openai"
     assert "Reconnect Frisket Cloud" in outcome.remedy
+    assert "does not support Reconnect" not in outcome.remedy
 
 
 def test_cloud_llm_route_carries_typed_price_and_payer():
