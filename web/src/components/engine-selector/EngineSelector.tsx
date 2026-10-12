@@ -47,9 +47,8 @@ function statusLabel(status: EngineSelectorStatus): string {
   }[status];
 }
 
-/** Ready choices use the server-selected execution route everywhere the
- * picker shows secondary copy.  `summary` remains the catalog fallback for
- * choices that do not currently have an executable route. */
+/** Trigger and fallback copy follow the server-selected execution route.
+ * The list uses aggregate route availability when the projection provides it. */
 function choiceSecondaryCopy(choice: EngineSelectorChoice): string | undefined {
   return choice.status === 'ready' && choice.route?.label
     ? choice.route.label
@@ -57,9 +56,9 @@ function choiceSecondaryCopy(choice: EngineSelectorChoice): string | undefined {
 }
 
 function groupStatus(group: EngineSelectorGroup): EngineSelectorStatus {
-  if (group.choices.some((choice) => choice.status === 'ready')) return 'ready';
-  if (group.choices.some((choice) => choice.status === 'needs_setup')) return 'needs_setup';
-  if (group.choices.some((choice) => choice.status === 'working')) return 'working';
+  if (group.choices.some((choice) => (choice.availability?.status ?? choice.status) === 'ready')) return 'ready';
+  if (group.choices.some((choice) => (choice.availability?.status ?? choice.status) === 'needs_setup')) return 'needs_setup';
+  if (group.choices.some((choice) => (choice.availability?.status ?? choice.status) === 'working')) return 'working';
   return 'unavailable';
 }
 
@@ -86,12 +85,16 @@ function saveRecent(namespace: string, choiceId: string, ids: ReadonlySet<string
   }
 }
 
-/** `canRun` is the catalog's admission signal; setup-capable choices are not
- * ready until it is true. Keep the existing order inside each bucket. */
+/** Aggregate route availability drives list ordering when present. `canRun`
+ * remains the fallback for projections without route choices. */
 function prioritizeRunnableChoices(choices: readonly EngineSelectorChoice[]): EngineSelectorChoice[] {
   return [
-    ...choices.filter((choice) => choice.canRun === true),
-    ...choices.filter((choice) => choice.canRun !== true),
+    ...choices.filter((choice) => choice.availability
+      ? choice.availability.status === 'ready'
+      : choice.canRun === true),
+    ...choices.filter((choice) => choice.availability
+      ? choice.availability.status !== 'ready'
+      : choice.canRun !== true),
   ];
 }
 
@@ -147,13 +150,13 @@ export function EngineSelector({
   const currentChoices = (hasSearch || isSmallCatalog
     ? allChoices.filter((choice) => {
         const group = groupForChoice(groups, choice.id);
-        const haystack = `${choice.label} ${choice.summary ?? ''} ${choice.route?.label ?? ''} ${group?.label ?? ''}`.toLowerCase();
+        const haystack = `${choice.label} ${choice.summary ?? ''} ${choice.route?.label ?? ''} ${choice.availability?.label ?? ''} ${group?.label ?? ''}`.toLowerCase();
         const terms = hasSearch ? query.trim().toLowerCase().split(/\s+/) : [];
         return terms.every((term) => haystack.includes(term));
       })
     : (currentGroup?.choices ?? []).filter((choice) => {
         const term = providerFilter.trim().toLowerCase();
-        return !term || `${choice.label} ${choice.summary ?? ''} ${choice.route?.label ?? ''}`.toLowerCase().includes(term);
+        return !term || `${choice.label} ${choice.summary ?? ''} ${choice.route?.label ?? ''} ${choice.availability?.label ?? ''}`.toLowerCase().includes(term);
       }));
   const recents = recentIds.filter((id) => authoritativeIds.has(id));
   const recentOrderedChoices = hasSearch
@@ -510,7 +513,8 @@ export function EngineSelector({
               ) : orderedChoices.map((choice, index) => {
                 const group = groupForChoice(groups, choice.id);
                 const isRecent = !hasSearch && recents.includes(choice.id);
-                const secondaryCopy = choiceSecondaryCopy(choice);
+                const secondaryCopy = choice.availability?.label ?? choiceSecondaryCopy(choice);
+                const listStatus = choice.availability?.status ?? choice.status;
                 return (
                   <button
                     key={choice.id}
@@ -525,7 +529,7 @@ export function EngineSelector({
                     onClick={() => activateChoice(choice)}
                     onKeyDown={(event) => onChoiceKeyDown(event, index)}
                   >
-                    <span className={`engine-selector__status engine-selector__status--${choice.status}`} aria-hidden />
+                    <span className={`engine-selector__status engine-selector__status--${listStatus}`} aria-hidden />
                     <span className="engine-selector__choice-copy">
                       <strong>{choice.label}</strong>
                       {secondaryCopy && <small>{secondaryCopy}</small>}

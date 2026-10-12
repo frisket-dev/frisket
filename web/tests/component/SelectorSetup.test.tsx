@@ -155,6 +155,9 @@ describe('SelectorSetup', () => {
     expect(screen.getByRole('link', { name: /Open platform.openai.com/ })).toHaveAttribute(
       'href', 'https://platform.openai.com',
     );
+    expect(screen.getByText('An API key works like a password.')).toBeVisible();
+    expect(screen.queryByText(/Pay as you go/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Saved to this project.')).not.toBeInTheDocument();
     const key = screen.getByLabelText('API key');
     expect(key).toHaveAttribute('placeholder', 'sk-…');
     await userEvent.type(key, 'candidate-key{enter}');
@@ -222,7 +225,7 @@ describe('SelectorSetup', () => {
     expect(screen.getByText('Provider key saved')).toBeVisible();
   });
 
-  it('labels configuration for the selected own-key route as changing that key', () => {
+  it('does not render a configuration accordion for a ready own-key route', () => {
     const selected = choice(null, [
       { kind: 'api_key', provider: 'openai', scopes: [scope('project')] },
     ]);
@@ -232,7 +235,7 @@ describe('SelectorSetup', () => {
     render(<SelectorSetup projectId="project-a" choice={selected}
       onChanged={vi.fn()} onEditingChange={vi.fn()} />);
 
-    expect(screen.getByRole('button', { name: 'Change API key' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Change API key' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Use your own/ })).not.toBeInTheDocument();
   });
 

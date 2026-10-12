@@ -158,6 +158,8 @@ export interface SegmentedOption {
   /** Optional compact state marker. The label stays text so the native
    * select mirror retains the same accessible option name. */
   indicator?: ReactNode;
+  /** Native tooltip for labels that may be visually truncated. */
+  title?: string;
   /** When set, the segment renders VISIBLE but disabled, naming why via
    *  title + data-disabled-reason instead of silently omitting it (a hidden
    *  map with geo data present was an unexplainable mystery). Callers that want a segment omitted entirely should filter
@@ -215,12 +217,12 @@ export function SegmentedToggle({
             aria-pressed={value === option.value}
             disabled={optionDisabled}
             data-disabled-reason={option.disabledReason}
-            title={option.disabledReason}
+            title={option.disabledReason ?? option.title}
             onClick={() => onValueChange(option.value)}
           >
             {Icon && <Icon size={13} aria-hidden />}
             {option.indicator}
-            {option.label}
+            <span className="segmented-option-label">{option.label}</span>
           </button>
         );
       })}

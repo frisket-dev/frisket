@@ -69,6 +69,16 @@ function displayChoice(choice: SelectorChoice): EngineSelectorChoice {
   const percent = total != null && Number.isFinite(total) && total > 0
     && completed != null && Number.isFinite(completed)
     ? Math.max(0, Math.min(100, Math.round(completed / total * 100))) : null;
+  const availableRoutes = choice.route_selection?.options.filter(
+    (option) => option.status !== 'unavailable',
+  ) ?? [];
+  const availabilityStatus = availableRoutes.some((option) => option.status === 'ready')
+    ? 'ready'
+    : availableRoutes.some((option) => option.status === 'needs_setup')
+      ? 'needs_setup'
+      : availableRoutes.some((option) => option.status === 'working')
+        ? 'working'
+        : null;
   return {
     id: choice.choice_id,
     label: choice.label,
@@ -76,6 +86,7 @@ function displayChoice(choice: SelectorChoice): EngineSelectorChoice {
     description: choice.description || undefined,
     facts: displayFact(choice),
     route: choice.execution_route ? {
+      kind: choice.execution_route.kind,
       label: choice.execution_route.label,
       billedTo: choice.execution_route.billed_to ?? undefined,
       credentialLabel: choice.execution_route.credential_label ?? undefined,
@@ -84,6 +95,10 @@ function displayChoice(choice: SelectorChoice): EngineSelectorChoice {
       balanceUrl: choice.execution_route.balance_url ?? undefined,
       settingsUrl: choice.execution_route.settings_url ?? undefined,
       hasAlternativeRoute: choice.execution_route.has_alternative_route,
+    } : undefined,
+    availability: availabilityStatus ? {
+      label: availableRoutes.map((option) => option.label).join(' · '),
+      status: availabilityStatus,
     } : undefined,
     destination: choice.processing_destination.label,
     modelCardUrl: choice.model_card_url ?? undefined,

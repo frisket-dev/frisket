@@ -90,6 +90,99 @@ describe('SelectorField', () => {
     await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
   });
 
+  it('keeps list availability and ordering stable when the selected route needs setup', async () => {
+    const before = response();
+    const selected = before.groups[0].choices[0];
+    selected.label = 'Gemini Flash';
+    selected.route_selection = {
+      model_id: 'google/gemini-flash', selected: 'cloud', can_mutate: true,
+      options: [
+        { id: 'cloud', label: 'Frisket Cloud', status: 'ready', disabled_reason: null },
+        { id: 'own', label: 'Your Gemini API key', status: 'needs_setup', disabled_reason: null },
+      ],
+    };
+    selected.execution_route = {
+      kind: 'cloud_credits', label: 'Frisket Cloud', billed_to: 'Frisket credits',
+      sends_data_to: 'Google via Frisket Cloud', has_alternative_route: true,
+    };
+    before.groups[0].choices.push({
+      ...structuredClone(selected),
+      choice_id: 'other-model',
+      label: 'Other model',
+      authored_selection: { kind: 'model', model: 'other-model' },
+      route_selection: null,
+      execution_route: null,
+      is_current: false,
+      is_default: false,
+    });
+    const after = structuredClone(before);
+    Object.assign(after.groups[0].choices[0], {
+      status: 'needs_setup',
+      can_run: false,
+      execution_route: null,
+      setup: {
+        kind: 'api_key', provider: 'gemini', scopes: [{
+          scope: 'project', configured: false, can_mutate: true, source: 'missing',
+          environment_names: ['GEMINI_API_KEY'], settings_location: 'project_ai_providers', hint: null,
+        }],
+      },
+    });
+    after.groups[0].choices[0].route_selection!.selected = 'own';
+    const load = vi.fn().mockResolvedValueOnce(before).mockResolvedValueOnce(after);
+    request.mockResolvedValue({ model_id: 'google/gemini-flash', route: 'own' });
+    render(<SelectorField projectId="project-a" label="Model"
+      query={{ schema_version: 'frisket.selector_choices_query.v1',
+        subject: { kind: 'action', action_id: 'map.classify', field: 'model', params: {} } }}
+      recentNamespace="stable-route-availability" load={load} onSelect={vi.fn()} />);
+
+    await userEvent.click(await screen.findByRole('button', { name: /Gemini Flash/ }));
+    const dialog = screen.getByTestId('engine-selector-dialog');
+    const choiceIds = () => Array.from(dialog.querySelectorAll('[data-engine-selector-choice]'))
+      .map((element) => element.getAttribute('data-choice-id'));
+    const geminiRow = () => dialog.querySelector('[data-choice-id="ready-model"]')!;
+    expect(choiceIds()).toEqual(['ready-model', 'other-model']);
+    expect(geminiRow()).toHaveTextContent('Frisket Cloud · Your Gemini API key');
+    expect(geminiRow().querySelector('.engine-selector__status--ready')).not.toBeNull();
+
+    await userEvent.click(within(dialog).getByTestId('model-route-own'));
+    await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(within(dialog).getByTestId('model-route-own'))
+      .toHaveAttribute('aria-pressed', 'true'));
+    expect(choiceIds()).toEqual(['ready-model', 'other-model']);
+    expect(geminiRow()).toHaveTextContent('Frisket Cloud · Your Gemini API key');
+    expect(geminiRow().querySelector('.engine-selector__status--ready')).not.toBeNull();
+  });
+
+  it('links a configured own-key route to project provider settings without an editor accordion', async () => {
+    const payload = response();
+    const selected = payload.groups[0].choices[0];
+    selected.label = 'Gemini Flash';
+    selected.execution_route = {
+      kind: 'local_key', label: 'Your Gemini API key', billed_to: 'Your Gemini API key',
+      credential_label: 'Project key', sends_data_to: 'Google',
+      settings_url: '/p/project-a/settings/project/ai-providers', has_alternative_route: true,
+    };
+    selected.configuration_actions = [{
+      kind: 'api_key', provider: 'gemini', scopes: [{
+        scope: 'project', configured: true, can_mutate: true, source: 'project',
+        environment_names: ['GEMINI_API_KEY'], settings_location: 'project_ai_providers', hint: null,
+      }],
+    }];
+    render(<SelectorField projectId="project-a" label="Model"
+      query={{ schema_version: 'frisket.selector_choices_query.v1',
+        subject: { kind: 'action', action_id: 'map.extract', field: 'model', params: {} } }}
+      recentNamespace="configured-key-settings" load={vi.fn().mockResolvedValue(payload)}
+      onSelect={vi.fn()} />);
+
+    await userEvent.click(await screen.findByRole('button', { name: /Gemini Flash/ }));
+    const dialog = within(screen.getByTestId('engine-selector-dialog'));
+    expect(dialog.getByRole('link', { name: 'Your Gemini API key →' })).toHaveAttribute(
+      'href', '/p/project-a/settings/project/ai-providers',
+    );
+    expect(dialog.queryByText('Project key')).not.toBeInTheDocument();
+    expect(dialog.queryByRole('button', { name: /Use your own/ })).not.toBeInTheDocument();
+  });
+
   it('keeps the selector open until a route change can trigger its refresh', async () => {
     const payload = response();
     const selected = payload.groups[0].choices[0];

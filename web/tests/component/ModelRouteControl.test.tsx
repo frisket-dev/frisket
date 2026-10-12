@@ -44,14 +44,14 @@ describe('ModelRouteControl', () => {
     expect(onBusyChange.mock.calls.map(([busy]) => busy)).toEqual([true, false]);
   });
 
-  it('keeps a server-disabled route visible and explains why it cannot be selected', () => {
+  it('keeps a server-disabled route visible without repeating its tooltip as body copy', () => {
     const blocked: ModelRouteSelection = {
       ...selection,
       selected: 'own',
       options: [
         { id: 'cloud', label: 'Frisket Cloud', status: 'unavailable',
           disabled_reason: 'OpenRouter isn’t offered through Frisket Cloud.' },
-        selection.options[1],
+        { ...selection.options[1], label: 'Your OpenDocRouter API key' },
       ],
     };
     render(<ModelRouteControl projectId="project-a" selection={blocked}
@@ -61,6 +61,11 @@ describe('ModelRouteControl', () => {
     expect(screen.getByTestId('model-route-cloud')).toHaveAttribute(
       'title', 'OpenRouter isn’t offered through Frisket Cloud.',
     );
-    expect(screen.getByText('OpenRouter isn’t offered through Frisket Cloud.')).toBeVisible();
+    expect(screen.queryByText('OpenRouter isn’t offered through Frisket Cloud.'))
+      .not.toBeInTheDocument();
+    expect(screen.getByTestId('model-route-own').querySelector('.segmented-option-label'))
+      .toHaveTextContent('Your OpenDocRouter API key');
+    expect(screen.getByTestId('model-route-own'))
+      .toHaveAttribute('title', 'Your OpenDocRouter API key');
   });
 });

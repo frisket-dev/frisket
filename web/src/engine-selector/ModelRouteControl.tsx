@@ -24,6 +24,7 @@ function routeOption(option: ModelRouteSelection['options'][number]): SegmentedO
   return {
     value: option.id,
     label: option.label,
+    title: option.label,
     disabledReason: option.disabled_reason ?? undefined,
     indicator: <span
       className={`engine-selector__route-dot${option.status === 'ready' ? ' is-ready' : ''}`}
@@ -44,7 +45,6 @@ export function ModelRouteControl({
   const [error, setError] = useState<string | null>(null);
   const { begin } = useSetupRequests();
   const reportBusy = useSetupEditing(onBusyChange);
-  const disabledReason = selection.options.find((option) => option.disabled_reason)?.disabled_reason;
 
   const changeRoute = async (route: string) => {
     if (busy || !selection.can_mutate || route === selection.selected) return;
@@ -80,7 +80,6 @@ export function ModelRouteControl({
         onValueChange={(value) => void changeRoute(value)}
         buttonTestId={(value) => `model-route-${value}`}
       />
-      {disabledReason && <p className="settings-help">{disabledReason}</p>}
       {!selection.can_mutate && <p className="settings-help">You do not have permission to change this route.</p>}
       {error && <p className="engine-selector__route-error" role="alert">{error}</p>}
     </div>
