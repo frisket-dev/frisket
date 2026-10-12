@@ -14,7 +14,6 @@ from frisket.contracts.http.endpoint_catalog import BASE_ENDPOINT_CATALOG
 from frisket.contracts.http.models import HttpError
 from frisket.contracts.http.project_search import ProjectSearchHit, ProjectSearchPage
 from frisket.server.routes.project_research import register_project_search_routes
-from scripts.ci import export_web_openapi as exporter
 
 
 @dataclass
@@ -135,7 +134,9 @@ def test_project_search_route_keeps_producer_order_and_omits_unset_fields() -> N
     ]
 
 
-def test_project_search_is_the_single_new_browser_projection(tmp_path) -> None:
+def test_project_search_is_the_single_new_browser_projection(
+    real_openapi_document,
+) -> None:
     search_entries = [
         entry for entry in BASE_ENDPOINT_CATALOG if entry.id == "tenant.search_ep.get"
     ]
@@ -143,8 +144,9 @@ def test_project_search_is_the_single_new_browser_projection(tmp_path) -> None:
     assert search_entries[0].browser_client is True
     assert search_entries[0].resolvers == ()
 
-    document = exporter.export_real_compositions(tmp_path / "state")
     assert {
         operation["operationId"]
-        for operation in document["paths"]["/api/projects/{pid}/search"].values()
+        for operation in real_openapi_document["paths"][
+            "/api/projects/{pid}/search"
+        ].values()
     } == {"tenant.search_ep.get"}

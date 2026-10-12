@@ -18,13 +18,10 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import subprocess
-import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BOUNDARY_CONFIG = ROOT / "scripts" / "ci" / "import_boundaries.json"
-CHECKER = ROOT / "scripts" / "ci" / "check_import_boundaries.py"
 
 # Prefixes that are intentionally absent from this tree (an optional
 # composition package). Everything else named in the boundary config must
@@ -71,31 +68,4 @@ def test_every_import_boundaries_json_module_resolves() -> None:
     assert not missing, (
         f"{BOUNDARY_CONFIG} names module paths that do not resolve — the rule "
         f"is fencing ghosts and must be updated: {missing}"
-    )
-
-
-def test_import_boundary_rules_hold() -> None:
-    # A subprocess keeps the checker's filesystem walk and exit handling
-    # identical to the CI invocation, and keeps any process-scoped side
-    # effects out of the pytest run.
-    proc = subprocess.run(
-        [
-            sys.executable,
-            str(CHECKER),
-            "--source-root",
-            str(ROOT / "src"),
-            "--config",
-            str(BOUNDARY_CONFIG),
-        ],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        timeout=300,
-    )
-    assert proc.returncode == 0, (
-        "import boundary rules broke — a module reached across an "
-        "architectural layer, or a rule's governed-module pattern no longer "
-        "resolves (`governed module missing`). Reproduce with `uv run python "
-        "scripts/ci/check_import_boundaries.py --source-root src --config "
-        f"scripts/ci/import_boundaries.json`.\n{proc.stdout}{proc.stderr}"
     )

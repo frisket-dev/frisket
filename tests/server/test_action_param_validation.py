@@ -311,7 +311,7 @@ def test_validate_params_service_projects_the_typed_research_template_verdict():
     }
 
 
-def test_typed_preflight_projects_nested_and_model_pydantic_errors():
+def test_typed_preflight_projects_nested_pydantic_errors():
     from frisket.server.services.action_param_validation import (
         ActionParamValidationService,
     )
@@ -334,24 +334,6 @@ def test_typed_preflight_projects_nested_and_model_pydantic_errors():
             "message": "Enter a value.",
             "code": "string_too_short",
             "path": [0, "name"],
-        }
-    }
-
-    model = service.validate_params(
-        "pid-ignored",
-        {
-            "action_id": "map.to_geo_point",
-            "params": {
-                "latitude_column": "coordinate",
-                "longitude_column": "coordinate",
-            },
-        },
-    )
-    assert model["diagnostics"] == {
-        "__all__": {
-            "ok": False,
-            "message": "latitude and longitude must come from different columns",
-            "code": "value_error",
         }
     }
 

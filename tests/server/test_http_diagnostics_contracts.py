@@ -13,7 +13,6 @@ from pydantic import ValidationError
 from frisket.contracts.http.diagnostics import DiagnosticsReport
 from frisket.contracts.http.endpoint_catalog import BASE_ENDPOINT_CATALOG
 from frisket.server.routes.diagnose import register_diagnose_routes
-from scripts.ci.export_web_openapi import export_real_compositions
 
 
 _ROUTES = {
@@ -153,8 +152,11 @@ def test_diagnose_catalog_keeps_existing_auth_roles_and_effects() -> None:
     ) == ("tenant", "GET", "session_or_pat", True, False, "viewer", (), False)
 
 
-def test_diagnose_real_export_adds_exactly_two_operations(tmp_path: Path) -> None:
-    document = export_real_compositions(tmp_path / "state")
-
+def test_diagnose_real_export_adds_exactly_two_operations(
+    real_openapi_document,
+) -> None:
     for route, path in _OPENAPI_ROUTES.items():
-        assert document["paths"][path]["get"]["operationId"] == _OPERATION_IDS[route]
+        assert (
+            real_openapi_document["paths"][path]["get"]["operationId"]
+            == _OPERATION_IDS[route]
+        )

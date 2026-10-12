@@ -93,12 +93,10 @@ def _operation_ids(document: Mapping[str, Any]) -> set[str]:
 
 
 def test_run_provenance_reads_are_exported_from_typed_response_models(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    real_openapi_document,
 ) -> None:
-    document = exporter.export_real_compositions(tmp_path / "state")
-    row = _operation(document, "tenant.action_run_trace_row.get")
-    provenance = _operation(document, "tenant.provenance.get")
+    row = _operation(real_openapi_document, "tenant.action_run_trace_row.get")
+    provenance = _operation(real_openapi_document, "tenant.provenance.get")
     assert row["responses"]["200"]["content"]["application/json"]["schema"] == {
         "$ref": "#/components/schemas/RunTraceRowEvidence"
     }
@@ -110,10 +108,8 @@ def test_run_provenance_reads_are_exported_from_typed_response_models(
 
 
 def test_runtime_projection_browser_operations_have_typed_successes_only(
-    tmp_path: Path,
+    real_openapi_document,
 ) -> None:
-    document = exporter.export_real_compositions(tmp_path / "state")
-
     # These fixed upload bridges retain native multipart bodies at the browser
     # boundary; all other projected operations retain JSON transport.
     for operation_id, response_name in (
@@ -123,7 +119,7 @@ def test_runtime_projection_browser_operations_have_typed_successes_only(
         ("tenant.import_pdf.post", "ImportPdfResponse"),
         ("tenant.import_files.post", "ImportFilesResponse"),
     ):
-        imported = _operation(document, operation_id)
+        imported = _operation(real_openapi_document, operation_id)
         assert imported["x-frisket-editions"] == ["local", "team"]
         assert imported["requestBody"]["required"] is True
         assert set(imported["requestBody"]["content"]) == {"multipart/form-data"}
@@ -153,7 +149,7 @@ def test_runtime_projection_browser_operations_have_typed_successes_only(
             "200",
         ),
     ):
-        scratch = _operation(document, operation_id)
+        scratch = _operation(real_openapi_document, operation_id)
         assert scratch["x-frisket-editions"] == ["local", "team"]
         assert scratch["requestBody"]["required"] is True
         assert set(scratch["requestBody"]["content"]) == {"multipart/form-data"}
@@ -200,12 +196,12 @@ def test_runtime_projection_browser_operations_have_typed_successes_only(
             "RuntimeProjectionArtifactResponse",
         ),
     ):
-        operation = _operation(document, operation_id)
+        operation = _operation(real_openapi_document, operation_id)
         assert operation["responses"]["200"]["content"]["application/json"][
             "schema"
         ] == {"$ref": f"#/components/schemas/{response_name}"}
         assert operation["x-frisket-editions"] == ["local", "team"]
-    spend = _operation(document, "tenant.spend.get")
+    spend = _operation(real_openapi_document, "tenant.spend.get")
     assert spend["responses"]["200"]["content"]["application/json"]["schema"] == {
         "$ref": "#/components/schemas/SpendReport"
     }
@@ -213,10 +209,8 @@ def test_runtime_projection_browser_operations_have_typed_successes_only(
 
 
 def test_http_completion_batch_one_projects_five_typed_browser_operations(
-    tmp_path: Path,
+    real_openapi_document,
 ) -> None:
-    document = exporter.export_real_compositions(tmp_path / "state")
-
     expected = {
         "outer.list_org_env_vars.get": (
             ["team"],
@@ -255,7 +249,7 @@ def test_http_completion_batch_one_projects_five_typed_browser_operations(
         request_name,
         statuses,
     ) in expected.items():
-        operation = _operation(document, operation_id)
+        operation = _operation(real_openapi_document, operation_id)
         assert operation["x-frisket-editions"] == editions
         assert set(operation["responses"]) == statuses
         assert operation["responses"]["200"]["content"]["application/json"][
@@ -273,7 +267,7 @@ def test_http_completion_batch_one_projects_five_typed_browser_operations(
                 "required": True,
             }
 
-    attempts = _operation(document, "tenant.project_attempts.get")
+    attempts = _operation(real_openapi_document, "tenant.project_attempts.get")
     assert attempts["parameters"] == [
         {
             "in": "path",

@@ -10,7 +10,6 @@ from fastapi.testclient import TestClient
 
 from frisket.contracts.http.endpoint_catalog import BASE_ENDPOINT_CATALOG
 from frisket.server.routes.projections import register_runtime_projection_routes
-from scripts.ci.export_web_openapi import export_real_compositions
 
 
 _ROUTES = {
@@ -281,12 +280,11 @@ def test_runtime_projection_catalog_preserves_editor_session_policy_and_browser_
 
 
 def test_runtime_projection_export_adds_all_browser_projection_operations(
-    tmp_path: Any,
+    real_openapi_document,
 ) -> None:
-    document = export_real_compositions(tmp_path / "state")
     operation_ids = {
         operation["operationId"]
-        for path_item in document["paths"].values()
+        for path_item in real_openapi_document["paths"].values()
         for operation in path_item.values()
     }
 

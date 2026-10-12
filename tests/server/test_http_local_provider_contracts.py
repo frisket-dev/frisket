@@ -12,7 +12,6 @@ from pydantic import ValidationError
 from frisket.contracts.http.endpoint_catalog import BASE_ENDPOINT_CATALOG
 from frisket.contracts.http.models import HttpError, WireModel
 from frisket.server.app import create_app
-from scripts.ci import export_web_openapi as exporter
 
 
 @dataclass(frozen=True)
@@ -358,12 +357,11 @@ def test_local_provider_routes_are_browser_members_of_one_policy_owner() -> None
 
 
 def test_local_provider_routes_remain_local_in_64_operation_successor_export(
-    tmp_path: Path,
+    real_openapi_document,
 ) -> None:
-    document = exporter.export_real_compositions(tmp_path / "state")
     operations = {
         operation["operationId"]: operation
-        for path_item in document["paths"].values()
+        for path_item in real_openapi_document["paths"].values()
         for operation in path_item.values()
     }
 
