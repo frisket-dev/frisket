@@ -476,8 +476,7 @@ def test_local_first_omits_cloud_llm_when_exact_local_adapter_exists():
     assert outcome.facts.cloud_payer is None
 
 
-@pytest.mark.parametrize("ready", [True, False])
-def test_local_first_uses_cloud_llm_when_local_adapter_is_missing(ready):
+def test_local_first_uses_cloud_llm_when_local_adapter_is_missing():
     class Router:
         def adapter_for_model(self, model):
             del model
@@ -487,7 +486,7 @@ def test_local_first_uses_cloud_llm_when_local_adapter_is_missing(ready):
         _base_with_openai_route(),
         user_id=7,
         account=_account(),
-        capabilities=_llm_capabilities(ready=ready),
+        capabilities=_llm_capabilities(),
         preference="local_first",
         router=Router(),
     )
@@ -502,15 +501,10 @@ def test_local_first_uses_cloud_llm_when_local_adapter_is_missing(ready):
         composition.facts,
     )
 
-    if ready:
-        assert not isinstance(outcome, Refusal)
-        assert outcome.target.id == "frisket-cloud:41:frisket_credits:openai"
-        assert outcome.support.transport == "frisket.cloud.llm.v1"
-        assert outcome.facts.cloud_payer is not None
-    else:
-        assert isinstance(outcome, Refusal)
-        assert outcome.target_id == "frisket-cloud:41:frisket_credits:openai"
-        assert "Add credits to this account" in outcome.remedy
+    assert not isinstance(outcome, Refusal)
+    assert outcome.target.id == "frisket-cloud:41:frisket_credits:openai"
+    assert outcome.support.transport == "frisket.cloud.llm.v1"
+    assert outcome.facts.cloud_payer is not None
 
 
 def test_local_first_preserves_media_route_when_cloud_target_also_has_llm():

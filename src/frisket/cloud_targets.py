@@ -272,13 +272,18 @@ def compose_cloud_targets(
                 and router.adapter_for_model(route.engine) is not None
             ):
                 continue
-            if preference == "local_first" and router is not None:
-                shadowed_llm_engines.add(route.engine)
             capability = CAPABILITY_LLM
         if capability is None:
             continue
         if _base_has_inherent_local_route(base, capability, route.engine):
             continue
+        if (
+            capability == CAPABILITY_LLM
+            and preference == "local_first"
+            and router is not None
+            and route.ready
+        ):
+            shadowed_llm_engines.add(route.engine)
         target_id = cloud_target_id(account.id, route.lane, route.provider)
         support = _support(route, capability)
         grouped[target_id].append(support)

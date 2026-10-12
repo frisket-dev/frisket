@@ -61,9 +61,23 @@ def _credential_source(
     return "missing"
 
 
-def _default_action_model(choices: list[dict[str, Any]]) -> str | None:
-    # Resolved readiness includes Cloud access, not just locally stored keys.
-    # Preserve curated catalog order within each readiness level.
+def _default_action_model(
+    choices: list[dict[str, Any]], composition: ExecutionComposition
+) -> str | None:
+    # Target order already encodes the installation's local/Cloud preference.
+    # Keep the curated model order within each target.
+    ready = [
+        choice
+        for choice in choices
+        if choice["status"] == "ready"
+        and isinstance(choice["authored_selection"].get("model"), str)
+    ]
+    for target in composition.resolution_targets():
+        for choice in ready:
+            if _mapping(choice.get("resolved_target")).get("target_id") == target.id:
+                return choice["authored_selection"]["model"]
+    # Unresolved model choices and unconfigured installations retain their
+    # catalog fallback; previewing an engine never selects it.
     for status in ("ready", "needs_setup"):
         for choice in choices:
             selection = choice["authored_selection"]
