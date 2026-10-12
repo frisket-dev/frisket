@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, cast
 from urllib.parse import quote
@@ -88,6 +88,7 @@ from frisket.server.services.selector_choices_projection import (
     _configuration_actions,
     _execution_route,
     _execution_presentation,
+    _selected_cloud_without_target,
     _matching_targets,
     _target_for_outcome,
     _response,
@@ -845,9 +846,7 @@ class SelectorChoiceService:
                             "field": None,
                         }
                 target, destination = _model_target(provider)
-                route_capable = not local_http and cloud_route_eligible(
-                    model["id"], CAPABILITY_LLM
-                )
+                route_capable = not local_http
                 outcome, selected_route = _resolve_route_choice(
                     composition,
                     capability=CAPABILITY_LLM,
@@ -879,30 +878,8 @@ class SelectorChoiceService:
                     and selected_route == "cloud"
                     and presentation.target is None
                 ):
-                    presentation = replace(
-                        presentation,
-                        resolved_target=None,
-                        processing_destination={
-                            "kind": "unknown",
-                            "label": "Frisket Cloud",
-                        },
-                        execution_route=None,
-                        status=(
-                            "needs_setup"
-                            if cloud_setup is not None
-                            else presentation.status
-                        ),
-                        blocker=(
-                            {
-                                "code": "frisket_cloud_required",
-                                "message": "Connect or reconnect Frisket Cloud to use this model.",
-                                "field": None,
-                            }
-                            if cloud_setup is not None
-                            else presentation.blocker
-                        ),
-                        setup=cloud_setup,
-                        active_operation=None,
+                    presentation = _selected_cloud_without_target(
+                        presentation, cloud_setup=cloud_setup
                     )
                     facts = []
                 route_selection = (
@@ -1520,26 +1497,8 @@ class SelectorChoiceService:
                     and selected_route == "cloud"
                     and presentation.target is None
                 ):
-                    presentation = replace(
-                        presentation,
-                        resolved_target=None,
-                        execution_route=None,
-                        status=(
-                            "needs_setup"
-                            if cloud_setup is not None
-                            else presentation.status
-                        ),
-                        blocker=(
-                            {
-                                "code": "frisket_cloud_required",
-                                "message": "Connect or reconnect Frisket Cloud to use this model.",
-                                "field": None,
-                            }
-                            if cloud_setup is not None
-                            else presentation.blocker
-                        ),
-                        setup=cloud_setup,
-                        active_operation=None,
+                    presentation = _selected_cloud_without_target(
+                        presentation, cloud_setup=cloud_setup
                     )
                 target = presentation.target
                 resolved_target = presentation.resolved_target

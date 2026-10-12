@@ -14,6 +14,7 @@ from frisket.credentials import resolve_credential_with_source
 from frisket.execution.definitions import StaticExecutionTargetProvider
 from frisket.ops.base import OpContext
 from frisket.ops.ocr_engines_hosted import ocr_datalab
+from frisket.project_settings import ProjectSettings, write_project_settings
 from frisket.server import provider_config
 from frisket.server.app import create_app
 from frisket.server.services.selector_choices_capabilities import SelectorCapabilities
@@ -44,6 +45,10 @@ def setup_client(tmp_path, monkeypatch):
         create_app(tmp_path / "ws", router=ModelRouter(use_env_keys=False))
     )
     pid = client.post("/api/projects", json={"name": "Datalab setup"}).json()["id"]
+    write_project_settings(
+        client.app.state.workspace.get(pid),
+        ProjectSettings(model_execution_routes={"datalab": "own"}),
+    )
     yield client, pid, requests
     transport_client.close()
     client.close()
@@ -217,6 +222,10 @@ def test_datalab_setup_respects_permissions_and_network(tmp_path, monkeypatch):
         )
     )
     pid = client.post("/api/projects", json={"name": "Read only"}).json()["id"]
+    write_project_settings(
+        client.app.state.workspace.get(pid),
+        ProjectSettings(model_execution_routes={"datalab": "own"}),
+    )
     choice = _choice(client, pid, "media.ocr")
     assert not any(scope["can_mutate"] for scope in choice["setup"]["scopes"])
     assert choice["can_run"] is False

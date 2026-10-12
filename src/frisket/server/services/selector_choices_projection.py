@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 from urllib.parse import quote
 
@@ -16,7 +16,6 @@ from frisket.execution.resolver import (
     ModelRoute,
     Refusal,
     canonical_model_route_id,
-    cloud_route_eligible,
     model_route_for_target,
     preferred_resolved_engine,
     preferred_static_choice,
@@ -330,6 +329,26 @@ def _target_support(
     )
 
 
+def _cloud_route_disabled_reason(reason: str) -> str:
+    return {
+        "account_suspended": "The selected Frisket Cloud account is suspended.",
+        "account_key_spend_cap_reached": (
+            "This provider key has reached its Frisket Cloud spend cap."
+        ),
+        "provider_unavailable": (
+            "This provider is temporarily unavailable through Frisket Cloud."
+        ),
+        "price_unavailable": (
+            "Frisket Cloud does not have an authoritative price for this route."
+        ),
+    }.get(
+        reason,
+        "This route is currently unavailable through Frisket Cloud."
+        if "_" in reason
+        else reason,
+    )
+
+
 def _route_option(
     composition: ExecutionComposition,
     *,
@@ -338,6 +357,7 @@ def _route_option(
     options: Mapping[str, Any],
     route: ModelRoute,
     cloud_unknown: bool,
+    unsupported_cloud_provider: str | None = None,
 ) -> tuple[dict[str, Any], ExecutionTarget | None]:
     """Project one probe-free route option from the shared static chooser."""
 
@@ -366,7 +386,9 @@ def _route_option(
                 "disabled_reason": None,
             }, None
         reason = (
-            "Frisket Cloud does not offer this model."
+            f"{unsupported_cloud_provider} isn't offered through Frisket Cloud."
+            if route == "cloud" and unsupported_cloud_provider is not None
+            else "Frisket Cloud does not offer this model."
             if route == "cloud"
             else "No own route is available for this model."
         )
@@ -378,11 +400,11 @@ def _route_option(
         }, None
     if isinstance(choice, Refusal):
         support = _target_support(target, capability, engine)
-        if (
-            route == "cloud"
-            and support is not None
-            and support.unavailable_reason == "account_key_required"
-        ):
+        unavailable_reason = support.unavailable_reason if support is not None else None
+        if route == "cloud" and unavailable_reason in {
+            "account_key_required",
+            "insufficient_credits",
+        }:
             return {
                 "id": route,
                 "label": label,
@@ -393,19 +415,28 @@ def _route_option(
             "id": route,
             "label": label,
             "status": "unavailable",
-            "disabled_reason": choice.remedy,
+            "disabled_reason": (
+                _cloud_route_disabled_reason(unavailable_reason)
+                if route == "cloud" and unavailable_reason is not None
+                else choice.remedy
+            ),
         }, target
     target, support = choice
     if support.unavailable_reason is not None:
-        account_key_setup = (
-            route == "cloud" and support.unavailable_reason == "account_key_required"
-        )
+        route_setup = route == "cloud" and support.unavailable_reason in {
+            "account_key_required",
+            "insufficient_credits",
+        }
         return {
             "id": route,
             "label": label,
-            "status": "needs_setup" if account_key_setup else "unavailable",
+            "status": "needs_setup" if route_setup else "unavailable",
             "disabled_reason": (
-                None if account_key_setup else support.unavailable_reason
+                None
+                if route_setup
+                else _cloud_route_disabled_reason(support.unavailable_reason)
+                if route == "cloud"
+                else support.unavailable_reason
             ),
         }, target
     configured = provider.configuration(target.id, capability, support.engine)
@@ -428,20 +459,8 @@ def _route_selection(
     cloud_unknown: bool,
 ) -> dict[str, Any] | None:
     model_id = canonical_model_route_id(engine, capability)
-    if (
-        composition.model_routes is None
-        or model_id is None
-        or not cloud_route_eligible(engine, capability)
-    ):
+    if composition.model_routes is None or model_id is None:
         return None
-    cloud, _cloud_target = _route_option(
-        composition,
-        capability=capability,
-        engine=engine,
-        options=options,
-        route="cloud",
-        cloud_unknown=cloud_unknown,
-    )
     own, _own_target = _route_option(
         composition,
         capability=capability,
@@ -449,6 +468,22 @@ def _route_selection(
         options=options,
         route="own",
         cloud_unknown=cloud_unknown,
+    )
+    own_provider = (
+        PROVIDER_LABELS.get(_own_target.operator, _own_target.operator)
+        if _own_target is not None
+        and _own_target.egress_class
+        not in {"none", "operator_lan", "frisket_dedicated_org"}
+        else None
+    )
+    cloud, _cloud_target = _route_option(
+        composition,
+        capability=capability,
+        engine=engine,
+        options=options,
+        route="cloud",
+        cloud_unknown=cloud_unknown,
+        unsupported_cloud_provider=own_provider,
     )
     return {
         "model_id": model_id,
@@ -590,6 +625,33 @@ class _ExecutionPresentation:
     active_operation: dict[str, Any] | None
 
 
+def _selected_cloud_without_target(
+    presentation: _ExecutionPresentation,
+    *,
+    cloud_setup: dict[str, Any] | None,
+) -> _ExecutionPresentation:
+    """Keep an unavailable selected Cloud route from borrowing own-route UI."""
+
+    return replace(
+        presentation,
+        resolved_target=None,
+        processing_destination={"kind": "unknown", "label": "Frisket Cloud"},
+        execution_route=None,
+        status="needs_setup" if cloud_setup is not None else "unavailable",
+        blocker=(
+            {
+                "code": "frisket_cloud_required",
+                "message": "Connect or reconnect Frisket Cloud to use this model.",
+                "field": None,
+            }
+            if cloud_setup is not None
+            else presentation.blocker
+        ),
+        setup=cloud_setup,
+        active_operation=None,
+    )
+
+
 def _execution_presentation(
     composition: ExecutionComposition,
     outcome: Any,
@@ -683,6 +745,12 @@ def _execution_presentation(
                 # is not the payer the saved Cloud-first policy would use.
                 route = None
             support = _target_support(target, capability, engine)
+            insufficient_credits = (
+                payer is not None
+                and payer.lane == "frisket_credits"
+                and support is not None
+                and support.unavailable_reason == "insufficient_credits"
+            )
             account_key_required = (
                 payer is not None
                 and payer.lane == "account_key"
@@ -696,6 +764,12 @@ def _execution_presentation(
                     "field": None,
                 }
                 if account_key_required
+                else {
+                    "code": "insufficient_credits",
+                    "message": "Add credits in Frisket Cloud to continue.",
+                    "field": None,
+                }
+                if insufficient_credits
                 else refusal_blocker
             )
             setup = (
