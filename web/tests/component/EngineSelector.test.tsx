@@ -141,6 +141,7 @@ describe('EngineSelector', () => {
         route: {
           label: 'Riverton News · Frisket credits',
           billedTo: 'Riverton News · Frisket credits',
+          credentialLabel: '••••8f2a · saved to this project',
           sendsDataTo: 'Google via Frisket Cloud',
           balanceLabel: '$182.40 balance',
           balanceUrl: 'https://app.frisket.dev/accounts/42',
@@ -164,7 +165,8 @@ describe('EngineSelector', () => {
     expect(screen.getByTestId('engine-selector-dialog')
       .querySelector('[data-engine-selector-choice="gemini"]')).toBeVisible();
     const route = within(screen.getByTestId('engine-selector-route'));
-    expect(route.getByText('Riverton News · Frisket credits', { selector: 'strong' })).toBeVisible();
+    expect(route.getByText('Riverton News · Frisket credits')).toBeVisible();
+    expect(route.getByText('••••8f2a · saved to this project')).toBeVisible();
     expect(route.getByText('Google via Frisket Cloud')).toBeVisible();
     expect(route.getByRole('link', { name: /\$182.40 balance/ })).toHaveAttribute(
       'href', 'https://app.frisket.dev/accounts/42',
@@ -296,6 +298,27 @@ describe('EngineSelector', () => {
     fireEvent.mouseEnter(dialog.querySelector('[data-engine-selector-choice="openai-1"]')!);
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(screen.getByRole('heading', { name: 'OpenAI 1' })).toBeVisible();
+  });
+
+  it('keeps the detail stable while a route mutation is busy', async () => {
+    render(<EngineSelector label="Engine" groups={groups} value="parakeet"
+      recentNamespace="route-busy-preview" onSelect={vi.fn()}
+      renderDetailBeforeRoute={({ onBusyChange }) => <>
+        <button type="button" onClick={() => onBusyChange(true)}>Start route change</button>
+        <button type="button" onClick={() => onBusyChange(false)}>Finish route change</button>
+      </>} />);
+    await userEvent.click(screen.getByRole('button', { name: /parakeet/i }));
+    const dialog = screen.getByTestId('engine-selector-dialog');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Start route change' }));
+
+    fireEvent.mouseEnter(dialog.querySelector('[data-engine-selector-choice="whisper"]')!);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(within(dialog).getByRole('heading', { name: 'Parakeet' })).toBeVisible();
+
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Finish route change' }));
+    fireEvent.mouseEnter(dialog.querySelector('[data-engine-selector-choice="whisper"]')!);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(within(dialog).getByRole('heading', { name: 'Whisper' })).toBeVisible();
   });
 
   it('replaces provider hover intent before a later choice hover can preview', async () => {

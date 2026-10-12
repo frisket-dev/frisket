@@ -11,8 +11,9 @@ import {
 } from '../../src/cloud/ProjectCloudRoutingSettings';
 
 const routing = (overrides: Partial<ProjectCloudRoutingView> = {}): ProjectCloudRoutingView => ({
-  connectionState: 'connected', selectedAccountId: 11, preference: 'local_first',
-  preferenceInherited: true, canMutate: true, overlapProviderLabels: ['Google'],
+  connectionState: 'connected', selectedAccountId: 11, canMutate: true,
+  cloudProviderKeys: [{ provider: 'openai', label: 'OpenAI', configured: true,
+    settingsUrl: 'https://app.frisket.dev/funding-accounts?account_id=11&provider=openai' }],
   accounts: [
     { id: 11, name: 'Riverton News', kind: 'organization', eligible: true, balanceLabel: '$182.40 balance', balanceUrl: 'https://app.frisket.dev/accounts/11' },
     { id: 12, name: 'Personal', kind: 'personal', eligible: true, balanceLabel: '$5.00 credits' },
@@ -28,30 +29,30 @@ const connectionClient: CloudConnectionClient = {
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe('ProjectCloudRoutingSettings', () => {
-  it('patches only the project account and overlap preference and never offers disconnect', async () => {
+  it('patches only the project funding account and publishes Cloud key metadata', async () => {
     const api: ProjectCloudRoutingClient = {
       get: vi.fn().mockResolvedValue(routing()),
       patch: vi.fn(async (_projectId, change) => routing({
         selectedAccountId: change.selectedAccountId ?? 11,
-        preference: change.preference ?? 'local_first',
-        preferenceInherited: false,
       })),
     };
+    const changed = vi.fn();
     render(<ProjectCloudRoutingSettings projectId="project-a"
-      connectionClient={connectionClient} routingClient={api} />);
+      connectionClient={connectionClient} routingClient={api} onRoutingChange={changed} />);
 
     const account = await screen.findByRole('combobox', { name: /Cloud account for this project/ });
     fireEvent.change(account, { target: { value: '12' } });
     await waitFor(() => expect(api.patch).toHaveBeenCalledWith('project-a',
       { selectedAccountId: 12 }, expect.any(AbortSignal)));
-    fireEvent.click(screen.getByRole('radio', { name: /Use Personal/ }));
-    await waitFor(() => expect(api.patch).toHaveBeenCalledWith('project-a',
-      { preference: 'cloud_first' }, expect.any(AbortSignal)));
+    await waitFor(() => expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({
+      cloudProviderKeys: [expect.objectContaining({ provider: 'openai', configured: true })],
+    })));
+    expect(screen.queryByRole('radio')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /disconnect/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/sync/i)).not.toBeInTheDocument();
   });
 
-  it('keeps a disconnected project preference visible while directing connection through the shared panel', async () => {
+  it('directs a disconnected project through the shared connection panel', async () => {
     const api: ProjectCloudRoutingClient = {
       get: vi.fn().mockResolvedValue(routing({ connectionState: 'disconnected', selectedAccountId: null })),
       patch: vi.fn(),
@@ -64,8 +65,7 @@ describe('ProjectCloudRoutingSettings', () => {
       connectionClient={connectionClient} routingClient={api} />);
 
     expect(await screen.findByRole('button', { name: /Sign in with browser/ })).toBeVisible();
-    expect(screen.getByRole('radio', { name: /Use your keys/ })).toBeChecked();
-    expect(screen.getByRole('radio', { name: /Use the project’s Cloud account/ })).toBeDisabled();
+    expect(screen.queryByRole('radio')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /disconnect/i })).not.toBeInTheDocument();
   });
 
@@ -106,7 +106,6 @@ describe('ProjectCloudRoutingSettings', () => {
   it('keeps an ineligible selected account visible and asks for an explicit replacement', async () => {
     const api: ProjectCloudRoutingClient = {
       get: vi.fn().mockResolvedValue(routing({
-        preference: 'cloud_first',
         accounts: [{
           id: 11, name: 'Riverton News', kind: 'organization', eligible: false,
           eligibilityReason: 'Membership changed.', balanceLabel: '$182.40 balance',
@@ -122,7 +121,7 @@ describe('ProjectCloudRoutingSettings', () => {
     );
     expect(screen.getByRole('combobox', { name: /Cloud account/ })).toHaveValue('11');
     expect(screen.getByRole('option', { name: /Riverton News.*unavailable/ })).toBeDisabled();
-    expect(screen.getByRole('radio', { name: /Use Riverton News/ })).toBeDisabled();
+    expect(screen.queryByRole('radio')).not.toBeInTheDocument();
     expect(api.patch).not.toHaveBeenCalled();
   });
 });

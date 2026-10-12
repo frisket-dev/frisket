@@ -42,6 +42,20 @@ function client(overrides: Partial<CloudConnectionClient> = {}): CloudConnection
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe('CloudConnectionPanel', () => {
+  it('uses disconnected connection permission while preserving reconnect intent', async () => {
+    vi.useFakeTimers();
+    const api = client();
+    render(<CloudConnectionPanel client={api} variant="compact" intent="reconnect" />);
+    await act(async () => {});
+
+    const reconnect = screen.getByRole('button', { name: 'Reconnect' });
+    expect(reconnect).toBeEnabled();
+    await act(async () => { fireEvent.click(reconnect); });
+
+    expect(api.startAuthorization).toHaveBeenCalledOnce();
+    expect(screen.getByTestId('cloud-connection-waiting')).toBeVisible();
+  });
+
   it('completes the shared device flow and exposes installation sign-out only in Profile', async () => {
     vi.useFakeTimers();
     const api = client();

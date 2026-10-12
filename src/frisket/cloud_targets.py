@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from frisket.cloud_connection import (
     CloudConnectionClient,
@@ -60,14 +60,6 @@ from frisket.project_settings import read_project_settings
 
 CLOUD_MEDIA_TRANSPORT = "frisket.cloud.media.v1"
 CLOUD_LLM_TRANSPORT = "frisket.cloud.llm.v1"
-_CLOUD_EXECUTION_CAPABILITIES = frozenset(
-    {
-        CAPABILITY_LLM,
-        CAPABILITY_OCR,
-        CAPABILITY_TO_MARKDOWN,
-        CAPABILITY_TRANSCRIBE,
-    }
-)
 
 
 class _AccountIdentity(Protocol):
@@ -117,8 +109,18 @@ class CloudExecutionTargetProvider:
     def configuration(
         self, target_id: str, capability: str, engine: str
     ) -> TargetConfiguration:
-        if target_id in self._cloud_by_id:
-            return "configured"
+        target = self._cloud_by_id.get(target_id)
+        if target is not None:
+            return (
+                "not_configured"
+                if any(
+                    support.capability == capability
+                    and support.engine == engine
+                    and support.unavailable_reason == "account_key_required"
+                    for support in target.engines
+                )
+                else "configured"
+            )
         return self._source.configuration(target_id, capability, engine)
 
     def selection_rank(self, target_id: str, capability: str, engine: str) -> int:
@@ -181,88 +183,6 @@ class CloudExecutionTargetProvider:
             return hook(target_id)
 
 
-class _CloudRequiredExecutionTargetProvider:
-    """Block non-local execution when a saved Cloud-first payer is unavailable."""
-
-    def __init__(
-        self,
-        source: ExecutionTargetProvider,
-        inability: str,
-        reconnect_remedy: str,
-    ) -> None:
-        self._source = source
-        self._reconnect_remedy = reconnect_remedy
-        self._targets = tuple(
-            replace(
-                target,
-                engines=tuple(
-                    replace(support, unavailable_reason=inability)
-                    if support.capability in _CLOUD_EXECUTION_CAPABILITIES
-                    else support
-                    for support in target.engines
-                ),
-            )
-            if target.egress_class != "none"
-            and any(
-                support.capability in _CLOUD_EXECUTION_CAPABILITIES
-                for support in target.engines
-            )
-            else target
-            for target in source.targets()
-        )
-
-    def targets(self) -> tuple[ExecutionTarget, ...]:
-        return self._targets
-
-    def configuration(
-        self, target_id: str, capability: str, engine: str
-    ) -> TargetConfiguration:
-        return self._source.configuration(target_id, capability, engine)
-
-    def selection_rank(self, target_id: str, capability: str, engine: str) -> int:
-        return self._source.selection_rank(target_id, capability, engine)
-
-    def connection(self, target_id: str) -> ConnectionConfig | None:
-        return self._source.connection(target_id)
-
-    def liveness_remedy(
-        self, target_id: str, capability: str | None = None
-    ) -> str | None:
-        if capability in _CLOUD_EXECUTION_CAPABILITIES and any(
-            target.id == target_id
-            and target.egress_class != "none"
-            and any(support.capability == capability for support in target.engines)
-            for target in self._targets
-        ):
-            return self._reconnect_remedy
-        hook = getattr(self._source, "liveness_remedy", None)
-        if not callable(hook):
-            return None
-        try:
-            return hook(target_id, capability=capability)
-        except TypeError:
-            return hook(target_id)
-
-    def blocks_cloud_fallback(
-        self, target_id: str, capability: str, engine: str
-    ) -> bool:
-        return any(
-            target.id == target_id
-            and target.egress_class != "none"
-            and capability in _CLOUD_EXECUTION_CAPABILITIES
-            and any(
-                support.capability == capability
-                and (
-                    support.engine == engine
-                    or support.engine.endswith("/*")
-                    and engine.startswith(support.engine[:-1])
-                )
-                for support in target.engines
-            )
-            for target in self._targets
-        )
-
-
 def compose_cloud_targets(
     base: ExecutionComposition,
     *,
@@ -275,6 +195,10 @@ def compose_cloud_targets(
 ) -> ExecutionComposition:
     """Attach one selected account's authoritative execution routes to ``base``."""
 
+    # Even an empty response is authoritative for inherited/default routing.
+    # Explicit per-model choices still remain selected and refuse honestly if
+    # their Cloud target is absent.
+    base = replace(base, cloud_inventory_known=True)
     grouped: dict[str, list[TargetEngineSupport]] = defaultdict(list)
     payers: dict[tuple[str, str, str], CloudPayerSubject] = {}
     llm_prices: dict[tuple[str, str], CloudTokenPrice] = {}
@@ -362,23 +286,46 @@ def cloud_execution_composition(
     """Build one project's account-bound Cloud view from its last route snapshot."""
 
     settings = read_project_settings(project)
+    # Solo exposes model routing even while signed out. ``None`` is reserved
+    # for compositions (notably native hosted) that do not support the
+    # selector; existing Solo projects therefore become an empty explicit map
+    # until the settings service materializes their configured choices.
+    legacy_routes = settings.model_execution_routes is None
     try:
         profile = store.load()
     except CloudConnectionStoreError:
-        return _block_cloud_first_fallback(
+        preference = _effective_legacy_cloud_execution_preference(settings, None)
+        return replace(
             base,
-            settings,
-            preference=settings.cloud_execution_preference or "cloud_first",
+            model_routes=dict(settings.model_execution_routes or {}),
+            model_route_default=(
+                "cloud"
+                if legacy_routes and preference == "cloud_first"
+                else settings.model_execution_default
+            ),
         )
-    preference = settings.cloud_execution_preference or profile.preference
+    preference = (
+        _effective_legacy_cloud_execution_preference(settings, profile)
+        if legacy_routes
+        else "local_first"
+    )
+    base = replace(
+        base,
+        model_routes=dict(settings.model_execution_routes or {}),
+        model_route_default=(
+            "cloud"
+            if legacy_routes and preference == "cloud_first"
+            else settings.model_execution_default
+        ),
+    )
     connection = profile.connection
     if connection is None:
-        return _block_cloud_first_fallback(base, settings, preference=preference)
+        return base
     if (
         settings.cloud_user_id != connection.session.user.id
         or settings.cloud_account_id is None
     ):
-        return _block_cloud_first_fallback(base, settings, preference=preference)
+        return base
     account = next(
         (
             candidate
@@ -398,7 +345,7 @@ def cloud_execution_composition(
     else:
         capabilities = snapshot
     if capabilities is None:
-        return _block_cloud_first_fallback(base, settings, preference=preference)
+        return base
     if unavailable_reason is not None:
         capabilities = _blocked_capabilities(capabilities, unavailable_reason)
     if account is None:
@@ -414,6 +361,31 @@ def cloud_execution_composition(
     )
 
 
+def legacy_cloud_execution_preference(
+    project: object, store: CloudConnectionStore | None
+) -> Literal["local_first", "cloud_first"]:
+    """Read the legacy project/install preference without exposing the store."""
+
+    settings = read_project_settings(project)
+    if store is None:
+        return _effective_legacy_cloud_execution_preference(settings, None)
+    try:
+        profile = store.load()
+    except CloudConnectionStoreError:
+        profile = None
+    return _effective_legacy_cloud_execution_preference(settings, profile)
+
+
+def _effective_legacy_cloud_execution_preference(
+    settings: Any, profile: Any | None
+) -> Literal["local_first", "cloud_first"]:
+    if settings.cloud_user_id is None or settings.cloud_account_id is None:
+        return "local_first"
+    return settings.cloud_execution_preference or (
+        profile.preference if profile is not None else "cloud_first"
+    )
+
+
 def cloud_fallback_is_blocked(
     composition: ExecutionComposition,
     *,
@@ -423,31 +395,6 @@ def cloud_fallback_is_blocked(
 ) -> bool:
     hook = getattr(composition.provider, "blocks_cloud_fallback", None)
     return bool(callable(hook) and hook(target_id, capability, engine))
-
-
-def _block_cloud_first_fallback(
-    base: ExecutionComposition,
-    settings: Any,
-    *,
-    preference: str | None,
-) -> ExecutionComposition:
-    if (
-        preference != "cloud_first"
-        or settings.cloud_user_id is None
-        or settings.cloud_account_id is None
-    ):
-        return base
-    return replace(
-        base,
-        provider=_CloudRequiredExecutionTargetProvider(
-            base.provider,
-            (
-                "execution through the project's selected payer while "
-                "Frisket Cloud is disconnected. Reconnect Frisket Cloud and retry."
-            ),
-            "Reconnect Frisket Cloud to use the project's selected payer.",
-        ),
-    )
 
 
 def _explicitly_local_engine(capability: str, engine: str) -> bool:
@@ -638,5 +585,6 @@ __all__ = [
     "cloud_target_id",
     "cloud_execution_composition",
     "cloud_fallback_is_blocked",
+    "legacy_cloud_execution_preference",
     "compose_cloud_targets",
 ]

@@ -298,8 +298,15 @@ def test_ask_allows_a_configured_local_endpoint_when_network_is_off(tmp_path):
             cache_mode="off",
             local_endpoints=(endpoint,),
         ),
+        cloud_connection_store=CloudConnectionStore(tmp_path / "profile"),
+        cloud_connection_client=SnapshotOnlyClient(),
     )
     project = workspace.get(workspace.create("Local Ask")["id"])
+    model = "ollama/@test-local/qwen2.5"
+    write_project_settings(
+        project,
+        ProjectSettings(model_execution_routes={model: "own"}),
+    )
     project.set_network_policy(mode="off")
     qa = ProjectQAStore(project)
     thread = qa.create_thread(title="Local route")
@@ -307,7 +314,7 @@ def test_ask_allows_a_configured_local_endpoint_when_network_is_off(tmp_path):
         thread["id"],
         request_id="local-network-off",
         question="Keep this prompt local",
-        model="ollama/@test-local/qwen2.5",
+        model=model,
     )
 
     try:
@@ -318,6 +325,47 @@ def test_ask_allows_a_configured_local_endpoint_when_network_is_off(tmp_path):
         project.close()
 
     assert runtime.cloud_llm_coordinator is None
+
+
+def test_ask_does_not_use_local_endpoint_for_saved_cloud_route(tmp_path):
+    endpoint = LocalModelEndpointConfig(
+        endpoint_id="test-local",
+        display_name="Local test server",
+        origin="http://127.0.0.1:11434",
+        source="local_file",
+    )
+    workspace = Workspace(
+        tmp_path / "workspace",
+        router=ModelRouter(
+            use_env_keys=False,
+            cache_mode="off",
+            local_endpoints=(endpoint,),
+        ),
+        cloud_connection_store=CloudConnectionStore(tmp_path / "profile"),
+        cloud_connection_client=SnapshotOnlyClient(),
+    )
+    project = workspace.get(workspace.create("Local Ask")["id"])
+    model = "ollama/@test-local/qwen2.5"
+    write_project_settings(
+        project,
+        ProjectSettings(model_execution_routes={model: "cloud"}),
+    )
+    qa = ProjectQAStore(project)
+    thread = qa.create_thread(title="Selected Cloud route")
+    turn = qa.submit_turn(
+        thread["id"],
+        request_id="cloud-not-local",
+        question="Do not run this through the local endpoint",
+        model=model,
+    )
+
+    try:
+        with pytest.raises(CloudExecutionRefused) as exc_info:
+            SoloCloudProjectQARuntimePort(workspace)._prepare_turn(project, turn["id"])
+    finally:
+        project.close()
+
+    assert exc_info.value.code == "cloud_route_unavailable"
 
 
 class CloudTransport:

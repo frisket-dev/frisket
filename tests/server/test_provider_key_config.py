@@ -20,8 +20,13 @@ import os
 import httpx
 from fastapi.testclient import TestClient
 
+from frisket.project_settings import read_project_settings
 from frisket.server import provider_config
 from frisket.server.app import create_app
+from frisket.server.services.project_model_routes import (
+    ProjectModelRouteError,
+    ProjectModelRoutesService,
+)
 
 SECRET = "sk-openai-supersecret-1234"
 
@@ -364,6 +369,62 @@ def test_set_key_route_redacts_and_router_uses_it(tmp_path, monkeypatch) -> None
     assert deleted.status_code == 200, deleted.text
     openai = {p["id"]: p for p in deleted.json()["providers"]}["openai"]
     assert openai["configured"] is False
+
+
+def test_delete_workspace_key_pins_existing_project_routes_first(tmp_path) -> None:
+    root = tmp_path / "ws"
+    provider_config.save_local_provider_key(root, "openai", SECRET)
+    app = create_app(root)
+    client = TestClient(app)
+    project_id = client.post(
+        "/api/projects",
+        json={"name": "Pin before workspace key delete"},
+    ).json()["id"]
+
+    deleted = client.delete("/api/providers/keys/openai")
+
+    assert deleted.status_code == 200, deleted.text
+    routes = read_project_settings(
+        app.state.workspace.get(project_id)
+    ).model_execution_routes
+    assert routes is not None
+    assert routes["openai/gpt-5-mini"] == "own"
+
+
+def test_workspace_key_mutations_report_route_pinning_refusal(
+    tmp_path, monkeypatch
+) -> None:
+    root = tmp_path / "ws"
+    provider_config.save_local_provider_key(root, "openai", SECRET)
+    monkeypatch.setattr(provider_config, "require_validation_token", lambda *_a: None)
+
+    def refuse_pin(_self) -> None:
+        raise ProjectModelRouteError(
+            409,
+            "model_route_configuration_unavailable",
+            "Fix the project target configuration and retry.",
+        )
+
+    monkeypatch.setattr(ProjectModelRoutesService, "pin_all_projects", refuse_pin)
+    client = TestClient(create_app(root))
+
+    saved = client.put(
+        "/api/providers/keys/openai",
+        json={"key": "sk-replacement", "validation_token": "validated"},
+    )
+    deleted = client.delete("/api/providers/keys/openai")
+
+    expected = {
+        "detail": {
+            "code": "model_route_configuration_unavailable",
+            "message": "Fix the project target configuration and retry.",
+        }
+    }
+    assert saved.status_code == 409
+    assert saved.json() == expected
+    assert deleted.status_code == 409
+    assert deleted.json() == expected
+    assert provider_config.load_local_provider_keys(root)["openai"] == SECRET
 
 
 def test_set_key_rejects_unknown_provider(tmp_path) -> None:

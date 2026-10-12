@@ -23,7 +23,11 @@ from frisket.contracts.http.cloud_connection import (
     CloudUser,
 )
 from frisket.execution.provider import open_execution_composition
-from frisket.project_settings import ProjectSettings, write_project_settings
+from frisket.project_settings import (
+    ProjectSettings,
+    read_project_settings,
+    write_project_settings,
+)
 from frisket.server.route_errors import register_route_error_handler
 from frisket.server.routes.project_qa import register_project_qa_routes
 from frisket.server.routes.selector_choices import register_selector_choices_routes
@@ -151,6 +155,223 @@ def _llm_route() -> CloudCapabilityRoute:
 
 def _choices(payload):
     return [choice for group in payload["groups"] for choice in group["choices"]]
+
+
+def test_project_model_route_patch_persists_one_canonical_choice(tmp_path) -> None:
+    client, workspace, _store, project_id = _cloud_selector_app(
+        tmp_path,
+        routes=[_llm_route()],
+        local_keys={"openai": "configured-locally"},
+    )
+
+    with client:
+        response = client.patch(
+            f"/api/projects/{project_id}/model-routes",
+            json={"model_id": "openai/gpt-5-mini", "route": "own"},
+        )
+        projected = client.post(
+            f"/api/projects/{project_id}/selector-choices",
+            json={
+                "schema_version": "frisket.selector_choices_query.v1",
+                "subject": {
+                    "kind": "project_ask",
+                    "model": "openai/gpt-5-mini",
+                },
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "model_id": "openai/gpt-5-mini",
+        "route": "own",
+    }
+    settings = read_project_settings(workspace.get(project_id))
+    assert settings.model_execution_routes["openai/gpt-5-mini"] == "own"
+    selected = next(
+        choice for choice in _choices(projected.json()) if choice["is_current"]
+    )
+    assert selected["route_selection"] == {
+        "model_id": "openai/gpt-5-mini",
+        "selected": "own",
+        "can_mutate": True,
+        "options": [
+            {
+                "id": "cloud",
+                "label": "Frisket Cloud",
+                "status": "ready",
+                "disabled_reason": None,
+            },
+            {
+                "id": "own",
+                "label": "Your OpenAI key",
+                "status": "ready",
+                "disabled_reason": None,
+            },
+        ],
+    }
+    assert selected["execution_route"]["credential_label"] == "Workspace key"
+    assert selected["configuration_actions"] == []
+
+
+def test_project_model_route_patch_requires_authoring_capability(tmp_path) -> None:
+    client, _workspace, _store, project_id = _cloud_selector_app(
+        tmp_path,
+        routes=[_llm_route()],
+        capabilities=SelectorCapabilities(may_run_actions=True),
+    )
+
+    with client:
+        response = client.patch(
+            f"/api/projects/{project_id}/model-routes",
+            json={"model_id": "openai/gpt-5-mini", "route": "own"},
+        )
+
+    assert response.status_code == 403
+
+
+@pytest.mark.parametrize(
+    ("local_keys", "own_status"),
+    [
+        ({}, "needs_setup"),
+        ({"openai": "configured-locally"}, "ready"),
+    ],
+)
+def test_selected_missing_cloud_route_never_borrows_own_details(
+    tmp_path, local_keys, own_status
+) -> None:
+    client, workspace, _store, project_id = _cloud_selector_app(
+        tmp_path,
+        routes=[],
+        local_keys=local_keys,
+    )
+    write_project_settings(
+        workspace.get(project_id),
+        ProjectSettings(
+            cloud_user_id=7,
+            cloud_account_id=41,
+            model_execution_routes={"openai/gpt-5-mini": "cloud"},
+        ),
+    )
+
+    with client:
+        response = client.post(
+            f"/api/projects/{project_id}/selector-choices",
+            json={
+                "schema_version": "frisket.selector_choices_query.v1",
+                "subject": {
+                    "kind": "project_ask",
+                    "model": "openai/gpt-5-mini",
+                },
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    selected = next(
+        choice for choice in _choices(response.json()) if choice["is_current"]
+    )
+    assert selected["route_selection"]["selected"] == "cloud"
+    assert selected["route_selection"]["options"][1]["status"] == own_status
+    assert selected["resolved_target"] is None
+    assert selected["processing_destination"] == {
+        "kind": "unknown",
+        "label": "Frisket Cloud",
+    }
+    assert selected["execution_route"] is None
+    assert selected["facts"] == []
+    assert selected["status"] == "unavailable"
+    assert selected["can_author"] is False
+    assert selected["blocker"] == {
+        "code": "no_live_target",
+        "message": "Reconnect Frisket Cloud to use this model's selected Cloud route.",
+        "field": None,
+    }
+    assert "OpenAI" not in selected["blocker"]["message"]
+    assert selected["setup"] is None
+
+
+def test_nonlocal_own_model_shows_disabled_unsupported_cloud_route(tmp_path) -> None:
+    model_id = "openrouter/qwen/qwen3-8b"
+    client, workspace, _store, project_id = _cloud_selector_app(
+        tmp_path,
+        routes=[],
+        local_keys={"openrouter": "configured-locally"},
+    )
+    write_project_settings(
+        workspace.get(project_id),
+        ProjectSettings(
+            cloud_user_id=7,
+            cloud_account_id=41,
+            model_execution_routes={model_id: "own"},
+        ),
+    )
+
+    with client:
+        response = client.post(
+            f"/api/projects/{project_id}/selector-choices",
+            json={
+                "schema_version": "frisket.selector_choices_query.v1",
+                "subject": {"kind": "project_ask", "model": model_id},
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    selected = next(
+        choice for choice in _choices(response.json()) if choice["is_current"]
+    )
+    assert selected["route_selection"] == {
+        "model_id": model_id,
+        "selected": "own",
+        "can_mutate": True,
+        "options": [
+            {
+                "id": "cloud",
+                "label": "Frisket Cloud",
+                "status": "unavailable",
+                "disabled_reason": ("OpenRouter isn't offered through Frisket Cloud."),
+            },
+            {
+                "id": "own",
+                "label": "Your OpenRouter key",
+                "status": "ready",
+                "disabled_reason": None,
+            },
+        ],
+    }
+
+
+def test_signed_out_unsupported_nonlocal_model_keeps_cloud_disabled(tmp_path) -> None:
+    model_id = "openrouter/qwen/qwen3-8b"
+    client, workspace, _store, project_id = _cloud_selector_app(
+        tmp_path,
+        routes=[],
+        connected=False,
+        selected_account=False,
+        local_keys={"openrouter": "configured-locally"},
+    )
+    write_project_settings(
+        workspace.get(project_id),
+        ProjectSettings(model_execution_routes={model_id: "own"}),
+    )
+
+    with client:
+        response = client.post(
+            f"/api/projects/{project_id}/selector-choices",
+            json={
+                "schema_version": "frisket.selector_choices_query.v1",
+                "subject": {"kind": "project_ask", "model": model_id},
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    selected = next(
+        choice for choice in _choices(response.json()) if choice["is_current"]
+    )
+    assert selected["route_selection"]["options"][0] == {
+        "id": "cloud",
+        "label": "Frisket Cloud",
+        "status": "unavailable",
+        "disabled_reason": "OpenRouter isn't offered through Frisket Cloud.",
+    }
 
 
 def test_cloud_first_selector_keeps_local_engine_on_this_computer(
@@ -508,13 +729,66 @@ def test_selector_projects_the_composed_cloud_model_route(
         "has_alternative_route": True,
     }
     assert selected["setup"] is None
-    assert [action["kind"] for action in selected["configuration_actions"]] == [
-        "api_key"
+    assert selected["configuration_actions"] == []
+    assert selected["facts"] == [
+        {
+            "kind": "rate",
+            "label": "Input price",
+            "amount": 0.1,
+            "currency": "USD",
+            "unit": "million input tokens",
+            "source_url": None,
+            "updated": None,
+        },
+        {
+            "kind": "rate",
+            "label": "Output price",
+            "amount": 0.4,
+            "currency": "USD",
+            "unit": "million output tokens",
+            "source_url": None,
+            "updated": None,
+        },
     ]
-    assert selected["configuration_actions"][0]["provider"] == "openai"
-    assert response.json()["schema_version"] == "frisket.selector_choices.v2"
+    assert [option["id"] for option in selected["route_selection"]["options"]] == [
+        "cloud",
+        "own",
+    ]
+    assert response.json()["schema_version"] == "frisket.selector_choices.v3"
     assert response.json()["cloud_setup"] is None
     assert profile_loads == 1
+
+
+def test_selected_suspended_cloud_model_uses_human_blocker_copy(tmp_path) -> None:
+    route = _llm_route().model_copy(
+        update={"ready": False, "blocker": "account_suspended"}
+    )
+    client, _workspace, _store, project_id = _cloud_selector_app(
+        tmp_path, routes=[route]
+    )
+
+    with client:
+        response = client.post(
+            f"/api/projects/{project_id}/selector-choices",
+            json={
+                "schema_version": "frisket.selector_choices_query.v1",
+                "subject": {
+                    "kind": "project_ask",
+                    "model": "openai/gpt-5-mini",
+                },
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    selected = next(
+        choice for choice in _choices(response.json()) if choice["is_current"]
+    )
+    assert selected["status"] == "unavailable"
+    assert selected["blocker"] == {
+        "code": "account_suspended",
+        "message": "The selected Frisket Cloud account is suspended.",
+        "field": None,
+    }
 
 
 def test_exhausted_cloud_credit_route_stays_selected_and_offers_credits(
@@ -530,7 +804,7 @@ def test_exhausted_cloud_credit_route_stays_selected_and_offers_credits(
         lane="frisket_credits",
         route_revision="ocr-route-1",
         ready=False,
-        blocker="Add credits to continue.",
+        blocker="insufficient_credits",
         price=CloudUnitPrice(kind="unit", unit="page", micro_per_unit=2_500),
         options=CloudOCROptionSupport(
             kind="ocr", language=True, geometry=True, searchable_pdf=False
@@ -565,8 +839,19 @@ def test_exhausted_cloud_credit_route_stays_selected_and_offers_credits(
     assert selected["setup"]["add_credits_url"] == (
         "https://cloud.example.test/billing-checkout?account_id=41"
     )
-    assert selected["configuration_actions"][0]["kind"] == "api_key"
-    assert selected["configuration_actions"][0]["provider"] == "datalab"
+    assert selected["configuration_actions"] == []
+    assert selected["blocker"] == {
+        "code": "insufficient_credits",
+        "message": "Add credits in Frisket Cloud to continue.",
+        "field": None,
+    }
+    assert selected["route_selection"]["options"][0] == {
+        "id": "cloud",
+        "label": "Frisket Cloud",
+        "status": "needs_setup",
+        "disabled_reason": None,
+    }
+    assert selected["route_selection"]["options"][1]["id"] == "own"
 
 
 def test_zero_balance_does_not_block_account_key_route(tmp_path, monkeypatch) -> None:
@@ -613,6 +898,55 @@ def test_zero_balance_does_not_block_account_key_route(tmp_path, monkeypatch) ->
     assert selected["execution_route"]["kind"] == "cloud_account_key"
 
 
+def test_missing_cloud_account_key_links_exact_selected_account(tmp_path) -> None:
+    route = CloudCapabilityRoute(
+        capability="ocr",
+        engine="datalab",
+        provider="datalab",
+        lane="account_key",
+        route_revision="ocr-route-1",
+        ready=False,
+        blocker="account_key_required",
+        price=CloudUnitPrice(kind="unit", unit="page", micro_per_unit=0),
+        options=CloudOCROptionSupport(
+            kind="ocr", language=True, geometry=True, searchable_pdf=False
+        ),
+    )
+    client, _workspace, _store, project_id = _cloud_selector_app(
+        tmp_path, routes=[route]
+    )
+
+    with client:
+        response = client.post(
+            f"/api/projects/{project_id}/selector-choices",
+            json={
+                "schema_version": "frisket.selector_choices_query.v1",
+                "subject": {
+                    "kind": "action",
+                    "action_id": "media.ocr",
+                    "field": "engine",
+                    "params": {"engine": "datalab"},
+                },
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    selected = next(
+        choice for choice in _choices(response.json()) if choice["is_current"]
+    )
+    assert selected["status"] == "needs_setup"
+    assert selected["blocker"]["code"] == "account_key_required"
+    assert selected["setup"] == {
+        "kind": "instructions",
+        "title": "Set up key in Frisket Cloud",
+        "steps": [
+            "Add a Datalab key to the selected Frisket Cloud account, then recheck."
+        ],
+        "url": "https://cloud.example.test/funding-accounts?account_id=41&provider=datalab",
+    }
+    assert selected["route_selection"]["options"][0]["status"] == "needs_setup"
+
+
 def test_connected_installation_without_project_account_requests_account_once(
     tmp_path,
 ) -> None:
@@ -636,7 +970,8 @@ def test_connected_installation_without_project_account_requests_account_once(
     payload = response.json()
     selected = next(choice for choice in _choices(payload) if choice["is_current"])
     assert selected["status"] == "needs_setup"
-    assert selected["setup"]["kind"] == "api_key"
+    assert selected["setup"]["kind"] == "cloud"
+    assert selected["setup"]["state"] == "account_required"
     assert selected["configuration_actions"] == []
     assert payload["cloud_setup"]["kind"] == "cloud"
     assert payload["cloud_setup"]["state"] == "account_required"
@@ -671,13 +1006,16 @@ def test_cloud_first_disconnected_installation_does_not_use_configured_local_key
     )
     assert selected["status"] == "needs_setup"
     assert selected["setup"]["kind"] == "cloud"
-    assert selected["setup"]["state"] == "connect"
+    assert selected["setup"]["state"] == "reconnect"
     assert selected["execution_route"] is None
     assert "local_key" not in selected["setup"]
-    assert selected["configuration_actions"][0]["kind"] == "api_key"
-    assert any(
-        scope["configured"] for scope in selected["configuration_actions"][0]["scopes"]
-    )
+    assert selected["configuration_actions"] == []
+    assert selected["route_selection"]["options"][1] == {
+        "id": "own",
+        "label": "Your OpenAI key",
+        "status": "ready",
+        "disabled_reason": None,
+    }
     assert selected["can_run"] is False
     assert "must-not-be-used" not in response.text
 
@@ -893,7 +1231,7 @@ def test_configuration_actions_require_mutation_authority(tmp_path) -> None:
     assert selected["configuration_actions"] == []
 
 
-def test_local_only_action_omits_generic_cloud_setup(tmp_path) -> None:
+def test_native_external_action_omits_generic_cloud_setup(tmp_path) -> None:
     client, _workspace, _store, project_id = _cloud_selector_app(
         tmp_path,
         routes=[],
@@ -1183,8 +1521,8 @@ def test_blocked_cloud_route_keeps_local_api_key_setup_available(tmp_path):
     assert selected["can_run"] is False
     assert selected["status"] == "unavailable"
     assert selected["setup"] is None
-    assert selected["configuration_actions"][0]["kind"] == "api_key"
-    assert selected["configuration_actions"][0]["provider"] == "openai"
+    assert selected["configuration_actions"] == []
+    assert selected["route_selection"]["options"][1]["id"] == "own"
 
 
 def test_unrelated_cloud_model_is_not_reported_as_an_alternative_route(tmp_path):

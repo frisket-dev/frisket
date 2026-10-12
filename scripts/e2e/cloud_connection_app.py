@@ -94,6 +94,22 @@ def _media_routes() -> list[CloudCapabilityRoute]:
     return [
         CloudCapabilityRoute(
             capability="ocr",
+            engine="datalab",
+            provider="datalab",
+            lane="account_key",
+            route_revision="cloud-e2e-datalab-missing-key",
+            ready=False,
+            blocker="account_key_required",
+            price=CloudUnitPrice(kind="unit", unit="page", micro_per_unit=600),
+            options=CloudOCROptionSupport(
+                kind="ocr",
+                language=False,
+                geometry=True,
+                searchable_pdf=False,
+            ),
+        ),
+        CloudCapabilityRoute(
+            capability="ocr",
             engine="paddleocr-vl",
             provider="models-gateway",
             lane="frisket_credits",
@@ -215,9 +231,26 @@ class _ExternalCloud:
             self._assert_bearer(request)
             capabilities = CloudCapabilitiesResponse(
                 account_id=_ACCOUNT_ID,
-                routes=[_route(), *_media_routes()],
+                routes=[
+                    _route(),
+                    _route().model_copy(update={"engine": "gemini/gemini-3.5-flash"}),
+                    *_media_routes(),
+                ],
             )
             return httpx.Response(200, json=capabilities.model_dump(mode="json"))
+        if (
+            request.method == "GET"
+            and path == f"/api/desktop/v1/accounts/{_ACCOUNT_ID}/provider-keys"
+        ):
+            self._assert_bearer(request)
+            return httpx.Response(
+                200,
+                json={
+                    "providers": [
+                        {"provider": "datalab", "label": "Datalab", "configured": False}
+                    ]
+                },
+            )
         if request.method == "DELETE" and path == "/api/desktop/v1/session":
             self._assert_bearer(request)
             return httpx.Response(204)

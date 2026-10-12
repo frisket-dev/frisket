@@ -44,6 +44,8 @@ class ProjectSettings(BaseModel):
     cloud_user_id: int | None = Field(default=None, gt=0)
     cloud_account_id: int | None = Field(default=None, gt=0)
     cloud_execution_preference: Literal["local_first", "cloud_first"] | None = None
+    model_execution_routes: dict[str, Literal["cloud", "own"]] | None = None
+    model_execution_default: Literal["cloud"] | None = None
 
 
 class ProjectSettingsPatch(BaseModel):
@@ -55,6 +57,8 @@ class ProjectSettingsPatch(BaseModel):
     cloud_user_id: int | None = Field(default=None, gt=0)
     cloud_account_id: int | None = Field(default=None, gt=0)
     cloud_execution_preference: Literal["local_first", "cloud_first"] | None = None
+    model_execution_routes: dict[str, Literal["cloud", "own"]] | None = None
+    model_execution_default: Literal["cloud"] | None = None
 
 
 def read_project_settings(project: Any) -> ProjectSettings:
@@ -79,9 +83,15 @@ def read_project_settings(project: Any) -> ProjectSettings:
         return ProjectSettings()
 
 
-def write_project_settings(project: Any, settings: ProjectSettings) -> ProjectSettings:
+def write_project_settings(
+    project: Any, settings: ProjectSettings, *, commit: bool = True
+) -> ProjectSettings:
     """Persist ``settings`` whole and return what was stored."""
-    project.set_meta(PROJECT_SETTINGS_META_KEY, settings.model_dump_json())
+    project.set_meta(
+        PROJECT_SETTINGS_META_KEY,
+        settings.model_dump_json(),
+        commit=commit,
+    )
     return settings
 
 
@@ -93,8 +103,9 @@ def patch_project_settings(project: Any, patch: Any) -> ProjectSettings:
     """
     validated = ProjectSettingsPatch.model_validate(patch)
     updates = validated.model_dump(exclude_none=True)
-    merged = read_project_settings(project).model_copy(update=updates)
-    return write_project_settings(project, merged)
+    with project.transaction_scope():
+        merged = read_project_settings(project).model_copy(update=updates)
+        return write_project_settings(project, merged, commit=False)
 
 
 def read_project_mcp_servers(project: Any) -> list[dict[str, Any]]:

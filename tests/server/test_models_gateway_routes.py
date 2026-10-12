@@ -10,10 +10,15 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from frisket.server import provider_config
+from frisket.server.app import create_app
 from frisket.server.routes.models_gateway import register_models_gateway_routes
 from frisket.server.services.models_gateway import (
     ModelsGatewayProbeCache,
     ModelsGatewayService,
+)
+from frisket.server.services.project_model_routes import (
+    ProjectModelRouteError,
+    ProjectModelRoutesService,
 )
 
 
@@ -43,11 +48,12 @@ def _capabilities() -> dict:
     }
 
 
-def _client(tmp_path, monkeypatch, handler) -> TestClient:
+def _client(tmp_path, monkeypatch, handler, *, before_save=None) -> TestClient:
     monkeypatch.delenv("FRISKET_MODELS_URL", raising=False)
     monkeypatch.delenv("FRISKET_MODELS_TOKEN", raising=False)
     service = ModelsGatewayService.workspace(
         tmp_path,
+        before_save=before_save,
         transport=_transport(handler),
     )
     app = FastAPI()
@@ -128,6 +134,131 @@ def test_candidate_validate_receipt_and_atomic_save(tmp_path, monkeypatch) -> No
     raw = json.loads(provider_config.local_secrets_path(tmp_path).read_text())
     stored = json.loads(raw[provider_config.MODELS_GATEWAY_CONFIG_KEY])
     assert stored == {"origin": ORIGIN, "token": TOKEN}
+
+
+def test_gateway_save_pins_routes_after_validation_before_persisting(
+    tmp_path, monkeypatch
+) -> None:
+    events = []
+
+    def pin_routes() -> None:
+        assert provider_config.resolve_models_gateway(tmp_path, env={}) is None
+        events.append("pin")
+
+    client = _client(
+        tmp_path,
+        monkeypatch,
+        lambda _request: httpx.Response(200, json=_capabilities()),
+        before_save=pin_routes,
+    )
+    receipt = client.post(
+        "/api/models-gateway/validate",
+        json={"origin": ORIGIN, "token": TOKEN},
+    ).json()["validation_token"]
+
+    response = client.put(
+        "/api/models-gateway",
+        json={
+            "origin": ORIGIN,
+            "token": TOKEN,
+            "validation_token": receipt,
+        },
+    )
+
+    assert response.status_code == 200
+    assert events == ["pin"]
+    assert provider_config.resolve_models_gateway(tmp_path, env={}) is not None
+
+
+def test_solo_app_wires_gateway_save_to_project_route_pinning(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.delenv("FRISKET_MODELS_URL", raising=False)
+    monkeypatch.delenv("FRISKET_MODELS_TOKEN", raising=False)
+    monkeypatch.setattr(
+        "frisket.server.services.models_gateway.probe_models_gateway",
+        lambda *_args, **_kwargs: {
+            "ok": True,
+            "reachable": True,
+            "status": 200,
+            "detail": None,
+            "service": "frisket-models",
+            "version": "1.2.3",
+            "engines": [],
+        },
+    )
+    pinned = []
+    monkeypatch.setattr(
+        ProjectModelRoutesService,
+        "pin_all_projects",
+        lambda _self: pinned.append("pinned"),
+    )
+    client = TestClient(create_app(tmp_path))
+    receipt = client.post(
+        "/api/models-gateway/validate",
+        json={"origin": ORIGIN, "token": TOKEN},
+    ).json()["validation_token"]
+
+    response = client.put(
+        "/api/models-gateway",
+        json={
+            "origin": ORIGIN,
+            "token": TOKEN,
+            "validation_token": receipt,
+        },
+    )
+
+    assert response.status_code == 200
+    assert pinned == ["pinned"]
+
+
+def test_gateway_save_reports_route_pinning_refusal_without_persisting(
+    tmp_path, monkeypatch
+) -> None:
+    provider_config.save_local_models_gateway(
+        tmp_path,
+        origin="https://existing.example.test",
+        token="existing-token",
+    )
+
+    def refuse_pin() -> None:
+        raise ProjectModelRouteError(
+            409,
+            "model_route_configuration_unavailable",
+            "Fix the project target configuration and retry.",
+        )
+
+    client = _client(
+        tmp_path,
+        monkeypatch,
+        lambda _request: httpx.Response(200, json=_capabilities()),
+        before_save=refuse_pin,
+    )
+    receipt = client.post(
+        "/api/models-gateway/validate",
+        json={"origin": ORIGIN, "token": TOKEN},
+    ).json()["validation_token"]
+
+    response = client.put(
+        "/api/models-gateway",
+        json={
+            "origin": ORIGIN,
+            "token": TOKEN,
+            "validation_token": receipt,
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": {
+            "code": "model_route_configuration_unavailable",
+            "message": "Fix the project target configuration and retry.",
+        }
+    }
+    preserved = provider_config.resolve_models_gateway(tmp_path, env={})
+    assert preserved is not None
+    assert preserved.origin == "https://existing.example.test"
+    assert preserved.token == "existing-token"
 
 
 def test_failed_validation_preserves_previous_config(tmp_path, monkeypatch) -> None:

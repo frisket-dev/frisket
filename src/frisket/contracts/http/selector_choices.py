@@ -17,7 +17,7 @@ from frisket.contracts.http.models import WireModel
 
 
 SELECTOR_CHOICES_QUERY_SCHEMA_VERSION = "frisket.selector_choices_query.v1"
-SELECTOR_CHOICES_SCHEMA_VERSION = "frisket.selector_choices.v2"
+SELECTOR_CHOICES_SCHEMA_VERSION = "frisket.selector_choices.v3"
 
 
 class ActionSelectorSubject(WireModel):
@@ -162,7 +162,22 @@ class SelectorExecutionRoute(WireModel):
     balance_label: str | None = None
     balance_url: str | None = None
     settings_url: str | None = None
+    credential_label: str | None = None
     has_alternative_route: bool
+
+
+class SelectorRouteOption(WireModel):
+    id: Literal["cloud", "own"]
+    label: str
+    status: Literal["ready", "needs_setup", "working", "unavailable"]
+    disabled_reason: str | None = None
+
+
+class SelectorRouteSelection(WireModel):
+    model_id: str
+    selected: Literal["cloud", "own"]
+    can_mutate: bool
+    options: list[SelectorRouteOption]
 
 
 class SelectorBlocker(WireModel):
@@ -267,6 +282,7 @@ class SelectorChoice(WireModel):
     resolved_target: SelectorResolvedTarget | None
     processing_destination: SelectorProcessingDestination
     execution_route: SelectorExecutionRoute | None
+    route_selection: SelectorRouteSelection | None
     facts: list[SelectorFact]
     status: Literal["ready", "needs_setup", "working", "unavailable"]
     can_author: bool
@@ -288,7 +304,7 @@ class SelectorChoiceGroup(WireModel):
 
 
 class SelectorChoicesResponse(WireModel):
-    schema_version: Literal["frisket.selector_choices.v2"]
+    schema_version: Literal["frisket.selector_choices.v3"]
     project_id: str
     subject: NormalizedSelectorSubject
     depends_on: list[str]
@@ -299,6 +315,16 @@ class SelectorChoicesResponse(WireModel):
     cloud_setup: SelectorCloudSetup | None
 
 
+class ProjectModelRouteRequest(WireModel):
+    model_id: str = Field(min_length=1)
+    route: Literal["cloud", "own"]
+
+
+class ProjectModelRouteResponse(WireModel):
+    model_id: str
+    route: Literal["cloud", "own"]
+
+
 __all__ = [
     "SELECTOR_CHOICES_QUERY_SCHEMA_VERSION",
     "SELECTOR_CHOICES_SCHEMA_VERSION",
@@ -307,6 +333,8 @@ __all__ = [
     "ArtifactDownloadSetup",
     "AuthoredSelection",
     "ProjectAskSelectorSubject",
+    "ProjectModelRouteRequest",
+    "ProjectModelRouteResponse",
     "EmbeddingSelectorSubject",
     "EmbeddingSelection",
     "EngineModelSelection",
@@ -328,6 +356,8 @@ __all__ = [
     "SelectorExecutionRoute",
     "SelectorProcessingDestination",
     "SelectorResolvedTarget",
+    "SelectorRouteOption",
+    "SelectorRouteSelection",
     "SelectorSetup",
     "SelectorSetupScope",
 ]

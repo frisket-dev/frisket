@@ -469,6 +469,11 @@ def test_v1_queued_llm_ner_uses_shared_cost_confirmation(
     client = TestClient(create_app(tmp_path / "ws", run_status_grace_seconds=3600.0))
     _pin_zero_preapproval(client)
     project_id, sheet_id = _seed_ner_project(client)
+    route_response = client.patch(
+        f"/api/projects/{project_id}/model-routes",
+        json={"model_id": "openai/gpt-5-mini", "route": "own"},
+    )
+    assert route_response.status_code == 200, route_response.text
     body = _ner_action(
         sheet_id,
         idempotency_key="v1-queued-ner-cost-gate@sha256:stable",

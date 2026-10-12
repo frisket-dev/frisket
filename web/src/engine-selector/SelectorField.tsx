@@ -6,6 +6,8 @@ import {
   type EngineSelectorGroup,
 } from '../components/engine-selector';
 import type { HttpSelectorChoicesQuery, SelectorChoice } from '../api/selectorChoices';
+import { projectModelRoutesApi } from '../api/modelRoutes';
+import { ModelRouteControl } from './ModelRouteControl';
 import { SelectorSetup } from './SelectorSetup';
 import { useSelectorChoices, type SelectorChoicesLoader } from './useSelectorChoices';
 
@@ -76,6 +78,7 @@ function displayChoice(choice: SelectorChoice): EngineSelectorChoice {
     route: choice.execution_route ? {
       label: choice.execution_route.label,
       billedTo: choice.execution_route.billed_to ?? undefined,
+      credentialLabel: choice.execution_route.credential_label ?? undefined,
       sendsDataTo: choice.execution_route.sends_data_to ?? undefined,
       balanceLabel: choice.execution_route.balance_label ?? undefined,
       balanceUrl: choice.execution_route.balance_url ?? undefined,
@@ -208,18 +211,29 @@ export function SelectorField({
         const raw = choicesById.get(choice.id);
         if (raw) onSelect(raw);
       }}
+      renderDetailBeforeRoute={({ choice, onBusyChange }) => {
+        const raw = choicesById.get(choice.id);
+        return raw?.route_selection && projectId && !state.stale ? <ModelRouteControl
+          key={`${projectId}:${raw.route_selection.model_id}`}
+          projectId={projectId}
+          selection={raw.route_selection}
+          setRoute={projectModelRoutesApi.setProjectModelRoute}
+          onChanged={state.refresh}
+          onBusyChange={onBusyChange}
+        /> : null;
+      }}
       renderDetailFooter={({ choice, onEditingChange, close }) => {
         const raw = choicesById.get(choice.id);
         return raw && projectId ? <>
-          <SelectorSetup
+          {(!raw.route_selection || !state.stale) && <SelectorSetup
             projectId={projectId}
             choice={raw}
-            cloudSetup={state.response?.cloud_setup}
+            cloudSetup={raw.route_selection ? null : state.response?.cloud_setup}
             onChanged={state.refresh}
             onEditingChange={onEditingChange}
             sharedProgress
             operationError={state.operationError !== null}
-          />
+          />}
           {renderDetailExtra?.({ choice: raw, onEditingChange, close })}
         </> : null;
       }}

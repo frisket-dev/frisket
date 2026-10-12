@@ -101,6 +101,7 @@ export function EngineSelector({
   value,
   recentNamespace,
   onSelect,
+  renderDetailBeforeRoute,
   renderDetailFooter,
   notice,
   disabled = false,
@@ -123,6 +124,7 @@ export function EngineSelector({
   const [previewedId, setPreviewedId] = useState<string | null>(null);
   const [pinnedId, setPinnedId] = useState<string | null>(null);
   const [editingSetup, setEditingSetup] = useState(false);
+  const [detailBusy, setDetailBusy] = useState(false);
   const [providerFilter, setProviderFilter] = useState('');
   const [mobileDetail, setMobileDetail] = useState(false);
   const [mobileOriginId, setMobileOriginId] = useState<string | null>(null);
@@ -169,7 +171,7 @@ export function EngineSelector({
   const positioning = useAnchoredPosition(triggerRef, {
     enabled: open,
     align: 'right',
-    width: 760,
+    width: (_rect, viewportWidth) => Math.min(1080, viewportWidth - 16),
     gap: 4,
     minHeight: 240,
   });
@@ -180,6 +182,12 @@ export function EngineSelector({
   };
 
   useEffect(() => () => cancelHoverIntent(), []);
+
+  useEffect(() => {
+    if (!detailBusy) return;
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    hoverTimerRef.current = null;
+  }, [detailBusy]);
 
   useEffect(() => {
     pinnedIdRef.current = pinnedId;
@@ -205,6 +213,7 @@ export function EngineSelector({
     editingSetupRef.current = false;
     setPinnedId(null);
     setEditingSetup(false);
+    setDetailBusy(false);
     setMobileDetail(false);
     setMobileOriginId(null);
     setProviderFilter('');
@@ -243,10 +252,16 @@ export function EngineSelector({
   }, [open]);
 
   const close = () => {
+    if (detailBusy) return;
     setOpen(false);
   };
 
+  const reportDetailBusy = (busy: boolean) => {
+    setDetailBusy(busy);
+  };
+
   const explicitPreview = (choice: EngineSelectorChoice, showMobileDetail = false) => {
+    if (detailBusy) return;
     cancelHoverIntent();
     setPinnedId(null);
     setEditingSetup(false);
@@ -259,11 +274,11 @@ export function EngineSelector({
   };
 
   const previewAfterIntent = (choice: EngineSelectorChoice) => {
-    if (pinnedIdRef.current || editingSetupRef.current) return;
+    if (detailBusy || pinnedIdRef.current || editingSetupRef.current) return;
     cancelHoverIntent();
     hoverTimerRef.current = setTimeout(() => {
       hoverTimerRef.current = null;
-      if (!pinnedIdRef.current && !editingSetupRef.current) {
+      if (!detailBusy && !pinnedIdRef.current && !editingSetupRef.current) {
         setPreviewedId(choice.id);
         setActiveGroupId(groupForChoice(groups, choice.id)?.id ?? null);
       }
@@ -271,6 +286,7 @@ export function EngineSelector({
   };
 
   const choose = (choice: EngineSelectorChoice) => {
+    if (detailBusy) return;
     if (choice.status === 'unavailable' || !choice.canAuthor) {
       explicitPreview(choice);
       return;
@@ -328,6 +344,7 @@ export function EngineSelector({
   };
 
   const returnToMobileChoices = () => {
+    if (detailBusy) return;
     const origin = mobileOriginId;
     setMobileDetail(false);
     requestAnimationFrame(() => {
@@ -336,6 +353,7 @@ export function EngineSelector({
   };
 
   const navigateToProvider = (group: EngineSelectorGroup) => {
+    if (detailBusy) return;
     cancelHoverIntent();
     pinnedIdRef.current = null;
     editingSetupRef.current = false;
@@ -351,6 +369,7 @@ export function EngineSelector({
         choice: previewedChoice,
         pinned: pinnedId === previewedChoice.id,
         onEditingChange: setEditingSetup,
+        onBusyChange: reportDetailBusy,
         close,
       }
     : null;
@@ -368,7 +387,7 @@ export function EngineSelector({
         ? triggerCopy.blocker ?? triggerCopy.summary ?? statusLabel(triggerCopy.status)
         : choiceSecondaryCopy(triggerCopy) ?? groupForChoice(groups, triggerCopy.id)?.label ?? '';
   const anchoredStyle = wideAnchor && positioning
-    ? { top: positioning.top, bottom: positioning.bottom, left: positioning.left, width: positioning.width, maxHeight: Math.min(420, positioning.maxHeight) }
+    ? { top: positioning.top, bottom: positioning.bottom, left: positioning.left, width: positioning.width, maxHeight: Math.min(680, positioning.maxHeight) }
     : undefined;
 
   return (
@@ -427,7 +446,8 @@ export function EngineSelector({
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />
-            <button type="button" className="engine-selector__close" aria-label={`Close ${label} selector`} onClick={close}>×</button>
+            <button type="button" className="engine-selector__close" aria-label={`Close ${label} selector`}
+              disabled={detailBusy} onClick={close}>×</button>
           </header>
 
           {notice}
@@ -455,11 +475,11 @@ export function EngineSelector({
                     data-engine-selector-group={group.id}
                     className={group.id === currentGroup?.id ? 'is-active' : ''}
                     onMouseEnter={() => {
-                      if (pinnedIdRef.current || editingSetupRef.current) return;
+                      if (detailBusy || pinnedIdRef.current || editingSetupRef.current) return;
                       cancelHoverIntent();
                       hoverTimerRef.current = setTimeout(() => {
                         hoverTimerRef.current = null;
-                        if (pinnedIdRef.current || editingSetupRef.current) return;
+                        if (detailBusy || pinnedIdRef.current || editingSetupRef.current) return;
                         setActiveGroupId(group.id);
                         setPreviewedId(group.choices[0]?.id ?? null);
                         setProviderFilter('');
@@ -562,6 +582,7 @@ export function EngineSelector({
                       })}
                     </dl>
                   )}
+                  {renderDetailBeforeRoute?.(detailFooter!)}
                   {previewedChoice.route && <EngineRouteDetails route={previewedChoice.route} />}
                   {previewedChoice.blocker && <p className="engine-selector__blocker">{previewedChoice.blocker}</p>}
                 </> : <p className="engine-selector__empty">No choices are available.</p>}

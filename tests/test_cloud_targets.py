@@ -8,7 +8,11 @@ from frisket.ai.llm import ModelRouter
 from frisket.contracts.action import Receipt
 from frisket.cloud_execution import CloudExecutionAttempt
 from frisket.cloud_connection import CloudConnectionStore
-from frisket.cloud_targets import cloud_execution_composition, compose_cloud_targets
+from frisket.cloud_targets import (
+    cloud_execution_composition,
+    compose_cloud_targets,
+    legacy_cloud_execution_preference,
+)
 from frisket.contracts.http.cloud_connection import (
     CloudAccount,
     CloudCapabilitiesResponse,
@@ -157,6 +161,46 @@ class _OpenAIProvider:
         return 0
 
 
+class _PaddleOCRLocalProvider:
+    def __init__(self, *, configured: bool) -> None:
+        self.configured = configured
+        self.target = ExecutionTarget(
+            id=LOCAL_MODELS_TARGET_ID,
+            operator="self",
+            egress_class="none",
+            engines=(
+                TargetEngineSupport(
+                    engine=CLOUD_OCR_ENGINE,
+                    transport="sidecar.ocr",
+                    capability=CAPABILITY_OCR,
+                    options=OcrOptionSupport(language=True, geometry=True),
+                ),
+            ),
+        )
+
+    def targets(self):
+        return (self.target,)
+
+    def connection(self, target_id):
+        return (
+            ConnectionConfig()
+            if target_id == LOCAL_MODELS_TARGET_ID and self.configured
+            else None
+        )
+
+    def configuration(self, target_id, capability, engine):
+        del capability, engine
+        return (
+            "configured"
+            if target_id == LOCAL_MODELS_TARGET_ID and self.configured
+            else "not_configured"
+        )
+
+    def selection_rank(self, target_id, capability, engine):
+        del target_id, capability, engine
+        return 0
+
+
 def _base() -> ExecutionComposition:
     return ExecutionComposition(
         facts=CompositionFacts(edition="open", funding=OperatorBorne()),
@@ -177,6 +221,14 @@ def _base_with_openai_route(*, configured: bool = True) -> ExecutionComposition:
     return ExecutionComposition(
         facts=CompositionFacts(edition="open", funding=OperatorBorne()),
         provider=_OpenAIProvider(configured=configured),
+        credential_use_context=CredentialUseContext.open(),
+    )
+
+
+def _base_with_paddleocr_local_route(*, configured: bool) -> ExecutionComposition:
+    return ExecutionComposition(
+        facts=CompositionFacts(edition="open", funding=OperatorBorne()),
+        provider=_PaddleOCRLocalProvider(configured=configured),
         credential_use_context=CredentialUseContext.open(),
     )
 
@@ -243,6 +295,57 @@ def _llm_capabilities(*, ready: bool = True) -> CloudCapabilitiesResponse:
             )
         ],
     )
+
+
+@pytest.mark.parametrize(
+    ("blocker", "expected_configuration"),
+    [
+        ("account_key_required", "not_configured"),
+        ("insufficient_credits", "configured"),
+        ("account_suspended", "configured"),
+    ],
+)
+def test_cloud_configuration_distinguishes_missing_key_from_route_health(
+    blocker, expected_configuration
+):
+    route = (
+        _llm_capabilities()
+        .routes[0]
+        .model_copy(
+            update={
+                "lane": "account_key",
+                "ready": False,
+                "blocker": blocker,
+            }
+        )
+    )
+    composition = compose_cloud_targets(
+        _base_without_local_route(),
+        user_id=7,
+        account=_account(),
+        capabilities=CloudCapabilitiesResponse(account_id=41, routes=[route]),
+        preference="local_first",
+    )
+    target_id = "frisket-cloud:41:account_key:openai"
+    provider = composition.provider_for_resolution()
+
+    assert (
+        provider.configuration(target_id, CAPABILITY_LLM, "openai/gpt-5-mini")
+        == expected_configuration
+    )
+    outcome = resolve(
+        ResolutionRequest(
+            engine="openai/gpt-5-mini",
+            capability=CAPABILITY_LLM,
+            options={},
+            route="cloud",
+        ),
+        provider,
+        composition.facts,
+    )
+    assert isinstance(outcome, Refusal)
+    assert outcome.target_id == target_id
+    assert blocker in outcome.remedy
 
 
 def test_cloud_first_resolves_target_specific_payer_and_offering():
@@ -561,7 +664,7 @@ def test_signed_out_cloud_first_blocks_nonlocal_routes_but_preserves_local(
 
     if blocked:
         assert isinstance(outcome, Refusal)
-        assert outcome.target_id == target_id
+        assert outcome.target_id is None
         assert "Reconnect Frisket Cloud" in outcome.remedy
     else:
         assert not isinstance(outcome, Refusal)
@@ -650,9 +753,51 @@ def test_unreadable_inherited_cloud_first_profile_does_not_use_own_key(tmp_path)
         project.close()
 
     assert isinstance(outcome, Refusal)
-    assert outcome.target_id == "remote-api:openai"
+    assert outcome.target_id is None
     assert "Reconnect Frisket Cloud" in outcome.remedy
     assert "does not support Reconnect" not in outcome.remedy
+
+
+@pytest.mark.parametrize("unreadable_profile", [False, True])
+def test_unbound_legacy_project_does_not_inherit_install_cloud_first(
+    tmp_path, unreadable_profile
+):
+    project = Project.create(tmp_path / "unbound.frisket", name="Unbound")
+    store = CloudConnectionStore(tmp_path / "unbound-profile")
+    store.save_connection(
+        "installation-token",
+        CloudSessionResponse(
+            user=CloudUser(id=7, email="user@example.test", display_name="User"),
+            expires_at="2099-01-01T00:00:00Z",
+            accounts=[_account()],
+        ),
+    )
+    store.set_preference("cloud_first")
+    if unreadable_profile:
+        store.key_path.unlink()
+    try:
+        assert legacy_cloud_execution_preference(project, store) == "local_first"
+        composition = cloud_execution_composition(
+            _base_with_openai_route(),
+            project,
+            store=store,
+            client=object(),
+        )
+        request = composition.resolution_request(
+            "openai/gpt-5-mini", capability=CAPABILITY_LLM, options={}
+        )
+        outcome = resolve(
+            request,
+            composition.provider_for_resolution(),
+            composition.facts,
+        )
+    finally:
+        project.close()
+
+    assert composition.model_route_default is None
+    assert request.route == "own"
+    assert not isinstance(outcome, Refusal)
+    assert outcome.target.id == "remote-api:openai"
 
 
 def test_cloud_llm_route_carries_typed_price_and_payer():
@@ -680,6 +825,188 @@ def test_cloud_llm_route_carries_typed_price_and_payer():
     assert outcome.facts.cloud_payer.account_id == 41
     price = composition.provider.cloud_llm_price(outcome.target.id, "openai/gpt-5-mini")
     assert price.output_micro_per_million_tokens == 2_000_000
+
+
+def test_legacy_cloud_first_project_keeps_cloud_when_own_key_is_configured(tmp_path):
+    project = Project.create(tmp_path / "legacy.frisket", name="Legacy")
+    write_project_settings(
+        project,
+        ProjectSettings(
+            cloud_user_id=7,
+            cloud_account_id=41,
+            cloud_execution_preference="cloud_first",
+        ),
+    )
+    store = CloudConnectionStore(tmp_path / "profile")
+    store.save_connection(
+        "installation-token",
+        CloudSessionResponse(
+            user=CloudUser(id=7, email="user@example.test", display_name="User"),
+            expires_at="2099-01-01T00:00:00Z",
+            accounts=[_account()],
+        ),
+    )
+    store.save_capabilities(_llm_capabilities(), expected_user_id=7)
+    try:
+        composition = cloud_execution_composition(
+            _base_with_openai_route(), project, store=store, client=object()
+        )
+        request = composition.resolution_request(
+            "openai/gpt-5-mini", capability=CAPABILITY_LLM, options={}
+        )
+        outcome = resolve(
+            request,
+            composition.provider_for_resolution(),
+            composition.facts,
+        )
+    finally:
+        project.close()
+
+    assert request.route == "cloud"
+    assert not isinstance(outcome, Refusal)
+    assert outcome.target.id == "frisket-cloud:41:frisket_credits:openai"
+
+
+@pytest.mark.parametrize(
+    ("local_configured", "expected_route", "expected_target"),
+    [
+        (True, "own", LOCAL_MODELS_TARGET_ID),
+        (False, "cloud", "frisket-cloud:41:frisket_credits:anthropic"),
+    ],
+    ids=("installed-local", "uninstalled-local"),
+)
+def test_legacy_cloud_first_uses_configured_local_else_actual_cloud_candidate(
+    tmp_path, local_configured, expected_route, expected_target
+):
+    project = Project.create(tmp_path / "legacy-local.frisket", name="Legacy local")
+    write_project_settings(
+        project,
+        ProjectSettings(
+            cloud_user_id=7,
+            cloud_account_id=41,
+            cloud_execution_preference="cloud_first",
+        ),
+    )
+    store = CloudConnectionStore(tmp_path / "profile-local")
+    store.save_connection(
+        "installation-token",
+        CloudSessionResponse(
+            user=CloudUser(id=7, email="user@example.test", display_name="User"),
+            expires_at="2099-01-01T00:00:00Z",
+            accounts=[_account()],
+        ),
+    )
+    store.save_capabilities(_capabilities(), expected_user_id=7)
+    try:
+        composition = cloud_execution_composition(
+            _base_with_paddleocr_local_route(configured=local_configured),
+            project,
+            store=store,
+            client=object(),
+        )
+        request = composition.resolution_request(
+            CLOUD_OCR_ENGINE, capability=CAPABILITY_OCR, options={}
+        )
+        outcome = resolve(
+            request,
+            composition.provider_for_resolution(),
+            composition.facts,
+        )
+    finally:
+        project.close()
+
+    assert request.route == expected_route
+    assert not isinstance(outcome, Refusal)
+    assert outcome.target.id == expected_target
+
+
+def test_legacy_cloud_first_connected_empty_catalog_keeps_configured_own_route(
+    tmp_path,
+):
+    project = Project.create(tmp_path / "legacy-own.frisket", name="Legacy own")
+    write_project_settings(
+        project,
+        ProjectSettings(
+            cloud_user_id=7,
+            cloud_account_id=41,
+            cloud_execution_preference="cloud_first",
+        ),
+    )
+    store = CloudConnectionStore(tmp_path / "profile-own")
+    store.save_connection(
+        "installation-token",
+        CloudSessionResponse(
+            user=CloudUser(id=7, email="user@example.test", display_name="User"),
+            expires_at="2099-01-01T00:00:00Z",
+            accounts=[_account()],
+        ),
+    )
+    store.save_capabilities(
+        CloudCapabilitiesResponse(account_id=41, routes=[]), expected_user_id=7
+    )
+    try:
+        composition = cloud_execution_composition(
+            _base_with_openai_route(), project, store=store, client=object()
+        )
+        request = composition.resolution_request(
+            "openai/gpt-5-mini", capability=CAPABILITY_LLM, options={}
+        )
+        outcome = resolve(
+            request,
+            composition.provider_for_resolution(),
+            composition.facts,
+        )
+    finally:
+        project.close()
+
+    assert request.route == "own"
+    assert not isinstance(outcome, Refusal)
+    assert outcome.target.id == "remote-api:openai"
+
+
+def test_materialized_cloud_default_connected_empty_catalog_keeps_configured_own(
+    tmp_path,
+):
+    project = Project.create(tmp_path / "materialized-own.frisket", name="Own")
+    write_project_settings(
+        project,
+        ProjectSettings(
+            cloud_user_id=7,
+            cloud_account_id=41,
+            model_execution_routes={},
+            model_execution_default="cloud",
+        ),
+    )
+    store = CloudConnectionStore(tmp_path / "profile-materialized-own")
+    store.save_connection(
+        "installation-token",
+        CloudSessionResponse(
+            user=CloudUser(id=7, email="user@example.test", display_name="User"),
+            expires_at="2099-01-01T00:00:00Z",
+            accounts=[_account()],
+        ),
+    )
+    store.save_capabilities(
+        CloudCapabilitiesResponse(account_id=41, routes=[]), expected_user_id=7
+    )
+    try:
+        composition = cloud_execution_composition(
+            _base_with_openai_route(), project, store=store, client=object()
+        )
+        request = composition.resolution_request(
+            "openai/gpt-5-mini", capability=CAPABILITY_LLM, options={}
+        )
+        outcome = resolve(
+            request,
+            composition.provider_for_resolution(),
+            composition.facts,
+        )
+    finally:
+        project.close()
+
+    assert request.route == "own"
+    assert not isinstance(outcome, Refusal)
+    assert outcome.target.id == "remote-api:openai"
 
 
 def test_local_first_omits_cloud_llm_when_exact_local_adapter_exists():

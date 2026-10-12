@@ -8,6 +8,8 @@ export interface ProviderKeyFormProps<Result = void> {
   providers?: ReadonlyArray<{ id: string; label: string; policy_fields?: readonly string[] }>;
   canMutate: boolean;
   keyLabel?: string;
+  keyPlaceholder?: string;
+  keyPrefix?: string;
   spendCap?: boolean;
   compact?: boolean;
   validate(provider: string, key: string, signal: AbortSignal): Promise<ProviderValidateResult>;
@@ -18,7 +20,8 @@ export interface ProviderKeyFormProps<Result = void> {
 
 /** Shared candidate/receipt controls for selector setup and provider Settings. */
 export function ProviderKeyForm<Result = void>({ provider: fixedProvider, providers = [], canMutate,
-  keyLabel = 'API key', spendCap = false, compact = false, validate, save, onSaved, onEditingChange,
+  keyLabel = 'API key', keyPlaceholder, keyPrefix, spendCap = false, compact = false,
+  validate, save, onSaved, onEditingChange,
 }: ProviderKeyFormProps<Result>) {
   const [provider, setProvider] = useState(fixedProvider ?? providers[0]?.id ?? 'anthropic');
   const [key, setKey] = useState('');
@@ -76,15 +79,19 @@ export function ProviderKeyForm<Result = void>({ provider: fixedProvider, provid
     event.preventDefault(); void test();
   };
   const actionLabel = busy === 'test' ? 'Testing…' : busy === 'save' ? 'Saving…' : receipt ? 'Save' : 'Test';
+  const prefixMismatch = Boolean(keyPrefix && key.trim() && !key.trim().startsWith(keyPrefix));
   return <form className={`settings-form settings-inline-form settings-provider-key-form${compact ? ' settings-provider-key-form--compact' : ''}`} autoComplete="off" onSubmit={compact ? compactSubmit : submit} onFocus={() => editing(true)}>
     {!fixedProvider && <label><span>Provider</span><PanelSelect aria-label="Provider" value={provider} disabled={!canMutate || busy === 'save'} onChange={(event) => { clearValidation(); setProvider(event.currentTarget.value); setKey(''); editing(false); }}>
       {providers.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
     </PanelSelect></label>}
-    <label><span className={compact ? 'sr-only' : undefined}>{keyLabel}</span><input aria-label={keyLabel} placeholder={compact ? keyLabel : undefined} type="password" autoComplete="new-password" value={key} disabled={!canMutate || busy === 'save'} onChange={(event) => { clearValidation(); setKey(event.currentTarget.value); editing(true); }} /></label>
+    <label><span className={compact ? 'sr-only' : undefined}>{keyLabel}</span><input aria-label={keyLabel} placeholder={keyPlaceholder ?? (compact ? keyLabel : undefined)} type="password" autoComplete="new-password" value={key} disabled={!canMutate || busy === 'save'} onChange={(event) => { clearValidation(); setKey(event.currentTarget.value); editing(true); }} /></label>
     {supportsSpendCap && <label><span>Spend cap (USD)</span><input aria-label="Spend cap in US dollars" inputMode="decimal" placeholder="e.g. 5.00 — blank for no cap" value={cap} disabled={!canMutate || busy === 'save'} onChange={(event) => setCap(event.currentTarget.value)} /></label>}
     {compact ? <button className="btn btn-primary" type="submit" disabled={!canMutate || Boolean(busy) || !key.trim()}>{actionLabel}</button>
       : <><button className="btn" type="button" disabled={!canMutate || Boolean(busy) || !key.trim()} onClick={() => void test()}>{busy === 'test' ? 'Testing…' : 'Test'}</button>
         <button className="btn btn-primary" type="submit" disabled={!canMutate || Boolean(busy) || !receipt || !key.trim()}>{busy === 'save' ? 'Saving…' : 'Save'}</button></>}
     {(message || error) && <p className={`settings-inline-status settings-validation-message is-${error ? 'error' : 'success'}`} data-testid="provider-validation-message" role={error ? 'alert' : 'status'}>{error ?? message}</p>}
+    {prefixMismatch && !error && <p className="settings-inline-status settings-validation-message is-warning">
+      This key normally starts with {keyPrefix}. Check that you copied the right key.
+    </p>}
   </form>;
 }

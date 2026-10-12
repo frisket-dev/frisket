@@ -111,6 +111,16 @@ class CloudDeviceRevokeResponse(WireModel):
     revoked: bool
 
 
+class CloudAccountProviderKey(WireModel):
+    provider: str = Field(min_length=1)
+    label: str = Field(min_length=1)
+    configured: bool
+
+
+class CloudAccountProviderKeysResponse(WireModel):
+    providers: list[CloudAccountProviderKey]
+
+
 class CloudTokenPrice(WireModel):
     kind: Literal["tokens"]
     input_micro_per_million_tokens: int = Field(ge=0)
@@ -493,6 +503,10 @@ class CloudConnectionPreferencesPatch(WireModel):
     preference: CloudExecutionPreference
 
 
+class ProjectCloudProviderKey(CloudAccountProviderKey):
+    settings_url: str
+
+
 class ProjectCloudRoutingResponse(WireModel):
     connection_state: CloudConnectionState
     selected_account_id: int | None
@@ -501,6 +515,7 @@ class ProjectCloudRoutingResponse(WireModel):
     accounts: list[CloudConnectionAccountSummary]
     overlap_provider_labels: list[str]
     can_mutate: bool
+    cloud_provider_keys: list[ProjectCloudProviderKey] = Field(default_factory=list)
 
 
 class ProjectCloudRoutingPatch(WireModel):

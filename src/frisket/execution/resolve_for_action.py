@@ -107,7 +107,6 @@ from frisket.execution.resolver import (
     Refusal,
     ResolvedExecution,
     Resolution,
-    ResolutionRequest,
     RouteRowFacts,
     _canonical_engine,
     resolve,
@@ -872,8 +871,10 @@ def resolve_for_action(
         )
     )
     options = authored_options(spec, capability)
-    request = ResolutionRequest(
-        engine=raw_engine, options=options, capability=capability
+    request = composition.resolution_request(
+        raw_engine,
+        options=options,
+        capability=capability,
     )
     canonical_engine = _canonical_engine(raw_engine, capability)
     resolution_provider = composition.provider_for_resolution()
@@ -883,11 +884,15 @@ def resolve_for_action(
         composition.facts,
     )
     if isinstance(outcome, Refusal):
-        if llm_route_check and not _llm_refusal_requires_execution_admission(
-            outcome,
-            composition=composition,
-            provider=resolution_provider,
-            engine=outcome.engine or raw_engine,
+        if (
+            llm_route_check
+            and request.route != "cloud"
+            and not _llm_refusal_requires_execution_admission(
+                outcome,
+                composition=composition,
+                provider=resolution_provider,
+                engine=outcome.engine or raw_engine,
+            )
         ):
             return None
         engine = outcome.engine

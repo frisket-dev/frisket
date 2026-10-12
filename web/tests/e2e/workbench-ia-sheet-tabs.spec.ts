@@ -9,6 +9,7 @@ import {
   listSheets,
   openAction,
   openProject,
+  setProjectModelRoute,
   type WireSheet,
   uniqueName,
 } from './helpers';
@@ -254,6 +255,7 @@ async function waitForSheet(
 
 test('a derived sheet shows the derived marker; a root sheet does not', async ({ page, request }) => {
   const pid = await createProject(request, uniqueName('sheet-tabs-derived'));
+  await setProjectModelRoute(request, pid, DERIVE_MODEL, 'own');
   const rootSheet = await importCsv(request, pid, 'episodes.csv', DERIVE_CSV);
   primeDeriveObjectCache(pid, rootSheet);
   await exposeReplayModel(page, pid);

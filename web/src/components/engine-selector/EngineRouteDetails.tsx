@@ -5,10 +5,6 @@ import type { EngineSelectorRoute } from './types';
 export function EngineRouteDetails({ route }: { route: EngineSelectorRoute }) {
   return (
     <dl className="engine-selector__route" data-testid="engine-selector-route">
-      <div>
-        <dt>Runs with</dt>
-        <dd><strong>{route.label}</strong></dd>
-      </div>
       {route.billedTo && (
         <div>
           <dt>Billed to</dt>
@@ -23,6 +19,12 @@ export function EngineRouteDetails({ route }: { route: EngineSelectorRoute }) {
               <a href={route.settingsUrl}>Change →</a>
             )}
           </dd>
+        </div>
+      )}
+      {route.credentialLabel && (
+        <div>
+          <dt>Key</dt>
+          <dd>{route.credentialLabel}</dd>
         </div>
       )}
       {route.sendsDataTo && (

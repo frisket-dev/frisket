@@ -27,6 +27,7 @@ import os
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from math import isfinite
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from frisket.execution.commercial import (
@@ -54,6 +55,7 @@ from frisket.project_identity import ProjectStorageKey
 if TYPE_CHECKING:
     from frisket.ai.models.gateway_config import ModelsGatewayConnection
     from frisket.engine.jobs.ports import TrustedJobOrg
+    from frisket.execution.resolver import ModelRoute, ResolutionRequest
 
 # Composition edition vocabulary. ``CompositionFacts`` makes operator and
 # egress *resolved* facts for both open and hosted editions.
@@ -220,9 +222,74 @@ class _ResolutionTargetProvider:
 
     source: ExecutionTargetProvider
     rows: tuple[ExecutionTarget, ...]
+    model_routes: Mapping[str, "ModelRoute"] | None = None
+    model_route_default: "ModelRoute | None" = None
+    cloud_inventory_known: bool = False
 
     def targets(self) -> tuple[ExecutionTarget, ...]:
         return self.rows
+
+    def model_route(self, engine: str, capability: str) -> "ModelRoute | None":
+        if self.model_routes is None:
+            return None
+        selected = self.model_routes.get(engine)
+        if selected is not None:
+            return selected
+        from frisket.execution.resolver import (
+            cloud_route_eligible,
+            model_route_for_target,
+        )
+
+        cloud_eligible = cloud_route_eligible(engine, capability)
+        candidates = [
+            target
+            for target in self.rows
+            if any(
+                support.capability == capability
+                and (
+                    support.engine == engine
+                    or support.engine.endswith("/*")
+                    and engine.startswith(support.engine[:-1])
+                )
+                for support in target.engines
+            )
+        ]
+        try:
+            configured_candidates = [
+                target
+                for target in candidates
+                if self.configuration(target.id, capability, engine) == "configured"
+            ]
+        except TargetConfigurationError:
+            # The ordinary chooser will turn this same read failure into its
+            # typed refusal; route policy must not bypass that error.
+            return None
+        available_routes = {
+            model_route_for_target(self, target, capability, engine)
+            for target in candidates
+        }
+        if any(target.egress_class == "none" for target in configured_candidates):
+            return "own"
+        if self.model_route_default is not None:
+            if self.model_route_default != "cloud" or (
+                "cloud" in available_routes
+                or cloud_eligible
+                and not self.cloud_inventory_known
+            ):
+                return self.model_route_default
+        configured_routes = {
+            model_route_for_target(self, target, capability, engine)
+            for target in configured_candidates
+        }
+        if "own" in configured_routes:
+            return "own"
+        if "cloud" in configured_routes:
+            return "cloud"
+        if "cloud" in available_routes or (
+            cloud_eligible and not self.cloud_inventory_known
+        ):
+            return "cloud"
+        return "own" if cloud_eligible and candidates else None
 
     def configuration(
         self, target_id: str, capability: str, engine: str
@@ -318,6 +385,14 @@ class ExecutionComposition:
     offerings: tuple[CommercialOffering, ...] = field(default=(), kw_only=True)
     included: tuple[ExactExecutionMatch, ...] = field(default=(), kw_only=True)
     limits: ExecutionLimits = field(default_factory=ExecutionLimits, kw_only=True)
+    # ``None`` means this composition does not expose per-model route choice
+    # (notably native hosted).  An empty mapping means Solo supports the
+    # feature but this project has no explicit choices yet.
+    model_routes: Mapping[str, "ModelRoute"] | None = field(default=None, kw_only=True)
+    model_route_default: "ModelRoute | None" = field(default=None, kw_only=True)
+    # True when this request carries the selected Cloud account's current
+    # route catalog, including an authoritative empty catalog.
+    cloud_inventory_known: bool = field(default=False, kw_only=True)
 
     def __post_init__(self) -> None:
         if not isinstance(self.credential_use_context, CredentialUseContext):
@@ -337,6 +412,24 @@ class ExecutionComposition:
             )
         if not isinstance(self.included, tuple):
             raise TypeError("execution composition included must be an immutable tuple")
+        if self.model_routes is not None:
+            if not isinstance(self.model_routes, Mapping):
+                raise TypeError("execution composition model_routes must be a mapping")
+            normalized_routes: dict[str, Any] = {}
+            for model_id, route in self.model_routes.items():
+                require_clean("model route id", model_id)
+                if route not in {"cloud", "own"}:
+                    raise ValueError("model route must be cloud or own")
+                normalized_routes[model_id] = route
+            object.__setattr__(
+                self, "model_routes", MappingProxyType(normalized_routes)
+            )
+        if self.model_route_default not in {None, "cloud", "own"}:
+            raise ValueError("model route default must be cloud, own, or None")
+        if self.model_routes is None and self.model_route_default is not None:
+            raise ValueError("model route default requires model route support")
+        if not isinstance(self.cloud_inventory_known, bool):
+            raise TypeError("cloud inventory known must be bool")
         targets = {target.id: target for target in self.provider.targets()}
 
         def validate_match(match: Any, *, kind: str) -> tuple[str, str, str]:
@@ -506,7 +599,40 @@ class ExecutionComposition:
     def provider_for_resolution(self) -> ExecutionTargetProvider:
         """The request provider after applying exact composition matches."""
 
-        return _ResolutionTargetProvider(self.provider, self.resolution_targets())
+        return _ResolutionTargetProvider(
+            self.provider,
+            self.resolution_targets(),
+            self.model_routes,
+            self.model_route_default,
+            self.cloud_inventory_known,
+        )
+
+    def resolution_request(
+        self,
+        engine: str,
+        *,
+        capability: str,
+        options: Mapping[str, Any],
+        route_override: "ModelRoute | None" = None,
+    ) -> "ResolutionRequest":
+        """Build one request with this composition's project route choice."""
+
+        from frisket.execution.resolver import (
+            ResolutionRequest,
+            canonical_model_route_id,
+        )
+
+        route = route_override
+        if route is None and self.model_routes is not None:
+            model_id = canonical_model_route_id(engine, capability)
+            if model_id is not None:
+                route = self.provider_for_resolution().model_route(model_id, capability)
+        return ResolutionRequest(
+            engine=engine,
+            capability=capability,
+            options=options,
+            route=route,
+        )
 
     def supplies_resolution_match(
         self, *, target_id: str, capability: str, engine: str

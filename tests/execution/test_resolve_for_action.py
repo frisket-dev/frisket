@@ -146,6 +146,61 @@ def test_non_marked_recipe_returns_none(audio_project):
     )
 
 
+def test_non_marked_llm_recipe_honors_signed_out_saved_cloud_route(audio_project):
+    project, _sheet_id = audio_project
+    composition = open_execution_composition(
+        project,
+        ModelRouter(
+            keys={"openai": "configured-own-key"},
+            use_env_keys=False,
+            cache_mode="off",
+        ),
+        ExecutionCompositionContext.direct(),
+    )
+    composition = replace(
+        composition,
+        model_routes={"openai/gpt-5-mini": "cloud"},
+    )
+
+    outcome = resolve_for_action(
+        project,
+        {"model": "openai/gpt-5-mini"},
+        _PlainRecipe(),
+        composition=composition,
+    )
+
+    assert isinstance(outcome, Refusal)
+    assert outcome.family == "no_live_target"
+    assert outcome.target_id is None
+    assert "Reconnect Frisket Cloud" in outcome.remedy
+
+
+def test_non_marked_llm_recipe_keeps_saved_own_model_router_path(audio_project):
+    project, _sheet_id = audio_project
+    composition = open_execution_composition(
+        project,
+        ModelRouter(
+            keys={"openai": "configured-own-key"},
+            use_env_keys=False,
+            cache_mode="off",
+        ),
+        ExecutionCompositionContext.direct(),
+    )
+    composition = replace(
+        composition,
+        model_routes={"openai/gpt-5-mini": "own"},
+    )
+
+    outcome = resolve_for_action(
+        project,
+        {"model": "openai/gpt-5-mini"},
+        _PlainRecipe(),
+        composition=composition,
+    )
+
+    assert outcome is None
+
+
 def test_local_engine_resolves_free_zero_claims(audio_project):
     project, sheet_id = audio_project
     resolved = resolve_for_action(

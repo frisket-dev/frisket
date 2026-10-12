@@ -535,6 +535,11 @@ def test_preview_route_missing_provider_key_refuses_after_exact_confirmation(
     router = ModelRouter(cache_mode="off")
     client = TestClient(create_app(tmp_path / "ws", router=router))
     pid, project, sheet_id, row_ids = _route_project(client, ["alpha", "beta"])
+    route_response = client.patch(
+        f"/api/projects/{pid}/model-routes",
+        json={"model_id": "anthropic/claude-haiku-4-5", "route": "own"},
+    )
+    assert route_response.status_code == 200, route_response.text
     action = _summarize_action(sheet_id, row_ids=row_ids)
     before = _database_counts(project)
     before_changes = project.db.total_changes

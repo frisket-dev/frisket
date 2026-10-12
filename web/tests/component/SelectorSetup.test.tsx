@@ -150,8 +150,13 @@ describe('SelectorSetup', () => {
     request.mockResolvedValueOnce(accepted).mockResolvedValueOnce({});
     const changed = vi.fn();
     render(<SelectorSetup projectId="project-a" choice={choice({ kind: 'api_key', provider: 'openai', scopes: [scope('project')] })} onChanged={changed} onEditingChange={vi.fn()} />);
+    expect(screen.getByRole('heading', { name: 'Add your OpenAI key' })).toBeVisible();
+    expect(screen.getByText('How to get a key')).toBeVisible();
+    expect(screen.getByRole('link', { name: /Open platform.openai.com/ })).toHaveAttribute(
+      'href', 'https://platform.openai.com',
+    );
     const key = screen.getByLabelText('API key');
-    expect(key).toHaveAttribute('placeholder', 'API key');
+    expect(key).toHaveAttribute('placeholder', 'sk-…');
     await userEvent.type(key, 'candidate-key{enter}');
     await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled());
     expect(screen.queryByRole('button', { name: 'Test' })).not.toBeInTheDocument();

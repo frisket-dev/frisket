@@ -13,6 +13,7 @@ export interface EngineSelectorFact {
 export interface EngineSelectorRoute {
   label: string;
   billedTo?: string;
+  credentialLabel?: string;
   sendsDataTo?: string;
   balanceLabel?: string;
   balanceUrl?: string;
@@ -60,6 +61,8 @@ export interface EngineSelectorDetailFooterContext {
   pinned: boolean;
   /** Call when an embedded form starts/stops editing. */
   onEditingChange(editing: boolean): void;
+  /** Call while a detail mutation must keep this choice mounted. */
+  onBusyChange(busy: boolean): void;
   /** Dismiss the selector after a custom detail action completes. */
   close(): void;
 }
@@ -72,6 +75,9 @@ export interface EngineSelectorProps {
   /** Browser-storage boundary, normally workspace + surface/action context. */
   recentNamespace: string;
   onSelect(choice: EngineSelectorChoice): void;
+  /** Caller-owned controls that sit between static facts and the resolved
+   * route. Invoked only for the one previewed choice. */
+  renderDetailBeforeRoute?(context: EngineSelectorDetailFooterContext): ReactNode;
   renderDetailFooter?(context: EngineSelectorDetailFooterContext): ReactNode;
   /** Caller-owned status or recovery content, kept inside the modal while open. */
   notice?: ReactNode;

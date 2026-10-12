@@ -308,7 +308,9 @@ export function CloudConnectionPanel({
   }
 
   const expired = intent === 'reconnect' || connection.state === 'expired';
-  const permitted = expired ? connection.capabilities.canReconnect : connection.capabilities.canConnect;
+  const permitted = connection.state === 'expired'
+    ? connection.capabilities.canReconnect
+    : connection.capabilities.canConnect;
   return <section className={`cloud-connection-card is-${variant}`} data-testid="cloud-connection-card">
     <h3>{expired ? 'Reconnect Frisket Cloud' : 'Connect Frisket Cloud'}</h3>
     <p>{expired

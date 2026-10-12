@@ -443,6 +443,27 @@ def test_own_key_composition_keeps_provider_direct_options() -> None:
     assert "pricing" not in gateway
 
 
+def test_action_catalog_does_not_reconstruct_own_target_for_missing_cloud_route():
+    composition = ExecutionComposition(
+        facts=CompositionFacts(
+            edition="hosted",
+            org_id="org-byok",
+            funding=ByokZero(),
+        ),
+        provider=StaticExecutionTargetProvider(),
+        credential_use_context=CredentialUseContext(cost_posture="org_key"),
+        model_routes={"openai/whisper-1": "cloud"},
+    )
+
+    hints = project_action_catalog_launcher_hints({}, execution_composition=composition)
+
+    engines = {engine["id"]: engine for engine in hints["media.transcribe"]["engines"]}
+    selected = engines["openai/whisper-1"]
+    assert "target_id" not in selected
+    assert selected["available"] is False
+    assert "Reconnect Frisket Cloud" in selected["error"]
+
+
 def test_project_route_builds_composition_from_the_same_effective_router(
     tmp_path: Path,
 ) -> None:

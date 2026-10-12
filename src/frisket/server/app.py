@@ -120,6 +120,7 @@ from frisket.server.services.cloud_connection import CloudConnectionService
 from frisket.cloud_connection import CloudConnectionClient, CloudConnectionStore
 from frisket.cloud_execution import CloudExecutionTransport, HttpCloudExecutionTransport
 from frisket.server.services.models_gateway import ModelsGatewayService
+from frisket.server.services.project_model_routes import ProjectModelRoutesService
 from frisket.server.services.import_sessions import (
     ImportSessionService,
     import_page_dedupe_key,
@@ -458,7 +459,12 @@ def create_app(
         )
 
     gateway_service = (
-        ModelsGatewayService.workspace(workspace_root)
+        ModelsGatewayService.workspace(
+            workspace_root,
+            before_save=lambda: ProjectModelRoutesService(
+                app.state.workspace
+            ).pin_all_projects(),
+        )
         if edition == "solo" and enable_provider_config
         else None
     )

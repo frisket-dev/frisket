@@ -8,7 +8,6 @@ import type {
   CloudConnectionClient,
   CloudConnectionView,
 } from '../cloud/CloudConnectionPanel';
-import type { CloudConnectionPreferencesClient } from '../cloud/CloudProfileSettings';
 import type {
   ProjectCloudRoutingClient,
   ProjectCloudRoutingView,
@@ -81,26 +80,16 @@ export const cloudConnectionApi: CloudConnectionClient = {
   },
 };
 
-export const cloudConnectionPreferencesApi: CloudConnectionPreferencesClient = {
-  get(signal) {
-    return httpContract('tenant.get_cloud_preferences.get', {
-      pathParams: {}, query: {}, signal,
-    }, (wire) => wire.preference);
-  },
-  patch(preference, signal) {
-    return httpContract('tenant.patch_cloud_preferences.patch', {
-      pathParams: {}, query: {}, body: { preference }, signal,
-    }, (wire) => wire.preference);
-  },
-};
-
 const projectRoutingView = (wire: HttpProjectCloudRoutingResponse): ProjectCloudRoutingView => ({
   connectionState: wire.connection_state,
   selectedAccountId: wire.selected_account_id,
-  preference: wire.preference,
-  preferenceInherited: wire.preference_inherited,
   accounts: wire.accounts.map((account) => accountView(account)),
-  overlapProviderLabels: wire.overlap_provider_labels,
+  cloudProviderKeys: (wire.cloud_provider_keys ?? []).map((row) => ({
+    provider: row.provider,
+    label: row.label,
+    configured: row.configured,
+    settingsUrl: row.settings_url,
+  })),
   canMutate: wire.can_mutate,
 });
 
@@ -113,7 +102,6 @@ export const projectCloudRoutingApi: ProjectCloudRoutingClient = {
   patch(projectId, patch, signal) {
     const body: HttpProjectCloudRoutingPatch = {
       ...(patch.selectedAccountId === undefined ? {} : { selected_account_id: patch.selectedAccountId }),
-      ...(patch.preference === undefined ? {} : { preference: patch.preference }),
     };
     return httpContract('tenant.patch_project_cloud_routing.patch', {
       pathParams: { pid: projectId }, query: {}, body, signal,

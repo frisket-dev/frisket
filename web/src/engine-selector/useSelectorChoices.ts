@@ -45,7 +45,8 @@ export interface SelectorChoicesState {
   error: Error | null;
   /** A progress read failed; the last accepted selector projection remains usable. */
   operationError: Error | null;
-  refresh(): void;
+  /** Reloads and resolves only after the authoritative projection settles. */
+  refresh(): Promise<boolean>;
 }
 
 interface State {
@@ -246,8 +247,14 @@ export function useSelectorChoices({
     revision: 0,
     scopeKey: null,
   });
-  const [refreshRevision, refresh] = useReducer((value: number) => value + 1, 0);
+  const [refreshRevision, requestRefresh] = useReducer((value: number) => value + 1, 0);
   const requestRevision = useRef(0);
+  const pendingRefresh = useRef<{
+    scopeKey: string;
+    minimumRevision: number;
+    promise: Promise<boolean>;
+    resolve(result: boolean): void;
+  } | null>(null);
   const progressRequests = useRef(new Set<AbortController>());
   const queryRef = useRef(query);
   const effectiveQueryKey = typeof queryKey === 'function' ? queryKey(query, state.response) : queryKey;
@@ -257,6 +264,22 @@ export function useSelectorChoices({
   useLayoutEffect(() => {
     queryRef.current = query;
   }, [query]);
+
+  const settleRefresh = useCallback((settledScopeKey: string, revision: number, result: boolean) => {
+    const pending = pendingRefresh.current;
+    if (pending?.scopeKey !== settledScopeKey || revision < pending.minimumRevision) return;
+    pendingRefresh.current = null;
+    pending.resolve(result);
+  }, []);
+
+  const cancelRefresh = useCallback((cancelledScopeKey: string) => {
+    const pending = pendingRefresh.current;
+    if (pending?.scopeKey !== cancelledScopeKey) return;
+    pendingRefresh.current = null;
+    pending.resolve(false);
+  }, []);
+
+  useEffect(() => () => cancelRefresh(scopeKey), [cancelRefresh, enabled, scopeKey]);
 
   useEffect(() => {
     if (!enabled || !projectId) return undefined;
@@ -281,6 +304,7 @@ export function useSelectorChoices({
           presentationKey,
           response,
         });
+        settleRefresh(scopeKey, revision, true);
       })
       .catch((error: unknown) => {
         if (!controller.signal.aborted && !isAbort(error)) {
@@ -289,12 +313,13 @@ export function useSelectorChoices({
             revision,
             error: error instanceof Error ? error : new Error('Could not load choices.'),
           });
+          settleRefresh(scopeKey, revision, false);
         }
       });
     return () => {
       controller.abort();
     };
-  }, [enabled, load, presentationKey, projectId, refreshRevision, scopeKey]);
+  }, [enabled, load, presentationKey, projectId, refreshRevision, scopeKey, settleRefresh]);
 
   useEffect(() => {
     const requests = progressRequests.current;
@@ -344,7 +369,7 @@ export function useSelectorChoices({
         dispatch({ type: 'progress', revision: current.revision, scopeKey: current.scopeKey, pull: fresh, terminal });
         setPollBackoff({ key: pollingKey ?? '', attempts: 0 });
         if (terminal) {
-          refresh();
+          requestRefresh();
           return 'stop';
         }
       } catch (caught) {
@@ -365,7 +390,21 @@ export function useSelectorChoices({
     { intervalMs: pollIntervalMs, active: enabled && Boolean(projectId) && pollContext !== null, mode: 'settle-relative' },
   );
 
-  const refreshChoices = useCallback(() => refresh(), []);
+  const refreshChoices = useCallback((): Promise<boolean> => {
+    if (!enabled || !projectId) return Promise.resolve(false);
+    const pending = pendingRefresh.current;
+    if (pending?.scopeKey === scopeKey) return pending.promise;
+    let resolve!: (result: boolean) => void;
+    const promise = new Promise<boolean>((settle) => { resolve = settle; });
+    pendingRefresh.current = {
+      scopeKey,
+      minimumRevision: requestRevision.current + 1,
+      promise,
+      resolve,
+    };
+    requestRefresh();
+    return promise;
+  }, [enabled, projectId, scopeKey]);
   if (!enabled || !projectId) {
     return {
       response: null,

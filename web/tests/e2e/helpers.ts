@@ -227,6 +227,18 @@ export async function createProject(
   return (await res.json()).id;
 }
 
+export async function setProjectModelRoute(
+  request: APIRequestContext,
+  pid: string,
+  modelId: string,
+  route: 'cloud' | 'own',
+): Promise<void> {
+  const res = await request.patch(`/api/projects/${pid}/model-routes`, {
+    data: { model_id: modelId, route },
+  });
+  expect(res.ok()).toBeTruthy();
+}
+
 export async function importCsv(
   request: APIRequestContext,
   pid: string,

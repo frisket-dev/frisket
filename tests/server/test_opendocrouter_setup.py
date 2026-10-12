@@ -7,6 +7,8 @@ from fastapi.testclient import TestClient
 from frisket.ai.llm import ModelRouter
 from frisket.credentials import resolve_credential_with_source
 from frisket.execution.definitions import StaticExecutionTargetProvider
+from frisket.opendocrouter_catalog import current_catalog
+from frisket.project_settings import ProjectSettings, write_project_settings
 from frisket.server import provider_config
 from frisket.server.app import create_app
 
@@ -33,6 +35,15 @@ def test_catalog_key_setup_and_target(tmp_path, monkeypatch, action):
         create_app(tmp_path / "ws", router=ModelRouter(use_env_keys=False))
     ) as client:
         pid = client.post("/api/projects", json={"name": "Documents"}).json()["id"]
+        write_project_settings(
+            client.app.state.workspace.get(pid),
+            ProjectSettings(
+                model_execution_routes={
+                    f"opendocrouter/{model.id}": "own"
+                    for model in current_catalog().models
+                }
+            ),
+        )
 
         def choices():
             response = client.post(
@@ -94,7 +105,7 @@ def test_catalog_key_setup_and_target(tmp_path, monkeypatch, action):
         assert {s.transport for s in odr.engines} == {"opendocrouter.parse"}
         # The already-running app exposes a refreshed model without a restart.
         from dataclasses import replace
-        from frisket.opendocrouter_catalog import current_catalog, DocumentCatalog
+        from frisket.opendocrouter_catalog import DocumentCatalog
 
         catalog = current_catalog()
         model = replace(catalog.models[0], id="example/new-parser", name="New parser")

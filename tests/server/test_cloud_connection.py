@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 import json
 import os
+import sqlite3
 from datetime import UTC, datetime
 from threading import Event
 
 import httpx
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from frisket.cloud_connection import (
@@ -27,7 +30,13 @@ from frisket.contracts.http.cloud_connection import (
     CloudUser,
     ProjectCloudRoutingPatch,
 )
-from frisket.project_settings import ProjectSettings, write_project_settings
+from frisket.project_settings import (
+    ProjectSettings,
+    read_project_settings,
+    write_project_settings,
+)
+from frisket.engine.store.project import Project
+from frisket.server.route_errors import RouteError
 from frisket.server.services.cloud_connection import (
     CloudConnectionService,
     CloudConnectionServiceError,
@@ -349,6 +358,8 @@ def test_device_flow_keeps_secrets_server_side_and_coalesces_early_poll(tmp_path
 
     ticks = [100.0]
     workspace = Workspace(tmp_path / "workspace")
+    project_id = workspace.create("Connect from this project")["id"]
+    write_project_settings(workspace.get(project_id), ProjectSettings())
     client = CloudConnectionClient(
         "https://app.frisket.dev", transport=httpx.MockTransport(handler)
     )
@@ -374,11 +385,18 @@ def test_device_flow_keeps_secrets_server_side_and_coalesces_early_poll(tmp_path
     assert token_polls == 1
 
     ticks[0] = 110.0
-    connected = service.poll_authorization(started.id)
+    connected = service.poll_authorization(
+        started.id,
+        initiating_project_id=project_id,
+    )
     assert connected.status == "connected"
     assert connected.connection.identity.id == 7
     assert "private-access-token" not in connected.model_dump_json()
     assert token_polls == 2
+    assert (
+        read_project_settings(workspace.get(project_id)).model_execution_routes
+        is not None
+    )
     assert (
         sum(
             request.method == "GET" and request.url.path.endswith("/session")
@@ -386,6 +404,94 @@ def test_device_flow_keeps_secrets_server_side_and_coalesces_early_poll(tmp_path
         )
         == 1
     )
+    service.close()
+
+
+@pytest.mark.parametrize(
+    ("capability_status", "stored_accounts"),
+    [(200, [41]), (503, [])],
+)
+def test_reconnect_hydrates_unique_retained_same_user_accounts(
+    tmp_path, capability_status, stored_accounts
+):
+    capability_accounts: list[int] = []
+    session = _session().model_copy(
+        update={
+            "accounts": [
+                _session(account_id=41).accounts[0],
+                _session(account_id=99).accounts[0],
+            ]
+        }
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("device-authorizations"):
+            return httpx.Response(
+                200,
+                json={
+                    "device_code": "profile-reconnect-secret",
+                    "user_code": "ABCD-EFGH",
+                    "verification_uri": "https://app.frisket.dev/device",
+                    "verification_uri_complete": "https://app.frisket.dev/device?code=ABCD-EFGH",
+                    "expires_in": 600,
+                    "interval": 5,
+                },
+            )
+        if request.url.path.endswith("/token"):
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": "reconnected-token",
+                    "token_type": "Bearer",
+                    "expires_in": 3600,
+                },
+            )
+        if request.url.path.endswith("/session"):
+            return httpx.Response(200, json=session.model_dump(mode="json"))
+        if request.url.path.endswith("/capabilities"):
+            account_id = int(request.url.path.split("/")[-2])
+            capability_accounts.append(account_id)
+            if capability_status != 200:
+                return httpx.Response(capability_status, json={"error": "unavailable"})
+            return httpx.Response(
+                200,
+                json=_capabilities(account_id=account_id).model_dump(mode="json"),
+            )
+        raise AssertionError(request.url)
+
+    workspace = Workspace(tmp_path / "workspace")
+    for name, user_id, account_id in (
+        ("Retained one", 7, 41),
+        ("Retained two", 7, 41),
+        ("Another user", 8, 99),
+    ):
+        project_id = workspace.create(name)["id"]
+        project = workspace.get(project_id)
+        write_project_settings(
+            project,
+            read_project_settings(project).model_copy(
+                update={"cloud_user_id": user_id, "cloud_account_id": account_id}
+            ),
+        )
+    store = CloudConnectionStore(tmp_path / "profile")
+    ticks = [100.0]
+    service = CloudConnectionService(
+        workspace,
+        store=store,
+        client=CloudConnectionClient(
+            "https://app.frisket.dev", transport=httpx.MockTransport(handler)
+        ),
+        clock=lambda: ticks[0],
+        wall_clock=lambda: datetime(2026, 10, 11, tzinfo=UTC),
+    )
+
+    authorization_id = service.begin_authorization().id
+    ticks[0] = 105.0
+    connected = service.poll_authorization(authorization_id)
+
+    assert connected.status == "connected"
+    assert capability_accounts == [41]
+    assert sorted(store.load().capabilities) == stored_accounts
     service.close()
 
 
@@ -446,9 +552,12 @@ def test_concurrent_completed_polls_reuse_connected_state(tmp_path):
     service.close()
 
 
-@pytest.mark.parametrize("failure_stage", ["session", "save"])
+@pytest.mark.parametrize(
+    "failure_stage",
+    ["session", "pin_http", "pin_route", "pin_runtime", "pin_sqlite", "save"],
+)
 def test_minted_token_is_revoked_if_connection_cannot_be_persisted(
-    tmp_path, failure_stage
+    tmp_path, monkeypatch, failure_stage
 ):
     requests: list[tuple[str, str]] = []
 
@@ -501,13 +610,35 @@ def test_minted_token_is_revoked_if_connection_cannot_be_persisted(
         clock=lambda: ticks[0],
         wall_clock=lambda: datetime(2026, 10, 11, tzinfo=UTC),
     )
+    pin_failure = {
+        "pin_http": HTTPException(404, "project disappeared during sign-in"),
+        "pin_route": RouteError(409, "project changed during sign-in"),
+        "pin_runtime": RuntimeError("unexpected pin failure"),
+        "pin_sqlite": sqlite3.OperationalError("database is locked"),
+    }.get(failure_stage)
+    if pin_failure is not None:
+
+        def fail_pin(*_args, **_kwargs):
+            raise pin_failure
+
+        monkeypatch.setattr(
+            service._model_routes,
+            "pin_cloud_connection_routes",
+            fail_pin,
+        )
     authorization_id = service.begin_authorization().id
     ticks[0] = 105.0
 
-    with pytest.raises(CloudConnectionServiceError) as exc_info:
+    expected_error = (
+        RuntimeError if failure_stage == "pin_runtime" else CloudConnectionServiceError
+    )
+    with pytest.raises(expected_error) as exc_info:
         service.poll_authorization(authorization_id)
 
-    assert exc_info.value.status == 503
+    if isinstance(exc_info.value, CloudConnectionServiceError):
+        assert exc_info.value.status == 503
+    else:
+        assert str(exc_info.value) == "unexpected pin failure"
     assert ("DELETE", "/api/desktop/v1/session") in requests
     service.close()
 
@@ -680,6 +811,7 @@ def test_project_account_is_bound_to_signed_in_user(tmp_path):
     store.save_connection("first", _session(user_id=7, account_id=41))
     workspace = Workspace(tmp_path / "workspace")
     project_id = workspace.create("Cloud routing")["id"]
+    write_project_settings(workspace.get(project_id), ProjectSettings())
     service = CloudConnectionService(
         workspace,
         store=store,
@@ -698,11 +830,66 @@ def test_project_account_is_bound_to_signed_in_user(tmp_path):
     assert selected.selected_account_id == 41
     assert selected.preference == "cloud_first"
     assert selected.preference_inherited is False
+    assert (
+        read_project_settings(workspace.get(project_id)).model_execution_routes
+        is not None
+    )
 
     store.save_connection("second", _session(user_id=8, account_id=41))
     changed_user = service.project_routing(project_id)
     assert changed_user.selected_account_id is None
     assert changed_user.preference == "cloud_first"
+    service.close()
+
+
+def test_preference_patch_preserves_a_concurrent_project_setting(tmp_path, monkeypatch):
+    workspace = Workspace(tmp_path / "workspace")
+    project_id = workspace.create("Concurrent Cloud preference")["id"]
+    project = workspace.get(project_id)
+    write_project_settings(project, ProjectSettings())
+
+    def reject_network(request: httpx.Request) -> httpx.Response:
+        raise AssertionError(request.url)
+
+    service = CloudConnectionService(
+        workspace,
+        store=CloudConnectionStore(tmp_path / "profile"),
+        client=CloudConnectionClient(
+            "https://app.frisket.dev",
+            transport=httpx.MockTransport(reject_network),
+        ),
+    )
+    transaction_requested = Event()
+    enter_transaction = Event()
+    transaction_scope = Project.transaction_scope
+
+    @contextmanager
+    def delayed_transaction_scope(self):
+        transaction_requested.set()
+        assert enter_transaction.wait(5)
+        with transaction_scope(self):
+            yield
+
+    monkeypatch.setattr(Project, "transaction_scope", delayed_transaction_scope)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(
+            service.patch_project_routing,
+            project_id,
+            ProjectCloudRoutingPatch(preference="cloud_first"),
+        )
+        assert transaction_requested.wait(5)
+        settings = read_project_settings(project)
+        write_project_settings(
+            project,
+            settings.model_copy(update={"media_allow_private_hosts": True}),
+        )
+        enter_transaction.set()
+        response = future.result(timeout=5)
+
+    saved = read_project_settings(project)
+    assert response.preference == "cloud_first"
+    assert saved.cloud_execution_preference == "cloud_first"
+    assert saved.media_allow_private_hosts is True
     service.close()
 
 
@@ -714,6 +901,8 @@ def test_project_keeps_same_users_unavailable_selected_account(tmp_path):
         nonlocal session_fetches
         if request.url.path.endswith("/capabilities"):
             return httpx.Response(503, json={})
+        if request.url.path.endswith("/provider-keys"):
+            return httpx.Response(404, json={})
         assert request.url.path.endswith("/session")
         session_fetches += 1
         return httpx.Response(200, json=current_session[0].model_dump(mode="json"))
@@ -755,6 +944,8 @@ def test_project_routing_refreshes_the_selected_account_capability_snapshot(tmp_
                 200,
                 json=_capabilities(revision="route-2").model_dump(mode="json"),
             )
+        if request.url.path.endswith("/provider-keys"):
+            return httpx.Response(200, json={"providers": []})
         raise AssertionError(request.url)
 
     store = CloudConnectionStore(tmp_path / "profile")
@@ -779,8 +970,95 @@ def test_project_routing_refreshes_the_selected_account_capability_snapshot(tmp_
     assert calls == [
         "/api/desktop/v1/session",
         "/api/desktop/v1/accounts/41/capabilities",
+        "/api/desktop/v1/accounts/41/provider-keys",
     ]
     assert store.load().capabilities[41].routes[0].route_revision == "route-2"
+    service.close()
+
+
+def test_project_routing_reads_selected_account_key_metadata_once(tmp_path):
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        if request.url.path.endswith("/session"):
+            return httpx.Response(200, json=_session().model_dump(mode="json"))
+        if request.url.path.endswith("/capabilities"):
+            return httpx.Response(200, json=_capabilities().model_dump(mode="json"))
+        if request.url.path.endswith("/provider-keys"):
+            return httpx.Response(
+                200,
+                json={
+                    "providers": [
+                        {
+                            "provider": "openai",
+                            "label": "OpenAI",
+                            "configured": True,
+                        }
+                    ]
+                },
+            )
+        raise AssertionError(request.url)
+
+    store = CloudConnectionStore(tmp_path / "profile")
+    store.save_connection("token", _session())
+    workspace = Workspace(tmp_path / "workspace")
+    project_id = workspace.create("Cloud provider keys")["id"]
+    write_project_settings(
+        workspace.get(project_id),
+        ProjectSettings(cloud_user_id=7, cloud_account_id=41),
+    )
+    service = CloudConnectionService(
+        workspace,
+        store=store,
+        client=CloudConnectionClient(
+            "https://app.frisket.dev", transport=httpx.MockTransport(handler)
+        ),
+    )
+
+    response = service.project_routing(project_id)
+
+    assert [row.model_dump() for row in response.cloud_provider_keys] == [
+        {
+            "provider": "openai",
+            "label": "OpenAI",
+            "configured": True,
+            "settings_url": (
+                "https://app.frisket.dev/funding-accounts?account_id=41&provider=openai"
+            ),
+        }
+    ]
+    assert calls.count("/api/desktop/v1/accounts/41/provider-keys") == 1
+    service.close()
+
+
+def test_project_routing_tolerates_old_cloud_without_key_metadata(tmp_path):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/session"):
+            return httpx.Response(200, json=_session().model_dump(mode="json"))
+        if request.url.path.endswith("/capabilities"):
+            return httpx.Response(200, json=_capabilities().model_dump(mode="json"))
+        if request.url.path.endswith("/provider-keys"):
+            return httpx.Response(404, json={"detail": "Not Found"})
+        raise AssertionError(request.url)
+
+    store = CloudConnectionStore(tmp_path / "profile")
+    store.save_connection("token", _session())
+    workspace = Workspace(tmp_path / "workspace")
+    project_id = workspace.create("Old Cloud")["id"]
+    write_project_settings(
+        workspace.get(project_id),
+        ProjectSettings(cloud_user_id=7, cloud_account_id=41),
+    )
+    service = CloudConnectionService(
+        workspace,
+        store=store,
+        client=CloudConnectionClient(
+            "https://app.frisket.dev", transport=httpx.MockTransport(handler)
+        ),
+    )
+
+    assert service.project_routing(project_id).cloud_provider_keys == []
     service.close()
 
 

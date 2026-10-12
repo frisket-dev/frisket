@@ -10,15 +10,18 @@ const cloudAccountKindLabel = (kind: CloudAccountView['kind']): string => (
   kind === 'personal' ? 'Personal' : 'Organization'
 );
 
-export type CloudExecutionPreference = 'local_first' | 'cloud_first';
+export interface ProjectCloudProviderKeyView {
+  provider: string;
+  label: string;
+  configured: boolean;
+  settingsUrl: string;
+}
 
 export interface ProjectCloudRoutingView {
   connectionState: 'disconnected' | 'connected' | 'expired';
   selectedAccountId: number | null;
-  preference: CloudExecutionPreference;
-  preferenceInherited: boolean;
   accounts: CloudAccountView[];
-  overlapProviderLabels: string[];
+  cloudProviderKeys: ProjectCloudProviderKeyView[];
   canMutate: boolean;
 }
 
@@ -26,7 +29,6 @@ export interface ProjectCloudRoutingClient {
   get(projectId: string, signal?: AbortSignal): Promise<ProjectCloudRoutingView>;
   patch(projectId: string, patch: {
     selectedAccountId?: number;
-    preference?: CloudExecutionPreference;
   }, signal?: AbortSignal): Promise<ProjectCloudRoutingView>;
 }
 
@@ -34,12 +36,14 @@ interface ProjectCloudRoutingSettingsProps {
   projectId: string;
   connectionClient: CloudConnectionClient;
   routingClient: ProjectCloudRoutingClient;
+  onRoutingChange?(routing: ProjectCloudRoutingView | null): void;
 }
 
 export function ProjectCloudRoutingSettings({
   projectId,
   connectionClient,
   routingClient,
+  onRoutingChange,
 }: ProjectCloudRoutingSettingsProps) {
   const [routing, setRouting] = useState<ProjectCloudRoutingView | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -57,8 +61,12 @@ export function ProjectCloudRoutingSettings({
     return () => controller.abort();
   }, [load]);
 
+  useEffect(() => {
+    onRoutingChange?.(routing);
+  }, [onRoutingChange, routing]);
+
   const patch = async (
-    change: { selectedAccountId?: number; preference?: CloudExecutionPreference },
+    change: { selectedAccountId?: number },
     propagate = false,
   ) => {
     setBusy(true);
@@ -83,14 +91,10 @@ export function ProjectCloudRoutingSettings({
 
   const selected = routing.accounts.find((account) => account.id === routing.selectedAccountId) ?? null;
   const selectedAccountUnavailable = routing.selectedAccountId !== null && !selected?.eligible;
-  const overlap = routing.overlapProviderLabels.length
-    ? routing.overlapProviderLabels.join(', ')
-    : null;
-
   return <section className="settings-stack project-cloud-routing" data-testid="project-cloud-routing">
     <div className="settings-section-subhead">
-      <h2>Frisket Cloud</h2>
-      <p>Choose the Cloud account and which keys this project uses.</p>
+      <h2>Frisket Cloud account</h2>
+      <p>Pays for models in this project that run through Frisket Cloud.</p>
     </div>
     {routing.connectionState !== 'connected' && (
       <CloudConnectionPanel client={connectionClient} variant="compact"
@@ -125,32 +129,6 @@ export function ProjectCloudRoutingSettings({
       </div>
     )}
 
-    <fieldset className="cloud-preference-options" disabled={!routing.canMutate || busy || routing.connectionState !== 'connected'}>
-      <legend>When a model works with both</legend>
-      <p className="settings-help">{overlap
-        ? `You can use ${overlap} through your own keys or Cloud.`
-        : 'This preference applies when a model is available through both your keys and Cloud.'}</p>
-      <label>
-        <input type="radio" name="cloud-preference" value="local_first"
-          checked={routing.preference === 'local_first'}
-          onChange={() => void patch({ preference: 'local_first' })} />
-        <span><strong>Use your keys on this computer</strong>
-          <small>How this project ran before connecting Cloud.</small></span>
-      </label>
-      <label>
-        <input type="radio" name="cloud-preference" value="cloud_first"
-          disabled={selectedAccountUnavailable}
-          checked={routing.preference === 'cloud_first'}
-          onChange={() => void patch({ preference: 'cloud_first' })} />
-        <span><strong>Use {selected?.name ?? 'the project’s Cloud account'}</strong>
-          <small>Frisket credits, or the account’s own keys where it has them.</small></span>
-      </label>
-    </fieldset>
-    <p className="settings-help">{routing.preferenceInherited
-      ? 'This project currently uses the installation default. '
-      : 'This choice applies only to this project. '}
-      <a href="/settings/personal/profile#frisket-cloud">Change installation default →</a>
-    </p>
     {error && <div className="settings-inline-error" role="alert">{error}</div>}
   </section>;
 }

@@ -525,6 +525,9 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
             "tenant.project_v1_action_catalog.get"
         ),
         ("tenant", "selector_choices", "POST"): "tenant.selector_choices.post",
+        ("tenant", "set_project_model_route", "PATCH"): (
+            "tenant.set_project_model_route.patch"
+        ),
         ("tenant", "project_diagnose", "GET"): "tenant.project_diagnose.get",
         ("tenant", "project_lineage", "GET"): "tenant.project_lineage.get",
         ("tenant", "provenance", "GET"): "tenant.provenance.get",

@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import secrets
 import socket
+import sqlite3
 import threading
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Callable
+from urllib.parse import quote
+
+from fastapi import HTTPException
 
 from frisket.cloud_connection import (
     CloudClientError,
@@ -29,11 +33,17 @@ from frisket.contracts.http.cloud_connection import (
     CloudDeviceAuthorizationStartResponse,
     CloudOAuthError,
     ProjectCloudRoutingPatch,
+    ProjectCloudProviderKey,
     ProjectCloudRoutingResponse,
 )
 from frisket.project_settings import read_project_settings, write_project_settings
+from frisket.server.route_errors import RouteError
 from frisket.server.workspace import Workspace
 from frisket.server.provider_config import PROVIDER_LABELS
+from frisket.server.services.project_model_routes import (
+    ProjectModelRouteError,
+    ProjectModelRoutesService,
+)
 
 
 class CloudConnectionServiceError(RuntimeError):
@@ -93,6 +103,7 @@ class CloudConnectionService:
         self._completed: dict[str, tuple[datetime, CloudConnectionResponse]] = {}
         self._pending_lock = threading.Lock()
         self._connection_lock = threading.Lock()
+        self._model_routes = ProjectModelRoutesService(workspace)
 
     def close(self) -> None:
         self._client.close()
@@ -165,7 +176,10 @@ class CloudConnectionService:
         return self._pending_response(pending)
 
     def poll_authorization(
-        self, authorization_id: str
+        self,
+        authorization_id: str,
+        *,
+        initiating_project_id: str | None = None,
     ) -> CloudDeviceAuthorizationPollResponse:
         with self._pending_lock:
             pending = self._pending.get(authorization_id)
@@ -222,22 +236,41 @@ class CloudConnectionService:
                     status=status,
                     connection=self._stored_connection(),
                 )
+            credential_saved = False
             try:
                 with self._connection_lock:
                     session = self._client.session(answer.access_token)
+                    self._model_routes.pin_cloud_connection_routes(
+                        session.user.id,
+                        initiating_project_id=initiating_project_id,
+                    )
                     self._store.save_connection(answer.access_token, session)
-            except (CloudClientError, CloudConnectionStoreError, OSError) as exc:
-                try:
-                    self._client.revoke_session(answer.access_token)
-                except CloudClientError:
-                    pass
+                    credential_saved = True
+            except (
+                CloudClientError,
+                CloudConnectionStoreError,
+                HTTPException,
+                OSError,
+                ProjectModelRouteError,
+                RouteError,
+                sqlite3.Error,
+            ) as exc:
                 raise CloudConnectionServiceError(
                     503, "Frisket Cloud sign-in could not be completed"
                 ) from exc
             finally:
+                if not credential_saved:
+                    try:
+                        self._client.revoke_session(answer.access_token)
+                    except CloudClientError:
+                        pass
                 # A token grant is single-use. Never poll the same device code
                 # again, even if local persistence failed after token delivery.
                 self._pending.pop(authorization_id, None)
+            self._refresh_retained_project_capabilities(
+                user_id=session.user.id,
+                available_account_ids={account.id for account in session.accounts},
+            )
             connection = self._stored_connection()
             self._completed[authorization_id] = (pending.expires_at, connection)
             return CloudDeviceAuthorizationPollResponse(
@@ -344,13 +377,55 @@ class CloudConnectionService:
             accounts=[account for account in connection.accounts if account.eligible],
             overlap_provider_labels=self._overlap_provider_labels(project, selected),
             can_mutate=True,
+            cloud_provider_keys=self._cloud_provider_keys(connection, selected),
         )
+
+    def _cloud_provider_keys(
+        self,
+        connection: CloudConnectionResponse,
+        selected_account_id: int | None,
+    ) -> list[ProjectCloudProviderKey]:
+        if (
+            connection.state != "connected"
+            or connection.identity is None
+            or selected_account_id is None
+        ):
+            return []
+        try:
+            profile = self._store.load()
+        except CloudConnectionStoreError:
+            return []
+        stored = profile.connection
+        if stored is None or stored.session.user.id != connection.identity.id:
+            return []
+        try:
+            response = self._client.provider_keys(
+                stored.access_token,
+                selected_account_id,
+            )
+        except CloudClientError:
+            # This metadata was added after the released connection API. An
+            # older or temporarily unavailable Cloud must not hide the
+            # account controls that remain authoritative without it.
+            return []
+        return [
+            ProjectCloudProviderKey(
+                provider=row.provider,
+                label=row.label,
+                configured=row.configured,
+                settings_url=(
+                    f"{self._client.origin}/funding-accounts"
+                    f"?account_id={selected_account_id}"
+                    f"&provider={quote(row.provider, safe='')}"
+                ),
+            )
+            for row in response.providers
+        ]
 
     def patch_project_routing(
         self, project_id: str, patch: ProjectCloudRoutingPatch
     ) -> ProjectCloudRoutingResponse:
         project = self._workspace.get(project_id)
-        settings = read_project_settings(project)
         updates: dict[str, object] = {}
         connection = None
         if "preference" in patch.model_fields_set:
@@ -368,11 +443,26 @@ class CloudConnectionService:
                 )
             updates["cloud_user_id"] = connection.identity.id
             updates["cloud_account_id"] = patch.selected_account_id
+            with project.transaction_scope():
+                self._model_routes.pin_ready_routes(project_id, commit=False)
+                settings = read_project_settings(project)
+                write_project_settings(
+                    project,
+                    settings.model_copy(update=updates),
+                    commit=False,
+                )
             self._refresh_capabilities(
                 patch.selected_account_id,
                 connection.identity.id,
             )
-        write_project_settings(project, settings.model_copy(update=updates))
+        else:
+            with project.transaction_scope():
+                settings = read_project_settings(project)
+                write_project_settings(
+                    project,
+                    settings.model_copy(update=updates),
+                    commit=False,
+                )
         return self._project_routing(
             project_id, connection if connection is not None else self.connection()
         )
@@ -419,6 +509,37 @@ class CloudConnectionService:
             )
         except (CloudClientError, CloudConnectionStoreError, OSError, ValueError):
             return
+
+    def _refresh_retained_project_capabilities(
+        self,
+        *,
+        user_id: int,
+        available_account_ids: set[int],
+    ) -> None:
+        """Refresh each retained account once after a device reconnect."""
+
+        try:
+            rows = self._workspace.list()
+        except OSError:
+            return
+        retained_account_ids: set[int] = set()
+        for row in rows:
+            project_id = row.get("id") if isinstance(row, dict) else None
+            if not isinstance(project_id, str):
+                continue
+            try:
+                settings = read_project_settings(self._workspace.get(project_id))
+            except (HTTPException, RouteError, OSError, sqlite3.Error):
+                continue
+            account_id = settings.cloud_account_id
+            if (
+                settings.cloud_user_id == user_id
+                and account_id is not None
+                and account_id in available_account_ids
+            ):
+                retained_account_ids.add(account_id)
+        for account_id in sorted(retained_account_ids):
+            self._refresh_capabilities(account_id, user_id)
 
     def _overlap_provider_labels(
         self, project: object, selected_account_id: int | None

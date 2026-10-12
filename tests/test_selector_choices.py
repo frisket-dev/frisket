@@ -199,7 +199,7 @@ def test_viewer_can_load_an_incomplete_action_draft_without_mutation_authority(
 
     assert response.status_code == 200, response.text
     payload = response.json()
-    assert payload["schema_version"] == "frisket.selector_choices.v2"
+    assert payload["schema_version"] == "frisket.selector_choices.v3"
     assert payload["project_id"] == project_id
     assert payload["subject"] == {
         "kind": "action",

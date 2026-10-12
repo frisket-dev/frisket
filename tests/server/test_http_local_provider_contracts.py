@@ -48,7 +48,7 @@ ROUTES = {
         200,
         "LocalProviderCatalog",
         "ProviderKeyRequest",
-        frozenset({400, 422, 500}),
+        frozenset({400, 409, 422, 500}),
     ),
     "delete_provider_key": RouteTruth(
         "DELETE",
@@ -56,7 +56,7 @@ ROUTES = {
         200,
         "LocalProviderCatalog",
         None,
-        frozenset({400, 500}),
+        frozenset({400, 409, 500}),
     ),
     "create_local_endpoint": RouteTruth(
         "POST",

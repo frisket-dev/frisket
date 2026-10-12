@@ -155,6 +155,9 @@ export interface SegmentedOption {
   label: string;
   /** Optional leading icon (view switchers etc.). */
   icon?: LucideIcon;
+  /** Optional compact state marker. The label stays text so the native
+   * select mirror retains the same accessible option name. */
+  indicator?: ReactNode;
   /** When set, the segment renders VISIBLE but disabled, naming why via
    *  title + data-disabled-reason instead of silently omitting it (a hidden
    *  map with geo data present was an unexplainable mystery). Callers that want a segment omitted entirely should filter
@@ -172,6 +175,7 @@ export function SegmentedToggle({
   selectTestId,
   testId,
   className,
+  disabled = false,
 }: {
   options: SegmentedOption[];
   value: string;
@@ -186,6 +190,8 @@ export function SegmentedToggle({
   /** Testid for the outer group wrapper. */
   testId?: string;
   className?: string;
+  /** Temporarily disable every option without rewriting each option. */
+  disabled?: boolean;
 }) {
   const classes = ['segmented', fullWidth ? 'segmented-full' : '', className ?? '']
     .filter(Boolean)
@@ -193,7 +199,7 @@ export function SegmentedToggle({
   return (
     <div className={classes} role="group" aria-label={ariaLabel} data-testid={testId}>
       {options.map((option) => {
-        const disabled = Boolean(option.disabledReason);
+        const optionDisabled = disabled || Boolean(option.disabledReason);
         const Icon = option.icon;
         return (
           <button
@@ -201,18 +207,19 @@ export function SegmentedToggle({
             type="button"
             className={[
               value === option.value ? 'active' : '',
-              disabled ? 'segmented-option-disabled' : '',
+              optionDisabled ? 'segmented-option-disabled' : '',
             ]
               .filter(Boolean)
               .join(' ')}
             data-testid={buttonTestId ? buttonTestId(option.value) : undefined}
             aria-pressed={value === option.value}
-            disabled={disabled}
+            disabled={optionDisabled}
             data-disabled-reason={option.disabledReason}
             title={option.disabledReason}
             onClick={() => onValueChange(option.value)}
           >
             {Icon && <Icon size={13} aria-hidden />}
+            {option.indicator}
             {option.label}
           </button>
         );
@@ -223,11 +230,12 @@ export function SegmentedToggle({
           data-testid={selectTestId}
           aria-label={ariaLabel}
           tabIndex={-1}
+          disabled={disabled}
           value={value}
           onChange={(event) => onValueChange(event.target.value)}
         >
           {options.map((option) => (
-            <option key={option.value} value={option.value}>
+            <option key={option.value} value={option.value} disabled={Boolean(option.disabledReason)}>
               {option.label}
             </option>
           ))}

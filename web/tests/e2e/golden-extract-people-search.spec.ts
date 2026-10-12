@@ -13,6 +13,7 @@ import {
   listSheets,
   openPalette,
   openProject,
+  setProjectModelRoute,
   sheetData,
   uniqueName,
 } from './helpers';
@@ -23,7 +24,7 @@ const REPO_ROOT =
     : process.cwd();
 const PYTHON = process.env.FRISKET_E2E_PYTHON ?? path.join(REPO_ROOT, '.venv/bin/python');
 
-const MODEL = 'gemini/gemini-2.5-flash';
+const MODEL = 'gemini/gemini-3.5-flash-lite';
 const PROMPT = 'Extract every person mentioned as a short descriptive string.';
 const SOURCE_SUMMARY =
   'Devon Larratt is a veteran of the Canadian Armed Forces and a professional arm wrestler who is widely considered one of the sport’s greatest competitors.\n\nLearn more about your ad choices.';
@@ -274,6 +275,7 @@ async function runPeopleDeriveComposite(
 
 test('derived People values render decoded text and stay AI-marked through search', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-golden-people-search'));
+  await setProjectModelRoute(page.request, pid, MODEL, 'own');
   const csv =
     'episode,summary\n' +
     `${csvEscape('JRE #2322 - Devon Larratt')},${csvEscape(SOURCE_SUMMARY)}\n`;
