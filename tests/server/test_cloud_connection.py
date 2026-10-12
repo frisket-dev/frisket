@@ -714,6 +714,8 @@ def test_project_keeps_same_users_unavailable_selected_account(tmp_path):
         nonlocal session_fetches
         if request.url.path.endswith("/capabilities"):
             return httpx.Response(503, json={})
+        if request.url.path.endswith("/provider-keys"):
+            return httpx.Response(404, json={})
         assert request.url.path.endswith("/session")
         session_fetches += 1
         return httpx.Response(200, json=current_session[0].model_dump(mode="json"))
@@ -755,6 +757,8 @@ def test_project_routing_refreshes_the_selected_account_capability_snapshot(tmp_
                 200,
                 json=_capabilities(revision="route-2").model_dump(mode="json"),
             )
+        if request.url.path.endswith("/provider-keys"):
+            return httpx.Response(200, json={"providers": []})
         raise AssertionError(request.url)
 
     store = CloudConnectionStore(tmp_path / "profile")
@@ -779,8 +783,95 @@ def test_project_routing_refreshes_the_selected_account_capability_snapshot(tmp_
     assert calls == [
         "/api/desktop/v1/session",
         "/api/desktop/v1/accounts/41/capabilities",
+        "/api/desktop/v1/accounts/41/provider-keys",
     ]
     assert store.load().capabilities[41].routes[0].route_revision == "route-2"
+    service.close()
+
+
+def test_project_routing_reads_selected_account_key_metadata_once(tmp_path):
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        if request.url.path.endswith("/session"):
+            return httpx.Response(200, json=_session().model_dump(mode="json"))
+        if request.url.path.endswith("/capabilities"):
+            return httpx.Response(200, json=_capabilities().model_dump(mode="json"))
+        if request.url.path.endswith("/provider-keys"):
+            return httpx.Response(
+                200,
+                json={
+                    "providers": [
+                        {
+                            "provider": "openai",
+                            "label": "OpenAI",
+                            "configured": True,
+                        }
+                    ]
+                },
+            )
+        raise AssertionError(request.url)
+
+    store = CloudConnectionStore(tmp_path / "profile")
+    store.save_connection("token", _session())
+    workspace = Workspace(tmp_path / "workspace")
+    project_id = workspace.create("Cloud provider keys")["id"]
+    write_project_settings(
+        workspace.get(project_id),
+        ProjectSettings(cloud_user_id=7, cloud_account_id=41),
+    )
+    service = CloudConnectionService(
+        workspace,
+        store=store,
+        client=CloudConnectionClient(
+            "https://app.frisket.dev", transport=httpx.MockTransport(handler)
+        ),
+    )
+
+    response = service.project_routing(project_id)
+
+    assert [row.model_dump() for row in response.cloud_provider_keys] == [
+        {
+            "provider": "openai",
+            "label": "OpenAI",
+            "configured": True,
+            "settings_url": (
+                "https://app.frisket.dev/funding-accounts?account_id=41&provider=openai"
+            ),
+        }
+    ]
+    assert calls.count("/api/desktop/v1/accounts/41/provider-keys") == 1
+    service.close()
+
+
+def test_project_routing_tolerates_old_cloud_without_key_metadata(tmp_path):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/session"):
+            return httpx.Response(200, json=_session().model_dump(mode="json"))
+        if request.url.path.endswith("/capabilities"):
+            return httpx.Response(200, json=_capabilities().model_dump(mode="json"))
+        if request.url.path.endswith("/provider-keys"):
+            return httpx.Response(404, json={"detail": "Not Found"})
+        raise AssertionError(request.url)
+
+    store = CloudConnectionStore(tmp_path / "profile")
+    store.save_connection("token", _session())
+    workspace = Workspace(tmp_path / "workspace")
+    project_id = workspace.create("Old Cloud")["id"]
+    write_project_settings(
+        workspace.get(project_id),
+        ProjectSettings(cloud_user_id=7, cloud_account_id=41),
+    )
+    service = CloudConnectionService(
+        workspace,
+        store=store,
+        client=CloudConnectionClient(
+            "https://app.frisket.dev", transport=httpx.MockTransport(handler)
+        ),
+    )
+
+    assert service.project_routing(project_id).cloud_provider_keys == []
     service.close()
 
 

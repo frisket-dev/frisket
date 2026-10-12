@@ -9,6 +9,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Callable
+from urllib.parse import quote
 
 from frisket.cloud_connection import (
     CloudClientError,
@@ -29,6 +30,7 @@ from frisket.contracts.http.cloud_connection import (
     CloudDeviceAuthorizationStartResponse,
     CloudOAuthError,
     ProjectCloudRoutingPatch,
+    ProjectCloudProviderKey,
     ProjectCloudRoutingResponse,
 )
 from frisket.project_settings import read_project_settings, write_project_settings
@@ -344,7 +346,50 @@ class CloudConnectionService:
             accounts=[account for account in connection.accounts if account.eligible],
             overlap_provider_labels=self._overlap_provider_labels(project, selected),
             can_mutate=True,
+            cloud_provider_keys=self._cloud_provider_keys(connection, selected),
         )
+
+    def _cloud_provider_keys(
+        self,
+        connection: CloudConnectionResponse,
+        selected_account_id: int | None,
+    ) -> list[ProjectCloudProviderKey]:
+        if (
+            connection.state != "connected"
+            or connection.identity is None
+            or selected_account_id is None
+        ):
+            return []
+        try:
+            profile = self._store.load()
+        except CloudConnectionStoreError:
+            return []
+        stored = profile.connection
+        if stored is None or stored.session.user.id != connection.identity.id:
+            return []
+        try:
+            response = self._client.provider_keys(
+                stored.access_token,
+                selected_account_id,
+            )
+        except CloudClientError:
+            # This metadata was added after the released connection API. An
+            # older or temporarily unavailable Cloud must not hide the
+            # account controls that remain authoritative without it.
+            return []
+        return [
+            ProjectCloudProviderKey(
+                provider=row.provider,
+                label=row.label,
+                configured=row.configured,
+                settings_url=(
+                    f"{self._client.origin}/funding-accounts"
+                    f"?account_id={selected_account_id}"
+                    f"&provider={quote(row.provider, safe='')}"
+                ),
+            )
+            for row in response.providers
+        ]
 
     def patch_project_routing(
         self, project_id: str, patch: ProjectCloudRoutingPatch
