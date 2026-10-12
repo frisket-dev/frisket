@@ -23,9 +23,9 @@ import threading
 import uuid
 import weakref
 from collections.abc import Mapping
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
-from typing import Any, Collection
+from typing import Any, Collection, Iterator
 
 
 from . import (
@@ -379,6 +379,29 @@ class Project:
         )
         if commit:
             self.db.commit()
+
+    @contextmanager
+    def transaction_scope(self) -> Iterator[None]:
+        """Serialize one project read-modify-write operation.
+
+        Nested callers keep ownership of their existing transaction.  The
+        outermost scope takes SQLite's writer lock before reading, so two
+        settings mutations cannot both merge from the same stale document.
+        """
+
+        db = self.db
+        owns_transaction = not db.in_transaction
+        if owns_transaction:
+            db.execute("BEGIN IMMEDIATE")
+        try:
+            yield
+        except Exception:
+            if owns_transaction and db.in_transaction:
+                db.rollback()
+            raise
+        else:
+            if owns_transaction:
+                db.commit()
 
     @property
     def storage_identity(self) -> str:
