@@ -6,7 +6,11 @@ from threading import Event, local
 
 from frisket.cloud_execution import CloudPayerSubject
 from frisket.execution.credential_use import CredentialUseContext
-from frisket.execution.provider import CompositionFacts, ExecutionComposition
+from frisket.execution.provider import (
+    CompositionFacts,
+    ExecutionComposition,
+    TargetConfigurationError,
+)
 from frisket.execution.targets import (
     CAPABILITY_LLM,
     CAPABILITY_OCR,
@@ -31,6 +35,7 @@ from frisket.server.workspace import Workspace
 
 MODEL = "openai/gpt-5-mini"
 MODEL_TWO = "openai/gpt-5-nano"
+OPENROUTER_MODEL = "openrouter/qwen/qwen3-8b"
 
 
 def _llm_target(
@@ -126,6 +131,7 @@ def _workspace(
     provider: _Provider,
     *,
     models: tuple[str, ...] = (MODEL,),
+    cloud_inventory_known: bool = False,
 ) -> Workspace:
     def composition(project, _router, _context):
         settings = read_project_settings(project)
@@ -135,6 +141,7 @@ def _workspace(
             credential_use_context=CredentialUseContext.open(),
             model_routes=settings.model_execution_routes,
             model_route_default=settings.model_execution_default,
+            cloud_inventory_known=cloud_inventory_known,
         )
 
     monkeypatch.setattr(
@@ -176,7 +183,11 @@ def test_pin_materializes_configured_blocked_choice_without_liveness_probe(
     project_id = workspace.create("Legacy Cloud first")["id"]
     write_project_settings(
         workspace.get(project_id),
-        ProjectSettings(cloud_execution_preference="cloud_first"),
+        ProjectSettings(
+            cloud_user_id=7,
+            cloud_account_id=41,
+            cloud_execution_preference="cloud_first",
+        ),
     )
 
     settings = ProjectModelRoutesService(workspace).pin_ready_routes(project_id)
@@ -217,6 +228,101 @@ def test_explicit_route_persists_before_setup_and_rejects_unknown_model(
         service.set_route(project_id, "unknown/model", "own")
     assert exc_info.value.status == 422
     assert exc_info.value.code == "unknown_model"
+
+
+def test_cloud_route_rejects_statically_ineligible_model_with_unknown_inventory(
+    tmp_path, monkeypatch
+) -> None:
+    provider = _Provider(include_cloud=False, models=(OPENROUTER_MODEL,))
+    workspace = _workspace(
+        tmp_path,
+        monkeypatch,
+        provider,
+        models=(OPENROUTER_MODEL,),
+    )
+    project_id = workspace.create("OpenRouter own route")["id"]
+
+    with pytest.raises(ProjectModelRouteError) as exc_info:
+        ProjectModelRoutesService(workspace).set_route(
+            project_id,
+            OPENROUTER_MODEL,
+            "cloud",
+        )
+
+    assert exc_info.value.status == 409
+    assert exc_info.value.code == "cloud_route_unsupported"
+
+
+def test_cloud_route_rejects_eligible_model_missing_from_known_inventory(
+    tmp_path, monkeypatch
+) -> None:
+    provider = _Provider(include_cloud=False)
+    workspace = _workspace(
+        tmp_path,
+        monkeypatch,
+        provider,
+        cloud_inventory_known=True,
+    )
+    project_id = workspace.create("Known empty Cloud inventory")["id"]
+
+    with pytest.raises(ProjectModelRouteError) as exc_info:
+        ProjectModelRoutesService(workspace).set_route(project_id, MODEL, "cloud")
+
+    assert exc_info.value.status == 409
+    assert exc_info.value.code == "cloud_route_unsupported"
+
+
+def test_route_pinning_never_probes_configured_local_endpoints(
+    tmp_path, monkeypatch
+) -> None:
+    root = tmp_path / "workspace"
+    endpoint = provider_config.create_local_endpoint(
+        root,
+        name="Offline Ollama",
+        url="http://127.0.0.1:11434",
+    )
+    provider_config.save_local_provider_key(root, "openai", "configured-key")
+
+    def unexpected_probe(*_args, **_kwargs):
+        raise AssertionError("route pinning must use static catalog facts")
+
+    monkeypatch.setattr(provider_config, "ollama_reachable", unexpected_probe)
+    workspace = Workspace(root)
+    project_id = workspace.create("Static pin inventory")["id"]
+
+    service = ProjectModelRoutesService(workspace)
+    settings = service.pin_ready_routes(project_id)
+
+    assert settings.model_execution_routes is not None
+    assert settings.model_execution_routes[MODEL] == "own"
+    local_model = f"ollama/@{endpoint.endpoint_id}/qwen3:8b"
+    assert service.set_route(project_id, local_model, "own") == (
+        ProjectModelRouteSelection(model_id=local_model, route="own")
+    )
+
+
+def test_route_pinning_turns_unreadable_target_configuration_into_typed_refusal(
+    tmp_path, monkeypatch
+) -> None:
+    provider = _Provider()
+
+    def unreadable_configuration(target_id, _capability, _engine):
+        raise TargetConfigurationError(
+            target_id,
+            "Fix the target configuration and retry.",
+        )
+
+    monkeypatch.setattr(provider, "configuration", unreadable_configuration)
+    workspace = _workspace(tmp_path, monkeypatch, provider)
+    project_id = workspace.create("Unreadable target")["id"]
+
+    with pytest.raises(ProjectModelRouteError) as exc_info:
+        ProjectModelRoutesService(workspace).pin_ready_routes(project_id)
+
+    assert exc_info.value.status == 409
+    assert exc_info.value.code == "model_route_configuration_unavailable"
+    assert str(exc_info.value) == "Fix the target configuration and retry."
+    assert read_project_settings(workspace.get(project_id)).model_execution_routes == {}
 
 
 def test_explicit_local_model_cannot_be_switched_to_cloud(

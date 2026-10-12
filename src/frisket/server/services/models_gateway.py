@@ -239,6 +239,7 @@ class ModelsGatewayService:
         receipt_scope: str,
         resolve_connection: Callable[[], ModelsGatewayConnection | None],
         save_connection: Callable[[str, str], ModelsGatewayConnection],
+        before_save: Callable[[], None] | None = None,
         transport: httpx.BaseTransport | None = None,
         cache: ModelsGatewayProbeCache | None = None,
     ) -> None:
@@ -246,6 +247,7 @@ class ModelsGatewayService:
         self.receipt_scope = receipt_scope
         self._resolve_connection = resolve_connection
         self._save_connection = save_connection
+        self._before_save = before_save
         self._transport = transport
         self._cache = cache or ModelsGatewayProbeCache()
 
@@ -255,6 +257,7 @@ class ModelsGatewayService:
         root: str | Path,
         *,
         env: Mapping[str, str] | None = None,
+        before_save: Callable[[], None] | None = None,
         transport: httpx.BaseTransport | None = None,
         cache: ModelsGatewayProbeCache | None = None,
     ) -> ModelsGatewayService:
@@ -274,6 +277,7 @@ class ModelsGatewayService:
                     workspace_root, origin=origin, token=token
                 )
             ),
+            before_save=before_save,
             transport=transport,
             cache=cache,
         )
@@ -433,6 +437,8 @@ class ModelsGatewayService:
             token,
             validation_token,
         )
+        if self._before_save is not None:
+            self._before_save()
         self._save_connection(normalized, token.strip())
         return self.status(can_mutate=True)
 

@@ -103,8 +103,9 @@ def patch_project_settings(project: Any, patch: Any) -> ProjectSettings:
     """
     validated = ProjectSettingsPatch.model_validate(patch)
     updates = validated.model_dump(exclude_none=True)
-    merged = read_project_settings(project).model_copy(update=updates)
-    return write_project_settings(project, merged)
+    with project.transaction_scope():
+        merged = read_project_settings(project).model_copy(update=updates)
+        return write_project_settings(project, merged, commit=False)
 
 
 def read_project_mcp_servers(project: Any) -> list[dict[str, Any]]:

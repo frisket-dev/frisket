@@ -8,6 +8,9 @@ make a project unopenable, and a bad *write* must not be silently accepted.
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event, local
 from typing import Any
 
 import pytest
@@ -15,6 +18,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from frisket.server.app import create_app
+from frisket.server.workspace import Workspace
 
 from frisket.project_settings import (
     PROJECT_SETTINGS_META_KEY,
@@ -37,6 +41,10 @@ class _FakeProject:
     def set_meta(self, key: str, value: str, *, commit: bool = True) -> None:
         del commit
         self.meta[key] = value
+
+    @contextmanager
+    def transaction_scope(self):
+        yield
 
 
 def test_private_hosts_default_to_inherit_and_resolve_to_allowed(monkeypatch):
@@ -68,6 +76,65 @@ def test_patch_leaves_unmentioned_settings_alone():
     patch_project_settings(project, {})
 
     assert read_project_settings(project).media_allow_private_hosts is False
+
+
+def test_concurrent_settings_patches_merge_inside_project_transaction(
+    tmp_path, monkeypatch
+):
+    workspace = Workspace(tmp_path / "workspace")
+    project_id = workspace.create("Concurrent settings")["id"]
+    project = workspace.get(project_id)
+    first_read = Event()
+    second_read = Event()
+    first_written = Event()
+    thread_state = local()
+    original_read = read_project_settings
+    original_write = write_project_settings
+
+    def coordinated_read(candidate):
+        settings = original_read(candidate)
+        if getattr(thread_state, "role", None) == "first":
+            first_read.set()
+            second_read.wait(timeout=0.2)
+        else:
+            second_read.set()
+            first_written.wait(timeout=1)
+        return settings
+
+    def coordinated_write(candidate, settings, *, commit=True):
+        result = original_write(candidate, settings, commit=commit)
+        if getattr(thread_state, "role", None) == "first":
+            first_written.set()
+        return result
+
+    monkeypatch.setattr(
+        "frisket.project_settings.read_project_settings", coordinated_read
+    )
+    monkeypatch.setattr(
+        "frisket.project_settings.write_project_settings", coordinated_write
+    )
+
+    def update(role, patch):
+        thread_state.role = role
+        if role == "second":
+            assert first_read.wait(timeout=1)
+        patch_project_settings(project, patch)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [
+            pool.submit(update, "first", {"media_allow_private_hosts": False}),
+            pool.submit(
+                update,
+                "second",
+                {"model_execution_routes": {"openai/gpt-5-mini": "cloud"}},
+            ),
+        ]
+        for future in futures:
+            future.result(timeout=2)
+
+    settings = read_project_settings(project)
+    assert settings.media_allow_private_hosts is False
+    assert settings.model_execution_routes == {"openai/gpt-5-mini": "cloud"}
 
 
 def test_model_execution_routes_distinguish_legacy_from_new_semantics():

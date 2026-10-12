@@ -43,7 +43,10 @@ from frisket.engine.jobs.queue import (
 )
 from frisket.server import provider_config
 from frisket.server.route_errors import RouteError, http_error_responses
-from frisket.server.services.project_model_routes import ProjectModelRoutesService
+from frisket.server.services.project_model_routes import (
+    ProjectModelRouteError,
+    ProjectModelRoutesService,
+)
 from frisket.server.workspace import Workspace
 
 
@@ -104,7 +107,7 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
         "/api/providers/keys/{provider}",
         response_model=LocalProviderCatalog,
         response_model_exclude_unset=True,
-        responses=http_error_responses(400, 422, 500),
+        responses=http_error_responses(400, 409, 422, 500),
     )
     def set_provider_key(
         provider: str, body: ProviderKeyRequest
@@ -122,6 +125,11 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
                 normalized_provider,
                 body.key,
             )
+        except ProjectModelRouteError as exc:
+            raise HTTPException(
+                exc.status,
+                {"code": exc.code, "message": str(exc)},
+            ) from exc
         except provider_config.UnknownProviderError as exc:
             raise HTTPException(400, str(exc)) from exc
         except ValueError as exc:
@@ -132,13 +140,18 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
         "/api/providers/keys/{provider}",
         response_model=LocalProviderCatalog,
         response_model_exclude_unset=True,
-        responses=http_error_responses(400, 500),
+        responses=http_error_responses(400, 409, 500),
     )
     def delete_provider_key(provider: str) -> LocalProviderCatalog:
         try:
             normalized_provider = provider_config.normalize_provider(provider)
             model_routes.pin_all_projects()
             provider_config.delete_local_provider_key(root, normalized_provider)
+        except ProjectModelRouteError as exc:
+            raise HTTPException(
+                exc.status,
+                {"code": exc.code, "message": str(exc)},
+            ) from exc
         except provider_config.UnknownProviderError as exc:
             raise HTTPException(400, str(exc)) from exc
         return provider_config.build_provider_catalog(root, dict(os.environ))

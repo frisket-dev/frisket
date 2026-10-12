@@ -5,15 +5,18 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from frisket.ai.llm.model_catalog import MODEL_ENTRIES
 from frisket.cloud_targets import cloud_fallback_is_blocked
 from frisket.execution.resolver import (
     ModelRoute,
     Refusal,
     canonical_model_route_id,
+    cloud_route_eligible,
     model_route_for_target,
     preferred_route_candidate,
 )
 from frisket.execution.targets import EXECUTION_CAPABILITIES, CAPABILITY_LLM
+from frisket.local_model_ids import format_local_model_id
 from frisket.project_settings import (
     ProjectSettings,
     read_project_settings,
@@ -160,7 +163,10 @@ class ProjectModelRoutesService:
         catalog = build_provider_catalog(
             self._workspace.root,
             network_off=False,
-            local_endpoints=router.local_endpoints,
+            # Pinning records the route that static configuration would choose;
+            # it must not turn every project into an Ollama reachability probe.
+            # Exact non-catalog supports are added from the composition below.
+            local_endpoints=(),
             local_endpoint_authority=(
                 "instance" if self._workspace.edition == "solo" else "organization"
             ),
@@ -187,6 +193,22 @@ class ProjectModelRoutesService:
                     entry.has_own = True
                     entry.has_nonlocal = True
                     entry.local_only = False
+
+        # Configured endpoint identities and the built-in local model catalog
+        # are static facts. Preserve those routes without probing which models
+        # happen to be reachable or installed right now.
+        for endpoint in router.local_endpoints:
+            for model in MODEL_ENTRIES.get("ollama", []):
+                raw_engine = format_local_model_id(endpoint.endpoint_id, model["id"])
+                canonical = canonical_model_route_id(raw_engine, CAPABILITY_LLM)
+                if canonical is None:
+                    continue
+                entry = inventory.setdefault(canonical, _ModelInventoryEntry())
+                variant = (CAPABILITY_LLM, raw_engine)
+                if variant not in entry.variants:
+                    entry.variants.append(variant)
+                entry.has_own = True
+                entry.local_only = not entry.has_nonlocal
 
         provider = composition.provider_for_resolution()
         for target in provider.targets():
@@ -253,16 +275,23 @@ class ProjectModelRoutesService:
         composition: Any,
     ) -> None:
         if route == "cloud":
+            cloud_eligible = any(
+                cloud_route_eligible(raw_engine, capability)
+                for capability, raw_engine in entry.variants
+            )
             if entry.local_only:
                 raise ProjectModelRouteError(
                     409,
                     "cloud_route_unsupported",
                     f"Model {model_id!r} runs only on this installation.",
                 )
-            cloud_catalog_known = callable(
-                getattr(composition.provider, "cloud_payer", None)
-            )
-            if cloud_catalog_known and not entry.has_cloud:
+            if not cloud_eligible:
+                raise ProjectModelRouteError(
+                    409,
+                    "cloud_route_unsupported",
+                    f"Model {model_id!r} is not offered through Frisket Cloud.",
+                )
+            if composition.cloud_inventory_known and not entry.has_cloud:
                 raise ProjectModelRouteError(
                     409,
                     "cloud_route_unsupported",
