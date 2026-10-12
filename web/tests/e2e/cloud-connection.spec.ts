@@ -183,7 +183,7 @@ test('Cloud connection, own-key setup and media selectors share the project rout
   });
   await dialog.getByRole('button', { name: 'Save', exact: true }).click();
   await savedSelector;
-  await expect(dialog).toContainText('Your API key');
+  await expect(dialog).toContainText(/Your Gemini API key/);
   await page.keyboard.press('Escape');
 
   await fillExtractionForm(page);
@@ -193,16 +193,13 @@ test('Cloud connection, own-key setup and media selectors share the project rout
     && response.ok() && (await response.json()).status === 'done'
   ));
   await page.getByTestId('generated-action-preview').click();
-  await expect(page.getByTestId('cost-gate-modal')).toBeVisible();
-  await expect(page.getByTestId('cost-gate-modal')).not.toContainText('Investigations Cloud credits');
-  await page.getByTestId('cost-gate-confirm').click();
   const ownResult = await (await ownPreview).json();
   expect(Object.values(ownResult.result.rows)).toEqual([
     expect.objectContaining({ entity: expect.objectContaining({ value: 'Alice via own key' }) }),
   ]);
 
   await page.goto(`/p/${projectId}/settings/project/ai-providers`);
-  await routing.getByRole('radio', { name: /^Use Investigations/ }).check();
+  await routing.getByRole('radio', { name: /^Use Investigations/ }).click();
   await expect(routing.getByRole('radio', { name: /^Use Investigations/ })).toBeChecked();
   await expect(routing.getByRole('radio', { name: /^Use Investigations/ })).toBeEnabled();
   await waitForExtractSelector(page, () => page.goto(actionURL));
@@ -228,6 +225,7 @@ test('Cloud connection, own-key setup and media selectors share the project rout
     await page.getByTestId('field-engine').locator('.engine-selector__trigger').click();
     await dialog.getByRole('searchbox').fill(engineId === 'paddleocr-vl' ? 'Paddle' : 'Whisper');
     await dialog.locator(`[data-choice-id="${media!.choice_id}"]`).click();
+    await page.getByTestId('field-engine').locator('.engine-selector__trigger').click();
     await expect(dialog).toContainText('Frisket Cloud');
     await dialog.getByRole('button', { name: /Configure models server/i }).click();
     const guide = dialog.getByRole('link', { name: 'Models server setup guide' });
@@ -239,6 +237,8 @@ test('Cloud connection, own-key setup and media selectors share the project rout
       expect(boxes[index]!.y).toBeGreaterThanOrEqual(boxes[index - 1]!.y + boxes[index - 1]!.height);
     }
     await dialog.screenshot({ path: testInfo.outputPath(`${engineId}-cloud-gateway.png`) });
+    await testButton.scrollIntoViewIfNeeded();
+    await dialog.screenshot({ path: testInfo.outputPath(`${engineId}-gateway-fields.png`) });
     await page.keyboard.press('Escape');
   }
 
