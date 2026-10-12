@@ -87,14 +87,11 @@ def write_project_settings(
     project: Any, settings: ProjectSettings, *, commit: bool = True
 ) -> ProjectSettings:
     """Persist ``settings`` whole and return what was stored."""
-    if commit:
-        project.set_meta(PROJECT_SETTINGS_META_KEY, settings.model_dump_json())
-    else:
-        project.set_meta(
-            PROJECT_SETTINGS_META_KEY,
-            settings.model_dump_json(),
-            commit=False,
-        )
+    project.set_meta(
+        PROJECT_SETTINGS_META_KEY,
+        settings.model_dump_json(),
+        commit=commit,
+    )
     return settings
 
 
