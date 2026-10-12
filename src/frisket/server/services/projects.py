@@ -38,6 +38,7 @@ from frisket.server.services.sheet_grid import (
     require_visible_sheet,
     sheet_columns_payload,
 )
+from frisket.server.services.project_model_routes import ProjectModelRoutesService
 from frisket.authoring.workbench.plugin_runtime_status import (
     workbench_plugin_runtime_index,
 )
@@ -162,6 +163,7 @@ def _cap_micro(value: float | None) -> int | None:
 class ProjectLifecycleService:
     def __init__(self, workspace: Workspace):
         self._workspace = workspace
+        self._model_routes = ProjectModelRoutesService(workspace)
 
     def _manifest_exists(self, project_id: str) -> bool:
         try:
@@ -586,12 +588,17 @@ class ProjectLifecycleService:
         except ValueError as exc:
             raise ProjectRetentionError(str(exc)) from exc
         project = self._workspace.get(project_id)
-        project.set_provider_key(
-            provider=normalized_provider,
-            encrypted=encrypt_secret(key),
-            hint=key_hint(key),
-            spend_cap_micro=_cap_micro(spend_cap_usd),
-        )
+        encrypted = encrypt_secret(key)
+        hint = key_hint(key)
+        with project.transaction_scope():
+            self._model_routes.pin_ready_routes(project_id, commit=False)
+            project.set_provider_key(
+                provider=normalized_provider,
+                encrypted=encrypted,
+                hint=hint,
+                spend_cap_micro=_cap_micro(spend_cap_usd),
+                commit=False,
+            )
         return self.project_provider_keys(project_id)
 
     def validate_project_provider_key(
@@ -638,9 +645,15 @@ class ProjectLifecycleService:
         self._ensure_exists(project_id)
         normalized_provider = _normalize_provider(provider)
         project = self._workspace.get(project_id)
+        with project.transaction_scope():
+            self._model_routes.pin_ready_routes(project_id, commit=False)
+            deleted = project.delete_provider_key(
+                normalized_provider,
+                commit=False,
+            )
         return {
             "ok": True,
-            "deleted": project.delete_provider_key(normalized_provider),
+            "deleted": deleted,
             "provider": normalized_provider,
         }
 

@@ -27,7 +27,11 @@ from frisket.contracts.http.cloud_connection import (
     CloudUser,
     ProjectCloudRoutingPatch,
 )
-from frisket.project_settings import ProjectSettings, write_project_settings
+from frisket.project_settings import (
+    ProjectSettings,
+    read_project_settings,
+    write_project_settings,
+)
 from frisket.server.services.cloud_connection import (
     CloudConnectionService,
     CloudConnectionServiceError,
@@ -349,6 +353,8 @@ def test_device_flow_keeps_secrets_server_side_and_coalesces_early_poll(tmp_path
 
     ticks = [100.0]
     workspace = Workspace(tmp_path / "workspace")
+    project_id = workspace.create("Connect from this project")["id"]
+    write_project_settings(workspace.get(project_id), ProjectSettings())
     client = CloudConnectionClient(
         "https://app.frisket.dev", transport=httpx.MockTransport(handler)
     )
@@ -374,11 +380,18 @@ def test_device_flow_keeps_secrets_server_side_and_coalesces_early_poll(tmp_path
     assert token_polls == 1
 
     ticks[0] = 110.0
-    connected = service.poll_authorization(started.id)
+    connected = service.poll_authorization(
+        started.id,
+        initiating_project_id=project_id,
+    )
     assert connected.status == "connected"
     assert connected.connection.identity.id == 7
     assert "private-access-token" not in connected.model_dump_json()
     assert token_polls == 2
+    assert (
+        read_project_settings(workspace.get(project_id)).model_execution_routes
+        is not None
+    )
     assert (
         sum(
             request.method == "GET" and request.url.path.endswith("/session")
@@ -680,6 +693,7 @@ def test_project_account_is_bound_to_signed_in_user(tmp_path):
     store.save_connection("first", _session(user_id=7, account_id=41))
     workspace = Workspace(tmp_path / "workspace")
     project_id = workspace.create("Cloud routing")["id"]
+    write_project_settings(workspace.get(project_id), ProjectSettings())
     service = CloudConnectionService(
         workspace,
         store=store,
@@ -698,6 +712,10 @@ def test_project_account_is_bound_to_signed_in_user(tmp_path):
     assert selected.selected_account_id == 41
     assert selected.preference == "cloud_first"
     assert selected.preference_inherited is False
+    assert (
+        read_project_settings(workspace.get(project_id)).model_execution_routes
+        is not None
+    )
 
     store.save_connection("second", _session(user_id=8, account_id=41))
     changed_user = service.project_routing(project_id)

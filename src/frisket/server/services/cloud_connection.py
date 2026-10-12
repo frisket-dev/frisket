@@ -36,6 +36,10 @@ from frisket.contracts.http.cloud_connection import (
 from frisket.project_settings import read_project_settings, write_project_settings
 from frisket.server.workspace import Workspace
 from frisket.server.provider_config import PROVIDER_LABELS
+from frisket.server.services.project_model_routes import (
+    ProjectModelRouteError,
+    ProjectModelRoutesService,
+)
 
 
 class CloudConnectionServiceError(RuntimeError):
@@ -95,6 +99,7 @@ class CloudConnectionService:
         self._completed: dict[str, tuple[datetime, CloudConnectionResponse]] = {}
         self._pending_lock = threading.Lock()
         self._connection_lock = threading.Lock()
+        self._model_routes = ProjectModelRoutesService(workspace)
 
     def close(self) -> None:
         self._client.close()
@@ -167,7 +172,10 @@ class CloudConnectionService:
         return self._pending_response(pending)
 
     def poll_authorization(
-        self, authorization_id: str
+        self,
+        authorization_id: str,
+        *,
+        initiating_project_id: str | None = None,
     ) -> CloudDeviceAuthorizationPollResponse:
         with self._pending_lock:
             pending = self._pending.get(authorization_id)
@@ -227,8 +235,17 @@ class CloudConnectionService:
             try:
                 with self._connection_lock:
                     session = self._client.session(answer.access_token)
+                    self._model_routes.pin_cloud_connection_routes(
+                        session.user.id,
+                        initiating_project_id=initiating_project_id,
+                    )
                     self._store.save_connection(answer.access_token, session)
-            except (CloudClientError, CloudConnectionStoreError, OSError) as exc:
+            except (
+                CloudClientError,
+                CloudConnectionStoreError,
+                OSError,
+                ProjectModelRouteError,
+            ) as exc:
                 try:
                     self._client.revoke_session(answer.access_token)
                 except CloudClientError:
@@ -413,11 +430,20 @@ class CloudConnectionService:
                 )
             updates["cloud_user_id"] = connection.identity.id
             updates["cloud_account_id"] = patch.selected_account_id
+            with project.transaction_scope():
+                self._model_routes.pin_ready_routes(project_id, commit=False)
+                settings = read_project_settings(project)
+                write_project_settings(
+                    project,
+                    settings.model_copy(update=updates),
+                    commit=False,
+                )
             self._refresh_capabilities(
                 patch.selected_account_id,
                 connection.identity.id,
             )
-        write_project_settings(project, settings.model_copy(update=updates))
+        else:
+            write_project_settings(project, settings.model_copy(update=updates))
         return self._project_routing(
             project_id, connection if connection is not None else self.connection()
         )
