@@ -23,6 +23,18 @@ def _network_off(project: Any) -> bool:
     return project.effective_network_policy() == "off"
 
 
+def _network_policy_forbids_target(
+    network_off: bool, target: ExecutionTarget | None
+) -> bool:
+    """Apply the runtime network policy to the exact selected venue."""
+
+    return (
+        network_off
+        and target is not None
+        and target.egress_class not in {"none", "operator_lan"}
+    )
+
+
 def _mapping(value: Any) -> Mapping[str, Any]:
     return value if isinstance(value, Mapping) else {}
 
@@ -347,7 +359,7 @@ def _execution_presentation(
     balance_label: str | None = None,
     balance_url: str | None = None,
     settings_url: str | None = None,
-    policy_forbidden: bool = False,
+    network_off: bool = False,
     preserve_unbound_catalog: bool = False,
 ) -> _ExecutionPresentation:
     """Project one selected route without choosing or probing another payer."""
@@ -378,16 +390,20 @@ def _execution_presentation(
             settings_url=settings_url,
         )
 
-    if policy_forbidden:
+    if _network_policy_forbids_target(network_off, target):
         return _ExecutionPresentation(
             target,
             resolved_target,
             destination,
             route,
-            status,
-            blocker,
-            setup,
-            active_operation,
+            "unavailable",
+            {
+                "code": "project_network_off",
+                "message": "This project's network setting is off.",
+                "field": None,
+            },
+            None,
+            None,
         )
 
     if refusal is None:

@@ -91,6 +91,7 @@ from frisket.server.services.selector_choices_projection import (
     _model_target,
     _embedding_target,
     _embedding_facts,
+    _network_policy_forbids_target,
     _opus_pair_supported,
     _opus_pair_key,
 )
@@ -324,7 +325,10 @@ class SelectorChoiceService:
     def _provider_catalog(self, project: Any, router: Any) -> dict[str, Any]:
         catalog = build_provider_catalog(
             self._workspace.root,
-            network_off=_network_off(project),
+            # Keep authored and exact composed models visible. The selector
+            # applies network policy to the resolved target below, preserving
+            # the selected choice instead of filtering or reranking it.
+            network_off=False,
             local_endpoints=router.local_endpoints,
             local_endpoint_authority="instance"
             if self._edition == "solo"
@@ -765,6 +769,7 @@ class SelectorChoiceService:
                     balance_label=_balance_label(cloud),
                     balance_url=cloud.balance_url,
                     settings_url=cloud.project_settings_url,
+                    network_off=_network_off(project),
                     preserve_unbound_catalog=local_http,
                 )
                 choices.append(
@@ -833,7 +838,7 @@ class SelectorChoiceService:
             if refusal is not None
             else outcome.target
         )
-        policy_forbidden = _network_off(project) and engine.get("tier") == "hosted"
+        policy_forbidden = _network_policy_forbids_target(_network_off(project), target)
         ready = refusal is None and not policy_forbidden
         destination = _engine_destination(engine, target)
         return _choice(
@@ -1034,7 +1039,13 @@ class SelectorChoiceService:
             )
             destination = _engine_destination(engine, target)
             available = bool(engine.get("available"))
-            policy_forbidden = _network_off(project) and engine.get("tier") == "hosted"
+            # Catalog-only engines retain their legacy tier check. Routed
+            # engines are gated from the exact selected target after resolve.
+            policy_forbidden = (
+                outcome is None
+                and _network_off(project)
+                and engine.get("tier") == "hosted"
+            )
             status = "ready" if available else "unavailable"
             blocker = (
                 None
@@ -1325,7 +1336,7 @@ class SelectorChoiceService:
                     balance_label=_balance_label(cloud),
                     balance_url=cloud.balance_url,
                     settings_url=cloud.project_settings_url,
-                    policy_forbidden=policy_forbidden,
+                    network_off=_network_off(project),
                 )
                 if outcome is not None and execution_capability is not None
                 else None
