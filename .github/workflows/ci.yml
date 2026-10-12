@@ -265,18 +265,11 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils ffmpeg ripgrep
       - run: uv sync --dev --extra entities
       - run: FRISKET_CHECKLOG_DISABLE=1 uv run --no-sync pytest $PYTEST_TARGET -q -n auto --dist loadfile --durations=50 --durations-min=0.5 -o faulthandler_timeout=120
-      # The keyless gap subset runs with the manually dispatched hosted gate,
-      # not nightly. It must also stay green in focused local testing. gap_env
-      # is the disjoint designated-environment-proof subset
-      # (preloaded immutable images/Postgres/credentials that a stock runner
-      # never has); it is deliberately excluded here and never gets a
-      # schedule trigger -- it runs manually or via a prepared
-      # workflow_dispatch environment instead. This -m override replaces
-      # rather than composes with addopts (same caveat as above), which is
-      # fine here because the expression only re-adds "gap" and narrows it,
-      # rather than dropping "not network"/"not plugin_contract" coverage
-      # the step above already ran.
-      - run: uv run --no-sync pytest -q -m "gap and not gap_env" tests/ --durations=20 --durations-min=0.5
+      # The ordinary suite excludes gap tests. Run the keyless acceptance
+      # subset separately, using the same file-level parallelism. Tests marked
+      # gap_env need a prepared environment and remain outside this stock job.
+      # This marker expression replaces pyproject.toml's default expression.
+      - run: uv run --no-sync pytest -q -n auto --dist loadfile -m "gap and not gap_env" tests/ --durations=20 --durations-min=0.5
   deploy-smoke:
     needs: changes
     # Full-stack browser journey: run for any backend or frontend change; a
@@ -371,6 +364,7 @@ jobs:
           npm run e2e --
           --project=chromium --no-deps --workers=1
           action-validation-ux.spec.ts
+          backfill-cost-gate.spec.ts
           derive-object-list.spec.ts
           explain-cell.spec.ts
           extraction-text-citations.spec.ts
