@@ -16,7 +16,6 @@ type SelectorChoice = {
   } | null;
   status: string;
   can_run: boolean;
-  is_current: boolean;
 };
 
 type SelectorResponse = {
@@ -54,23 +53,17 @@ async function waitForExtractSelector(page: Page, navigate: () => Promise<unknow
     },
     status: 'ready',
     can_run: true,
-    is_current: true,
   });
   return selected!;
 }
 
-async function confirmCostIfShown(page: Page): Promise<void> {
+async function confirmPreviewCost(page: Page): Promise<void> {
   const modal = page.getByTestId('cost-gate-modal');
-  if (!await modal.isVisible({ timeout: 2_000 }).catch(() => false)) return;
-  await page.getByTestId('cost-gate-input').fill('confirm');
+  await expect(modal).toBeVisible();
+  await expect(modal).toContainText('Investigations Cloud credits');
   const confirm = page.getByTestId('cost-gate-confirm');
   await expect(confirm).toBeEnabled();
   await confirm.click();
-}
-
-async function clickAndConfirm(page: Page, buttonTestId: string): Promise<void> {
-  await page.getByTestId(buttonTestId).click();
-  await confirmCostIfShown(page);
 }
 
 test('browser sign-in makes Cloud credits the durable Extract default and previews without a local key', async ({
@@ -110,55 +103,61 @@ test('browser sign-in makes Cloud credits the durable Extract default and previe
     'text\n"Alice signed the agreement."\n',
   );
 
-  try {
-    await page.goto(`/p/${projectId}/settings/project/ai-providers`);
-    const routing = page.getByTestId('project-cloud-routing');
-    const account = routing.getByLabel('Cloud account for this project');
-    await expect(account).toBeVisible();
-    await account.selectOption('41');
-    await expect(account).toHaveValue('41');
-    await routing.getByLabel('Use Investigations').check();
-    await routing.getByLabel('Use your keys on this computer').check();
-    await expect(routing.getByLabel('Use your keys on this computer')).toBeChecked();
+  await page.goto(`/p/${projectId}/settings/project/ai-providers`);
+  const routing = page.getByTestId('project-cloud-routing');
+  const account = routing.getByLabel('Cloud account for this project');
+  await expect(account).toBeVisible();
+  await account.selectOption('41');
+  await expect(account).toHaveValue('41');
+  await expect(routing.getByLabel('Use your keys on this computer')).toBeChecked();
+  await expect(account).toBeEnabled();
 
-    const actionURL = `/p/${projectId}/s/${sheetId}/action/map.extract`;
-    const defaultChoice = await waitForExtractSelector(page, () => page.goto(actionURL));
-    const engine = page.getByTestId('field-engine');
-    const trigger = engine.locator('.engine-selector__trigger');
-    await expect(trigger).toContainText('Gemini 3.5 Flash-Lite');
-    await trigger.click();
-    const dialog = page.getByTestId('engine-selector-dialog');
-    const selected = dialog.locator(`[data-choice-id="${defaultChoice.choice_id}"]`);
-    await expect(selected).toHaveAttribute('aria-current', 'true');
-    await expect(dialog).toContainText('Frisket Cloud');
-    await expect(dialog).toContainText('$4.50 balance');
-    await page.keyboard.press('Escape');
+  const actionURL = `/p/${projectId}/s/${sheetId}/action/map.extract`;
+  const defaultChoice = await waitForExtractSelector(page, () => page.goto(actionURL));
+  const engine = page.getByTestId('field-engine');
+  const trigger = engine.locator('.engine-selector__trigger');
+  await expect(trigger).toContainText('Gemini 3.5 Flash-Lite');
+  await trigger.click();
+  const dialog = page.getByTestId('engine-selector-dialog');
+  const selected = dialog.locator(`[data-choice-id="${defaultChoice.choice_id}"]`);
+  await expect(selected).toHaveAttribute('aria-current', 'true');
+  await expect(dialog).toContainText('Frisket Cloud');
+  await expect(dialog).toContainText('$4.50 balance');
+  await expect(dialog.getByPlaceholder('API key', { exact: true })).toHaveCount(0);
+  await page.keyboard.press('Escape');
 
-    await waitForExtractSelector(page, () => page.reload());
-    await expect(page.getByTestId('field-engine').locator('.engine-selector__trigger'))
-      .toContainText('Gemini 3.5 Flash-Lite');
+  await waitForExtractSelector(page, () => page.reload());
+  await expect(page.getByTestId('field-engine').locator('.engine-selector__trigger'))
+    .toContainText('Gemini 3.5 Flash-Lite');
 
-    await page.getByTestId('text-source-mode-template').click();
-    await page.getByTestId('text-source-template-input').fill('{{text}}');
-    await page.getByLabel('Field 1 name').fill('entity');
-    await page.getByLabel('Field 1 type').selectOption('text');
-    await page.getByLabel('Field 1 description').fill('Person named in the text');
-    await page.getByTestId('action-prompt').fill('Extract the named person.');
-    await page.getByTestId('field-citation_mode').selectOption('none');
-    await expect(page.getByTestId('generated-action-preview')).toBeEnabled();
+  await page.getByTestId('text-source-mode-template').click();
+  await page.getByTestId('text-source-template-input').fill('{{text}}');
+  await page.getByLabel('Field 1 name').fill('entity');
+  await page.getByLabel('Field 1 type').selectOption('text');
+  await page.getByLabel('Field 1 description').fill('Person named in the text');
+  await page.getByTestId('field-instruction').fill('Extract the named person.');
+  await page.getByTestId('field-citation_mode').selectOption('none');
+  await expect(page.getByTestId('generated-action-preview')).toBeEnabled();
 
-    await clickAndConfirm(page, 'generated-action-preview');
-    await expect(page.getByTestId('preview-tab-stats')).toContainText(
-      'Preview · 1 of 1 rows',
-      { timeout: 30_000 },
-    );
-    await expect(page.getByTestId('preview-accounting')).toContainText('Model cost:');
-    await expect(page.getByTestId('grid')).toContainText('Alice');
-  } finally {
-    await page.goto('about:blank');
-    const deleted = await request.delete(`/api/projects/${projectId}`, {
-      data: { confirm_name: name },
-    });
-    expect(deleted.ok()).toBeTruthy();
-  }
+  const completed = page.waitForResponse(async (response) => (
+    response.request().method() === 'GET'
+    && response.url().includes(`/api/projects/${projectId}/actions/v1/preview/`)
+    && response.ok()
+    && (await response.json()).status === 'done'
+  ));
+  await page.getByTestId('generated-action-preview').click();
+  await confirmPreviewCost(page);
+  const result = await (await completed).json();
+  // Preview reports provider model cost; the fixture's Cloud charge is separate.
+  expect(result.accounting).toMatchObject({
+    status: 'completed', model_call_count: 1, cost_actual: 0.000006,
+  });
+  expect(Object.values(result.result.rows)).toEqual([
+    expect.objectContaining({ entity: expect.objectContaining({ value: 'Alice' }) }),
+  ]);
+  await expect(page.getByTestId('preview-tab-stats')).toContainText(
+    'Preview · 1 of 1 rows',
+    { timeout: 30_000 },
+  );
+  await expect(page.getByTestId('preview-accounting')).toContainText('Model cost:');
 });

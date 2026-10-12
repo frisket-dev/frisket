@@ -212,7 +212,6 @@ def build_app(*, workspace: Path, static_dir: Path):
         router=ModelRouter(use_env_keys=False, cache_mode="off", max_retries=0),
         static_dir=static_dir,
         serve_spa=True,
-        enable_provider_config=False,
         cloud_connection_store=CloudConnectionStore(profile_dir),
         cloud_connection_client=cloud_client,
         cloud_execution_transport=_CloudExecutionTransport(),

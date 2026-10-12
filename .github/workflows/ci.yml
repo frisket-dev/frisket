@@ -380,6 +380,14 @@ jobs:
           sheet-tab-overflow.spec.ts
           workbench-ia-sheet-tabs.spec.ts
         working-directory: web
+      # Exercise the built Solo app against a fake external Cloud service.
+      # Connection storage, routing, the selector, and SPA refresh stay real.
+      - name: Cloud connection and credit routing
+        run: |
+          node ../sdk/scripts/gen-contracts.mjs
+          FRISKET_EDITION=local npx vite build
+          UV_NO_SYNC=1 npx playwright test --config playwright/playwright.cloud-connection.config.ts
+        working-directory: web
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: ${{ failure() }}
         with:
