@@ -97,6 +97,7 @@ from frisket.server.services.selector_choices_projection import (
     _engine_destination,
     _engine_facts,
     _model_facts,
+    _cloud_llm_model_facts,
     _model_target,
     _embedding_target,
     _embedding_facts,
@@ -885,6 +886,10 @@ class SelectorChoiceService:
                         cloud_setup=cloud_setup,
                     )
                     facts = []
+                elif selected_route == "cloud" and presentation.target is not None:
+                    facts = _cloud_llm_model_facts(
+                        composition, presentation.target, model["id"]
+                    )
                 route_selection = (
                     _route_selection(
                         composition,

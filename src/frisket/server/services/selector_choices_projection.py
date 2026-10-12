@@ -9,6 +9,7 @@ from urllib.parse import quote
 
 from frisket.actions.translate_types import TranslationOptions
 from frisket.cloud_targets import cloud_fallback_is_blocked
+from frisket.contracts.http.cloud_connection import CloudTokenPrice
 from frisket.contracts.http.selector_choices import SELECTOR_CHOICES_SCHEMA_VERSION
 from frisket.execution.definitions import MODELS_GATEWAY_TARGET_ID
 from frisket.execution.provider import ExecutionComposition
@@ -16,6 +17,7 @@ from frisket.execution.resolver import (
     ModelRoute,
     Refusal,
     canonical_model_route_id,
+    cloud_route_eligible,
     model_route_for_target,
     preferred_resolved_engine,
     preferred_static_choice,
@@ -357,9 +359,22 @@ def _route_option(
     options: Mapping[str, Any],
     route: ModelRoute,
     cloud_unknown: bool,
+    cloud_eligible: bool = True,
     unsupported_cloud_provider: str | None = None,
 ) -> tuple[dict[str, Any], ExecutionTarget | None]:
     """Project one probe-free route option from the shared static chooser."""
+
+    if route == "cloud" and not cloud_eligible:
+        return {
+            "id": route,
+            "label": "Frisket Cloud",
+            "status": "unavailable",
+            "disabled_reason": (
+                f"{unsupported_cloud_provider} isn't offered through Frisket Cloud."
+                if unsupported_cloud_provider is not None
+                else "Frisket Cloud does not offer this model."
+            ),
+        }, None
 
     provider = composition.provider_for_resolution()
     choice = preferred_static_choice(
@@ -483,6 +498,7 @@ def _route_selection(
         options=options,
         route="cloud",
         cloud_unknown=cloud_unknown,
+        cloud_eligible=cloud_route_eligible(engine, capability),
         unsupported_cloud_provider=own_provider,
     )
     return {
@@ -775,6 +791,12 @@ def _execution_presentation(
                     "field": None,
                 }
                 if insufficient_credits
+                else {
+                    "code": support.unavailable_reason,
+                    "message": _cloud_route_disabled_reason(support.unavailable_reason),
+                    "field": None,
+                }
+                if support is not None and support.unavailable_reason is not None
                 else refusal_blocker
             )
             setup = (
@@ -1136,6 +1158,27 @@ def _model_facts(model: Mapping[str, Any]) -> list[dict[str, Any]]:
                 }
             )
     return facts
+
+
+def _cloud_llm_model_facts(
+    composition: ExecutionComposition,
+    target: ExecutionTarget,
+    engine: str,
+) -> list[dict[str, Any]]:
+    """Project authoritative rates for the exact selected Cloud LLM route."""
+
+    price_hook = getattr(composition.provider, "cloud_llm_price", None)
+    price = price_hook(target.id, engine) if callable(price_hook) else None
+    if not isinstance(price, CloudTokenPrice):
+        return []
+    return _model_facts(
+        {
+            "price": {
+                "input": price.input_micro_per_million_tokens / 1_000_000,
+                "output": price.output_micro_per_million_tokens / 1_000_000,
+            }
+        }
+    )
 
 
 def _model_target(provider: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:

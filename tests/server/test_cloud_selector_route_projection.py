@@ -339,6 +339,41 @@ def test_nonlocal_own_model_shows_disabled_unsupported_cloud_route(tmp_path) -> 
     }
 
 
+def test_signed_out_unsupported_nonlocal_model_keeps_cloud_disabled(tmp_path) -> None:
+    model_id = "openrouter/qwen/qwen3-8b"
+    client, workspace, _store, project_id = _cloud_selector_app(
+        tmp_path,
+        routes=[],
+        connected=False,
+        selected_account=False,
+        local_keys={"openrouter": "configured-locally"},
+    )
+    write_project_settings(
+        workspace.get(project_id),
+        ProjectSettings(model_execution_routes={model_id: "own"}),
+    )
+
+    with client:
+        response = client.post(
+            f"/api/projects/{project_id}/selector-choices",
+            json={
+                "schema_version": "frisket.selector_choices_query.v1",
+                "subject": {"kind": "project_ask", "model": model_id},
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    selected = next(
+        choice for choice in _choices(response.json()) if choice["is_current"]
+    )
+    assert selected["route_selection"]["options"][0] == {
+        "id": "cloud",
+        "label": "Frisket Cloud",
+        "status": "unavailable",
+        "disabled_reason": "OpenRouter isn't offered through Frisket Cloud.",
+    }
+
+
 def test_cloud_first_selector_keeps_local_engine_on_this_computer(
     tmp_path, monkeypatch
 ) -> None:
@@ -695,6 +730,26 @@ def test_selector_projects_the_composed_cloud_model_route(
     }
     assert selected["setup"] is None
     assert selected["configuration_actions"] == []
+    assert selected["facts"] == [
+        {
+            "kind": "rate",
+            "label": "Input price",
+            "amount": 0.1,
+            "currency": "USD",
+            "unit": "million input tokens",
+            "source_url": None,
+            "updated": None,
+        },
+        {
+            "kind": "rate",
+            "label": "Output price",
+            "amount": 0.4,
+            "currency": "USD",
+            "unit": "million output tokens",
+            "source_url": None,
+            "updated": None,
+        },
+    ]
     assert [option["id"] for option in selected["route_selection"]["options"]] == [
         "cloud",
         "own",
@@ -702,6 +757,38 @@ def test_selector_projects_the_composed_cloud_model_route(
     assert response.json()["schema_version"] == "frisket.selector_choices.v3"
     assert response.json()["cloud_setup"] is None
     assert profile_loads == 1
+
+
+def test_selected_suspended_cloud_model_uses_human_blocker_copy(tmp_path) -> None:
+    route = _llm_route().model_copy(
+        update={"ready": False, "blocker": "account_suspended"}
+    )
+    client, _workspace, _store, project_id = _cloud_selector_app(
+        tmp_path, routes=[route]
+    )
+
+    with client:
+        response = client.post(
+            f"/api/projects/{project_id}/selector-choices",
+            json={
+                "schema_version": "frisket.selector_choices_query.v1",
+                "subject": {
+                    "kind": "project_ask",
+                    "model": "openai/gpt-5-mini",
+                },
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    selected = next(
+        choice for choice in _choices(response.json()) if choice["is_current"]
+    )
+    assert selected["status"] == "unavailable"
+    assert selected["blocker"] == {
+        "code": "account_suspended",
+        "message": "The selected Frisket Cloud account is suspended.",
+        "field": None,
+    }
 
 
 def test_exhausted_cloud_credit_route_stays_selected_and_offers_credits(
