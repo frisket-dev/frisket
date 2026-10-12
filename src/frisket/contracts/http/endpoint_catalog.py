@@ -739,6 +739,7 @@ _TENANT_EDITOR: tuple[RouteSpec, ...] = (
         "POST",
     ),
     ("seed_sample_project", "POST"),
+    ("set_project_model_route", "PATCH"),
     (
         "topic_segmentation_compare_scratch",
         "POST",
@@ -943,6 +944,7 @@ _BROWSER_CLIENT_IDS = (
             "tenant.delete_skill.delete",
             "tenant.project_v1_action_catalog.get",
             "tenant.selector_choices.post",
+            "tenant.set_project_model_route.patch",
             "tenant.project_diagnose.get",
             "tenant.provenance.get",
             "tenant.run_rows.get",

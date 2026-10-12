@@ -12,7 +12,15 @@ from frisket.cloud_targets import cloud_fallback_is_blocked
 from frisket.contracts.http.selector_choices import SELECTOR_CHOICES_SCHEMA_VERSION
 from frisket.execution.definitions import MODELS_GATEWAY_TARGET_ID
 from frisket.execution.provider import ExecutionComposition
-from frisket.execution.resolver import Refusal, preferred_resolved_engine
+from frisket.execution.resolver import (
+    ModelRoute,
+    Refusal,
+    canonical_model_route_id,
+    cloud_route_eligible,
+    model_route_for_target,
+    preferred_resolved_engine,
+    preferred_static_choice,
+)
 from frisket.execution.targets import ExecutionTarget
 from frisket.ops.integrations.opus_mt import resolve_pair_codes
 from frisket.server.provider_config import PROVIDER_LABELS
@@ -77,6 +85,31 @@ def _credential_source(
     if raw in {"local", "workspace"}:
         return "workspace"
     return "missing"
+
+
+def _credential_label(setup: Mapping[str, Any] | None, source: str) -> str | None:
+    label = {
+        "environment": "Environment key",
+        "workspace": "Workspace key",
+        "project": "Project key",
+        "organization": "Organization key",
+        "platform": "Platform key",
+    }.get(source)
+    if label is None:
+        return None
+    scopes = setup.get("scopes", []) if isinstance(setup, Mapping) else []
+    hint = next(
+        (
+            scope.get("hint")
+            for scope in scopes
+            if isinstance(scope, Mapping)
+            and scope.get("source") == source
+            and isinstance(scope.get("hint"), str)
+            and scope.get("hint")
+        ),
+        None,
+    )
+    return f"{label} · {hint}" if hint else label
 
 
 def _default_action_model(
@@ -213,6 +246,7 @@ def _execution_route(
     balance_label: str | None = None,
     balance_url: str | None = None,
     settings_url: str | None = None,
+    credential_label: str | None = None,
 ) -> dict[str, Any]:
     payer = composition.cloud_payer_for(
         target_id=target.id, capability=capability, engine=engine
@@ -247,7 +281,7 @@ def _execution_route(
         billed_to = label
         sends_data_to = provider
         account_id = None
-    return {
+    projected = {
         "kind": kind,
         "label": label,
         "billed_to": billed_to,
@@ -260,6 +294,189 @@ def _execution_route(
             composition, capability=capability, engine=engine
         ),
     }
+    if kind == "local_key" and credential_label is not None:
+        projected["credential_label"] = credential_label
+    return projected
+
+
+def _own_route_label(target: ExecutionTarget | None) -> str:
+    if target is None:
+        return "Own setup"
+    if target.egress_class in {"operator_lan", "frisket_dedicated_org"}:
+        return "Models server"
+    if target.egress_class == "none":
+        return "On this computer"
+    provider = PROVIDER_LABELS.get(target.operator, target.operator)
+    return f"Your {provider} key"
+
+
+def _target_support(
+    target: ExecutionTarget | None, capability: str, engine: str
+) -> Any | None:
+    if target is None:
+        return None
+    return next(
+        (
+            support
+            for support in target.engines
+            if support.capability == capability
+            and (
+                support.engine == engine
+                or support.engine.endswith("/*")
+                and engine.startswith(support.engine[:-1])
+            )
+        ),
+        None,
+    )
+
+
+def _route_option(
+    composition: ExecutionComposition,
+    *,
+    capability: str,
+    engine: str,
+    options: Mapping[str, Any],
+    route: ModelRoute,
+    cloud_unknown: bool,
+) -> tuple[dict[str, Any], ExecutionTarget | None]:
+    """Project one probe-free route option from the shared static chooser."""
+
+    provider = composition.provider_for_resolution()
+    choice = preferred_static_choice(
+        engine,
+        options,
+        provider,
+        capability=capability,
+        route=route,
+    )
+    target = (
+        _target_for_outcome(composition, choice)
+        if isinstance(choice, Refusal)
+        else choice[0]
+        if choice is not None
+        else None
+    )
+    label = "Frisket Cloud" if route == "cloud" else _own_route_label(target)
+    if choice is None:
+        if route == "cloud" and cloud_unknown:
+            return {
+                "id": route,
+                "label": label,
+                "status": "needs_setup",
+                "disabled_reason": None,
+            }, None
+        reason = (
+            "Frisket Cloud does not offer this model."
+            if route == "cloud"
+            else "No own route is available for this model."
+        )
+        return {
+            "id": route,
+            "label": label,
+            "status": "unavailable",
+            "disabled_reason": reason,
+        }, None
+    if isinstance(choice, Refusal):
+        support = _target_support(target, capability, engine)
+        if (
+            route == "cloud"
+            and support is not None
+            and support.unavailable_reason == "account_key_required"
+        ):
+            return {
+                "id": route,
+                "label": label,
+                "status": "needs_setup",
+                "disabled_reason": None,
+            }, target
+        return {
+            "id": route,
+            "label": label,
+            "status": "unavailable",
+            "disabled_reason": choice.remedy,
+        }, target
+    target, support = choice
+    if support.unavailable_reason is not None:
+        account_key_setup = (
+            route == "cloud" and support.unavailable_reason == "account_key_required"
+        )
+        return {
+            "id": route,
+            "label": label,
+            "status": "needs_setup" if account_key_setup else "unavailable",
+            "disabled_reason": (
+                None if account_key_setup else support.unavailable_reason
+            ),
+        }, target
+    configured = provider.configuration(target.id, capability, support.engine)
+    return {
+        "id": route,
+        "label": label,
+        "status": "ready" if configured == "configured" else "needs_setup",
+        "disabled_reason": None,
+    }, target
+
+
+def _route_selection(
+    composition: ExecutionComposition,
+    *,
+    capability: str,
+    engine: str,
+    options: Mapping[str, Any],
+    selected: ModelRoute,
+    can_mutate: bool,
+    cloud_unknown: bool,
+) -> dict[str, Any] | None:
+    model_id = canonical_model_route_id(engine, capability)
+    if (
+        composition.model_routes is None
+        or model_id is None
+        or not cloud_route_eligible(engine, capability)
+    ):
+        return None
+    cloud, _cloud_target = _route_option(
+        composition,
+        capability=capability,
+        engine=engine,
+        options=options,
+        route="cloud",
+        cloud_unknown=cloud_unknown,
+    )
+    own, _own_target = _route_option(
+        composition,
+        capability=capability,
+        engine=engine,
+        options=options,
+        route="own",
+        cloud_unknown=cloud_unknown,
+    )
+    return {
+        "model_id": model_id,
+        "selected": selected,
+        "can_mutate": can_mutate,
+        "options": [cloud, own],
+    }
+
+
+def _selected_route(
+    composition: ExecutionComposition,
+    outcome: Any,
+    *,
+    capability: str,
+    engine: str,
+    requested: ModelRoute | None,
+) -> ModelRoute:
+    if requested is not None:
+        return requested
+    target = _target_for_outcome(composition, outcome)
+    if target is not None:
+        return model_route_for_target(
+            composition.provider_for_resolution(),
+            target,
+            capability,
+            canonical_model_route_id(engine, capability) or engine,
+        )
+    return "own"
 
 
 def _matching_targets(
@@ -386,6 +603,8 @@ def _execution_presentation(
     setup: dict[str, Any] | None,
     active_operation: dict[str, Any] | None = None,
     cloud_setup_for_lane: Callable[[str | None], dict[str, Any] | None] | None = None,
+    cloud_account_key_setup: Callable[[str], dict[str, Any] | None] | None = None,
+    credential_label: str | None = None,
     balance_label: str | None = None,
     balance_url: str | None = None,
     settings_url: str | None = None,
@@ -418,6 +637,7 @@ def _execution_presentation(
             balance_label=balance_label,
             balance_url=balance_url,
             settings_url=settings_url,
+            credential_label=credential_label,
         )
 
     if _network_policy_forbids_target(network_off, target):
@@ -462,9 +682,26 @@ def _execution_presentation(
                 # The blocked own target describes why admission refused; it
                 # is not the payer the saved Cloud-first policy would use.
                 route = None
-            blocker = refusal_blocker
+            support = _target_support(target, capability, engine)
+            account_key_required = (
+                payer is not None
+                and payer.lane == "account_key"
+                and support is not None
+                and support.unavailable_reason == "account_key_required"
+            )
+            blocker = (
+                {
+                    "code": "account_key_required",
+                    "message": "Set up this provider key in Frisket Cloud.",
+                    "field": None,
+                }
+                if account_key_required
+                else refusal_blocker
+            )
             setup = (
-                cloud_setup_for_lane(payer.lane if payer is not None else None)
+                cloud_account_key_setup(payer.provider)
+                if account_key_required and cloud_account_key_setup is not None
+                else cloud_setup_for_lane(payer.lane if payer is not None else None)
                 if cloud_setup_for_lane is not None
                 else None
             )
@@ -695,7 +932,12 @@ def _destination(egress_class: str | None, operator: str | None) -> dict[str, st
     return {"kind": "unknown", "label": "Destination unknown"}
 
 
-def _engine_facts(engine: Mapping[str, Any], target: Any) -> list[dict[str, Any]]:
+def _engine_facts(
+    engine: Mapping[str, Any],
+    target: Any,
+    *,
+    include_active_route: bool = True,
+) -> list[dict[str, Any]]:
     facts: list[dict[str, Any]] = []
     if target is not None and target.operator:
         facts.append({"kind": "text", "label": "Operator", "value": target.operator})
@@ -723,14 +965,18 @@ def _engine_facts(engine: Mapping[str, Any], target: Any) -> list[dict[str, Any]
     ]
     if labels:
         facts.append({"kind": "list", "label": "Languages", "values": labels})
-    active_target = next(
-        (
-            row
-            for row in engine.get("targets", []) or []
-            if isinstance(row, Mapping)
-            and row.get("target_id") == engine.get("target_id")
-        ),
-        {},
+    active_target = (
+        next(
+            (
+                row
+                for row in engine.get("targets", []) or []
+                if isinstance(row, Mapping)
+                and row.get("target_id") == engine.get("target_id")
+            ),
+            {},
+        )
+        if include_active_route
+        else {}
     )
     sizes = active_target.get("sizes") if isinstance(active_target, Mapping) else None
     if isinstance(sizes, list) and sizes:
@@ -752,7 +998,7 @@ def _engine_facts(engine: Mapping[str, Any], target: Any) -> list[dict[str, Any]
                 else "Optional",
             }
         )
-    pricing = _mapping(engine.get("pricing"))
+    pricing = _mapping(engine.get("pricing")) if include_active_route else {}
     amount = pricing.get("unit_price_usd")
     if isinstance(amount, int | float) and not isinstance(amount, bool) and amount >= 0:
         facts.append(
@@ -766,7 +1012,7 @@ def _engine_facts(engine: Mapping[str, Any], target: Any) -> list[dict[str, Any]
                 "updated": None,
             }
         )
-    if target is None or target.egress_class == "none":
+    if include_active_route and (target is None or target.egress_class == "none"):
         downloads = engine.get("downloadable_models") or []
         single_download = engine.get("downloadable_model")
         if isinstance(single_download, Mapping):

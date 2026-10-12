@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any, cast
 from urllib.parse import quote
@@ -43,8 +43,10 @@ from frisket.execution.resolve_for_action import (
     authored_options,
 )
 from frisket.execution.resolver import (
+    ModelRoute,
     Refusal,
     ResolutionRequest,
+    cloud_route_eligible,
     preferred_static_choice,
     resolve,
 )
@@ -56,6 +58,7 @@ from frisket.server.action_catalog_hints import (
 from frisket.server.embedding_catalog import embedding_provider_catalog_payload
 from frisket.server.provider_config import (
     ENV_VAR,
+    PROVIDER_LABELS,
     build_provider_catalog,
 )
 from frisket.server.route_errors import RouteError
@@ -71,6 +74,8 @@ from frisket.server.services.selector_choices_capabilities import (
 from frisket.server.services.selector_choices_projection import (
     _network_off,
     _mapping,
+    _credential_label,
+    _credential_source,
     _schema_default,
     _optional_str,
     _provider_identity,
@@ -95,6 +100,8 @@ from frisket.server.services.selector_choices_projection import (
     _embedding_target,
     _embedding_facts,
     _network_policy_forbids_target,
+    _route_selection,
+    _selected_route,
     _opus_pair_supported,
     _opus_pair_key,
 )
@@ -112,6 +119,7 @@ class _SelectorCloudContext:
     balance_url: str | None
     add_credits_url: str | None
     project_settings_url: str
+    origin: str | None
 
     def setup(
         self,
@@ -142,6 +150,22 @@ class _SelectorCloudContext:
             "project_settings_url": self.project_settings_url,
         }
 
+    def account_key_setup(self, provider: str) -> dict[str, Any] | None:
+        if self.origin is None or self.account_id is None:
+            return None
+        provider_label = PROVIDER_LABELS.get(provider, provider)
+        return {
+            "kind": "instructions",
+            "title": "Set up key in Frisket Cloud",
+            "steps": [
+                f"Add a {provider_label} key to the selected Frisket Cloud account, then recheck."
+            ],
+            "url": (
+                f"{self.origin}/funding-accounts?account_id={self.account_id}"
+                f"&provider={quote(provider, safe='')}"
+            ),
+        }
+
 
 def _cloud_context(
     workspace: Workspace, project_id: str, project: Any, session: Any
@@ -152,11 +176,22 @@ def _cloud_context(
     )
     if not workspace.supports_cloud_connection():
         return _SelectorCloudContext(
-            None, None, None, None, None, None, project_settings_url
+            None, None, None, None, None, None, project_settings_url, None
         )
+    origin = workspace.cloud_connection_origin()
     if session is None:
         return _SelectorCloudContext(
-            "connect", None, None, None, None, None, project_settings_url
+            "reconnect"
+            if settings.cloud_user_id is not None
+            and settings.cloud_account_id is not None
+            else "connect",
+            settings.cloud_account_id,
+            None,
+            None,
+            None,
+            None,
+            project_settings_url,
+            origin,
         )
     try:
         expires_at = datetime.fromisoformat(session.expires_at.replace("Z", "+00:00"))
@@ -172,7 +207,6 @@ def _cloud_context(
         (candidate for candidate in session.accounts if candidate.id == selected_id),
         None,
     )
-    origin = workspace.cloud_connection_origin()
     balance_url = (
         f"{origin}/funding-accounts?account_id={account.id}"
         if origin is not None and account is not None and account.manage_billing
@@ -195,6 +229,7 @@ def _cloud_context(
         balance_url,
         add_credits_url,
         project_settings_url,
+        origin,
     )
 
 
@@ -202,6 +237,30 @@ def _balance_label(cloud: _SelectorCloudContext) -> str | None:
     if cloud.available_micro is None:
         return None
     return f"${cloud.available_micro / 1_000_000:,.2f} balance"
+
+
+def _resolve_route_choice(
+    composition: ExecutionComposition,
+    *,
+    capability: str,
+    engine: str,
+    options: Mapping[str, Any],
+) -> tuple[Any, ModelRoute]:
+    """Resolve the one project route selected by the composition."""
+
+    request = composition.resolution_request(
+        engine,
+        capability=capability,
+        options=options,
+    )
+    outcome = resolve(request, composition.provider_for_resolution(), composition.facts)
+    return outcome, _selected_route(
+        composition,
+        outcome,
+        capability=capability,
+        engine=engine,
+        requested=request.route,
+    )
 
 
 def _classification_options_blocker(
@@ -712,6 +771,14 @@ class SelectorChoiceService:
                 if not local_http and provider_id in ENV_VAR
                 else None
             )
+            own_credential_label = _credential_label(
+                provider_setup,
+                _credential_source(
+                    router,
+                    provider_id,
+                    raw_source=_optional_str(provider.get("credential_source")),
+                ),
+            )
             spend = (
                 provider_spend_states.get(provider_id)
                 if provider_spend_states is not None
@@ -778,12 +845,14 @@ class SelectorChoiceService:
                             "field": None,
                         }
                 target, destination = _model_target(provider)
-                outcome = resolve(
-                    ResolutionRequest(
-                        engine=model["id"], capability=CAPABILITY_LLM, options={}
-                    ),
-                    composition.provider_for_resolution(),
-                    composition.facts,
+                route_capable = not local_http and cloud_route_eligible(
+                    model["id"], CAPABILITY_LLM
+                )
+                outcome, selected_route = _resolve_route_choice(
+                    composition,
+                    capability=CAPABILITY_LLM,
+                    engine=model["id"],
+                    options={},
                 )
                 presentation = _execution_presentation(
                     composition,
@@ -796,12 +865,62 @@ class SelectorChoiceService:
                     blocker=blocker,
                     setup=setup,
                     cloud_setup_for_lane=lambda lane: cloud.setup(payer_lane=lane),
+                    cloud_account_key_setup=cloud.account_key_setup,
                     balance_label=_balance_label(cloud),
                     balance_url=cloud.balance_url,
                     settings_url=cloud.project_settings_url,
+                    credential_label=own_credential_label,
                     network_off=_network_off(project),
                     preserve_unbound_catalog=local_http,
                 )
+                cloud_setup = cloud.setup()
+                if (
+                    route_capable
+                    and selected_route == "cloud"
+                    and presentation.target is None
+                    and cloud_setup is not None
+                ):
+                    presentation = replace(
+                        presentation,
+                        resolved_target=None,
+                        processing_destination={
+                            "kind": "unknown",
+                            "label": "Frisket Cloud",
+                        },
+                        execution_route=None,
+                        status="needs_setup",
+                        blocker={
+                            "code": "frisket_cloud_required",
+                            "message": "Connect or reconnect Frisket Cloud to use this model.",
+                            "field": None,
+                        },
+                        setup=cloud_setup,
+                        active_operation=None,
+                    )
+                    facts = []
+                route_selection = (
+                    _route_selection(
+                        composition,
+                        capability=CAPABILITY_LLM,
+                        engine=model["id"],
+                        options={},
+                        selected=selected_route,
+                        can_mutate=capabilities.may_author_actions,
+                        cloud_unknown=cloud_setup is not None,
+                    )
+                    if route_capable
+                    else None
+                )
+                configuration_actions = _configuration_actions(
+                    provider_setup,
+                    active_setup=presentation.setup,
+                )
+                if route_selection is not None:
+                    configuration_actions = [
+                        action
+                        for action in configuration_actions
+                        if action.get("kind") not in {"api_key", "models_gateway"}
+                    ]
                 choices.append(
                     _choice(
                         selection=selection,
@@ -819,11 +938,9 @@ class SelectorChoiceService:
                         and presentation.status == "ready",
                         blocker=presentation.blocker,
                         setup=presentation.setup,
-                        configuration_actions=_configuration_actions(
-                            provider_setup,
-                            active_setup=presentation.setup,
-                        ),
+                        configuration_actions=configuration_actions,
                         execution_route=presentation.execution_route,
+                        route_selection=route_selection,
                     )
                 )
         return choices
@@ -1023,25 +1140,31 @@ class SelectorChoiceService:
                 if isinstance(active_target_id, str)
                 else None
             )
-            outcome = (
-                resolve(
-                    ResolutionRequest(
-                        engine=engine_id,
-                        options=authored_options(params, execution_capability),
-                        capability=execution_capability,
-                    ),
-                    composition.provider_for_resolution(),
-                    composition.facts,
+            route_options = (
+                authored_options(params, execution_capability)
+                if execution_capability is not None
+                else {}
+            )
+            route_capable = execution_capability is not None and cloud_route_eligible(
+                engine_id, execution_capability
+            )
+            outcome, selected_route = (
+                _resolve_route_choice(
+                    composition,
+                    capability=execution_capability,
+                    engine=engine_id,
+                    options=route_options,
                 )
                 if execution_capability is not None
-                else None
+                else (None, "own")
             )
             static_choice = (
                 preferred_static_choice(
                     engine_id,
-                    authored_options(params, execution_capability),
+                    route_options,
                     composition.provider_for_resolution(),
                     capability=execution_capability,
+                    route=selected_route if route_capable else None,
                 )
                 if execution_capability is not None
                 else None
@@ -1053,13 +1176,17 @@ class SelectorChoiceService:
                 _target_for_outcome(composition, outcome)
                 if outcome is not None
                 else catalog_target
-            ) or catalog_target
+            )
+            if target is None and selected_route != "cloud":
+                target = catalog_target
             projected_target_id = (
                 target.id
                 if target is not None
-                else active_target_id
-                if isinstance(active_target_id, str)
-                else None
+                else (
+                    active_target_id
+                    if selected_route != "cloud" and isinstance(active_target_id, str)
+                    else None
+                )
             )
             resolved_target = (
                 {
@@ -1070,7 +1197,11 @@ class SelectorChoiceService:
                 if projected_target_id is not None
                 else None
             )
-            destination = _engine_destination(engine, target)
+            destination = (
+                {"kind": "unknown", "label": "Frisket Cloud"}
+                if target is None and selected_route == "cloud"
+                else _engine_destination(engine, target)
+            )
             available = bool(engine.get("available"))
             # Catalog-only engines retain their legacy tier check. Routed
             # engines are gated from the exact selected target after resolve.
@@ -1366,6 +1497,7 @@ class SelectorChoiceService:
                     setup=setup,
                     active_operation=operation,
                     cloud_setup_for_lane=lambda lane: cloud.setup(payer_lane=lane),
+                    cloud_account_key_setup=cloud.account_key_setup,
                     balance_label=_balance_label(cloud),
                     balance_url=cloud.balance_url,
                     settings_url=cloud.project_settings_url,
@@ -1375,6 +1507,26 @@ class SelectorChoiceService:
                 else None
             )
             if presentation is not None:
+                cloud_setup = cloud.setup()
+                if (
+                    route_capable
+                    and selected_route == "cloud"
+                    and presentation.target is None
+                    and cloud_setup is not None
+                ):
+                    presentation = replace(
+                        presentation,
+                        resolved_target=None,
+                        execution_route=None,
+                        status="needs_setup",
+                        blocker={
+                            "code": "frisket_cloud_required",
+                            "message": "Connect or reconnect Frisket Cloud to use this model.",
+                            "field": None,
+                        },
+                        setup=cloud_setup,
+                        active_operation=None,
+                    )
                 target = presentation.target
                 resolved_target = presentation.resolved_target
                 destination = presentation.processing_destination
@@ -1395,6 +1547,29 @@ class SelectorChoiceService:
                 if execution_capability is not None
                 else [candidate_setup]
             )
+            route_selection = (
+                _route_selection(
+                    composition,
+                    capability=execution_capability,
+                    engine=engine_id,
+                    options=route_options,
+                    selected=selected_route,
+                    can_mutate=capabilities.may_author_actions,
+                    cloud_unknown=cloud.setup() is not None,
+                )
+                if route_capable and execution_capability is not None
+                else None
+            )
+            configuration_actions = _configuration_actions(
+                *configuration_candidates,
+                active_setup=setup,
+            )
+            if route_selection is not None:
+                configuration_actions = [
+                    action
+                    for action in configuration_actions
+                    if action.get("kind") not in {"api_key", "models_gateway"}
+                ]
             choices.append(
                 _choice(
                     selection=selection,
@@ -1404,17 +1579,20 @@ class SelectorChoiceService:
                     model_card_url=_optional_str(engine.get("model_card_url")),
                     resolved_target=resolved_target,
                     processing_destination=destination,
-                    facts=_engine_facts(engine, target),
+                    facts=_engine_facts(
+                        engine,
+                        target,
+                        include_active_route=not (
+                            selected_route == "cloud" and target is None
+                        ),
+                    ),
                     status=status,
                     can_author=capabilities.may_author_actions
                     and status != "unavailable",
                     can_run=capabilities.may_run_actions and status == "ready",
                     blocker=blocker,
                     setup=setup,
-                    configuration_actions=_configuration_actions(
-                        *configuration_candidates,
-                        active_setup=setup,
-                    ),
+                    configuration_actions=configuration_actions,
                     execution_route=(
                         presentation.execution_route
                         if presentation is not None
@@ -1427,6 +1605,7 @@ class SelectorChoiceService:
                         if target is not None and execution_capability is not None
                         else None
                     ),
+                    route_selection=route_selection,
                     active_operation=operation,
                 )
             )
