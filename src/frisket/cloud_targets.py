@@ -109,8 +109,18 @@ class CloudExecutionTargetProvider:
     def configuration(
         self, target_id: str, capability: str, engine: str
     ) -> TargetConfiguration:
-        if target_id in self._cloud_by_id:
-            return "configured"
+        target = self._cloud_by_id.get(target_id)
+        if target is not None:
+            return (
+                "not_configured"
+                if any(
+                    support.capability == capability
+                    and support.engine == engine
+                    and support.unavailable_reason == "account_key_required"
+                    for support in target.engines
+                )
+                else "configured"
+            )
         return self._source.configuration(target_id, capability, engine)
 
     def selection_rank(self, target_id: str, capability: str, engine: str) -> int:
@@ -369,6 +379,8 @@ def legacy_cloud_execution_preference(
 def _effective_legacy_cloud_execution_preference(
     settings: Any, profile: Any | None
 ) -> Literal["local_first", "cloud_first"]:
+    if settings.cloud_user_id is None or settings.cloud_account_id is None:
+        return "local_first"
     return settings.cloud_execution_preference or (
         profile.preference if profile is not None else "cloud_first"
     )
