@@ -371,6 +371,11 @@ def test_backfill_direct_path_dead_target_surfaces_no_live_target(
 ):
     client = _client(tmp_path)
     pid, project, sheet_id = _seed_audio_project(client)
+    route_response = client.patch(
+        f"/api/projects/{pid}/model-routes",
+        json={"model_id": "moss", "route": "own"},
+    )
+    assert route_response.status_code == 200, route_response.text
     spec = _gateway_spec(sheet_id)
     run_id = _run_original_to_completion(client, pid, project, spec)
     assert len(run_engine_stub) == 1

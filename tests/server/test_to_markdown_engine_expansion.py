@@ -299,6 +299,12 @@ def test_estimate_only_prices_available_unbilled_engines_free(
             monkeypatch.setenv("FRISKET_MODELS_TOKEN", "test-token")
     with TestClient(create_app(tmp_path / "workspace")) as client:
         pid = client.post("/api/projects", json={"name": "Estimate"}).json()["id"]
+        if engine in {"datalab", "docling", "chandra"}:
+            route_response = client.patch(
+                f"/api/projects/{pid}/model-routes",
+                json={"model_id": engine, "route": "own"},
+            )
+            assert route_response.status_code == 200, route_response.text
         project = client.app.state.workspace.get(pid)
         sheet = project.add_sheet("Documents")
         column = project.add_column(sheet, "doc", type="text")

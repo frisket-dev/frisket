@@ -475,6 +475,11 @@ def test_v1_action_estimate_requires_docling_route_before_zero_quote(
         monkeypatch.setenv("FRISKET_MODELS_TOKEN", "test-token")
     client = _client(tmp_path)
     pid, sheet = _seed_ocr(client)
+    route_response = client.patch(
+        f"/api/projects/{pid}/model-routes",
+        json={"model_id": "docling", "route": "own"},
+    )
+    assert route_response.status_code == 200, route_response.text
 
     response = client.post(
         f"/api/projects/{pid}/actions/v1/estimate",
