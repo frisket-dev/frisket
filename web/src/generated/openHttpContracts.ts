@@ -12414,6 +12414,7 @@ export type HttpContractOperationMap = {
     readonly responses: {
       readonly "200": HttpLocalProviderCatalog;
       readonly "400": HttpError;
+      readonly "409": HttpError;
       readonly "500": HttpError;
     };
   };
@@ -14276,6 +14277,7 @@ export type HttpContractOperationMap = {
     readonly responses: {
       readonly "200": HttpModelsGatewayStatus;
       readonly "400": HttpError;
+      readonly "409": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;
     };
@@ -14330,6 +14332,7 @@ export type HttpContractOperationMap = {
     readonly responses: {
       readonly "200": HttpLocalProviderCatalog;
       readonly "400": HttpError;
+      readonly "409": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;
     };
