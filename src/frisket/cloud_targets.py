@@ -89,6 +89,7 @@ class CloudExecutionTargetProvider:
         presentations: dict[tuple[str, str, str], CommercialPresentation],
         *,
         preference: str,
+        shadowed_llm_engines: frozenset[str] = frozenset(),
         execution_transport: CloudExecutionTransport | None = None,
     ) -> None:
         self._source = source
@@ -98,7 +99,26 @@ class CloudExecutionTargetProvider:
         self._llm_prices = dict(llm_prices)
         self._presentations = dict(presentations)
         self._execution_transport = execution_transport
-        source_targets = tuple(source.targets())
+        source_targets = tuple(
+            replace(
+                target,
+                engines=tuple(
+                    support
+                    for support in target.engines
+                    if not (
+                        support.capability == CAPABILITY_LLM
+                        and any(
+                            support.engine == engine
+                            or support.engine.endswith("/*")
+                            and engine.startswith(support.engine[:-1])
+                            for engine in shadowed_llm_engines
+                        )
+                    )
+                ),
+            )
+            for target in source.targets()
+        )
+        source_targets = tuple(target for target in source_targets if target.engines)
         self._targets = (
             self._cloud_targets + source_targets
             if preference == "cloud_first"
@@ -242,6 +262,7 @@ def compose_cloud_targets(
     presentations: dict[tuple[str, str, str], CommercialPresentation] = {}
     offerings: list[CommercialOffering] = []
     included: list[ExactExecutionMatch] = []
+    shadowed_llm_engines: set[str] = set()
     for route in capabilities.routes:
         capability = _media_capability(route)
         if route.capability == CAPABILITY_LLM:
@@ -251,6 +272,8 @@ def compose_cloud_targets(
                 and router.adapter_for_model(route.engine) is not None
             ):
                 continue
+            if preference == "local_first" and router is not None:
+                shadowed_llm_engines.add(route.engine)
             capability = CAPABILITY_LLM
         if capability is None:
             continue
@@ -307,6 +330,7 @@ def compose_cloud_targets(
         llm_prices,
         presentations,
         preference=preference,
+        shadowed_llm_engines=frozenset(shadowed_llm_engines),
         execution_transport=execution_transport,
     )
     return replace(

@@ -84,6 +84,43 @@ class _EmptyProvider:
         return None
 
 
+class _OpenAIProvider:
+    def __init__(self) -> None:
+        self.target = ExecutionTarget(
+            id="remote-api:openai",
+            operator="openai",
+            egress_class="third_party_api",
+            engines=(
+                TargetEngineSupport(
+                    engine="openai/*",
+                    transport="remote",
+                    capability=CAPABILITY_LLM,
+                    options=LLMOptionSupport(
+                        structured_output=True,
+                        tools=True,
+                        vision=True,
+                    ),
+                ),
+                TargetEngineSupport(
+                    engine="datalab",
+                    transport="remote",
+                    capability=CAPABILITY_OCR,
+                    options=OcrOptionSupport(language=False, geometry=True),
+                ),
+            ),
+        )
+
+    def targets(self):
+        return (self.target,)
+
+    def connection(self, target_id):
+        return (
+            ConnectionConfig(token="configured-media-key")
+            if target_id == "remote-api:openai"
+            else None
+        )
+
+
 def _base() -> ExecutionComposition:
     return ExecutionComposition(
         facts=CompositionFacts(edition="open", funding=OperatorBorne()),
@@ -96,6 +133,14 @@ def _base_without_local_route() -> ExecutionComposition:
     return ExecutionComposition(
         facts=CompositionFacts(edition="open", funding=OperatorBorne()),
         provider=_EmptyProvider(),
+        credential_use_context=CredentialUseContext.open(),
+    )
+
+
+def _base_with_openai_route() -> ExecutionComposition:
+    return ExecutionComposition(
+        facts=CompositionFacts(edition="open", funding=OperatorBorne()),
+        provider=_OpenAIProvider(),
         credential_use_context=CredentialUseContext.open(),
     )
 
@@ -408,19 +453,123 @@ def test_local_first_omits_cloud_llm_when_exact_local_adapter_exists():
             return object() if model == "openai/gpt-5-mini" else None
 
     composition = compose_cloud_targets(
-        _base(),
+        _base_with_openai_route(),
         user_id=7,
         account=_account(),
-        capabilities=_llm_capabilities(),
+        capabilities=_llm_capabilities(ready=False),
         preference="local_first",
         router=Router(),
     )
 
-    assert all(
-        support.capability != CAPABILITY_LLM
-        for target in composition.provider.targets()
-        for support in target.engines
+    outcome = resolve(
+        ResolutionRequest(
+            engine="openai/gpt-5-mini",
+            capability=CAPABILITY_LLM,
+            options={},
+        ),
+        composition.provider_for_resolution(),
+        composition.facts,
     )
+
+    assert not isinstance(outcome, Refusal)
+    assert outcome.target.id == "remote-api:openai"
+    assert outcome.facts.cloud_payer is None
+
+
+@pytest.mark.parametrize("ready", [True, False])
+def test_local_first_uses_cloud_llm_when_local_adapter_is_missing(ready):
+    class Router:
+        def adapter_for_model(self, model):
+            del model
+            return None
+
+    composition = compose_cloud_targets(
+        _base_with_openai_route(),
+        user_id=7,
+        account=_account(),
+        capabilities=_llm_capabilities(ready=ready),
+        preference="local_first",
+        router=Router(),
+    )
+
+    outcome = resolve(
+        ResolutionRequest(
+            engine="openai/gpt-5-mini",
+            capability=CAPABILITY_LLM,
+            options={},
+        ),
+        composition.provider_for_resolution(),
+        composition.facts,
+    )
+
+    if ready:
+        assert not isinstance(outcome, Refusal)
+        assert outcome.target.id == "frisket-cloud:41:frisket_credits:openai"
+        assert outcome.support.transport == "frisket.cloud.llm.v1"
+        assert outcome.facts.cloud_payer is not None
+    else:
+        assert isinstance(outcome, Refusal)
+        assert outcome.target_id == "frisket-cloud:41:frisket_credits:openai"
+        assert "Add credits to this account" in outcome.remedy
+
+
+def test_local_first_preserves_media_route_when_cloud_target_also_has_llm():
+    class Router:
+        def adapter_for_model(self, model):
+            del model
+            return None
+
+    capabilities = CloudCapabilitiesResponse(
+        account_id=41,
+        routes=[
+            *_llm_capabilities().routes,
+            CloudCapabilityRoute(
+                capability="ocr",
+                engine="datalab",
+                provider="openai",
+                lane="frisket_credits",
+                route_revision="ocr-route-1",
+                ready=True,
+                blocker=None,
+                price=CloudUnitPrice(kind="unit", unit="page", micro_per_unit=2_500),
+                options=CloudOCROptionSupport(
+                    kind="ocr",
+                    language=False,
+                    geometry=True,
+                    searchable_pdf=False,
+                ),
+            ),
+        ],
+    )
+    composition = compose_cloud_targets(
+        _base_with_openai_route(),
+        user_id=7,
+        account=_account(),
+        capabilities=capabilities,
+        preference="local_first",
+        router=Router(),
+    )
+
+    llm = resolve(
+        ResolutionRequest(
+            engine="openai/gpt-5-mini",
+            capability=CAPABILITY_LLM,
+            options={},
+        ),
+        composition.provider_for_resolution(),
+        composition.facts,
+    )
+    media = resolve(
+        ResolutionRequest(engine="datalab", capability=CAPABILITY_OCR, options={}),
+        composition.provider_for_resolution(),
+        composition.facts,
+    )
+
+    assert not isinstance(llm, Refusal)
+    assert llm.target.id == "frisket-cloud:41:frisket_credits:openai"
+    assert not isinstance(media, Refusal)
+    assert media.target.id == "remote-api:openai"
+    assert media.facts.cloud_payer is None
 
 
 def test_structured_cloud_llm_action_requires_explicit_unknown_quantity_consent(
