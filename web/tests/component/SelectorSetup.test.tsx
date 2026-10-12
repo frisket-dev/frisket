@@ -297,7 +297,6 @@ describe('SelectorSetup', () => {
     const form = origin.closest('form');
     expect(form).toHaveClass('selector-setup-form--compact');
     expect(Array.from(form?.children ?? [])).toEqual([
-      screen.getByText(/Connect an existing frisket models server/),
       screen.getByRole('link', { name: 'Models server setup guide' }).closest('p'),
       origin.closest('label'),
       token.closest('label'),

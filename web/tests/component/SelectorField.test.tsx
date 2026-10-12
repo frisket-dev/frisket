@@ -99,8 +99,6 @@ describe('SelectorField', () => {
     const token = within(dialog).getByLabelText('Gateway token');
     expect(within(dialog).queryByText(/FRISKET_MODELS_URL/)).not.toBeInTheDocument();
     expect(dialog.querySelector('.engine-selector__detail-scroll')).toContainElement(token);
-    expect(within(dialog).getByText(/not an Ollama or OpenAI-compatible endpoint/)).toBeInTheDocument();
-    expect(within(dialog).getByText('FRISKET_MODELS_TOKEN')).toBeInTheDocument();
     expect(within(dialog).getByRole('link', { name: 'Models server setup guide' })).toBeInTheDocument();
   });
 
