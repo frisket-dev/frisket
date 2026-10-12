@@ -82,10 +82,35 @@ describe('backfillWithConfirmation', () => {
     expect(spy).toHaveBeenNthCalledWith(2, 'sheet-1', 'translated', true, [7], 'row-retry-quote');
   });
 
+  it('refuses a hashless challenge before asking for approval or resubmitting', async () => {
+    const estimate: RunEstimate = { cost: null, rows: 2 };
+    const challenge = new ConfirmationRequiredError(
+      estimate,
+      'The server did not return a confirmation token',
+      'unknown_estimate',
+    );
+    const spy = vi
+      .spyOn(api, 'backfillColumn')
+      .mockRejectedValueOnce(challenge);
+    const requestConfirmation = vi.fn(async () => true);
+
+    await expect(
+      backfillWithConfirmation(api, requestConfirmation, 'sheet-1', 'extracted', [4, 8]),
+    ).rejects.toBe(challenge);
+
+    expect(requestConfirmation).not.toHaveBeenCalled();
+    expect(spy).toHaveBeenNthCalledWith(1, 'sheet-1', 'extracted', false, [4, 8]);
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
   it('cancel: resolves null and never resubmits (no mutation)', async () => {
     const spy = vi
       .spyOn(api, 'backfillColumn')
-      .mockRejectedValueOnce(new ConfirmationRequiredError({ cost: 9, rows: 100 }, 'pricey', 'model_cost'));
+      .mockRejectedValueOnce(new ConfirmationRequiredError({
+        cost: 9,
+        rows: 100,
+        promise_set_hash: 'cancelled-backfill-quote',
+      }, 'pricey', 'model_cost'));
     const requestConfirmation = vi.fn(async () => false);
 
     const out = await backfillWithConfirmation(api, requestConfirmation, 'sheet-1', 'extracted');

@@ -13,7 +13,6 @@ import {
   importCsv,
   listSheets,
   openAction,
-  setProjectModelRoute,
   sheetData,
   type WireSheet,
   uniqueName,
@@ -23,6 +22,10 @@ import {
   stubActionSelectorChoices,
   type SelectorGroupFixture,
 } from './selectorChoicesFixture';
+import {
+  prepareOwnModelReplay,
+  REPLAY_MODEL as MODEL,
+} from './replayModelScenario';
 
 const REPO_ROOT =
   path.basename(process.cwd()) === 'web'
@@ -37,8 +40,6 @@ const CSV =
 
 const PROMPT =
   'List every sponsor mentioned in this row. For each sponsor, return the company, any coupon code or discount, and the product being advertised. Only use facts present in the row.';
-const MODEL = 'gemini/gemini-3.5-flash-lite';
-
 const REPLAY_MODEL_CHOICES: SelectorGroupFixture[] = [{
   id: 'gemini',
   label: 'Gemini',
@@ -124,7 +125,7 @@ try:
         "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
         "params": {
             "source": input_columns,
-            "model": "gemini/gemini-3.5-flash-lite",
+            "model": ${JSON.stringify(MODEL)},
             "instruction": ${JSON.stringify(PROMPT)},
             "fields": [
                 {
@@ -247,7 +248,7 @@ async function waitForSheet(
 
 test('derive materializes arrays of typed objects into a child sheet', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-derive-object-list'));
-  await setProjectModelRoute(page.request, pid, MODEL, 'own');
+  await prepareOwnModelReplay(page.request, pid);
   const sheetId = await importCsv(page.request, pid, 'episodes.csv', CSV);
   primeDeriveObjectCache(pid, sheetId);
   await exposeReplayModel(page, pid);

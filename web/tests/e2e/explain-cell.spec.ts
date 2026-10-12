@@ -18,7 +18,6 @@ import {
   importCsv,
   openAction,
   openCellDrawer,
-  setProjectModelRoute,
   sheetColumns,
   uniqueName,
 } from './helpers';
@@ -27,6 +26,10 @@ import {
   stubActionSelectorChoices,
   type SelectorGroupFixture,
 } from './selectorChoicesFixture';
+import {
+  prepareOwnModelReplay,
+  REPLAY_MODEL as MODEL,
+} from './replayModelScenario';
 
 // A 3-row CSV. Row 0 carries an XSS probe so we can assert the raw model
 // output (which echoes/quotes nothing dangerous, but the PROMPT does contain
@@ -39,8 +42,6 @@ const CSV = `snippet
 "The county fair opened with record attendance."
 `;
 const PROMPT = 'Each row is a one-line local news item. Pick the single best label.';
-const MODEL = 'gemini/gemini-3.5-flash-lite';
-
 const REPO_ROOT =
   path.basename(process.cwd()) === 'web'
     ? path.resolve(process.cwd(), '..')
@@ -177,7 +178,7 @@ test('Explain this cell shows the exact prompt + raw output, rendered XSS-safe',
   page,
 }) => {
   const pid = await createProject(page.request, uniqueName('e2e-explain-cache'));
-  await setProjectModelRoute(page.request, pid, MODEL, 'own');
+  await prepareOwnModelReplay(page.request, pid);
   const sheetId = await importCsv(page.request, pid, `snippets-${Date.now()}.csv`, CSV);
   primeExplainCache(pid, sheetId);
   await exposeReplayBackedClassifyEngine(page, pid);
