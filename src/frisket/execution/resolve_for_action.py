@@ -87,6 +87,8 @@ from frisket.execution.targets import (
     CAPABILITY_TO_MARKDOWN,
     CAPABILITY_TRANSCRIBE,
     CAPABILITY_TRANSLATE,
+    LLMOptionSupport,
+    TargetEngineSupport,
     validated_target_snapshot,
 )
 from frisket.execution.promises import (
@@ -109,6 +111,7 @@ from frisket.execution.resolver import (
     RouteRowFacts,
     _canonical_engine,
     resolve,
+    support_inability,
 )
 
 # The authored option keys a runner spec may carry, PER CAPABILITY; these
@@ -804,6 +807,19 @@ def _llm_refusal_requires_execution_admission(
     return configuration != "not_configured"
 
 
+def _llm_support_is_unrestricted(support: TargetEngineSupport) -> bool:
+    """Whether rendered request shape cannot change this support answer."""
+
+    options = support.options
+    return (
+        isinstance(options, LLMOptionSupport)
+        and options.structured_output
+        and options.tools
+        and options.vision
+        and options.max_output_tokens is None
+    )
+
+
 def resolve_for_action(
     project: Any,
     spec: Mapping[str, Any],
@@ -856,13 +872,6 @@ def resolve_for_action(
         )
     )
     options = authored_options(spec, capability)
-    if capability == CAPABILITY_LLM:
-        if scope_row_ids is None:
-            from frisket.engine.runner.validation import target_rows
-
-            scope_row_ids = target_rows(project, dict(spec))
-        rendered_llm = _llm_rendered_calls(project, spec, recipe, scope_row_ids)
-        options = _llm_options(rendered_llm, recipe)
     request = ResolutionRequest(
         engine=raw_engine, options=options, capability=capability
     )
@@ -908,11 +917,36 @@ def resolve_for_action(
                 outcome = replace(outcome, quote_absent=True)
         return outcome
 
-    if llm_route_check and outcome.facts.cloud_payer is None:
+    if (
+        llm_route_check
+        and outcome.facts.cloud_payer is None
+        and _llm_support_is_unrestricted(outcome.support)
+    ):
         # Own-key LLM execution retains the router machinery, but only after
         # the same route chooser has selected it successfully. Candidate
         # membership alone can never switch the payer to Cloud.
         return None
+
+    if capability == CAPABILITY_LLM:
+        if scope_row_ids is None:
+            from frisket.engine.runner.validation import target_rows
+
+            scope_row_ids = target_rows(project, dict(spec))
+        rendered_llm = _llm_rendered_calls(project, spec, recipe, scope_row_ids)
+        options = _llm_options(rendered_llm, recipe)
+        inability = support_inability(outcome.support, options)
+        if inability is not None:
+            return Refusal(
+                family="no_capable_target",
+                remedy=(
+                    f"target '{outcome.target.id}' for engine "
+                    f"{outcome.facts.engine!r} does not support {inability}"
+                ),
+                engine=outcome.facts.engine,
+                target_id=outcome.target.id,
+            )
+        if llm_route_check and outcome.facts.cloud_payer is None:
+            return None
 
     selected_offering = composition.offering_for(
         target_id=outcome.target.id,
