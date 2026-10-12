@@ -46,7 +46,6 @@ ALLOWED: dict[str, str] = {
     "tests/engine/test_job_queue.py": "cross-process queue-db visibility",
     "tests/engine/test_queue_schema_migrations.py": "hosted-worker children against real postgres, env+timeout",
     "tests/runtime_foundation_test_helpers.py": "queue provisioning children: env, timeouts, long-lived Popen",
-    "tests/test_import_boundaries_resolve.py": "fresh-interpreter import-boundary resolution",
     "tests/test_direct_action_validation_registry.py": "fresh-interpreter registry closure",
     "tests/test_action_contract_definition_registry.py": "fresh-interpreter registry closure",
     "tests/engine/test_grounding_conformance.py": "fresh-interpreter conformance probe",
