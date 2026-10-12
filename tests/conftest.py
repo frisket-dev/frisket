@@ -5,6 +5,7 @@ import os
 import re
 import sys
 import time
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -170,6 +171,36 @@ def client(tmp_path: Path) -> TestClient:
 def replay_client(tmp_path: Path) -> TestClient:
     """Server client wired to the committed cache in replay_strict mode."""
     return make_client(tmp_path, router=replay_router())
+
+
+@pytest.fixture(scope="session")
+def real_openapi_document_loader(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Callable[[], bytes]:
+    """Build the real local/team browser contract once per pytest worker."""
+    document_bytes: bytes | None = None
+
+    def load() -> bytes:
+        nonlocal document_bytes
+        if document_bytes is None:
+            from scripts.ci.export_web_openapi import (
+                deterministic_json,
+                export_real_compositions,
+            )
+
+            state_root = tmp_path_factory.mktemp("real-openapi") / "state"
+            document_bytes = deterministic_json(export_real_compositions(state_root))
+        return document_bytes
+
+    return load
+
+
+@pytest.fixture
+def real_openapi_document(
+    real_openapi_document_loader: Callable[[], bytes],
+) -> dict[str, Any]:
+    """Give each assertion an independent copy of the cached contract."""
+    return json.loads(real_openapi_document_loader())
 
 
 @pytest.fixture(autouse=True)
@@ -543,8 +574,8 @@ TESTS_ROOT = Path(__file__).resolve().parent
 
 # Not how "full suite" is detected — the selected roots do that. This only
 # spares a whole-tree invocation that a filter narrowed to a small subset,
-# such as CI's serial `pytest -q -m "gap and not gap_env" tests/` (128 of
-# 7876) or a local `pytest tests/ -k workbench`. Those select the tree but
+# such as a local `pytest -q -m "gap and not gap_env" tests/`
+# or `pytest tests/ -k workbench`. Those select the tree but
 # run a few minutes at most.
 _SERIAL_FULL_SUITE_THRESHOLD = 2000
 

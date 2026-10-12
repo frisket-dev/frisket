@@ -16,9 +16,6 @@ from frisket.engine.store.receipts import (
 from frisket.engine.store.runs import RunResultStore
 
 
-ROOT = Path(__file__).resolve().parents[2]
-
-
 def _receipt(
     receipt_id: str = "receipt_1",
     *,
@@ -190,25 +187,3 @@ def test_receipt_store_finished_insert_and_body_fetch_helpers(tmp_path: Path) ->
         store.insert_completed(partial)
     with pytest.raises(ValueError):
         store.insert_finished(_receipt("receipt_running", status="running"))
-
-
-def test_action_families_do_not_write_receipts_with_raw_sql() -> None:
-    action_family_root = ROOT / "src/frisket/engine/executor/action_families"
-    guarded_sources = [
-        *sorted(action_family_root.rglob("*.py")),
-        ROOT / "src/frisket/engine/executor/embedding_export.py",
-    ]
-    raw_write_markers = (
-        "INSERT INTO receipts",
-        "UPDATE receipts",
-        "DELETE FROM receipts",
-    )
-    offenders: list[str] = []
-    for source_path in guarded_sources:
-        # rule19: closure fence — no raw receipts SQL in action_families; expected-empty architecture grep retained under marker precedent
-        source = source_path.read_text(encoding="utf-8")
-        for marker in raw_write_markers:
-            if marker in source:
-                offenders.append(f"{source_path.relative_to(ROOT)}: {marker}")
-
-    assert offenders == []

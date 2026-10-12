@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -13,7 +12,6 @@ from fastapi.testclient import TestClient
 from frisket.contracts.http.endpoint_catalog import BASE_ENDPOINT_CATALOG
 from frisket.server.routes.previews import register_preview_routes
 from frisket.server.services.previews import PreviewRequestError
-from scripts.ci.export_web_openapi import export_real_compositions
 
 
 _ROUTES = {
@@ -551,9 +549,10 @@ def test_entity_mention_catalog_keeps_editor_auth_and_adds_browser_membership() 
 
 
 def test_entity_mention_real_export_adds_exactly_the_three_operations(
-    tmp_path: Path,
+    real_openapi_document,
 ) -> None:
-    document = export_real_compositions(tmp_path / "state")
-
     for route, (path, _request_name, _response_name) in _OPENAPI_ROUTES.items():
-        assert document["paths"][path]["post"]["operationId"] == _OPERATION_IDS[route]
+        assert (
+            real_openapi_document["paths"][path]["post"]["operationId"]
+            == _OPERATION_IDS[route]
+        )

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 import base64
 import hashlib
 import hmac
@@ -34,21 +33,6 @@ FIXTURE_MASTER_KEY = base64.urlsafe_b64encode(bytes(range(32))).decode()
 # Long enough that its ciphertext is unambiguously the longest base64 leaf
 # in the envelope (see _longest_leaf_path); includes unicode to pin utf-8.
 PLAINTEXT = "sk-live-0123456789abcdefghijklmnopqrstuvwxyz-ключ-鍵-" + "x" * 32
-
-# The eight reverse-dependency sites (paths relative to src/frisket).
-# First six: core modules that must retarget onto the open module.
-CORE_IMPORT_SITES = [
-    "store/project.py",
-    "server/provider_config.py",
-    "server/services/projects.py",
-    "workbench/plugin_runtime.py",
-    "workbench/plugin_subprocess.py",
-    "notifications/secrets.py",
-]
-OTHER_IMPORT_SITES = [
-    "control/secrets.py",
-    "hosted/services/secret_access.py",
-]
 
 _ALLOWED_AEAD_ALGORITHMS = {
     # normalized: lowercase, separators stripped
@@ -171,18 +155,6 @@ def _flip_one_char(s: str) -> str:
     return s[:i] + replacement + s[i + 1 :]
 
 
-def _imported_module_names(path: Path) -> set[str]:
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    names: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            names.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            names.add(node.module)
-            names.update(f"{node.module}.{alias.name}" for alias in node.names)
-    return names
-
-
 def _extract_version(envelope: dict):
     raw = envelope.get("v", envelope.get("version"))
     assert raw is not None, (
@@ -302,13 +274,6 @@ class TestReviewedAead:
 
     def test_module_uses_cryptography_library(self, fixture_key_env) -> None:
         mod = _import_secrets_module()
-        # rule19: executes-the-artifact — encrypt/decrypt round-trip drives the module; import scan backs the sys.modules check
-        source = Path(mod.__file__).read_text(encoding="utf-8")
-        assert re.search(r"^\s*(?:from|import)\s+cryptography\b", source, re.M), (
-            f"{NEW_MODULE} must import its AEAD from the vetted "
-            f"`cryptography` package: use reviewed AEAD from a "
-            f"vetted library, not hand-rolled crypto"
-        )
         mod.decrypt_secret(mod.encrypt_secret(PLAINTEXT))
         assert any(
             name == "cryptography" or name.startswith("cryptography.")

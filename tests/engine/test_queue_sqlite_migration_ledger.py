@@ -3,7 +3,6 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-import frisket.engine.jobs.queue as queue_module
 from frisket.engine.jobs import QUEUE_DB_NAME, open_queue
 from frisket.engine.jobs.queue_migrations import (
     QUEUE_SCHEMA_LEDGER,
@@ -116,18 +115,6 @@ def test_sqlite_queue_upgrades_through_the_ordered_version_ledger(tmp_path):
         f"SQLite queue ledger recorded {_ledger_versions(db_path)}, expected the "
         f"contiguous prefix 1..{QUEUE_SCHEMA_VERSION}"
     )
-
-    # _ensure_ref_schema / REF_COLUMNS are retired by the unified ledger.
-    assert not hasattr(queue_module, "REF_COLUMNS"), (
-        "frisket.engine.jobs.queue still defines REF_COLUMNS: the ordered ledger "
-        "replaces the runtime column migrator entirely"
-    )
-    for name, obj in vars(queue_module).items():
-        if isinstance(obj, type) and "_ensure_ref_schema" in vars(obj):
-            raise AssertionError(
-                f"{name}._ensure_ref_schema still present: the ordered ledger "
-                "retires the runtime column migrator entirely"
-            )
 
 
 def test_pre_ledger_queue_db_upgrades_in_place_and_records_version(tmp_path):

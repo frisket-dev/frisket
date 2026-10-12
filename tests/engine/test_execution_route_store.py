@@ -696,19 +696,6 @@ class TestCanonicalHash:
         assert a == b
         assert a != c
 
-    def test_store_hashes_are_the_shared_implementation(self):
-        from frisket.engine.store.execution_routes import (
-            promise_fingerprint as store_fingerprint,
-            promise_set_hash as store_set_hash,
-        )
-        from frisket.execution.promises import (
-            promise_row_fingerprint,
-            promise_rows_hash,
-        )
-
-        assert store_set_hash(PROMISES) == promise_rows_hash(PROMISES)
-        assert store_fingerprint(PROMISES[0]) == promise_row_fingerprint(PROMISES[0])
-
 
 class TestStaleObserverCannotDisplaceAdvancedHead:
     """F1 (the initial schema): a delayed observer still holding a stale route can never

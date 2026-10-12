@@ -1,17 +1,11 @@
 from __future__ import annotations
 
-import ast
-from pathlib import Path
-
-from frisket.contracts.action import ActionSpec
-from frisket.contracts.action_validation import validate_action_spec
 from frisket.authoring.plugin_registry import (
     _reset_default_registry_for_tests,
     default_registry,
 )
-
-
-ROOT = Path(__file__).resolve().parents[2]
+from frisket.contracts.action import ActionSpec
+from frisket.contracts.action_validation import validate_action_spec
 
 
 def _runtime_action(kind: str) -> dict:
@@ -21,17 +15,6 @@ def _runtime_action(kind: str) -> dict:
         params={"value": "Ada"},
         idempotency_key="runtime-action@sha256:registry-seam",
     ).model_dump(mode="json")
-
-
-def _imports(path: Path) -> set[str]:
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    modules: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            modules.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            modules.add(node.module)
-    return modules
 
 
 def test_runtime_action_validation_uses_explicit_extension_seam() -> None:

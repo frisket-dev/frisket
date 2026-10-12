@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import copy
 import hashlib
-import inspect
 import json
 import os
 import shutil
@@ -2716,11 +2715,6 @@ def test_hostile_numeric_dates_nested_tags_and_transient_cache_state() -> None:
             "completeness": completeness,
             "retryable": retryable,
         }
-
-
-def test_extraction_has_no_per_row_execution_pin_gate() -> None:
-    parameters = inspect.signature(metadata.extract_media_metadata).parameters
-    assert "expected_execution_pin" not in parameters
 
 
 def test_video_descriptive_fields_fall_back_to_primary_stream_tags() -> None:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from fastapi import Request
@@ -133,15 +132,3 @@ def test_create_app_executor_deps_factory_wires_google_sheets_action(tmp_path) -
     ]
     assert fake_client.calls[0]["connection"]["refresh_token"] == "refresh-secret"
     assert fake_client.calls[0]["tabs"][0]["rows"] == [["Ada", "ready"]]
-
-    # ACTION-06C leaves the generic binding registrar as the sole registration
-    # owner; the old export-specific module/import/call must be physically gone.
-    import frisket.engine.jobs as jobs
-
-    jobs_root = Path(__file__).resolve().parents[2] / "src/frisket/engine/jobs"
-    assert not (jobs_root / "exports.py").exists()
-    assert not hasattr(jobs, "register_export_action_job_handlers")
-    for path in (jobs_root / "__init__.py", jobs_root / "worker.py"):
-        # rule19: this is a source-composition/deletion contract.
-        source = path.read_text(encoding="utf-8")
-        assert "register_export_action_job_handlers" not in source

@@ -233,11 +233,15 @@ read historical values by ID, without substituting a same-name successor.
   shape unless the test executes the artifact or compares independently
   maintained artifacts; `scripts/ci/lint_test_source_reads.py` enforces this.
   Mark a legitimate exception inline with `# rule19: <reason>`.
+- Keep the behavior under test real. Fake external services when needed, but
+  avoid replacing our executor or store in tests meant to prove execution or
+  persistence. Derive expected results independently of the implementation;
+  test counts and coverage alone do not establish correctness.
 - Run focused checks for routine changes. The Python suite excludes `gap`,
   `network`, and `plugin_contract` tests by default; web unit tests run with
   `npm run test:unit --prefix web`.
 - Keyless `gap` probes must be green when relevant:
-  `uv run --no-sync pytest -q -m "gap and not gap_env" tests/`. Run `gap_env`
+  `uv run --no-sync pytest -q -n auto --dist loadfile -m "gap and not gap_env" tests/`. Run `gap_env`
   only in the prepared environment it names.
 - Routine tests must not make live network, paid-model, or secret-bearing
   calls. Delete tests for removed behavior and move any genuine coverage to

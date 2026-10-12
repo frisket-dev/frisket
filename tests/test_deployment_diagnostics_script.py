@@ -120,19 +120,13 @@ def test_collector_is_usable_when_the_stack_is_missing(tmp_path: Path) -> None:
     assert "collector_status=complete" in proc.stdout
 
 
-def test_collector_refuses_to_overwrite_a_report_and_never_invokes_compose(
-    tmp_path: Path,
-) -> None:
+def test_collector_refuses_to_overwrite_a_report(tmp_path: Path) -> None:
     output = tmp_path / "existing.txt"
     output.write_text("keep")
     proc = _run(tmp_path, "--output", str(output))
 
     assert proc.returncode == 2
     assert output.read_text() == "keep"
-    # rule19: executes: this test runs the script via _run; the source check is supplementary
-    source = SCRIPT.read_text()
-    assert "docker compose" not in source
-    assert 'cat "$ROOT/.env"' not in source
 
 
 def test_collector_refuses_a_dangling_output_symlink(tmp_path: Path) -> None:

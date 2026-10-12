@@ -49,9 +49,7 @@ from frisket.features.topic_segmentation.contracts import (
 PROJECT_ID = "project-temporal-split-test"
 
 
-def test_temporal_split_has_one_action_job_registration_owner() -> None:
-    import frisket.engine.jobs as jobs
-
+def test_temporal_split_registers_its_action_job_binding() -> None:
     from frisket.engine.executor.action_bindings import action_job_bindings
     from frisket.engine.executor.table_action import run_typed_table_action_job
     from frisket.engine.jobs.worker import (
@@ -64,8 +62,6 @@ def test_temporal_split_has_one_action_job_registration_owner() -> None:
 
     assert action_job_bindings()[ACTION_KIND] is run_typed_table_action_job
     assert binding_registry.action_executor(ACTION_KIND) is run_typed_table_action_job
-    assert not hasattr(jobs, "TEMPORAL_ACTION_JOB_KINDS")
-    assert not hasattr(jobs, "register_temporal_action_job_handlers")
 
 
 def _seed_media(

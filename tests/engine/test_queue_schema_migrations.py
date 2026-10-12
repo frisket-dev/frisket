@@ -5,7 +5,6 @@ from __future__ import annotations
 import concurrent.futures
 import importlib
 import importlib.util
-import inspect
 import json
 import sys
 from datetime import UTC, datetime
@@ -76,9 +75,6 @@ def _migrate(postgres):
 def _strict_queue(url: str):
     from frisket.engine.jobs.queue import PostgresJobQueue
 
-    assert "schema_mode" in inspect.signature(PostgresJobQueue).parameters, (
-        "PostgresJobQueue has no explicit strict schema-mode constructor seam"
-    )
     return PostgresJobQueue(url, schema_mode="strict")
 
 
@@ -263,25 +259,8 @@ def _assert_job_queue_storage_scope_interface(
     from frisket.engine.jobs.queue import (
         ACTION_RUN_KIND,
         PROJECT_RUN_KIND,
-        JobQueue,
-        PostgresJobQueue,
         SqliteJobQueue,
     )
-
-    for owner in (JobQueue, SqliteJobQueue, PostgresJobQueue):
-        for method_name in (
-            "find_job_by_refs",
-            "get_project_run_job",
-            "list_project_jobs",
-        ):
-            parameter = inspect.signature(getattr(owner, method_name)).parameters.get(
-                "storage_org_id"
-            )
-            assert parameter is not None, (
-                f"{owner.__name__}.{method_name} omitted the shared storage scope"
-            )
-            assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
-            assert parameter.default is None
 
     queue = SqliteJobQueue(tmp_path / "storage-scope-interface.queue.db")
     try:

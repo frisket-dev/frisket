@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 
 from fastapi.testclient import TestClient
 
@@ -70,20 +71,44 @@ def test_http_column_runs_use_action_metadata(tmp_path) -> None:
     }
     assert len(body["runs"]) == 1
     run_body = body["runs"][0]
-    assert run_body == {
+    assert set(run_body) == {
+        "run_id",
+        "action_kind",
+        "action_name",
+        "model",
+        "status",
+        "spec",
+        "total_rows",
+        "completed_rows",
+        "failed_rows",
+        "cost_actual",
+        "started_at",
+        "finished_at",
+        "duration_ms",
+        "tokens_in",
+        "tokens_out",
+        "human_score",
+        "judge_scores",
+        "current",
+    }
+    assert datetime.fromisoformat(run_body["started_at"]) <= datetime.fromisoformat(
+        run_body["finished_at"]
+    )
+    assert run_body["duration_ms"] >= 0
+    assert {
+        key: value
+        for key, value in run_body.items()
+        if key not in {"spec", "started_at", "finished_at", "duration_ms"}
+    } == {
         "run_id": result.run_id,
         "action_kind": "map.regex_extract",
         "action_name": "Extract text with regex",
         "model": None,
         "status": "completed",
-        "spec": run_body["spec"],
         "total_rows": 2,
         "completed_rows": 2,
         "failed_rows": 0,
         "cost_actual": 0.0,
-        "started_at": run_body["started_at"],
-        "finished_at": run_body["finished_at"],
-        "duration_ms": run_body["duration_ms"],
         "tokens_in": None,
         "tokens_out": None,
         "human_score": {"graded": 0, "passed": 0},

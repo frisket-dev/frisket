@@ -31,7 +31,6 @@ from frisket.server.services.import_urls import (
     ImportUrlsResponse as ServiceUrlsResponse,
 )
 from frisket.server.services.sample_project import SampleProjectSeedError
-from scripts.ci.export_web_openapi import export_real_compositions
 
 
 _OPERATIONS = {
@@ -446,7 +445,7 @@ def test_onboarding_import_contract_models_preserve_producer_owned_leaves_and_de
 
 
 def test_onboarding_import_catalog_and_real_export_include_import_operations(
-    tmp_path,
+    real_openapi_document,
 ) -> None:
     policies = {entry.id: entry for entry in BASE_ENDPOINT_CATALOG}
     for operation_id in _OPERATIONS:
@@ -462,10 +461,9 @@ def test_onboarding_import_catalog_and_real_export_include_import_operations(
             policy.reserves_funding,
         ) == ("tenant", "POST", "session_or_pat", True, False, "editor", (), False)
 
-    document = export_real_compositions(tmp_path / "state")
     operations = {
         str(operation["operationId"]): (method.upper(), path)
-        for path, path_item in document["paths"].items()
+        for path, path_item in real_openapi_document["paths"].items()
         for method, operation in path_item.items()
     }
     assert {

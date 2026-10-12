@@ -105,7 +105,6 @@ def test_action_run_trace_uses_action_metadata_without_recipe_bridge(tmp_path) -
     assert trace["run_id"] == result.run_id
     assert trace["trace_id"]
     assert trace["action_kind"] == "map.classify"
-    assert trace["action_kind"] == "map.classify"
     assert trace["action_name"] == "Classify rows"
     assert trace["model"] == "anthropic/claude-haiku-4-5"
     assert len(trace["rows"]) == 2

@@ -41,14 +41,13 @@ def test_generated_action_output_keeps_its_public_fields() -> None:
 
 
 def test_real_composition_operation_ids_match_declared_browser_surface(
-    tmp_path: Path,
+    real_openapi_document,
 ) -> None:
     import frisket.team.app as team_app
 
-    document = exporter.export_real_compositions(tmp_path / "real-compositions")
     actual = {
         str(operation["operationId"])
-        for path_item in document["paths"].values()
+        for path_item in real_openapi_document["paths"].values()
         for operation in path_item.values()
     }
     declared = {

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from frisket.contracts.action import Receipt
 from frisket.engine.executor.queued_actions import (
     queued_v1_action_request,
@@ -11,13 +9,6 @@ from frisket.engine.executor.queued_actions import (
 from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
-
-
-ROOT = Path(__file__).resolve().parents[2]
-
-
-def _read(relative: str) -> str:
-    return (ROOT / relative).read_text(encoding="utf-8")
 
 
 def _classify_action() -> dict:

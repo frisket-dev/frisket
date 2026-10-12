@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -16,7 +15,6 @@ from frisket.server.routes.projects import register_project_lifecycle_routes
 from frisket.server.routes.sheet_features import register_sheet_graph_routes
 from frisket.server.services.projects import ProjectNotFound
 from frisket.server.services.sheet_graph import SheetGraphRouteError
-from scripts.ci.export_web_openapi import export_real_compositions
 
 
 _LINEAGE_PATH = "/api/projects/{pid}/lineage"
@@ -240,7 +238,7 @@ def test_graph_lineage_openapi_uses_two_distinct_open_object_responses() -> None
 
 
 def test_graph_lineage_catalog_and_real_export_add_only_the_two_browser_reads(
-    tmp_path: Path,
+    real_openapi_document,
 ) -> None:
     policies = {entry.id: entry for entry in BASE_ENDPOINT_CATALOG}
     for operation_id in _OPERATION_IDS.values():
@@ -256,16 +254,17 @@ def test_graph_lineage_catalog_and_real_export_add_only_the_two_browser_reads(
             policy.reserves_funding,
         ) == ("tenant", "GET", "session_or_pat", True, False, "viewer", (), False)
 
-    document = export_real_compositions(tmp_path / "state")
     assert (
-        document["paths"][_LINEAGE_PATH]["get"]["operationId"]
+        real_openapi_document["paths"][_LINEAGE_PATH]["get"]["operationId"]
         == _OPERATION_IDS["lineage"]
     )
     assert (
-        document["paths"][_SHEET_GRAPH_PATH]["get"]["operationId"]
+        real_openapi_document["paths"][_SHEET_GRAPH_PATH]["get"]["operationId"]
         == _OPERATION_IDS["sheet_graph"]
     )
-    assert "/api/projects/{pid}/graph/neighborhood" not in document["paths"]
+    assert (
+        "/api/projects/{pid}/graph/neighborhood" not in real_openapi_document["paths"]
+    )
 
 
 @pytest.mark.parametrize(

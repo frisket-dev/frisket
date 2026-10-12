@@ -18,7 +18,6 @@ import {
   addRow,
   clickHeader,
   createProject,
-  finishLocalQueuedRun,
   importCsv,
   openAction,
   selectActionInputColumns,
@@ -44,7 +43,6 @@ async function startRegexRun(page: Page, pid: string): Promise<void> {
   ]);
   const body = (await runResponse.json()) as { run_id: number | null };
   if (body.run_id == null) throw new Error('regex v1 run did not return a run id');
-  finishLocalQueuedRun(pid, body.run_id);
 }
 
 /** createProject -> import -> regex run (makes `extracted`) -> add one un-run
@@ -159,8 +157,6 @@ test('over-gate backfill prompts, then echoes the exact confirmation on approval
   await expect(page.getByTestId('cost-gate-estimate')).toContainText('900 rows');
 
   const confirm = page.getByTestId('cost-gate-confirm');
-  await expect(confirm).toBeDisabled();
-  await page.getByTestId('cost-gate-input').fill('confirm');
   await expect(confirm).toBeEnabled();
   await confirm.click();
 

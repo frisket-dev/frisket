@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import inspect
 import sqlite3
 from pathlib import Path
 
@@ -10,11 +9,6 @@ from frisket.engine.jobs import QUEUE_DB_NAME, open_queue
 from frisket.engine.jobs.queue import PROJECT_RUN_KIND
 
 _ISO = "2020-01-01T00:00:00.000000+00:00"
-
-
-def _require(condition: object, message: str) -> None:
-    if not condition:
-        raise AssertionError(message)
 
 
 def _insert_legacy_project_row(db_path: Path, *, storage_org_id: object) -> None:
@@ -41,13 +35,6 @@ def _insert_legacy_project_row(db_path: Path, *, storage_org_id: object) -> None
 def test_declared_hosted_posture_enforces_storage_identity_on_a_sqlite_engine(
     tmp_path,
 ):
-    _require(
-        "hosted" in inspect.signature(open_queue).parameters,
-        "open_queue must accept a declared `hosted` posture parameter so hosted "
-        "tenancy semantics are testable on a SQLite engine without a Postgres "
-        "container; hosted queue posture must be explicit",
-    )
-
     hosted_dir = tmp_path / "hosted"
     hosted_dir.mkdir()
     hosted_queue = open_queue(workspace=hosted_dir, hosted=True)

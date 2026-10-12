@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 import base64
 import hashlib
 import importlib
@@ -638,16 +637,6 @@ def test_workspace_create_reopen_and_product_consumers_keep_blob_store(
     persisted = MediaBlobStore(project).probe_metadata(text_digest)
     assert persisted["size_bytes"] == len(b"hello\nremote media")
     assert "probe_error" not in persisted
-
-
-def _looks_like_project_blob_join(node: ast.BinOp) -> bool:
-    if not (
-        isinstance(node.op, ast.Div)
-        and isinstance(node.right, ast.Constant)
-        and node.right.value == "blobs"
-    ):
-        return False
-    return isinstance(node.left, ast.Attribute) and node.left.attr == "path"
 
 
 def test_validate_project_slug_accepts_normal_lowercase_and_uppercase() -> None:

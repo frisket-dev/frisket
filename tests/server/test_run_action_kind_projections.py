@@ -57,7 +57,6 @@ def test_run_status_preserves_a_canonical_plugin_kind_without_a_catalog_title(
 
         payload = run_status("plugin", project, run_id)["run"]
         assert payload["action_kind"] == action_kind
-        assert payload["action_kind"] == action_kind
         assert payload["action_name"] == "Unknown action"
     finally:
         project.close()

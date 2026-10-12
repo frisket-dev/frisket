@@ -30,9 +30,10 @@ export type CostConfirmationRequester = (
  *
  * - Under the gate (or a deterministic/$0 backfill): backfillColumn resolves
  *   directly — NO prompt — and this returns the BackfillResult.
- * - Over the gate: the api layer throws ConfirmationRequiredError; this presents
- *   the priced confirmation (via `requestConfirmation`), and on confirm
- *   re-submits with the approved quote token and returns the BackfillResult.
+ * - Over the gate: the api layer throws ConfirmationRequiredError; when it
+ *   carries a server-issued promise-set hash, this presents the priced
+ *   confirmation (via `requestConfirmation`) and on confirm re-submits with
+ *   that exact quote token and returns the BackfillResult.
  * - On cancel: returns `null` — the caller must abort cleanly (no mutation, no
  *   error toast). A cancel is a user choice, not an error.
  *
@@ -52,12 +53,11 @@ export async function backfillWithConfirmation(
     return await api.backfillColumn(sheetId, columnName, false, rowIds);
   } catch (e: unknown) {
     if (e instanceof ConfirmationRequiredError) {
+      const consentedHash = e.estimate.promise_set_hash;
+      if (!consentedHash) throw e;
       const approved = await requestConfirmation(e.estimate, e.message);
       if (!approved) return null;
-      const consentedHash = e.estimate.promise_set_hash;
-      return consentedHash
-        ? api.backfillColumn(sheetId, columnName, true, rowIds, consentedHash)
-        : api.backfillColumn(sheetId, columnName, true, rowIds);
+      return api.backfillColumn(sheetId, columnName, true, rowIds, consentedHash);
     }
     throw e;
   }

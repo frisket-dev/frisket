@@ -1,22 +1,10 @@
 from __future__ import annotations
 
-import inspect
 from pathlib import Path
 
 import pytest
 
 from frisket.engine.executor.action_specs import ResolvedAction
-# --- resolved is threaded into the receipt builder / write skeleton --------
-
-
-def test_build_receipt_and_outputs_accepts_resolved() -> None:
-    from frisket.sdk.maprunner import build_receipt_and_outputs
-
-    params = inspect.signature(build_receipt_and_outputs).parameters
-    assert "resolved" in params, (
-        "build_receipt_and_outputs must accept resolved so present() can see "
-        "resolved input facts"
-    )
 
 
 # --- ResolvedAction.snapshot is JSON-only, deterministic, redacted ---------

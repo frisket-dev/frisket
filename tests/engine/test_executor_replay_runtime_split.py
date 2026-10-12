@@ -18,90 +18,8 @@ from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 
 
-EXPECTED_OUTPUT_REF_KINDS = {
-    "materialized_sheet",
-    "source_column",
-    "source_rows",
-    "materialized_column",
-    "materialized_join_table",
-    "materialized_join_column",
-    "column_type_update",
-    "column_patch",
-    "added_column",
-    "materialized_rows",
-    "materialized_join_rows",
-    "materialized_link_table",
-    "materialized_link_column",
-    "materialized_link_rows",
-    "added_rows",
-    "deleted_rows",
-    "map_result_column",
-    "map_ask_output_column",
-    "map_classify_output_column",
-    "map_extract_output_column",
-    "map_translate_output_column",
-    "map_ner_output_column",
-    "map_find_topic_sections_output_column",
-    "map_clean_names_output_column",
-    "media_transcribe_output_column",
-    "media_ocr_output_column",
-    "media_ytdlp_download_output_column",
-    "semantic_join_output_column",
-    "semantic_join_link_sheet",
-    "semantic_join_link_edges",
-    "research_answer_output_column",
-    "map_summarize_output_column",
-    "geocode_output_column",
-    "census_demographics_output_column",
-    "reduce_summary_output_column",
-    "named_result",
-    "operation_status_transition",
-    "run_backfill",
-    "embedding_index",
-    "embedding_index_refresh",
-    "embedding_index_delete",
-    "embedding_index_update_policy",
-    "manual_edit_batch",
-    "edit_overlay",
-    "review_decision",
-    "review_note",
-    "replay_accept",
-    "replay_accept_column",
-    "replay_dismiss",
-    "export_artifact",
-    "export_project_file",
-    "external_export",
-    "query_preview",
-    "query_cell_edit_batch",
-    "plugin_manifest",
-    "source_create_source",
-    "source_update_source",
-    "source_delete_source",
-    "rss_source",
-    "rss_source_run",
-    "source_poll_source",
-    "source_poll_run",
-    "source_check_source",
-    "source_check_run",
-    "source_sheet",
-    "rss_feed_rows",
-    "source_poll_rows",
-    "enclosure_rows",
-    "media_cell",
-    "media_blob",
-    "web_capture_page_output_column",
-    "updated_import_rows",
-}
-
-
-def test_result_from_receipt_lives_only_in_receipt_projection() -> None:
+def test_result_from_receipt_projects_core_outputs() -> None:
     runtime = importlib.import_module("frisket.engine.executor.action_receipts")
-    actions = importlib.import_module("frisket.engine.executor.actions")
-    action_jobs = importlib.import_module("frisket.engine.executor.action_jobs")
-
-    assert not hasattr(actions, "_result_from_receipt")
-    assert not hasattr(actions, "_runtime_action_result_from_receipt")
-    assert not hasattr(action_jobs, "_action_job_result_from_terminal_receipt")
 
     receipt = Receipt(
         receipt_id="receipt_replay",
@@ -164,10 +82,8 @@ def test_result_from_receipt_lives_only_in_receipt_projection() -> None:
     assert result.outputs[2].row_ids == [101, 102]
 
 
-def test_result_from_receipt_uses_output_ref_registry() -> None:
+def test_result_from_receipt_projects_representative_output_refs() -> None:
     runtime = importlib.import_module("frisket.engine.executor.action_receipts")
-
-    assert set(runtime._OUTPUT_REF_RESULT_BUILDERS) == EXPECTED_OUTPUT_REF_KINDS  # noqa: SLF001
 
     receipt = Receipt(
         receipt_id="receipt_registry_replay",

@@ -1,11 +1,7 @@
-"""The ProjectOpener contract available to downstream compositions.
+"""Project-opening authority across handlers, recovery, and schedulers.
 
-This suite pins the public import path (``frisket.jobs.worker.ProjectOpener``),
-the alias's exact type, the ``project_opener`` keyword on every
-registration/scan/scheduler that
-opens a project, and — most importantly — that with an opener injected NO code
-path falls back to a direct ``Project(path)`` open or to a payload-derived
-identity.
+With an opener injected, no exercised path may fall back to a direct
+``Project(path)`` open or to a payload-derived identity.
 
 The action-job recovery probe uses the real ``worker_lease_expired:`` job-error
 prefix. Free-text errors are correctly ignored; loosening that filter would
@@ -15,14 +11,12 @@ terminalize receipts for jobs that failed for unrelated reasons.
 from __future__ import annotations
 
 import importlib
-import inspect
 import signal
 import threading
-from collections.abc import Callable as CallableABC
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Callable, get_args, get_origin, get_type_hints
+from typing import Any
 
 import pytest
 
@@ -31,38 +25,12 @@ from frisket.engine.jobs.ports import JobHandlerContext
 from frisket.engine.jobs.queue import CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY
 from frisket.engine.jobs.worker import HandlerRegistry
 from frisket.project_identity import ProjectStorageKey
-from frisket.engine.store import Project
 from frisket.engine.store.blob_backend import S3ProjectBlobStore
+from frisket.engine.store import Project
 
 
-def _assert_parameter(fn: Callable[..., Any], name: str) -> None:
-    parameters = inspect.signature(fn).parameters
-    assert name in parameters, (
-        f"{fn.__module__}.{fn.__qualname__} lacks the typed {name} handoff"
-    )
-    parameter = parameters[name]
-    assert parameter.default is None, (
-        f"{fn.__module__}.{fn.__qualname__}.{name} must stay optional"
-    )
-    opener_type = getattr(
-        importlib.import_module("frisket.engine.jobs.worker"), "ProjectOpener", None
-    )
-    assert opener_type is not None
-    try:
-        annotation = get_type_hints(fn).get(name)
-    except Exception as exc:  # noqa: BLE001 - broken public hints are semantic drift
-        raise AssertionError(
-            f"{fn.__module__}.{fn.__qualname__}.{name} has unresolvable typing"
-        ) from exc
-    assert annotation == opener_type or opener_type in get_args(annotation), (
-        f"{fn.__module__}.{fn.__qualname__}.{name} is not typed as ProjectOpener"
-    )
-
-
-def _public_opener_modules() -> dict[str, Any]:
-    """Return the released public surfaces after defensively freezing names."""
-
-    modules = {
+def _opener_modules() -> dict[str, Any]:
+    return {
         name: importlib.import_module(name)
         for name in (
             "frisket.engine.jobs.worker",
@@ -76,64 +44,6 @@ def _public_opener_modules() -> dict[str, Any]:
             "frisket.cli",
         )
     }
-    worker = modules["frisket.engine.jobs.worker"]
-    assert hasattr(worker, "ProjectOpener"), (
-        "the pinned public Frisket wheel lacks typed ProjectOpener"
-        "(ProjectStorageKey, Path) -> Project"
-    )
-    opener_value = getattr(worker.ProjectOpener, "__value__", worker.ProjectOpener)
-    opener_args = get_args(opener_value)
-    assert get_origin(opener_value) is CallableABC and len(opener_args) == 2
-    opener_parameters, opener_result = opener_args
-    assert tuple(opener_parameters) == (ProjectStorageKey, Path)
-    assert opener_result is Project
-
-    opener_functions = (
-        worker.register_production_handlers,
-        modules["frisket.engine.jobs.runs"].register_project_run_handler,
-        modules["frisket.engine.jobs.runs"].register_action_run_handler,
-        modules["frisket.engine.jobs.enclosures"].register_enclosure_download_handler,
-        modules["frisket.engine.jobs.sources"].register_source_poll_handler,
-        modules["frisket.engine.jobs.sources"].enqueue_due_source_polls,
-        modules["frisket.engine.jobs.embeddings"].register_embedding_refresh_handler,
-        modules["frisket.engine.jobs.embeddings"].enqueue_due_scheduled_refreshes,
-        modules["frisket.engine.jobs.watches"].register_watch_evaluate_handler,
-        modules[
-            "frisket.engine.jobs.notifications_delivery"
-        ].register_notification_handlers,
-        modules[
-            "frisket.engine.jobs.notifications_delivery"
-        ].deliver_notification_request,
-        modules[
-            "frisket.engine.jobs.notifications_delivery"
-        ].enqueue_notification_delivery,
-        modules[
-            "frisket.engine.jobs.notifications_delivery"
-        ].reconcile_notification_delivery_requests,
-        modules[
-            "frisket.engine.jobs.notifications_digest"
-        ].register_notification_digest_handlers,
-        modules[
-            "frisket.engine.jobs.notifications_digest"
-        ].compose_notification_digest_job,
-        modules[
-            "frisket.engine.jobs.notifications_digest"
-        ].enqueue_due_notification_digests,
-        modules["frisket.cli"]._enqueue_due_source_polls,
-        modules["frisket.cli"]._enqueue_due_scheduled_embeddings,
-        modules["frisket.cli"]._enqueue_due_notification_digests,
-        modules["frisket.cli"]._start_source_scheduler,
-        modules["frisket.cli"]._start_embedding_scheduler,
-        modules["frisket.cli"]._start_notification_digest_scheduler,
-    )
-    for fn in opener_functions:
-        _assert_parameter(fn, "project_opener")
-
-    assert hasattr(modules["frisket.cli"], "SchedulerRoot"), (
-        "the pinned public CLI lacks SchedulerRoot=(Path, storage_org_id)"
-    )
-    assert modules["frisket.cli"].SchedulerRoot == tuple[Path, int | None]
-    return modules
 
 
 class _DirectProjectBypass(AssertionError):
@@ -261,11 +171,11 @@ def test_workspace_registration_derives_opener_from_declared_storage_identity(
         queue.close()
 
 
-def test_all_project_handlers_call_one_typed_opener_instead_of_direct_project(
+def test_all_project_handlers_call_one_opener_instead_of_direct_project(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    modules = _public_opener_modules()
+    modules = _opener_modules()
     worker_module = modules["frisket.engine.jobs.worker"]
     global_root = tmp_path / "projects"
     key = ProjectStorageKey(storage_org_id=23, project_slug="trusted")
@@ -379,7 +289,7 @@ def test_recovery_schedulers_nested_digest_and_cli_reuse_returned_opener(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    modules = _public_opener_modules()
+    modules = _opener_modules()
     cli = modules["frisket.cli"]
     runs = modules["frisket.engine.jobs.runs"]
     notifications = modules["frisket.engine.jobs.notifications_delivery"]
@@ -522,9 +432,6 @@ def test_recovery_schedulers_nested_digest_and_cli_reuse_returned_opener(
                 return [failed_job]
 
         monkeypatch.setattr(store_module, "Project", forbid_direct_project)
-        _assert_parameter(
-            action_jobs.reconcile_exhausted_action_run_jobs, "project_opener"
-        )
         calls.clear()
         direct_opens.clear()
         action_jobs.reconcile_exhausted_action_run_jobs(

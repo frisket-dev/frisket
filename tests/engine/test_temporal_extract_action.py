@@ -516,9 +516,7 @@ def test_queued_extract_failure_uses_ordinary_action_run_terminalization(
         project.close()
 
 
-def test_extract_range_has_one_canonical_action_job_registration_owner() -> None:
-    import frisket.engine.jobs as jobs
-
+def test_extract_range_registers_its_action_job_binding() -> None:
     from frisket.engine.executor.action_bindings import action_job_bindings
     from frisket.engine.executor.temporal_extract_action import (
         run_typed_temporal_extract_job,
@@ -534,15 +532,6 @@ def test_extract_range_has_one_canonical_action_job_registration_owner() -> None
     executor = action_job_bindings()["temporal.extract_range"]
     assert executor is run_typed_temporal_extract_job
     assert registry.action_executor("temporal.extract_range") is executor
-    assert not hasattr(jobs, "TEMPORAL_ACTION_JOB_KINDS")
-    assert not hasattr(jobs, "register_temporal_action_job_handlers")
-    jobs_root = Path(__file__).resolve().parents[2] / "src/frisket/engine/jobs"
-    assert not (jobs_root / "temporal.py").exists()
-    for path in (jobs_root / "__init__.py", jobs_root / "worker.py"):
-        # rule19: legacy-registration deletion is a source composition contract.
-        source = path.read_text(encoding="utf-8")
-        assert "register_temporal_action_job_handlers" not in source
-        assert "TEMPORAL_ACTION_JOB_KINDS" not in source
 
 
 def test_extract_range_binding_runs_through_http_queue_worker_and_exact_replay(
