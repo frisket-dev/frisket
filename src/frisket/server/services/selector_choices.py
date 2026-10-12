@@ -17,6 +17,7 @@ from urllib.parse import quote
 
 
 from frisket.authoring.action_metadata import action_available_in_edition
+from frisket.authoring.project_ask import default_project_ask_model
 from frisket.ai.embeddings.capabilities import resolve_embedding_capability
 from frisket.contracts.http.selector_choices import (
     ActionSelectorSubject,
@@ -534,7 +535,7 @@ class SelectorChoiceService:
             choices=choices,
             current_selection=_model_selection(subject.model),
             default_selection=_model_selection(
-                _default_action_model(choices, composition)
+                default_project_ask_model(router, composition)
             ),
             server_labels=_server_labels(provider_catalog),
             cloud_setup=cloud.setup(),

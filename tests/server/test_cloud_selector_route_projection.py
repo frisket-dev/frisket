@@ -360,9 +360,7 @@ def test_network_off_refuses_exact_cloud_media_but_keeps_gateway_lan(
 
 def test_cloud_only_project_ask_default_matches_the_persisted_turn(tmp_path) -> None:
     model = "gemini/gemini-3.5-flash-lite"
-    route = _llm_route().model_copy(
-        update={"engine": model, "provider": "gemini"}
-    )
+    route = _llm_route().model_copy(update={"engine": model, "provider": "gemini"})
     client, workspace, _store, project_id = _cloud_selector_app(
         tmp_path, routes=[route]
     )
@@ -394,9 +392,7 @@ def test_cloud_only_project_ask_default_matches_the_persisted_turn(tmp_path) -> 
         assert default["execution_route"]["kind"] == "cloud_credits"
 
         threads = f"/api/projects/{project_id}/qa/threads"
-        thread_response = client.post(
-            threads, json={"scope": {"kind": "project"}}
-        )
+        thread_response = client.post(threads, json={"scope": {"kind": "project"}})
         assert thread_response.status_code == 200, thread_response.text
         turn_response = client.post(
             f"{threads}/{thread_response.json()['id']}/turns",
