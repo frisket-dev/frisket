@@ -878,7 +878,6 @@ class SelectorChoiceService:
                     route_capable
                     and selected_route == "cloud"
                     and presentation.target is None
-                    and cloud_setup is not None
                 ):
                     presentation = replace(
                         presentation,
@@ -888,12 +887,20 @@ class SelectorChoiceService:
                             "label": "Frisket Cloud",
                         },
                         execution_route=None,
-                        status="needs_setup",
-                        blocker={
-                            "code": "frisket_cloud_required",
-                            "message": "Connect or reconnect Frisket Cloud to use this model.",
-                            "field": None,
-                        },
+                        status=(
+                            "needs_setup"
+                            if cloud_setup is not None
+                            else presentation.status
+                        ),
+                        blocker=(
+                            {
+                                "code": "frisket_cloud_required",
+                                "message": "Connect or reconnect Frisket Cloud to use this model.",
+                                "field": None,
+                            }
+                            if cloud_setup is not None
+                            else presentation.blocker
+                        ),
                         setup=cloud_setup,
                         active_operation=None,
                     )
@@ -1512,18 +1519,25 @@ class SelectorChoiceService:
                     route_capable
                     and selected_route == "cloud"
                     and presentation.target is None
-                    and cloud_setup is not None
                 ):
                     presentation = replace(
                         presentation,
                         resolved_target=None,
                         execution_route=None,
-                        status="needs_setup",
-                        blocker={
-                            "code": "frisket_cloud_required",
-                            "message": "Connect or reconnect Frisket Cloud to use this model.",
-                            "field": None,
-                        },
+                        status=(
+                            "needs_setup"
+                            if cloud_setup is not None
+                            else presentation.status
+                        ),
+                        blocker=(
+                            {
+                                "code": "frisket_cloud_required",
+                                "message": "Connect or reconnect Frisket Cloud to use this model.",
+                                "field": None,
+                            }
+                            if cloud_setup is not None
+                            else presentation.blocker
+                        ),
                         setup=cloud_setup,
                         active_operation=None,
                     )
