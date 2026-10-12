@@ -249,6 +249,8 @@ class CloudConnectionService:
                 CloudConnectionStoreError,
                 OSError,
                 ProjectModelRouteError,
+                RouteError,
+                sqlite3.Error,
             ) as exc:
                 try:
                     self._client.revoke_session(answer.access_token)
@@ -420,7 +422,6 @@ class CloudConnectionService:
         self, project_id: str, patch: ProjectCloudRoutingPatch
     ) -> ProjectCloudRoutingResponse:
         project = self._workspace.get(project_id)
-        settings = read_project_settings(project)
         updates: dict[str, object] = {}
         connection = None
         if "preference" in patch.model_fields_set:
@@ -451,7 +452,13 @@ class CloudConnectionService:
                 connection.identity.id,
             )
         else:
-            write_project_settings(project, settings.model_copy(update=updates))
+            with project.transaction_scope():
+                settings = read_project_settings(project)
+                write_project_settings(
+                    project,
+                    settings.model_copy(update=updates),
+                    commit=False,
+                )
         return self._project_routing(
             project_id, connection if connection is not None else self.connection()
         )

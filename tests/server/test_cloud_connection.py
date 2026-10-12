@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 import json
 import os
+import sqlite3
 from datetime import UTC, datetime
 from threading import Event
 
@@ -32,6 +34,8 @@ from frisket.project_settings import (
     read_project_settings,
     write_project_settings,
 )
+from frisket.engine.store.project import Project
+from frisket.server.route_errors import RouteError
 from frisket.server.services.cloud_connection import (
     CloudConnectionService,
     CloudConnectionServiceError,
@@ -547,9 +551,11 @@ def test_concurrent_completed_polls_reuse_connected_state(tmp_path):
     service.close()
 
 
-@pytest.mark.parametrize("failure_stage", ["session", "save"])
+@pytest.mark.parametrize(
+    "failure_stage", ["session", "pin_route", "pin_sqlite", "save"]
+)
 def test_minted_token_is_revoked_if_connection_cannot_be_persisted(
-    tmp_path, failure_stage
+    tmp_path, monkeypatch, failure_stage
 ):
     requests: list[tuple[str, str]] = []
 
@@ -602,6 +608,20 @@ def test_minted_token_is_revoked_if_connection_cannot_be_persisted(
         clock=lambda: ticks[0],
         wall_clock=lambda: datetime(2026, 10, 11, tzinfo=UTC),
     )
+    pin_failure = {
+        "pin_route": RouteError(409, "project changed during sign-in"),
+        "pin_sqlite": sqlite3.OperationalError("database is locked"),
+    }.get(failure_stage)
+    if pin_failure is not None:
+
+        def fail_pin(*_args, **_kwargs):
+            raise pin_failure
+
+        monkeypatch.setattr(
+            service._model_routes,
+            "pin_cloud_connection_routes",
+            fail_pin,
+        )
     authorization_id = service.begin_authorization().id
     ticks[0] = 105.0
 
@@ -809,6 +829,57 @@ def test_project_account_is_bound_to_signed_in_user(tmp_path):
     changed_user = service.project_routing(project_id)
     assert changed_user.selected_account_id is None
     assert changed_user.preference == "cloud_first"
+    service.close()
+
+
+def test_preference_patch_preserves_a_concurrent_project_setting(tmp_path, monkeypatch):
+    workspace = Workspace(tmp_path / "workspace")
+    project_id = workspace.create("Concurrent Cloud preference")["id"]
+    project = workspace.get(project_id)
+    write_project_settings(project, ProjectSettings())
+
+    def reject_network(request: httpx.Request) -> httpx.Response:
+        raise AssertionError(request.url)
+
+    service = CloudConnectionService(
+        workspace,
+        store=CloudConnectionStore(tmp_path / "profile"),
+        client=CloudConnectionClient(
+            "https://app.frisket.dev",
+            transport=httpx.MockTransport(reject_network),
+        ),
+    )
+    transaction_requested = Event()
+    enter_transaction = Event()
+    transaction_scope = Project.transaction_scope
+
+    @contextmanager
+    def delayed_transaction_scope(self):
+        transaction_requested.set()
+        assert enter_transaction.wait(5)
+        with transaction_scope(self):
+            yield
+
+    monkeypatch.setattr(Project, "transaction_scope", delayed_transaction_scope)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(
+            service.patch_project_routing,
+            project_id,
+            ProjectCloudRoutingPatch(preference="cloud_first"),
+        )
+        assert transaction_requested.wait(5)
+        settings = read_project_settings(project)
+        write_project_settings(
+            project,
+            settings.model_copy(update={"media_allow_private_hosts": True}),
+        )
+        enter_transaction.set()
+        response = future.result(timeout=5)
+
+    saved = read_project_settings(project)
+    assert response.preference == "cloud_first"
+    assert saved.cloud_execution_preference == "cloud_first"
+    assert saved.media_allow_private_hosts is True
     service.close()
 
 
