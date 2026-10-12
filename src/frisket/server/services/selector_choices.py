@@ -878,8 +878,11 @@ class SelectorChoiceService:
                     and selected_route == "cloud"
                     and presentation.target is None
                 ):
+                    assert isinstance(outcome, Refusal)
                     presentation = _selected_cloud_without_target(
-                        presentation, cloud_setup=cloud_setup
+                        presentation,
+                        refusal=outcome,
+                        cloud_setup=cloud_setup,
                     )
                     facts = []
                 route_selection = (
@@ -1497,8 +1500,11 @@ class SelectorChoiceService:
                     and selected_route == "cloud"
                     and presentation.target is None
                 ):
+                    assert isinstance(outcome, Refusal)
                     presentation = _selected_cloud_without_target(
-                        presentation, cloud_setup=cloud_setup
+                        presentation,
+                        refusal=outcome,
+                        cloud_setup=cloud_setup,
                     )
                 target = presentation.target
                 resolved_target = presentation.resolved_target

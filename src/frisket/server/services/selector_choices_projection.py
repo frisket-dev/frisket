@@ -628,6 +628,7 @@ class _ExecutionPresentation:
 def _selected_cloud_without_target(
     presentation: _ExecutionPresentation,
     *,
+    refusal: Refusal,
     cloud_setup: dict[str, Any] | None,
 ) -> _ExecutionPresentation:
     """Keep an unavailable selected Cloud route from borrowing own-route UI."""
@@ -645,7 +646,11 @@ def _selected_cloud_without_target(
                 "field": None,
             }
             if cloud_setup is not None
-            else presentation.blocker
+            else {
+                "code": refusal.family,
+                "message": refusal.remedy,
+                "field": None,
+            }
         ),
         setup=cloud_setup,
         active_operation=None,

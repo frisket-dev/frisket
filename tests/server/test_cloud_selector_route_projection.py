@@ -280,7 +280,12 @@ def test_selected_missing_cloud_route_never_borrows_own_details(
     assert selected["facts"] == []
     assert selected["status"] == "unavailable"
     assert selected["can_author"] is False
-    assert selected["blocker"] is not None
+    assert selected["blocker"] == {
+        "code": "no_live_target",
+        "message": "Reconnect Frisket Cloud to use this model's selected Cloud route.",
+        "field": None,
+    }
+    assert "OpenAI" not in selected["blocker"]["message"]
     assert selected["setup"] is None
 
 
