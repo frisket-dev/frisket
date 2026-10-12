@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import threading
 from pathlib import Path
 from urllib.parse import parse_qs
-from unittest.mock import patch
+from unittest.mock import PropertyMock, patch
 from functools import partial
 
 import httpx
@@ -137,6 +138,32 @@ def _provider_probe(request: httpx.Request) -> httpx.Response:
     )
     assert request.headers["Authorization"] == "Bearer e2e-personal-gemini-key"
     return httpx.Response(200, json={"data": [{"id": "gemini-3.5-flash-lite"}]})
+
+
+def _provider_completion(request: httpx.Request) -> httpx.Response:
+    assert request.method == "POST"
+    assert str(request.url) == (
+        "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+    )
+    assert request.headers["Authorization"] == "Bearer e2e-personal-gemini-key"
+    body = json.loads(request.content)
+    assert body["model"] == "gemini-3.5-flash-lite"
+    assert "Alice signed the agreement." in json.dumps(body["messages"])
+    return httpx.Response(
+        200,
+        json={
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": json.dumps({"entity": "Alice via own key"}),
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 8, "completion_tokens": 2},
+        },
+    )
 
 
 class _ExternalCloud:
@@ -284,19 +311,31 @@ def _parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = _parser().parse_args()
-    # Keep validation receipts and credential storage real; fake only the
-    # provider's authenticated models-list response, without paid inference.
-    with httpx.Client(transport=httpx.MockTransport(_provider_probe)) as client:
-        probe = partial(provider_config.probe_provider, client=client)
-        with patch.object(provider_config, "probe_provider", probe):
-            uvicorn.run(
-                build_app(
-                    workspace=args.workspace.resolve(),
-                    static_dir=args.static_dir.resolve(),
+    # Keep admission, adapters, receipts and credential storage real. Only
+    # external Cloud/provider responses are deterministic network substitutes.
+    inference = httpx.AsyncClient(transport=httpx.MockTransport(_provider_completion))
+    try:
+        with httpx.Client(transport=httpx.MockTransport(_provider_probe)) as client:
+            probe = partial(provider_config.probe_provider, client=client)
+            with (
+                patch.object(provider_config, "probe_provider", probe),
+                patch.object(
+                    ModelRouter,
+                    "client",
+                    new_callable=PropertyMock,
+                    return_value=inference,
                 ),
-                host="127.0.0.1",
-                port=args.port,
-            )
+            ):
+                uvicorn.run(
+                    build_app(
+                        workspace=args.workspace.resolve(),
+                        static_dir=args.static_dir.resolve(),
+                    ),
+                    host="127.0.0.1",
+                    port=args.port,
+                )
+    finally:
+        asyncio.run(inference.aclose())
 
 
 if __name__ == "__main__":

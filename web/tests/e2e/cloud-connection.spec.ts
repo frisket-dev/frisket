@@ -57,6 +57,18 @@ async function waitForExtractSelector(page: Page, navigate: () => Promise<unknow
   return selected!;
 }
 
+async function fillExtractionForm(page: Page): Promise<void> {
+  await page.getByTestId('text-source-mode-template').click();
+  await page.getByTestId('text-source-template-input').fill('{{text}}');
+  await page.getByLabel('Field 1 name').fill('entity');
+  await page.getByLabel('Field 1 type').selectOption('text');
+  await page.getByLabel('Field 1 description').fill('Person named in the text');
+  await page.getByTestId('field-instruction').fill('Extract the named person.');
+  await page.getByTestId('field-citation_mode').selectOption('none');
+  await expect(page.getByTestId('generated-action-preview')).toBeEnabled();
+
+}
+
 async function confirmPreviewCost(page: Page): Promise<void> {
   const modal = page.getByTestId('cost-gate-modal');
   await expect(modal).toBeVisible();
@@ -130,14 +142,7 @@ test('Cloud connection, own-key setup and media selectors share the project rout
   await expect(page.getByTestId('field-engine').locator('.engine-selector__trigger'))
     .toContainText('Gemini 3.5 Flash-Lite');
 
-  await page.getByTestId('text-source-mode-template').click();
-  await page.getByTestId('text-source-template-input').fill('{{text}}');
-  await page.getByLabel('Field 1 name').fill('entity');
-  await page.getByLabel('Field 1 type').selectOption('text');
-  await page.getByLabel('Field 1 description').fill('Person named in the text');
-  await page.getByTestId('field-instruction').fill('Extract the named person.');
-  await page.getByTestId('field-citation_mode').selectOption('none');
-  await expect(page.getByTestId('generated-action-preview')).toBeEnabled();
+  await fillExtractionForm(page);
 
   const completed = page.waitForResponse(async (response) => (
     response.request().method() === 'GET'
@@ -180,6 +185,21 @@ test('Cloud connection, own-key setup and media selectors share the project rout
   await savedSelector;
   await expect(dialog).toContainText('Your API key');
   await page.keyboard.press('Escape');
+
+  await fillExtractionForm(page);
+  const ownPreview = page.waitForResponse(async (response) => (
+    response.request().method() === 'GET'
+    && response.url().includes(`/api/projects/${projectId}/actions/v1/preview/`)
+    && response.ok() && (await response.json()).status === 'done'
+  ));
+  await page.getByTestId('generated-action-preview').click();
+  await expect(page.getByTestId('cost-gate-modal')).toBeVisible();
+  await expect(page.getByTestId('cost-gate-modal')).not.toContainText('Investigations Cloud credits');
+  await page.getByTestId('cost-gate-confirm').click();
+  const ownResult = await (await ownPreview).json();
+  expect(Object.values(ownResult.result.rows)).toEqual([
+    expect.objectContaining({ entity: expect.objectContaining({ value: 'Alice via own key' }) }),
+  ]);
 
   await page.goto(`/p/${projectId}/settings/project/ai-providers`);
   await routing.getByRole('radio', { name: /^Use Investigations/ }).check();
