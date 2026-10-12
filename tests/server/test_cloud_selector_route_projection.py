@@ -22,7 +22,9 @@ from frisket.contracts.http.cloud_connection import (
 from frisket.execution.provider import open_execution_composition
 from frisket.project_settings import ProjectSettings, write_project_settings
 from frisket.server.route_errors import register_route_error_handler
+from frisket.server.routes.project_qa import register_project_qa_routes
 from frisket.server.routes.selector_choices import register_selector_choices_routes
+from frisket.server.services.project_qa import ProjectQAService
 from frisket.server.services.selector_choices import SelectorCapabilities
 from frisket.server.workspace import Workspace
 
@@ -354,6 +356,81 @@ def test_network_off_refuses_exact_cloud_media_but_keeps_gateway_lan(
     }
     assert lan_selected["status"] == "ready"
     assert lan_selected["can_run"] is True
+
+
+def test_cloud_only_project_ask_default_matches_the_persisted_turn(tmp_path) -> None:
+    model = "gemini/gemini-3.5-flash-lite"
+    route = _llm_route().model_copy(
+        update={"engine": model, "provider": "gemini"}
+    )
+    client, workspace, _store, project_id = _cloud_selector_app(
+        tmp_path, routes=[route]
+    )
+    observed_turn_models: list[str | None] = []
+
+    async def run_turn(_project, _router, turn, _store):
+        observed_turn_models.append(turn["model"])
+        return {}
+
+    project_qa = ProjectQAService(workspace, runner=run_turn)
+    register_project_qa_routes(client.app, service=project_qa)
+    client.app.router.add_event_handler("shutdown", project_qa.shutdown)
+
+    with client:
+        choices_response = client.post(
+            f"/api/projects/{project_id}/selector-choices",
+            json={
+                "schema_version": "frisket.selector_choices_query.v1",
+                "subject": {"kind": "project_ask"},
+            },
+        )
+        assert choices_response.status_code == 200, choices_response.text
+        default = next(
+            choice
+            for choice in _choices(choices_response.json())
+            if choice["is_default"]
+        )
+        assert default["authored_selection"] == {"kind": "model", "model": model}
+        assert default["execution_route"]["kind"] == "cloud_credits"
+
+        threads = f"/api/projects/{project_id}/qa/threads"
+        thread_response = client.post(
+            threads, json={"scope": {"kind": "project"}}
+        )
+        assert thread_response.status_code == 200, thread_response.text
+        turn_response = client.post(
+            f"{threads}/{thread_response.json()['id']}/turns",
+            json={
+                "request_id": "cloud-only-default",
+                "question": "What changed?",
+                "scope": {"kind": "project"},
+            },
+        )
+        assert turn_response.status_code == 200, turn_response.text
+        assert turn_response.json()["model"] == model
+
+        explicit_response = client.post(
+            f"/api/projects/{project_id}/selector-choices",
+            json={
+                "schema_version": "frisket.selector_choices_query.v1",
+                "subject": {
+                    "kind": "project_ask",
+                    "model": "openai/gpt-5-mini",
+                },
+            },
+        )
+        assert explicit_response.status_code == 200, explicit_response.text
+        explicit = next(
+            choice
+            for choice in _choices(explicit_response.json())
+            if choice["is_current"]
+        )
+        assert explicit["authored_selection"] == {
+            "kind": "model",
+            "model": "openai/gpt-5-mini",
+        }
+
+    assert observed_turn_models == [model]
 
 
 @pytest.mark.parametrize(
