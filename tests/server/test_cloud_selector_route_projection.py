@@ -292,7 +292,7 @@ def test_selector_projects_the_composed_cloud_model_route(
         "balance_label": "$4.50 balance",
         "balance_url": "https://cloud.example.test/funding-accounts?account_id=41",
         "settings_url": "/p/cloud-selector/settings/project/ai-providers",
-        "has_alternative_route": True,
+        "has_alternative_route": preference == "cloud_first",
     }
     assert profile_loads == 1
 
