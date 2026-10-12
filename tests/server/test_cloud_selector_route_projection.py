@@ -229,8 +229,9 @@ def test_cloud_first_selector_keeps_local_engine_on_this_computer(
         ),
     ],
 )
+@pytest.mark.parametrize("preference", ["local_first", "cloud_first"])
 def test_selector_projects_the_composed_cloud_model_route(
-    tmp_path, monkeypatch, subject, selected_flag
+    tmp_path, monkeypatch, subject, selected_flag, preference
 ) -> None:
     route = CloudCapabilityRoute(
         capability="llm.complete",
@@ -254,7 +255,7 @@ def test_selector_projects_the_composed_cloud_model_route(
         ),
     )
     client, _workspace, store, project_id = _cloud_selector_app(
-        tmp_path, routes=[route]
+        tmp_path, routes=[route], preference=preference
     )
     original_load = store.load
     profile_loads = 0

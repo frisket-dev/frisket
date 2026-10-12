@@ -1620,7 +1620,9 @@ def test_whisper_base_selector_requires_durable_download(
 
 
 @pytest.mark.parametrize("provider", [None, "openai", "anthropic", "gemini"])
-def test_extract_defaults_to_llm_from_available_choices(tmp_path, provider):
+def test_extract_defaults_to_llm_from_available_choices(
+    tmp_path: Path, provider: str | None
+) -> None:
     router = ModelRouter(
         keys={provider: "test-key"} if provider else {}, use_env_keys=False
     )
@@ -1649,7 +1651,7 @@ def test_extract_defaults_to_llm_from_available_choices(tmp_path, provider):
     assert choice["status"] == ("ready" if provider else "needs_setup")
 
 
-def test_extract_preserves_explicit_clef_selection(tmp_path):
+def test_extract_preserves_explicit_clef_selection(tmp_path: Path) -> None:
     client, _workspace, project_id = _app(
         tmp_path / "workspace", router=ModelRouter(keys={}, use_env_keys=False)
     )
