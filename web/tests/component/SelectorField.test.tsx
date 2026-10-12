@@ -153,7 +153,7 @@ describe('SelectorField', () => {
     expect(geminiRow().querySelector('.engine-selector__status--ready')).not.toBeNull();
   });
 
-  it('keeps project network policy authoritative over ready route options in the list', async () => {
+  it('aggregates authoritative per-route network policy in list status and ordering', async () => {
     const payload = response();
     const blocked = payload.groups[0].choices[0];
     blocked.choice_id = 'network-blocked';
@@ -166,12 +166,29 @@ describe('SelectorField', () => {
     blocked.route_selection = {
       model_id: 'google/gemini-flash', selected: 'cloud', can_mutate: true,
       options: [
-        { id: 'cloud', label: 'Frisket Cloud', status: 'ready', disabled_reason: null },
-        { id: 'own', label: 'Your Gemini API key', status: 'ready', disabled_reason: null },
+        { id: 'cloud', label: 'Frisket Cloud', status: 'unavailable',
+          disabled_reason: 'Network access is off for this project.' },
+        { id: 'own', label: 'Your Gemini API key', status: 'unavailable',
+          disabled_reason: 'Network access is off for this project.' },
       ],
     };
     payload.current_choice_id = blocked.choice_id;
     payload.default_choice_id = blocked.choice_id;
+    payload.groups[0].choices.push({
+      ...structuredClone(blocked),
+      choice_id: 'models-server-ready',
+      label: 'Models server model',
+      route_selection: {
+        model_id: 'hosted/model', selected: 'cloud', can_mutate: true,
+        options: [
+          { id: 'cloud', label: 'Frisket Cloud', status: 'unavailable',
+            disabled_reason: 'Network access is off for this project.' },
+          { id: 'gateway', label: 'Models server', status: 'ready', disabled_reason: null },
+        ],
+      },
+      is_current: false,
+      is_default: false,
+    });
     payload.groups[0].choices.push({
       ...structuredClone(blocked),
       choice_id: 'ready-second',
@@ -192,9 +209,14 @@ describe('SelectorField', () => {
     await userEvent.click(await screen.findByRole('button', { name: /Network-blocked model/ }));
     const dialog = screen.getByTestId('engine-selector-dialog');
     const rows = Array.from(dialog.querySelectorAll<HTMLElement>('[data-engine-selector-choice]'));
-    expect(rows.map((row) => row.dataset.choiceId)).toEqual(['ready-second', 'network-blocked']);
+    expect(rows.map((row) => row.dataset.choiceId)).toEqual([
+      'models-server-ready', 'ready-second', 'network-blocked',
+    ]);
+    const modelsServerRow = dialog.querySelector('[data-choice-id="models-server-ready"]')!;
+    expect(modelsServerRow).toHaveTextContent('Models server');
+    expect(modelsServerRow).not.toHaveTextContent('Frisket Cloud');
+    expect(modelsServerRow.querySelector('.engine-selector__status--ready')).not.toBeNull();
     const blockedRow = dialog.querySelector('[data-choice-id="network-blocked"]')!;
-    expect(blockedRow).toHaveTextContent('Frisket Cloud · Your Gemini API key');
     expect(blockedRow.querySelector('.engine-selector__status--unavailable')).not.toBeNull();
   });
 
