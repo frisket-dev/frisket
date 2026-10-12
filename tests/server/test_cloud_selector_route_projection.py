@@ -513,11 +513,48 @@ def test_network_off_keeps_exact_cloud_llm_choice_and_refuses_selected_route(
     assert selected["can_run"] is False
     assert selected["blocker"]["code"] == "project_network_off"
     assert selected["setup"] is None
+    assert {
+        option["id"]: option["status"]
+        for option in selected["route_selection"]["options"]
+    } == {"cloud": "unavailable", "own": "unavailable"}
+
+
+def test_network_off_disables_cloud_setup_before_connection(tmp_path) -> None:
+    client, workspace, _store, project_id = _cloud_selector_app(
+        tmp_path, routes=[], connected=False
+    )
+    workspace.get(project_id).set_network_policy(mode="off")
+    with client:
+        response = client.post(
+            f"/api/projects/{project_id}/selector-choices",
+            json={
+                "schema_version": "frisket.selector_choices_query.v1",
+                "subject": {"kind": "project_ask", "model": "openai/gpt-5-mini"},
+            },
+        )
+    assert response.status_code == 200, response.text
+    selected = next(
+        choice for choice in _choices(response.json()) if choice["is_current"]
+    )
+    cloud = next(
+        option
+        for option in selected["route_selection"]["options"]
+        if option["id"] == "cloud"
+    )
+    assert cloud["status"] == "unavailable"
+    assert cloud["disabled_reason"] == "This project's network setting is off."
 
 
 def test_network_off_refuses_exact_cloud_media_but_keeps_gateway_lan(
     tmp_path,
 ) -> None:
+    def gateway_connection():
+        return ModelsGatewayConnection(
+            origin="https://models.example.test",
+            token="fixture-token",
+            source="stored",
+        )
+
     cloud_route = CloudCapabilityRoute(
         capability="ocr",
         engine="paddleocr-vl",
@@ -532,7 +569,9 @@ def test_network_off_refuses_exact_cloud_media_but_keeps_gateway_lan(
         ),
     )
     client, workspace, _store, project_id = _cloud_selector_app(
-        tmp_path, routes=[cloud_route]
+        tmp_path,
+        routes=[cloud_route],
+        models_gateway_connection_resolver=gateway_connection,
     )
     workspace.get(project_id).set_network_policy(mode="off")
 
@@ -559,15 +598,16 @@ def test_network_off_refuses_exact_cloud_media_but_keeps_gateway_lan(
     assert selected["status"] == "unavailable"
     assert selected["can_run"] is False
     assert selected["blocker"]["code"] == "project_network_off"
+    assert {
+        option["id"]: option["status"]
+        for option in selected["route_selection"]["options"]
+    } == {"cloud": "unavailable", "own": "ready"}
 
     lan_client, lan_workspace, _store, lan_project_id = _cloud_selector_app(
         tmp_path / "lan",
-        routes=[],
-        models_gateway_connection_resolver=lambda: ModelsGatewayConnection(
-            origin="https://models.example.test",
-            token="fixture-token",
-            source="stored",
-        ),
+        routes=[cloud_route],
+        preference="local_first",
+        models_gateway_connection_resolver=gateway_connection,
     )
     lan_workspace.get(lan_project_id).set_network_policy(mode="off")
     with lan_client:
@@ -595,6 +635,10 @@ def test_network_off_refuses_exact_cloud_media_but_keeps_gateway_lan(
     }
     assert lan_selected["status"] == "ready"
     assert lan_selected["can_run"] is True
+    assert {
+        option["id"]: option["status"]
+        for option in lan_selected["route_selection"]["options"]
+    } == {"cloud": "unavailable", "own": "ready"}
 
 
 def test_cloud_only_project_ask_default_matches_the_persisted_turn(tmp_path) -> None:

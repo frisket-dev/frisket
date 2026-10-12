@@ -899,6 +899,7 @@ class SelectorChoiceService:
                         selected=selected_route,
                         can_mutate=capabilities.may_author_actions,
                         cloud_unknown=cloud_setup is not None,
+                        network_off=_network_off(project),
                     )
                     if route_capable
                     else None
@@ -1540,6 +1541,7 @@ class SelectorChoiceService:
                     selected=selected_route,
                     can_mutate=capabilities.may_author_actions,
                     cloud_unknown=cloud.setup() is not None,
+                    network_off=_network_off(project),
                 )
                 if route_capable and execution_capability is not None
                 else None
