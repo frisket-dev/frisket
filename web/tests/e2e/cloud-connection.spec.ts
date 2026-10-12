@@ -14,6 +14,9 @@ type SelectorChoice = {
     account_id: number | null;
     balance_label: string | null;
   } | null;
+  route_selection?: {
+    options: Array<{ id: string; label: string }>;
+  } | null;
   status: string;
   can_run: boolean;
 };
@@ -191,6 +194,50 @@ test('Per-model routes survive key setup and drive real Cloud and own previews',
   await expect(dialog.getByRole('button', { name: 'Your Gemini key', exact: true }))
     .toHaveAttribute('aria-pressed', 'true');
   await page.keyboard.press('Escape');
+
+  // Exercise the narrow layout with a provider name long enough to truncate.
+  // Only this response is decorated; the real server still owns route IDs,
+  // readiness, selection, and the configured Gemini execution route.
+  await page.setViewportSize({ width: 720, height: 900 });
+  await page.route('**/selector-choices', async (route) => {
+    const response = await route.fetch();
+    const payload = await response.json() as SelectorResponse;
+    const gemini = payload.groups.flatMap((group) => group.choices).find((choice) => (
+      choice.authored_selection.model === 'gemini/gemini-3.5-flash-lite'
+    ));
+    const own = gemini?.route_selection?.options.find((option) => option.id === 'own');
+    if (own) own.label = 'Your OpenDocRouter key';
+    await route.fulfill({ response, json: payload });
+  }, { times: 1 });
+  await waitForExtractSelector(page, () => page.goto(actionURL));
+  await page.getByTestId('field-engine').locator('.engine-selector__trigger').click();
+  await dialog.getByRole('searchbox').fill('Gemini 3.5 Flash-Lite');
+  await dialog.locator(`[data-choice-id="${defaultChoice.choice_id}"]`).hover();
+  const longRoute = dialog.getByRole('button', {
+    name: 'Your OpenDocRouter key', exact: true,
+  });
+  await expect(longRoute).toHaveAttribute('title', 'Your OpenDocRouter key');
+  await expect(dialog.getByRole('link', { name: 'Your Gemini API key →' })).toHaveAttribute(
+    'href', `/p/${projectId}/settings/project/ai-providers`,
+  );
+  await expect(dialog.getByRole('button', { name: 'Change API key' })).toHaveCount(0);
+  const widths = await dialog.evaluate((element) => {
+    const routeControl = element.querySelector<HTMLElement>('.engine-selector__route-control-body')!;
+    const label = element.querySelector<HTMLElement>(
+      '[data-testid="model-route-own"] .segmented-option-label',
+    )!;
+    return {
+      dialog: [element.scrollWidth, element.clientWidth],
+      routeControl: [routeControl.scrollWidth, routeControl.clientWidth],
+      label: [label.scrollWidth, label.clientWidth],
+    };
+  });
+  expect(widths.dialog[0]).toBeLessThanOrEqual(widths.dialog[1]);
+  expect(widths.routeControl[0]).toBeLessThanOrEqual(widths.routeControl[1]);
+  expect(widths.label[0]).toBeGreaterThan(widths.label[1]);
+  await dialog.screenshot({ path: testInfo.outputPath('narrow-configured-key-route.png') });
+  await page.keyboard.press('Escape');
+  await page.setViewportSize({ width: 1600, height: 900 });
 
   await fillExtractionForm(page);
   const ownPreview = page.waitForResponse(async (response) => (

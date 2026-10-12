@@ -51,7 +51,7 @@ describe('ModelRouteControl', () => {
       options: [
         { id: 'cloud', label: 'Frisket Cloud', status: 'unavailable',
           disabled_reason: 'OpenRouter isn’t offered through Frisket Cloud.' },
-        { ...selection.options[1], label: 'Your OpenDocRouter API key' },
+        { ...selection.options[1], label: 'Your OpenDocRouter key' },
       ],
     };
     render(<ModelRouteControl projectId="project-a" selection={blocked}
@@ -64,8 +64,8 @@ describe('ModelRouteControl', () => {
     expect(screen.queryByText('OpenRouter isn’t offered through Frisket Cloud.'))
       .not.toBeInTheDocument();
     expect(screen.getByTestId('model-route-own').querySelector('.segmented-option-label'))
-      .toHaveTextContent('Your OpenDocRouter API key');
+      .toHaveTextContent('Your OpenDocRouter key');
     expect(screen.getByTestId('model-route-own'))
-      .toHaveAttribute('title', 'Your OpenDocRouter API key');
+      .toHaveAttribute('title', 'Your OpenDocRouter key');
   });
 });

@@ -153,6 +153,51 @@ describe('SelectorField', () => {
     expect(geminiRow().querySelector('.engine-selector__status--ready')).not.toBeNull();
   });
 
+  it('keeps project network policy authoritative over ready route options in the list', async () => {
+    const payload = response();
+    const blocked = payload.groups[0].choices[0];
+    blocked.choice_id = 'network-blocked';
+    blocked.label = 'Network-blocked model';
+    blocked.status = 'unavailable';
+    blocked.can_run = false;
+    blocked.blocker = {
+      code: 'project_network_off', message: 'Network access is off for this project.', field: null,
+    };
+    blocked.route_selection = {
+      model_id: 'google/gemini-flash', selected: 'cloud', can_mutate: true,
+      options: [
+        { id: 'cloud', label: 'Frisket Cloud', status: 'ready', disabled_reason: null },
+        { id: 'own', label: 'Your Gemini API key', status: 'ready', disabled_reason: null },
+      ],
+    };
+    payload.current_choice_id = blocked.choice_id;
+    payload.default_choice_id = blocked.choice_id;
+    payload.groups[0].choices.push({
+      ...structuredClone(blocked),
+      choice_id: 'ready-second',
+      label: 'Ready second model',
+      status: 'ready',
+      can_run: true,
+      blocker: null,
+      route_selection: null,
+      is_current: false,
+      is_default: false,
+    });
+    render(<SelectorField projectId="project-a" label="Model"
+      query={{ schema_version: 'frisket.selector_choices_query.v1',
+        subject: { kind: 'action', action_id: 'map.classify', field: 'model', params: {} } }}
+      recentNamespace="network-policy-availability"
+      load={vi.fn().mockResolvedValue(payload)} onSelect={vi.fn()} />);
+
+    await userEvent.click(await screen.findByRole('button', { name: /Network-blocked model/ }));
+    const dialog = screen.getByTestId('engine-selector-dialog');
+    const rows = Array.from(dialog.querySelectorAll<HTMLElement>('[data-engine-selector-choice]'));
+    expect(rows.map((row) => row.dataset.choiceId)).toEqual(['ready-second', 'network-blocked']);
+    const blockedRow = dialog.querySelector('[data-choice-id="network-blocked"]')!;
+    expect(blockedRow).toHaveTextContent('Frisket Cloud · Your Gemini API key');
+    expect(blockedRow.querySelector('.engine-selector__status--unavailable')).not.toBeNull();
+  });
+
   it('links a configured own-key route to project provider settings without an editor accordion', async () => {
     const payload = response();
     const selected = payload.groups[0].choices[0];

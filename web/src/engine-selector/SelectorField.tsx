@@ -72,7 +72,9 @@ function displayChoice(choice: SelectorChoice): EngineSelectorChoice {
   const availableRoutes = choice.route_selection?.options.filter(
     (option) => option.status !== 'unavailable',
   ) ?? [];
-  const availabilityStatus = availableRoutes.some((option) => option.status === 'ready')
+  const availabilityStatus = choice.blocker?.code === 'project_network_off'
+    ? 'unavailable'
+    : availableRoutes.some((option) => option.status === 'ready')
     ? 'ready'
     : availableRoutes.some((option) => option.status === 'needs_setup')
       ? 'needs_setup'
