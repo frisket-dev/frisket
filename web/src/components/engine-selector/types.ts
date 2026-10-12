@@ -61,6 +61,8 @@ export interface EngineSelectorDetailFooterContext {
   pinned: boolean;
   /** Call when an embedded form starts/stops editing. */
   onEditingChange(editing: boolean): void;
+  /** Call while a detail mutation must keep this choice mounted. */
+  onBusyChange(busy: boolean): void;
   /** Dismiss the selector after a custom detail action completes. */
   close(): void;
 }

@@ -124,6 +124,7 @@ export function EngineSelector({
   const [previewedId, setPreviewedId] = useState<string | null>(null);
   const [pinnedId, setPinnedId] = useState<string | null>(null);
   const [editingSetup, setEditingSetup] = useState(false);
+  const [detailBusy, setDetailBusy] = useState(false);
   const [providerFilter, setProviderFilter] = useState('');
   const [mobileDetail, setMobileDetail] = useState(false);
   const [mobileOriginId, setMobileOriginId] = useState<string | null>(null);
@@ -206,6 +207,7 @@ export function EngineSelector({
     editingSetupRef.current = false;
     setPinnedId(null);
     setEditingSetup(false);
+    setDetailBusy(false);
     setMobileDetail(false);
     setMobileOriginId(null);
     setProviderFilter('');
@@ -244,10 +246,16 @@ export function EngineSelector({
   }, [open]);
 
   const close = () => {
+    if (detailBusy) return;
     setOpen(false);
   };
 
+  const reportDetailBusy = (busy: boolean) => {
+    setDetailBusy(busy);
+  };
+
   const explicitPreview = (choice: EngineSelectorChoice, showMobileDetail = false) => {
+    if (detailBusy) return;
     cancelHoverIntent();
     setPinnedId(null);
     setEditingSetup(false);
@@ -272,6 +280,7 @@ export function EngineSelector({
   };
 
   const choose = (choice: EngineSelectorChoice) => {
+    if (detailBusy) return;
     if (choice.status === 'unavailable' || !choice.canAuthor) {
       explicitPreview(choice);
       return;
@@ -329,6 +338,7 @@ export function EngineSelector({
   };
 
   const returnToMobileChoices = () => {
+    if (detailBusy) return;
     const origin = mobileOriginId;
     setMobileDetail(false);
     requestAnimationFrame(() => {
@@ -337,6 +347,7 @@ export function EngineSelector({
   };
 
   const navigateToProvider = (group: EngineSelectorGroup) => {
+    if (detailBusy) return;
     cancelHoverIntent();
     pinnedIdRef.current = null;
     editingSetupRef.current = false;
@@ -352,6 +363,7 @@ export function EngineSelector({
         choice: previewedChoice,
         pinned: pinnedId === previewedChoice.id,
         onEditingChange: setEditingSetup,
+        onBusyChange: reportDetailBusy,
         close,
       }
     : null;
@@ -428,7 +440,8 @@ export function EngineSelector({
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />
-            <button type="button" className="engine-selector__close" aria-label={`Close ${label} selector`} onClick={close}>×</button>
+            <button type="button" className="engine-selector__close" aria-label={`Close ${label} selector`}
+              disabled={detailBusy} onClick={close}>×</button>
           </header>
 
           {notice}

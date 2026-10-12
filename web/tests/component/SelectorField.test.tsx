@@ -90,6 +90,40 @@ describe('SelectorField', () => {
     await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
   });
 
+  it('keeps the selector open until a route change can trigger its refresh', async () => {
+    const payload = response();
+    const selected = payload.groups[0].choices[0];
+    selected.label = 'Gemini Flash';
+    selected.route_selection = {
+      model_id: 'google/gemini-flash', selected: 'cloud', can_mutate: true,
+      options: [
+        { id: 'cloud', label: 'Frisket Cloud', status: 'ready', disabled_reason: null },
+        { id: 'own', label: 'Your Gemini key', status: 'ready', disabled_reason: null },
+      ],
+    };
+    let finishRoute!: (value: unknown) => void;
+    request.mockReturnValue(new Promise((resolve) => { finishRoute = resolve; }));
+    const load = vi.fn().mockResolvedValue(payload);
+    render(<SelectorField projectId="project-a" label="Model"
+      query={{ schema_version: 'frisket.selector_choices_query.v1',
+        subject: { kind: 'action', action_id: 'map.classify', field: 'model', params: {} } }}
+      recentNamespace="route-close-lifetime" load={load} onSelect={vi.fn()} />);
+
+    await userEvent.click(await screen.findByRole('button', { name: /Gemini Flash/ }));
+    await userEvent.click(screen.getByTestId('model-route-own'));
+    const dialog = screen.getByTestId('engine-selector-dialog');
+    const close = within(dialog).getByRole('button', { name: 'Close Model selector' });
+    expect(close).toBeDisabled();
+    fireEvent(dialog, new Event('cancel', { bubbles: false, cancelable: true }));
+    expect(screen.getByTestId('engine-selector-dialog')).toBeVisible();
+
+    await act(async () => finishRoute({ model_id: 'google/gemini-flash', route: 'own' }));
+    await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+    expect(close).toBeEnabled();
+    await userEvent.click(close);
+    expect(screen.queryByTestId('engine-selector-dialog')).not.toBeInTheDocument();
+  });
+
   it('shows setup only for the selected route', async () => {
     const payload = response();
     const selected = payload.groups[0].choices[0];
@@ -106,6 +140,11 @@ describe('SelectorField', () => {
       scope: 'project', configured: false, can_mutate: true, source: 'missing',
       environment_names: ['GEMINI_API_KEY'], settings_location: 'project_ai_providers', hint: null,
     }] };
+    selected.configuration_actions = [{
+      kind: 'engine_setup', scope: 'workspace',
+      setup_ref: 'engine-setup:gemini-local@1', can_mutate: true, can_start: true,
+      blocked_by_operation: null,
+    }];
     payload.cloud_setup = {
       kind: 'cloud', state: 'connect', account_id: null, account_name: null,
       balance_url: null, add_credits_url: null, project_settings_url: null,
@@ -119,6 +158,7 @@ describe('SelectorField', () => {
     expect(screen.getByRole('heading', { name: 'Add your Gemini key' })).toBeVisible();
     expect(screen.queryByText('Connect Frisket Cloud to see available models.')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Sign in with browser/ })).not.toBeInTheDocument();
+    expect(screen.queryByText('Set up on this computer')).not.toBeInTheDocument();
   });
 
   it('loads authoritative readiness while its trigger is disabled for an active run', async () => {

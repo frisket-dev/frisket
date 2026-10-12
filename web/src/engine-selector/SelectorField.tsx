@@ -211,14 +211,16 @@ export function SelectorField({
         const raw = choicesById.get(choice.id);
         if (raw) onSelect(raw);
       }}
-      renderDetailBeforeRoute={({ choice, onEditingChange }) => {
+      renderDetailBeforeRoute={({ choice, onEditingChange, onBusyChange }) => {
         const raw = choicesById.get(choice.id);
         return raw?.route_selection && projectId ? <ModelRouteControl
+          key={`${projectId}:${raw.route_selection.model_id}`}
           projectId={projectId}
           selection={raw.route_selection}
           setRoute={projectModelRoutesApi.setProjectModelRoute}
           onChanged={state.refresh}
           onEditingChange={onEditingChange}
+          onBusyChange={onBusyChange}
         /> : null;
       }}
       renderDetailFooter={({ choice, onEditingChange, close }) => {

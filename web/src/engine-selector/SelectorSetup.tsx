@@ -307,7 +307,9 @@ function useEditingOwners(onEditingChange: (editing: boolean) => void): EditingR
 export function SelectorSetup(props: SelectorSetupProps) {
   const reportEditing = useEditingOwners(props.onEditingChange);
   const activeSetup = props.choice.setup;
-  const configurationActions = props.choice.configuration_actions;
+  const configurationActions = props.choice.route_selection
+    ? []
+    : props.choice.configuration_actions;
   const genericCloudSetup = activeSetup?.kind === 'cloud' ? null : props.cloudSetup;
   const activeOwner = activeSetup
     ? `${props.projectId}:${props.choice.choice_id}:active:${setupKey(activeSetup)}`

@@ -18,6 +18,7 @@ export interface ModelRouteControlProps {
   ): Promise<unknown>;
   onChanged(): void;
   onEditingChange?(editing: boolean): void;
+  onBusyChange?(busy: boolean): void;
 }
 
 function routeOption(option: ModelRouteSelection['options'][number]): SegmentedOption {
@@ -39,11 +40,13 @@ export function ModelRouteControl({
   setRoute,
   onChanged,
   onEditingChange,
+  onBusyChange,
 }: ModelRouteControlProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { begin } = useSetupRequests();
   const editing = useSetupEditing(onEditingChange);
+  const reportBusy = useSetupEditing(onBusyChange);
   const disabledReason = selection.options.find((option) => option.disabled_reason)?.disabled_reason;
 
   const changeRoute = async (route: string) => {
@@ -54,6 +57,7 @@ export function ModelRouteControl({
     setBusy(true);
     setError(null);
     editing(true);
+    reportBusy(true);
     try {
       await setRoute(projectId, selection.model_id, next.id, request.signal);
       if (!request.isCurrent()) return;
@@ -64,6 +68,7 @@ export function ModelRouteControl({
       if (request.isCurrent()) {
         setBusy(false);
         editing(false);
+        reportBusy(false);
       }
     }
   };
