@@ -43,6 +43,7 @@ from frisket.engine.jobs.queue import (
 )
 from frisket.server import provider_config
 from frisket.server.route_errors import RouteError, http_error_responses
+from frisket.server.services.project_model_routes import ProjectModelRoutesService
 from frisket.server.workspace import Workspace
 
 
@@ -53,6 +54,7 @@ _pull_dto = model_pull_store.to_dto
 
 def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> None:
     root = workspace.root
+    model_routes = ProjectModelRoutesService(workspace)
 
     @app.get(
         "/api/providers",
@@ -108,12 +110,18 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
         provider: str, body: ProviderKeyRequest
     ) -> LocalProviderCatalog:
         try:
+            normalized_provider = provider_config.normalize_provider(provider)
             provider_config.require_validation_token(
-                provider,
+                normalized_provider,
                 body.key,
                 body.validation_token,
             )
-            provider_config.save_local_provider_key(root, provider, body.key)
+            model_routes.pin_all_projects()
+            provider_config.save_local_provider_key(
+                root,
+                normalized_provider,
+                body.key,
+            )
         except provider_config.UnknownProviderError as exc:
             raise HTTPException(400, str(exc)) from exc
         except ValueError as exc:
@@ -128,7 +136,9 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
     )
     def delete_provider_key(provider: str) -> LocalProviderCatalog:
         try:
-            provider_config.delete_local_provider_key(root, provider)
+            normalized_provider = provider_config.normalize_provider(provider)
+            model_routes.pin_all_projects()
+            provider_config.delete_local_provider_key(root, normalized_provider)
         except provider_config.UnknownProviderError as exc:
             raise HTTPException(400, str(exc)) from exc
         return provider_config.build_provider_catalog(root, dict(os.environ))

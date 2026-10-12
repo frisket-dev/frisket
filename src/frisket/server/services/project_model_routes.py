@@ -131,6 +131,14 @@ class ProjectModelRoutesService:
         ):
             self.pin_ready_routes(initiating_project_id)
 
+    def pin_all_projects(self) -> None:
+        """Pin current static choices before an installation config mutation."""
+
+        for row in self._workspace.list():
+            project_id = row.get("id") if isinstance(row, dict) else None
+            if isinstance(project_id, str):
+                self.pin_ready_routes(project_id)
+
     def _pin_ready_routes(self, project: Any) -> ProjectSettings:
         composition, inventory = self._context(project)
         materialized = self._materialized_settings(project, composition, inventory)

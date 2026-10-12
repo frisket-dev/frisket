@@ -401,3 +401,32 @@ def test_connection_pinning_keeps_earlier_project_when_a_later_pin_fails(
     assert (
         read_project_settings(workspace.get(untouched)).model_execution_routes is None
     )
+
+
+def test_workspace_configuration_pins_unset_choices_in_every_project(
+    tmp_path, monkeypatch
+) -> None:
+    provider = _Provider(
+        configured=frozenset({"cloud"}),
+        models=(MODEL, MODEL_TWO),
+    )
+    workspace = _workspace(
+        tmp_path,
+        monkeypatch,
+        provider,
+        models=(MODEL, MODEL_TWO),
+    )
+    project_ids = [
+        workspace.create("First workspace-key project")["id"],
+        workspace.create("Second workspace-key project")["id"],
+    ]
+
+    ProjectModelRoutesService(workspace).pin_all_projects()
+
+    for project_id in project_ids:
+        assert read_project_settings(
+            workspace.get(project_id)
+        ).model_execution_routes == {
+            MODEL: "cloud",
+            MODEL_TWO: "cloud",
+        }
