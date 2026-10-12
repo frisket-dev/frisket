@@ -184,14 +184,19 @@ class CloudExecutionTargetProvider:
 class _CloudRequiredExecutionTargetProvider:
     """Block non-local execution when a saved Cloud-first payer is unavailable."""
 
-    def __init__(self, source: ExecutionTargetProvider, reason: str) -> None:
+    def __init__(
+        self,
+        source: ExecutionTargetProvider,
+        inability: str,
+        reconnect_remedy: str,
+    ) -> None:
         self._source = source
-        self._reason = reason
+        self._reconnect_remedy = reconnect_remedy
         self._targets = tuple(
             replace(
                 target,
                 engines=tuple(
-                    replace(support, unavailable_reason=reason)
+                    replace(support, unavailable_reason=inability)
                     if support.capability in _CLOUD_EXECUTION_CAPABILITIES
                     else support
                     for support in target.engines
@@ -229,7 +234,7 @@ class _CloudRequiredExecutionTargetProvider:
             and any(support.capability == capability for support in target.engines)
             for target in self._targets
         ):
-            return self._reason
+            return self._reconnect_remedy
         hook = getattr(self._source, "liveness_remedy", None)
         if not callable(hook):
             return None
@@ -436,6 +441,10 @@ def _block_cloud_first_fallback(
         base,
         provider=_CloudRequiredExecutionTargetProvider(
             base.provider,
+            (
+                "execution through the project's selected payer while "
+                "Frisket Cloud is disconnected. Reconnect Frisket Cloud and retry."
+            ),
             "Reconnect Frisket Cloud to use the project's selected payer.",
         ),
     )

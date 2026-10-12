@@ -908,6 +908,10 @@ def test_busy_setup_embeds_actual_operation_without_removing_download_authority(
         ),
     )
     assert ready.status_code == 200
+    assert (
+        next(row for row in _choices(ready.json()) if row["is_current"])["can_run"]
+        is True
+    )
 
 
 def test_ready_parakeet_does_not_offer_redundant_engine_setup(
@@ -952,10 +956,6 @@ def test_ready_parakeet_does_not_offer_redundant_engine_setup(
     current = next(row for row in _choices(response.json()) if row["is_current"])
     assert current["status"] == "ready"
     assert current["configuration_actions"] == []
-    assert (
-        next(row for row in _choices(ready.json()) if row["is_current"])["can_run"]
-        is True
-    )
 
 
 def test_passive_gateway_status_projects_owner_scope_and_mutation_policy(

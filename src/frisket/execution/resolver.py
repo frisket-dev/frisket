@@ -41,7 +41,7 @@ but is not activated/available — carries a remedy), ``policy_denied`` and
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -1070,9 +1070,23 @@ def preferred_resolved_engine(
     *,
     capability: str = CAPABILITY_LLM,
     options: Mapping[str, Any] | None = None,
+    allowed_egress_classes: Collection[str] | None = None,
+    directly_runnable_engines: Collection[str] = (),
 ) -> str | None:
-    """Choose a ready engine through the same route policy as execution."""
+    """Choose a ready engine through the same route policy as execution.
+
+    ``directly_runnable_engines`` is an explicit caller-owned inventory for
+    engines such as configured local HTTP models that do not have a static
+    execution target. It is considered only when no declared target resolves.
+    """
     rows: list[tuple[int, int, str]] = []
+    direct_rows: list[tuple[int, str]] = []
+    direct = frozenset(directly_runnable_engines)
+    allowed = (
+        frozenset(allowed_egress_classes)
+        if allowed_egress_classes is not None
+        else None
+    )
     for index, engine in enumerate(engines):
         outcome = resolve(
             ResolutionRequest(
@@ -1084,12 +1098,20 @@ def preferred_resolved_engine(
             composition,
         )
         if isinstance(outcome, Refusal):
+            if engine in direct:
+                direct_rows.append((index, engine))
+            continue
+        if allowed is not None and outcome.target.egress_class not in allowed:
+            if engine in direct:
+                direct_rows.append((index, engine))
             continue
         _configured, route_rank = _configuration_rank(
             provider, outcome.target, capability, outcome.facts.engine
         )
         rows.append((route_rank, index, engine))
-    return min(rows)[2] if rows else None
+    if rows:
+        return min(rows)[2]
+    return min(direct_rows)[1] if direct_rows else None
 
 
 def candidate_binding(

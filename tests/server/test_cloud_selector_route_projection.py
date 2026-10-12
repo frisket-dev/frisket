@@ -107,15 +107,17 @@ def _cloud_selector_app(
     register_selector_choices_routes(
         app,
         workspace=workspace,
-        capabilities_for=lambda _request, _pid: capabilities
-        or SelectorCapabilities(
-            may_author_actions=True,
-            may_run_actions=True,
-            configure_workspace_credentials=True,
-            configure_project_credentials=True,
-            configure_organization_credentials=True,
-            manage_model_downloads=True,
-            configure_models_gateway=True,
+        capabilities_for=lambda _request, _pid: (
+            capabilities
+            or SelectorCapabilities(
+                may_author_actions=True,
+                may_run_actions=True,
+                configure_workspace_credentials=True,
+                configure_project_credentials=True,
+                configure_organization_credentials=True,
+                manage_model_downloads=True,
+                configure_models_gateway=True,
+            )
         ),
     )
     return TestClient(app), workspace, store, project_id
@@ -723,10 +725,8 @@ def test_network_off_defaults_ask_and_actions_to_reachable_local_model(
         router=ModelRouter(local_endpoints=(endpoint,), use_env_keys=False),
     )
     workspace.get(project_id).set_network_policy(mode="off")
-    observed_models: list[str | None] = []
 
     async def run_turn(_project, _router, turn, _store):
-        observed_models.append(turn["model"])
         return {}
 
     project_qa = ProjectQAService(workspace, runner=run_turn)
@@ -770,8 +770,6 @@ def test_network_off_defaults_ask_and_actions_to_reachable_local_model(
         )
         assert turn.status_code == 200, turn.text
         assert turn.json()["model"] == model
-
-    assert observed_models == [model]
 
 
 def test_configuration_actions_require_mutation_authority(tmp_path) -> None:

@@ -75,6 +75,7 @@ from frisket.server.services.selector_choices_projection import (
     _provider_identity,
     _provider_from_qualified,
     _default_action_model,
+    _choices_have_cloud_relevance,
     _model_selection,
     _engine_selection,
     _choice,
@@ -424,7 +425,11 @@ class SelectorChoiceService:
                 selection_kind="model",
             )
             current_selection = _model_selection(subject.params.get(subject.field))
-            default_model = _default_action_model(choices, composition)
+            default_model = _default_action_model(
+                choices,
+                composition,
+                network_off=_network_off(project),
+            )
             default_selection = _model_selection(default_model)
             depends_on: list[str] = []
         else:
@@ -471,7 +476,11 @@ class SelectorChoiceService:
             )
             default_engine = _schema_default(properties.get(subject.field))
             default_model = (
-                _default_action_model(choices, composition)
+                _default_action_model(
+                    choices,
+                    composition,
+                    network_off=_network_off(project),
+                )
                 if has_model_field and default_engine == "llm"
                 else None
             )
@@ -504,7 +513,9 @@ class SelectorChoiceService:
             current_selection=current_selection,
             default_selection=default_selection,
             server_labels=_server_labels(provider_catalog),
-            cloud_setup=cloud.setup(),
+            cloud_setup=(
+                cloud.setup() if _choices_have_cloud_relevance(choices) else None
+            ),
         )
 
     def _project_ask_choices(
@@ -528,6 +539,22 @@ class SelectorChoiceService:
             cloud=cloud,
             selection_kind="model",
         )
+        candidate_models = [
+            model
+            for choice in choices
+            if choice["status"] in {"ready", "needs_setup"}
+            and isinstance((model := choice["authored_selection"].get("model")), str)
+            and model
+        ]
+        direct_models = [
+            model
+            for choice in choices
+            if choice["status"] == "ready"
+            and isinstance((model := choice["authored_selection"].get("model")), str)
+            and model
+            and _mapping(choice.get("resolved_target")).get("egress_class") is None
+        ]
+        network_off = _network_off(project)
         return _response(
             project_id,
             subject={"kind": "project_ask"},
@@ -535,7 +562,14 @@ class SelectorChoiceService:
             choices=choices,
             current_selection=_model_selection(subject.model),
             default_selection=_model_selection(
-                default_project_ask_model(router, composition)
+                default_project_ask_model(
+                    router,
+                    composition,
+                    candidate_models=candidate_models,
+                    directly_runnable_models=direct_models,
+                    network_off=network_off,
+                    allow_setup_fallback=not network_off,
+                )
             ),
             server_labels=_server_labels(provider_catalog),
             cloud_setup=cloud.setup(),
@@ -937,7 +971,10 @@ class SelectorChoiceService:
         ):
             actions.append(self._setup.engine_setup(DOCLING_SETUP_REF, capabilities))
         if engine == "parakeet-tdt" and any(
-            target.id == "local-onnx" for target in own_targets
+            target.id == "local-onnx"
+            and provider_for_resolution.configuration(target.id, capability, engine)
+            == "not_configured"
+            for target in own_targets
         ):
             actions.append(
                 self._setup.engine_setup(PARAKEET_TDT_SETUP_REF, capabilities)

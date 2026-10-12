@@ -9,6 +9,7 @@ from urllib.parse import quote
 
 from frisket.actions.translate_types import TranslationOptions
 from frisket.cloud_targets import cloud_fallback_is_blocked
+from frisket.contracts.http.selector_choices import SELECTOR_CHOICES_SCHEMA_VERSION
 from frisket.execution.definitions import MODELS_GATEWAY_TARGET_ID
 from frisket.execution.provider import ExecutionComposition
 from frisket.execution.resolver import Refusal, preferred_resolved_engine
@@ -79,30 +80,46 @@ def _credential_source(
 
 
 def _default_action_model(
-    choices: list[dict[str, Any]], composition: ExecutionComposition
+    choices: list[dict[str, Any]],
+    composition: ExecutionComposition,
+    *,
+    network_off: bool,
+    options: Mapping[str, Any] | None = None,
 ) -> str | None:
     models = [
         model
         for choice in choices
         if isinstance((model := choice["authored_selection"].get("model")), str)
         and model
+        and choice["status"] == "ready"
+    ]
+    directly_runnable = [
+        choice["authored_selection"]["model"]
+        for choice in choices
+        if choice["status"] == "ready"
+        and isinstance(choice["authored_selection"].get("model"), str)
+        and _mapping(choice.get("resolved_target")).get("egress_class") is None
     ]
     preferred = preferred_resolved_engine(
         models,
         composition.provider_for_resolution(),
         composition.facts,
+        options=options,
+        allowed_egress_classes={"none", "operator_lan"} if network_off else None,
+        directly_runnable_engines=directly_runnable,
     )
-    if preferred is not None:
+    if preferred is not None or network_off:
         return preferred
-    # Custom local endpoints are catalog-owned rather than static target rows;
-    # unconfigured installations retain their curated catalog fallback.
-    for status in ("ready", "needs_setup"):
-        for choice in choices:
-            selection = choice["authored_selection"]
-            model = selection.get("model")
-            if choice["status"] == status and isinstance(model, str) and model:
-                return model
-    return None
+    return next(
+        (
+            model
+            for choice in choices
+            if choice["status"] == "needs_setup"
+            and isinstance((model := choice["authored_selection"].get("model")), str)
+            and model
+        ),
+        None,
+    )
 
 
 def _model_selection(value: Any) -> dict[str, Any] | None:
@@ -323,6 +340,17 @@ def _configuration_actions(
     for action in actions:
         if action is None:
             continue
+        kind = action.get("kind")
+        if kind in {"api_key", "models_gateway"} and not any(
+            bool(scope.get("can_mutate"))
+            for scope in action.get("scopes", [])
+            if isinstance(scope, Mapping)
+        ):
+            continue
+        if kind in {"engine_setup", "artifact_download"} and not action.get(
+            "can_mutate"
+        ):
+            continue
         key = _configuration_action_key(action)
         if key is None or key == active_key or key in seen:
             continue
@@ -428,6 +456,10 @@ def _execution_presentation(
             )
         )
         if selected_cloud_blocker:
+            if payer is None:
+                # The blocked own target describes why admission refused; it
+                # is not the payer the saved Cloud-first policy would use.
+                route = None
             blocker = refusal_blocker
             setup = (
                 cloud_setup_for_lane(payer.lane if payer is not None else None)
@@ -482,7 +514,7 @@ def _response(
         orphan = _orphan(current_selection)
         current_choice_id = orphan["choice_id"]
     return {
-        "schema_version": "frisket.selector_choices.v2",
+        "schema_version": SELECTOR_CHOICES_SCHEMA_VERSION,
         "project_id": project_id,
         "subject": subject,
         "depends_on": depends_on,
@@ -492,6 +524,24 @@ def _response(
         "orphaned_current": orphan,
         "cloud_setup": cloud_setup,
     }
+
+
+def _choices_have_cloud_relevance(choices: list[dict[str, Any]]) -> bool:
+    """Whether this subject exposes an exact Cloud route or model choice."""
+
+    for choice in choices:
+        if choice["authored_selection"].get("kind") in {"model", "engine_model"}:
+            return True
+        route = choice.get("execution_route")
+        if isinstance(route, Mapping) and (
+            str(route.get("kind", "")).startswith("cloud_")
+            or route.get("has_alternative_route") is True
+        ):
+            return True
+        setup = choice.get("setup")
+        if isinstance(setup, Mapping) and setup.get("kind") == "cloud":
+            return True
+    return False
 
 
 def _orphan(selection: dict[str, Any]) -> dict[str, Any]:

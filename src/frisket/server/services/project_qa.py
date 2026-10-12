@@ -40,6 +40,7 @@ from frisket.server.services.project_qa_tracing import (
     ProjectQATracing,
     build_project_qa_tracing,
 )
+from frisket.server.provider_config import build_provider_catalog
 from frisket.server.thread_worker import await_thread_worker
 from frisket.server.workspace import Workspace
 from frisket.server.project_qa_runtime import ProjectQATurnRuntime
@@ -78,6 +79,39 @@ _KNOWN_TOOLS = frozenset(
         "search_web",
     }
 )
+
+
+def _project_ask_catalog_models(
+    workspace: Workspace, router: Any
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Return the existing picker inventory and its ready direct-local subset."""
+
+    catalog = build_provider_catalog(
+        workspace.root,
+        network_off=False,
+        local_endpoints=router.local_endpoints,
+        local_endpoint_authority=(
+            "instance" if workspace.edition == "solo" else "organization"
+        ),
+    )
+    candidates: list[str] = []
+    direct: list[str] = []
+    for provider in catalog.get("providers", []):
+        if not isinstance(provider, dict):
+            continue
+        local_ready = provider.get("kind") == "local_http" and bool(
+            provider.get("reachable")
+        )
+        for model in provider.get("models", []):
+            model_id = model.get("id") if isinstance(model, dict) else None
+            if not isinstance(model_id, str) or not model_id:
+                continue
+            candidates.append(model_id)
+            if local_ready:
+                direct.append(model_id)
+    return tuple(dict.fromkeys(candidates)), tuple(dict.fromkeys(direct))
+
+
 _TOOL_RETRY_RE = re.compile(r"^Tool '([^']+)' exceeded max retries count of \d+$")
 _CITATION_RETRY = "Use only current-turn citation IDs returned by the tools; reopen prior sources first."
 
@@ -504,7 +538,18 @@ class ProjectQAService:
                         router,
                         self.workspace.edition_execution_composition_context_for(),
                     )
-                    default_model = default_project_ask_model(router, composition)
+                    candidate_models, direct_models = _project_ask_catalog_models(
+                        self.workspace, router
+                    )
+                    network_off = project.effective_network_policy() == "off"
+                    default_model = default_project_ask_model(
+                        router,
+                        composition,
+                        candidate_models=candidate_models,
+                        directly_runnable_models=direct_models,
+                        network_off=network_off,
+                        allow_setup_fallback=not network_off,
+                    )
                 setup = (
                     self._research_setup(
                         project_id, project, values["research"], context
