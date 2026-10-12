@@ -101,6 +101,7 @@ export function EngineSelector({
   value,
   recentNamespace,
   onSelect,
+  renderDetailBeforeRoute,
   renderDetailFooter,
   notice,
   disabled = false,
@@ -169,7 +170,7 @@ export function EngineSelector({
   const positioning = useAnchoredPosition(triggerRef, {
     enabled: open,
     align: 'right',
-    width: 760,
+    width: (_rect, viewportWidth) => Math.min(1080, viewportWidth - 16),
     gap: 4,
     minHeight: 240,
   });
@@ -368,7 +369,7 @@ export function EngineSelector({
         ? triggerCopy.blocker ?? triggerCopy.summary ?? statusLabel(triggerCopy.status)
         : choiceSecondaryCopy(triggerCopy) ?? groupForChoice(groups, triggerCopy.id)?.label ?? '';
   const anchoredStyle = wideAnchor && positioning
-    ? { top: positioning.top, bottom: positioning.bottom, left: positioning.left, width: positioning.width, maxHeight: Math.min(420, positioning.maxHeight) }
+    ? { top: positioning.top, bottom: positioning.bottom, left: positioning.left, width: positioning.width, maxHeight: Math.min(680, positioning.maxHeight) }
     : undefined;
 
   return (
@@ -562,6 +563,7 @@ export function EngineSelector({
                       })}
                     </dl>
                   )}
+                  {renderDetailBeforeRoute?.(detailFooter!)}
                   {previewedChoice.route && <EngineRouteDetails route={previewedChoice.route} />}
                   {previewedChoice.blocker && <p className="engine-selector__blocker">{previewedChoice.blocker}</p>}
                 </> : <p className="engine-selector__empty">No choices are available.</p>}

@@ -128,11 +128,14 @@ import {
   type Preferences,
 } from './preferences';
 import { readSettingsProjectContext } from './settingsProjectContext';
+import { projectProviderKeySource } from './projectProviderKeySource';
 import { CloudProfileSettings } from '../cloud/CloudProfileSettings';
-import { ProjectCloudRoutingSettings } from '../cloud/ProjectCloudRoutingSettings';
+import {
+  ProjectCloudRoutingSettings,
+  type ProjectCloudRoutingView,
+} from '../cloud/ProjectCloudRoutingSettings';
 import {
   cloudConnectionApi,
-  cloudConnectionPreferencesApi,
   projectCloudRoutingApi,
 } from '../api/cloudConnection';
 import { fetchDiagnostics, type DiagnosticsReport } from '../api/diagnostics';
@@ -473,8 +476,7 @@ export function PersonalProfileSettings({
           </button>}
         </div>
       </form>
-      {!identityMode && <CloudProfileSettings connectionClient={cloudConnectionApi}
-        preferencesClient={cloudConnectionPreferencesApi} />}
+      {!identityMode && <CloudProfileSettings connectionClient={cloudConnectionApi} />}
       {PersonalProfileSlot && <PersonalProfileSlot />}
     </div>
   );
@@ -1762,6 +1764,7 @@ export function ProjectAiProvidersSettings({
   const { projectApi: api } = useWorkspaceStores();
   const keys = useLoader<ProjectProviderKeys>(() => api.getProjectProviderKeys());
   const [adding, setAdding] = useState(false);
+  const [cloudRouting, setCloudRouting] = useState<ProjectCloudRoutingView | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
   const [existingTests, setExistingTests] = useState<
@@ -1785,7 +1788,7 @@ export function ProjectAiProvidersSettings({
     <div className="settings-stack" data-testid="project-ai-providers-settings">
       {cloudConnectionAvailable && project?.id && <ProjectCloudRoutingSettings
         projectId={project.id} connectionClient={cloudConnectionApi}
-        routingClient={projectCloudRoutingApi} />}
+        routingClient={projectCloudRoutingApi} onRoutingChange={setCloudRouting} />}
       <InlineStatus error={keys.error ?? mutationError} loading={keys.loading} notice={notice} />
       {!canMutate && (
         <ReadOnlyNotice>
@@ -1801,11 +1804,18 @@ export function ProjectAiProvidersSettings({
         onSaved={(saved) => { keys.setData(saved); setAdding(false); setNotice('Provider override saved'); }} />}
       <SettingsTable
         headers={['Provider', 'Secret', 'Key', 'Cap', 'Spent', '']}
-        rows={(keys.data?.providers ?? []).map((row) => [
+        rows={(keys.data?.providers ?? []).map((row) => {
+          const keySource = projectProviderKeySource(row, cloudRouting);
+          return [
           row.label,
           row.secret_name,
           <>
-            <span>{row.configured ? row.hint : '-'}</span>
+            {keySource.kind === 'cloud'
+              ? <a href={keySource.settingsUrl} target="_blank" rel="noreferrer">{keySource.label}</a>
+              : keySource.kind === 'missing'
+                ? <button className="btn-link" type="button" disabled={!canMutate}
+                    onClick={() => setAdding(true)}>{keySource.label}</button>
+                : <span>{keySource.label}</span>}
             {existingTests[row.id] && (
               <div
                 className={`settings-row-note${existingTests[row.id].tone === 'pending' ? '' : ` settings-validation-message is-${existingTests[row.id].tone}`}`}
@@ -1842,7 +1852,8 @@ export function ProjectAiProvidersSettings({
               </button>
             </span>
           ) : '',
-        ])}
+          ];
+        })}
         empty="No provider catalog"
       />
     </div>

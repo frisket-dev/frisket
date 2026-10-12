@@ -6,7 +6,8 @@ import { createTeamLocalModelsApi } from '../api/teamLocalModels';
 import { ModelSetupRequestError, modelSetupErrorFactory, startEngineSetup } from '../api/engineSetup';
 import type { ModelPullDto } from '../api/types';
 import { ModelPullProgress } from '../components/ModelPullProgress';
-import { ProviderKeyForm } from './ProviderKeyForm';
+import { ProviderKeySetupCard } from './ProviderKeySetupCard';
+import { providerName } from './providerKeyHelp';
 import { ModelsGatewayForm } from './ModelsGatewayForm';
 import type { ModelsGatewayScope } from '../api/modelsGateway';
 import { cloudConnectionApi, projectCloudRoutingApi } from '../api/cloudConnection';
@@ -46,11 +47,13 @@ function CredentialSetupPanel({ setup, projectId, onChanged, onEditingChange }: 
   const gatewayScope = setup.kind === 'models_gateway'
     ? setup.scopes.find(isMutableGatewayScope)
     : undefined;
-  return <section className="selector-setup">
-    {setup.kind === 'api_key' && projectScope?.can_mutate && <ProviderKeyForm provider={setup.provider} canMutate compact
+  if (setup.kind === 'api_key' && projectScope?.can_mutate) {
+    return <ProviderKeySetupCard provider={setup.provider} canMutate
       validate={(provider, key, signal) => projectKeys.validateProjectProviderKey(projectId, provider, key, { signal })}
       save={(provider, key, receipt, _cap, signal) => projectKeys.setProjectProviderKey(projectId, provider, key, null, receipt, { signal })}
-      onSaved={onChanged} onEditingChange={onEditingChange} />}
+      onSaved={onChanged} onEditingChange={onEditingChange} />;
+  }
+  return <section className="selector-setup">
     {setup.kind === 'models_gateway' && gatewayScope &&
       <ModelsGatewayForm key={gatewayScope.scope} scope={gatewayScope.scope} compact onSaved={onChanged} onEditingChange={onEditingChange} />}
     {((setup.kind === 'api_key' && !projectScope?.can_mutate) || (setup.kind === 'models_gateway' && !gatewayScope)) &&
@@ -142,11 +145,6 @@ function DownloadSetupPanel({ setup, activeOperation, onChanged, sharedProgress 
     {error && <p role="alert">{error}</p>}
   </section>;
 }
-
-const providerName = (provider: string): string => ({
-  openai: 'OpenAI', gemini: 'Google', anthropic: 'Anthropic', openrouter: 'OpenRouter',
-  datalab: 'Datalab', opendocrouter: 'OpenDocRouter',
-})[provider] ?? provider;
 
 function CloudSetupPanel({ setup, projectId, onChanged }: {
   setup: CloudSetup;

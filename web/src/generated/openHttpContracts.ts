@@ -1696,6 +1696,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
+      "id": "tenant.set_project_model_route.patch",
+      "method": "PATCH",
+      "path": "/api/projects/{pid}/model-routes",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
       "id": "tenant.set_project_provider_key.post",
       "method": "POST",
       "path": "/api/projects/{pid}/provider-keys",
@@ -8558,9 +8567,17 @@ type HttpProjectCloudRoutingResponse_CloudConnectionAccountSummary = ({
   "name": (string);
 });
 
+type HttpProjectCloudRoutingResponse_ProjectCloudProviderKey = ({
+  "configured": (boolean);
+  "label": (string);
+  "provider": (string);
+  "settings_url": (string);
+});
+
 export type HttpProjectCloudRoutingResponse = ({
   "accounts": (Array<(HttpProjectCloudRoutingResponse_CloudConnectionAccountSummary)>);
   "can_mutate": (boolean);
+  "cloud_provider_keys"?: (Array<(HttpProjectCloudRoutingResponse_ProjectCloudProviderKey)>);
   "connection_state": ("disconnected" | "connected" | "expired") & (string);
   "overlap_provider_labels": (Array<(string)>);
   "preference": ("local_first" | "cloud_first") & (string);
@@ -8681,6 +8698,16 @@ export type HttpProjectMemberSet = ({
   "email": (string);
   "ok": (boolean);
   "role": ("viewer" | "reviewer" | "editor" | "owner") & (string);
+});
+
+export type HttpProjectModelRouteRequest = ({
+  "model_id": (string);
+  "route": ("cloud" | "own") & (string);
+});
+
+export type HttpProjectModelRouteResponse = ({
+  "model_id": (string);
+  "route": ("cloud" | "own") & (string);
 });
 
 export type HttpProjectNetworkRequest = ({
@@ -9841,6 +9868,7 @@ type HttpSelectorChoicesResponse_SelectorChoice = ({
   "model_card_url": (((string)) | ((null)));
   "processing_destination": (HttpSelectorChoicesResponse_SelectorProcessingDestination);
   "resolved_target": (((HttpSelectorChoicesResponse_SelectorResolvedTarget)) | ((null)));
+  "route_selection": (((HttpSelectorChoicesResponse_SelectorRouteSelection)) | ((null)));
   "setup": (((((HttpSelectorChoicesResponse_ApiKeySetup)) | ((HttpSelectorChoicesResponse_ModelsGatewaySetup)) | ((HttpSelectorChoicesResponse_ArtifactDownloadSetup)) | ((HttpSelectorChoicesResponse_EngineSetup)) | ((HttpSelectorChoicesResponse_FirstUseDownloadSetup)) | ((HttpSelectorChoicesResponse_InstructionsSetup)) | ((HttpSelectorChoicesResponse_SelectorCloudSetup)))) | ((null)));
   "status": ("ready" | "needs_setup" | "working" | "unavailable") & (string);
   "summary": (string);
@@ -9869,6 +9897,7 @@ type HttpSelectorChoicesResponse_SelectorExecutionRoute = ({
   "balance_label"?: (((string)) | ((null)));
   "balance_url"?: (((string)) | ((null)));
   "billed_to"?: (((string)) | ((null)));
+  "credential_label"?: (((string)) | ((null)));
   "has_alternative_route": (boolean);
   "kind": ("local_engine" | "models_server" | "local_key" | "cloud_credits" | "cloud_account_key" | "none") & (string);
   "label": (string);
@@ -9903,6 +9932,20 @@ type HttpSelectorChoicesResponse_SelectorResolvedTarget = ({
   "target_id": (string);
 });
 
+type HttpSelectorChoicesResponse_SelectorRouteOption = ({
+  "disabled_reason"?: (((string)) | ((null)));
+  "id": ("cloud" | "own") & (string);
+  "label": (string);
+  "status": ("ready" | "needs_setup" | "working" | "unavailable") & (string);
+});
+
+type HttpSelectorChoicesResponse_SelectorRouteSelection = ({
+  "can_mutate": (boolean);
+  "model_id": (string);
+  "options": (Array<(HttpSelectorChoicesResponse_SelectorRouteOption)>);
+  "selected": ("cloud" | "own") & (string);
+});
+
 type HttpSelectorChoicesResponse_SelectorSetupScope = ({
   "can_mutate": (boolean);
   "configured": (boolean);
@@ -9927,7 +9970,7 @@ export type HttpSelectorChoicesResponse = ({
   "groups": (Array<(HttpSelectorChoicesResponse_SelectorChoiceGroup)>);
   "orphaned_current": (((HttpSelectorChoicesResponse_SelectorChoice)) | ((null)));
   "project_id": (string);
-  "schema_version": ("frisket.selector_choices.v2") & (string);
+  "schema_version": ("frisket.selector_choices.v3") & (string);
   "subject": (((HttpSelectorChoicesResponse_NormalizedActionSelectorSubject)) | ((HttpSelectorChoicesResponse_NormalizedProjectAskSelectorSubject)) | ((HttpSelectorChoicesResponse_NormalizedEmbeddingSelectorSubject)));
 });
 
@@ -14233,6 +14276,21 @@ export type HttpContractOperationMap = {
     readonly responses: {
       readonly "200": HttpModelsGatewayStatus;
       readonly "400": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.set_project_model_route.patch": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpProjectModelRouteRequest;
+    readonly responses: {
+      readonly "200": HttpProjectModelRouteResponse;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;
     };

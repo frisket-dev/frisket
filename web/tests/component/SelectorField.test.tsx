@@ -41,6 +41,8 @@ function response(): HttpSelectorChoicesResponse {
         can_author: true,
         can_run: true,
         blocker: null,
+        execution_route: null,
+        route_selection: null,
         setup: null,
         configuration_actions: [],
         active_operation: null,
@@ -52,6 +54,73 @@ function response(): HttpSelectorChoicesResponse {
 }
 
 describe('SelectorField', () => {
+  it('changes a model route through the generated project endpoint and refreshes the projection', async () => {
+    const payload = response();
+    const selected = payload.groups[0].choices[0];
+    selected.label = 'Gemini Flash';
+    selected.route_selection = {
+      model_id: 'google/gemini-flash', selected: 'cloud', can_mutate: true,
+      options: [
+        { id: 'cloud', label: 'Frisket Cloud', status: 'ready', disabled_reason: null },
+        { id: 'own', label: 'Your Gemini key', status: 'needs_setup', disabled_reason: null },
+      ],
+    };
+    selected.execution_route = {
+      kind: 'cloud_credits', label: 'Frisket Cloud', billed_to: 'Frisket Cloud (Riverton News)',
+      sends_data_to: 'Google via Frisket Cloud', has_alternative_route: true,
+    };
+    const load = vi.fn().mockResolvedValue(payload);
+    request.mockResolvedValue({ model_id: 'google/gemini-flash', route: 'own' });
+    render(<SelectorField projectId="project-a" label="Model"
+      query={{ schema_version: 'frisket.selector_choices_query.v1',
+        subject: { kind: 'action', action_id: 'map.classify', field: 'model', params: {} } }}
+      recentNamespace="model-route" load={load} onSelect={vi.fn()} />);
+
+    await userEvent.click(await screen.findByRole('button', { name: /Gemini Flash/ }));
+    await userEvent.click(screen.getByTestId('model-route-own'));
+
+    await waitFor(() => expect(request).toHaveBeenCalledWith(
+      'tenant.set_project_model_route.patch',
+      expect.objectContaining({
+        pathParams: { pid: 'project-a' },
+        body: { model_id: 'google/gemini-flash', route: 'own' },
+        signal: expect.any(AbortSignal),
+      }),
+    ));
+    await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+  });
+
+  it('shows setup only for the selected route', async () => {
+    const payload = response();
+    const selected = payload.groups[0].choices[0];
+    selected.label = 'Gemini Flash';
+    selected.status = 'needs_setup';
+    selected.route_selection = {
+      model_id: 'google/gemini-flash', selected: 'own', can_mutate: true,
+      options: [
+        { id: 'cloud', label: 'Frisket Cloud', status: 'needs_setup', disabled_reason: null },
+        { id: 'own', label: 'Your Gemini key', status: 'needs_setup', disabled_reason: null },
+      ],
+    };
+    selected.setup = { kind: 'api_key', provider: 'gemini', scopes: [{
+      scope: 'project', configured: false, can_mutate: true, source: 'missing',
+      environment_names: ['GEMINI_API_KEY'], settings_location: 'project_ai_providers', hint: null,
+    }] };
+    payload.cloud_setup = {
+      kind: 'cloud', state: 'connect', account_id: null, account_name: null,
+      balance_url: null, add_credits_url: null, project_settings_url: null,
+    };
+    render(<SelectorField projectId="project-a" label="Model"
+      query={{ schema_version: 'frisket.selector_choices_query.v1',
+        subject: { kind: 'action', action_id: 'map.classify', field: 'model', params: {} } }}
+      recentNamespace="selected-route-setup" load={vi.fn().mockResolvedValue(payload)} onSelect={vi.fn()} />);
+
+    await userEvent.click(await screen.findByRole('button', { name: /Gemini Flash/ }));
+    expect(screen.getByRole('heading', { name: 'Add your Gemini key' })).toBeVisible();
+    expect(screen.queryByText('Connect Frisket Cloud to see available models.')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Sign in with browser/ })).not.toBeInTheDocument();
+  });
+
   it('loads authoritative readiness while its trigger is disabled for an active run', async () => {
     const load = vi.fn().mockResolvedValue(response());
     const onCurrentChoiceChange = vi.fn();

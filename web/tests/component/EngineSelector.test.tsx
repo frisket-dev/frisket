@@ -141,6 +141,7 @@ describe('EngineSelector', () => {
         route: {
           label: 'Riverton News · Frisket credits',
           billedTo: 'Riverton News · Frisket credits',
+          credentialLabel: '••••8f2a · saved to this project',
           sendsDataTo: 'Google via Frisket Cloud',
           balanceLabel: '$182.40 balance',
           balanceUrl: 'https://app.frisket.dev/accounts/42',
@@ -164,7 +165,8 @@ describe('EngineSelector', () => {
     expect(screen.getByTestId('engine-selector-dialog')
       .querySelector('[data-engine-selector-choice="gemini"]')).toBeVisible();
     const route = within(screen.getByTestId('engine-selector-route'));
-    expect(route.getByText('Riverton News · Frisket credits', { selector: 'strong' })).toBeVisible();
+    expect(route.getByText('Riverton News · Frisket credits')).toBeVisible();
+    expect(route.getByText('••••8f2a · saved to this project')).toBeVisible();
     expect(route.getByText('Google via Frisket Cloud')).toBeVisible();
     expect(route.getByRole('link', { name: /\$182.40 balance/ })).toHaveAttribute(
       'href', 'https://app.frisket.dev/accounts/42',
