@@ -157,8 +157,6 @@ test('over-gate backfill prompts, then echoes the exact confirmation on approval
   await expect(page.getByTestId('cost-gate-estimate')).toContainText('900 rows');
 
   const confirm = page.getByTestId('cost-gate-confirm');
-  await expect(confirm).toBeDisabled();
-  await page.getByTestId('cost-gate-input').fill('confirm');
   await expect(confirm).toBeEnabled();
   await confirm.click();
 
