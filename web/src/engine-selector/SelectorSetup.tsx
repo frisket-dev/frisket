@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { HttpSelectorChoicesResponse, SelectorChoice } from '../api/selectorChoices';
 import { createProjectProviderKeysApi } from '../api/projectProviderKeys';
 import { createLocalProvidersApi } from '../api/localProviders';
@@ -247,9 +247,11 @@ function OwnedSetupPanel({ editingOwner, reportEditing, ...props }:
   return <SetupPanel {...props} onEditingChange={editing} />;
 }
 
-function configurationLabel(action: ConfigurationAction): string {
+function configurationLabel(action: ConfigurationAction, choice: SelectorChoice): string {
   switch (action.kind) {
-    case 'api_key': return `Use your own ${providerName(action.provider)} API key`;
+    case 'api_key': return choice.status === 'ready' && choice.execution_route?.kind === 'local_key'
+      ? 'Change API key'
+      : `Use your own ${providerName(action.provider)} API key`;
     case 'models_gateway': return 'Configure models server';
     case 'engine_setup': return 'Set up on this computer';
     case 'artifact_download': return 'Download for local use';
@@ -260,12 +262,15 @@ function ConfigurationActionPanel({ action, initiallyExpanded, editingOwner, rep
   SelectorSetupProps & { action: ConfigurationAction; initiallyExpanded: boolean;
     editingOwner: string; reportEditing: EditingReporter }) {
   const [expanded, setExpanded] = useState(initiallyExpanded);
-  const label = configurationLabel(action);
+  const [hasExpanded, setHasExpanded] = useState(initiallyExpanded);
+  const panelId = useId();
+  const label = configurationLabel(action, props.choice);
   const editing = useOwnedEditing(editingOwner, reportEditing);
   const panel = <SetupPanel {...props} onEditingChange={editing} setup={action} />;
   const toggle = () => {
     const next = !expanded;
     setExpanded(next);
+    if (next) setHasExpanded(true);
     editing(next);
   };
   if (initiallyExpanded) {
@@ -276,8 +281,9 @@ function ConfigurationActionPanel({ action, initiallyExpanded, editingOwner, rep
   }
   return <section className={`selector-configuration-action${expanded ? ' is-expanded' : ''}`}>
     <button type="button" className="selector-configuration-toggle" aria-expanded={expanded}
+      aria-controls={panelId}
       onClick={toggle}>{label}<span aria-hidden>{expanded ? '−' : '+'}</span></button>
-    {expanded && panel}
+    <div id={panelId} hidden={!expanded}>{hasExpanded && panel}</div>
   </section>;
 }
 

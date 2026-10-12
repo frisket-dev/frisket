@@ -34,6 +34,12 @@ const gatewayAccepted = { schemaVersion: 'frisket.models_gateway_validation.v1',
   probe: { ok: true, reachable: true, status: 200, detail: null,
     service: 'frisket-models', version: null, engines: [] } };
 
+function deferred<Value>() {
+  let resolve!: (value: Value) => void;
+  const promise = new Promise<Value>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
 function pull(overrides: Partial<ModelPullDto> = {}): ModelPullDto {
   return { schemaVersion: 'frisket.model_pull.v4', id: 7, operation_kind: 'engine_setup',
     display_name: 'Parakeet setup', model: 'engine-setup:parakeet-tdt.local-onnx@1',
@@ -165,15 +171,64 @@ describe('SelectorSetup', () => {
 
     const expand = screen.getByRole('button', { name: /Use your own Google API key/ });
     expect(expand).toHaveAttribute('aria-expanded', 'false');
+    const panelId = expand.getAttribute('aria-controls');
+    expect(panelId).toBeTruthy();
+    expect(document.getElementById(panelId!)).not.toBeVisible();
     expect(screen.queryByLabelText('API key')).not.toBeInTheDocument();
     await userEvent.click(expand);
     expect(expand).toHaveAttribute('aria-expanded', 'true');
+    expect(document.getElementById(panelId!)).toBeVisible();
     expect(editing).toHaveBeenLastCalledWith(true);
     await userEvent.type(screen.getByLabelText('API key'), 'draft-key');
 
     const refreshed = choice(null, [{ ...action, scopes: [{ ...scope('project'), hint: 'updated' }] }]);
     view.rerender(<SelectorSetup {...props} choice={refreshed} />);
     expect(screen.getByLabelText('API key')).toHaveValue('draft-key');
+
+    await userEvent.click(expand);
+    expect(document.getElementById(panelId!)).not.toBeVisible();
+    expect(screen.getByLabelText('API key')).toHaveValue('draft-key');
+    await userEvent.click(expand);
+    expect(screen.getByLabelText('API key')).toHaveValue('draft-key');
+  });
+
+  it('keeps an in-flight save mounted across collapse and retains its success feedback', async () => {
+    const saved = deferred<Record<string, never>>();
+    request.mockResolvedValueOnce(accepted).mockReturnValueOnce(saved.promise);
+    const changed = vi.fn();
+    render(<SelectorSetup projectId="project-a" choice={choice(null, [
+      { kind: 'api_key', provider: 'openai', scopes: [scope('project')] },
+    ])} onChanged={changed} onEditingChange={vi.fn()} />);
+
+    const toggle = screen.getByRole('button', { name: /Use your own OpenAI API key/ });
+    await userEvent.click(toggle);
+    await userEvent.type(screen.getByLabelText('API key'), 'candidate-key');
+    await userEvent.click(screen.getByRole('button', { name: 'Test' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled());
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    const saveSignal = request.mock.calls[1][1].signal as AbortSignal;
+
+    await userEvent.click(toggle);
+    expect(saveSignal.aborted).toBe(false);
+    expect(screen.getByLabelText('API key')).not.toBeVisible();
+    await act(async () => saved.resolve({}));
+    await waitFor(() => expect(changed).toHaveBeenCalledOnce());
+    await userEvent.click(toggle);
+    expect(screen.getByText('Provider key saved')).toBeVisible();
+  });
+
+  it('labels configuration for the selected own-key route as changing that key', () => {
+    const selected = choice(null, [
+      { kind: 'api_key', provider: 'openai', scopes: [scope('project')] },
+    ]);
+    selected.execution_route = {
+      kind: 'local_key', label: 'Your OpenAI API key', has_alternative_route: true,
+    };
+    render(<SelectorSetup projectId="project-a" choice={selected}
+      onChanged={vi.fn()} onEditingChange={vi.fn()} />);
+
+    expect(screen.getByRole('button', { name: 'Change API key' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: /Use your own/ })).not.toBeInTheDocument();
   });
 
   it('keeps the selector editing lock while another configuration panel remains open', async () => {
