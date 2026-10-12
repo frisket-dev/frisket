@@ -163,6 +163,7 @@ def test_dockerfile_warmup_model_ids_match_the_frisket_constants() -> None:
     from frisket.search import RERANK_MODEL
     from frisket.semantic import LOCAL_MODEL
 
+    # rule19: compare Docker warmup declarations with independent runtime model constants.
     dockerfile = (ROOT / "Dockerfile").read_text()
 
     assert f"TextEmbedding('{LOCAL_MODEL}')" in dockerfile, (
