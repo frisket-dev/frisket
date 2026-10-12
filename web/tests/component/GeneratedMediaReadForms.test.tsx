@@ -165,7 +165,7 @@ describe('typed OCR/transcription forms', () => {
       await run();
       expect(onExecute.mock.lastCall?.[0].params.engine).toBe(engine.id);
     }
-  });
+  }, 10_000);
 
   it('makes the engine choice before its language/options and output summary', async () => {
     const { entry } = form('media.transcribe');

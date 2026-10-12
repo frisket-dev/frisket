@@ -25,12 +25,13 @@ type SelectorResponse = {
 };
 
 async function waitForExtractSelector(page: Page, navigate: () => Promise<unknown>) {
-  const pending = page.waitForResponse((response) => (
-    response.request().method() === 'POST'
-    && response.url().endsWith('/selector-choices')
+  const pending = page.waitForRequest((request) => (
+    request.method() === 'POST'
+    && request.url().endsWith('/selector-choices')
   ));
   await navigate();
-  const response = await pending;
+  const response = await (await pending).response();
+  if (!response) throw new Error('Selector request did not complete');
   expect(response.ok()).toBeTruthy();
   const body = await response.json() as SelectorResponse;
   expect(body.subject).toMatchObject({
@@ -39,7 +40,9 @@ async function waitForExtractSelector(page: Page, navigate: () => Promise<unknow
     field: 'engine',
   });
   const choices = body.groups.flatMap((group) => group.choices);
-  const selected = choices.find((choice) => choice.choice_id === body.default_choice_id);
+  const selected = choices.find((choice) => (
+    choice.authored_selection.model === 'gemini/gemini-3.5-flash-lite'
+  ));
   expect(selected).toMatchObject({
     authored_selection: {
       kind: 'engine_model',
@@ -78,7 +81,7 @@ async function confirmPreviewCost(page: Page): Promise<void> {
   await confirm.click();
 }
 
-test('Cloud connection, own-key setup and media selectors share the project routing preference', async ({
+test('Per-model routes survive key setup and drive real Cloud and own previews', async ({
   page,
   request,
 }, testInfo) => {
@@ -121,7 +124,6 @@ test('Cloud connection, own-key setup and media selectors share the project rout
   await expect(account).toBeVisible();
   await account.selectOption('41');
   await expect(account).toHaveValue('41');
-  await expect(routing.getByLabel('Use your keys on this computer')).toBeChecked();
   await expect(account).toBeEnabled();
 
   const actionURL = `/p/${projectId}/s/${sheetId}/action/map.extract`;
@@ -168,7 +170,7 @@ test('Cloud connection, own-key setup and media selectors share the project rout
   // A working Cloud route must not hide the alternative credential form.
   await page.goto(actionURL);
   await page.getByTestId('field-engine').locator('.engine-selector__trigger').click();
-  await dialog.getByRole('button', { name: /Use your own.*key/i }).click();
+  await dialog.getByRole('button', { name: 'Your Gemini key', exact: true }).click();
   await dialog.getByLabel('API key', { exact: true }).fill('e2e-personal-gemini-key');
   await dialog.getByRole('button', { name: 'Test', exact: true }).click();
   await expect(dialog.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
@@ -182,8 +184,12 @@ test('Cloud connection, own-key setup and media selectors share the project rout
     ));
   });
   await dialog.getByRole('button', { name: 'Save', exact: true }).click();
-  await savedSelector;
-  await expect(dialog).toContainText(/Your Gemini API key/);
+  const savedPayload = await (await savedSelector).json() as SelectorResponse;
+  expect(savedPayload.groups.flatMap((group) => group.choices).find((choice) => (
+    choice.authored_selection.model === 'gemini/gemini-3.5-flash'
+  ))).toMatchObject({ execution_route: { kind: 'cloud_credits', account_id: 41 } });
+  await expect(dialog.getByRole('button', { name: 'Your Gemini key', exact: true }))
+    .toHaveAttribute('aria-pressed', 'true');
   await page.keyboard.press('Escape');
 
   await fillExtractionForm(page);
@@ -198,13 +204,16 @@ test('Cloud connection, own-key setup and media selectors share the project rout
     expect.objectContaining({ entity: expect.objectContaining({ value: 'Alice via own key' }) }),
   ]);
 
-  await page.goto(`/p/${projectId}/settings/project/ai-providers`);
-  await routing.getByRole('radio', { name: /^Use Investigations/ }).click();
-  await expect(routing.getByRole('radio', { name: /^Use Investigations/ })).toBeChecked();
-  await expect(routing.getByRole('radio', { name: /^Use Investigations/ })).toBeEnabled();
-  await waitForExtractSelector(page, () => page.goto(actionURL));
+  await page.goto(actionURL);
   await page.getByTestId('field-engine').locator('.engine-selector__trigger').click();
-  await expect(dialog.getByRole('button', { name: /Use your own.*key/i })).toBeVisible();
+  await dialog.getByRole('searchbox').fill('Gemini 3.5 Flash-Lite');
+  await dialog.locator(`[data-choice-id="${defaultChoice.choice_id}"]`).hover();
+  await waitForExtractSelector(page, () => dialog.getByRole('button', {
+    name: 'Frisket Cloud', exact: true,
+  }).click());
+  await expect(dialog.getByRole('button', { name: 'Frisket Cloud', exact: true }))
+    .toHaveAttribute('aria-pressed', 'true');
+  await dialog.screenshot({ path: testInfo.outputPath('cloud-use-through-connected.png') });
   await page.keyboard.press('Escape');
 
   for (const [action, engineId] of [
@@ -227,7 +236,7 @@ test('Cloud connection, own-key setup and media selectors share the project rout
     await dialog.locator(`[data-choice-id="${media!.choice_id}"]`).click();
     await page.getByTestId('field-engine').locator('.engine-selector__trigger').click();
     await expect(dialog).toContainText('Frisket Cloud');
-    await dialog.getByRole('button', { name: /Configure models server/i }).click();
+    await dialog.getByRole('button', { name: 'Models server', exact: true }).click();
     const guide = dialog.getByRole('link', { name: 'Models server setup guide' });
     const url = dialog.getByLabel('Gateway URL');
     const token = dialog.getByLabel('Gateway token');
@@ -242,4 +251,31 @@ test('Cloud connection, own-key setup and media selectors share the project rout
     await page.keyboard.press('Escape');
   }
 
+  await page.goto(`/p/${projectId}/s/${sheetId}/action/media.ocr`);
+  await page.getByTestId('field-engine').locator('.engine-selector__trigger').click();
+  await dialog.getByRole('searchbox').fill('Datalab');
+  // A blocked model can still be inspected and set up in the detail pane.
+  await dialog.locator('[data-choice-id]').filter({ hasText: 'Datalab' }).first().hover();
+  await expect(dialog.getByRole('link', { name: 'Learn more', exact: true }))
+    .toHaveAttribute('href', 'https://cloud.example.test/funding-accounts?account_id=41&provider=datalab');
+  await dialog.screenshot({ path: testInfo.outputPath('cloud-account-key-setup.png') });
+
+  await page.goto('/settings/personal/profile');
+  await page.getByTestId('cloud-connection-connected')
+    .getByRole('button', { name: 'Sign out', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Sign in with browser' })).toBeVisible();
+  await page.goto(actionURL);
+  await page.getByTestId('field-engine').locator('.engine-selector__trigger').click();
+  await dialog.getByRole('searchbox').fill('Gemini 3.5 Flash-Lite');
+  await dialog.locator(`[data-choice-id="${defaultChoice.choice_id}"]`).hover();
+  await expect(dialog.getByRole('button', { name: 'Frisket Cloud', exact: true }))
+    .toHaveAttribute('aria-pressed', 'true');
+  const reconnect = dialog.getByRole('button', { name: 'Reconnect', exact: true });
+  await expect(reconnect).toBeEnabled();
+  await dialog.screenshot({ path: testInfo.outputPath('cloud-use-through-disconnected.png') });
+  await waitForExtractSelector(page, () => reconnect.click());
+  await expect(dialog).toContainText('$4.50 balance');
+  await dialog.getByRole('button', { name: 'Your Gemini key', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: 'Your Gemini key', exact: true }))
+    .toHaveAttribute('aria-pressed', 'true');
 });
