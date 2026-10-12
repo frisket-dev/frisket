@@ -174,6 +174,22 @@ class _SyntheticProvider:
 
         return ConnectionConfig(base_url="http://gw:9000", token="secret")
 
+    def configuration(self, target_id: str, capability: str, engine: str):
+        assert (target_id, capability, engine) == (
+            "synthetic-venue",
+            "transcribe",
+            "parakeet-tdt",
+        )
+        return "configured"
+
+    def selection_rank(self, target_id: str, capability: str, engine: str):
+        assert (target_id, capability, engine) == (
+            "synthetic-venue",
+            "transcribe",
+            "parakeet-tdt",
+        )
+        return 0
+
 
 def _execution_composition() -> ExecutionComposition:
     return ExecutionComposition(
