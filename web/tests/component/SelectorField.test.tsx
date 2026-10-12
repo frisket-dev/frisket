@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import '@testing-library/jest-dom/vitest';
-import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
@@ -191,6 +191,45 @@ describe('SelectorField', () => {
       expect.objectContaining({ pathParams: { pid: 'project-a' }, body: {
         provider: 'gemini', key: 'candidate-key', validation_token: 'signed-key-receipt',
       } }));
+  });
+
+  it('keeps a collapsed configuration draft authoritative through hover, while explicit selection can replace it', async () => {
+    const payload = response();
+    const selected = payload.groups[0].choices[0];
+    selected.configuration_actions = [{ kind: 'api_key', provider: 'gemini', scopes: [{
+      scope: 'project', can_mutate: true, configured: false, source: 'missing', hint: null,
+      environment_names: ['GEMINI_API_KEY'], settings_location: 'project_ai_providers',
+    }] }];
+    payload.groups[0].choices.push({
+      ...selected, choice_id: 'other-model', label: 'Other model',
+      authored_selection: { kind: 'model', model: 'other-model' },
+      configuration_actions: [], is_current: false, is_default: false,
+    });
+    const onSelect = vi.fn();
+    render(<SelectorField projectId="project-a" label="Model"
+      query={{ schema_version: 'frisket.selector_choices_query.v1',
+        subject: { kind: 'action', action_id: 'map.extract', field: 'model', params: {} } }}
+      recentNamespace="collapsed-draft-hover" load={vi.fn().mockResolvedValue(payload)}
+      onSelect={onSelect} />);
+
+    await userEvent.click(await screen.findByRole('button', { name: /Ready model/ }));
+    const dialog = screen.getByTestId('engine-selector-dialog');
+    const setupToggle = within(dialog).getByRole('button', { name: /Use your own Google API key/ });
+    await userEvent.click(setupToggle);
+    await userEvent.type(within(dialog).getByLabelText('API key'), 'draft-key');
+    await userEvent.click(setupToggle);
+
+    const other = dialog.querySelector<HTMLButtonElement>('[data-engine-selector-choice="other-model"]')!;
+    fireEvent.mouseEnter(other);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(within(dialog).getByRole('heading', { name: 'Ready model' })).toBeVisible();
+    expect(within(dialog).getByLabelText('API key')).toHaveValue('draft-key');
+    expect(within(dialog).getByLabelText('API key')).not.toBeVisible();
+
+    await userEvent.click(other);
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ choice_id: 'other-model' }));
+    expect(screen.queryByTestId('engine-selector-dialog')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('API key')).not.toBeInTheDocument();
   });
 
   it('keeps an orphaned current selection authoritative instead of borrowing the default route', async () => {

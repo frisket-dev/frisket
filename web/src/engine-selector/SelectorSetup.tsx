@@ -265,13 +265,14 @@ function ConfigurationActionPanel({ action, initiallyExpanded, editingOwner, rep
   const [hasExpanded, setHasExpanded] = useState(initiallyExpanded);
   const panelId = useId();
   const label = configurationLabel(action, props.choice);
-  const editing = useOwnedEditing(editingOwner, reportEditing);
-  const panel = <SetupPanel {...props} onEditingChange={editing} setup={action} />;
+  const panelEditing = useOwnedEditing(`${editingOwner}:panel`, reportEditing);
+  const formEditing = useOwnedEditing(`${editingOwner}:form`, reportEditing);
+  const panel = <SetupPanel {...props} onEditingChange={formEditing} setup={action} />;
   const toggle = () => {
     const next = !expanded;
     setExpanded(next);
     if (next) setHasExpanded(true);
-    editing(next);
+    panelEditing(next);
   };
   if (initiallyExpanded) {
     return <section className="selector-configuration-action is-expanded">
