@@ -247,6 +247,11 @@ function ConfigurationActionPanel({ action, initiallyExpanded, ...props }:
   const [expanded, setExpanded] = useState(initiallyExpanded);
   const label = configurationLabel(action);
   const panel = <SetupPanel {...props} setup={action} />;
+  const toggle = () => {
+    const next = !expanded;
+    setExpanded(next);
+    props.onEditingChange(next);
+  };
   if (initiallyExpanded) {
     return <section className="selector-configuration-action is-expanded">
       <h3>{label}</h3>
@@ -255,12 +260,7 @@ function ConfigurationActionPanel({ action, initiallyExpanded, ...props }:
   }
   return <section className={`selector-configuration-action${expanded ? ' is-expanded' : ''}`}>
     <button type="button" className="selector-configuration-toggle" aria-expanded={expanded}
-      onClick={() => {
-        setExpanded((current) => {
-          props.onEditingChange(!current);
-          return !current;
-        });
-      }}>{label}<span aria-hidden>{expanded ? '−' : '+'}</span></button>
+      onClick={toggle}>{label}<span aria-hidden>{expanded ? '−' : '+'}</span></button>
     {expanded && panel}
   </section>;
 }
