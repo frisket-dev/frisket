@@ -17,11 +17,6 @@ from frisket.engine.store import Project
 from frisket.engine.store.sources import SourceStore
 
 
-ROOT = Path(__file__).resolve().parents[2]
-QUEUE = ROOT / "src/frisket/engine/jobs/queue.py"
-SOURCES = ROOT / "src/frisket/engine/jobs/sources.py"
-
-
 def _project(workspace: Path, project_id: str = "news") -> Project:
     workspace.mkdir(parents=True, exist_ok=True)
     return Project.create(workspace / f"{project_id}.frisket", name=project_id)

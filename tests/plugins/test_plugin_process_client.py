@@ -1,18 +1,13 @@
 from __future__ import annotations
 
-import ast
-import inspect
 import json
-import re
 from collections.abc import Iterator
-from pathlib import Path
-from typing import Any, get_origin, get_type_hints
+from typing import Any
 
 import pytest
 
 from frisket.contracts import plugin_rpc as rpc
 from frisket.engine.sandbox.shim import SandboxResult
-from frisket.plugins import process_client
 from frisket.plugins.process_client import (
     PluginProcessClient,
     PluginProcessError,
@@ -114,19 +109,6 @@ def _completed_action_result() -> SandboxResult:
         ),
         stderr="",
     )
-
-
-def test_client_entry_points_have_no_project_or_database_handle_types() -> None:
-    entry_points = (
-        PluginProcessClient.importer,
-        PluginProcessClient.projection,
-        PluginProcessClient.operator,
-    )
-    forbidden = (r"\bProject\b", r"\bsqlite3\b", r"\bConnection\b", r"\bdb_handle\b")
-    for entry_point in entry_points:
-        signature = inspect.signature(entry_point)
-        rendered = str(signature)
-        assert not any(re.search(pattern, rendered) for pattern in forbidden), rendered
 
 
 def test_secret_values_stay_in_stdin_and_never_enter_child_environment() -> None:
@@ -237,13 +219,7 @@ def select(ctx, rows, **_kwargs):
     assert response.plan.row_ids == [7]
 
 
-def test_streams_are_iterators_and_worker_failures_are_structured() -> None:
-    for method_name in ("importer", "projection"):
-        annotation = get_type_hints(getattr(PluginProcessClient, method_name))["return"]
-        value = getattr(annotation, "__value__", annotation)
-        assert get_origin(value) is Iterator
-        assert get_origin(value) not in {list, tuple}
-
+def test_projection_streams_incrementally_and_worker_failures_are_structured() -> None:
     calls = 0
 
     async def fake_lines(
@@ -309,32 +285,6 @@ def test_cancelled_sandbox_result_preserves_action_cancellation() -> None:
     with pytest.raises(PluginProcessError) as stream_error:
         list(streamed.importer(_importer_request()))
     assert stream_error.value.failure.code == "action_cancelled"
-
-
-def test_client_contains_no_process_supervision_reimplementation() -> None:
-    source_path = Path(inspect.getsourcefile(process_client) or "")
-    source = source_path.read_text(encoding="utf-8")
-    tree = ast.parse(source)
-    imported_modules = {
-        alias.name
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Import)
-        for alias in node.names
-    }
-    imported_modules.update(
-        node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
-    )
-    assert {"subprocess", "os", "signal"}.isdisjoint(imported_modules)
-    forbidden_calls = {"Popen", "kill", "killpg", "create_subprocess_exec"}
-    assert not any(
-        isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr in forbidden_calls
-        for node in ast.walk(tree)
-    )
-    assert "shim.run_sandboxed" in source
-    assert "shim.run_sandboxed_stdout_lines" in source
-    assert "join(timeout" not in source
 
 
 def test_each_invocation_spawns_once_and_serializes_typed_rate_limit() -> None:

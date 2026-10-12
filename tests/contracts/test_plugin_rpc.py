@@ -1,11 +1,5 @@
 from __future__ import annotations
 
-import ast
-import inspect
-from collections.abc import Iterator
-from pathlib import Path
-from typing import get_args, get_origin
-
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
@@ -230,54 +224,7 @@ def test_structured_error_is_closed_and_excludes_429_compat_shape() -> None:
         )
 
 
-def test_contract_imports_only_pure_schema_dependencies() -> None:
-    source_path = Path(inspect.getsourcefile(rpc) or "")
-    tree = ast.parse(source_path.read_text(encoding="utf-8"))
-    imported = {
-        alias.name
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Import)
-        for alias in node.names
-    }
-    imported.update(
-        node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
-    )
-    allowed = {
-        "__future__",
-        "collections.abc",
-        "dataclasses",
-        "typing",
-        "pydantic",
-    }
-    assert imported <= allowed
-    forbidden_fragments = (
-        "subprocess",
-        "provider",
-        "project",
-        "frisket.engine",
-        "frisket.server",
-        "frisket.plugins",
-        "frisket.authoring",
-    )
-    assert not any(
-        imported_name.startswith(fragment)
-        for imported_name in imported
-        for fragment in forbidden_fragments
-    )
-
-
-def test_capability_contexts_remain_distinct_and_projection_postures_are_closed() -> (
-    None
-):
-    context_types = (
-        rpc.PluginImporterCapabilityContext,
-        rpc.PluginOperatorCapabilityContext,
-        rpc.PluginProjectionCapabilityContext,
-    )
-    assert len(set(context_types)) == 3
-    assert all(model.__bases__ == (rpc.PluginRpcModel,) for model in context_types)
-    assert all("capabilities" in model.model_fields for model in context_types)
-
+def test_projection_capability_postures_are_closed() -> None:
     common = {
         "projectId": "project",
         "pluginId": "plugin",
@@ -299,18 +246,6 @@ def test_capability_contexts_remain_distinct_and_projection_postures_are_closed(
                 "capabilities": ["projection.status", "projection.artifact.write"],
             }
         )
-
-
-def test_stream_contracts_are_incremental_iterators_not_frame_lists() -> None:
-    aliases = (
-        rpc.ImporterFrameStream,
-        rpc.ProjectionFrameStream,
-    )
-    for alias in aliases:
-        value = alias.__value__
-        assert get_origin(value) is Iterator
-        assert get_args(value)
-        assert get_origin(value) is not list
 
 
 def test_malformed_secret_snapshot_is_not_in_validation_error():

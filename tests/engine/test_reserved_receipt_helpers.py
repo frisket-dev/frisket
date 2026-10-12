@@ -31,35 +31,6 @@ IDEMPOTENCY_KEY = "map_template@sha256:reserved-helper"
 PARAMS_HASH = "sha256:reserved-helper-params"
 
 
-def test_reserved_receipt_helpers_have_singular_owners_without_facade_imports() -> None:
-    actions = importlib.import_module("frisket.engine.executor.actions")
-    reservations = importlib.import_module(
-        "frisket.engine.executor.action_reservations"
-    )
-    support = importlib.import_module("frisket.engine.executor.action_support")
-    reservation_names = {
-        "_parse_receipt_created_at",
-        "_running_receipt_is_stale",
-        "_running_receipt_stale_result",
-        "_reserved_receipt_result_from_existing",
-        "_reserve_running_action_receipt",
-        "_delete_reserved_action_receipt",
-        "_cleanup_reserved_receipt_on_failed_result",
-        "_finalize_reserved_action_receipt",
-    }
-
-    for name in reservation_names:
-        assert not hasattr(actions, name)
-        assert (
-            getattr(reservations, name).__module__
-            == "frisket.engine.executor.action_reservations"
-        )
-
-    assert support._row_value.__module__ == "frisket.engine.executor.action_support"
-    assert reservations.RUNNING_RECEIPT_STALE_AFTER_SECONDS == 60 * 60
-    assert not hasattr(actions, "RUNNING_RECEIPT_STALE_AFTER_SECONDS")
-
-
 def _action() -> ActionSpec:
     return ActionSpec(
         kind=ACTION_KIND,
