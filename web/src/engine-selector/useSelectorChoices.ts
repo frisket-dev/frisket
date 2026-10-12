@@ -251,6 +251,7 @@ export function useSelectorChoices({
   const requestRevision = useRef(0);
   const pendingRefresh = useRef<{
     scopeKey: string;
+    minimumRevision: number;
     promise: Promise<boolean>;
     resolve(result: boolean): void;
   } | null>(null);
@@ -264,14 +265,21 @@ export function useSelectorChoices({
     queryRef.current = query;
   }, [query]);
 
-  const settleRefresh = useCallback((settledScopeKey: string, result: boolean) => {
+  const settleRefresh = useCallback((settledScopeKey: string, revision: number, result: boolean) => {
     const pending = pendingRefresh.current;
-    if (pending?.scopeKey !== settledScopeKey) return;
+    if (pending?.scopeKey !== settledScopeKey || revision < pending.minimumRevision) return;
     pendingRefresh.current = null;
     pending.resolve(result);
   }, []);
 
-  useEffect(() => () => settleRefresh(scopeKey, false), [enabled, scopeKey, settleRefresh]);
+  const cancelRefresh = useCallback((cancelledScopeKey: string) => {
+    const pending = pendingRefresh.current;
+    if (pending?.scopeKey !== cancelledScopeKey) return;
+    pendingRefresh.current = null;
+    pending.resolve(false);
+  }, []);
+
+  useEffect(() => () => cancelRefresh(scopeKey), [cancelRefresh, enabled, scopeKey]);
 
   useEffect(() => {
     if (!enabled || !projectId) return undefined;
@@ -296,7 +304,7 @@ export function useSelectorChoices({
           presentationKey,
           response,
         });
-        settleRefresh(scopeKey, true);
+        settleRefresh(scopeKey, revision, true);
       })
       .catch((error: unknown) => {
         if (!controller.signal.aborted && !isAbort(error)) {
@@ -305,7 +313,7 @@ export function useSelectorChoices({
             revision,
             error: error instanceof Error ? error : new Error('Could not load choices.'),
           });
-          settleRefresh(scopeKey, false);
+          settleRefresh(scopeKey, revision, false);
         }
       });
     return () => {
@@ -388,7 +396,12 @@ export function useSelectorChoices({
     if (pending?.scopeKey === scopeKey) return pending.promise;
     let resolve!: (result: boolean) => void;
     const promise = new Promise<boolean>((settle) => { resolve = settle; });
-    pendingRefresh.current = { scopeKey, promise, resolve };
+    pendingRefresh.current = {
+      scopeKey,
+      minimumRevision: requestRevision.current + 1,
+      promise,
+      resolve,
+    };
     requestRefresh();
     return promise;
   }, [enabled, projectId, scopeKey]);

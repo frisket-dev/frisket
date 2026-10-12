@@ -185,6 +185,42 @@ describe('useSelectorChoices', () => {
     expect(result.current.response?.current_choice_id).toBe('before-refresh');
   });
 
+  it('does not settle an explicit refresh from an older same-scope load', async () => {
+    const older = deferred<HttpSelectorChoicesResponse>();
+    const newest = deferred<HttpSelectorChoicesResponse>();
+    const initialLoad = vi.fn<SelectorChoicesLoader>().mockResolvedValue(response('initial'));
+    const sameScopeLoad = vi.fn<SelectorChoicesLoader>()
+      .mockReturnValueOnce(older.promise)
+      .mockReturnValueOnce(newest.promise);
+    const { result, rerender } = renderHook(
+      ({ load }) => useSelectorChoices({
+        projectId: 'project-a', query: query(null), queryKey: 'initial', load,
+      }),
+      { initialProps: { load: initialLoad } },
+    );
+
+    await waitFor(() => expect(result.current.response?.current_choice_id).toBe('initial'));
+    let refreshResult!: Promise<boolean>;
+    let refreshSettled = false;
+    void older.promise.then(() => {
+      refreshResult = result.current.refresh();
+      void refreshResult.then(() => { refreshSettled = true; });
+    });
+    rerender({ load: sameScopeLoad });
+    await waitFor(() => expect(sameScopeLoad).toHaveBeenCalledOnce());
+
+    await act(async () => {
+      older.resolve(response('older'));
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(sameScopeLoad).toHaveBeenCalledTimes(2));
+    expect(refreshSettled).toBe(false);
+
+    await act(async () => newest.resolve(response('newest')));
+    await expect(refreshResult).resolves.toBe(true);
+    expect(result.current.response?.current_choice_id).toBe('newest');
+  });
+
   it('retains a same-subject projection while an authored draft changes, but marks it stale', async () => {
     const changed = deferred<HttpSelectorChoicesResponse>();
     const load = vi.fn<SelectorChoicesLoader>()
