@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import secrets
 import socket
+import sqlite3
 import threading
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Callable
 from urllib.parse import quote
+
+from fastapi import HTTPException
 
 from frisket.cloud_connection import (
     CloudClientError,
@@ -34,6 +37,7 @@ from frisket.contracts.http.cloud_connection import (
     ProjectCloudRoutingResponse,
 )
 from frisket.project_settings import read_project_settings, write_project_settings
+from frisket.server.route_errors import RouteError
 from frisket.server.workspace import Workspace
 from frisket.server.provider_config import PROVIDER_LABELS
 from frisket.server.services.project_model_routes import (
@@ -257,6 +261,10 @@ class CloudConnectionService:
                 # A token grant is single-use. Never poll the same device code
                 # again, even if local persistence failed after token delivery.
                 self._pending.pop(authorization_id, None)
+            self._refresh_retained_project_capabilities(
+                user_id=session.user.id,
+                available_account_ids={account.id for account in session.accounts},
+            )
             connection = self._stored_connection()
             self._completed[authorization_id] = (pending.expires_at, connection)
             return CloudDeviceAuthorizationPollResponse(
@@ -490,6 +498,37 @@ class CloudConnectionService:
             )
         except (CloudClientError, CloudConnectionStoreError, OSError, ValueError):
             return
+
+    def _refresh_retained_project_capabilities(
+        self,
+        *,
+        user_id: int,
+        available_account_ids: set[int],
+    ) -> None:
+        """Refresh each retained account once after a device reconnect."""
+
+        try:
+            rows = self._workspace.list()
+        except OSError:
+            return
+        retained_account_ids: set[int] = set()
+        for row in rows:
+            project_id = row.get("id") if isinstance(row, dict) else None
+            if not isinstance(project_id, str):
+                continue
+            try:
+                settings = read_project_settings(self._workspace.get(project_id))
+            except (HTTPException, RouteError, OSError, sqlite3.Error):
+                continue
+            account_id = settings.cloud_account_id
+            if (
+                settings.cloud_user_id == user_id
+                and account_id is not None
+                and account_id in available_account_ids
+            ):
+                retained_account_ids.add(account_id)
+        for account_id in sorted(retained_account_ids):
+            self._refresh_capabilities(account_id, user_id)
 
     def _overlap_provider_labels(
         self, project: object, selected_account_id: int | None

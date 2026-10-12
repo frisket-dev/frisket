@@ -402,6 +402,94 @@ def test_device_flow_keeps_secrets_server_side_and_coalesces_early_poll(tmp_path
     service.close()
 
 
+@pytest.mark.parametrize(
+    ("capability_status", "stored_accounts"),
+    [(200, [41]), (503, [])],
+)
+def test_reconnect_hydrates_unique_retained_same_user_accounts(
+    tmp_path, capability_status, stored_accounts
+):
+    capability_accounts: list[int] = []
+    session = _session().model_copy(
+        update={
+            "accounts": [
+                _session(account_id=41).accounts[0],
+                _session(account_id=99).accounts[0],
+            ]
+        }
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("device-authorizations"):
+            return httpx.Response(
+                200,
+                json={
+                    "device_code": "profile-reconnect-secret",
+                    "user_code": "ABCD-EFGH",
+                    "verification_uri": "https://app.frisket.dev/device",
+                    "verification_uri_complete": "https://app.frisket.dev/device?code=ABCD-EFGH",
+                    "expires_in": 600,
+                    "interval": 5,
+                },
+            )
+        if request.url.path.endswith("/token"):
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": "reconnected-token",
+                    "token_type": "Bearer",
+                    "expires_in": 3600,
+                },
+            )
+        if request.url.path.endswith("/session"):
+            return httpx.Response(200, json=session.model_dump(mode="json"))
+        if request.url.path.endswith("/capabilities"):
+            account_id = int(request.url.path.split("/")[-2])
+            capability_accounts.append(account_id)
+            if capability_status != 200:
+                return httpx.Response(capability_status, json={"error": "unavailable"})
+            return httpx.Response(
+                200,
+                json=_capabilities(account_id=account_id).model_dump(mode="json"),
+            )
+        raise AssertionError(request.url)
+
+    workspace = Workspace(tmp_path / "workspace")
+    for name, user_id, account_id in (
+        ("Retained one", 7, 41),
+        ("Retained two", 7, 41),
+        ("Another user", 8, 99),
+    ):
+        project_id = workspace.create(name)["id"]
+        project = workspace.get(project_id)
+        write_project_settings(
+            project,
+            read_project_settings(project).model_copy(
+                update={"cloud_user_id": user_id, "cloud_account_id": account_id}
+            ),
+        )
+    store = CloudConnectionStore(tmp_path / "profile")
+    ticks = [100.0]
+    service = CloudConnectionService(
+        workspace,
+        store=store,
+        client=CloudConnectionClient(
+            "https://app.frisket.dev", transport=httpx.MockTransport(handler)
+        ),
+        clock=lambda: ticks[0],
+        wall_clock=lambda: datetime(2026, 10, 11, tzinfo=UTC),
+    )
+
+    authorization_id = service.begin_authorization().id
+    ticks[0] = 105.0
+    connected = service.poll_authorization(authorization_id)
+
+    assert connected.status == "connected"
+    assert capability_accounts == [41]
+    assert sorted(store.load().capabilities) == stored_accounts
+    service.close()
+
+
 def test_concurrent_completed_polls_reuse_connected_state(tmp_path):
     token_polls = 0
 
