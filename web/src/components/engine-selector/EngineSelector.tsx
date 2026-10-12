@@ -47,6 +47,15 @@ function statusLabel(status: EngineSelectorStatus): string {
   }[status];
 }
 
+/** Ready choices use the server-selected execution route everywhere the
+ * picker shows secondary copy.  `summary` remains the catalog fallback for
+ * choices that do not currently have an executable route. */
+function choiceSecondaryCopy(choice: EngineSelectorChoice): string | undefined {
+  return choice.status === 'ready' && choice.route?.label
+    ? choice.route.label
+    : choice.summary;
+}
+
 function groupStatus(group: EngineSelectorGroup): EngineSelectorStatus {
   if (group.choices.some((choice) => choice.status === 'ready')) return 'ready';
   if (group.choices.some((choice) => choice.status === 'needs_setup')) return 'needs_setup';
@@ -136,13 +145,13 @@ export function EngineSelector({
   const currentChoices = (hasSearch || isSmallCatalog
     ? allChoices.filter((choice) => {
         const group = groupForChoice(groups, choice.id);
-        const haystack = `${choice.label} ${choice.summary ?? ''} ${group?.label ?? ''}`.toLowerCase();
+        const haystack = `${choice.label} ${choice.summary ?? ''} ${choice.route?.label ?? ''} ${group?.label ?? ''}`.toLowerCase();
         const terms = hasSearch ? query.trim().toLowerCase().split(/\s+/) : [];
         return terms.every((term) => haystack.includes(term));
       })
     : (currentGroup?.choices ?? []).filter((choice) => {
         const term = providerFilter.trim().toLowerCase();
-        return !term || `${choice.label} ${choice.summary ?? ''}`.toLowerCase().includes(term);
+        return !term || `${choice.label} ${choice.summary ?? ''} ${choice.route?.label ?? ''}`.toLowerCase().includes(term);
       }));
   const recents = recentIds.filter((id) => authoritativeIds.has(id));
   const recentOrderedChoices = hasSearch
@@ -357,7 +366,7 @@ export function EngineSelector({
       ? triggerActivity.label
       : triggerCopy.status !== 'ready'
         ? triggerCopy.blocker ?? triggerCopy.summary ?? statusLabel(triggerCopy.status)
-        : `${groupForChoice(groups, triggerCopy.id)?.label ?? ''}${triggerCopy.summary ? ` · ${triggerCopy.summary}` : ''}`;
+        : choiceSecondaryCopy(triggerCopy) ?? groupForChoice(groups, triggerCopy.id)?.label ?? '';
   const anchoredStyle = wideAnchor && positioning
     ? { top: positioning.top, bottom: positioning.bottom, left: positioning.left, width: positioning.width, maxHeight: Math.min(420, positioning.maxHeight) }
     : undefined;
@@ -481,6 +490,7 @@ export function EngineSelector({
               ) : orderedChoices.map((choice, index) => {
                 const group = groupForChoice(groups, choice.id);
                 const isRecent = !hasSearch && recents.includes(choice.id);
+                const secondaryCopy = choiceSecondaryCopy(choice);
                 return (
                   <button
                     key={choice.id}
@@ -498,7 +508,7 @@ export function EngineSelector({
                     <span className={`engine-selector__status engine-selector__status--${choice.status}`} aria-hidden />
                     <span className="engine-selector__choice-copy">
                       <strong>{choice.label}</strong>
-                      {choice.summary && <small>{choice.summary}</small>}
+                      {secondaryCopy && <small>{secondaryCopy}</small>}
                     </span>
                     {!showGroups && group && <span className="engine-selector__group-tag">{group.label}</span>}
                     {choice.isDefault && <span className="engine-selector__default">Default</span>}

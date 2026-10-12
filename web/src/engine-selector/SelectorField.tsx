@@ -100,21 +100,28 @@ function displayChoice(choice: SelectorChoice): EngineSelectorChoice {
   };
 }
 
-function selectorGroups(
+function selectorProjection(
   response: ReturnType<typeof useSelectorChoices>['response'],
   allowChoice: (choice: SelectorChoice) => boolean,
-): EngineSelectorGroup[] {
-  if (!response) return [];
-  const groups = response.groups.map((group) => ({
-    id: group.group_id,
-    label: group.label,
-    choices: group.choices.filter((choice) => choice.is_current || allowChoice(choice)).map(displayChoice),
-  })).filter((group) => group.choices.length > 0);
+): { groups: EngineSelectorGroup[]; choicesById: Map<string, SelectorChoice> } {
+  const choicesById = new Map<string, SelectorChoice>();
+  if (!response) return { groups: [], choicesById };
+  const groups = response.groups.map((group) => {
+    const choices: EngineSelectorChoice[] = [];
+    for (const choice of group.choices) {
+      choicesById.set(choice.choice_id, choice);
+      if (choice.is_current || allowChoice(choice)) choices.push(displayChoice(choice));
+    }
+    return { id: group.group_id, label: group.label, choices };
+  }).filter((group) => group.choices.length > 0);
   const orphan = response.orphaned_current;
-  if (orphan && !groups.some((group) => group.choices.some((choice) => choice.id === orphan.choice_id))) {
-    groups.push({ id: 'orphaned-current', label: 'Saved selection', choices: [displayChoice(orphan)] });
+  if (orphan) {
+    choicesById.set(orphan.choice_id, orphan);
+    if (!groups.some((group) => group.choices.some((choice) => choice.id === orphan.choice_id))) {
+      groups.push({ id: 'orphaned-current', label: 'Saved selection', choices: [displayChoice(orphan)] });
+    }
   }
-  return groups;
+  return { groups, choicesById };
 }
 
 function selectorQueryKey(
@@ -157,17 +164,16 @@ export function SelectorField({
     enabled: Boolean(projectId),
     load,
   });
-  const groups = useMemo(() => selectorGroups(state.response, allowChoice), [allowChoice, state.response]);
-  const choicesById = useMemo(() => new Map(
-    state.response?.groups.flatMap((group) => group.choices).map((choice) => [choice.choice_id, choice])
-      ?? [],
-  ), [state.response]);
+  const projection = useMemo(
+    () => selectorProjection(state.response, allowChoice),
+    [allowChoice, state.response],
+  );
+  const { groups, choicesById } = projection;
   const currentChoiceId = state.response?.current_choice_id ?? state.response?.default_choice_id ?? null;
   const currentChoice = state.stale || state.error || !currentChoiceId
     ? null
     : choicesById.get(currentChoiceId)
-      ?? (state.response?.orphaned_current?.choice_id === currentChoiceId
-        ? state.response.orphaned_current : null);
+      ?? null;
   useEffect(() => {
     onCurrentChoiceChange?.(currentChoice);
   }, [currentChoice, onCurrentChoiceChange]);
@@ -199,17 +205,16 @@ export function SelectorField({
       triggerRef={triggerRef}
       notice={refreshNotice}
       onSelect={(choice) => {
-        const raw = choicesById.get(choice.id)
-          ?? (state.response?.orphaned_current?.choice_id === choice.id ? state.response.orphaned_current : undefined);
+        const raw = choicesById.get(choice.id);
         if (raw) onSelect(raw);
       }}
       renderDetailFooter={({ choice, onEditingChange, close }) => {
-        const raw = choicesById.get(choice.id)
-          ?? (state.response?.orphaned_current?.choice_id === choice.id ? state.response.orphaned_current : undefined);
+        const raw = choicesById.get(choice.id);
         return raw && projectId ? <>
           <SelectorSetup
             projectId={projectId}
             choice={raw}
+            cloudSetup={state.response?.cloud_setup}
             onChanged={state.refresh}
             onEditingChange={onEditingChange}
             sharedProgress

@@ -16,13 +16,14 @@ afterEach(() => { cleanup(); vi.resetAllMocks(); });
 
 function response(): HttpSelectorChoicesResponse {
   return {
-    schema_version: 'frisket.selector_choices.v1',
+    schema_version: 'frisket.selector_choices.v2',
     project_id: 'project-a',
     subject: { kind: 'action', action_id: 'map.classify', field: 'model' },
     depends_on: ['mode'],
     current_choice_id: 'ready-model',
     default_choice_id: 'ready-model',
     orphaned_current: null,
+    cloud_setup: null,
     groups: [{
       group_id: 'local',
       label: 'Local',
@@ -41,6 +42,7 @@ function response(): HttpSelectorChoicesResponse {
         can_run: true,
         blocker: null,
         setup: null,
+        configuration_actions: [],
         active_operation: null,
         is_default: true,
         is_current: true,
@@ -133,7 +135,7 @@ describe('SelectorField', () => {
       setup: {
         kind: 'cloud', state: 'out_of_credits', account_id: 11,
         account_name: 'Riverton News', add_credits_url: 'https://app.frisket.dev/credits',
-        balance_url: null, project_settings_url: '/settings', local_key: null,
+        balance_url: null, project_settings_url: '/settings',
       },
     });
     render(<SelectorField projectId="project-a" label="Model"
@@ -145,6 +147,78 @@ describe('SelectorField', () => {
     const dialog = within(screen.getByTestId('engine-selector-dialog'));
     expect(dialog.queryByText(generic)).not.toBeInTheDocument();
     expect(dialog.getByText('Riverton News is out of Frisket credits')).toBeVisible();
+  });
+
+  it('shows the selected Cloud route consistently and refreshes after saving an optional own key', async () => {
+    const payload = response();
+    Object.assign(payload.groups[0].choices[0], {
+      label: 'Gemini Flash', summary: 'Catalog model',
+      execution_route: {
+        kind: 'cloud_credits', label: 'Investigations · Frisket credits',
+        billed_to: 'Investigations · Frisket credits', sends_data_to: 'Google via Frisket Cloud',
+        account_id: 41, balance_label: '$4.50 balance', balance_url: 'https://cloud.test/accounts/41',
+        settings_url: '/p/project-a/settings/project/ai-providers', has_alternative_route: false,
+      },
+      configuration_actions: [{ kind: 'api_key', provider: 'gemini', scopes: [{
+        scope: 'project', can_mutate: true, configured: false, source: 'missing', hint: null,
+        environment_names: ['GEMINI_API_KEY'], settings_location: 'project_ai_providers',
+      }] }],
+    });
+    const load = vi.fn().mockResolvedValue(payload);
+    request.mockResolvedValueOnce({ provider: 'gemini', ok: true, reachable: true, status: 200,
+      detail: null, validation_token: 'signed-key-receipt' }).mockResolvedValueOnce({});
+    render(<SelectorField projectId="project-a" label="Model"
+      query={{ schema_version: 'frisket.selector_choices_query.v1',
+        subject: { kind: 'action', action_id: 'map.extract', field: 'model', params: {} } }}
+      recentNamespace="ready-cloud-configuration" load={load} onSelect={vi.fn()} />);
+
+    const trigger = await screen.findByRole('button', { name: /Gemini Flash/ });
+    expect(trigger).toHaveTextContent('Investigations · Frisket credits');
+    expect(trigger).not.toHaveTextContent('Catalog model');
+    await userEvent.click(trigger);
+    const dialog = within(screen.getByTestId('engine-selector-dialog'));
+    expect(dialog.getByTestId('engine-selector-route')).toHaveTextContent('Google via Frisket Cloud');
+    const expand = dialog.getByRole('button', { name: /Use your own Google API key/ });
+    expect(dialog.queryByLabelText('API key')).not.toBeInTheDocument();
+    await userEvent.click(expand);
+    await userEvent.type(dialog.getByLabelText('API key'), 'candidate-key');
+    await userEvent.click(dialog.getByRole('button', { name: 'Test' }));
+    await waitFor(() => expect(dialog.getByRole('button', { name: 'Save' })).toBeEnabled());
+    const readsBeforeSave = load.mock.calls.length;
+    await userEvent.click(dialog.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(load.mock.calls.length).toBeGreaterThan(readsBeforeSave));
+    expect(request).toHaveBeenNthCalledWith(2, 'tenant.set_project_provider_key.post',
+      expect.objectContaining({ pathParams: { pid: 'project-a' }, body: {
+        provider: 'gemini', key: 'candidate-key', validation_token: 'signed-key-receipt',
+      } }));
+  });
+
+  it('keeps an orphaned current selection authoritative instead of borrowing the default route', async () => {
+    const payload = response();
+    payload.current_choice_id = 'saved:removed-model';
+    payload.orphaned_current = {
+      ...payload.groups[0].choices[0],
+      choice_id: 'saved:removed-model', label: 'Removed saved model', summary: 'Saved selection',
+      authored_selection: { kind: 'model', model: 'removed/model' },
+      status: 'unavailable', can_author: false, can_run: false, is_current: true, is_default: false,
+      blocker: { code: 'model_unavailable', message: 'This saved model is no longer available.', field: 'model' },
+      execution_route: null, setup: null, configuration_actions: [],
+    };
+    const current = vi.fn();
+    render(<SelectorField projectId="project-a" label="Model"
+      query={{ schema_version: 'frisket.selector_choices_query.v1',
+        subject: { kind: 'action', action_id: 'map.extract', field: 'model', params: {} } }}
+      recentNamespace="orphan-current" load={vi.fn().mockResolvedValue(payload)}
+      onSelect={vi.fn()} onCurrentChoiceChange={current} />);
+
+    const trigger = await screen.findByRole('button', { name: /Removed saved model/ });
+    expect(trigger).toHaveTextContent('This saved model is no longer available.');
+    expect(trigger).not.toHaveTextContent('Ready model');
+    await waitFor(() => expect(current).toHaveBeenLastCalledWith(
+      expect.objectContaining({ choice_id: 'saved:removed-model', can_run: false }),
+    ));
+    await userEvent.click(trigger);
+    expect(within(screen.getByTestId('engine-selector-dialog')).getAllByText('Saved selection')).toHaveLength(2);
   });
 
 
@@ -172,7 +246,10 @@ describe('SelectorField', () => {
     await waitFor(() => expect(current).toHaveBeenLastCalledWith(expect.objectContaining({ can_run: true })));
     await userEvent.click(screen.getByRole('button', { name: /Ready model/ }));
     const dialog = screen.getByTestId('engine-selector-dialog');
-    await userEvent.type(within(dialog).getByLabelText('API key'), 'replacement-key');
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const keyInput = within(dialog).getByLabelText('API key');
+    await userEvent.click(keyInput);
+    await userEvent.type(keyInput, 'replacement-key');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Test' }));
     await waitFor(() => expect(within(dialog).getByRole('button', { name: 'Save' })).toBeEnabled());
     await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }));

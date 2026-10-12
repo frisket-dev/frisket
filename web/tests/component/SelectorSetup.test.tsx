@@ -13,17 +13,19 @@ vi.mock('../../src/api/httpContract', () => ({ httpContract: request }));
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.resetAllMocks(); });
 
 type Setup = NonNullable<SelectorChoice['setup']>;
+type ConfigurationAction = SelectorChoice['configuration_actions'][number];
 type Scope = Extract<Setup, { kind: 'api_key' }>['scopes'][number];
 function scope(name: Scope['scope'], canMutate = true): Scope {
   return { scope: name, can_mutate: canMutate, configured: false,
     source: 'missing', hint: null, environment_names: [], settings_location: null };
 }
-function choice(setup: Setup): SelectorChoice {
+function choice(setup: Setup | null, configurationActions: ConfigurationAction[] = []): SelectorChoice {
   return { choice_id: 'model:openai/test', label: 'Test model', summary: '', description: '',
     facts: [], authored_selection: { kind: 'model', model: 'openai/test' },
     processing_destination: { kind: 'external', label: 'Provider' }, resolved_target: null,
     is_current: false, is_default: false, can_author: true, can_run: false,
-    status: 'needs_setup', blocker: null, active_operation: null, model_card_url: null, setup };
+    status: setup ? 'needs_setup' : 'ready', blocker: null, active_operation: null,
+    model_card_url: null, setup, configuration_actions: configurationActions };
 }
 const accepted = { provider: 'openai', ok: true, reachable: true, status: 200,
   detail: null, validation_token: 'signed-key-receipt' };
@@ -51,26 +53,35 @@ describe('SelectorSetup', () => {
       });
       return Promise.reject(new Error(`Unexpected operation ${operation}`));
     });
-    render(<SelectorSetup projectId="a" choice={choice({
+    const selected = choice({
       kind: 'cloud', state: 'connect', account_id: null, account_name: null,
       add_credits_url: null, balance_url: null, project_settings_url: null,
-      local_key: { kind: 'api_key', provider: 'gemini', scopes: [scope('project')] },
-    })} onChanged={vi.fn()} onEditingChange={vi.fn()} />);
+    }, [{ kind: 'api_key', provider: 'gemini', scopes: [scope('project')] }]);
+    render(<SelectorSetup projectId="a" choice={selected} cloudSetup={{
+      kind: 'cloud', state: 'connect', account_id: null, account_name: null,
+      add_credits_url: null, balance_url: null, project_settings_url: null,
+    }} onChanged={vi.fn()} onEditingChange={vi.fn()} />);
 
-    expect(await screen.findByRole('heading', { name: 'Connect Frisket Cloud' })).toBeVisible();
+    expect(await screen.findAllByRole('heading', { name: 'Connect Frisket Cloud' })).toHaveLength(1);
+    expect(screen.queryByText('Connect Frisket Cloud to see available models.')).not.toBeInTheDocument();
     expect(screen.getByText('Each person gets $5 of free Frisket credit every month.')).toBeVisible();
-    expect(screen.getByRole('heading', { name: 'Or use your own Google key' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Use your own Google API key' })).toBeVisible();
     expect(screen.getByLabelText('API key')).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Disconnect' })).not.toBeInTheDocument();
   });
 
-  it('hard-stops an exhausted Cloud route with account-scoped remediation', () => {
+  it('hard-stops an exhausted Cloud route and explicitly refreshes its account snapshot', async () => {
+    request.mockResolvedValue({
+      connection_state: 'connected', selected_account_id: 11, preference: 'cloud_first',
+      preference_inherited: false, accounts: [], overlap_provider_labels: [], can_mutate: true,
+    });
+    const changed = vi.fn();
     render(<SelectorSetup projectId="a" choice={choice({
       kind: 'cloud', state: 'out_of_credits', account_id: 11, account_name: 'Riverton News',
       add_credits_url: 'https://app.frisket.dev/accounts/11/credits',
       balance_url: 'https://app.frisket.dev/accounts/11',
-      project_settings_url: '/p/a/settings/project/ai-providers', local_key: null,
-    })} onChanged={vi.fn()} onEditingChange={vi.fn()} />);
+      project_settings_url: '/p/a/settings/project/ai-providers',
+    })} onChanged={changed} onEditingChange={vi.fn()} />);
 
     expect(screen.getByText('Riverton News is out of Frisket credits')).toBeVisible();
     expect(screen.getByText(/won’t switch to another key or account/)).toBeVisible();
@@ -80,7 +91,11 @@ describe('SelectorSetup', () => {
     expect(screen.getByRole('link', { name: 'Project settings' })).toHaveAttribute(
       'href', '/p/a/settings/project/ai-providers',
     );
-    expect(request).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: 'Recheck' }));
+    await waitFor(() => expect(changed).toHaveBeenCalledOnce());
+    expect(request).toHaveBeenCalledWith('tenant.get_project_cloud_routing.get', expect.objectContaining({
+      pathParams: { pid: 'a' }, signal: expect.any(AbortSignal),
+    }), expect.any(Function));
   });
 
   it('reconnects Cloud without replacing the project funding account', async () => {
@@ -114,7 +129,6 @@ describe('SelectorSetup', () => {
     render(<SelectorSetup projectId="a" choice={choice({
       kind: 'cloud', state: 'reconnect', account_id: 11, account_name: 'Riverton News',
       add_credits_url: null, balance_url: null, project_settings_url: null,
-      local_key: null,
     })} onChanged={changed} onEditingChange={vi.fn()} />);
 
     await act(async () => {});
@@ -143,6 +157,55 @@ describe('SelectorSetup', () => {
     expect(screen.getByLabelText('API key')).toHaveValue('');
   });
 
+  it('keeps ready configuration collapsed until requested and preserves its draft across refreshes', async () => {
+    const action = { kind: 'api_key' as const, provider: 'gemini', scopes: [scope('project')] };
+    const changed = vi.fn(); const editing = vi.fn();
+    const props = { projectId: 'project-a', onChanged: changed, onEditingChange: editing };
+    const view = render(<SelectorSetup {...props} choice={choice(null, [action])} />);
+
+    const expand = screen.getByRole('button', { name: /Use your own Google API key/ });
+    expect(expand).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByLabelText('API key')).not.toBeInTheDocument();
+    await userEvent.click(expand);
+    expect(expand).toHaveAttribute('aria-expanded', 'true');
+    expect(editing).toHaveBeenLastCalledWith(true);
+    await userEvent.type(screen.getByLabelText('API key'), 'draft-key');
+
+    const refreshed = choice(null, [{ ...action, scopes: [{ ...scope('project'), hint: 'updated' }] }]);
+    view.rerender(<SelectorSetup {...props} choice={refreshed} />);
+    expect(screen.getByLabelText('API key')).toHaveValue('draft-key');
+  });
+
+  it('shows selector-wide Cloud discovery without claiming support for the inspected model', async () => {
+    request.mockImplementation((operation: string) => {
+      if (operation === 'tenant.get_cloud_connection.get') return Promise.resolve({
+        state: 'disconnected', identity: null, accounts: [], expires_at: null,
+        capabilities: { can_connect: true, can_reconnect: false, can_disconnect: false },
+      });
+      return Promise.reject(new Error(`Unexpected operation ${operation}`));
+    });
+    render(<SelectorSetup projectId="a" choice={choice(null)} cloudSetup={{
+      kind: 'cloud', state: 'connect', account_id: null, account_name: null,
+      add_credits_url: null, balance_url: null, project_settings_url: null,
+    }} onChanged={vi.fn()} onEditingChange={vi.fn()} />);
+
+    expect(screen.getByText('Connect Frisket Cloud to see available models.')).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Connect Frisket Cloud' })).toBeVisible();
+  });
+
+  it('expands a ready models-server action through its stable shared affordance', async () => {
+    const environment = { ...scope('environment', false), source: 'environment' as const,
+      configured: true, environment_names: ['FRISKET_MODELS_URL', 'FRISKET_MODELS_TOKEN'] };
+    render(<SelectorSetup projectId="project-a" choice={choice(null, [{
+      kind: 'models_gateway', scopes: [environment, scope('organization')],
+    }])} onChanged={vi.fn()} onEditingChange={vi.fn()} />);
+
+    expect(screen.queryByLabelText('Gateway URL')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /Configure models server/ }));
+    expect(screen.getByLabelText('Gateway URL')).toBeVisible();
+    expect(screen.getByLabelText('Gateway token')).toBeVisible();
+  });
+
   it('uses an authorized gateway scope without showing diagnostics or a scope picker', async () => {
     request.mockResolvedValue(gatewayAccepted);
     const environment = { ...scope('environment', false), source: 'environment' as const,
@@ -150,6 +213,17 @@ describe('SelectorSetup', () => {
     render(<SelectorSetup projectId="project-a" choice={choice({ kind: 'models_gateway', scopes: [environment, scope('organization')] })} onChanged={vi.fn()} onEditingChange={vi.fn()} />);
     expect(screen.queryByText(/FRISKET_MODELS_URL/)).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Credential scope')).not.toBeInTheDocument();
+    const origin = screen.getByLabelText('Gateway URL');
+    const token = screen.getByLabelText('Gateway token');
+    const form = origin.closest('form');
+    expect(form).toHaveClass('selector-setup-form--compact');
+    expect(Array.from(form?.children ?? [])).toEqual([
+      screen.getByText(/Connect an existing frisket models server/),
+      screen.getByRole('link', { name: 'Models server setup guide' }).closest('p'),
+      origin.closest('label'),
+      token.closest('label'),
+      screen.getByRole('button', { name: 'Test' }),
+    ]);
     await userEvent.type(screen.getByLabelText('Gateway URL'), 'https://models.test/');
     await userEvent.type(screen.getByLabelText('Gateway token'), 'gateway-token');
     await userEvent.click(screen.getByRole('button', { name: 'Test' }));

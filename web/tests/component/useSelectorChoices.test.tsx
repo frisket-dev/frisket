@@ -21,7 +21,7 @@ const query = (model: string | null): HttpSelectorChoicesQuery => ({
 
 function response(choiceId: string): HttpSelectorChoicesResponse {
   return {
-    schema_version: 'frisket.selector_choices.v1',
+    schema_version: 'frisket.selector_choices.v2',
     project_id: 'project-a',
     subject: { kind: 'project_ask' },
     depends_on: [],
@@ -29,6 +29,7 @@ function response(choiceId: string): HttpSelectorChoicesResponse {
     default_choice_id: choiceId,
     groups: [],
     orphaned_current: null,
+    cloud_setup: null,
   } as HttpSelectorChoicesResponse;
 }
 
@@ -78,10 +79,21 @@ function responseWithPull(modelPull: ModelPullDto | null): HttpSelectorChoicesRe
         processing_destination: { kind: 'local', label: 'This computer' }, resolved_target: null,
         is_current: true, is_default: true, can_author: true, can_run: modelPull === null,
         status: modelPull === null ? 'ready' : 'working', blocker: null,
-        active_operation: modelPull, model_card_url: null, setup,
+        active_operation: modelPull, model_card_url: null, setup, configuration_actions: [],
       }],
     }],
   } as HttpSelectorChoicesResponse;
+}
+
+function responseWithConfigurationPull(modelPull: ModelPullDto): HttpSelectorChoicesResponse {
+  const responseWithAction = responseWithPull(null);
+  const choice = responseWithAction.groups[0].choices[0];
+  choice.active_operation = modelPull;
+  choice.configuration_actions = [{
+    kind: 'engine_setup', setup_ref: modelPull.model, scope: 'workspace',
+    can_mutate: true, can_start: false, blocked_by_operation: modelPull,
+  }];
+  return responseWithAction;
 }
 
 function deferred<Value>() {
@@ -252,6 +264,26 @@ describe('useSelectorChoices', () => {
     expect(result.current.response?.groups[0].choices[0].active_operation?.status).toBe('running');
     await act(async () => { await vi.advanceTimersByTimeAsync(6000); });
     expect(loadPull).toHaveBeenCalledTimes(1);
+  });
+
+  it('polls and patches a durable configuration action without changing selected-route readiness', async () => {
+    vi.useFakeTimers();
+    const active = pull();
+    const advanced = pull({ completed_bytes: 650 });
+    const load = vi.fn<SelectorChoicesLoader>().mockResolvedValue(responseWithConfigurationPull(active));
+    const loadPull = vi.fn<SelectorPullLoader>().mockResolvedValue(advanced);
+    const { result } = renderHook(() => useSelectorChoices({
+      projectId: 'project-a', query: query(null), queryKey: 'configuration-pull', load, loadPull,
+    }));
+
+    await act(async () => { await Promise.resolve(); });
+    expect(result.current.response?.groups[0].choices[0].status).toBe('ready');
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(loadPull).toHaveBeenCalledWith('workspace', active.id, { signal: expect.any(AbortSignal) });
+    const projected = result.current.response?.groups[0].choices[0].configuration_actions[0];
+    expect(projected?.kind === 'engine_setup' ? projected.blocked_by_operation?.completed_bytes : null)
+      .toBe(650);
+    expect(result.current.response?.groups[0].choices[0].status).toBe('ready');
   });
 
   it('pauses the shared pull poll while hidden, catches up on focus, and backs off after errors', async () => {

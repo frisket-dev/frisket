@@ -136,7 +136,7 @@ describe('EngineSelector', () => {
       id: 'google',
       label: 'Google',
       choices: [{
-        id: 'gemini', label: 'Gemini 2.5 Flash', summary: 'Riverton News · Frisket credits',
+        id: 'gemini', label: 'Gemini 2.5 Flash', summary: 'Catalog fallback',
         status: 'ready', canAuthor: true, canRun: true,
         route: {
           label: 'Riverton News · Frisket credits',
@@ -152,7 +152,17 @@ describe('EngineSelector', () => {
     render(<EngineSelector label="Model" groups={routed} value="gemini"
       recentNamespace="cloud-route" onSelect={vi.fn()} />);
 
-    await userEvent.click(screen.getByRole('button', { name: /Gemini 2.5 Flash/ }));
+    const trigger = screen.getByRole('button', { name: /Gemini 2.5 Flash/ });
+    expect(trigger).toHaveTextContent('Riverton News · Frisket credits');
+    expect(trigger).not.toHaveTextContent('Catalog fallback');
+    await userEvent.click(trigger);
+    const row = screen.getByTestId('engine-selector-dialog')
+      .querySelector('[data-engine-selector-choice="gemini"]');
+    expect(row).toHaveTextContent('Riverton News · Frisket credits');
+    expect(row).not.toHaveTextContent('Catalog fallback');
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Search Model' }), 'Catalog fallback');
+    expect(screen.getByTestId('engine-selector-dialog')
+      .querySelector('[data-engine-selector-choice="gemini"]')).toBeVisible();
     const route = within(screen.getByTestId('engine-selector-route'));
     expect(route.getByText('Riverton News · Frisket credits', { selector: 'strong' })).toBeVisible();
     expect(route.getByText('Google via Frisket Cloud')).toBeVisible();
