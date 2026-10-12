@@ -103,7 +103,9 @@ describe('SelectorField', () => {
     };
     let finishRoute!: (value: unknown) => void;
     request.mockReturnValue(new Promise((resolve) => { finishRoute = resolve; }));
-    const load = vi.fn().mockResolvedValue(payload);
+    let finishRefresh!: (value: HttpSelectorChoicesResponse) => void;
+    const refreshed = new Promise<HttpSelectorChoicesResponse>((resolve) => { finishRefresh = resolve; });
+    const load = vi.fn().mockResolvedValueOnce(payload).mockReturnValueOnce(refreshed);
     render(<SelectorField projectId="project-a" label="Model"
       query={{ schema_version: 'frisket.selector_choices_query.v1',
         subject: { kind: 'action', action_id: 'map.classify', field: 'model', params: {} } }}
@@ -119,9 +121,52 @@ describe('SelectorField', () => {
 
     await act(async () => finishRoute({ model_id: 'google/gemini-flash', route: 'own' }));
     await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
-    expect(close).toBeEnabled();
+    expect(close).toBeDisabled();
+    await act(async () => finishRefresh(payload));
+    await waitFor(() => expect(close).toBeEnabled());
     await userEvent.click(close);
     expect(screen.queryByTestId('engine-selector-dialog')).not.toBeInTheDocument();
+  });
+
+  it('withholds stale route controls after refresh failure and restores the authoritative route on Retry', async () => {
+    const before = response();
+    const selected = before.groups[0].choices[0];
+    selected.label = 'Gemini Flash';
+    selected.route_selection = {
+      model_id: 'google/gemini-flash', selected: 'cloud', can_mutate: true,
+      options: [
+        { id: 'cloud', label: 'Frisket Cloud', status: 'ready', disabled_reason: null },
+        { id: 'own', label: 'Your Gemini key', status: 'ready', disabled_reason: null },
+      ],
+    };
+    const after = structuredClone(before);
+    after.groups[0].choices[0].route_selection!.selected = 'own';
+    let recover!: (value: HttpSelectorChoicesResponse) => void;
+    const recovery = new Promise<HttpSelectorChoicesResponse>((resolve) => { recover = resolve; });
+    const load = vi.fn().mockResolvedValueOnce(before).mockRejectedValueOnce(new Error('offline'))
+      .mockReturnValueOnce(recovery);
+    request.mockResolvedValue({ model_id: 'google/gemini-flash', route: 'own' });
+    render(<SelectorField projectId="project-a" label="Model"
+      query={{ schema_version: 'frisket.selector_choices_query.v1',
+        subject: { kind: 'action', action_id: 'map.classify', field: 'model', params: {} } }}
+      recentNamespace="route-refresh-recovery" load={load} onSelect={vi.fn()} />);
+
+    await userEvent.click(await screen.findByRole('button', { name: /Gemini Flash/ }));
+    const dialog = screen.getByTestId('engine-selector-dialog');
+    await userEvent.click(within(dialog).getByTestId('model-route-own'));
+    await waitFor(() => expect(within(dialog).getByRole('alert')).toHaveTextContent(
+      'Could not refresh choices. offline',
+    ));
+    expect(within(dialog).queryByTestId('model-route-control')).not.toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Close Model selector' })).toBeEnabled();
+
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(load).toHaveBeenCalledTimes(3));
+    expect(within(dialog).queryByTestId('model-route-control')).not.toBeInTheDocument();
+    await act(async () => recover(after));
+    await waitFor(() => expect(within(dialog).getByTestId('model-route-own')).toHaveAttribute(
+      'aria-pressed', 'true',
+    ));
   });
 
   it('shows setup only for the selected route', async () => {

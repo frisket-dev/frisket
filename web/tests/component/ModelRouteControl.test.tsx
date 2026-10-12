@@ -22,10 +22,11 @@ const selection: ModelRouteSelection = {
 describe('ModelRouteControl', () => {
   it('renders authoritative option order and refreshes after changing the model route', async () => {
     const setRoute = vi.fn().mockResolvedValue({ ...selection, selected: 'own' });
-    const onChanged = vi.fn();
-    const onEditingChange = vi.fn();
+    let finishRefresh!: (result: boolean) => void;
+    const onChanged = vi.fn(() => new Promise<boolean>((resolve) => { finishRefresh = resolve; }));
+    const onBusyChange = vi.fn();
     render(<ModelRouteControl projectId="project-a" selection={selection}
-      setRoute={setRoute} onChanged={onChanged} onEditingChange={onEditingChange} />);
+      setRoute={setRoute} onChanged={onChanged} onBusyChange={onBusyChange} />);
 
     const buttons = screen.getAllByRole('button');
     expect(buttons.map((button) => button.textContent)).toEqual(['Frisket Cloud', 'Your Gemini key']);
@@ -33,10 +34,14 @@ describe('ModelRouteControl', () => {
 
     await userEvent.click(screen.getByTestId('model-route-own'));
     await waitFor(() => expect(onChanged).toHaveBeenCalledOnce());
+    expect(screen.getByTestId('model-route-own')).toBeDisabled();
+    expect(onBusyChange.mock.calls.map(([busy]) => busy)).toEqual([true]);
     expect(setRoute).toHaveBeenCalledWith(
       'project-a', 'google/gemini-flash', 'own', expect.any(AbortSignal),
     );
-    expect(onEditingChange.mock.calls.map(([editing]) => editing)).toEqual([true, false]);
+    finishRefresh(true);
+    await waitFor(() => expect(screen.getByTestId('model-route-own')).toBeEnabled());
+    expect(onBusyChange.mock.calls.map(([busy]) => busy)).toEqual([true, false]);
   });
 
   it('keeps a server-disabled route visible and explains why it cannot be selected', () => {
@@ -50,7 +55,7 @@ describe('ModelRouteControl', () => {
       ],
     };
     render(<ModelRouteControl projectId="project-a" selection={blocked}
-      setRoute={vi.fn()} onChanged={vi.fn()} />);
+      setRoute={vi.fn()} onChanged={vi.fn().mockResolvedValue(true)} />);
 
     expect(screen.getByTestId('model-route-cloud')).toBeDisabled();
     expect(screen.getByTestId('model-route-cloud')).toHaveAttribute(

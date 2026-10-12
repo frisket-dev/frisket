@@ -16,8 +16,7 @@ export interface ModelRouteControlProps {
     route: ModelRouteId,
     signal: AbortSignal,
   ): Promise<unknown>;
-  onChanged(): void;
-  onEditingChange?(editing: boolean): void;
+  onChanged(): Promise<boolean>;
   onBusyChange?(busy: boolean): void;
 }
 
@@ -39,13 +38,11 @@ export function ModelRouteControl({
   selection,
   setRoute,
   onChanged,
-  onEditingChange,
   onBusyChange,
 }: ModelRouteControlProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { begin } = useSetupRequests();
-  const editing = useSetupEditing(onEditingChange);
   const reportBusy = useSetupEditing(onBusyChange);
   const disabledReason = selection.options.find((option) => option.disabled_reason)?.disabled_reason;
 
@@ -56,18 +53,16 @@ export function ModelRouteControl({
     const request = begin();
     setBusy(true);
     setError(null);
-    editing(true);
     reportBusy(true);
     try {
       await setRoute(projectId, selection.model_id, next.id, request.signal);
       if (!request.isCurrent()) return;
-      onChanged();
+      await onChanged();
     } catch {
       if (request.isCurrent()) setError('Could not change how this model runs. Try again.');
     } finally {
       if (request.isCurrent()) {
         setBusy(false);
-        editing(false);
         reportBusy(false);
       }
     }

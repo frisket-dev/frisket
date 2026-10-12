@@ -184,6 +184,12 @@ export function EngineSelector({
   useEffect(() => () => cancelHoverIntent(), []);
 
   useEffect(() => {
+    if (!detailBusy) return;
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    hoverTimerRef.current = null;
+  }, [detailBusy]);
+
+  useEffect(() => {
     pinnedIdRef.current = pinnedId;
   }, [pinnedId]);
 
@@ -268,11 +274,11 @@ export function EngineSelector({
   };
 
   const previewAfterIntent = (choice: EngineSelectorChoice) => {
-    if (pinnedIdRef.current || editingSetupRef.current) return;
+    if (detailBusy || pinnedIdRef.current || editingSetupRef.current) return;
     cancelHoverIntent();
     hoverTimerRef.current = setTimeout(() => {
       hoverTimerRef.current = null;
-      if (!pinnedIdRef.current && !editingSetupRef.current) {
+      if (!detailBusy && !pinnedIdRef.current && !editingSetupRef.current) {
         setPreviewedId(choice.id);
         setActiveGroupId(groupForChoice(groups, choice.id)?.id ?? null);
       }
@@ -469,11 +475,11 @@ export function EngineSelector({
                     data-engine-selector-group={group.id}
                     className={group.id === currentGroup?.id ? 'is-active' : ''}
                     onMouseEnter={() => {
-                      if (pinnedIdRef.current || editingSetupRef.current) return;
+                      if (detailBusy || pinnedIdRef.current || editingSetupRef.current) return;
                       cancelHoverIntent();
                       hoverTimerRef.current = setTimeout(() => {
                         hoverTimerRef.current = null;
-                        if (pinnedIdRef.current || editingSetupRef.current) return;
+                        if (detailBusy || pinnedIdRef.current || editingSetupRef.current) return;
                         setActiveGroupId(group.id);
                         setPreviewedId(group.choices[0]?.id ?? null);
                         setProviderFilter('');

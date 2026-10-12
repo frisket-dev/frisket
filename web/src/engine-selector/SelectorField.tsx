@@ -211,22 +211,21 @@ export function SelectorField({
         const raw = choicesById.get(choice.id);
         if (raw) onSelect(raw);
       }}
-      renderDetailBeforeRoute={({ choice, onEditingChange, onBusyChange }) => {
+      renderDetailBeforeRoute={({ choice, onBusyChange }) => {
         const raw = choicesById.get(choice.id);
-        return raw?.route_selection && projectId ? <ModelRouteControl
+        return raw?.route_selection && projectId && !state.stale ? <ModelRouteControl
           key={`${projectId}:${raw.route_selection.model_id}`}
           projectId={projectId}
           selection={raw.route_selection}
           setRoute={projectModelRoutesApi.setProjectModelRoute}
           onChanged={state.refresh}
-          onEditingChange={onEditingChange}
           onBusyChange={onBusyChange}
         /> : null;
       }}
       renderDetailFooter={({ choice, onEditingChange, close }) => {
         const raw = choicesById.get(choice.id);
         return raw && projectId ? <>
-          <SelectorSetup
+          {(!raw.route_selection || !state.stale) && <SelectorSetup
             projectId={projectId}
             choice={raw}
             cloudSetup={raw.route_selection ? null : state.response?.cloud_setup}
@@ -234,7 +233,7 @@ export function SelectorField({
             onEditingChange={onEditingChange}
             sharedProgress
             operationError={state.operationError !== null}
-          />
+          />}
           {renderDetailExtra?.({ choice: raw, onEditingChange, close })}
         </> : null;
       }}

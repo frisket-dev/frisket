@@ -300,6 +300,27 @@ describe('EngineSelector', () => {
     expect(screen.getByRole('heading', { name: 'OpenAI 1' })).toBeVisible();
   });
 
+  it('keeps the detail stable while a route mutation is busy', async () => {
+    render(<EngineSelector label="Engine" groups={groups} value="parakeet"
+      recentNamespace="route-busy-preview" onSelect={vi.fn()}
+      renderDetailBeforeRoute={({ onBusyChange }) => <>
+        <button type="button" onClick={() => onBusyChange(true)}>Start route change</button>
+        <button type="button" onClick={() => onBusyChange(false)}>Finish route change</button>
+      </>} />);
+    await userEvent.click(screen.getByRole('button', { name: /parakeet/i }));
+    const dialog = screen.getByTestId('engine-selector-dialog');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Start route change' }));
+
+    fireEvent.mouseEnter(dialog.querySelector('[data-engine-selector-choice="whisper"]')!);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(within(dialog).getByRole('heading', { name: 'Parakeet' })).toBeVisible();
+
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Finish route change' }));
+    fireEvent.mouseEnter(dialog.querySelector('[data-engine-selector-choice="whisper"]')!);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(within(dialog).getByRole('heading', { name: 'Whisper' })).toBeVisible();
+  });
+
   it('replaces provider hover intent before a later choice hover can preview', async () => {
     const oldWidth = window.innerWidth;
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1200 });

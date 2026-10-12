@@ -140,7 +140,7 @@ describe('useSelectorChoices', () => {
 
     await waitFor(() => expect(result.current.error?.message).toBe('offline'));
     expect(load).toHaveBeenCalledTimes(1);
-    act(() => result.current.refresh());
+    act(() => { void result.current.refresh(); });
     await waitFor(() => expect(result.current.response?.current_choice_id).toBe('recovered-choice'));
     expect(result.current.error).toBeNull();
     expect(load).toHaveBeenCalledTimes(2);
@@ -156,13 +156,33 @@ describe('useSelectorChoices', () => {
     }));
 
     await waitFor(() => expect(result.current.response?.current_choice_id).toBe('before-refresh'));
-    act(() => result.current.refresh());
+    let refreshResult!: Promise<boolean>;
+    act(() => { refreshResult = result.current.refresh(); });
     await waitFor(() => expect(result.current.refreshing).toBe(true));
     expect(result.current.loading).toBe(false);
     expect(result.current.response?.current_choice_id).toBe('before-refresh');
 
     await act(async () => refreshed.resolve(response('after-refresh')));
+    await expect(refreshResult).resolves.toBe(true);
     await waitFor(() => expect(result.current.response?.current_choice_id).toBe('after-refresh'));
+  });
+
+  it('settles an explicit refresh as failed while retaining a stale projection for recovery', async () => {
+    const load = vi.fn<SelectorChoicesLoader>()
+      .mockResolvedValueOnce(response('before-refresh'))
+      .mockRejectedValueOnce(new Error('offline'));
+    const { result } = renderHook(() => useSelectorChoices({
+      projectId: 'project-a', query: query(null), queryKey: 'initial', load,
+    }));
+
+    await waitFor(() => expect(result.current.response?.current_choice_id).toBe('before-refresh'));
+    let refreshResult!: Promise<boolean>;
+    act(() => { refreshResult = result.current.refresh(); });
+    await expect(refreshResult).resolves.toBe(false);
+
+    await waitFor(() => expect(result.current.error?.message).toBe('offline'));
+    expect(result.current.stale).toBe(true);
+    expect(result.current.response?.current_choice_id).toBe('before-refresh');
   });
 
   it('retains a same-subject projection while an authored draft changes, but marks it stale', async () => {
@@ -355,7 +375,7 @@ describe('useSelectorChoices', () => {
     await act(async () => { await Promise.resolve(); });
     await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
     expect(loadPull).toHaveBeenCalledTimes(1);
-    act(() => result.current.refresh());
+    act(() => { void result.current.refresh(); });
     await act(async () => { await Promise.resolve(); });
     expect(load).toHaveBeenCalledTimes(2);
     await act(async () => stalePull.resolve(active));
