@@ -114,7 +114,15 @@ async def execute_row(
     Every model call is captured best-effort through a ``TracingRouter``.
     """
     # This public entry point may be called without prior spec validation.
-    validation.assert_network_policy(project, recipe, spec)
+    admission = routed_admission_in_scope(ctx.extras or {})
+    validation.assert_network_policy(
+        project,
+        recipe,
+        spec,
+        selected_egress_class=(
+            admission.route.egress_class if admission is not None else None
+        ),
+    )
     field_names = (
         list(output_field_names)
         if output_field_names is not None

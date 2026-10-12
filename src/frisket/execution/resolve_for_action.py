@@ -779,51 +779,21 @@ def resolve_for_action(
     ``ResolvedExecution`` carrying resolution + estimate basis + compiled
     promise set + cost basis + persistence policy.
     """
-    cloud_llm = False
+    llm_route_check = False
     rendered_llm: dict[int, Any] | None = None
     if not recipe.consumes_resolution:
         if not recipe.is_llm(dict(spec)):
             return None
-        model = str(spec.get("model") or "")
-        cloud_llm = any(
-            support.capability == CAPABILITY_LLM
-            and support.engine == model
-            and composition.cloud_payer_for(
-                target_id=target.id,
-                capability=CAPABILITY_LLM,
-                engine=model,
-            )
-            is not None
-            for target in composition.resolution_targets()
-            for support in target.engines
-        )
-        if not cloud_llm:
-            fallback_route = resolve(
-                ResolutionRequest(
-                    engine=model,
-                    capability=CAPABILITY_LLM,
-                    options={},
-                ),
-                composition.provider_for_resolution(),
-                composition.facts,
-            )
-            blocks_fallback = getattr(
-                composition.provider, "blocks_cloud_fallback", None
-            )
-            if (
-                isinstance(fallback_route, Refusal)
-                and fallback_route.target_id is not None
-                and callable(blocks_fallback)
-                and blocks_fallback(fallback_route.target_id, CAPABILITY_LLM, model)
-            ):
-                return fallback_route
+        model = spec.get("model")
+        if not isinstance(model, str) or not model.strip():
             return None
+        llm_route_check = True
     # The recipe declares which capability it resolves for. Read as an
     # attribute, not with a getattr default, for the same reason
     # ``consumes_resolution`` is: a recipe that consumes resolution without
     # saying what kind of work it is must fail loudly here, never resolve as
     # transcription by accident.
-    capability = CAPABILITY_LLM if cloud_llm else recipe.execution_capability
+    capability = CAPABILITY_LLM if llm_route_check else recipe.execution_capability
     if capability != CAPABILITY_LLM and capability not in _CAPABILITY_COST_BASIS:
         raise ValueError(
             f"recipe '{getattr(recipe, 'name', recipe)}' declares "
@@ -860,6 +830,11 @@ def resolve_for_action(
         composition.facts,
     )
     if isinstance(outcome, Refusal):
+        if llm_route_check and outcome.target_id is None:
+            # Local endpoint models are routed by ModelRouter and do not yet
+            # have execution-target rows. With no selected target there is no
+            # route refusal to enforce here.
+            return None
         engine = outcome.engine
         if engine is not None:
             raw_declares = _target_rows_declare_engine(
@@ -886,6 +861,12 @@ def resolve_for_action(
                 # their ordinary invalid-engine refusal semantics.
                 outcome = replace(outcome, quote_absent=True)
         return outcome
+
+    if llm_route_check and outcome.facts.cloud_payer is None:
+        # Own-key LLM execution retains the router machinery, but only after
+        # the same route chooser has selected it successfully. Candidate
+        # membership alone can never switch the payer to Cloud.
+        return None
 
     selected_offering = composition.offering_for(
         target_id=outcome.target.id,

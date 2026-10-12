@@ -645,20 +645,20 @@ def preferred_static_choice(
     *,
     capability: str = CAPABILITY_TRANSCRIBE,
 ) -> tuple[ExecutionTarget, TargetEngineSupport] | Refusal | None:
-    """The preference WITHOUT liveness — the deterministic static choice
-    every surface classifies from: the first declaration-order candidate.
-    Options are then checked against that chosen target, never used to select
-    a different venue. The answer is pure and probe-free, so dispatch-side
-    consumers (concurrency scope, estimates, previews, and egress policy)
-    key on the same target the resolver binds.
+    """The deterministic static choice every surface classifies from.
+
+    Candidates, including wildcard support for free-form ``provider/model``
+    ids, rank by configuration presence, provider selection rank, then
+    declaration order. Options are checked only on that chosen target and
+    never select a different venue. The answer is probe-free, so dispatch-side
+    consumers (concurrency scope, estimates, previews, and egress policy) key
+    on the same target the resolver binds.
 
     Returns the chosen ``(target, support)`` pair; a ``no_capable_target``
     ``Refusal`` when its target cannot honor the authored options (options
     are refused, never silently ignored or used to retarget); or ``None``
-    for unknown symbols, free-form ``provider/model`` ids (their remote-api
-    target is keyed by provider, not preference), and symbols the static
-    targets simply do not declare (callers keep their own fallbacks/
-    messages for those)."""
+    for unknown symbols or symbols no target declares (callers keep their own
+    fallbacks/messages for those)."""
     engine_id = _canonical_engine(raw_engine, capability)
     candidates = _ranked_static_candidates(raw_engine, source, capability=capability)
     if candidates is None:

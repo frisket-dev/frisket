@@ -728,6 +728,8 @@ class StaticExecutionTargetProvider:
     ) -> TargetConfiguration:
         """Return credential/install presence without a service probe."""
         del capability, engine
+        if target_id == LOCAL_MODELS_TARGET_ID:
+            return self._configuration(target_id)
         cached = self._configuration_cache.get(target_id)
         if isinstance(cached, TargetConfigurationError):
             raise cached
@@ -782,6 +784,8 @@ class StaticExecutionTargetProvider:
         return self._connection(target_id)
 
     def _connection(self, target_id: str) -> ConnectionConfig | None:
+        if target_id in {LOCAL_ONNX_TARGET_ID, LOCAL_MODELS_TARGET_ID}:
+            return self._uncached_connection(target_id)
         if target_id in self._connection_cache:
             cached = self._connection_cache[target_id]
             if isinstance(cached, Exception):

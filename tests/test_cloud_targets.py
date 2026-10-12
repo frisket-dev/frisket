@@ -694,10 +694,24 @@ def test_structured_cloud_llm_action_requires_explicit_unknown_quantity_consent(
             composition=composition,
             scope_row_ids=[row_id],
         )
+        own_key = resolve_for_action(
+            project,
+            spec,
+            recipe,
+            composition=compose_cloud_targets(
+                _base_with_openai_route(),
+                user_id=7,
+                account=_account(),
+                capabilities=_llm_capabilities(),
+                preference="local_first",
+            ),
+            scope_row_ids=[row_id],
+        )
     finally:
         project.close()
 
     assert resolved is not None and not isinstance(resolved, Refusal)
+    assert own_key is None
     assert isinstance(resolved.cost_basis, PricedCostBasis)
     assert resolved.cost_basis.meter_key == "cloud_effective_cost_micro"
     assert resolved.cost_basis.row_quote_quantities is None

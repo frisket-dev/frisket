@@ -62,6 +62,14 @@ class _SyntheticProvider:
             return None
         return ConnectionConfig()
 
+    def configuration(self, target_id: str, capability: str, engine: str):
+        del capability, engine
+        return "configured" if target_id == self.target.id else "not_configured"
+
+    def selection_rank(self, target_id: str, capability: str, engine: str) -> int:
+        del target_id, capability, engine
+        return 0
+
 
 def _offering(
     *,

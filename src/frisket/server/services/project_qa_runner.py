@@ -99,6 +99,7 @@ async def run_turn(
     search_service: SearchService | None = None,
     action_host: Any = None,
     execution: Any = None,
+    selected_model: str | None = None,
 ) -> dict[str, Any]:
     """Investigate one admitted turn; the caller owns terminalization."""
 
@@ -123,7 +124,7 @@ async def run_turn(
         research=research is not None,
     )
     tool_lock = asyncio.Lock()
-    model_id = turn["model"] or default_project_ask_model(router)
+    model_id = selected_model or turn["model"] or default_project_ask_model(router)
 
     async def before_request(request: LLMRequest) -> None:
         provider = provider_from_model_id(request.model)

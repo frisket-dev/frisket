@@ -1,12 +1,11 @@
 """Execution-target provider seam.
 
-The protocol is deliberately two methods: enumerate the code/registry-owned
-target rows, and deref secret connection material + liveness for ONE target
-by id. ``resolve`` (execution/resolver.py) is pure over this protocol; the
-static provider (execution/definitions.py) is one implementation, and an
-external composition's provider over a ``targets`` table is another. Recipes and
-dispatch receive a provider via deps/ctx and never import an implementation
-directly.
+The protocol keeps one target inventory and separates static selection from
+liveness: enumerate code/registry-owned target rows; report configuration
+presence and payer/venue rank without probing; then deref secret connection
+material + liveness for ONE selected target by id. ``resolve``
+(execution/resolver.py) is pure over this protocol. Recipes and dispatch
+receive a provider via deps/ctx and never import an implementation directly.
 
 One OPTIONAL duck-typed enrichment exists beyond the port (a provider MAY
 implement it; ``resolve`` degrades gracefully when absent):

@@ -8,6 +8,8 @@ from pydantic import Field, JsonValue, model_validator
 
 from frisket.ai.llm import ModelRouter
 from frisket.contracts.http.models import WireModel
+from frisket.execution.provider import ExecutionComposition
+from frisket.execution.resolver import preferred_resolved_engine
 
 
 PROJECT_ASK_MODEL = "anthropic/claude-sonnet-5"
@@ -19,8 +21,19 @@ _PROJECT_ASK_MODEL_BY_PROVIDER: tuple[tuple[str, str], ...] = (
 )
 
 
-def default_project_ask_model(router: ModelRouter) -> str:
-    """Choose the configured provider's Project Ask default model."""
+def default_project_ask_model(
+    router: ModelRouter, composition: ExecutionComposition | None = None
+) -> str:
+    """Choose Project Ask's default through the request's execution policy."""
+
+    if composition is not None:
+        selected = preferred_resolved_engine(
+            tuple(model for _provider, model in _PROJECT_ASK_MODEL_BY_PROVIDER),
+            composition.provider_for_resolution(),
+            composition.facts,
+            options={"tools": True},
+        )
+        return selected or PROJECT_ASK_MODEL
 
     configured = router.configured_keys()
     for provider, model in _PROJECT_ASK_MODEL_BY_PROVIDER:

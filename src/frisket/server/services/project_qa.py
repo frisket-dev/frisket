@@ -496,6 +496,14 @@ class ProjectQAService:
                 values = body.model_dump()
                 values["scope"] = body.scope.model_dump(exclude_none=True)
                 validate_scope(project, values["scope"])
+                if not values.get("model"):
+                    router = self.workspace.router_for(project)
+                    composition = self.workspace.execution_composition_for(
+                        project,
+                        router,
+                        self.workspace.edition_execution_composition_context_for(),
+                    )
+                    values["model"] = default_project_ask_model(router, composition)
                 setup = (
                     self._research_setup(
                         project_id, project, values["research"], context
@@ -603,7 +611,14 @@ class ProjectQAService:
             ] == "stopping":
                 return
             router = await await_thread_worker(self.workspace.router_for, project)
-            model = model or default_project_ask_model(router)
+            if not model:
+                composition = await await_thread_worker(
+                    self.workspace.execution_composition_for,
+                    project,
+                    router,
+                    self.workspace.edition_execution_composition_context_for(),
+                )
+                model = default_project_ask_model(router, composition)
             tracing = self._tracing
 
             async def settle_call(call_id: str) -> None:
@@ -684,6 +699,7 @@ class ProjectQAService:
                         research=research,
                         action_host=host,
                         execution=execution,
+                        selected_model=model,
                         search_service=(
                             self._search_service_factory()
                             if self._search_service_factory

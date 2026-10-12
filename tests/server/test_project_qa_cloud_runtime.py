@@ -31,6 +31,7 @@ from frisket.contracts.http.project_qa import AskThreadCreate, AskTurnRequest
 from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
 from frisket.engine.store.project_qa import ProjectQAStore
 from frisket.execution.pricing_policy import usd_to_micros
+from frisket.execution.resolver import Refusal
 from frisket.project_settings import ProjectSettings, write_project_settings
 from frisket.server.services.project_qa import ProjectQAService
 from frisket.server.cloud_project_qa_runtime import SoloCloudProjectQARuntimePort
@@ -118,6 +119,44 @@ def test_cloud_first_signed_out_ask_refuses_instead_of_using_local_key(tmp_path)
         SoloCloudProjectQARuntimePort(workspace)._prepare_turn(project, turn["id"])
 
     assert exc_info.value.code == "cloud_route_unavailable"
+
+
+def test_ask_does_not_bypass_a_selected_own_route_refusal(tmp_path, monkeypatch):
+    workspace = Workspace(
+        tmp_path / "workspace",
+        router=ModelRouter(
+            keys={"anthropic": "configured-but-unavailable"},
+            use_env_keys=False,
+            cache_mode="off",
+        ),
+    )
+    project_id = workspace.create("Ask")["id"]
+    project = workspace.get(project_id)
+    qa = ProjectQAStore(project)
+    thread = qa.create_thread(title="Own route")
+    turn = qa.submit_turn(
+        thread["id"],
+        request_id="own-route-refusal",
+        question="Do not bypass the selected route",
+        model=MODEL,
+    )
+    monkeypatch.setattr(
+        "frisket.server.cloud_project_qa_runtime.resolve",
+        lambda *_args, **_kwargs: Refusal(
+            family="no_live_target",
+            remedy="The selected provider key is unavailable.",
+            engine=MODEL,
+            target_id="remote-api:anthropic",
+        ),
+    )
+
+    try:
+        with pytest.raises(CloudExecutionRefused) as exc_info:
+            SoloCloudProjectQARuntimePort(workspace)._prepare_turn(project, turn["id"])
+    finally:
+        project.close()
+
+    assert exc_info.value.code == "execution_route_unavailable"
 
 
 class CloudTransport:

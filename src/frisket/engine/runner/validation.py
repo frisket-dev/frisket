@@ -759,7 +759,13 @@ def source_values_all_empty(
     return True
 
 
-def assert_network_policy(project: Project, recipe: Recipe, spec: dict) -> None:
+def assert_network_policy(
+    project: Project,
+    recipe: Recipe,
+    spec: dict,
+    *,
+    selected_egress_class: str | None = None,
+) -> None:
     """Raise NetworkDisabled when the spec
     resolves a remote capability and the project's effective policy is
     ``off``. Called from ``_validate_spec`` (fresh runs, resumes,
@@ -769,7 +775,15 @@ def assert_network_policy(project: Project, recipe: Recipe, spec: dict) -> None:
     egressing on such a path after the project flips ``off``. The policy
     is read at validate/dispatch time and never joins the idempotency
     hash or run identity."""
-    capability = remote_capability_for_spec(recipe, spec)
+    capability = (
+        None
+        if selected_egress_class in {"none", "operator_lan"}
+        else (
+            f"execution_route:{selected_egress_class}"
+            if selected_egress_class is not None
+            else remote_capability_for_spec(recipe, spec)
+        )
+    )
     if capability is None:
         return
     if project.effective_network_policy() == "off":
@@ -1186,7 +1200,9 @@ def validate_spec(
         ):
             raise EmptyInputColumns(source_names)
 
-    # Refuse forbidden egress before suggesting cost or key remediation.
+    # Keep the code-owned engine/provider fence ahead of credential and quote
+    # remediation. A later check uses the successfully selected route's exact
+    # egress, catching Cloud routes for otherwise local/sidecar identities.
     assert_network_policy(project, recipe, spec)
 
     # Strict replay proves only the cached model call cannot egress. Other
@@ -1222,6 +1238,21 @@ def validate_spec(
             resolution_refusal = outcome
         else:
             resolved_execution = outcome
+
+    # Classify the selected route when one exists. Network policy blocks that
+    # exact egress and never changes payer or venue. Legacy/resume paths keep
+    # the code-owned catalog classification until their pinned route binds.
+    if resolution_refusal is None:
+        assert_network_policy(
+            project,
+            recipe,
+            spec,
+            selected_egress_class=(
+                resolved_execution.resolution.facts.egress_class
+                if resolved_execution is not None
+                else None
+            ),
+        )
 
     # Validate output shape before hashing a quote. Preserve typed resolution
     # refusals instead of replacing them with output-projection errors.

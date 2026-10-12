@@ -64,12 +64,12 @@ class SoloCloudProjectQARuntimePort:
     ) -> SoloCloudProjectQATurnRuntime:
         turn = ProjectQAStore(project).get_turn(turn_id)
         router = self._workspace.router_for(project)
-        model = turn["model"] or default_project_ask_model(router)
         composition = self._workspace.execution_composition_for(
             project,
             router,
             self._workspace.edition_execution_composition_context_for(),
         )
+        model = turn["model"] or default_project_ask_model(router, composition)
         provider = composition.provider_for_resolution()
         outcome = resolve(
             ResolutionRequest(
@@ -84,17 +84,24 @@ class SoloCloudProjectQARuntimePort:
             composition.facts,
         )
         if isinstance(outcome, Refusal):
-            if outcome.target_id and (
-                outcome.target_id.startswith("frisket-cloud:")
-                or cloud_fallback_is_blocked(
-                    composition,
-                    target_id=outcome.target_id,
-                    capability=CAPABILITY_LLM,
-                    engine=model,
+            cloud_route = bool(
+                outcome.target_id
+                and (
+                    outcome.target_id.startswith("frisket-cloud:")
+                    or cloud_fallback_is_blocked(
+                        composition,
+                        target_id=outcome.target_id,
+                        capability=CAPABILITY_LLM,
+                        engine=model,
+                    )
                 )
-            ):
-                raise CloudExecutionRefused("cloud_route_unavailable", outcome.remedy)
-            return SoloCloudProjectQATurnRuntime()
+            )
+            raise CloudExecutionRefused(
+                "cloud_route_unavailable"
+                if cloud_route
+                else "execution_route_unavailable",
+                outcome.remedy,
+            )
 
         payer = outcome.facts.cloud_payer
         if payer is None:

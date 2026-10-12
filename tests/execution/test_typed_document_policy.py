@@ -102,3 +102,34 @@ def test_document_network_policy_follows_capability_not_builtin_id(
             assert_network_policy(project, plan.program, spec)
     finally:
         project.close()
+
+
+def test_network_policy_uses_selected_route_egress(tmp_path):
+    request = ActionRequest(
+        action_id="media.to_markdown",
+        scope=SheetRows(sheet_id=1),
+        params={"source": "source", "engine": "docling"},
+        idempotency_key="selected-route-policy",
+    )
+    plan = _typed_map_rows_plan(
+        BoundTypedActionRequest.bind(ACTION_REGISTRY.get(request.action_id), request)
+    )
+    spec = plan.spec_dict()
+    project = Project.create(tmp_path / "selected-route.frisket")
+    try:
+        project.set_network_policy(mode="off")
+        assert_network_policy(
+            project,
+            plan.program,
+            spec,
+            selected_egress_class="operator_lan",
+        )
+        with pytest.raises(NetworkDisabled, match="execution_route:frisket_shared"):
+            assert_network_policy(
+                project,
+                plan.program,
+                spec,
+                selected_egress_class="frisket_shared",
+            )
+    finally:
+        project.close()

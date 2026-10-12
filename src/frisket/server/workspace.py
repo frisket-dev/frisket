@@ -618,7 +618,18 @@ class Workspace:
         try:
             profile = self._cloud_connection_store.load()
         except CloudConnectionStoreError:
-            return composition, None
+            if not self._uses_open_execution_composition:
+                return composition, None
+            return (
+                self._cloud_execution_composition_overlay(
+                    composition,
+                    project,
+                    effective_router,
+                    context,
+                    cloud_store=self._cloud_connection_store,
+                ),
+                None,
+            )
         if not self._uses_open_execution_composition:
             connection = profile.connection
             return composition, (connection.session if connection is not None else None)

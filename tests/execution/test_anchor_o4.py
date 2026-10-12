@@ -83,6 +83,14 @@ class DedicatedBoxProvider:
     def connection(self, target_id: str) -> ConnectionConfig | None:
         return ConnectionConfig() if target_id == DEDICATED_TARGET.id else None
 
+    def configuration(self, target_id: str, capability: str, engine: str):
+        del capability, engine
+        return "configured" if target_id == DEDICATED_TARGET.id else "not_configured"
+
+    def selection_rank(self, target_id: str, capability: str, engine: str) -> int:
+        del target_id, capability, engine
+        return 0
+
 
 def _resolve_dedicated() -> Resolution:
     outcome = resolve(
