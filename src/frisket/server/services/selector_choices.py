@@ -438,7 +438,7 @@ class SelectorChoiceService:
                 selection_kind="model",
             )
             current_selection = _model_selection(subject.params.get(subject.field))
-            default_model = _default_action_model(provider_catalog, router)
+            default_model = _default_action_model(choices)
             default_selection = _model_selection(default_model)
             depends_on: list[str] = []
         else:
@@ -485,7 +485,7 @@ class SelectorChoiceService:
             )
             default_engine = _schema_default(properties.get(subject.field))
             default_model = (
-                _default_action_model(provider_catalog, router)
+                _default_action_model(choices)
                 if has_model_field and default_engine == "llm"
                 else None
             )

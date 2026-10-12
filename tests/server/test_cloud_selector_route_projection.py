@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -212,8 +214,23 @@ def test_cloud_first_selector_keeps_local_engine_on_this_computer(
     assert selected["execution_route"]["billed_to"] is None
 
 
-def test_project_ask_projects_the_composed_cloud_model_route(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize(
+    "subject, selected_flag",
+    [
+        ({"kind": "project_ask", "model": "openai/gpt-5-mini"}, "is_current"),
+        (
+            {
+                "kind": "action",
+                "action_id": "map.extract",
+                "field": "engine",
+                "params": {"engine": "llm"},
+            },
+            "is_default",
+        ),
+    ],
+)
+def test_selector_projects_the_composed_cloud_model_route(
+    tmp_path, monkeypatch, subject, selected_flag
 ) -> None:
     route = CloudCapabilityRoute(
         capability="llm.complete",
@@ -254,16 +271,13 @@ def test_project_ask_projects_the_composed_cloud_model_route(
             f"/api/projects/{project_id}/selector-choices",
             json={
                 "schema_version": "frisket.selector_choices_query.v1",
-                "subject": {
-                    "kind": "project_ask",
-                    "model": "openai/gpt-5-mini",
-                },
+                "subject": subject,
             },
         )
 
     assert response.status_code == 200, response.text
     selected = next(
-        choice for choice in _choices(response.json()) if choice["is_current"]
+        choice for choice in _choices(response.json()) if choice[selected_flag]
     )
     assert selected["status"] == "ready"
     assert selected["can_run"] is True

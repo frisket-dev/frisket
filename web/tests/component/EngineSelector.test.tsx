@@ -54,6 +54,18 @@ function renderSelector(onSelect = vi.fn()) {
 }
 
 describe('EngineSelector', () => {
+  it('does not present a preview as an authored selection', async () => {
+    const onSelect = vi.fn();
+    render(<EngineSelector label="Model" groups={groups} value={null}
+      recentNamespace="no-selection" onSelect={onSelect} />);
+    const trigger = screen.getByRole('button', { name: /choose an engine/i });
+    expect(trigger).not.toHaveTextContent('Parakeet');
+    await userEvent.click(trigger);
+    await userEvent.keyboard('{Escape}');
+    expect(trigger).toHaveTextContent('Choose an engine');
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
   it('selects a ready choice, records a bounded recent, and restores focus after closing', async () => {
     const onSelect = renderSelector();
     const trigger = screen.getByRole('button', { name: /parakeet/i });

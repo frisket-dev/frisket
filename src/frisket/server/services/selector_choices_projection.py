@@ -6,7 +6,6 @@ from collections.abc import Mapping
 from typing import Any
 from urllib.parse import quote
 
-from frisket.ai.llm.model_catalog import MODEL_ENTRIES
 from frisket.actions.translate_types import TranslationOptions
 from frisket.execution.definitions import MODELS_GATEWAY_TARGET_ID
 from frisket.execution.provider import ExecutionComposition
@@ -62,27 +61,15 @@ def _credential_source(
     return "missing"
 
 
-def _default_action_model(provider_catalog: dict[str, Any], router: Any) -> str | None:
-    usable: set[str] = set()
-    rows = [
-        row for row in provider_catalog.get("providers", []) if isinstance(row, dict)
-    ]
-    for row in rows:
-        identity = _provider_identity(row)
-        if identity is None:
-            continue
-        if row.get("kind") == "local_http":
-            if row.get("reachable") and row.get("models"):
-                usable.add(identity)
-        elif row.get("configured") or identity in router.providers():
-            usable.add(identity)
-    for provider, entries in MODEL_ENTRIES.items():
-        if provider in usable and entries:
-            return f"{provider}/{entries[0]['id']}"
-    for row in rows:
-        identity = _provider_identity(row)
-        if identity in usable and row.get("models"):
-            return row["models"][0].get("id")
+def _default_action_model(choices: list[dict[str, Any]]) -> str | None:
+    # Resolved readiness includes Cloud access, not just locally stored keys.
+    # Preserve curated catalog order within each readiness level.
+    for status in ("ready", "needs_setup"):
+        for choice in choices:
+            selection = choice["authored_selection"]
+            model = selection.get("model")
+            if choice["status"] == status and isinstance(model, str) and model:
+                return model
     return None
 
 

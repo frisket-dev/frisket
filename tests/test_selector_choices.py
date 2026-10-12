@@ -1617,3 +1617,57 @@ def test_whisper_base_selector_requires_durable_download(
         assert choice["setup"]["can_start"] is False
     else:
         assert current["setup"] is None
+
+
+@pytest.mark.parametrize("provider", [None, "openai", "anthropic", "gemini"])
+def test_extract_defaults_to_llm_from_available_choices(tmp_path, provider):
+    router = ModelRouter(
+        keys={provider: "test-key"} if provider else {}, use_env_keys=False
+    )
+    client, _workspace, project_id = _app(tmp_path / "workspace", router=router)
+    with client:
+        response = client.post(
+            f"/api/projects/{project_id}/selector-choices",
+            json=_query(
+                {
+                    "kind": "action",
+                    "action_id": "map.extract",
+                    "field": "engine",
+                    "params": {"engine": "llm"},
+                }
+            ),
+        )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    choice = next(
+        c for c in _choices(payload) if c["choice_id"] == payload["default_choice_id"]
+    )
+    assert choice["authored_selection"]["engine"] == "llm"
+    assert choice["authored_selection"]["model"].startswith(
+        f"{provider or 'anthropic'}/"
+    )
+    assert choice["status"] == ("ready" if provider else "needs_setup")
+
+
+def test_extract_preserves_explicit_clef_selection(tmp_path):
+    client, _workspace, project_id = _app(
+        tmp_path / "workspace", router=ModelRouter(keys={}, use_env_keys=False)
+    )
+    with client:
+        response = client.post(
+            f"/api/projects/{project_id}/selector-choices",
+            json=_query(
+                {
+                    "kind": "action",
+                    "action_id": "map.extract",
+                    "field": "engine",
+                    "params": {"engine": "clef-flash"},
+                }
+            ),
+        )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    current = next(
+        c for c in _choices(payload) if c["choice_id"] == payload["current_choice_id"]
+    )
+    assert current["authored_selection"]["engine"] == "clef-flash"

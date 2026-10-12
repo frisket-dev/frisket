@@ -73,6 +73,20 @@ function mountExtract(type: 'boolean' | 'text', resolveParams: TypedResolveParam
 }
 
 describe('Extract decision engines', () => {
+  it('authors the served LLM default in a fresh form', async () => {
+    const form = mountTypedForm({
+      entry: servedTypedEntry('map.extract'),
+      sheet: sheetMeta([columnDef({ id: '1', name: 'body', type: 'text' })], { id: '7', rowCount: 1 }),
+      initialSourceColumn: 'body',
+      resolveParams: resolveExtract,
+      estimateAction: async () => ({ cost: 0, rows: 1, billed_cost: 0 }),
+    });
+    await waitFor(() => expect(selectorTrigger()).toHaveTextContent('GPT-5 mini'));
+    await waitFor(() => expect(form.resolveParams.mock.lastCall?.[0].params).toMatchObject({
+      engine: 'llm', model: 'openai/gpt-5-mini',
+    }));
+  });
+
   it('uses one combined picker in model mode and queries only the engine field', async () => {
     mountExtract('text');
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
@@ -109,7 +123,6 @@ describe('Extract decision engines', () => {
     expect(screen.getAllByTestId('field-engine')).toHaveLength(1);
     expect(screen.queryByTestId('field-model')).not.toBeInTheDocument();
     expect(screen.getByText(/Always selects an answer, even when the input is inconclusive/)).toBeVisible();
-    expect(screen.getByText(/Does not return/)).toHaveTextContent('not found');
     expect(screen.getByTestId('field-citation_mode')).toHaveValue('cite');
     expect(await screen.findByText(citationMessage)).toBeVisible();
     expect(screen.getByTestId('generated-action-run')).toBeDisabled();
