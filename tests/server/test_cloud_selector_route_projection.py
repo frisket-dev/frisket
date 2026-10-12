@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -98,6 +100,30 @@ def _cloud_selector_app(
         ),
     )
     return TestClient(app), workspace, store, project_id
+
+
+def _llm_route() -> CloudCapabilityRoute:
+    return CloudCapabilityRoute(
+        capability="llm.complete",
+        engine="openai/gpt-5-mini",
+        provider="openai",
+        lane="frisket_credits",
+        route_revision="llm-route-1",
+        ready=True,
+        blocker=None,
+        price=CloudTokenPrice(
+            kind="tokens",
+            input_micro_per_million_tokens=100_000,
+            output_micro_per_million_tokens=400_000,
+        ),
+        options=CloudLLMOptionSupport(
+            kind="llm",
+            structured_output=True,
+            tools=True,
+            vision=True,
+            max_output_tokens=16_384,
+        ),
+    )
 
 
 def _choices(payload):
@@ -212,32 +238,28 @@ def test_cloud_first_selector_keeps_local_engine_on_this_computer(
     assert selected["execution_route"]["billed_to"] is None
 
 
-def test_project_ask_projects_the_composed_cloud_model_route(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize(
+    "subject, selected_flag",
+    [
+        ({"kind": "project_ask", "model": "openai/gpt-5-mini"}, "is_current"),
+        (
+            {
+                "kind": "action",
+                "action_id": "map.extract",
+                "field": "engine",
+                "params": {"engine": "llm"},
+            },
+            "is_default",
+        ),
+    ],
+)
+@pytest.mark.parametrize("preference", ["local_first", "cloud_first"])
+def test_selector_projects_the_composed_cloud_model_route(
+    tmp_path, monkeypatch, subject, selected_flag, preference
 ) -> None:
-    route = CloudCapabilityRoute(
-        capability="llm.complete",
-        engine="openai/gpt-5-mini",
-        provider="openai",
-        lane="frisket_credits",
-        route_revision="llm-route-1",
-        ready=True,
-        blocker=None,
-        price=CloudTokenPrice(
-            kind="tokens",
-            input_micro_per_million_tokens=100_000,
-            output_micro_per_million_tokens=400_000,
-        ),
-        options=CloudLLMOptionSupport(
-            kind="llm",
-            structured_output=True,
-            tools=True,
-            vision=True,
-            max_output_tokens=16_384,
-        ),
-    )
+    route = _llm_route()
     client, _workspace, store, project_id = _cloud_selector_app(
-        tmp_path, routes=[route]
+        tmp_path, routes=[route], preference=preference
     )
     original_load = store.load
     profile_loads = 0
@@ -254,16 +276,13 @@ def test_project_ask_projects_the_composed_cloud_model_route(
             f"/api/projects/{project_id}/selector-choices",
             json={
                 "schema_version": "frisket.selector_choices_query.v1",
-                "subject": {
-                    "kind": "project_ask",
-                    "model": "openai/gpt-5-mini",
-                },
+                "subject": subject,
             },
         )
 
     assert response.status_code == 200, response.text
     selected = next(
-        choice for choice in _choices(response.json()) if choice["is_current"]
+        choice for choice in _choices(response.json()) if choice[selected_flag]
     )
     assert selected["status"] == "ready"
     assert selected["can_run"] is True
@@ -277,7 +296,7 @@ def test_project_ask_projects_the_composed_cloud_model_route(
         "balance_label": "$4.50 balance",
         "balance_url": "https://cloud.example.test/funding-accounts?account_id=41",
         "settings_url": "/p/cloud-selector/settings/project/ai-providers",
-        "has_alternative_route": True,
+        "has_alternative_route": preference == "cloud_first",
     }
     assert profile_loads == 1
 
@@ -642,3 +661,66 @@ def test_expired_connection_projects_reconnect_for_known_cloud_route(
     assert selected["resolved_target"]["target_id"].startswith("frisket-cloud:41:")
     assert selected["status"] == "needs_setup"
     assert selected["setup"]["state"] == "reconnect"
+
+
+@pytest.mark.parametrize("preference", ["local_first", "cloud_first"])
+def test_action_default_respects_payer_preference_across_providers(
+    tmp_path, preference
+):
+    client, _workspace, _store, pid = _cloud_selector_app(
+        tmp_path,
+        routes=[_llm_route()],
+        preference=preference,
+        local_keys={"gemini": "configured-local-key"},
+    )
+    with client:
+        response = client.post(
+            f"/api/projects/{pid}/selector-choices",
+            json={
+                "schema_version": "frisket.selector_choices_query.v1",
+                "subject": {
+                    "kind": "action",
+                    "action_id": "map.extract",
+                    "field": "engine",
+                    "params": {"engine": "llm"},
+                },
+            },
+        )
+    assert response.status_code == 200, response.text
+    selected = next(
+        choice for choice in _choices(response.json()) if choice["is_default"]
+    )
+    assert selected["status"] == "ready"
+    expected_provider = "gemini/" if preference == "local_first" else "openai/"
+    assert selected["authored_selection"]["model"].startswith(expected_provider)
+    assert selected["execution_route"]["kind"] == (
+        "local_key" if preference == "local_first" else "cloud_credits"
+    )
+
+
+def test_blocked_cloud_route_keeps_local_api_key_setup_available(tmp_path):
+    route = _llm_route().model_copy(
+        update={"ready": False, "blocker": "Model unavailable"}
+    )
+    client, _workspace, _store, pid = _cloud_selector_app(
+        tmp_path,
+        routes=[route],
+        preference="local_first",
+        local_keys={},
+    )
+    with client:
+        response = client.post(
+            f"/api/projects/{pid}/selector-choices",
+            json={
+                "schema_version": "frisket.selector_choices_query.v1",
+                "subject": {"kind": "project_ask", "model": "openai/gpt-5-mini"},
+            },
+        )
+    assert response.status_code == 200, response.text
+    selected = next(
+        choice for choice in _choices(response.json()) if choice["is_current"]
+    )
+    assert selected["can_run"] is False
+    assert selected["status"] == "needs_setup"
+    assert selected["setup"]["kind"] == "api_key"
+    assert selected["setup"]["provider"] == "openai"

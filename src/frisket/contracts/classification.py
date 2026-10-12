@@ -74,10 +74,7 @@ _CLEF_CAPABILITIES = ClassificationCapabilities(
     min_labels=2,
     max_labels=254,
     include_confidence=True,
-    behavior_note=(
-        "Always selects an answer, even when the input is inconclusive. "
-        "Does not return ‘not found.’"
-    ),
+    behavior_note="Always selects an answer, even when the input is inconclusive.",
 )
 
 CLASSIFICATION_CAPABILITIES = {

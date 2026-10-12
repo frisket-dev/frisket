@@ -345,7 +345,7 @@ export function EngineSelector({
         close,
       }
     : null;
-  const triggerCopy = selectedChoice ?? previewedChoice;
+  const triggerCopy = selectedChoice;
   const triggerActivity = triggerCopy?.activity;
   const triggerProgress = triggerActivity?.percent;
   const triggerProgressValue = typeof triggerProgress === 'number' && Number.isFinite(triggerProgress)

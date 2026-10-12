@@ -9289,6 +9289,9 @@ dialog.modal-card::backdrop {
   color: var(--text-light);
   line-height: 1.45;
 }
+.settings-inline-form > .settings-help--wide {
+  grid-column: 1 / -1;
+}
 .settings-help code {
   font-size: 11px;
   padding: 1px 4px;

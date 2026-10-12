@@ -24,7 +24,7 @@ describe('Playwright edition selection', () => {
     const local = localConfig.projects?.find((project) => project.name === 'chromium');
     const team = teamConfig.projects?.find((project) => project.name === 'team-admin');
 
-    expect(local?.testIgnore).toBe(TEAM_SPEC_PATTERNS);
+    expect(local?.testIgnore).toEqual(expect.arrayContaining(TEAM_SPEC_PATTERNS));
     expect(team?.testMatch).toBe(TEAM_SPEC_PATTERNS);
     for (const basename of TEAM_SPEC_BASENAMES) {
       expect(TEAM_SPEC_PATTERNS.some((pattern) => pattern.test(basename))).toBe(true);

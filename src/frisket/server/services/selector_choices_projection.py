@@ -6,7 +6,6 @@ from collections.abc import Mapping
 from typing import Any
 from urllib.parse import quote
 
-from frisket.ai.llm.model_catalog import MODEL_ENTRIES
 from frisket.actions.translate_types import TranslationOptions
 from frisket.execution.definitions import MODELS_GATEWAY_TARGET_ID
 from frisket.execution.provider import ExecutionComposition
@@ -62,27 +61,29 @@ def _credential_source(
     return "missing"
 
 
-def _default_action_model(provider_catalog: dict[str, Any], router: Any) -> str | None:
-    usable: set[str] = set()
-    rows = [
-        row for row in provider_catalog.get("providers", []) if isinstance(row, dict)
+def _default_action_model(
+    choices: list[dict[str, Any]], composition: ExecutionComposition
+) -> str | None:
+    # Target order already encodes the installation's local/Cloud preference.
+    # Keep the curated model order within each target.
+    ready = [
+        choice
+        for choice in choices
+        if choice["status"] == "ready"
+        and isinstance(choice["authored_selection"].get("model"), str)
     ]
-    for row in rows:
-        identity = _provider_identity(row)
-        if identity is None:
-            continue
-        if row.get("kind") == "local_http":
-            if row.get("reachable") and row.get("models"):
-                usable.add(identity)
-        elif row.get("configured") or identity in router.providers():
-            usable.add(identity)
-    for provider, entries in MODEL_ENTRIES.items():
-        if provider in usable and entries:
-            return f"{provider}/{entries[0]['id']}"
-    for row in rows:
-        identity = _provider_identity(row)
-        if identity in usable and row.get("models"):
-            return row["models"][0].get("id")
+    for target in composition.resolution_targets():
+        for choice in ready:
+            if _mapping(choice.get("resolved_target")).get("target_id") == target.id:
+                return choice["authored_selection"]["model"]
+    # Unresolved model choices and unconfigured installations retain their
+    # catalog fallback; previewing an engine never selects it.
+    for status in ("ready", "needs_setup"):
+        for choice in choices:
+            selection = choice["authored_selection"]
+            model = selection.get("model")
+            if choice["status"] == status and isinstance(model, str) and model:
+                return model
     return None
 
 
