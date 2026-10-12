@@ -23,7 +23,7 @@ def test_application_serves_project_selector_for_an_incomplete_draft(tmp_path):
         )
     assert response.status_code == 200, response.text
     payload = response.json()
-    assert payload["schema_version"] == "frisket.selector_choices.v2"
+    assert payload["schema_version"] == "frisket.selector_choices.v3"
     assert payload["project_id"] == project["id"]
     assert payload["groups"]
 

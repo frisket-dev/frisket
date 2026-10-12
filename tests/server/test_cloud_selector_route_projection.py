@@ -512,7 +512,7 @@ def test_selector_projects_the_composed_cloud_model_route(
         "api_key"
     ]
     assert selected["configuration_actions"][0]["provider"] == "openai"
-    assert response.json()["schema_version"] == "frisket.selector_choices.v2"
+    assert response.json()["schema_version"] == "frisket.selector_choices.v3"
     assert response.json()["cloud_setup"] is None
     assert profile_loads == 1
 

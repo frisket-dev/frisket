@@ -177,6 +177,7 @@ def _choice(
     setup: dict[str, Any] | None,
     configuration_actions: list[dict[str, Any]] | None = None,
     execution_route: dict[str, Any] | None = None,
+    route_selection: dict[str, Any] | None = None,
     active_operation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
@@ -189,6 +190,7 @@ def _choice(
         "resolved_target": resolved_target,
         "processing_destination": processing_destination,
         "execution_route": execution_route,
+        "route_selection": route_selection,
         "facts": facts,
         "status": status,
         "can_author": can_author,
