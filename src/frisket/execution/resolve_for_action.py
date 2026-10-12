@@ -95,7 +95,11 @@ from frisket.execution.promises import (
     PromiseSet,
     promise_rows_hash,
 )
-from frisket.execution.provider import ExecutionComposition
+from frisket.execution.provider import (
+    ExecutionComposition,
+    ExecutionTargetProvider,
+    TargetConfigurationError,
+)
 from frisket.execution.resolver import (
     Persistence,
     Refusal,
@@ -761,6 +765,45 @@ def _llm_cost_basis(
 # ---------------------------------------------------------------------------
 
 
+def _llm_refusal_requires_execution_admission(
+    refusal: Refusal,
+    *,
+    composition: ExecutionComposition,
+    provider: ExecutionTargetProvider,
+    engine: str,
+) -> bool:
+    """Whether an ordinary LLM action must honor the execution refusal.
+
+    Cloud payer selection and Cloud-first fallback blocks are admission
+    authority, as are ability and malformed/live-target failures.  A plain
+    own-key target with no configured credential remains ModelRouter's
+    responsibility: that path owns replay, confirmation ordering, and the
+    established missing-provider-key error.
+    """
+    target_id = refusal.target_id
+    if target_id is None:
+        return False
+    if (
+        composition.cloud_payer_for(
+            target_id=target_id,
+            capability=CAPABILITY_LLM,
+            engine=engine,
+        )
+        is not None
+    ):
+        return True
+    blocks_fallback = getattr(composition.provider, "blocks_cloud_fallback", None)
+    if callable(blocks_fallback) and blocks_fallback(target_id, CAPABILITY_LLM, engine):
+        return True
+    if refusal.family != "no_live_target":
+        return True
+    try:
+        configuration = provider.configuration(target_id, CAPABILITY_LLM, engine)
+    except TargetConfigurationError:
+        return True
+    return configuration != "not_configured"
+
+
 def resolve_for_action(
     project: Any,
     spec: Mapping[str, Any],
@@ -824,16 +867,19 @@ def resolve_for_action(
         engine=raw_engine, options=options, capability=capability
     )
     canonical_engine = _canonical_engine(raw_engine, capability)
+    resolution_provider = composition.provider_for_resolution()
     outcome = resolve(
         request,
-        composition.provider_for_resolution(),
+        resolution_provider,
         composition.facts,
     )
     if isinstance(outcome, Refusal):
-        if llm_route_check and outcome.target_id is None:
-            # Local endpoint models are routed by ModelRouter and do not yet
-            # have execution-target rows. With no selected target there is no
-            # route refusal to enforce here.
+        if llm_route_check and not _llm_refusal_requires_execution_admission(
+            outcome,
+            composition=composition,
+            provider=resolution_provider,
+            engine=outcome.engine or raw_engine,
+        ):
             return None
         engine = outcome.engine
         if engine is not None:

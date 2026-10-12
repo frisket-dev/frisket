@@ -926,11 +926,27 @@ def test_structured_cloud_llm_action_requires_explicit_unknown_quantity_consent(
             ),
             scope_row_ids=[row_id],
         )
+        blocked_cloud = resolve_for_action(
+            project,
+            spec,
+            recipe,
+            composition=compose_cloud_targets(
+                _base_with_openai_route(),
+                user_id=7,
+                account=_account(),
+                capabilities=_llm_capabilities(ready=False),
+                preference="cloud_first",
+            ),
+            scope_row_ids=[row_id],
+        )
     finally:
         project.close()
 
     assert resolved is not None and not isinstance(resolved, Refusal)
     assert own_key is None
+    assert isinstance(blocked_cloud, Refusal)
+    assert blocked_cloud.target_id == "frisket-cloud:41:frisket_credits:openai"
+    assert "Add credits" in blocked_cloud.remedy
     assert isinstance(resolved.cost_basis, PricedCostBasis)
     assert resolved.cost_basis.meter_key == "cloud_effective_cost_micro"
     assert resolved.cost_basis.row_quote_quantities is None
