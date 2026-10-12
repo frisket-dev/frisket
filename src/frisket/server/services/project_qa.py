@@ -496,6 +496,7 @@ class ProjectQAService:
                 values = body.model_dump()
                 values["scope"] = body.scope.model_dump(exclude_none=True)
                 validate_scope(project, values["scope"])
+                default_model = None
                 if not values.get("model"):
                     router = self.workspace.router_for(project)
                     composition = self.workspace.execution_composition_for(
@@ -503,7 +504,7 @@ class ProjectQAService:
                         router,
                         self.workspace.edition_execution_composition_context_for(),
                     )
-                    values["model"] = default_project_ask_model(router, composition)
+                    default_model = default_project_ask_model(router, composition)
                 setup = (
                     self._research_setup(
                         project_id, project, values["research"], context
@@ -511,7 +512,12 @@ class ProjectQAService:
                     if body.research
                     else None
                 )
-                turn = store.submit_turn(thread_id, **values, submitted_by=actor)
+                turn = store.submit_turn(
+                    thread_id,
+                    **values,
+                    default_model=default_model,
+                    submitted_by=actor,
+                )
                 if setup is not None and turn["status"] == "running":
                     ledger = ProjectQAResearchStore(project)
                     try:
@@ -619,6 +625,20 @@ class ProjectQAService:
                     self.workspace.edition_execution_composition_context_for(),
                 )
                 model = default_project_ask_model(router, composition)
+            selected_egress_class = (
+                getattr(runtime, "selected_egress_class", None)
+                if runtime is not None
+                else None
+            )
+            if selected_egress_class is None:
+                endpoint_for_model = getattr(
+                    router, "local_endpoint_url_for_model", None
+                )
+                selected_egress_class = (
+                    "operator_lan"
+                    if callable(endpoint_for_model) and endpoint_for_model(model)
+                    else "third_party_api"
+                )
             tracing = self._tracing
 
             async def settle_call(call_id: str) -> None:
@@ -700,6 +720,7 @@ class ProjectQAService:
                         action_host=host,
                         execution=execution,
                         selected_model=model,
+                        selected_egress_class=selected_egress_class,
                         search_service=(
                             self._search_service_factory()
                             if self._search_service_factory

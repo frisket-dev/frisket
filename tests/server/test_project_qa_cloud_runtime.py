@@ -7,6 +7,7 @@ import pytest
 
 from frisket.ai.llm import ModelRouter
 from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
+from frisket.ai.llm.types import LLMResponse
 from frisket.authoring.project_ask import default_project_ask_model
 from frisket.cloud_connection import CloudConnectionStore
 from frisket.cloud_execution import (
@@ -320,11 +321,14 @@ def test_ask_allows_a_configured_local_endpoint_when_network_is_off(tmp_path):
 
 
 class CloudTransport:
-    def __init__(self) -> None:
+    def __init__(self, on_execute=None) -> None:
         self.calls = []
+        self.on_execute = on_execute
 
     async def execute_llm(self, attempt, request):
         self.calls.append((attempt, request))
+        if self.on_execute is not None:
+            self.on_execute(len(self.calls))
         tool_calls = (
             [CloudLLMToolCall(name="inspect_sheets", id="inspect", args={})]
             if len(self.calls) == 1
@@ -485,7 +489,10 @@ def test_ask_uses_cloud_coordinator_and_retires_after_usage_commit(tmp_path):
     asyncio.run(scenario())
 
 
-def test_solo_workspace_routes_ask_through_selected_cloud_account(tmp_path):
+@pytest.mark.parametrize("disable_network_after_first_call", [False, True])
+def test_solo_workspace_routes_ask_through_selected_cloud_account(
+    tmp_path, disable_network_after_first_call
+):
     async def scenario() -> None:
         router = ModelRouter(use_env_keys=False, cache_mode="off", max_retries=0)
         transport = CloudTransport()
@@ -525,6 +532,11 @@ def test_solo_workspace_routes_ask_through_selected_cloud_account(tmp_path):
                 cloud_execution_preference="cloud_first",
             ),
         )
+        transport.on_execute = lambda call_count: (
+            project.set_network_policy(mode="off")
+            if disable_network_after_first_call and call_count == 1
+            else None
+        )
         service = ProjectQAService(workspace)
         thread = await service.create(
             project_id, AskThreadCreate(scope={"kind": "project"})
@@ -546,27 +558,98 @@ def test_solo_workspace_routes_ask_through_selected_cloud_account(tmp_path):
             if saved["status"] != "running":
                 break
             await asyncio.sleep(0.01)
-        assert saved["status"] == "completed", saved["error_summary"]
         # ``finalize_turn`` publishes the terminal status before the same task
         # retires its receipt-backed Cloud checkpoints. Join that task so this
         # assertion observes the completed service lifecycle, not event-loop
         # scheduling between those two ordered writes.
         await asyncio.wait_for(asyncio.shield(run_task), 5)
-        assert len(transport.calls) == 2
+        if disable_network_after_first_call:
+            assert saved["status"] == "failed"
+            assert len(transport.calls) == 1
+        else:
+            assert saved["status"] == "completed", saved["error_summary"]
+            assert len(transport.calls) == 2
         allowance = usd_to_micros(workspace.cost_preapproval_usd)
         assert transport.calls[0][0].quote_authority.maximum_charge_micro == allowance
-        assert (
-            transport.calls[1][0].quote_authority.maximum_charge_micro == allowance - 25
-        )
+        if not disable_network_after_first_call:
+            assert (
+                transport.calls[1][0].quote_authority.maximum_charge_micro
+                == allowance - 25
+            )
         assert transport.calls[0][0].payer.account_id == 41
         assert transport.calls[0][0].payer.user_id == 7
-        assert transport.calls[0][0].request_id != transport.calls[1][0].request_id
+        if not disable_network_after_first_call:
+            assert transport.calls[0][0].request_id != transport.calls[1][0].request_id
         assert (
             EffectCheckpointStore(project.db).list_group(
                 family="model_call", group_key=f"ask:{turn['id']}"
             )
             == []
         )
+
+        await service.shutdown()
+        await router.aclose()
+
+    asyncio.run(scenario())
+
+
+def test_own_key_ask_rechecks_network_policy_before_each_model_call(tmp_path):
+    async def scenario() -> None:
+        class Adapter:
+            calls = 0
+
+            async def complete(self, request, _client):
+                self.calls += 1
+                project.set_network_policy(mode="off")
+                return LLMResponse(
+                    content=None,
+                    data=None,
+                    model=request.model,
+                    tokens_in=1,
+                    tokens_out=1,
+                    cost=0.0,
+                    tool_calls=[
+                        {
+                            "name": "inspect_sheets",
+                            "args": {},
+                            "id": "inspect",
+                        }
+                    ],
+                )
+
+        adapter = Adapter()
+        router = ModelRouter(
+            keys={"anthropic": "configured"},
+            use_env_keys=False,
+            cache_mode="off",
+            max_retries=0,
+        )
+        router._adapters["anthropic"] = adapter
+        workspace = Workspace(tmp_path / "workspace", router=router)
+        project_id = workspace.create("Ask")["id"]
+        project = workspace.get(project_id)
+        service = ProjectQAService(workspace)
+        thread = await service.create(
+            project_id, AskThreadCreate(scope={"kind": "project"})
+        )
+        turn = await service.submit(
+            project_id,
+            thread["id"],
+            AskTurnRequest(
+                request_id="own-key-policy-flip",
+                question="Inspect the project, then answer.",
+                scope={"kind": "project"},
+                model=MODEL,
+            ),
+        )
+        await asyncio.wait_for(
+            asyncio.shield(service._tasks[(project, turn["id"])]),  # noqa: SLF001
+            5,
+        )
+
+        saved = ProjectQAStore(project).get_turn(turn["id"])
+        assert saved["status"] == "failed"
+        assert adapter.calls == 1
 
         await service.shutdown()
         await router.aclose()

@@ -139,6 +139,48 @@ def test_submit_is_idempotent_freezes_turn_and_enforces_single_active_turn(
         project.close()
 
 
+def test_omitted_model_default_is_persisted_without_changing_replay_identity(
+    tmp_path,
+) -> None:
+    project, store = _store(tmp_path)
+    try:
+        thread = store.create_thread(title="Ask")
+        params = {"request_id": "defaulted", "question": "What changed?"}
+        turn = store.submit_turn(
+            thread["id"],
+            **params,
+            default_model="gemini/gemini-3.5-flash-lite",
+        )
+        replay = store.submit_turn(
+            thread["id"],
+            **params,
+            default_model="anthropic/claude-sonnet-5",
+        )
+
+        assert turn["model"] == "gemini/gemini-3.5-flash-lite"
+        assert replay == turn
+        with pytest.raises(ProjectQAConflictError, match="different content"):
+            store.submit_turn(
+                thread["id"],
+                **params,
+                model="anthropic/claude-sonnet-5",
+            )
+
+        legacy_thread = store.create_thread(title="Legacy Ask")
+        legacy = store.submit_turn(legacy_thread["id"], **params)
+        assert legacy["model"] is None
+        assert (
+            store.submit_turn(
+                legacy_thread["id"],
+                **params,
+                default_model="gemini/gemini-3.5-flash-lite",
+            )
+            == legacy
+        )
+    finally:
+        project.close()
+
+
 def test_events_citations_stop_terminalize_and_reconcile_only_unowned_turns(
     tmp_path,
 ) -> None:
