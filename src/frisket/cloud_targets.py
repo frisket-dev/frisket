@@ -22,6 +22,12 @@ from frisket.contracts.http.cloud_connection import (
     CloudTokenPrice,
     CloudUnitPrice,
 )
+from frisket.contracts.actions.schemas._engines import (
+    OCR_ENGINE_TABLE,
+    TRANSCRIBE_ENGINE_TABLE,
+    find_engine,
+    to_markdown_engine_table,
+)
 from frisket.contracts.transcription_sidecar import TranscriptionOptionSupport
 from frisket.execution.commercial import (
     CommercialOffering,
@@ -36,6 +42,7 @@ from frisket.execution.provider import (
     ExactExecutionMatch,
     ExecutionComposition,
     ExecutionTargetProvider,
+    TargetConfiguration,
 )
 from frisket.execution.targets import (
     CAPABILITY_LLM,
@@ -89,7 +96,6 @@ class CloudExecutionTargetProvider:
         presentations: dict[tuple[str, str, str], CommercialPresentation],
         *,
         preference: str,
-        shadowed_llm_engines: frozenset[str] = frozenset(),
         execution_transport: CloudExecutionTransport | None = None,
     ) -> None:
         self._source = source
@@ -99,34 +105,34 @@ class CloudExecutionTargetProvider:
         self._llm_prices = dict(llm_prices)
         self._presentations = dict(presentations)
         self._execution_transport = execution_transport
-        source_targets = tuple(
-            replace(
-                target,
-                engines=tuple(
-                    support
-                    for support in target.engines
-                    if not (
-                        support.capability == CAPABILITY_LLM
-                        and any(
-                            support.engine == engine
-                            or support.engine.endswith("/*")
-                            and engine.startswith(support.engine[:-1])
-                            for engine in shadowed_llm_engines
-                        )
-                    )
-                ),
-            )
-            for target in source.targets()
-        )
-        source_targets = tuple(target for target in source_targets if target.engines)
-        self._targets = (
-            self._cloud_targets + source_targets
-            if preference == "cloud_first"
-            else source_targets + self._cloud_targets
-        )
+        self._preference = preference
+        self._source_targets = tuple(source.targets())
+        self._source_by_id = {target.id: target for target in self._source_targets}
+        self._targets = self._source_targets + self._cloud_targets
 
     def targets(self) -> tuple[ExecutionTarget, ...]:
         return self._targets
+
+    def configuration(
+        self, target_id: str, capability: str, engine: str
+    ) -> TargetConfiguration:
+        if target_id in self._cloud_by_id:
+            return "configured"
+        return self._source.configuration(target_id, capability, engine)
+
+    def selection_rank(self, target_id: str, capability: str, engine: str) -> int:
+        if target_id in self._cloud_by_id:
+            return 0 if self._preference == "cloud_first" else 1
+        target = self._source_by_id.get(target_id)
+        if (
+            target is not None
+            and target.egress_class == "none"
+            and self.configuration(target_id, capability, engine) == "configured"
+        ):
+            # Installed managed-local work stays local under either payer
+            # preference. Explicit local identities never gain Cloud routes.
+            return 0
+        return 1 if self._preference == "cloud_first" else 0
 
     def connection(self, target_id: str) -> ConnectionConfig | None:
         target = self._cloud_by_id.get(target_id)
@@ -203,6 +209,14 @@ class _CloudRequiredExecutionTargetProvider:
     def targets(self) -> tuple[ExecutionTarget, ...]:
         return self._targets
 
+    def configuration(
+        self, target_id: str, capability: str, engine: str
+    ) -> TargetConfiguration:
+        return self._source.configuration(target_id, capability, engine)
+
+    def selection_rank(self, target_id: str, capability: str, engine: str) -> int:
+        return self._source.selection_rank(target_id, capability, engine)
+
     def connection(self, target_id: str) -> ConnectionConfig | None:
         return self._source.connection(target_id)
 
@@ -262,28 +276,14 @@ def compose_cloud_targets(
     presentations: dict[tuple[str, str, str], CommercialPresentation] = {}
     offerings: list[CommercialOffering] = []
     included: list[ExactExecutionMatch] = []
-    shadowed_llm_engines: set[str] = set()
     for route in capabilities.routes:
         capability = _media_capability(route)
         if route.capability == CAPABILITY_LLM:
-            if (
-                preference == "local_first"
-                and router is not None
-                and router.adapter_for_model(route.engine) is not None
-            ):
-                continue
             capability = CAPABILITY_LLM
         if capability is None:
             continue
-        if _base_has_inherent_local_route(base, capability, route.engine):
+        if _explicitly_local_engine(capability, route.engine):
             continue
-        if (
-            capability == CAPABILITY_LLM
-            and preference == "local_first"
-            and router is not None
-            and route.ready
-        ):
-            shadowed_llm_engines.add(route.engine)
         target_id = cloud_target_id(account.id, route.lane, route.provider)
         support = _support(route, capability)
         grouped[target_id].append(support)
@@ -335,7 +335,6 @@ def compose_cloud_targets(
         llm_prices,
         presentations,
         preference=preference,
-        shadowed_llm_engines=frozenset(shadowed_llm_engines),
         execution_transport=execution_transport,
     )
     return replace(
@@ -442,22 +441,15 @@ def _block_cloud_first_fallback(
     )
 
 
-def _base_has_inherent_local_route(
-    base: ExecutionComposition, capability: str, engine: str
-) -> bool:
-    return any(
-        target.egress_class == "none"
-        and any(
-            support.capability == capability
-            and (
-                support.engine == engine
-                or support.engine.endswith("/*")
-                and engine.startswith(support.engine[:-1])
-            )
-            for support in target.engines
-        )
-        for target in base.resolution_targets()
-    )
+def _explicitly_local_engine(capability: str, engine: str) -> bool:
+    tables = {
+        CAPABILITY_OCR: OCR_ENGINE_TABLE,
+        CAPABILITY_TRANSCRIBE: TRANSCRIBE_ENGINE_TABLE,
+        CAPABILITY_TO_MARKDOWN: to_markdown_engine_table(),
+    }
+    table = tables.get(capability)
+    declaration = find_engine(table, engine) if table is not None else None
+    return declaration is not None and declaration.tier == "local"
 
 
 def _expired(value: str) -> bool:

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import pytest
 
+from frisket.ai.models.gateway_config import InvalidModelsGatewayConfig
 from frisket.execution.provider import CompositionFacts
 from frisket.execution.resolver import (
     Refusal,
@@ -660,6 +661,48 @@ def test_liveness_remedy_hook_predating_capability_still_answers():
         _liveness_remedy(_OldProvider(), "remote-api:openai", "ocr")
         == "old-style remedy for remote-api:openai"
     )
+
+
+def test_gateway_configuration_presence_is_cached_across_models():
+    calls = 0
+
+    def invalid_partial_gateway():
+        nonlocal calls
+        calls += 1
+        raise InvalidModelsGatewayConfig("models gateway token is required")
+
+    provider = StaticExecutionTargetProvider(
+        models_gateway_resolver=invalid_partial_gateway
+    )
+
+    assert provider.configuration("models-gateway", "ocr", "docling") == "configured"
+    assert (
+        provider.configuration("models-gateway", "transcribe", "whisper-turbo")
+        == "configured"
+    )
+    assert calls == 1
+
+
+def test_gateway_connection_lookup_is_cached_for_request_provider():
+    calls = 0
+
+    def missing_gateway():
+        nonlocal calls
+        calls += 1
+        return None
+
+    provider = StaticExecutionTargetProvider(models_gateway_resolver=missing_gateway)
+
+    assert provider.configuration("models-gateway", "ocr", "docling") == (
+        "not_configured"
+    )
+    assert provider.connection("models-gateway") is None
+    assert (
+        provider.configuration("models-gateway", "transcribe", "whisper-turbo")
+        == "not_configured"
+    )
+    assert provider.connection("models-gateway") is None
+    assert calls == 1
 
 
 def test_unknown_engine_is_no_capable_target():

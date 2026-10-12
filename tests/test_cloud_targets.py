@@ -51,6 +51,8 @@ from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.project_settings import ProjectSettings, write_project_settings
 
+CLOUD_OCR_ENGINE = "paddleocr-vl"
+
 
 class _LocalProvider:
     def __init__(self) -> None:
@@ -74,6 +76,14 @@ class _LocalProvider:
     def connection(self, target_id):
         return ConnectionConfig() if target_id == "local" else None
 
+    def configuration(self, target_id, capability, engine):
+        del capability, engine
+        return "configured" if target_id == "local" else "not_configured"
+
+    def selection_rank(self, target_id, capability, engine):
+        del target_id, capability, engine
+        return 0
+
 
 class _EmptyProvider:
     def targets(self):
@@ -83,9 +93,18 @@ class _EmptyProvider:
         del target_id
         return None
 
+    def configuration(self, target_id, capability, engine):
+        del target_id, capability, engine
+        return "not_configured"
+
+    def selection_rank(self, target_id, capability, engine):
+        del target_id, capability, engine
+        return 0
+
 
 class _OpenAIProvider:
-    def __init__(self) -> None:
+    def __init__(self, *, configured: bool = True) -> None:
+        self.configured = configured
         self.target = ExecutionTarget(
             id="remote-api:openai",
             operator="openai",
@@ -116,9 +135,21 @@ class _OpenAIProvider:
     def connection(self, target_id):
         return (
             ConnectionConfig(token="configured-media-key")
-            if target_id == "remote-api:openai"
+            if target_id == "remote-api:openai" and self.configured
             else None
         )
+
+    def configuration(self, target_id, capability, engine):
+        del capability, engine
+        return (
+            "configured"
+            if target_id == "remote-api:openai" and self.configured
+            else "not_configured"
+        )
+
+    def selection_rank(self, target_id, capability, engine):
+        del target_id, capability, engine
+        return 0
 
 
 def _base() -> ExecutionComposition:
@@ -137,10 +168,10 @@ def _base_without_local_route() -> ExecutionComposition:
     )
 
 
-def _base_with_openai_route() -> ExecutionComposition:
+def _base_with_openai_route(*, configured: bool = True) -> ExecutionComposition:
     return ExecutionComposition(
         facts=CompositionFacts(edition="open", funding=OperatorBorne()),
-        provider=_OpenAIProvider(),
+        provider=_OpenAIProvider(configured=configured),
         credential_use_context=CredentialUseContext.open(),
     )
 
@@ -162,7 +193,7 @@ def _capabilities(*, ready: bool = True) -> CloudCapabilitiesResponse:
         routes=[
             CloudCapabilityRoute(
                 capability="ocr",
-                engine="rapidocr",
+                engine=CLOUD_OCR_ENGINE,
                 provider="anthropic",
                 lane="frisket_credits",
                 route_revision="route-1",
@@ -219,7 +250,9 @@ def test_cloud_first_resolves_target_specific_payer_and_offering():
     )
 
     outcome = resolve(
-        ResolutionRequest(engine="rapidocr", capability=CAPABILITY_OCR, options={}),
+        ResolutionRequest(
+            engine=CLOUD_OCR_ENGINE, capability=CAPABILITY_OCR, options={}
+        ),
         composition.provider_for_resolution(),
         composition.facts,
     )
@@ -234,7 +267,7 @@ def test_cloud_first_resolves_target_specific_payer_and_offering():
     offering = composition.offering_for(
         target_id=outcome.target.id,
         capability=CAPABILITY_OCR,
-        engine="rapidocr",
+        engine=CLOUD_OCR_ENGINE,
     )
     assert offering is not None
     assert offering.quote.unit_rate == "0.0025"
@@ -307,6 +340,14 @@ def test_cloud_first_disconnection_preserves_non_cloud_third_party_api(tmp_path)
         def connection(self, target_id):
             return ConnectionConfig(token="deepl-key") if target_id == "deepl" else None
 
+        def configuration(self, target_id, capability, engine):
+            del capability, engine
+            return "configured" if target_id == "deepl" else "not_configured"
+
+        def selection_rank(self, target_id, capability, engine):
+            del target_id, capability, engine
+            return 0
+
     project = Project.create(tmp_path / "translate.frisket", name="Translate")
     write_project_settings(
         project,
@@ -374,6 +415,16 @@ def test_unreadable_inherited_cloud_first_profile_does_not_use_own_key(tmp_path)
                 if target_id == "remote-api:openai"
                 else None
             )
+
+        def configuration(self, target_id, capability, engine):
+            del capability, engine
+            return (
+                "configured" if target_id == "remote-api:openai" else "not_configured"
+            )
+
+        def selection_rank(self, target_id, capability, engine):
+            del target_id, capability, engine
+            return 0
 
     project = Project.create(tmp_path / "llm.frisket", name="LLM")
     write_project_settings(
@@ -474,6 +525,10 @@ def test_local_first_omits_cloud_llm_when_exact_local_adapter_exists():
     assert not isinstance(outcome, Refusal)
     assert outcome.target.id == "remote-api:openai"
     assert outcome.facts.cloud_payer is None
+    assert {target.id for target in composition.provider.targets()} >= {
+        "remote-api:openai",
+        "frisket-cloud:41:frisket_credits:openai",
+    }
 
 
 def test_local_first_uses_cloud_llm_when_local_adapter_is_missing():
@@ -502,8 +557,31 @@ def test_local_first_uses_cloud_llm_when_local_adapter_is_missing():
     )
 
     assert not isinstance(outcome, Refusal)
+    assert outcome.target.id == "remote-api:openai"
+    assert outcome.facts.cloud_payer is None
+
+
+def test_local_first_uses_configured_cloud_route_when_own_key_is_missing():
+    composition = compose_cloud_targets(
+        _base_with_openai_route(configured=False),
+        user_id=7,
+        account=_account(),
+        capabilities=_llm_capabilities(),
+        preference="local_first",
+    )
+
+    outcome = resolve(
+        ResolutionRequest(
+            engine="openai/gpt-5-mini",
+            capability=CAPABILITY_LLM,
+            options={},
+        ),
+        composition.provider_for_resolution(),
+        composition.facts,
+    )
+
+    assert not isinstance(outcome, Refusal)
     assert outcome.target.id == "frisket-cloud:41:frisket_credits:openai"
-    assert outcome.support.transport == "frisket.cloud.llm.v1"
     assert outcome.facts.cloud_payer is not None
 
 
@@ -560,7 +638,7 @@ def test_local_first_preserves_media_route_when_cloud_target_also_has_llm():
     )
 
     assert not isinstance(llm, Refusal)
-    assert llm.target.id == "frisket-cloud:41:frisket_credits:openai"
+    assert llm.target.id == "remote-api:openai"
     assert not isinstance(media, Refusal)
     assert media.target.id == "remote-api:openai"
     assert media.facts.cloud_payer is None
@@ -796,7 +874,9 @@ def test_blocked_cloud_first_route_does_not_fall_back_to_local():
     )
 
     outcome = resolve(
-        ResolutionRequest(engine="rapidocr", capability=CAPABILITY_OCR, options={}),
+        ResolutionRequest(
+            engine=CLOUD_OCR_ENGINE, capability=CAPABILITY_OCR, options={}
+        ),
         composition.provider_for_resolution(),
         composition.facts,
     )
@@ -850,7 +930,7 @@ def test_project_composition_reads_selected_account_capabilities_without_network
         composition.cloud_payer_for(
             target_id="frisket-cloud:41:frisket_credits:anthropic",
             capability="ocr",
-            engine="rapidocr",
+            engine=CLOUD_OCR_ENGINE,
         ).user_id
         == 7
     )
@@ -886,7 +966,9 @@ def test_project_composition_uses_last_known_capabilities_without_refetch(tmp_pa
             _base_without_local_route(), project, store=store, client=Client()
         )
         outcome = resolve(
-            ResolutionRequest(engine="rapidocr", capability=CAPABILITY_OCR, options={}),
+            ResolutionRequest(
+                engine=CLOUD_OCR_ENGINE, capability=CAPABILITY_OCR, options={}
+            ),
             composition.provider_for_resolution(),
             composition.facts,
         )
@@ -927,7 +1009,9 @@ def test_expired_connection_blocks_snapshot_without_fetch_or_local_fallback(tmp_
             _base_without_local_route(), project, store=store, client=Client()
         )
         outcome = resolve(
-            ResolutionRequest(engine="rapidocr", capability=CAPABILITY_OCR, options={}),
+            ResolutionRequest(
+                engine=CLOUD_OCR_ENGINE, capability=CAPABILITY_OCR, options={}
+            ),
             composition.provider_for_resolution(),
             composition.facts,
         )

@@ -59,6 +59,16 @@ if TYPE_CHECKING:
 # Composition edition vocabulary. ``CompositionFacts`` makes operator and
 # egress *resolved* facts for both open and hosted editions.
 Edition = Literal["open", "hosted"]
+TargetConfiguration = Literal["configured", "not_configured"]
+
+
+class TargetConfigurationError(RuntimeError):
+    """Static route configuration could not be read safely."""
+
+    def __init__(self, target_id: str, remedy: str) -> None:
+        self.target_id = target_id
+        self.remedy = remedy
+        super().__init__(remedy)
 
 
 @dataclass(frozen=True)
@@ -185,6 +195,16 @@ class ExecutionTargetProvider(Protocol):
 
     def targets(self) -> Sequence[ExecutionTarget]: ...
 
+    def configuration(
+        self, target_id: str, capability: str, engine: str
+    ) -> TargetConfiguration:
+        """Return static configuration presence without probing liveness."""
+        ...
+
+    def selection_rank(self, target_id: str, capability: str, engine: str) -> int:
+        """Return the request's payer/venue preference; lower wins."""
+        ...
+
     def connection(self, target_id: str) -> ConnectionConfig | None:
         """Secret connection material for a live target; ``None`` = not live.
 
@@ -204,6 +224,18 @@ class _ResolutionTargetProvider:
 
     def targets(self) -> tuple[ExecutionTarget, ...]:
         return self.rows
+
+    def configuration(
+        self, target_id: str, capability: str, engine: str
+    ) -> TargetConfiguration:
+        if not any(target.id == target_id for target in self.rows):
+            return "not_configured"
+        return self.source.configuration(target_id, capability, engine)
+
+    def selection_rank(self, target_id: str, capability: str, engine: str) -> int:
+        if not any(target.id == target_id for target in self.rows):
+            return 1
+        return self.source.selection_rank(target_id, capability, engine)
 
     def connection(self, target_id: str) -> ConnectionConfig | None:
         if not any(target.id == target_id for target in self.rows):

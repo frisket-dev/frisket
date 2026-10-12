@@ -79,7 +79,11 @@ from frisket.ai.models.gateway_config import (
     ModelsGatewayConnection,
     resolve_models_gateway_env,
 )
-from frisket.execution.provider import ConnectionConfig
+from frisket.execution.provider import (
+    ConnectionConfig,
+    TargetConfiguration,
+    TargetConfigurationError,
+)
 from frisket.execution.targets import (
     CAPABILITY_CENSUS as CAPABILITY_CENSUS,
     CAPABILITY_CLASSIFY as CAPABILITY_CLASSIFY,
@@ -708,6 +712,10 @@ class StaticExecutionTargetProvider:
         )
         self._by_id = {target.id: target for target in self._targets}
         self.probe_counts: dict[str, int] = {}
+        self._configuration_cache: dict[
+            str, TargetConfiguration | TargetConfigurationError
+        ] = {}
+        self._connection_cache: dict[str, ConnectionConfig | None | Exception] = {}
 
     def targets(self) -> Sequence[ExecutionTarget]:
         return tuple(
@@ -715,8 +723,79 @@ class StaticExecutionTargetProvider:
             for t in self._targets
         )
 
+    def configuration(
+        self, target_id: str, capability: str, engine: str
+    ) -> TargetConfiguration:
+        """Return credential/install presence without a service probe."""
+        del capability, engine
+        cached = self._configuration_cache.get(target_id)
+        if isinstance(cached, TargetConfigurationError):
+            raise cached
+        if cached is not None:
+            return cached
+        try:
+            configured = self._configuration(target_id)
+        except TargetConfigurationError as exc:
+            self._configuration_cache[target_id] = exc
+            raise
+        self._configuration_cache[target_id] = configured
+        return configured
+
+    def _configuration(self, target_id: str) -> TargetConfiguration:
+        if target_id not in self._by_id:
+            return "not_configured"
+        if target_id in {LOCAL_TARGET_ID, LOCAL_ONNX_TARGET_ID}:
+            # Explicitly local choices remain selected while their runtime or
+            # artifacts are being installed. Liveness supplies that remedy.
+            return "configured"
+        if target_id == MODELS_GATEWAY_TARGET_ID:
+            if self._models_gateway_resolver is not None:
+                try:
+                    gateway = self._models_gateway_resolver()
+                except InvalidModelsGatewayConfig:
+                    self._connection_cache[target_id] = None
+                    return "configured"
+                connection = self._models_gateway_connection_from(gateway)
+                self._connection_cache[target_id] = connection
+                return "configured" if connection is not None else "not_configured"
+            if (
+                self._get(MODELS_GATEWAY_URL_ENV) is not None
+                or self._get(MODELS_GATEWAY_TOKEN_ENV) is not None
+            ):
+                # A partial gateway configuration is present but blocked.
+                return "configured"
+        try:
+            connection = self._connection(target_id)
+        except (InvalidModelsGatewayConfig, ValueError) as exc:
+            raise TargetConfigurationError(
+                target_id,
+                self.liveness_remedy(target_id) or "Fix this route's configuration.",
+            ) from exc
+        return "configured" if connection is not None else "not_configured"
+
+    def selection_rank(self, target_id: str, capability: str, engine: str) -> int:
+        del target_id, capability, engine
+        return 0
+
     def connection(self, target_id: str) -> ConnectionConfig | None:
         self.probe_counts[target_id] = self.probe_counts.get(target_id, 0) + 1
+        return self._connection(target_id)
+
+    def _connection(self, target_id: str) -> ConnectionConfig | None:
+        if target_id in self._connection_cache:
+            cached = self._connection_cache[target_id]
+            if isinstance(cached, Exception):
+                raise cached
+            return cached
+        try:
+            connection = self._uncached_connection(target_id)
+        except Exception as exc:
+            self._connection_cache[target_id] = exc
+            raise
+        self._connection_cache[target_id] = connection
+        return connection
+
+    def _uncached_connection(self, target_id: str) -> ConnectionConfig | None:
         if target_id not in self._by_id:
             return None
         if target_id == LOCAL_TARGET_ID:
@@ -843,6 +922,13 @@ class StaticExecutionTargetProvider:
             )
         except InvalidModelsGatewayConfig:
             return None
+        if gateway is None:
+            return None
+        return self._models_gateway_connection_from(gateway)
+
+    def _models_gateway_connection_from(
+        self, gateway: ModelsGatewayConnection | None
+    ) -> ConnectionConfig | None:
         if gateway is None:
             return None
         return ConnectionConfig(

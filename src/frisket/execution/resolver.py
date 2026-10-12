@@ -66,6 +66,7 @@ from frisket.execution.provider import (
     CompositionFacts,
     ConnectionConfig,
     ExecutionTargetProvider,
+    TargetConfigurationError,
 )
 from frisket.execution.targets import (
     CAPABILITY_CENSUS,
@@ -567,10 +568,80 @@ def capability_engine_table(capability: str) -> tuple[EngineDeclaration, ...]:
         raise ValueError(f"unknown execution capability {capability!r}") from None
 
 
+def _candidate_targets(
+    source: Sequence[ExecutionTarget] | ExecutionTargetProvider,
+) -> tuple[ExecutionTarget, ...]:
+    target_hook = getattr(source, "targets", None)
+    return tuple(target_hook()) if callable(target_hook) else tuple(source)
+
+
+def _configuration_rank(
+    source: Sequence[ExecutionTarget] | ExecutionTargetProvider,
+    target: ExecutionTarget,
+    capability: str,
+    engine: str,
+) -> tuple[int, int]:
+    if not callable(getattr(source, "targets", None)):
+        # Bare target sequences are retained solely for the SDK's semantic
+        # fallback. Request providers implement the complete policy port.
+        return (0, 0)
+    configured = source.configuration(target.id, capability, engine)
+    if configured not in {"configured", "not_configured"}:
+        raise TypeError(
+            "execution provider configuration must return configured or not_configured"
+        )
+    rank = source.selection_rank(target.id, capability, engine)
+    if isinstance(rank, bool) or not isinstance(rank, int):
+        raise TypeError("execution provider selection_rank must return int")
+    return (0 if configured == "configured" else 1, rank)
+
+
+def _ranked_static_candidates(
+    raw_engine: str,
+    source: Sequence[ExecutionTarget] | ExecutionTargetProvider,
+    *,
+    capability: str,
+) -> list[tuple[ExecutionTarget, TargetEngineSupport]] | Refusal | None:
+    engine_id = _canonical_engine(raw_engine, capability)
+    if engine_id is None:
+        return None
+    candidates = [
+        (target, support)
+        for target in _candidate_targets(source)
+        for support in target.engines
+        if support.capability == capability
+        and (
+            support.engine == engine_id
+            or (
+                support.engine.endswith("/*")
+                and engine_id.startswith(support.engine[:-1])
+            )
+        )
+    ]
+    if not candidates:
+        return []
+    try:
+        ranked = sorted(
+            enumerate(candidates),
+            key=lambda row: (
+                *_configuration_rank(source, row[1][0], capability, engine_id),
+                row[0],
+            ),
+        )
+    except TargetConfigurationError as exc:
+        return Refusal(
+            family="no_live_target",
+            remedy=exc.remedy,
+            engine=engine_id,
+            target_id=exc.target_id,
+        )
+    return [candidate for _index, candidate in ranked]
+
+
 def preferred_static_choice(
     raw_engine: str,
     options: Mapping[str, Any],
-    targets: Sequence[ExecutionTarget],
+    source: Sequence[ExecutionTarget] | ExecutionTargetProvider,
     *,
     capability: str = CAPABILITY_TRANSCRIBE,
 ) -> tuple[ExecutionTarget, TargetEngineSupport] | Refusal | None:
@@ -589,21 +660,11 @@ def preferred_static_choice(
     targets simply do not declare (callers keep their own fallbacks/
     messages for those)."""
     engine_id = _canonical_engine(raw_engine, capability)
-    if engine_id is None:
+    candidates = _ranked_static_candidates(raw_engine, source, capability=capability)
+    if candidates is None:
         return None
-    candidates = [
-        (target, support)
-        for target in targets
-        for support in target.engines
-        if support.capability == capability
-        and (
-            support.engine == engine_id
-            or (
-                support.engine.endswith("/*")
-                and engine_id.startswith(support.engine[:-1])
-            )
-        )
-    ]
+    if isinstance(candidates, Refusal):
+        return candidates
     if not candidates:
         return None
     target, support = candidates[0]
@@ -811,7 +872,8 @@ def resolve(
     """Map one capability request to its single target, or refuse.
 
     Pure over ``provider``; sync; exactly one ``connection`` probe (the
-    mapped target's) — no enumeration of other targets' liveness.
+    configured/preferred target's) — no enumeration of other targets'
+    liveness.
     """
     capability = request.capability
     engine_id = _canonical_engine(request.engine, capability)
@@ -828,7 +890,7 @@ def resolve(
 
     targets = list(provider.targets())
     static_choice = preferred_static_choice(
-        request.engine, request.options, targets, capability=capability
+        request.engine, request.options, provider, capability=capability
     )
     if "/" in engine_id and static_choice is None:
         provider_name = engine_id.partition("/")[0]
@@ -916,9 +978,7 @@ def resolve(
         # The same probe-free function backs every dispatch-side consumer, so
         # the venue the resolver binds is the venue policy/estimate/preview
         # classified.
-        choice = preferred_static_choice(
-            request.engine, request.options, targets, capability=capability
-        )
+        choice = static_choice
         if isinstance(choice, Refusal):
             return choice
         if choice is None:  # pragma: no cover - guarded by the checks above
@@ -958,6 +1018,35 @@ def resolve(
         estimate_basis=estimate_basis,
         connection=connection,
     )
+
+
+def preferred_resolved_engine(
+    engines: Sequence[str],
+    provider: ExecutionTargetProvider,
+    composition: CompositionFacts,
+    *,
+    capability: str = CAPABILITY_LLM,
+    options: Mapping[str, Any] | None = None,
+) -> str | None:
+    """Choose a ready engine through the same route policy as execution."""
+    rows: list[tuple[int, int, str]] = []
+    for index, engine in enumerate(engines):
+        outcome = resolve(
+            ResolutionRequest(
+                engine=engine,
+                capability=capability,
+                options=options or {},
+            ),
+            provider,
+            composition,
+        )
+        if isinstance(outcome, Refusal):
+            continue
+        _configured, route_rank = _configuration_rank(
+            provider, outcome.target, capability, outcome.facts.engine
+        )
+        rows.append((route_rank, index, engine))
+    return min(rows)[2] if rows else None
 
 
 def candidate_binding(
