@@ -592,11 +592,18 @@ def _project_execution_composition_engines(
 
         # Match the resolver's configured/preferred static choice.
         if candidates:
+            resolution_provider = composition.provider_for_resolution()
+            request = composition.resolution_request(
+                engine_id,
+                capability=capability,
+                options={},
+            )
             preferred = preferred_static_choice(
                 engine_id,
                 {},
-                composition.provider_for_resolution(),
+                resolution_provider,
                 capability=capability,
+                route=request.route,
             )
             if isinstance(preferred, tuple):
                 preferred_target = preferred[0]
@@ -609,8 +616,20 @@ def _project_execution_composition_engines(
                     ),
                     candidates[0][0],
                 )
+            elif request.route is not None:
+                preferred_target = None
             else:
                 preferred_target = candidates[0][0]
+            if preferred_target is None:
+                engine.pop("target_id", None)
+                engine["available"] = False
+                engine["error"] = (
+                    "Reconnect Frisket Cloud to use this model's selected Cloud route."
+                    if request.route == "cloud"
+                    else "Set up this model's selected route and retry."
+                )
+                projected.append(engine)
+                continue
             # The active target is a catalog fact even when it is currently
             # unavailable or lacks a commercial offer. The form must not
             # reconstruct declaration order and accidentally unlock a later

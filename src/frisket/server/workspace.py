@@ -33,6 +33,7 @@ from frisket.engine.jobs import (
     register_production_handlers,
 )
 from frisket.project_identity import ProjectStorageKey
+from frisket.project_settings import ProjectSettings, write_project_settings
 from frisket.project_opener import (
     ProjectOpener,
     require_opener_storage_org_id,
@@ -682,6 +683,13 @@ class Workspace:
         origin = getattr(self._cloud_connection_client, "origin", None)
         return origin if isinstance(origin, str) and origin else None
 
+    def legacy_cloud_execution_preference(self, project: Project) -> str:
+        """Read the old effective payer preference for route materialization."""
+
+        from frisket.cloud_targets import legacy_cloud_execution_preference
+
+        return legacy_cloud_execution_preference(project, self._cloud_connection_store)
+
     def _cloud_execution_composition_overlay(
         self,
         composition: ExecutionComposition,
@@ -1091,6 +1099,7 @@ class Workspace:
         project = Project.create(
             path, name=name, sensitive=sensitive, blob_store=blob_store
         )
+        write_project_settings(project, ProjectSettings(model_execution_routes={}))
         self._attach_project_jobs(path.stem, project)
         try:
             # Bundled plugins (src/frisket/authoring/bundled_plugins/) are seeded

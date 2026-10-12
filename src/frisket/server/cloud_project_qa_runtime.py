@@ -18,7 +18,7 @@ from frisket.cloud_targets import CLOUD_LLM_TRANSPORT, cloud_fallback_is_blocked
 from frisket.engine.store.project_qa import ProjectQAStore
 from frisket.engine.runner.validation import assert_selected_egress_policy
 from frisket.execution.pricing_policy import usd_to_micros
-from frisket.execution.resolver import Refusal, ResolutionRequest, resolve
+from frisket.execution.resolver import Refusal, resolve
 from frisket.execution.targets import CAPABILITY_LLM
 from frisket.server.thread_worker import await_thread_worker
 
@@ -77,27 +77,29 @@ class SoloCloudProjectQARuntimePort:
         )
         model = turn["model"] or default_project_ask_model(router, composition)
         provider = composition.provider_for_resolution()
+        request = composition.resolution_request(
+            model,
+            capability=CAPABILITY_LLM,
+            options={
+                "tools": True,
+                "max_output_tokens": DEFAULT_MAX_OUTPUT_TOKENS,
+            },
+        )
         outcome = resolve(
-            ResolutionRequest(
-                engine=model,
-                capability=CAPABILITY_LLM,
-                options={
-                    "tools": True,
-                    "max_output_tokens": DEFAULT_MAX_OUTPUT_TOKENS,
-                },
-            ),
+            request,
             provider,
             composition.facts,
         )
         if isinstance(outcome, Refusal):
             if (
-                outcome.target_id is None
+                request.route != "cloud"
+                and outcome.target_id is None
                 and router.local_endpoint_url_for_model(model) is not None
             ):
                 return SoloCloudProjectQATurnRuntime(
                     selected_egress_class="operator_lan"
                 )
-            cloud_route = bool(
+            cloud_route = request.route == "cloud" or bool(
                 outcome.target_id
                 and (
                     outcome.target_id.startswith("frisket-cloud:")

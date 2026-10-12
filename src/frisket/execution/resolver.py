@@ -105,6 +105,7 @@ RefusalFamily = Literal[
     "no_capable_target", "no_live_target", "policy_denied", "unfunded"
 ]
 Persistence = Literal["durable", "ephemeral"]
+ModelRoute = Literal["cloud", "own"]
 
 _REMOTE_API_PREFIX = REMOTE_API_TARGET_ID_PREFIX
 
@@ -130,6 +131,10 @@ class ResolutionRequest:
     engine: str
     options: Mapping[str, Any] = field(default_factory=dict)
     capability: str = CAPABILITY_TRANSCRIBE
+    # An explicit model route constrains the candidate set before ordinary
+    # configured-first selection.  ``None`` retains the provider/composition
+    # policy, including the project route carried by the resolution view.
+    route: ModelRoute | None = None
 
 
 @dataclass(frozen=True)
@@ -576,6 +581,81 @@ def _candidate_targets(
     return tuple(target_hook()) if callable(target_hook) else tuple(source)
 
 
+def canonical_model_route_id(
+    raw_engine: str, capability: str = CAPABILITY_TRANSCRIBE
+) -> str | None:
+    """Canonical project route identity for one authored model/engine.
+
+    Capability participates only in alias normalization.  The returned key
+    deliberately omits it, so the same named model shares one project route
+    across Action, Ask, and media surfaces.
+    """
+
+    return _canonical_engine(raw_engine, capability)
+
+
+def cloud_route_eligible(
+    raw_engine: str, capability: str = CAPABILITY_TRANSCRIBE
+) -> bool:
+    """Whether a named catalog model can be offered through Frisket Cloud.
+
+    Free-form ``provider/model`` ids deliberately do not qualify: a provider
+    wildcard proves the user's own router can attempt them, not that Cloud
+    declares that model. Explicitly local catalog engines likewise keep their
+    sole route.
+    """
+
+    if capability not in {
+        CAPABILITY_LLM,
+        CAPABILITY_OCR,
+        CAPABILITY_TO_MARKDOWN,
+        CAPABILITY_TRANSCRIBE,
+    }:
+        return False
+    declaration = find_engine(capability_engine_table(capability), raw_engine)
+    if declaration is not None:
+        return declaration.tier != "local" and not (
+            capability == CAPABILITY_LLM
+            and declaration.provider in {"ollama", "openrouter"}
+        )
+    if capability == CAPABILITY_LLM:
+        provider, separator, model = raw_engine.partition("/")
+        return bool(
+            separator and model and provider in {"anthropic", "gemini", "openai"}
+        )
+    return False
+
+
+def model_route_for_target(
+    source: Sequence[ExecutionTarget] | ExecutionTargetProvider,
+    target: ExecutionTarget,
+    capability: str,
+    engine: str,
+) -> ModelRoute:
+    """Classify a candidate through the existing payer authority port."""
+
+    payer_hook = getattr(source, "cloud_payer", None)
+    payer = payer_hook(target.id, capability, engine) if callable(payer_hook) else None
+    return "cloud" if payer is not None else "own"
+
+
+def _effective_model_route(
+    source: Sequence[ExecutionTarget] | ExecutionTargetProvider,
+    engine: str,
+    capability: str,
+    route: ModelRoute | None,
+) -> ModelRoute | None:
+    if route is not None:
+        return route
+    hook = getattr(source, "model_route", None)
+    selected = hook(engine, capability) if callable(hook) else None
+    if selected not in {None, "cloud", "own"}:
+        raise TypeError(
+            "execution provider model_route must return cloud, own, or None"
+        )
+    return selected
+
+
 def _configuration_rank(
     source: Sequence[ExecutionTarget] | ExecutionTargetProvider,
     target: ExecutionTarget,
@@ -602,10 +682,12 @@ def _ranked_static_candidates(
     source: Sequence[ExecutionTarget] | ExecutionTargetProvider,
     *,
     capability: str,
+    route: ModelRoute | None = None,
 ) -> list[tuple[ExecutionTarget, TargetEngineSupport]] | Refusal | None:
     engine_id = _canonical_engine(raw_engine, capability)
     if engine_id is None:
         return None
+    selected_route = _effective_model_route(source, engine_id, capability, route)
     candidates = [
         (target, support)
         for target in _candidate_targets(source)
@@ -619,6 +701,13 @@ def _ranked_static_candidates(
             )
         )
     ]
+    if selected_route is not None:
+        candidates = [
+            (target, support)
+            for target, support in candidates
+            if model_route_for_target(source, target, capability, engine_id)
+            == selected_route
+        ]
     if not candidates:
         return []
     try:
@@ -639,12 +728,36 @@ def _ranked_static_candidates(
     return [candidate for _index, candidate in ranked]
 
 
+def preferred_route_candidate(
+    raw_engine: str,
+    source: Sequence[ExecutionTarget] | ExecutionTargetProvider,
+    *,
+    capability: str = CAPABILITY_TRANSCRIBE,
+    route: ModelRoute | None = None,
+) -> tuple[ExecutionTarget, TargetEngineSupport] | Refusal | None:
+    """Choose one static route without interpreting authored options."""
+
+    engine_id = _canonical_engine(raw_engine, capability)
+    candidates = _ranked_static_candidates(
+        raw_engine, source, capability=capability, route=route
+    )
+    if candidates is None or isinstance(candidates, Refusal):
+        return candidates
+    if not candidates:
+        return None
+    target, support = candidates[0]
+    if support.engine != engine_id:
+        support = replace(support, engine=engine_id)
+    return target, support
+
+
 def preferred_static_choice(
     raw_engine: str,
     options: Mapping[str, Any],
     source: Sequence[ExecutionTarget] | ExecutionTargetProvider,
     *,
     capability: str = CAPABILITY_TRANSCRIBE,
+    route: ModelRoute | None = None,
 ) -> tuple[ExecutionTarget, TargetEngineSupport] | Refusal | None:
     """The deterministic static choice every surface classifies from.
 
@@ -660,17 +773,13 @@ def preferred_static_choice(
     are refused, never silently ignored or used to retarget); or ``None``
     for unknown symbols or symbols no target declares (callers keep their own
     fallbacks/messages for those)."""
-    engine_id = _canonical_engine(raw_engine, capability)
-    candidates = _ranked_static_candidates(raw_engine, source, capability=capability)
-    if candidates is None:
-        return None
-    if isinstance(candidates, Refusal):
-        return candidates
-    if not candidates:
-        return None
-    target, support = candidates[0]
-    if support.engine != engine_id:
-        support = replace(support, engine=engine_id)
+    candidate = preferred_route_candidate(
+        raw_engine, source, capability=capability, route=route
+    )
+    if candidate is None or isinstance(candidate, Refusal):
+        return candidate
+    target, support = candidate
+    engine_id = support.engine
     inability = support_inability(support, options)
     if inability is not None:
         return Refusal(
@@ -919,9 +1028,26 @@ def resolve(
         )
 
     targets = list(provider.targets())
-    static_choice = preferred_static_choice(
-        request.engine, request.options, provider, capability=capability
+    selected_route = _effective_model_route(
+        provider, engine_id, capability, request.route
     )
+    static_choice = preferred_static_choice(
+        request.engine,
+        request.options,
+        provider,
+        capability=capability,
+        route=request.route,
+    )
+    if selected_route is not None and static_choice is None:
+        return Refusal(
+            family="no_live_target",
+            remedy=(
+                "Reconnect Frisket Cloud to use this model's selected Cloud route."
+                if selected_route == "cloud"
+                else "Set up this model's selected route and retry."
+            ),
+            engine=engine_id,
+        )
     if "/" in engine_id and static_choice is None:
         provider_name = engine_id.partition("/")[0]
         target = next(
