@@ -22,6 +22,7 @@ from frisket.project_settings import (
 )
 from frisket.server.services.project_model_routes import (
     ProjectModelRouteError,
+    ProjectModelRouteSelection,
     ProjectModelRoutesService,
 )
 from frisket.server.workspace import Workspace
@@ -252,6 +253,23 @@ def test_explicit_local_model_cannot_be_switched_to_cloud(
     assert exc_info.value.code == "cloud_route_unsupported"
 
 
+def test_route_mutation_ignores_unrelated_option_dependent_models(tmp_path) -> None:
+    workspace = Workspace(tmp_path / "workspace")
+    project_id = workspace.create("One model route")["id"]
+    write_project_settings(workspace.get(project_id), ProjectSettings())
+
+    selected = ProjectModelRoutesService(workspace).set_route(
+        project_id,
+        MODEL,
+        "own",
+    )
+
+    assert selected == ProjectModelRouteSelection(model_id=MODEL, route="own")
+    routes = read_project_settings(workspace.get(project_id)).model_execution_routes
+    assert routes is not None
+    assert routes[MODEL] == "own"
+
+
 def test_concurrent_route_updates_merge_under_project_write_transaction(
     tmp_path, monkeypatch
 ) -> None:
@@ -305,3 +323,45 @@ def test_concurrent_route_updates_merge_under_project_write_transaction(
         MODEL: "own",
         MODEL_TWO: "own",
     }
+
+
+def test_connection_pinning_keeps_earlier_project_when_a_later_pin_fails(
+    tmp_path, monkeypatch
+) -> None:
+    provider = _Provider(configured=frozenset({"own"}))
+    workspace = _workspace(tmp_path, monkeypatch, provider)
+    project_ids = [
+        workspace.create("First matching project")["id"],
+        workspace.create("Second matching project")["id"],
+    ]
+    for project_id in project_ids:
+        write_project_settings(
+            workspace.get(project_id),
+            ProjectSettings(cloud_user_id=7),
+        )
+    service = ProjectModelRoutesService(workspace)
+    original_pin = service.pin_ready_routes
+    pinned: list[str] = []
+
+    def fail_second(project_id: str, *, commit: bool = True):
+        if pinned:
+            raise ProjectModelRouteError(409, "pin_failed", "pin failed")
+        result = original_pin(project_id, commit=commit)
+        pinned.append(project_id)
+        return result
+
+    monkeypatch.setattr(service, "pin_ready_routes", fail_second)
+
+    with pytest.raises(ProjectModelRouteError, match="pin failed"):
+        service.pin_cloud_connection_routes(7)
+
+    assert len(pinned) == 1
+    assert read_project_settings(workspace.get(pinned[0])).model_execution_routes == {
+        MODEL: "own"
+    }
+    untouched = next(
+        project_id for project_id in project_ids if project_id != pinned[0]
+    )
+    assert (
+        read_project_settings(workspace.get(untouched)).model_execution_routes is None
+    )

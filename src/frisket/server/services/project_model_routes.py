@@ -11,7 +11,7 @@ from frisket.execution.resolver import (
     Refusal,
     canonical_model_route_id,
     model_route_for_target,
-    preferred_static_choice,
+    preferred_route_candidate,
 )
 from frisket.execution.targets import EXECUTION_CAPABILITIES, CAPABILITY_LLM
 from frisket.project_settings import (
@@ -283,9 +283,8 @@ class ProjectModelRoutesService:
         routes: dict[str, ModelRoute] = {}
         for model_id, entry in inventory.items():
             for capability, raw_engine in entry.variants:
-                choice = preferred_static_choice(
+                choice = preferred_route_candidate(
                     raw_engine,
-                    {},
                     provider,
                     capability=capability,
                 )
