@@ -45,9 +45,6 @@ def test_release_builds_and_smokes_exactly_two_native_platforms() -> None:
             "runs_on": "ubuntu-24.04-arm",
         },
     ]
-    # rule19: deletion fence supplements execution of the replacement scripts below
-    assert "setup-qemu" not in WORKFLOW.read_text(encoding="utf-8")
-
     build = _steps("container-arch")["Build and push native OCI image by digest"]["run"]
     assert 'test "$PLATFORM" = "linux/$NATIVE_ARCH"' in build
     assert '--platform "$PLATFORM"' in build

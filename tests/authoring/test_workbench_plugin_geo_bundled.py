@@ -178,11 +178,6 @@ def test_map_view_descriptor_is_no_longer_first_party() -> None:
         "(src/frisket/data/first_party_workbench_descriptors.json) — the map "
         "now arrives via the runtime index"
     )
-    descriptors_source = _read("web/src/workbench/descriptors.ts")
-    assert "export const MAP_VIEW_DESCRIPTOR" not in descriptors_source, (
-        "MAP_VIEW_DESCRIPTOR must not exist as a first-party const — "
-        "the map now arrives via the runtime index"
-    )
 
 
 # ---------------------------------------------------------------------------

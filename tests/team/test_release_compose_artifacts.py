@@ -160,21 +160,14 @@ def test_python_base_image_matches_between_dockerfile_and_sidecar_dockerfile() -
 
 
 def test_dockerfile_warmup_model_ids_match_the_frisket_constants() -> None:
-    # rule19: two-sources: Dockerfile warm-up model ids diffed against semantic.py/search.py constants
+    from frisket.search import RERANK_MODEL
+    from frisket.semantic import LOCAL_MODEL
+
     dockerfile = (ROOT / "Dockerfile").read_text()
-    # rule19: two-sources: semantic.py LOCAL_MODEL diffed against Dockerfile warm-up
-    semantic_source = (ROOT / "src" / "frisket" / "semantic.py").read_text()
-    # rule19: two-sources: search.py RERANK_MODEL diffed against Dockerfile warm-up
-    search_source = (ROOT / "src" / "frisket" / "search.py").read_text()
 
-    local_model_match = re.search(r'(?m)^LOCAL_MODEL = "([^"]+)"$', semantic_source)
-    rerank_model_match = re.search(r'(?m)^RERANK_MODEL = "([^"]+)"$', search_source)
-    assert local_model_match, "no LOCAL_MODEL constant found in semantic.py"
-    assert rerank_model_match, "no RERANK_MODEL constant found in search.py"
-
-    assert f"TextEmbedding('{local_model_match.group(1)}')" in dockerfile, (
+    assert f"TextEmbedding('{LOCAL_MODEL}')" in dockerfile, (
         "Dockerfile warm-up embeddings model id differs from frisket.semantic.LOCAL_MODEL"
     )
-    assert f"TextCrossEncoder('{rerank_model_match.group(1)}')" in dockerfile, (
+    assert f"TextCrossEncoder('{RERANK_MODEL}')" in dockerfile, (
         "Dockerfile warm-up rerank model id differs from frisket.search.RERANK_MODEL"
     )

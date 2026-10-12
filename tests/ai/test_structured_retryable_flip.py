@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import ast
 import asyncio
 import time
-from pathlib import Path
 
 import httpx
 import pytest
@@ -11,34 +9,10 @@ import pytest
 from frisket.ai.llm.router import ModelRouter
 from frisket.ai.llm.types import LLMError, LLMRequest, SchemaViolation
 
-SRC_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "frisket"
-
 
 def req(model: str = "mock/model", schema: dict | None = None) -> LLMRequest:
     return LLMRequest(
         model=model, messages=[{"role": "user", "content": "hi"}], schema=schema
-    )
-
-
-# ---------------------------------------------------------------------------
-# The grep guard is the flip's safety precondition.
-# ---------------------------------------------------------------------------
-
-
-def _llmrequest_schema_kw(call: ast.Call) -> ast.expr | None:
-    """The `schema=` keyword VALUE node of an `LLMRequest(...)` call, or None
-    if it isn't set (dataclass default `schema=None`)."""
-    for kw in call.keywords:
-        if kw.arg == "schema":
-            return kw.value
-    return None
-
-
-def _is_llmrequest_call(node: ast.expr) -> bool:
-    return (
-        isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id == "LLMRequest"
     )
 
 

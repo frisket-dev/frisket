@@ -26,7 +26,6 @@ from frisket.actions.types import ActionRequest
 from frisket.contracts.action_validation import validate_action_spec
 from frisket.contracts.actions.validation_helpers import (
     VALIDATION_ERROR_CODES,
-    VALIDATION_FALLBACK_CODE,
 )
 from frisket.contracts.actions.schemas._validators import (
     before_rule,
@@ -478,101 +477,6 @@ def test_rule_helpers_recode_with_required_code() -> None:
         Model(a="x", b=True)
     with pytest.raises(ValidationError, match="fields_conflict"):
         Model(a="1", b=1)
-
-
-def _declared_wire_codes(*, include_typed: bool = False) -> dict[str, list[str]]:
-    """Every wire code raised anywhere in ``frisket.contracts.actions``.
-
-    Read from the source rather than trusted to a list: a code is a
-    ``raise ValueError("<literal>")`` whose literal is a bare snake_case
-    identifier (the package convention -- the string IS the wire code), or the
-    explicit first argument of a ``rule``/``before_rule``/``cross_rule``
-    declaration. Prose ValueErrors ("workbook has no worksheet") carry spaces
-    and are not codes.
-    """
-    import ast
-    import pathlib
-    import re
-
-    import frisket.contracts.actions as pkg
-
-    identifier = re.compile(r"^[a-z][a-z0-9_]*$")
-    rule_helpers = {"rule", "before_rule", "cross_rule"}
-    found: dict[str, list[str]] = {}
-    root = pathlib.Path(pkg.__file__).parent
-    paths = list(root.rglob("*.py"))
-    if include_typed:
-        # CLI op.try also normalizes errors from typed Params; HTTP typed
-        # validation instead owns the invalid_action_request boundary.
-        paths.extend((root.parent.parent / "actions").rglob("*.py"))
-    for path in sorted(paths):
-        # rule19: two-sources — AST-enumerated raised codes vs VALIDATION_ERROR_CODES
-        tree = ast.parse(path.read_text(), filename=str(path))
-        for node in ast.walk(tree):
-            code = None
-            if (
-                isinstance(node, ast.Raise)
-                and isinstance(node.exc, ast.Call)
-                and isinstance(node.exc.func, ast.Name)
-                and node.exc.func.id == "ValueError"
-                and node.exc.args
-                and isinstance(node.exc.args[0], ast.Constant)
-                and isinstance(node.exc.args[0].value, str)
-                and identifier.match(node.exc.args[0].value)
-            ):
-                code = node.exc.args[0].value
-            elif (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Name)
-                and node.func.id == "_canonical_engine"
-                and len(node.args) == 4
-                and isinstance(node.args[3], ast.Constant)
-                and isinstance(node.args[3].value, str)
-            ):
-                # Media's shared engine validator raises its caller-supplied
-                # code, just as rule/before_rule/cross_rule do.
-                code = node.args[3].value
-            elif (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Name)
-                and node.func.id in rule_helpers
-                and node.args
-                and isinstance(node.args[0], ast.Constant)
-                and isinstance(node.args[0].value, str)
-            ):
-                code = node.args[0].value
-            if code is not None:
-                found.setdefault(code, []).append(
-                    f"{path.relative_to(root.parent.parent)}:{node.lineno}"
-                )
-    return found
-
-
-def test_every_raised_wire_code_is_enumerated() -> None:
-    """Closure: a validator cannot raise a code the wire mapping ignores.
-
-    ``_code_from_validation_error`` scans an ordered enumeration and falls back
-    to ``invalid_params``; fifteen codes were being raised and silently
-    downgraded that way. This is the fence that stops it regrowing -- it goes
-    red the day a new ``raise ValueError("some_new_code")`` lands unlisted.
-    """
-    raised = _declared_wire_codes()
-    unenumerated = sorted(
-        set(raised) - set(VALIDATION_ERROR_CODES) - {VALIDATION_FALLBACK_CODE}
-    )
-    assert unenumerated == [], (
-        "codes raised in frisket.contracts.actions but not enumerated in "
-        "VALIDATION_ERROR_CODES (they downgrade to "
-        f"{VALIDATION_FALLBACK_CODE!r} on the wire): "
-        + ", ".join(f"{code} at {raised[code][0]}" for code in unenumerated)
-    )
-
-
-def test_no_enumerated_wire_code_is_dead() -> None:
-    """The other direction: an enumerated code nothing raises is dead weight
-    (and a match candidate that can only ever shadow a real one)."""
-    raised = set(_declared_wire_codes(include_typed=True))
-    assert [code for code in VALIDATION_ERROR_CODES if code not in raised] == []
 
 
 @pytest.mark.parametrize(

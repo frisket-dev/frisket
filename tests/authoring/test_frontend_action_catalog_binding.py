@@ -11,18 +11,6 @@ from frisket.server.app import create_app
 
 
 ROOT = Path(__file__).resolve().parents[2]
-ACTION_MODEL_SOURCE = "web/src/actions/model.ts"
-ACTION_REGISTRY_SOURCE = "web/src/actions/registry.ts"
-# The action-catalog fetch + merge-into-templates step moved out of
-# ActionPanel.tsx into the workspace shell that mounts it, so the fetch-site
-# assertions below follow it here.
-WORKSPACE_MODEL_SOURCE = "web/src/workspace/useWorkspaceModel.tsx"
-# RETARGET 2026-07-12 (actionpanel-decomposition-v1): ActionPanel.tsx is the
-# launcher/drawer shell only; the ActionForm orchestrator (and every api.*
-# call the form makes) lives under web/src/components/action-panel/. The
-# no-legacy-recipe-fetch bans below cover both files.
-ACTION_PANEL_SOURCE = "web/src/components/ActionPanel.tsx"
-ACTION_FORM_SOURCE = "web/src/components/action-panel/ActionForm.tsx"
 TRANSCRIBE_BUILTIN_DECLARATIONS = (
     ROOT / "src/frisket/data/transcribe_builtin_declarations.json"
 )

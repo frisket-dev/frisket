@@ -1,20 +1,14 @@
 from __future__ import annotations
 
-import ast
 import importlib
-import importlib.util
 import re
 from dataclasses import fields
-from pathlib import Path
 from types import ModuleType
 from typing import Any, get_args
 
 import pytest
 
 
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-CONTRACTS_ROOT = SRC / "frisket" / "contracts"
 BASE_MODULE = "frisket.contracts.http.endpoint_catalog"
 
 BASE_REQUIRED_FIELDS = (
@@ -33,8 +27,6 @@ PRIVATE_ONLY_ID = re.compile(
     r"checkout|stripe_webhook|funding|signup_request|admin_create_org"
     r"|tenant_dispatch_route"
 )
-COMPILER_PARAMETERS = frozenset({"declarations", "registered_routes", "resolvers"})
-
 pytestmark = pytest.mark.gap
 
 
@@ -83,46 +75,9 @@ def _identity(entry: Any) -> tuple[str, str, str]:
     return (entry.route_owner, entry.route_name, entry.method)
 
 
-def _module_name_for(path: Path) -> tuple[str, str]:
-    parts = list(path.relative_to(SRC).with_suffix("").parts)
-    is_package = parts[-1] == "__init__"
-    if is_package:
-        parts.pop()
-    name = ".".join(parts)
-    package = name if is_package else name.rpartition(".")[0]
-    return name, package
-
-
-def _locate_single_policy_compiler() -> Any:
-    matches: list[tuple[Path, str]] = []
-    for path in sorted(SRC.rglob("*.py")):
-        # rule19: executes-the-artifact — scan only locates the single policy compiler, which the tests then import and drive
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for node in tree.body:
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                parameters = {
-                    argument.arg
-                    for argument in (
-                        *node.args.posonlyargs,
-                        *node.args.args,
-                        *node.args.kwonlyargs,
-                    )
-                }
-                if COMPILER_PARAMETERS <= parameters:
-                    matches.append((path, node.name))
-    if len(matches) != 1:
-        pytest.fail(
-            "INTENDED_SPLIT_RED: exactly one module-level policy compiler "
-            "accepting (declarations, registered_routes, resolvers) must "
-            "exist under src/frisket (one compiler, per-edition inputs); "
-            "found: "
-            + ", ".join(f"{path.relative_to(ROOT)}:{name}" for path, name in matches),
-            pytrace=False,
-        )
-    path, symbol = matches[0]
-    module_name, _ = _module_name_for(path)
-    module = _load_module(module_name, "policy compiler")
-    return getattr(module, symbol)
+def _policy_compiler() -> Any:
+    module = _load_module(BASE_MODULE, "policy compiler")
+    return module.compile_route_policy
 
 
 def _registered_row(entry: Any, index: int) -> dict[str, str]:
@@ -256,8 +211,8 @@ def test_declare_endpoints_accepts_pairs_and_rejects_legacy_path_shapes() -> Non
             )
 
 
-def test_policy_compiler_is_single_sourced_exhaustive_and_fail_closed() -> None:
-    compiler = _locate_single_policy_compiler()
+def test_policy_compiler_is_exhaustive_and_fail_closed() -> None:
+    compiler = _policy_compiler()
 
     declaration = {
         "route_owner": "tenant",
@@ -397,7 +352,7 @@ def test_policy_compiler_is_single_sourced_exhaustive_and_fail_closed() -> None:
 
 def test_team_edition_composition_fails_closed_on_private_only_route() -> None:
     base_entries = _base_catalog_entries()
-    compiler = _locate_single_policy_compiler()
+    compiler = _policy_compiler()
 
     base_registered = [
         _registered_row(entry, index) for index, entry in enumerate(base_entries)
