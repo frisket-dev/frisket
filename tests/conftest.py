@@ -574,8 +574,8 @@ TESTS_ROOT = Path(__file__).resolve().parent
 
 # Not how "full suite" is detected — the selected roots do that. This only
 # spares a whole-tree invocation that a filter narrowed to a small subset,
-# such as CI's serial `pytest -q -m "gap and not gap_env" tests/` (128 of
-# 7876) or a local `pytest tests/ -k workbench`. Those select the tree but
+# such as a local `pytest -q -m "gap and not gap_env" tests/`
+# or `pytest tests/ -k workbench`. Those select the tree but
 # run a few minutes at most.
 _SERIAL_FULL_SUITE_THRESHOLD = 2000
 

@@ -55,10 +55,8 @@ def _validation_error_details(exc: ValidationError) -> dict[str, Any]:
 
 # Every wire code a validator in ``frisket.contracts.actions`` can raise, in
 # match order. A code that is a SUBSTRING of another must come after it because
-# the match below is a substring test. Both completeness and substring ordering
-# are enforced mechanically by tests/test_action_params_validator_codes.py,
-# which reads the raises straight out of the package; do not treat this tuple
-# as a list anyone promised to keep in sync by hand.
+# the match below is a substring test. Keep this list in sync when adding
+# validator error codes.
 VALIDATION_ERROR_CODES: tuple[str, ...] = (
     "duplicate_column_name",
     "invalid_column_type",
