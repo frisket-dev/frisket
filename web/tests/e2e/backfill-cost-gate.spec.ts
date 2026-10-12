@@ -18,7 +18,6 @@ import {
   addRow,
   clickHeader,
   createProject,
-  finishLocalQueuedRun,
   importCsv,
   openAction,
   selectActionInputColumns,
@@ -44,7 +43,6 @@ async function startRegexRun(page: Page, pid: string): Promise<void> {
   ]);
   const body = (await runResponse.json()) as { run_id: number | null };
   if (body.run_id == null) throw new Error('regex v1 run did not return a run id');
-  finishLocalQueuedRun(pid, body.run_id);
 }
 
 /** createProject -> import -> regex run (makes `extracted`) -> add one un-run
