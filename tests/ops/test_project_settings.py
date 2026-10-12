@@ -69,6 +69,25 @@ def test_patch_leaves_unmentioned_settings_alone():
     assert read_project_settings(project).media_allow_private_hosts is False
 
 
+def test_model_execution_routes_distinguish_legacy_from_new_semantics():
+    legacy = _FakeProject()
+    assert read_project_settings(legacy).model_execution_routes is None
+    assert read_project_settings(legacy).model_execution_default is None
+
+    current = _FakeProject()
+    write_project_settings(
+        current,
+        ProjectSettings(
+            model_execution_routes={"openai/gpt-5-mini": "cloud"},
+            model_execution_default="cloud",
+        ),
+    )
+
+    settings = read_project_settings(current)
+    assert settings.model_execution_routes == {"openai/gpt-5-mini": "cloud"}
+    assert settings.model_execution_default == "cloud"
+
+
 def test_patch_rejects_an_unknown_key():
     project = _FakeProject()
     # A typo must fail loudly rather than be stored and ignored forever.

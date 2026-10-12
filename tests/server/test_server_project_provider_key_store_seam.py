@@ -55,6 +55,29 @@ def test_provider_key_set_get_delete_round_trips_through_store(tmp_path) -> None
     assert project.provider_model_keys() == {}
 
 
+def test_provider_key_writes_can_share_a_caller_owned_transaction(tmp_path) -> None:
+    project = _new_project(tmp_path)
+    project.set_provider_key(
+        provider="openai",
+        encrypted=encrypt_secret("sk-transactional"),
+        hint=key_hint("sk-transactional"),
+        spend_cap_micro=None,
+        commit=False,
+    )
+    project.db.rollback()
+    assert project.provider_key_catalog_rows() == {}
+
+    project.set_provider_key(
+        provider="openai",
+        encrypted=encrypt_secret("sk-committed"),
+        hint=key_hint("sk-committed"),
+        spend_cap_micro=None,
+    )
+    assert project.delete_provider_key("openai", commit=False) is True
+    project.db.rollback()
+    assert project.provider_model_keys() == {"openai": "sk-committed"}
+
+
 def test_no_executor_path_composes_a_router_without_the_project_key_layer() -> None:
     """Closure guard, not an enumeration promise (CLAUDE.md: agents undercount
     call sites, so make a new one go RED rather than asking anyone to sweep).

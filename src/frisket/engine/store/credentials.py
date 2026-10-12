@@ -215,6 +215,7 @@ def set_provider_key(
     encrypted: str,
     hint: str,
     spend_cap_micro: int | None,
+    commit: bool = True,
 ) -> None:
     """Upsert an already-encrypted provider key, PRESERVING accrued spend
     unless the key value itself changes.
@@ -256,19 +257,21 @@ def set_provider_key(
                 1 if starts_fresh else 0,
             ),
         )
-        project.db.commit()
+        if commit:
+            project.db.commit()
     except Exception:
         project.db.rollback()
         raise
 
 
-def delete_provider_key(project: Any, provider: str) -> bool:
+def delete_provider_key(project: Any, provider: str, *, commit: bool = True) -> bool:
     """Delete a provider key; returns True iff a row was removed."""
     try:
         cursor = project.db.execute(
             "DELETE FROM project_provider_keys WHERE provider=?", (provider,)
         )
-        project.db.commit()
+        if commit:
+            project.db.commit()
     except Exception:
         project.db.rollback()
         raise

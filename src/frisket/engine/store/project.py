@@ -473,6 +473,7 @@ class Project:
         encrypted: str,
         hint: str,
         spend_cap_micro: int | None,
+        commit: bool = True,
     ) -> None:
         credentials.set_provider_key(
             self,
@@ -480,10 +481,11 @@ class Project:
             encrypted=encrypted,
             hint=hint,
             spend_cap_micro=spend_cap_micro,
+            commit=commit,
         )
 
-    def delete_provider_key(self, provider: str) -> bool:
-        return credentials.delete_provider_key(self, provider)
+    def delete_provider_key(self, provider: str, *, commit: bool = True) -> bool:
+        return credentials.delete_provider_key(self, provider, commit=commit)
 
     def provider_spend_state(
         self, provider: str
