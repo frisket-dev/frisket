@@ -20,11 +20,13 @@ from frisket.project_settings import (
     read_project_settings,
     write_project_settings,
 )
+from frisket.server import provider_config
 from frisket.server.services.project_model_routes import (
     ProjectModelRouteError,
     ProjectModelRouteSelection,
     ProjectModelRoutesService,
 )
+from frisket.server.services.projects import ProjectLifecycleService
 from frisket.server.workspace import Workspace
 
 MODEL = "openai/gpt-5-mini"
@@ -268,6 +270,40 @@ def test_route_mutation_ignores_unrelated_option_dependent_models(tmp_path) -> N
     routes = read_project_settings(workspace.get(project_id)).model_execution_routes
     assert routes is not None
     assert routes[MODEL] == "own"
+
+
+def test_key_save_preserves_explicit_route_and_pins_other_configured_models(
+    tmp_path, monkeypatch
+) -> None:
+    provider = _Provider(
+        configured=frozenset({"cloud"}),
+        models=(MODEL, MODEL_TWO),
+    )
+    workspace = _workspace(
+        tmp_path,
+        monkeypatch,
+        provider,
+        models=(MODEL, MODEL_TWO),
+    )
+    project_id = workspace.create("Two Cloud models")["id"]
+    route_service = ProjectModelRoutesService(workspace)
+
+    route_service.set_route(project_id, MODEL, "own")
+    monkeypatch.setattr(provider_config, "require_validation_token", lambda *_a: None)
+    ProjectLifecycleService(workspace).set_project_provider_key(
+        project_id,
+        provider="openai",
+        key="sk-new-own-route",
+    )
+
+    settings = read_project_settings(workspace.get(project_id))
+    assert settings.model_execution_routes == {
+        MODEL: "own",
+        MODEL_TWO: "cloud",
+    }
+    assert workspace.get(project_id).provider_model_keys() == {
+        "openai": "sk-new-own-route"
+    }
 
 
 def test_concurrent_route_updates_merge_under_project_write_transaction(

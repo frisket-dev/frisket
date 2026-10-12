@@ -133,9 +133,6 @@ class ProjectModelRoutesService:
 
     def _pin_ready_routes(self, project: Any) -> ProjectSettings:
         composition, inventory = self._context(project)
-        current = read_project_settings(project)
-        if current.model_execution_routes is not None:
-            return current
         materialized = self._materialized_settings(project, composition, inventory)
         return write_project_settings(project, materialized, commit=False)
 
@@ -277,11 +274,11 @@ class ProjectModelRoutesService:
         inventory: dict[str, _ModelInventoryEntry],
     ) -> ProjectSettings:
         settings = read_project_settings(project)
-        if settings.model_execution_routes is not None:
-            return settings
         provider = composition.provider_for_resolution()
-        routes: dict[str, ModelRoute] = {}
+        routes: dict[str, ModelRoute] = dict(settings.model_execution_routes or {})
         for model_id, entry in inventory.items():
+            if model_id in routes:
+                continue
             for capability, raw_engine in entry.variants:
                 choice = preferred_route_candidate(
                     raw_engine,
@@ -321,12 +318,17 @@ class ProjectModelRoutesService:
                     route = "cloud"
                 routes[model_id] = route
                 break
-        legacy_preference = self._workspace.legacy_cloud_execution_preference(project)
+        model_route_default = settings.model_execution_default
+        if settings.model_execution_routes is None:
+            legacy_preference = self._workspace.legacy_cloud_execution_preference(
+                project
+            )
+            model_route_default = (
+                "cloud" if legacy_preference == "cloud_first" else None
+            )
         return settings.model_copy(
             update={
                 "model_execution_routes": routes,
-                "model_execution_default": (
-                    "cloud" if legacy_preference == "cloud_first" else None
-                ),
+                "model_execution_default": model_route_default,
             }
         )
