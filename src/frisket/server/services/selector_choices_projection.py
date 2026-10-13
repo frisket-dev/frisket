@@ -1076,6 +1076,16 @@ def _destination(egress_class: str | None, operator: str | None) -> dict[str, st
     return {"kind": "unknown", "label": "Destination unknown"}
 
 
+def _format_download_size(size: int) -> str:
+    if size >= 1_000_000_000:
+        return f"{size / 1_000_000_000:.1f} GB"
+    if size >= 1_000_000:
+        return f"{round(size / 1_000_000)} MB"
+    if size >= 1_000:
+        return f"{round(size / 1_000)} KB"
+    return f"{size} B"
+
+
 def _engine_facts(
     engine: Mapping[str, Any],
     target: Any,
@@ -1170,7 +1180,7 @@ def _engine_facts(
                 {
                     "kind": "text",
                     "label": "Download size",
-                    "value": f"{sum(sizes):,} bytes",
+                    "value": _format_download_size(sum(sizes)),
                 }
             )
     return facts

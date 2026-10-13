@@ -136,12 +136,14 @@ function DownloadSetupPanel({ setup, activeOperation, onChanged, sharedProgress 
       poll={!sharedProgress} externalPollError={operationError}
       onDone={sharedProgress ? undefined : onTerminal}
       onFailed={sharedProgress ? undefined : onTerminal} />}
-    {(!pull || (matching && pull.capabilities.retry && !active)) && <button className="btn btn-primary" type="button"
-      disabled={!setup.can_mutate || !setup.can_start || starting} onClick={() => void start()}>
-      {starting ? 'Starting…' : pull ? 'Retry setup' : setup.kind === 'artifact_download' ? 'Download model' : 'Download and set up'}
-    </button>}
     {!setup.can_start && !pull && <p className="settings-help">Setup cannot start yet. Recheck the available operations.</p>}
-    <button className="btn" type="button" onClick={onChanged}>Recheck</button>
+    <div className="settings-actions">
+      {(!pull || (matching && pull.capabilities.retry && !active)) && <button className="btn btn-primary" type="button"
+        disabled={!setup.can_mutate || !setup.can_start || starting} onClick={() => void start()}>
+        {starting ? 'Starting…' : pull ? 'Retry setup' : setup.kind === 'artifact_download' ? 'Download model' : 'Download and set up'}
+      </button>}
+      <button className="btn" type="button" onClick={onChanged}>Recheck</button>
+    </div>
     {error && <p role="alert">{error}</p>}
   </section>;
 }
