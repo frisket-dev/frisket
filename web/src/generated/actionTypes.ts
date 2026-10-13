@@ -1216,6 +1216,7 @@ export type OcrParams = ({
   "language"?: (((string)) | ((null)));
   "dpi"?: (number);
   "searchable_pdf"?: (boolean);
+  "keep_text_position"?: (boolean);
   "source": (OcrParams_OcrColumn);
   "engine"?: (OcrParams_EngineRef_OcrReader_);
 });

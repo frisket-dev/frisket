@@ -10,6 +10,7 @@ from frisket.actions.types import ActionParams
 from frisket.contracts.actions.schemas._base import StrictPositiveInt, StrictString
 from frisket.contracts.actions.schemas._engines import (
     OCR_DEAD_ENGINE_REPLACEMENTS,
+    is_generic_vlm_ocr_engine,
     ocr_engine_table,
     ocr_engine_supports_searchable_pdf,
     TRANSCRIBE_DEAD_ENGINE_REPLACEMENTS,
@@ -40,6 +41,7 @@ class OcrOptions(ActionParams):
     language: OptionalStrictNonBlankParam = None
     dpi: int = Field(default=200, ge=50, le=600, strict=True)
     searchable_pdf: bool = Field(default=False, strict=True)
+    keep_text_position: bool = Field(default=True, strict=True)
 
     def normalize(self, engine: str) -> dict[str, Any]:
         """Validate actual values and return the same options used at admission."""
@@ -56,6 +58,8 @@ class OcrOptions(ActionParams):
             "dpi": options.dpi,
             "searchable_pdf": options.searchable_pdf,
         }
+        if is_generic_vlm_ocr_engine(engine):
+            normalized["keep_text_position"] = options.keep_text_position
         if options.language is not None:
             normalized["language"] = options.language
         return normalized

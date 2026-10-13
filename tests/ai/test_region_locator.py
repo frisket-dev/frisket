@@ -7,10 +7,17 @@ import math
 import pytest
 from PIL import Image
 
+from frisket.ai.vision.coordinates import (
+    CoordinateProfile,
+    coordinate_profile_for_model,
+    decode_bounding_box,
+    inference_image_size,
+)
 from frisket.ai.vision.region_locator import (
     ImageAsset,
     LocateRegionsRequest,
     RegionLocatorProfile,
+    _region_messages,
     decode_region_response,
     prepare_image_asset,
     profile_for_engine,
@@ -171,6 +178,114 @@ def test_prepare_image_asset_bounds_and_hashes_inference_copy() -> None:
     assert asset.sha256 == "sha256:" + hashlib.sha256(asset.data).hexdigest()
 
 
+def test_prepare_image_asset_can_preserve_ocr_resolution() -> None:
+    original = io.BytesIO()
+    Image.new("RGB", (2_000, 1_000), color="white").save(original, format="PNG")
+
+    asset = prepare_image_asset(
+        original.getvalue(), source_media_type="image/png", max_edge=None
+    )
+
+    assert (asset.width, asset.height) == (2_000, 1_000)
+    assert (asset.display_width, asset.display_height) == (2_000, 1_000)
+
+
+@pytest.mark.parametrize(
+    ("source_size", "expected_size"),
+    [
+        ((3_840, 2_160), (2_576, 1_449)),
+        ((2_160, 3_840), (1_449, 2_576)),
+        ((2_000, 1_500), (2_000, 1_500)),
+    ],
+)
+def test_claude_profile_declares_exact_provider_inference_frame(
+    source_size: tuple[int, int], expected_size: tuple[int, int]
+) -> None:
+    profile = profile_for_engine("anthropic/claude-sonnet-5")
+    assert profile is not None
+
+    assert (
+        inference_image_size(
+            profile,
+            width=source_size[0],
+            height=source_size[1],
+        )
+        == expected_size
+    )
+
+
+@pytest.mark.parametrize(
+    ("source_size", "expected_size"),
+    [
+        ((1_700, 2_200), (768, 994)),
+        ((3_000, 3_000), (768, 768)),
+    ],
+)
+def test_gpt5_tiled_profile_uses_its_documented_high_detail_frame(
+    source_size: tuple[int, int], expected_size: tuple[int, int]
+) -> None:
+    profile = coordinate_profile_for_model("openrouter/openai/gpt-5-mini")
+    assert profile is not None
+
+    assert (
+        inference_image_size(
+            profile,
+            width=source_size[0],
+            height=source_size[1],
+        )
+        == expected_size
+    )
+    assert profile.image_patch_size is None
+    assert profile.image_max_short_edge == 768
+
+    encoded = io.BytesIO()
+    Image.new("RGB", source_size, color="white").save(encoded, format="PNG")
+    asset = prepare_image_asset(
+        encoded.getvalue(),
+        source_media_type="image/png",
+        max_edge=None,
+        coordinate_profile=profile,
+    )
+    assert (asset.width, asset.height) == expected_size
+    assert (asset.display_width, asset.display_height) == source_size
+
+
+def test_gpt56_keeps_patch_budget_separate_from_gpt5_tiling() -> None:
+    profile = coordinate_profile_for_model("openai/gpt-5.6-sol")
+    assert profile is not None
+
+    assert inference_image_size(profile, width=1_700, height=2_200) == (1_385, 1_792)
+    assert profile.image_patch_size == 32
+    assert profile.image_max_short_edge is None
+
+
+def test_shared_coordinate_decoder_maps_inference_pixels_to_output_frame() -> None:
+    profile = CoordinateProfile(
+        profile_id="pixel-test-v1",
+        model_patterns=(),
+        bbox_field="bbox_pixels_xyxy",
+        coordinate_order="xyxy",
+        coordinate_space="pixel",
+        prompt_version="test-v1",
+        reasoning_policy=None,
+    )
+
+    decoded = decode_bounding_box(
+        profile,
+        [100, 50, 900, 450],
+        image_width=1_000,
+        image_height=500,
+    )
+
+    assert decoded is not None
+    assert decoded.pixel_quad(output_width=2_000, output_height=1_000) == [
+        [200.0, 100.0],
+        [1800.0, 100.0],
+        [1800.0, 900.0],
+        [200.0, 900.0],
+    ]
+
+
 def test_prepare_image_asset_rejects_animated_sources() -> None:
     animated = io.BytesIO()
     first = Image.new("RGB", (20, 10), color="white")
@@ -217,18 +332,43 @@ def test_region_request_identity_binds_prompt_schema_and_coordinate_profile() ->
     identity = region_request_identity(request)
 
     assert identity["profile"] == {
-        "profile_id": "gemini-3.6-flash-yxyx-1000-v1",
+        "profile_id": "gemini-family-yxyx-1000-v1",
         "bbox_field": "box_2d",
         "coordinate_order": "yxyx",
         "coordinate_space": "normalized_1000",
-        "prompt_version": "region-locate-gemini36-v1",
+        "prompt_version": "coordinates-gemini-yxyx-1000-v1",
         "reasoning_policy": None,
+        "image_max_edge": None,
+        "image_max_short_edge": None,
+        "image_patch_size": None,
+        "image_max_patches": None,
+        "image_detail": None,
         "supports_detail_schema": True,
     }
     assert "box_2d" in identity["prompt"]
     assert identity["response_schema"]["properties"]["matches"]["items"]["properties"][
         "box_2d"
     ]
+
+
+def test_region_request_uses_profile_image_detail() -> None:
+    profile = profile_for_engine("openai/gpt-5.6-sol")
+    assert profile is not None
+    request = LocateRegionsRequest(
+        engine_ref="openai/gpt-5.6-sol",
+        image=ImageAsset(
+            data=b"png bytes",
+            media_type="image/png",
+            width=1_000,
+            height=600,
+            sha256="sha256:fixture",
+        ),
+        query="find the title",
+    )
+
+    messages = _region_messages(profile, request)
+
+    assert messages[0]["content"][0]["detail"] == "high"
 
 
 @pytest.mark.parametrize(
@@ -330,6 +470,8 @@ def test_regions_are_sorted_in_canonical_page_order() -> None:
 
 def test_profile_selection_fails_closed_and_declares_reasoning_policy() -> None:
     assert profile_for_engine("openrouter/minimax/minimax-m3") is None
+    assert profile_for_engine("openrouter/anthropic/claude-sonnet-5") is None
+    assert profile_for_engine("openrouter/openai/gpt-6-luna") is None
     assert profile_for_engine("openrouter/unknown/model") is None
     assert profile_for_engine("openrouter/qwen/qwen3-vl-unqualified-instruct") is None
 

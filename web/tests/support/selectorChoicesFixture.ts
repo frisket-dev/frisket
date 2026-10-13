@@ -134,7 +134,16 @@ export async function chooseActionSelector(value: string) {
   const dialog = await openActionSelector();
   fireEvent.change(within(dialog).getByRole('searchbox', { name: /^Search / }), { target: { value } });
   const button = Array.from(dialog.querySelectorAll<HTMLButtonElement>('[data-engine-selector-choice]'))
-    .find((candidate) => candidate.textContent?.includes(value));
+    .find((candidate) => {
+      const choiceId = candidate.dataset.engineSelectorChoice;
+      if (choiceId) {
+        try {
+          const selection = JSON.parse(choiceId) as Partial<Selection>;
+          if (selection.engine === value || selection.model === value) return true;
+        } catch { /* Non-JSON choice ids may still match their exact label below. */ }
+      }
+      return candidate.querySelector('strong')?.textContent === value;
+    });
   if (!button) throw new Error(`No selector choice matching ${value}`);
   fireEvent.click(button);
 }

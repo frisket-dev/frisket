@@ -63,14 +63,16 @@ def _page_spans(entry, page_images, engine, *, prepared_selector=None):
     blocks = entry.get("blocks") or []
     image = page_images.get(str(page)) or {}
     positions = entry.get("positions") or {}
-    # Stored display PNGs may be capped; engine coordinates use the original raster.
-    width = image.get("source_width") or image.get("width") or positions.get("width")
+    # Adapter-reported dimensions describe the exact coordinate frame. Source
+    # headers can differ after EXIF orientation, and display PNGs may be capped.
+    width = positions.get("width") or image.get("source_width") or image.get("width")
     height = (
-        image.get("source_height") or image.get("height") or positions.get("height")
+        positions.get("height") or image.get("source_height") or image.get("height")
     )
-    text = " ".join(
+    block_text = " ".join(
         str(block.get("text") or "") for block in blocks if isinstance(block, dict)
     ).strip()
+    text = str(entry.get("text") or "").strip() or block_text
     yield {
         "span_kind": "page_range",
         "page_start": page,
@@ -187,8 +189,15 @@ def write_ocr_evidence(
         ):
             continue
         if prepared is None:
+            page_texts = {
+                int(entry["page_number"]): str(entry.get("text") or "")
+                for entry in read.get("pages") or []
+                if isinstance(entry, dict)
+                and type(entry.get("page_number")) is int
+                and entry["page_number"] > 0
+            }
             pages = [
-                entry
+                {**entry, "text": page_texts.get(int(entry["page"]), "")}
                 for entry in read.get("blocks") or []
                 if isinstance(entry, dict)
                 and type(entry.get("page")) is int
@@ -198,6 +207,7 @@ def write_ocr_evidence(
             pages = [
                 {
                     "page": int(pin.page_number),
+                    "text": prepared.text[pin.start : pin.end],
                     "blocks": (
                         pin.positions.get("blocks")
                         if isinstance(pin.positions, dict)

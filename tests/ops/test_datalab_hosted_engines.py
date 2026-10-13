@@ -1189,7 +1189,11 @@ def test_recipe_engines_ocr_llm_tier_consults_org_provider_keys(monkeypatch):
             "media.ocr", {}, project=None, org_provider_keys={"openai": "org-key"}
         )
     }
-    assert engines["openai/gpt-4.1-mini"]["available"] is True
+    openai_engines = [
+        row for engine, row in engines.items() if engine.startswith("openai/")
+    ]
+    assert openai_engines
+    assert all(row["available"] for row in openai_engines)
 
 
 def test_recipe_engines_translate_llm_tier_consults_org_provider_keys(monkeypatch):
@@ -1319,4 +1323,8 @@ def test_project_action_catalog_payload_threads_org_provider_keys(monkeypatch):
     )
     ocr_entry = next(a for a in payload["actions"] if a["kind"] == "media.ocr")
     engines = {e["id"]: e for e in ocr_entry["ui_hints"]["engines"]}
-    assert engines["openai/gpt-4.1-mini"]["available"] is True
+    openai_engines = [
+        row for engine, row in engines.items() if engine.startswith("openai/")
+    ]
+    assert openai_engines
+    assert all(row["available"] for row in openai_engines)

@@ -157,15 +157,50 @@ describe('typed OCR/transcription forms', () => {
     expect(estimateAction.mock.calls[0][0]).toMatchObject({ params: { source: 'clip', engine: 'parakeet-tdt' } });
   });
 
-  it.each(['media.ocr', 'media.transcribe'] as const)('preserves every served engine in %s', async (kind) => {
-    const { entry, onExecute } = form(kind);
+  it('preserves representative dedicated engines and one generic OCR model per provider', async () => {
+    const { entry, onExecute } = form('media.ocr');
+    const engines = entry.ui_hints.engines ?? [];
+    const requiredEngine = (label: string, predicate: (engine: EngineOption) => boolean) => {
+      const engine = engines.find(predicate);
+      expect(engine, `Missing OCR representative: ${label}`).toBeDefined();
+      return engine!;
+    };
+    const providerModels = new Map<string, EngineOption>();
+    for (const engine of engines) {
+      if (engine.ocr_options?.keep_text_position) {
+        const provider = engine.id.split('/', 1)[0];
+        if (!providerModels.has(provider)) providerModels.set(provider, engine);
+      }
+    }
+    expect(providerModels.size).toBeGreaterThan(0);
+
+    // Selection and authored-value handling is shared by every catalog row.
+    // Cover the dedicated execution classes, compound engine IDs, and one
+    // generic model for every served provider; catalog tests own roster parity.
+    const representatives = [
+      requiredEngine('local', (engine) => engine.id === 'rapidocr'),
+      requiredEngine('sidecar', (engine) => engine.id === 'dots.mocr'),
+      requiredEngine('hosted', (engine) => engine.id === 'datalab'),
+      requiredEngine('OpenDocRouter', (engine) => engine.id.startsWith('opendocrouter/')),
+      ...providerModels.values(),
+    ];
+    for (const engine of representatives) {
+      await choose(engine);
+      await waitFor(() => expect(selectorTrigger()).toHaveTextContent(engine.label));
+      await run();
+      expect(onExecute.mock.lastCall?.[0].params.engine).toBe(engine.id);
+    }
+  });
+
+  it('preserves every served transcription engine', async () => {
+    const { entry, onExecute } = form('media.transcribe');
     for (const engine of entry.ui_hints.engines ?? []) {
       await choose(engine);
       await waitFor(() => expect(selectorTrigger()).toHaveTextContent(engine.label));
       await run();
       expect(onExecute.mock.lastCall?.[0].params.engine).toBe(engine.id);
     }
-  }, 10_000);
+  });
 
   it('makes the engine choice before its language/options and output summary', async () => {
     const { entry } = form('media.transcribe');

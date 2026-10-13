@@ -344,6 +344,21 @@ def test_geometry_free_page_is_preserved_as_page_only_evidence(setup):
     )
 
 
+def test_geometry_free_page_preserves_actual_page_text(setup):
+    project, sheet, row_id, read, writes, run = setup
+    del sheet, row_id, writes
+    read["blocks"][0]["blocks"] = []
+    read["pages"] = [{"page_number": 1, "text": "Actual plain-text OCR"}]
+
+    assert run().status == "completed"
+    [span] = project.db.execute("SELECT * FROM source_spans").fetchall()
+    assert (span["span_kind"], span["snippet"], span["quote"]) == (
+        "page_range",
+        "Actual plain-text OCR",
+        None,
+    )
+
+
 @pytest.mark.parametrize("failure", ["mismatch", "empty", "stale_writer"])
 def test_unpublished_grounding_does_not_register_page_blobs(setup, failure):
     project, sheet, row_id, read, writes, run = setup

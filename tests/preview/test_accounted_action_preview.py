@@ -240,7 +240,13 @@ def test_real_ocr_preview_retains_returned_capability_facts(
             raise ValueError("provider returned before decoding failed")
         if terminal == "fatal":
             raise SandboxTeardownError("owned process teardown failed")
-        return [{"text": "Paid OCR sample", "blocks": []}]
+        from PIL import Image
+
+        with Image.open(pages[0]) as image:
+            width, height = image.size
+        return [
+            {"text": "Paid OCR sample", "blocks": [], "width": width, "height": height}
+        ]
 
     monkeypatch.setattr(OcrEngines, "run_engine_on_pages", recognize)
     runner = _runner(project, _Adapter())
