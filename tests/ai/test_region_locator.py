@@ -9,6 +9,7 @@ from PIL import Image
 
 from frisket.ai.vision.coordinates import (
     CoordinateProfile,
+    coordinate_profile_for_model,
     decode_bounding_box,
     inference_image_size,
 )
@@ -213,6 +214,51 @@ def test_claude_profile_declares_exact_provider_inference_frame(
     )
 
 
+@pytest.mark.parametrize(
+    ("source_size", "expected_size"),
+    [
+        ((1_700, 2_200), (768, 994)),
+        ((3_000, 3_000), (768, 768)),
+    ],
+)
+def test_gpt5_tiled_profile_uses_its_documented_high_detail_frame(
+    source_size: tuple[int, int], expected_size: tuple[int, int]
+) -> None:
+    profile = coordinate_profile_for_model("openrouter/openai/gpt-5-mini")
+    assert profile is not None
+
+    assert (
+        inference_image_size(
+            profile,
+            width=source_size[0],
+            height=source_size[1],
+        )
+        == expected_size
+    )
+    assert profile.image_patch_size is None
+    assert profile.image_max_short_edge == 768
+
+    encoded = io.BytesIO()
+    Image.new("RGB", source_size, color="white").save(encoded, format="PNG")
+    asset = prepare_image_asset(
+        encoded.getvalue(),
+        source_media_type="image/png",
+        max_edge=None,
+        coordinate_profile=profile,
+    )
+    assert (asset.width, asset.height) == expected_size
+    assert (asset.display_width, asset.display_height) == source_size
+
+
+def test_gpt56_keeps_patch_budget_separate_from_gpt5_tiling() -> None:
+    profile = coordinate_profile_for_model("openai/gpt-5.6-sol")
+    assert profile is not None
+
+    assert inference_image_size(profile, width=1_700, height=2_200) == (1_385, 1_792)
+    assert profile.image_patch_size == 32
+    assert profile.image_max_short_edge is None
+
+
 def test_shared_coordinate_decoder_maps_inference_pixels_to_output_frame() -> None:
     profile = CoordinateProfile(
         profile_id="pixel-test-v1",
@@ -293,6 +339,7 @@ def test_region_request_identity_binds_prompt_schema_and_coordinate_profile() ->
         "prompt_version": "coordinates-gemini-yxyx-1000-v1",
         "reasoning_policy": None,
         "image_max_edge": None,
+        "image_max_short_edge": None,
         "image_patch_size": None,
         "image_max_patches": None,
         "image_detail": None,

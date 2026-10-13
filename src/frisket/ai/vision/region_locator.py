@@ -325,6 +325,7 @@ def region_request_identity(request: LocateRegionsRequest) -> dict[str, Any]:
             "prompt_version": profile.prompt_version,
             "reasoning_policy": profile.reasoning_policy,
             "image_max_edge": profile.image_max_edge,
+            "image_max_short_edge": profile.image_max_short_edge,
             "image_patch_size": profile.image_patch_size,
             "image_max_patches": profile.image_max_patches,
             "image_detail": profile.image_detail,

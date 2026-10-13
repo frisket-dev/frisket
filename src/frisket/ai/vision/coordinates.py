@@ -31,6 +31,7 @@ class CoordinateProfile:
     prompt_version: str
     reasoning_policy: ReasoningPolicy | None
     image_max_edge: int | None = None
+    image_max_short_edge: int | None = None
     image_patch_size: int | None = None
     image_max_patches: int | None = None
     image_detail: ImageDetail | None = None
@@ -38,6 +39,8 @@ class CoordinateProfile:
     def __post_init__(self) -> None:
         if self.image_max_edge is not None and self.image_max_edge < 1:
             raise ValueError("image_max_edge must be positive")
+        if self.image_max_short_edge is not None and self.image_max_short_edge < 1:
+            raise ValueError("image_max_short_edge must be positive")
         if (self.image_patch_size is None) != (self.image_max_patches is None):
             raise ValueError(
                 "image_patch_size and image_max_patches must be declared together"
@@ -102,15 +105,29 @@ CLAUDE_HIGH_RES_COORDINATE_PROFILE = CoordinateProfile(
 )
 
 OPENAI_GPT5_COORDINATE_PROFILE = CoordinateProfile(
-    profile_id="openai-gpt5-xyxy-pixel-high-v1",
+    profile_id="openai-gpt5-tiled-xyxy-pixel-high-v1",
     model_patterns=(
         "openai/gpt-5",
         "openai/gpt-5-mini",
+        "openrouter/openai/gpt-5",
+        "openrouter/openai/gpt-5-mini",
+    ),
+    bbox_field="bbox_pixels_xyxy",
+    coordinate_order="xyxy",
+    coordinate_space="pixel",
+    prompt_version="coordinates-openai-gpt5-pixel-high-v1",
+    reasoning_policy=None,
+    image_max_edge=2_048,
+    image_max_short_edge=768,
+    image_detail="high",
+)
+
+OPENAI_GPT56_COORDINATE_PROFILE = CoordinateProfile(
+    profile_id="openai-gpt5.6-xyxy-pixel-high-v1",
+    model_patterns=(
         "openai/gpt-5.6-luna",
         "openai/gpt-5.6-terra",
         "openai/gpt-5.6-sol",
-        "openrouter/openai/gpt-5",
-        "openrouter/openai/gpt-5-mini",
         "openrouter/openai/gpt-5.6-luna",
         "openrouter/openai/gpt-5.6-terra",
         "openrouter/openai/gpt-5.6-sol",
@@ -147,6 +164,7 @@ OPENAI_GPT6_COORDINATE_PROFILE = CoordinateProfile(
 
 _EXACT_COORDINATE_PROFILES: tuple[CoordinateProfile, ...] = (
     OPENAI_GPT5_COORDINATE_PROFILE,
+    OPENAI_GPT56_COORDINATE_PROFILE,
     OPENAI_GPT6_COORDINATE_PROFILE,
     CoordinateProfile(
         profile_id="glm-5.3-flash-yxyx-1000-v1",
@@ -274,18 +292,18 @@ def inference_image_size(
 ) -> tuple[int, int]:
     """Return the largest aspect-preserving size inside provider limits.
 
-    Patch-based providers measure the padded inference tensor rather than the
-    unpadded image. The binary search matches that discrete contract exactly,
-    so a caller can resize before upload and interpret pixel coordinates in the
-    dimensions actually sent to the model.
+    The binary search handles both padded patch budgets and tiled-model edge
+    limits exactly, so callers can resize before upload and interpret pixel
+    coordinates in the dimensions actually sent to the model.
     """
 
     if width < 1 or height < 1:
         raise ValueError("image dimensions must be positive")
     max_edge = profile.image_max_edge
+    max_short_edge = profile.image_max_short_edge
     patch_size = profile.image_patch_size
     max_patches = profile.image_max_patches
-    if max_edge is None and max_patches is None:
+    if max_edge is None and max_short_edge is None and max_patches is None:
         return width, height
 
     def padded(value: int) -> int:
@@ -297,6 +315,11 @@ def inference_image_size(
         padded_width = padded(candidate_width)
         padded_height = padded(candidate_height)
         if max_edge is not None and max(padded_width, padded_height) > max_edge:
+            return False
+        if (
+            max_short_edge is not None
+            and min(candidate_width, candidate_height) > max_short_edge
+        ):
             return False
         if max_patches is not None:
             assert patch_size is not None
