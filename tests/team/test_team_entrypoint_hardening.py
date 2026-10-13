@@ -1050,8 +1050,10 @@ def test_production_asgi_entrypoint_requires_run_queue_locator(
     --factory target) must fail fast without an explicit run-queue locator
     -- a team app whose queue no worker drains is a broken topology for
     every queued job kind, pull flag or not."""
+    from frisket.ai.llm import pricing_refresh
     from frisket.team.app import create_team_app_from_env
 
+    monkeypatch.setattr(pricing_refresh, "start_pricing_refresh", lambda: None)
     monkeypatch.delenv("FRISKET_RUN_QUEUE_DATABASE_URL", raising=False)
     monkeypatch.delenv("FRISKET_ENABLE_MODEL_PULL", raising=False)
     monkeypatch.setenv("FRISKET_TEAM_DATABASE_URL", f"sqlite:///{tmp_path}/t.db")
