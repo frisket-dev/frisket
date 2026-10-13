@@ -50,19 +50,34 @@ def _stub_completion(
     [
         (
             "openrouter/anthropic/claude-sonnet-5",
-            "claude-sonnet-5-xyxy-pixel-v1",
+            "claude-family-xyxy-pixel-high-v1",
         ),
-        ("openrouter/openai/gpt-6-luna", "openai-gpt6-ocr-xyxy-pixel-v1"),
-        ("openrouter/openai/gpt-6.1-sol", "openai-gpt6-ocr-xyxy-pixel-v1"),
+        (
+            "anthropic/claude-haiku-4-5",
+            "claude-family-xyxy-pixel-standard-v1",
+        ),
+        ("gemini/gemini-2.5-flash", "gemini-family-yxyx-1000-v1"),
+        (
+            "openrouter/google/gemini-3.6-flash",
+            "gemini-family-yxyx-1000-v1",
+        ),
+        ("openrouter/openai/gpt-6-luna", "openai-gpt6-xyxy-pixel-high-v1"),
+        ("openrouter/openai/gpt-6.1-sol", "openai-gpt6-xyxy-pixel-high-v1"),
     ],
 )
-def test_positioned_ocr_selects_ocr_only_native_profiles(
+def test_positioned_ocr_selects_documented_families_and_exact_overrides(
     model: str, profile_id: str
 ) -> None:
     profile = ocr_coordinate_profile(model)
 
     assert profile.profile_id == profile_id
-    assert profile.bbox_field == "bbox_pixels_xyxy"
+
+
+def test_positioned_ocr_does_not_guess_provider_from_model_substrings() -> None:
+    profile = ocr_coordinate_profile("openrouter/example/gemini-claude-mix")
+
+    assert profile.profile_id == "generic-xyxy-1000-v1"
+    assert profile.bbox_field == "bbox_xyxy_1000"
 
 
 @pytest.mark.asyncio
@@ -112,6 +127,8 @@ async def test_positioned_ocr_uses_generic_contract_and_preserves_line_order(
                     ],
                 },
             ],
+            "width": 200,
+            "height": 100,
         }
     ]
     request = requests[0]
@@ -148,6 +165,48 @@ async def test_positioned_ocr_uses_known_yxyx_profile(
         [200.0, 300.0],
     ]
     assert "box_2d" in requests[0].schema["properties"]["lines"]["items"]["properties"]
+
+
+@pytest.mark.asyncio
+async def test_positioned_ocr_reports_exif_display_coordinate_frame(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    page = tmp_path / "rotated.jpg"
+    exif = Image.Exif()
+    exif[274] = 6
+    Image.new("RGB", (40, 20), color="white").save(page, format="JPEG", exif=exif)
+    _stub_completion(
+        monkeypatch,
+        {"lines": [{"text": "rotated", "bbox_xyxy_1000": [0, 0, 1000, 1000]}]},
+    )
+
+    result = await ocr_vlm(
+        "mock/vision",
+        [page],
+        OpContext(http=None, extras={"router": object()}),
+        _usage(),
+        recipe_version="test-v1",
+    )
+
+    assert result == [
+        {
+            "text": "rotated",
+            "blocks": [
+                {
+                    "text": "rotated",
+                    "bbox": [
+                        [0.0, 0.0],
+                        [20.0, 0.0],
+                        [20.0, 40.0],
+                        [0.0, 40.0],
+                    ],
+                }
+            ],
+            "width": 20,
+            "height": 40,
+        }
+    ]
 
 
 @pytest.mark.asyncio
@@ -236,3 +295,89 @@ async def test_minimax_positioned_resize_maps_back_to_original_page(
     image_part = request.messages[-1]["content"][1]
     with Image.open(io.BytesIO(base64.b64decode(image_part["data"]))) as image:
         assert max(image.size) == 3_584
+
+
+@pytest.mark.asyncio
+async def test_openai_positioned_ocr_requests_tested_high_detail(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests, _ = _stub_completion(
+        monkeypatch,
+        {
+            "lines": [
+                {
+                    "text": "page line",
+                    "bbox_pixels_xyxy": [0, 0, 100, 50],
+                }
+            ]
+        },
+    )
+
+    await ocr_vlm(
+        "openrouter/openai/gpt-6.1-sol",
+        [_page(tmp_path)],
+        OpContext(http=None, extras={"router": object()}),
+        _usage(),
+        recipe_version="test-v1",
+    )
+
+    image_part = requests[0].messages[-1]["content"][0]
+    assert image_part["detail"] == "high"
+
+
+@pytest.mark.parametrize(
+    ("source_size", "inference_size"),
+    [
+        ((1_700, 2_200), (1_688, 2_184)),
+        ((2_200, 1_700), (2_184, 1_688)),
+    ],
+)
+@pytest.mark.asyncio
+async def test_claude_positioned_resize_maps_inference_pixels_to_original_page(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    source_size: tuple[int, int],
+    inference_size: tuple[int, int],
+) -> None:
+    inference_width, inference_height = inference_size
+    requests, _ = _stub_completion(
+        monkeypatch,
+        {
+            "lines": [
+                {
+                    "text": "page line",
+                    "bbox_pixels_xyxy": [
+                        0,
+                        0,
+                        inference_width / 2,
+                        inference_height / 2,
+                    ],
+                }
+            ]
+        },
+    )
+
+    result = await ocr_vlm(
+        "openrouter/anthropic/claude-sonnet-5",
+        [_page(tmp_path, size=source_size)],
+        OpContext(http=None, extras={"router": object()}),
+        _usage(),
+        recipe_version="test-v1",
+    )
+
+    source_width, source_height = source_size
+    assert result[0]["blocks"][0]["bbox"] == [
+        [0.0, 0.0],
+        [source_width / 2, 0.0],
+        [source_width / 2, source_height / 2],
+        [0.0, source_height / 2],
+    ]
+    request = requests[0]
+    assert (
+        f"{inference_width} by {inference_height} pixels"
+        in request.messages[-1]["content"][-1]["text"]
+    )
+    image_part = request.messages[-1]["content"][0]
+    with Image.open(io.BytesIO(base64.b64decode(image_part["data"]))) as image:
+        assert image.size == inference_size

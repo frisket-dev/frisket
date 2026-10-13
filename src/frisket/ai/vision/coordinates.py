@@ -16,6 +16,7 @@ from frisket.ai.llm.types import ReasoningPolicy
 
 CoordinateOrder = Literal["xyxy", "yxyx"]
 CoordinateSpace = Literal["pixel", "normalized", "normalized_1000"]
+ImageDetail = Literal["auto", "low", "high", "original"]
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,201 @@ class CoordinateProfile:
     coordinate_space: CoordinateSpace
     prompt_version: str
     reasoning_policy: ReasoningPolicy | None
+    image_max_edge: int | None = None
+    image_patch_size: int | None = None
+    image_max_patches: int | None = None
+    image_detail: ImageDetail | None = None
+
+    def __post_init__(self) -> None:
+        if self.image_max_edge is not None and self.image_max_edge < 1:
+            raise ValueError("image_max_edge must be positive")
+        if (self.image_patch_size is None) != (self.image_max_patches is None):
+            raise ValueError(
+                "image_patch_size and image_max_patches must be declared together"
+            )
+        if self.image_patch_size is not None and self.image_patch_size < 1:
+            raise ValueError("image_patch_size must be positive")
+        if self.image_max_patches is not None and self.image_max_patches < 1:
+            raise ValueError("image_max_patches must be positive")
+
+
+GENERIC_COORDINATE_PROFILE = CoordinateProfile(
+    profile_id="generic-xyxy-1000-v1",
+    model_patterns=(),
+    bbox_field="bbox_xyxy_1000",
+    coordinate_order="xyxy",
+    coordinate_space="normalized_1000",
+    prompt_version="coordinates-generic-xyxy-1000-v1",
+    reasoning_policy=None,
+)
+
+GEMINI_COORDINATE_PROFILE = CoordinateProfile(
+    profile_id="gemini-family-yxyx-1000-v1",
+    model_patterns=("gemini/gemini-*", "openrouter/google/gemini-*"),
+    bbox_field="box_2d",
+    coordinate_order="yxyx",
+    coordinate_space="normalized_1000",
+    prompt_version="coordinates-gemini-yxyx-1000-v1",
+    reasoning_policy=None,
+)
+
+CLAUDE_STANDARD_COORDINATE_PROFILE = CoordinateProfile(
+    profile_id="claude-family-xyxy-pixel-standard-v1",
+    model_patterns=("anthropic/claude-*", "openrouter/anthropic/claude-*"),
+    bbox_field="bbox_pixels_xyxy",
+    coordinate_order="xyxy",
+    coordinate_space="pixel",
+    prompt_version="coordinates-claude-pixel-v1",
+    reasoning_policy=None,
+    image_max_edge=1_568,
+    image_patch_size=28,
+    image_max_patches=1_568,
+)
+
+CLAUDE_HIGH_RES_COORDINATE_PROFILE = CoordinateProfile(
+    profile_id="claude-family-xyxy-pixel-high-v1",
+    model_patterns=(
+        "anthropic/claude-sonnet-5*",
+        "anthropic/claude-fable-5*",
+        "anthropic/claude-opus-4.8*",
+        "openrouter/anthropic/claude-sonnet-5*",
+        "openrouter/anthropic/claude-fable-5*",
+        "openrouter/anthropic/claude-opus-4.8*",
+    ),
+    bbox_field="bbox_pixels_xyxy",
+    coordinate_order="xyxy",
+    coordinate_space="pixel",
+    prompt_version="coordinates-claude-pixel-v1",
+    reasoning_policy=None,
+    image_max_edge=2_576,
+    image_patch_size=28,
+    image_max_patches=4_784,
+)
+
+OPENAI_GPT5_COORDINATE_PROFILE = CoordinateProfile(
+    profile_id="openai-gpt5-xyxy-pixel-high-v1",
+    model_patterns=(
+        "openai/gpt-5",
+        "openai/gpt-5-mini",
+        "openai/gpt-5.6-luna",
+        "openai/gpt-5.6-terra",
+        "openai/gpt-5.6-sol",
+        "openrouter/openai/gpt-5",
+        "openrouter/openai/gpt-5-mini",
+        "openrouter/openai/gpt-5.6-luna",
+        "openrouter/openai/gpt-5.6-terra",
+        "openrouter/openai/gpt-5.6-sol",
+    ),
+    bbox_field="bbox_pixels_xyxy",
+    coordinate_order="xyxy",
+    coordinate_space="pixel",
+    prompt_version="coordinates-openai-gpt5-pixel-high-v1",
+    reasoning_policy=None,
+    image_max_edge=2_048,
+    image_patch_size=32,
+    image_max_patches=2_500,
+    image_detail="high",
+)
+
+OPENAI_GPT6_COORDINATE_PROFILE = CoordinateProfile(
+    profile_id="openai-gpt6-xyxy-pixel-high-v1",
+    model_patterns=(
+        "openai/gpt-6-luna",
+        "openai/gpt-6.1-sol",
+        "openrouter/openai/gpt-6-luna",
+        "openrouter/openai/gpt-6.1-sol",
+    ),
+    bbox_field="bbox_pixels_xyxy",
+    coordinate_order="xyxy",
+    coordinate_space="pixel",
+    prompt_version="coordinates-openai-gpt6-pixel-high-v1",
+    reasoning_policy=None,
+    image_max_edge=2_048,
+    image_patch_size=32,
+    image_max_patches=2_500,
+    image_detail="high",
+)
+
+_EXACT_COORDINATE_PROFILES: tuple[CoordinateProfile, ...] = (
+    OPENAI_GPT5_COORDINATE_PROFILE,
+    OPENAI_GPT6_COORDINATE_PROFILE,
+    CoordinateProfile(
+        profile_id="glm-5.3-flash-yxyx-1000-v1",
+        model_patterns=("openrouter/z-ai/glm-5.3-flash",),
+        bbox_field="box_2d",
+        coordinate_order="yxyx",
+        coordinate_space="normalized_1000",
+        prompt_version="coordinates-glm53-yxyx-1000-v1",
+        reasoning_policy="low_exclude",
+    ),
+    CoordinateProfile(
+        profile_id="kimi-k3-xyxy-normalized-v1",
+        model_patterns=("openrouter/moonshotai/kimi-k3",),
+        bbox_field="bbox_normalized_xyxy",
+        coordinate_order="xyxy",
+        coordinate_space="normalized",
+        prompt_version="coordinates-kimi-k3-xyxy-normalized-v1",
+        reasoning_policy="disabled",
+    ),
+    CoordinateProfile(
+        profile_id="mimo-v2.5-yxyx-normalized-v1",
+        model_patterns=("openrouter/xiaomi/mimo-v2.5",),
+        bbox_field="bbox_normalized_yxyx",
+        coordinate_order="yxyx",
+        coordinate_space="normalized",
+        prompt_version="coordinates-mimo-v25-yxyx-normalized-v1",
+        reasoning_policy="disabled",
+    ),
+    CoordinateProfile(
+        profile_id="qwen3-vl-xyxy-1000-v1",
+        model_patterns=(
+            "openrouter/qwen/qwen3-vl-8b-instruct",
+            "openrouter/qwen/qwen3-vl-32b-instruct",
+        ),
+        bbox_field="bbox_2d",
+        coordinate_order="xyxy",
+        coordinate_space="normalized_1000",
+        prompt_version="coordinates-qwen3vl-xyxy-1000-v1",
+        reasoning_policy="disabled",
+    ),
+)
+
+
+def coordinate_profile_for_model(model_ref: str) -> CoordinateProfile | None:
+    """Select documented family facts or an exact checked-in override.
+
+    OpenRouter is a transport prefix. Its next path component identifies the
+    upstream model vendor; parsing those components avoids guessing a family
+    from a model substring.
+    """
+
+    normalized = model_ref.strip().lower()
+    parts = normalized.split("/")
+    if len(parts) < 2:
+        return None
+    if parts[0] == "openrouter":
+        if len(parts) < 3:
+            return None
+        provider, model_name = parts[1], "/".join(parts[2:])
+    else:
+        provider, model_name = parts[0], "/".join(parts[1:])
+
+    if provider in {"gemini", "google"} and model_name.startswith("gemini-"):
+        return GEMINI_COORDINATE_PROFILE
+    if provider == "anthropic" and model_name.startswith("claude-"):
+        high_resolution_prefixes = (
+            "claude-sonnet-5",
+            "claude-fable-5",
+            "claude-opus-4.8",
+            "claude-opus-4-8",
+        )
+        if model_name.startswith(high_resolution_prefixes):
+            return CLAUDE_HIGH_RES_COORDINATE_PROFILE
+        return CLAUDE_STANDARD_COORDINATE_PROFILE
+    for profile in _EXACT_COORDINATE_PROFILES:
+        if normalized in profile.model_patterns:
+            return profile
+    return None
 
 
 @dataclass(frozen=True)
@@ -68,6 +264,69 @@ class DecodedBoundingBox:
         px1 = x1 * output_width
         py1 = y1 * output_height
         return [[px0, py0], [px1, py0], [px1, py1], [px0, py1]]
+
+
+def inference_image_size(
+    profile: CoordinateProfile,
+    *,
+    width: int,
+    height: int,
+) -> tuple[int, int]:
+    """Return the largest aspect-preserving size inside provider limits.
+
+    Patch-based providers measure the padded inference tensor rather than the
+    unpadded image. The binary search matches that discrete contract exactly,
+    so a caller can resize before upload and interpret pixel coordinates in the
+    dimensions actually sent to the model.
+    """
+
+    if width < 1 or height < 1:
+        raise ValueError("image dimensions must be positive")
+    max_edge = profile.image_max_edge
+    patch_size = profile.image_patch_size
+    max_patches = profile.image_max_patches
+    if max_edge is None and max_patches is None:
+        return width, height
+
+    def padded(value: int) -> int:
+        if patch_size is None:
+            return value
+        return math.ceil(value / patch_size) * patch_size
+
+    def fits(candidate_width: int, candidate_height: int) -> bool:
+        padded_width = padded(candidate_width)
+        padded_height = padded(candidate_height)
+        if max_edge is not None and max(padded_width, padded_height) > max_edge:
+            return False
+        if max_patches is not None:
+            assert patch_size is not None
+            patch_count = math.ceil(candidate_width / patch_size) * math.ceil(
+                candidate_height / patch_size
+            )
+            if patch_count > max_patches:
+                return False
+        return True
+
+    if fits(width, height):
+        return width, height
+    if height > width:
+        resized_height, resized_width = inference_image_size(
+            profile,
+            width=height,
+            height=width,
+        )
+        return resized_width, resized_height
+
+    aspect_ratio = width / height
+    lower, upper = 1, width
+    while lower + 1 < upper:
+        candidate_width = (lower + upper) // 2
+        candidate_height = max(round(candidate_width / aspect_ratio), 1)
+        if fits(candidate_width, candidate_height):
+            lower = candidate_width
+        else:
+            upper = candidate_width
+    return lower, max(round(lower / aspect_ratio), 1)
 
 
 def coordinate_instruction(profile: CoordinateProfile) -> str:

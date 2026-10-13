@@ -532,12 +532,17 @@ class OpenAICompatAdapter:
                 parts.append({"type": "text", "text": p["text"]})
             elif p.get("type") == "image":
                 data_url = f"data:{p['media_type']};base64,{p['data']}"
+                image_url: str | dict[str, Any]
+                if self.image_url_as_string:
+                    image_url = data_url
+                else:
+                    image_url = {"url": data_url}
+                    if p.get("detail") is not None:
+                        image_url["detail"] = p["detail"]
                 parts.append(
                     {
                         "type": "image_url",
-                        "image_url": (
-                            data_url if self.image_url_as_string else {"url": data_url}
-                        ),
+                        "image_url": image_url,
                     }
                 )
         return parts

@@ -24,8 +24,10 @@ from PIL import Image, ImageOps
 from frisket.ai.llm.structured import StructuredCompleter, StructuredRequest
 from frisket.ai.vision.coordinates import (
     CoordinateProfile,
+    coordinate_profile_for_model,
     coordinate_instruction,
     decode_bounding_box,
+    inference_image_size,
 )
 
 
@@ -134,6 +136,7 @@ def prepare_image_asset(
     *,
     source_media_type: str,
     max_edge: int | None = 1024,
+    coordinate_profile: CoordinateProfile | None = None,
 ) -> ImageAsset:
     """Decode and deterministically bound an image for locator inference.
 
@@ -163,6 +166,14 @@ def prepare_image_asset(
             inference = display.convert("RGB")
         if max_edge is not None:
             inference.thumbnail((max_edge, max_edge), Image.Resampling.LANCZOS)
+        if coordinate_profile is not None:
+            target_size = inference_image_size(
+                coordinate_profile,
+                width=inference.width,
+                height=inference.height,
+            )
+            if target_size != inference.size:
+                inference = inference.resize(target_size, Image.Resampling.LANCZOS)
         encoded = io.BytesIO()
         inference.save(encoded, format="PNG", optimize=False, compress_level=6)
     payload = encoded.getvalue()
@@ -177,84 +188,21 @@ def prepare_image_asset(
     )
 
 
-# These prompt profiles are qualified by current model documentation where it
-# exists and by bounded OpenRouter probes on a non-square image.  A profile is
-# deliberately exact/fail-closed; an unknown model is not assumed to inherit a
-# coordinate convention merely because its output looks numerically plausible.
-_HOSTED_VLM_PROFILES: tuple[RegionLocatorProfile, ...] = (
-    RegionLocatorProfile(
-        profile_id="claude-sonnet-5-xyxy-pixel-v1",
-        model_patterns=("anthropic/claude-sonnet-5",),
-        bbox_field="bbox_pixels_xyxy",
-        coordinate_order="xyxy",
-        coordinate_space="pixel",
-        prompt_version="region-locate-claude-sonnet5-v1",
-        reasoning_policy=None,
-    ),
-    RegionLocatorProfile(
-        profile_id="openai-gpt5-xyxy-pixel-v1",
-        model_patterns=(
-            "openai/gpt-5",
-            "openai/gpt-5-mini",
-            "openai/gpt-5.6-luna",
-            "openai/gpt-5.6-terra",
-            "openai/gpt-5.6-sol",
-        ),
-        bbox_field="bbox_pixels_xyxy",
-        coordinate_order="xyxy",
-        coordinate_space="pixel",
-        prompt_version="region-locate-openai-gpt5-v1",
-        reasoning_policy=None,
-    ),
-    RegionLocatorProfile(
-        profile_id="gemini-3.6-flash-yxyx-1000-v1",
-        model_patterns=("gemini/gemini-3.6-flash",),
-        bbox_field="box_2d",
-        coordinate_order="yxyx",
-        coordinate_space="normalized_1000",
-        prompt_version="region-locate-gemini36-v1",
-        reasoning_policy=None,
-    ),
-    RegionLocatorProfile(
-        profile_id="glm-5.3-flash-yxyx-1000-v1",
-        model_patterns=("openrouter/z-ai/glm-5.3-flash",),
-        bbox_field="box_2d",
-        coordinate_order="yxyx",
-        coordinate_space="normalized_1000",
-        prompt_version="region-locate-glm53-v1",
-        # Some OpenRouter routes reject disabled reasoning for this model.
-        reasoning_policy="low_exclude",
-    ),
-    RegionLocatorProfile(
-        profile_id="kimi-k3-xyxy-normalized-v1",
-        model_patterns=("openrouter/moonshotai/kimi-k3",),
-        bbox_field="bbox_normalized_xyxy",
-        coordinate_order="xyxy",
-        coordinate_space="normalized",
-        prompt_version="region-locate-kimi-k3-v1",
-        reasoning_policy="disabled",
-    ),
-    RegionLocatorProfile(
-        profile_id="mimo-v2.5-yxyx-normalized-v1",
-        model_patterns=("openrouter/xiaomi/mimo-v2.5",),
-        bbox_field="bbox_normalized_yxyx",
-        coordinate_order="yxyx",
-        coordinate_space="normalized",
-        prompt_version="region-locate-mimo-v25-v1",
-        reasoning_policy="disabled",
-    ),
-    RegionLocatorProfile(
-        profile_id="qwen3-vl-xyxy-1000-v1",
-        model_patterns=(
-            "openrouter/qwen/qwen3-vl-8b-instruct",
-            "openrouter/qwen/qwen3-vl-32b-instruct",
-        ),
-        bbox_field="bbox_2d",
-        coordinate_order="xyxy",
-        coordinate_space="normalized_1000",
-        prompt_version="region-locate-qwen3vl-v1",
-        reasoning_policy="disabled",
-    ),
+_FIND_SUPPORTED_MODELS = frozenset(
+    {
+        "anthropic/claude-sonnet-5",
+        "openai/gpt-5",
+        "openai/gpt-5-mini",
+        "openai/gpt-5.6-luna",
+        "openai/gpt-5.6-terra",
+        "openai/gpt-5.6-sol",
+        "gemini/gemini-3.6-flash",
+        "openrouter/z-ai/glm-5.3-flash",
+        "openrouter/moonshotai/kimi-k3",
+        "openrouter/xiaomi/mimo-v2.5",
+        "openrouter/qwen/qwen3-vl-8b-instruct",
+        "openrouter/qwen/qwen3-vl-32b-instruct",
+    }
 )
 
 
@@ -262,10 +210,12 @@ def profile_for_engine(engine_ref: str) -> RegionLocatorProfile | None:
     """Return the explicit tested profile for ``engine_ref``, or fail closed."""
 
     normalized = engine_ref.strip().lower()
-    for profile in _HOSTED_VLM_PROFILES:
-        if normalized in {pattern.lower() for pattern in profile.model_patterns}:
-            return profile
-    return None
+    if normalized not in _FIND_SUPPORTED_MODELS:
+        return None
+    profile = coordinate_profile_for_model(normalized)
+    if profile is None:
+        raise AssertionError(f"Find model {normalized!r} has no coordinate profile")
+    return RegionLocatorProfile(**vars(profile))
 
 
 def _details_schema(schema: dict[str, Any] | None) -> dict[str, Any]:
@@ -337,17 +287,20 @@ def _region_messages(
     request: LocateRegionsRequest,
 ) -> list[dict[str, Any]]:
     encoded = base64.b64encode(request.image.data).decode("ascii")
+    image_part = {
+        "type": "image",
+        "media_type": request.image.media_type,
+        "data": encoded,
+    }
+    if profile.image_detail is not None:
+        image_part["detail"] = profile.image_detail
     # Image first and no system role works across the qualified hosted models,
     # including GLM's OpenRouter contract.
     return [
         {
             "role": "user",
             "content": [
-                {
-                    "type": "image",
-                    "media_type": request.image.media_type,
-                    "data": encoded,
-                },
+                image_part,
                 {"type": "text", "text": _region_prompt(profile, request)},
             ],
         }
@@ -371,6 +324,10 @@ def region_request_identity(request: LocateRegionsRequest) -> dict[str, Any]:
             "coordinate_space": profile.coordinate_space,
             "prompt_version": profile.prompt_version,
             "reasoning_policy": profile.reasoning_policy,
+            "image_max_edge": profile.image_max_edge,
+            "image_patch_size": profile.image_patch_size,
+            "image_max_patches": profile.image_max_patches,
+            "image_detail": profile.image_detail,
             "supports_detail_schema": profile.supports_detail_schema,
         },
         "prompt": _region_prompt(profile, request),

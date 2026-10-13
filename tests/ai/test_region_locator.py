@@ -7,11 +7,16 @@ import math
 import pytest
 from PIL import Image
 
-from frisket.ai.vision.coordinates import CoordinateProfile, decode_bounding_box
+from frisket.ai.vision.coordinates import (
+    CoordinateProfile,
+    decode_bounding_box,
+    inference_image_size,
+)
 from frisket.ai.vision.region_locator import (
     ImageAsset,
     LocateRegionsRequest,
     RegionLocatorProfile,
+    _region_messages,
     decode_region_response,
     prepare_image_asset,
     profile_for_engine,
@@ -184,6 +189,30 @@ def test_prepare_image_asset_can_preserve_ocr_resolution() -> None:
     assert (asset.display_width, asset.display_height) == (2_000, 1_000)
 
 
+@pytest.mark.parametrize(
+    ("source_size", "expected_size"),
+    [
+        ((3_840, 2_160), (2_576, 1_449)),
+        ((2_160, 3_840), (1_449, 2_576)),
+        ((2_000, 1_500), (2_000, 1_500)),
+    ],
+)
+def test_claude_profile_declares_exact_provider_inference_frame(
+    source_size: tuple[int, int], expected_size: tuple[int, int]
+) -> None:
+    profile = profile_for_engine("anthropic/claude-sonnet-5")
+    assert profile is not None
+
+    assert (
+        inference_image_size(
+            profile,
+            width=source_size[0],
+            height=source_size[1],
+        )
+        == expected_size
+    )
+
+
 def test_shared_coordinate_decoder_maps_inference_pixels_to_output_frame() -> None:
     profile = CoordinateProfile(
         profile_id="pixel-test-v1",
@@ -257,18 +286,42 @@ def test_region_request_identity_binds_prompt_schema_and_coordinate_profile() ->
     identity = region_request_identity(request)
 
     assert identity["profile"] == {
-        "profile_id": "gemini-3.6-flash-yxyx-1000-v1",
+        "profile_id": "gemini-family-yxyx-1000-v1",
         "bbox_field": "box_2d",
         "coordinate_order": "yxyx",
         "coordinate_space": "normalized_1000",
-        "prompt_version": "region-locate-gemini36-v1",
+        "prompt_version": "coordinates-gemini-yxyx-1000-v1",
         "reasoning_policy": None,
+        "image_max_edge": None,
+        "image_patch_size": None,
+        "image_max_patches": None,
+        "image_detail": None,
         "supports_detail_schema": True,
     }
     assert "box_2d" in identity["prompt"]
     assert identity["response_schema"]["properties"]["matches"]["items"]["properties"][
         "box_2d"
     ]
+
+
+def test_region_request_uses_profile_image_detail() -> None:
+    profile = profile_for_engine("openai/gpt-5.6-sol")
+    assert profile is not None
+    request = LocateRegionsRequest(
+        engine_ref="openai/gpt-5.6-sol",
+        image=ImageAsset(
+            data=b"png bytes",
+            media_type="image/png",
+            width=1_000,
+            height=600,
+            sha256="sha256:fixture",
+        ),
+        query="find the title",
+    )
+
+    messages = _region_messages(profile, request)
+
+    assert messages[0]["content"][0]["detail"] == "high"
 
 
 @pytest.mark.parametrize(

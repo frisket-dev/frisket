@@ -8,10 +8,12 @@ from typing import Any
 
 from frisket.ai.vision.coordinates import (
     CoordinateProfile,
+    GENERIC_COORDINATE_PROFILE,
+    coordinate_profile_for_model,
     coordinate_instruction,
     decode_bounding_box,
 )
-from frisket.ai.vision.region_locator import prepare_image_asset, profile_for_engine
+from frisket.ai.vision.region_locator import prepare_image_asset
 from frisket.execution.attempt import routed_admission_in_scope
 from frisket.execution.credential_use import (
     CredentialUseContext,
@@ -26,56 +28,11 @@ DATALAB_ENGINE = "datalab"
 MINIMAX_M3_ENGINE = "openrouter/minimax/minimax-m3"
 MINIMAX_M3_MAX_IMAGE_EDGE = 3584
 
-GENERIC_OCR_COORDINATE_PROFILE = CoordinateProfile(
-    profile_id="generic-ocr-xyxy-1000-v1",
-    model_patterns=(),
-    bbox_field="bbox_xyxy_1000",
-    coordinate_order="xyxy",
-    coordinate_space="normalized_1000",
-    prompt_version="ocr-lines-positioned-v1",
-    reasoning_policy=None,
-)
-
-OPENAI_GPT6_OCR_COORDINATE_PROFILE = CoordinateProfile(
-    profile_id="openai-gpt6-ocr-xyxy-pixel-v1",
-    model_patterns=(
-        "openai/gpt-6-luna",
-        "openai/gpt-6.1-sol",
-        "openrouter/openai/gpt-6-luna",
-        "openrouter/openai/gpt-6.1-sol",
-    ),
-    bbox_field="bbox_pixels_xyxy",
-    coordinate_order="xyxy",
-    coordinate_space="pixel",
-    prompt_version="ocr-lines-openai-gpt6-v1",
-    reasoning_policy=None,
-)
-
-_OCR_COORDINATE_PROFILE_ALIASES = {
-    "openrouter/anthropic/claude-sonnet-5": "anthropic/claude-sonnet-5",
-    "openrouter/openai/gpt-5": "openai/gpt-5",
-    "openrouter/openai/gpt-5-mini": "openai/gpt-5-mini",
-    "openrouter/openai/gpt-5.6-luna": "openai/gpt-5.6-luna",
-    "openrouter/openai/gpt-5.6-terra": "openai/gpt-5.6-terra",
-    "openrouter/openai/gpt-5.6-sol": "openai/gpt-5.6-sol",
-}
-
 
 def ocr_coordinate_profile(model: str) -> CoordinateProfile:
     """Select a checked-in native dialect or the explicit generic contract."""
 
-    normalized = model.strip().lower()
-    profile = profile_for_engine(normalized)
-    if profile is not None:
-        return profile
-    alias = _OCR_COORDINATE_PROFILE_ALIASES.get(normalized)
-    if alias is not None:
-        aliased = profile_for_engine(alias)
-        if aliased is not None:
-            return aliased
-    if normalized in OPENAI_GPT6_OCR_COORDINATE_PROFILE.model_patterns:
-        return OPENAI_GPT6_OCR_COORDINATE_PROFILE
-    return GENERIC_OCR_COORDINATE_PROFILE
+    return coordinate_profile_for_model(model) or GENERIC_COORDINATE_PROFILE
 
 
 def _positioned_ocr_schema(profile: CoordinateProfile) -> dict[str, Any]:
@@ -167,7 +124,12 @@ def _decode_positioned_ocr_page(
                 ),
             }
         )
-    return {"text": "\n".join(text_lines), "blocks": blocks}
+    return {
+        "text": "\n".join(text_lines),
+        "blocks": blocks,
+        "width": output_width,
+        "height": output_height,
+    }
 
 
 def _datalab_credential(ctx: OpContext) -> Any:
@@ -412,6 +374,7 @@ async def ocr_vlm(
                 max_edge=(
                     MINIMAX_M3_MAX_IMAGE_EDGE if model == MINIMAX_M3_ENGINE else None
                 ),
+                coordinate_profile=coordinate_profile,
             )
             assert image.display_width is not None and image.display_height is not None
             output_dimensions = (image.display_width, image.display_height)
@@ -456,6 +419,8 @@ async def ocr_vlm(
             "media_type": mime,
             "data": base64.b64encode(image_data).decode(),
         }
+        if keep_text_position and coordinate_profile.image_detail is not None:
+            image_part["detail"] = coordinate_profile.image_detail
         text_part = {"type": "text", "text": ask}
         user_content = [image_part, text_part]
         if model == MINIMAX_M3_ENGINE:
