@@ -10,7 +10,11 @@ import httpx
 import pytest
 
 from frisket.ai.llm import ModelRouter, pricing
-from frisket.ai.llm.model_catalog import MODEL_CATALOG, MODEL_ENTRIES
+from frisket.ai.llm.model_catalog import (
+    MODEL_CATALOG,
+    MODEL_ENTRIES,
+    install_model_catalog,
+)
 from frisket.ai.llm.pricing import (
     audio_price,
     cost_of_with_source,
@@ -23,6 +27,100 @@ from frisket.ai.llm.types import LLMRequest
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def _catalog(*, model_id: str = "gpt-6.1-sol", vision: bool = True) -> dict:
+    return {
+        "schema_version": "frisket.model_catalog.v1",
+        "updated": "2026-10-13",
+        "providers": {
+            "anthropic": [],
+            "openai": [{"id": model_id, "label": "GPT 6.1 Sol", "vision": vision}],
+            "gemini": [],
+            "openrouter": [],
+            "ollama": [{"id": "qwen3:8b", "label": "Qwen 3 8B", "vision": False}],
+        },
+    }
+
+
+def test_validated_catalog_install_updates_existing_imports_atomically() -> None:
+    original = {
+        "schema_version": "frisket.model_catalog.v1",
+        "updated": "2026-10-13",
+        "providers": {
+            provider: [dict(entry) for entry in entries]
+            for provider, entries in MODEL_ENTRIES.items()
+        },
+    }
+    imported_entries = MODEL_ENTRIES
+    imported_ids = MODEL_CATALOG
+    try:
+        install_model_catalog(_catalog())
+        assert imported_entries["openai"][0]["vision"] is True
+        assert imported_ids["openai"] == ["gpt-6.1-sol"]
+    finally:
+        install_model_catalog(original)
+
+
+def test_vision_capability_controls_remote_llm_image_admission() -> None:
+    from frisket.execution.definitions import StaticExecutionTargetProvider
+    from frisket.execution.provider import CompositionFacts
+    from frisket.execution.resolver import Refusal, ResolutionRequest, resolve
+    from frisket.execution.targets import CAPABILITY_LLM
+
+    original = {
+        "schema_version": "frisket.model_catalog.v1",
+        "updated": "2026-10-13",
+        "providers": {
+            provider: [dict(entry) for entry in entries]
+            for provider, entries in MODEL_ENTRIES.items()
+        },
+    }
+    try:
+        install_model_catalog(_catalog(model_id="gpt-6-text", vision=False))
+        provider = StaticExecutionTargetProvider(env={"OPENAI_API_KEY": "test-key"})
+        outcome = resolve(
+            ResolutionRequest(
+                engine="openai/gpt-6-text",
+                options={"vision": True},
+                capability=CAPABILITY_LLM,
+            ),
+            provider,
+            CompositionFacts(),
+        )
+        assert isinstance(outcome, Refusal)
+        assert outcome.family == "no_capable_target"
+        assert "image inputs" in outcome.remedy
+    finally:
+        install_model_catalog(original)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda doc: doc.update(schema_version="frisket.model_catalog.v2"),
+        lambda doc: doc["providers"]["openai"].append(
+            dict(doc["providers"]["openai"][0])
+        ),
+        lambda doc: doc["providers"]["openai"][0].update(vision="yes"),
+        lambda doc: doc["providers"].pop("anthropic"),
+    ],
+    ids=[
+        "unknown-version",
+        "duplicate-id",
+        "non-boolean-capability",
+        "partial-provider-set",
+    ],
+)
+def test_invalid_catalog_is_rejected_without_replacing_last_good(mutation) -> None:
+    before = MODEL_CATALOG["openai"]
+    candidate = _catalog()
+    mutation(candidate)
+
+    with pytest.raises(ValueError):
+        install_model_catalog(candidate)
+
+    assert MODEL_CATALOG["openai"] == before
+
+
 def test_every_curated_model_declares_vision_capability() -> None:
     entries = {
         f"{provider}/{entry['id']}": entry
@@ -31,16 +129,26 @@ def test_every_curated_model_declares_vision_capability() -> None:
     }
 
     assert all(type(entry.get("vision")) is bool for entry in entries.values())
-    assert {model_id for model_id, entry in entries.items() if not entry["vision"]} == {
-        "openrouter/qwen/qwen3-8b",
-        "ollama/qwen3:8b",
-    }
+    assert all(
+        entry["vision"]
+        for model_id, entry in entries.items()
+        if model_id.split("/", 1)[0] in {"anthropic", "openai", "gemini"}
+    )
+    assert entries["openrouter/qwen/qwen3-vl-8b-instruct"]["vision"] is True
+    assert entries["openrouter/qwen/qwen3-14b"]["vision"] is False
+    assert entries["ollama/qwen3:8b"]["vision"] is False
 
 
 def test_current_frontier_families_are_available_and_priced() -> None:
     expected = {
         "anthropic": {"claude-sonnet-5", "claude-fable-5"},
-        "openai": {"gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"},
+        "openai": {
+            "gpt-5.6-luna",
+            "gpt-5.6-terra",
+            "gpt-5.6-sol",
+            "gpt-6-luna",
+            "gpt-6.1-sol",
+        },
         "gemini": {
             "gemini-3.5-flash-lite",
             "gemini-3.5-flash",
@@ -80,7 +188,7 @@ def test_every_canonical_local_model_is_known_zero_without_catalog_entry() -> No
     assert model_price(f"openai/{model}") is None
     assert audio_price(f"openai/{model}") is None
     assert model_price("ollama/@desk/qwen3:8b") == (0.0, 0.0)
-    assert model_price("openrouter/qwen/qwen3-8b") == (0.117, 0.455)
+    assert model_price("openrouter/qwen/qwen3-vl-8b-instruct") == (0.25, 0.75)
 
 
 def test_text_cost_carries_local_pinned_and_unknown_source_by_value() -> None:
@@ -99,11 +207,11 @@ def test_text_cost_carries_local_pinned_and_unknown_source_by_value() -> None:
 
 def test_openrouter_open_weight_model_is_curated_remote_and_priced() -> None:
     entries = {entry["id"]: entry for entry in MODEL_ENTRIES["openrouter"]}
-    assert entries["qwen/qwen3-8b"]["label"] == (
-        "Qwen 3 8B — open weights; requests go to OpenRouter"
+    assert entries["qwen/qwen3-vl-8b-instruct"]["label"] == (
+        "Qwen3-VL 8B — open vision"
     )
-    assert model_price("openrouter/qwen/qwen3-8b") == (0.117, 0.455)
-    assert model_cost_source("openrouter/qwen/qwen3-8b") == "pricing_data"
+    assert model_price("openrouter/qwen/qwen3-vl-8b-instruct") == (0.25, 0.75)
+    assert model_cost_source("openrouter/qwen/qwen3-vl-8b-instruct") == "pricing_data"
     assert model_price("ollama/@desk/qwen3:8b") == (0.0, 0.0)
 
     assert entries["minimax/minimax-m3"]["label"] == (

@@ -43,3 +43,26 @@ def test_reporter_handles_audio_pricing_unit_transition(
     assert "'input_per_token': 1.25e-06" in output
     assert "'per_second': 5e-05" in output
     assert "rate[1] moved 0.2 -> 0.5 (>50%)" in output
+
+
+def test_reporter_includes_model_additions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    pricing = {"text": {}, "audio": {}}
+    old_models = {"providers": {"openai": []}}
+    new_models = {
+        "providers": {
+            "openai": [{"id": "gpt-6.1-sol", "label": "GPT 6.1 Sol", "vision": True}]
+        }
+    }
+    paths = [tmp_path / name for name in ("p-old", "p-new", "m-old", "m-new")]
+    for path, payload in zip(
+        paths, (pricing, pricing, old_models, new_models), strict=True
+    ):
+        path.write_text(json.dumps(payload), encoding="utf-8")
+
+    monkeypatch.setattr(sys, "argv", [str(REPORTER), *(str(path) for path in paths)])
+    reporter = runpy.run_path(str(REPORTER))
+    assert reporter["main"]() == 0
+
+    assert "model:openai/gpt-6.1-sol" in capsys.readouterr().out

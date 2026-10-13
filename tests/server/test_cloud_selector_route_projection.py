@@ -4,6 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from frisket.ai.llm.model_catalog import MODEL_ENTRIES
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -416,7 +418,7 @@ def test_selected_missing_cloud_route_never_borrows_own_details(
 
 
 def test_nonlocal_own_model_shows_disabled_unsupported_cloud_route(tmp_path) -> None:
-    model_id = "openrouter/qwen/qwen3-8b"
+    model_id = f"openrouter/{MODEL_ENTRIES['openrouter'][0]['id']}"
     client, workspace, _store, project_id = _cloud_selector_app(
         tmp_path,
         routes=[],
@@ -466,7 +468,7 @@ def test_nonlocal_own_model_shows_disabled_unsupported_cloud_route(tmp_path) -> 
 
 
 def test_signed_out_catalog_model_offers_cloud_setup(tmp_path) -> None:
-    model_id = "openrouter/qwen/qwen3-8b"
+    model_id = f"openrouter/{MODEL_ENTRIES['openrouter'][0]['id']}"
     client, workspace, _store, project_id = _cloud_selector_app(
         tmp_path,
         routes=[],

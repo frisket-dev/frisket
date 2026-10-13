@@ -205,11 +205,13 @@ def test_estimate_run_llm_branches_stay_in_vocabulary(tmp_path: Path) -> None:
         assert priced["pricing_key"] == "anthropic/claude-haiku-4-5.tokens"
 
         openrouter_base = estimate_model_spec(
-            project, {**spec, "model": "openrouter/qwen/qwen3-8b"}
+            project, {**spec, "model": "openrouter/qwen/qwen3-vl-8b-instruct"}
         )
         assert openrouter_base["cost"] is not None
         assert openrouter_base["cost_source"] == "pricing_data"
-        assert openrouter_base["pricing_key"] == "openrouter/qwen/qwen3-8b.tokens"
+        assert openrouter_base["pricing_key"] == (
+            "openrouter/qwen/qwen3-vl-8b-instruct.tokens"
+        )
 
         openrouter_variant = estimate_model_spec(
             project, {**spec, "model": "openrouter/qwen/qwen3-8b:free"}

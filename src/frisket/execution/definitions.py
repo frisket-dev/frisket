@@ -54,6 +54,7 @@ from __future__ import annotations
 import math
 import os
 import re
+from dataclasses import replace
 from importlib.util import find_spec
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
@@ -79,6 +80,7 @@ from frisket.ai.models.gateway_config import (
     ModelsGatewayConnection,
     resolve_models_gateway_env,
 )
+from frisket.ai.llm.model_catalog import MODEL_ENTRIES
 from frisket.execution.provider import (
     ConnectionConfig,
     TargetConfiguration,
@@ -355,6 +357,45 @@ def _remote_llm_wildcard_support(provider: str) -> TargetEngineSupport:
             vision=True,
         ),
     )
+
+
+def _remote_llm_catalog_support(provider: str) -> tuple[TargetEngineSupport, ...]:
+    """Exact catalog rows make image-input admission follow model metadata.
+
+    Structured-output mechanisms remain owned by ``structured_capabilities``
+    and arbitrary tool calls remain an adapter contract.  The catalog owns the
+    one selection capability it publishes: whether this model accepts images.
+    The wildcard remains for manually entered, uncatalogued model IDs.
+    """
+    return tuple(
+        TargetEngineSupport(
+            engine=f"{provider}/{entry['id']}",
+            transport="remote",
+            capability=CAPABILITY_LLM,
+            options=LLMOptionSupport(
+                structured_output=True,
+                tools=True,
+                vision=entry["vision"],
+            ),
+        )
+        for entry in MODEL_ENTRIES.get(provider, ())
+    )
+
+
+def _with_current_llm_catalog(target: ExecutionTarget) -> ExecutionTarget:
+    prefix = REMOTE_API_TARGET_ID_PREFIX
+    if not target.id.startswith(prefix):
+        return target
+    provider = target.id.removeprefix(prefix)
+    wildcard = f"{provider}/*"
+    engines: list[TargetEngineSupport] = []
+    for support in target.engines:
+        if support.capability == CAPABILITY_LLM and support.engine != wildcard:
+            continue
+        if support.capability == CAPABILITY_LLM and support.engine == wildcard:
+            engines.extend(_remote_llm_catalog_support(provider))
+        engines.append(support)
+    return replace(target, engines=tuple(engines))
 
 
 def _classify_support(engine: str, transport: str) -> TargetEngineSupport:
@@ -647,6 +688,7 @@ def build_static_targets(
                         if entry.provider == provider
                     ),
                     _remote_ocr_wildcard_support(provider),
+                    *_remote_llm_catalog_support(provider),
                     _remote_llm_wildcard_support(provider),
                 ),
             )
@@ -722,7 +764,9 @@ class StaticExecutionTargetProvider:
 
     def targets(self) -> Sequence[ExecutionTarget]:
         return tuple(
-            _opendocrouter_target() if t.id == OPENDOCROUTER_TARGET_ID else t
+            _opendocrouter_target()
+            if t.id == OPENDOCROUTER_TARGET_ID
+            else _with_current_llm_catalog(t)
             for t in self._targets
         )
 

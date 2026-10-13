@@ -13,11 +13,16 @@ from typing import Any, Callable
 
 from frisket.opendocrouter_catalog import catalog_document, current_catalog
 
+from .model_catalog import install_model_catalog
 from .pricing import install_pricing_data
 
 PRICING_URL = (
     "https://raw.githubusercontent.com/frisket-dev/frisket/main/"
     "src/frisket/ai/llm/pricing_data.json"
+)
+MODEL_CATALOG_URL = (
+    "https://raw.githubusercontent.com/frisket-dev/frisket/main/"
+    "src/frisket/ai/llm/model_catalog.json"
 )
 REFRESH_SECONDS = 24 * 60 * 60
 CACHE_POLL_SECONDS = 60
@@ -56,7 +61,7 @@ def refresh_pricing_once(
     now: float | None = None,
     fetch: Callable[[str], bytes] | None = None,
 ) -> bool:
-    """Refresh when the persistent 24-hour attempt window has elapsed."""
+    """Refresh model and price catalogs on one persistent daily schedule."""
     root = cache_dir or pricing_cache_dir()
     catalog_path = root / "pricing_data.json"
     attempt_path = root / "last_attempt"
@@ -72,14 +77,21 @@ def refresh_pricing_once(
         root.mkdir(parents=True, exist_ok=True)
         attempt_path.touch()
         os.utime(attempt_path, (current, current))
-        if fetch is None:
-            request = urllib.request.Request(
-                PRICING_URL, headers={"User-Agent": "frisket-pricing/1"}
-            )
-            with urllib.request.urlopen(request, timeout=5) as response:
-                payload = response.read(MAX_RESPONSE_BYTES + 1)
-        else:
-            payload = fetch(PRICING_URL)
+    except OSError:
+        return False
+
+    def fetch_payload(url: str) -> bytes:
+        if fetch is not None:
+            return fetch(url)
+        request = urllib.request.Request(
+            url, headers={"User-Agent": "frisket-catalog-refresh/1"}
+        )
+        with urllib.request.urlopen(request, timeout=5) as response:
+            return response.read(MAX_RESPONSE_BYTES + 1)
+
+    refreshed = False
+    try:
+        payload = fetch_payload(PRICING_URL)
         if len(payload) > MAX_RESPONSE_BYTES:
             raise ValueError("pricing catalog exceeds size limit")
         data = json.loads(payload)
@@ -88,14 +100,32 @@ def refresh_pricing_once(
         install_pricing_data(data)
         data["opendocrouter"] = catalog_document(current_catalog())
         _atomic_write(catalog_path, json.dumps(data).encode())
-        return True
+        refreshed = True
     except Exception:
-        return False
+        pass
+
+    try:
+        payload = fetch_payload(MODEL_CATALOG_URL)
+        if len(payload) > MAX_RESPONSE_BYTES:
+            raise ValueError("model catalog exceeds size limit")
+        data = json.loads(payload)
+        install_model_catalog(data, newer_only=True)
+        _atomic_write(root / "model_catalog.json", json.dumps(data).encode())
+        refreshed = True
+    except Exception:
+        pass
+    return refreshed
 
 
-def _load_cached_pricing(root: Path) -> None:
+def _load_cached_catalogs(root: Path) -> None:
     try:
         install_pricing_data(_read_catalog(root / "pricing_data.json"))
+    except (OSError, ValueError, TypeError):
+        pass
+    try:
+        install_model_catalog(
+            _read_catalog(root / "model_catalog.json"), newer_only=True
+        )
     except (OSError, ValueError, TypeError):
         pass
 
@@ -104,7 +134,7 @@ def _refresh_loop(root: Path) -> None:
     while True:
         # Another app/worker process may have fetched the daily catalog.
         # Adopt its cache without waiting a day or making another request.
-        _load_cached_pricing(root)
+        _load_cached_catalogs(root)
         refresh_pricing_once(cache_dir=root)
         time.sleep(CACHE_POLL_SECONDS)
 
@@ -117,7 +147,7 @@ def start_pricing_refresh() -> None:
             return
         _started = True
     root = pricing_cache_dir()
-    _load_cached_pricing(root)
+    _load_cached_catalogs(root)
     threading.Thread(
         target=_refresh_loop,
         args=(root,),

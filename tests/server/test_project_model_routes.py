@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import pytest
+
+from frisket.ai.llm.model_catalog import MODEL_ENTRIES
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event, local
 
@@ -35,7 +37,7 @@ from frisket.server.workspace import Workspace
 
 MODEL = "openai/gpt-5-mini"
 MODEL_TWO = "openai/gpt-5-nano"
-OPENROUTER_MODEL = "openrouter/qwen/qwen3-8b"
+OPENROUTER_MODEL = f"openrouter/{MODEL_ENTRIES['openrouter'][0]['id']}"
 
 
 def _llm_target(

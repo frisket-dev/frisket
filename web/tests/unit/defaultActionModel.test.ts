@@ -144,11 +144,7 @@ describe('defaultActionModel', () => {
     expect(defaultActionModel(catalog)).toBeNull();
   });
 
-  it('openrouter-only uses the curated open-weight model, never null/Gemini', () => {
-    expect(MODEL_OPTIONS).toContainEqual({
-      id: 'openrouter/qwen/qwen3-8b',
-      label: 'Qwen 3 8B — open weights; requests go to OpenRouter',
-    });
+  it('openrouter-only chooses a catalog model from that provider', () => {
     const catalog = catalogOf([
       entry({ id: 'gemini', label: 'Gemini', kind: 'platform_api', configured: false }),
       entry({ id: 'anthropic', label: 'Anthropic', kind: 'platform_api', configured: false }),
@@ -163,7 +159,8 @@ describe('defaultActionModel', () => {
     ]);
 
     const picked = defaultActionModel(catalog);
-    expect(picked).toBe('openrouter/qwen/qwen3-8b');
+    expect(modelProviderId(picked!)).toBe('openrouter');
+    expect(MODEL_OPTIONS.some((model) => model.id === picked)).toBe(true);
   });
 
   it('openrouter configured with an empty live list uses the curated model', () => {
@@ -172,7 +169,9 @@ describe('defaultActionModel', () => {
       entry({ id: 'openrouter', label: 'OpenRouter', kind: 'platform_api', configured: true, models: [] }),
     ]);
     expect(providerIsUsable(catalog.providers[1])).toBe(true);
-    expect(defaultActionModel(catalog)).toBe('openrouter/qwen/qwen3-8b');
+    const picked = defaultActionModel(catalog);
+    expect(modelProviderId(picked!)).toBe('openrouter');
+    expect(MODEL_OPTIONS.some((model) => model.id === picked)).toBe(true);
   });
 
   it('openrouter unconfigured -> null, same as any other unconfigured provider', () => {
