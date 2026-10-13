@@ -49,6 +49,120 @@ def test_openrouter_catalog_rate_comes_from_openrouter_source() -> None:
     assert output["sources"]["openrouter"] == "https://openrouter.ai/api/v1/models"
 
 
+def test_model_catalog_adds_current_aliases_without_snapshots_or_specialists() -> None:
+    updater = _pricing_updater()
+    previous = {
+        "schema_version": "frisket.model_catalog.v1",
+        "updated": "2026-10-12",
+        "providers": {
+            "openai": [{"id": "gpt-5", "label": "Reviewed GPT label", "vision": True}],
+            "anthropic": [],
+            "gemini": [],
+            "openrouter": [],
+            "ollama": [{"id": "qwen3:8b", "label": "Local Qwen", "vision": False}],
+        },
+    }
+    litellm = {
+        "gpt-5": {
+            "mode": "chat",
+            "litellm_provider": "openai",
+            "input_cost_per_token": 1e-6,
+            "output_cost_per_token": 2e-6,
+            "supports_vision": True,
+        },
+        "gpt-6.1-sol": {
+            "mode": "chat",
+            "litellm_provider": "openai",
+            "input_cost_per_token": 2e-6,
+            "output_cost_per_token": 4e-6,
+            "supported_modalities": ["text", "image"],
+        },
+        "gpt-6.1-sol-2026-10-01": {
+            "mode": "chat",
+            "litellm_provider": "openai",
+            "input_cost_per_token": 2e-6,
+            "output_cost_per_token": 4e-6,
+            "supports_vision": True,
+        },
+        "gpt-6-search-api": {
+            "mode": "chat",
+            "litellm_provider": "openai",
+            "input_cost_per_token": 2e-6,
+            "output_cost_per_token": 4e-6,
+            "supports_vision": True,
+        },
+        "gemini-3.9-flash": {
+            "mode": "chat",
+            "litellm_provider": "vertex_ai-language-models",
+            "input_cost_per_token": 2e-6,
+            "output_cost_per_token": 4e-6,
+            "supports_vision": True,
+        },
+        "gemini/gemini-3.8-flash": {
+            "mode": "chat",
+            "litellm_provider": "gemini",
+            "input_cost_per_token": 2e-6,
+            "output_cost_per_token": 4e-6,
+            "supports_vision": True,
+        },
+    }
+
+    output = updater.build_model_catalog(
+        litellm, {"data": []}, previous=previous, updated=date(2026, 10, 13)
+    )
+
+    assert output["schema_version"] == "frisket.model_catalog.v1"
+    assert output["providers"]["openai"] == [
+        {"id": "gpt-5", "label": "Reviewed GPT label", "vision": True},
+        {"id": "gpt-6.1-sol", "label": "GPT 6.1 Sol", "vision": True},
+    ]
+    assert output["providers"]["ollama"] == previous["providers"]["ollama"]
+    assert [entry["id"] for entry in output["providers"]["gemini"]] == [
+        "gemini-3.8-flash"
+    ]
+
+
+def test_model_catalog_uses_openrouter_modality_and_bounded_families() -> None:
+    updater = _pricing_updater()
+    openrouter = {
+        "data": [
+            {
+                "id": "qwen/qwen3-vl-8b-instruct",
+                "name": "Qwen: Qwen3 VL 8B Instruct",
+                "architecture": {"input_modalities": ["text", "image"]},
+                "pricing": {"prompt": "0.1", "completion": "0.2"},
+            },
+            {
+                "id": "qwen/qwen3-coder-30b",
+                "name": "Qwen Coder",
+                "architecture": {"input_modalities": ["text"]},
+                "pricing": {"prompt": "0.1", "completion": "0.2"},
+            },
+            {
+                "id": "unreviewed-vendor/everything-model",
+                "name": "Everything",
+                "architecture": {"input_modalities": ["text", "image"]},
+                "pricing": {"prompt": "0.1", "completion": "0.2"},
+            },
+        ]
+    }
+
+    output = updater.build_model_catalog(
+        {},
+        openrouter,
+        previous={"providers": {"ollama": []}},
+        updated=date(2026, 10, 13),
+    )
+
+    assert output["providers"]["openrouter"] == [
+        {
+            "id": "qwen/qwen3-vl-8b-instruct",
+            "label": "Qwen: Qwen3 VL 8B Instruct",
+            "vision": True,
+        }
+    ]
+
+
 def test_maintained_mai_audio_rate_survives_an_openrouter_refresh() -> None:
     updater = _pricing_updater()
 
@@ -136,6 +250,26 @@ def test_refresh_preserves_last_good_opendocrouter_section(
         )
     )
     monkeypatch.setattr(updater, "OUT", output_path)
+    model_output_path = tmp_path / "model_catalog.json"
+    model_output_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "frisket.model_catalog.v1",
+                "updated": "2026-10-07",
+                "providers": {
+                    "anthropic": [
+                        {
+                            "id": "claude-haiku-4-5",
+                            "label": "Claude Haiku 4.5",
+                            "vision": True,
+                        }
+                    ],
+                    "ollama": [],
+                },
+            }
+        )
+    )
+    monkeypatch.setattr(updater, "MODEL_OUT", model_output_path)
 
     def fake_urlopen(target, timeout: int):
         url = target.full_url if hasattr(target, "full_url") else target
@@ -144,8 +278,11 @@ def test_refresh_preserves_last_good_opendocrouter_section(
                 json.dumps(
                     {
                         "claude-haiku-4-5": {
+                            "mode": "chat",
+                            "litellm_provider": "anthropic",
                             "input_cost_per_token": 0.000002,
                             "output_cost_per_token": 0.000004,
+                            "supports_vision": True,
                         }
                     }
                 ).encode()

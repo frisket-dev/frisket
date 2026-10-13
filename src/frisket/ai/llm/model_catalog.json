@@ -1,38 +1,431 @@
 {
-  "updated": "2026-10-11",
+  "schema_version": "frisket.model_catalog.v1",
+  "updated": "2026-10-13",
   "providers": {
     "anthropic": [
-      {"id": "claude-haiku-4-5", "label": "Claude Haiku 4.5 — fastest", "vision": true},
-      {"id": "claude-sonnet-4-6", "label": "Claude Sonnet 4.6 — balanced", "vision": true},
-      {"id": "claude-sonnet-5", "label": "Claude Sonnet 5 — latest balanced", "vision": true},
-      {"id": "claude-opus-4-8", "label": "Claude Opus 4.8 — complex work", "vision": true},
-      {"id": "claude-fable-5", "label": "Claude Fable 5 — frontier", "vision": true}
+      {
+        "id": "claude-haiku-4-5",
+        "label": "Claude Haiku 4.5 \u2014 fastest",
+        "vision": true
+      },
+      {
+        "id": "claude-sonnet-4-6",
+        "label": "Claude Sonnet 4.6 \u2014 balanced",
+        "vision": true
+      },
+      {
+        "id": "claude-sonnet-5",
+        "label": "Claude Sonnet 5 \u2014 latest balanced",
+        "vision": true
+      },
+      {
+        "id": "claude-opus-4-8",
+        "label": "Claude Opus 4.8 \u2014 complex work",
+        "vision": true
+      },
+      {
+        "id": "claude-fable-5",
+        "label": "Claude Fable 5 \u2014 frontier",
+        "vision": true
+      },
+      {
+        "id": "claude-fable-5-1",
+        "label": "Claude Fable 5 1",
+        "vision": true
+      },
+      {
+        "id": "claude-haiku-5-5",
+        "label": "Claude Haiku 5 5",
+        "vision": true
+      },
+      {
+        "id": "claude-mythos-5",
+        "label": "Claude Mythos 5",
+        "vision": true
+      },
+      {
+        "id": "claude-mythos-5-1",
+        "label": "Claude Mythos 5 1",
+        "vision": true
+      },
+      {
+        "id": "claude-opus-4-5",
+        "label": "Claude Opus 4 5",
+        "vision": true
+      },
+      {
+        "id": "claude-opus-4-6",
+        "label": "Claude Opus 4 6",
+        "vision": true
+      },
+      {
+        "id": "claude-opus-4-7",
+        "label": "Claude Opus 4 7",
+        "vision": true
+      },
+      {
+        "id": "claude-opus-5",
+        "label": "Claude Opus 5",
+        "vision": true
+      },
+      {
+        "id": "claude-opus-5-5",
+        "label": "Claude Opus 5 5",
+        "vision": true
+      },
+      {
+        "id": "claude-sonnet-4-5",
+        "label": "Claude Sonnet 4 5",
+        "vision": true
+      },
+      {
+        "id": "claude-sonnet-5-5",
+        "label": "Claude Sonnet 5 5",
+        "vision": true
+      }
     ],
     "openai": [
-      {"id": "gpt-5-mini", "label": "GPT-5 mini — economical", "vision": true},
-      {"id": "gpt-5", "label": "GPT-5 — previous generation", "vision": true},
-      {"id": "gpt-5.6-luna", "label": "GPT-5.6 Luna — fast/economical", "vision": true},
-      {"id": "gpt-5.6-terra", "label": "GPT-5.6 Terra — balanced", "vision": true},
-      {"id": "gpt-5.6-sol", "label": "GPT-5.6 Sol — frontier", "vision": true}
+      {
+        "id": "gpt-5-mini",
+        "label": "GPT-5 mini \u2014 economical",
+        "vision": true
+      },
+      {
+        "id": "gpt-5",
+        "label": "GPT-5 \u2014 previous generation",
+        "vision": true
+      },
+      {
+        "id": "gpt-5.6-luna",
+        "label": "GPT-5.6 Luna \u2014 fast/economical",
+        "vision": true
+      },
+      {
+        "id": "gpt-5.6-terra",
+        "label": "GPT-5.6 Terra \u2014 balanced",
+        "vision": true
+      },
+      {
+        "id": "gpt-5.6-sol",
+        "label": "GPT-5.6 Sol \u2014 frontier",
+        "vision": true
+      },
+      {
+        "id": "gpt-5-nano",
+        "label": "GPT 5 Nano",
+        "vision": true
+      },
+      {
+        "id": "gpt-5.1",
+        "label": "GPT 5.1",
+        "vision": true
+      },
+      {
+        "id": "gpt-5.2",
+        "label": "GPT 5.2",
+        "vision": true
+      },
+      {
+        "id": "gpt-5.4",
+        "label": "GPT 5.4",
+        "vision": true
+      },
+      {
+        "id": "gpt-5.4-mini",
+        "label": "GPT 5.4 Mini",
+        "vision": true
+      },
+      {
+        "id": "gpt-5.4-nano",
+        "label": "GPT 5.4 Nano",
+        "vision": true
+      },
+      {
+        "id": "gpt-5.5",
+        "label": "GPT 5.5",
+        "vision": true
+      },
+      {
+        "id": "gpt-5.6",
+        "label": "GPT 5.6",
+        "vision": true
+      },
+      {
+        "id": "gpt-6-astra",
+        "label": "GPT 6 Astra",
+        "vision": true
+      },
+      {
+        "id": "gpt-6-luna",
+        "label": "GPT 6 Luna",
+        "vision": true
+      },
+      {
+        "id": "gpt-6-sol",
+        "label": "GPT 6 Sol",
+        "vision": true
+      },
+      {
+        "id": "gpt-6.1-sol",
+        "label": "GPT 6.1 Sol",
+        "vision": true
+      }
     ],
     "gemini": [
-      {"id": "gemini-3.5-flash-lite", "label": "Gemini 3.5 Flash-Lite — fast/cheap (default)", "vision": true},
-      {"id": "gemini-3.1-flash-lite", "label": "Gemini 3.1 Flash-Lite — high throughput", "vision": true},
-      {"id": "gemini-3.5-flash", "label": "Gemini 3.5 Flash — balanced", "vision": true},
-      {"id": "gemini-3.6-flash", "label": "Gemini 3.6 Flash — latest multimodal", "vision": true},
-      {"id": "gemini-3.1-pro-preview", "label": "Gemini 3.1 Pro — complex work (preview)", "vision": true}
+      {
+        "id": "gemini-3.5-flash-lite",
+        "label": "Gemini 3.5 Flash-Lite \u2014 fast/cheap (default)",
+        "vision": true
+      },
+      {
+        "id": "gemini-3.1-flash-lite",
+        "label": "Gemini 3.1 Flash-Lite \u2014 high throughput",
+        "vision": true
+      },
+      {
+        "id": "gemini-3.5-flash",
+        "label": "Gemini 3.5 Flash \u2014 balanced",
+        "vision": true
+      },
+      {
+        "id": "gemini-3.6-flash",
+        "label": "Gemini 3.6 Flash \u2014 latest multimodal",
+        "vision": true
+      },
+      {
+        "id": "gemini-3.1-pro-preview",
+        "label": "Gemini 3.1 Pro \u2014 complex work (preview)",
+        "vision": true
+      },
+      {
+        "id": "gemini-3-flash-preview",
+        "label": "Gemini 3 Flash Preview",
+        "vision": true
+      },
+      {
+        "id": "gemini-3.1-flash-lite-preview",
+        "label": "Gemini 3.1 Flash Lite Preview",
+        "vision": true
+      },
+      {
+        "id": "gemini-3.7-flash",
+        "label": "Gemini 3.7 Flash",
+        "vision": true
+      },
+      {
+        "id": "gemini-3.8-flash",
+        "label": "Gemini 3.8 Flash",
+        "vision": true
+      }
     ],
     "openrouter": [
-      {"id": "qwen/qwen3-8b", "label": "Qwen 3 8B — open weights; requests go to OpenRouter", "vision": false},
-      {"id": "qwen/qwen3-vl-8b-instruct", "label": "Qwen3-VL 8B — open vision", "vision": true},
-      {"id": "qwen/qwen3-vl-32b-instruct", "label": "Qwen3-VL 32B — open vision", "vision": true},
-      {"id": "z-ai/glm-5.3-flash", "label": "GLM 5.3 Flash — open vision", "vision": true},
-      {"id": "moonshotai/kimi-k3", "label": "Kimi K3 — open vision", "vision": true},
-      {"id": "xiaomi/mimo-v2.5", "label": "MiMo V2.5 — open vision", "vision": true},
-      {"id": "minimax/minimax-m3", "label": "MiniMax M3 — hosted multimodal OCR via OpenRouter", "vision": true}
+      {
+        "id": "qwen/qwen3-vl-8b-instruct",
+        "label": "Qwen3-VL 8B \u2014 open vision",
+        "vision": true
+      },
+      {
+        "id": "z-ai/glm-5.3-flash",
+        "label": "GLM 5.3 Flash \u2014 open vision",
+        "vision": true
+      },
+      {
+        "id": "moonshotai/kimi-k3",
+        "label": "Kimi K3 \u2014 open vision",
+        "vision": true
+      },
+      {
+        "id": "xiaomi/mimo-v2.5",
+        "label": "MiMo V2.5 \u2014 open vision",
+        "vision": true
+      },
+      {
+        "id": "minimax/minimax-m3",
+        "label": "MiniMax M3 \u2014 hosted multimodal OCR via OpenRouter",
+        "vision": true
+      },
+      {
+        "id": "qwen/qwen3-14b",
+        "label": "Qwen: Qwen3 14B",
+        "vision": false
+      },
+      {
+        "id": "qwen/qwen3-30b-a3b",
+        "label": "Qwen: Qwen3 30B A3B",
+        "vision": false
+      },
+      {
+        "id": "qwen/qwen3-32b",
+        "label": "Qwen: Qwen3 32B",
+        "vision": false
+      },
+      {
+        "id": "qwen/qwen3-next-80b-a3b-instruct",
+        "label": "Qwen: Qwen3 Next 80B A3B Instruct",
+        "vision": false
+      },
+      {
+        "id": "qwen/qwen3-next-80b-a3b-thinking",
+        "label": "Qwen: Qwen3 Next 80B A3B Thinking",
+        "vision": false
+      },
+      {
+        "id": "qwen/qwen3-vl-235b-a22b-instruct",
+        "label": "Qwen: Qwen3 VL 235B A22B Instruct",
+        "vision": true
+      },
+      {
+        "id": "qwen/qwen3-vl-30b-a3b-instruct",
+        "label": "Qwen: Qwen3 VL 30B A3B Instruct",
+        "vision": true
+      },
+      {
+        "id": "qwen/qwen3-vl-30b-a3b-thinking",
+        "label": "Qwen: Qwen3 VL 30B A3B Thinking",
+        "vision": true
+      },
+      {
+        "id": "qwen/qwen3.5-122b-a10b",
+        "label": "Qwen: Qwen3.5-122B-A10B",
+        "vision": true
+      },
+      {
+        "id": "qwen/qwen3.5-27b",
+        "label": "Qwen: Qwen3.5-27B",
+        "vision": true
+      },
+      {
+        "id": "qwen/qwen3.5-35b-a3b",
+        "label": "Qwen: Qwen3.5-35B-A3B",
+        "vision": true
+      },
+      {
+        "id": "qwen/qwen3.5-397b-a17b",
+        "label": "Qwen: Qwen3.5 397B A17B",
+        "vision": true
+      },
+      {
+        "id": "qwen/qwen3.5-9b",
+        "label": "Qwen: Qwen3.5-9B",
+        "vision": true
+      },
+      {
+        "id": "qwen/qwen3.6-27b",
+        "label": "Qwen: Qwen3.6 27B",
+        "vision": true
+      },
+      {
+        "id": "qwen/qwen3.6-35b-a3b",
+        "label": "Qwen: Qwen3.6 35B A3B",
+        "vision": true
+      },
+      {
+        "id": "qwen/qwen3.6-flash",
+        "label": "Qwen: Qwen3.6 Flash",
+        "vision": true
+      },
+      {
+        "id": "qwen/qwen3.6-plus",
+        "label": "Qwen: Qwen3.6 Plus",
+        "vision": true
+      },
+      {
+        "id": "qwen/qwen3.7-flash",
+        "label": "Qwen: Qwen3.7 Flash",
+        "vision": true
+      },
+      {
+        "id": "qwen/qwen3.7-max",
+        "label": "Qwen: Qwen3.7 Max",
+        "vision": false
+      },
+      {
+        "id": "qwen/qwen3.7-plus",
+        "label": "Qwen: Qwen3.7 Plus",
+        "vision": true
+      },
+      {
+        "id": "qwen/qwen3.8-2.4t-a95b",
+        "label": "Qwen: Qwen3.8 2.4T A95B",
+        "vision": false
+      },
+      {
+        "id": "qwen/qwen3.8-27b",
+        "label": "Qwen: Qwen3.8 27B",
+        "vision": true
+      },
+      {
+        "id": "qwen/qwen3.8-flash",
+        "label": "Qwen: Qwen3.8 Flash",
+        "vision": true
+      },
+      {
+        "id": "qwen/qwen3.8-max-prime",
+        "label": "Qwen: Qwen3.8 Max Prime",
+        "vision": true
+      },
+      {
+        "id": "xiaomi/mimo-v2.5-pro",
+        "label": "Xiaomi: MiMo-V2.5-Pro",
+        "vision": false
+      },
+      {
+        "id": "xiaomi/mimo-v2.6-flash",
+        "label": "Xiaomi: MiMo-V2.6-Flash",
+        "vision": true
+      },
+      {
+        "id": "xiaomi/mimo-v2.6-pro",
+        "label": "Xiaomi: MiMo-V2.6-Pro",
+        "vision": true
+      },
+      {
+        "id": "xiaomi/mimo-v2.6-pro-ultraspeed",
+        "label": "Xiaomi: MiMo-V2.6-Pro-UltraSpeed",
+        "vision": true
+      },
+      {
+        "id": "z-ai/glm-5",
+        "label": "Z.ai: GLM 5",
+        "vision": false
+      },
+      {
+        "id": "z-ai/glm-5-turbo",
+        "label": "Z.ai: GLM 5 Turbo",
+        "vision": false
+      },
+      {
+        "id": "z-ai/glm-5.1",
+        "label": "Z.ai: GLM 5.1",
+        "vision": false
+      },
+      {
+        "id": "z-ai/glm-5.2",
+        "label": "Z.ai: GLM 5.2",
+        "vision": false
+      },
+      {
+        "id": "z-ai/glm-5.3",
+        "label": "Z.ai: GLM 5.3",
+        "vision": false
+      },
+      {
+        "id": "z-ai/glm-5.3-flashx",
+        "label": "Z.ai: GLM 5.3 FlashX",
+        "vision": true
+      },
+      {
+        "id": "z-ai/glm-5.3-prime",
+        "label": "Z.ai: GLM 5.3 Prime",
+        "vision": false
+      }
     ],
     "ollama": [
-      {"id": "qwen3:8b", "label": "Qwen 3 8B — local, free", "vision": false}
+      {
+        "id": "qwen3:8b",
+        "label": "Qwen 3 8B \u2014 local, free",
+        "vision": false
+      }
     ]
   }
 }

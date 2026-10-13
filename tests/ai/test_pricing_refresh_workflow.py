@@ -14,11 +14,21 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "refresh-pricing.yml"
 PRICING_PATH = Path("src/frisket/ai/llm/pricing_data.json")
+MODEL_PATH = Path("src/frisket/ai/llm/model_catalog.json")
+GENERATED_PATH = Path("web/src/actions/modelCatalog.generated.ts")
 BEFORE = {
     "source": "https://example.invalid/prices.json",
     "updated": "2026-08-02",
     "text": {"provider/model": [1.0, 2.0]},
     "audio": {},
+}
+MODEL_BEFORE = {
+    "schema_version": "frisket.model_catalog.v1",
+    "updated": "2026-08-02",
+    "providers": {
+        "openai": [{"id": "gpt-5", "label": "GPT 5", "vision": True}],
+        "ollama": [],
+    },
 }
 REFRESH_DAY = "2026-08-09"
 REFRESH_BRANCH = f"pricing-refresh-{REFRESH_DAY.replace('-', '')}"
@@ -62,6 +72,15 @@ if "scripts/dev/update_pricing.py" in sys.argv:
     shutil.copyfile(
         os.environ["PRICING_AFTER"],
         "src/frisket/ai/llm/pricing_data.json",
+    )
+    shutil.copyfile(
+        os.environ["MODEL_AFTER"],
+        "src/frisket/ai/llm/model_catalog.json",
+    )
+elif "scripts/dev/sync_model_catalog.py" in sys.argv:
+    shutil.copyfile(
+        os.environ["GENERATED_AFTER"],
+        "web/src/actions/modelCatalog.generated.ts",
     )
 elif "scripts/dev/pricing_delta_report.py" in sys.argv:
     print("synthetic pricing delta")
@@ -154,6 +173,7 @@ def _run_workflow(
     tmp_path: Path,
     after: dict,
     *,
+    model_after: dict | None = None,
     reruns: int = 1,
     existing_branch: bool = False,
     initial_pr_numbers: tuple[int, ...] = (),
@@ -167,15 +187,35 @@ def _run_workflow(
     fake_bin = tmp_path / "bin"
     workflow_tmp = repo / "workflow-tmp"
     pricing = repo / PRICING_PATH
+    model_catalog = repo / MODEL_PATH
+    generated = repo / GENERATED_PATH
     output = workflow_tmp / "github-output"
     gh_attempts = workflow_tmp / "gh-attempts.jsonl"
     gh_state = workflow_tmp / "gh-state.json"
     after_path = tmp_path / "after.json"
+    model_after_path = tmp_path / "model-after.json"
+    generated_after_path = tmp_path / "generated-after.ts"
 
     pricing.parent.mkdir(parents=True)
+    generated.parent.mkdir(parents=True)
     workflow_tmp.mkdir()
     pricing.write_text(json.dumps(BEFORE, indent=2) + "\n", encoding="utf-8")
+    model_catalog.write_text(
+        json.dumps(MODEL_BEFORE, indent=2) + "\n", encoding="utf-8"
+    )
+    generated.write_text("generated before\n", encoding="utf-8")
     after_path.write_text(json.dumps(after, indent=2) + "\n", encoding="utf-8")
+    effective_model_after = model_after or {
+        **MODEL_BEFORE,
+        "updated": after.get("updated", MODEL_BEFORE["updated"]),
+    }
+    model_after_path.write_text(
+        json.dumps(effective_model_after, indent=2) + "\n", encoding="utf-8"
+    )
+    generated_after_path.write_text(
+        "generated after\n" if model_after is not None else "generated before\n",
+        encoding="utf-8",
+    )
     _install_fake_commands(fake_bin)
 
     subprocess.run(
@@ -187,7 +227,7 @@ def _run_workflow(
     _git(repo, "init", "-b", "main")
     _git(repo, "config", "user.name", "Pricing workflow test")
     _git(repo, "config", "user.email", "pricing-test@example.invalid")
-    _git(repo, "add", str(PRICING_PATH))
+    _git(repo, "add", str(PRICING_PATH), str(MODEL_PATH), str(GENERATED_PATH))
     _git(repo, "commit", "-m", "fixture baseline")
     _git(repo, "remote", "add", "origin", str(remote))
     _git(repo, "push", "-u", "origin", "main")
@@ -197,11 +237,22 @@ def _run_workflow(
         branch = REFRESH_BRANCH
         _git(repo, "switch", "-c", branch)
         pricing.write_text(
-            json.dumps({**BEFORE, "text": {"provider/model": [1.0, 2.5]}}, indent=2)
+            json.dumps(
+                {
+                    **BEFORE,
+                    "updated": REFRESH_DAY,
+                    "text": {"provider/model": [1.0, 2.5]},
+                },
+                indent=2,
+            )
             + "\n",
             encoding="utf-8",
         )
-        _git(repo, "add", str(PRICING_PATH))
+        model_catalog.write_text(
+            json.dumps({**MODEL_BEFORE, "updated": REFRESH_DAY}, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        _git(repo, "add", str(PRICING_PATH), str(MODEL_PATH))
         _git(repo, "commit", "-m", "existing dated pricing branch")
         _git(repo, "push", "-u", "origin", branch)
         existing_tip = _git(repo, "rev-parse", "HEAD")
@@ -229,11 +280,21 @@ def _run_workflow(
         "RACE_BRANCH": REFRESH_BRANCH,
         "RACE_MARKER": str(workflow_tmp / "race-injected"),
         "PRICING_AFTER": str(after_path),
+        "MODEL_AFTER": str(model_after_path),
+        "GENERATED_AFTER": str(generated_after_path),
         "PRICING_REFRESH_DAY": REFRESH_DAY,
     }
     refresh_script = (
         refresh_step["run"]
         .replace("/tmp/pricing_before.json", "workflow-tmp/pricing-before.json")
+        .replace(
+            "/tmp/model_catalog_before.json",
+            "workflow-tmp/model-catalog-before.json",
+        )
+        .replace(
+            "/tmp/model_catalog_generated_before.ts",
+            "workflow-tmp/model-catalog-generated-before.ts",
+        )
         .replace("/tmp/pricing_delta.md", "workflow-tmp/pricing-delta.md")
     )
     outputs: dict[str, str] = {}
@@ -258,6 +319,19 @@ def _run_workflow(
         if outputs["changed"] == "true":
             open_pr_script = open_pr_step["run"].replace(
                 "/tmp/pricing_delta.md", "workflow-tmp/pricing-delta.md"
+            )
+            open_pr_script = (
+                open_pr_script.replace(
+                    "/tmp/pricing_after.json", "workflow-tmp/pricing-after.json"
+                )
+                .replace(
+                    "/tmp/model_catalog_after.json",
+                    "workflow-tmp/model-catalog-after.json",
+                )
+                .replace(
+                    "/tmp/model_catalog_generated_after.ts",
+                    "workflow-tmp/model-catalog-generated-after.ts",
+                )
             )
             open_pr_run = subprocess.run(
                 ["bash", "-euo", "pipefail", "-c", open_pr_script],
@@ -373,6 +447,44 @@ def test_rate_change_keeps_generated_update_and_pr_path(tmp_path: Path) -> None:
     assert result["open_pr_returncodes"] == [0]
 
 
+def test_model_only_change_uses_the_same_reviewed_pr_path(tmp_path: Path) -> None:
+    after = {**BEFORE, "updated": "2026-08-09"}
+    model_after = {
+        **MODEL_BEFORE,
+        "updated": "2026-08-09",
+        "providers": {
+            **MODEL_BEFORE["providers"],
+            "openai": [
+                *MODEL_BEFORE["providers"]["openai"],
+                {"id": "gpt-6.1-sol", "label": "GPT 6.1 Sol", "vision": True},
+            ],
+        },
+    }
+
+    result = _run_workflow(tmp_path, after, model_after=model_after)
+
+    assert result["changed"] == "true"
+    assert result["remote_refresh_branches"] == [REFRESH_BRANCH]
+    assert [call[:2] for call in result["pr_calls"]] == [
+        ["pr", "list"],
+        ["pr", "create"],
+    ]
+    assert (
+        json.loads(
+            _git(tmp_path / "checkout", "show", f"{result['remote_tip']}:{MODEL_PATH}")
+        )
+        == model_after
+    )
+    assert (
+        _git(
+            tmp_path / "checkout",
+            "show",
+            f"{result['remote_tip']}:{GENERATED_PATH}",
+        )
+        == "generated after"
+    )
+
+
 def test_same_day_rerun_leaves_one_branch_and_one_pr_unchanged(tmp_path: Path) -> None:
     after = {
         **BEFORE,
@@ -395,19 +507,39 @@ def test_same_day_rerun_leaves_one_branch_and_one_pr_unchanged(tmp_path: Path) -
     assert result["open_pr_returncodes"] == [0, 0]
 
 
-def test_existing_orphan_branch_gets_pr_without_rewrite(tmp_path: Path) -> None:
+def test_stale_orphan_branch_refuses_a_mismatched_pr_body(tmp_path: Path) -> None:
     after = {
         **BEFORE,
         "updated": "2026-08-09",
         "text": {"provider/model": [1.0, 3.0]},
     }
 
-    result = _run_workflow(tmp_path, after, existing_branch=True)
+    result = _run_workflow(
+        tmp_path,
+        after,
+        existing_branch=True,
+        expect_open_pr_success=False,
+    )
 
     assert result["branch"] == "main"
     assert result["remote_tip"] == result["existing_tip"]
     assert result["remote_main_committed"] == BEFORE
     assert result["remote_branch_committed"]["text"] == {"provider/model": [1.0, 2.5]}
+    assert [call[:2] for call in result["pr_calls"]] == [["pr", "list"]]
+    assert result["pr_numbers"] == []
+    assert result["open_pr_returncodes"] == [1]
+
+
+def test_matching_orphan_branch_gets_pr_without_rewrite(tmp_path: Path) -> None:
+    after = {
+        **BEFORE,
+        "updated": "2026-08-09",
+        "text": {"provider/model": [1.0, 2.5]},
+    }
+
+    result = _run_workflow(tmp_path, after, existing_branch=True)
+
+    assert result["remote_tip"] == result["existing_tip"]
     assert [call[:2] for call in result["pr_calls"]] == [
         ["pr", "list"],
         ["pr", "create"],

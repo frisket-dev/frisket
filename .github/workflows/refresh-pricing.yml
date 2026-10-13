@@ -1,6 +1,6 @@
-name: refresh-pricing
-# Nightly refresh of the BYOK price table from LiteLLM's community
-# registry. These numbers feed cost estimates and consent bounds, so the
+name: refresh-models-and-pricing
+# Nightly refresh of the bounded model/capability catalog and BYOK prices from
+# LiteLLM and OpenRouter. These numbers feed cost estimates and consent bounds, so the
 # refresh NEVER commits directly: it opens a PR showing exactly which
 # models moved, and any single price swinging more than 50% is called
 # out in the PR body — that's either real news or upstream breakage,
@@ -26,30 +26,41 @@ jobs:
         id: refresh
         run: |
           cp src/frisket/ai/llm/pricing_data.json /tmp/pricing_before.json
+          cp src/frisket/ai/llm/model_catalog.json /tmp/model_catalog_before.json
+          cp web/src/actions/modelCatalog.generated.ts /tmp/model_catalog_generated_before.ts
           uv run --no-project python scripts/dev/update_pricing.py
-          pricing_changed="$(
+          uv run --no-project python scripts/dev/sync_model_catalog.py
+          catalog_changed="$(
             python3 - <<'PY'
           import json
           from pathlib import Path
 
-          before = json.loads(Path("/tmp/pricing_before.json").read_text(encoding="utf-8"))
-          after = json.loads(Path("src/frisket/ai/llm/pricing_data.json").read_text(encoding="utf-8"))
-          if not isinstance(before, dict) or not isinstance(after, dict):
-              raise TypeError("pricing data must be a JSON object")
-          before_without_updated = dict(before)
-          after_without_updated = dict(after)
-          before_without_updated.pop("updated", None)
-          after_without_updated.pop("updated", None)
-          print("true" if before_without_updated != after_without_updated else "false")
+          pairs = (
+              ("/tmp/pricing_before.json", "src/frisket/ai/llm/pricing_data.json"),
+              ("/tmp/model_catalog_before.json", "src/frisket/ai/llm/model_catalog.json"),
+          )
+          changed = False
+          for before_path, after_path in pairs:
+              before = json.loads(Path(before_path).read_text(encoding="utf-8"))
+              after = json.loads(Path(after_path).read_text(encoding="utf-8"))
+              if not isinstance(before, dict) or not isinstance(after, dict):
+                  raise TypeError("catalog data must be a JSON object")
+              before = {key: value for key, value in before.items() if key != "updated"}
+              after = {key: value for key, value in after.items() if key != "updated"}
+              changed = changed or before != after
+          print("true" if changed else "false")
           PY
           )"
-          if [ "$pricing_changed" = "false" ]; then
+          if [ "$catalog_changed" = "false" ]; then
             cp /tmp/pricing_before.json src/frisket/ai/llm/pricing_data.json
+            cp /tmp/model_catalog_before.json src/frisket/ai/llm/model_catalog.json
+            cp /tmp/model_catalog_generated_before.ts web/src/actions/modelCatalog.generated.ts
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
             uv run --no-project python scripts/dev/pricing_delta_report.py \
               /tmp/pricing_before.json src/frisket/ai/llm/pricing_data.json \
+              /tmp/model_catalog_before.json src/frisket/ai/llm/model_catalog.json \
               > /tmp/pricing_delta.md
           fi
       - name: Open PR
@@ -58,6 +69,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           pricing_path="src/frisket/ai/llm/pricing_data.json"
+          catalog_path="src/frisket/ai/llm/model_catalog.json"
+          generated_path="web/src/actions/modelCatalog.generated.ts"
           today="$(date -u +%Y-%m-%d)"
           branch="pricing-refresh-${today//-/}"
 
@@ -77,7 +90,14 @@ jobs:
           remote_tip="$(git ls-remote --heads origin "refs/heads/$branch" | awk '{print $1}')"
           if [ -n "$remote_tip" ]; then
             if [ "${#pr_numbers[@]}" -eq 0 ]; then
-              gh pr create --title "Pricing refresh $today" \
+              git fetch --no-tags origin \
+                "refs/heads/$branch:refs/remotes/origin/$branch"
+              if ! git diff --quiet "$remote_tip" -- \
+                "$pricing_path" "$catalog_path" "$generated_path"; then
+                echo "Refusing stale orphan branch $branch; its catalogs differ from this refresh" >&2
+                exit 1
+              fi
+              gh pr create --title "Model and pricing refresh $today" \
                 --body-file /tmp/pricing_delta.md --base main --head "$branch"
             else
               echo "Pricing refresh PR #${pr_numbers[0]} already exists; leaving it unchanged."
@@ -90,6 +110,8 @@ jobs:
           fi
 
           cp "$pricing_path" /tmp/pricing_after.json
+          cp "$catalog_path" /tmp/model_catalog_after.json
+          cp "$generated_path" /tmp/model_catalog_generated_after.ts
           git config user.name "pricing-refresh[bot]"
           git config user.email "actions@users.noreply.github.com"
           git fetch --no-tags origin \
@@ -97,10 +119,12 @@ jobs:
           git switch --detach origin/main
           git switch -c "$branch"
           cp /tmp/pricing_after.json "$pricing_path"
-          git add "$pricing_path"
-          git commit -m "chore(pricing): nightly refresh from the LiteLLM registry"
+          cp /tmp/model_catalog_after.json "$catalog_path"
+          cp /tmp/model_catalog_generated_after.ts "$generated_path"
+          git add "$pricing_path" "$catalog_path" "$generated_path"
+          git commit -m "chore(ai): refresh model catalog and pricing"
           git push --set-upstream \
             --force-with-lease="refs/heads/$branch:" \
             origin "HEAD:refs/heads/$branch"
-          gh pr create --title "Pricing refresh $today" \
+          gh pr create --title "Model and pricing refresh $today" \
             --body-file /tmp/pricing_delta.md --base main --head "$branch"
