@@ -28,8 +28,10 @@ jobs:
           cp src/frisket/ai/llm/pricing_data.json /tmp/pricing_before.json
           cp src/frisket/ai/llm/model_catalog.json /tmp/model_catalog_before.json
           cp web/src/actions/modelCatalog.generated.ts /tmp/model_catalog_generated_before.ts
+          cp web/src/actions/engineCatalog.generated.ts /tmp/ocr_engine_catalog_generated_before.ts
           uv run --no-project python scripts/dev/update_pricing.py
           uv run --no-project python scripts/dev/sync_model_catalog.py
+          uv run --frozen --no-dev python scripts/dev/sync_ocr_engine_catalog.py
           catalog_changed="$(
             python3 - <<'PY'
           import json
@@ -55,6 +57,7 @@ jobs:
             cp /tmp/pricing_before.json src/frisket/ai/llm/pricing_data.json
             cp /tmp/model_catalog_before.json src/frisket/ai/llm/model_catalog.json
             cp /tmp/model_catalog_generated_before.ts web/src/actions/modelCatalog.generated.ts
+            cp /tmp/ocr_engine_catalog_generated_before.ts web/src/actions/engineCatalog.generated.ts
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
@@ -71,6 +74,7 @@ jobs:
           pricing_path="src/frisket/ai/llm/pricing_data.json"
           catalog_path="src/frisket/ai/llm/model_catalog.json"
           generated_path="web/src/actions/modelCatalog.generated.ts"
+          ocr_generated_path="web/src/actions/engineCatalog.generated.ts"
           today="$(date -u +%Y-%m-%d)"
           branch="pricing-refresh-${today//-/}"
 
@@ -93,7 +97,8 @@ jobs:
               git fetch --no-tags origin \
                 "refs/heads/$branch:refs/remotes/origin/$branch"
               if ! git diff --quiet "$remote_tip" -- \
-                "$pricing_path" "$catalog_path" "$generated_path"; then
+                "$pricing_path" "$catalog_path" "$generated_path" \
+                "$ocr_generated_path"; then
                 echo "Refusing stale orphan branch $branch; its catalogs differ from this refresh" >&2
                 exit 1
               fi
@@ -112,6 +117,7 @@ jobs:
           cp "$pricing_path" /tmp/pricing_after.json
           cp "$catalog_path" /tmp/model_catalog_after.json
           cp "$generated_path" /tmp/model_catalog_generated_after.ts
+          cp "$ocr_generated_path" /tmp/ocr_engine_catalog_generated_after.ts
           git config user.name "pricing-refresh[bot]"
           git config user.email "actions@users.noreply.github.com"
           git fetch --no-tags origin \
@@ -121,7 +127,9 @@ jobs:
           cp /tmp/pricing_after.json "$pricing_path"
           cp /tmp/model_catalog_after.json "$catalog_path"
           cp /tmp/model_catalog_generated_after.ts "$generated_path"
-          git add "$pricing_path" "$catalog_path" "$generated_path"
+          cp /tmp/ocr_engine_catalog_generated_after.ts "$ocr_generated_path"
+          git add "$pricing_path" "$catalog_path" "$generated_path" \
+            "$ocr_generated_path"
           git commit -m "chore(ai): refresh model catalog and pricing"
           git push --set-upstream \
             --force-with-lease="refs/heads/$branch:" \

@@ -16,6 +16,7 @@ WORKFLOW = ROOT / ".github" / "workflows" / "refresh-pricing.yml"
 PRICING_PATH = Path("src/frisket/ai/llm/pricing_data.json")
 MODEL_PATH = Path("src/frisket/ai/llm/model_catalog.json")
 GENERATED_PATH = Path("web/src/actions/modelCatalog.generated.ts")
+OCR_GENERATED_PATH = Path("web/src/actions/engineCatalog.generated.ts")
 BEFORE = {
     "source": "https://example.invalid/prices.json",
     "updated": "2026-08-02",
@@ -81,6 +82,20 @@ elif "scripts/dev/sync_model_catalog.py" in sys.argv:
     shutil.copyfile(
         os.environ["GENERATED_AFTER"],
         "web/src/actions/modelCatalog.generated.ts",
+    )
+elif "scripts/dev/sync_ocr_engine_catalog.py" in sys.argv:
+    expected = [
+        "run",
+        "--frozen",
+        "--no-dev",
+        "python",
+        "scripts/dev/sync_ocr_engine_catalog.py",
+    ]
+    if sys.argv[1:] != expected:
+        raise SystemExit(f"unexpected OCR sync invocation: {sys.argv[1:]}")
+    shutil.copyfile(
+        os.environ["OCR_GENERATED_AFTER"],
+        "web/src/actions/engineCatalog.generated.ts",
     )
 elif "scripts/dev/pricing_delta_report.py" in sys.argv:
     print("synthetic pricing delta")
@@ -174,6 +189,7 @@ def _run_workflow(
     after: dict,
     *,
     model_after: dict | None = None,
+    ocr_generated_after: str | None = None,
     reruns: int = 1,
     existing_branch: bool = False,
     initial_pr_numbers: tuple[int, ...] = (),
@@ -189,12 +205,14 @@ def _run_workflow(
     pricing = repo / PRICING_PATH
     model_catalog = repo / MODEL_PATH
     generated = repo / GENERATED_PATH
+    ocr_generated = repo / OCR_GENERATED_PATH
     output = workflow_tmp / "github-output"
     gh_attempts = workflow_tmp / "gh-attempts.jsonl"
     gh_state = workflow_tmp / "gh-state.json"
     after_path = tmp_path / "after.json"
     model_after_path = tmp_path / "model-after.json"
     generated_after_path = tmp_path / "generated-after.ts"
+    ocr_generated_after_path = tmp_path / "ocr-generated-after.ts"
 
     pricing.parent.mkdir(parents=True)
     generated.parent.mkdir(parents=True)
@@ -204,6 +222,7 @@ def _run_workflow(
         json.dumps(MODEL_BEFORE, indent=2) + "\n", encoding="utf-8"
     )
     generated.write_text("generated before\n", encoding="utf-8")
+    ocr_generated.write_text("ocr generated before\n", encoding="utf-8")
     after_path.write_text(json.dumps(after, indent=2) + "\n", encoding="utf-8")
     effective_model_after = model_after or {
         **MODEL_BEFORE,
@@ -214,6 +233,16 @@ def _run_workflow(
     )
     generated_after_path.write_text(
         "generated after\n" if model_after is not None else "generated before\n",
+        encoding="utf-8",
+    )
+    ocr_generated_after_path.write_text(
+        ocr_generated_after
+        if ocr_generated_after is not None
+        else (
+            "ocr generated after\n"
+            if model_after is not None
+            else "ocr generated before\n"
+        ),
         encoding="utf-8",
     )
     _install_fake_commands(fake_bin)
@@ -227,7 +256,14 @@ def _run_workflow(
     _git(repo, "init", "-b", "main")
     _git(repo, "config", "user.name", "Pricing workflow test")
     _git(repo, "config", "user.email", "pricing-test@example.invalid")
-    _git(repo, "add", str(PRICING_PATH), str(MODEL_PATH), str(GENERATED_PATH))
+    _git(
+        repo,
+        "add",
+        str(PRICING_PATH),
+        str(MODEL_PATH),
+        str(GENERATED_PATH),
+        str(OCR_GENERATED_PATH),
+    )
     _git(repo, "commit", "-m", "fixture baseline")
     _git(repo, "remote", "add", "origin", str(remote))
     _git(repo, "push", "-u", "origin", "main")
@@ -282,6 +318,7 @@ def _run_workflow(
         "PRICING_AFTER": str(after_path),
         "MODEL_AFTER": str(model_after_path),
         "GENERATED_AFTER": str(generated_after_path),
+        "OCR_GENERATED_AFTER": str(ocr_generated_after_path),
         "PRICING_REFRESH_DAY": REFRESH_DAY,
     }
     refresh_script = (
@@ -294,6 +331,10 @@ def _run_workflow(
         .replace(
             "/tmp/model_catalog_generated_before.ts",
             "workflow-tmp/model-catalog-generated-before.ts",
+        )
+        .replace(
+            "/tmp/ocr_engine_catalog_generated_before.ts",
+            "workflow-tmp/ocr-engine-catalog-generated-before.ts",
         )
         .replace("/tmp/pricing_delta.md", "workflow-tmp/pricing-delta.md")
     )
@@ -331,6 +372,10 @@ def _run_workflow(
                 .replace(
                     "/tmp/model_catalog_generated_after.ts",
                     "workflow-tmp/model-catalog-generated-after.ts",
+                )
+                .replace(
+                    "/tmp/ocr_engine_catalog_generated_after.ts",
+                    "workflow-tmp/ocr-engine-catalog-generated-after.ts",
                 )
             )
             open_pr_run = subprocess.run(
@@ -404,7 +449,11 @@ def _run_workflow(
 def test_timestamp_only_regeneration_is_a_complete_noop(tmp_path: Path) -> None:
     after = {**BEFORE, "updated": "2026-08-09"}
 
-    assert _run_workflow(tmp_path, after) == {
+    assert _run_workflow(
+        tmp_path,
+        after,
+        ocr_generated_after="transient OCR regeneration\n",
+    ) == {
         "changed": "false",
         "branch": "main",
         "existing_tip": None,
@@ -418,6 +467,9 @@ def test_timestamp_only_regeneration_is_a_complete_noop(tmp_path: Path) -> None:
         "pr_numbers": [],
         "open_pr_returncodes": [],
     }
+    assert (tmp_path / "checkout" / OCR_GENERATED_PATH).read_text() == (
+        "ocr generated before\n"
+    )
 
 
 def test_rate_change_keeps_generated_update_and_pr_path(tmp_path: Path) -> None:
@@ -483,6 +535,37 @@ def test_model_only_change_uses_the_same_reviewed_pr_path(tmp_path: Path) -> Non
         )
         == "generated after"
     )
+    assert (
+        _git(
+            tmp_path / "checkout",
+            "show",
+            f"{result['remote_tip']}:{OCR_GENERATED_PATH}",
+        )
+        == "ocr generated after"
+    )
+
+
+def test_stale_orphan_branch_refuses_a_mismatched_ocr_fallback(
+    tmp_path: Path,
+) -> None:
+    after = {
+        **BEFORE,
+        "updated": "2026-08-09",
+        "text": {"provider/model": [1.0, 2.5]},
+    }
+
+    result = _run_workflow(
+        tmp_path,
+        after,
+        ocr_generated_after="ocr generated after\n",
+        existing_branch=True,
+        expect_open_pr_success=False,
+    )
+
+    assert result["remote_tip"] == result["existing_tip"]
+    assert [call[:2] for call in result["pr_calls"]] == [["pr", "list"]]
+    assert result["pr_numbers"] == []
+    assert result["open_pr_returncodes"] == [1]
 
 
 def test_same_day_rerun_leaves_one_branch_and_one_pr_unchanged(tmp_path: Path) -> None:
