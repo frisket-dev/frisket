@@ -1076,6 +1076,22 @@ def _destination(egress_class: str | None, operator: str | None) -> dict[str, st
     return {"kind": "unknown", "label": "Destination unknown"}
 
 
+def _format_download_size(size: int) -> str:
+    # Match the grid and download-progress formatter's 1024-based units.
+    units = ("B", "KB", "MB", "GB", "TB")
+    value = float(size)
+    unit = 0
+    while value >= 1024 and unit < len(units) - 1:
+        value /= 1024
+        unit += 1
+    text = (
+        str(size)
+        if unit == 0
+        else format(value, ".1f" if value < 10 else ".0f").removesuffix(".0")
+    )
+    return f"{text} {units[unit]}"
+
+
 def _engine_facts(
     engine: Mapping[str, Any],
     target: Any,
@@ -1170,7 +1186,7 @@ def _engine_facts(
                 {
                     "kind": "text",
                     "label": "Download size",
-                    "value": f"{sum(sizes):,} bytes",
+                    "value": _format_download_size(sum(sizes)),
                 }
             )
     return facts

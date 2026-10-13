@@ -219,10 +219,10 @@ def test_viewer_can_load_an_incomplete_action_draft_without_mutation_authority(
 
 
 @pytest.mark.parametrize(
-    ("engine_id", "setup_ref", "download_size"),
+    ("engine_id", "setup_ref", "download_size", "display_size"),
     [
-        ("gliclass", "engine-setup:gliclass.local@1", 754_867_256),
-        ("jeff", "engine-setup:jeff.local@1", 1_726_558_966),
+        ("gliclass", "engine-setup:gliclass.local@1", 754_867_256, "720 MB"),
+        ("jeff", "engine-setup:jeff.local@1", 1_726_558_966, "1.6 GB"),
     ],
 )
 def test_local_classifier_projects_one_managed_setup(
@@ -231,6 +231,7 @@ def test_local_classifier_projects_one_managed_setup(
     engine_id: str,
     setup_ref: str,
     download_size: int,
+    display_size: str,
 ) -> None:
     monkeypatch.setattr(
         "frisket.engine._workers.classifier_artifacts.classifier_runtime_present",
@@ -276,7 +277,7 @@ def test_local_classifier_projects_one_managed_setup(
     }
     assert {fact["label"]: fact["value"] for fact in current["facts"]}[
         "Download size"
-    ] == f"{download_size:,} bytes"
+    ] == display_size
 
 
 def test_local_classifier_rejects_an_incompatible_output_shape(

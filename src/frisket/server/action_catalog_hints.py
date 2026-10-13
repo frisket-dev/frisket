@@ -36,7 +36,11 @@ from frisket.engine.store import Project
 from frisket.execution.commercial import CommercialOffering
 from frisket.execution.price_book import PlatformMetered
 from frisket.execution.provider import ExecutionComposition
-from frisket.execution.resolver import Refusal, preferred_static_choice
+from frisket.execution.resolver import (
+    Refusal,
+    preferred_static_choice,
+    selected_route_missing_refusal,
+)
 from frisket.execution.targets import ExecutionTarget, TargetEngineSupport
 from frisket.contracts.transcription_sidecar import TranscriptionOptionSupport
 
@@ -630,11 +634,13 @@ def _project_execution_composition_engines(
             if preferred_target is None:
                 engine.pop("target_id", None)
                 engine["available"] = False
-                engine["error"] = (
-                    "Reconnect Frisket Cloud to use this model's selected Cloud route."
-                    if request.route == "cloud"
-                    else "Set up this model's selected route and retry."
+                assert request.route is not None
+                missing_route = selected_route_missing_refusal(
+                    resolution_provider,
+                    engine=engine_id,
+                    route=request.route,
                 )
+                engine["error"] = missing_route.remedy
                 projected.append(engine)
                 continue
             # The active target is a catalog fact even when it is currently
