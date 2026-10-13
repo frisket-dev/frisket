@@ -505,9 +505,14 @@ def _model_bbox_spans(
     from frisket.engine.store.evidence import record_source_span
     from frisket.engine.store.grounding_contract import TextTarget, WordStream, ground
     from frisket.engine.store.ocr_word_stream import resolve_ocr_word_stream
+    from frisket.contracts.actions.schemas._engines import is_generic_vlm_ocr_engine
 
     resolved = resolve_ocr_word_stream(project, blob_hash)
-    if resolved is not None and quote is not None:
+    if (
+        resolved is not None
+        and quote is not None
+        and not is_generic_vlm_ocr_engine(resolved.engine)
+    ):
         overlapping = [
             token
             for token in resolved.stream.tokens

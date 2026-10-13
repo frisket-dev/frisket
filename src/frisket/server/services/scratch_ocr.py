@@ -236,6 +236,7 @@ def paid_ocr_scratch_plan(
                         ctx,
                         usage=usage,
                         language=normalized_options.get("language"),
+                        keep_text_position=normalized_options.get("keep_text_position"),
                         scratch=scratch,
                     )
                     returned = True

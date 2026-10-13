@@ -33,6 +33,7 @@ from frisket.execution.resolve_for_action import authored_options
 from frisket.execution.runtime_binding import bind_fact_to_route
 from frisket.execution.targets import CAPABILITY_OCR
 from frisket.ops.base import RecipeInvocationHalt
+from frisket.contracts.actions.schemas._engines import is_generic_vlm_ocr_engine
 
 
 def ocr_token_granularity(engine: str) -> str:
@@ -40,6 +41,8 @@ def ocr_token_granularity(engine: str) -> str:
     if engine == "tesseract":
         return "word"
     if engine in {engines.LIGHT_ENGINE, "pp-ocrv6", engines.DATALAB_ENGINE}:
+        return "line"
+    if is_generic_vlm_ocr_engine(engine):
         return "line"
     return "block"
 
@@ -318,6 +321,7 @@ class _BoundOcrReader:
                         ctx,
                         usage=usage,
                         language=options.get("language"),
+                        keep_text_position=options.get("keep_text_position"),
                         scratch=scratch,
                     )
                     returned = True

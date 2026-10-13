@@ -68,9 +68,10 @@ def _page_spans(entry, page_images, engine, *, prepared_selector=None):
     height = (
         image.get("source_height") or image.get("height") or positions.get("height")
     )
-    text = " ".join(
+    block_text = " ".join(
         str(block.get("text") or "") for block in blocks if isinstance(block, dict)
     ).strip()
+    text = str(entry.get("text") or "").strip() or block_text
     yield {
         "span_kind": "page_range",
         "page_start": page,
@@ -187,8 +188,15 @@ def write_ocr_evidence(
         ):
             continue
         if prepared is None:
+            page_texts = {
+                int(entry["page_number"]): str(entry.get("text") or "")
+                for entry in read.get("pages") or []
+                if isinstance(entry, dict)
+                and type(entry.get("page_number")) is int
+                and entry["page_number"] > 0
+            }
             pages = [
-                entry
+                {**entry, "text": page_texts.get(int(entry["page"]), "")}
                 for entry in read.get("blocks") or []
                 if isinstance(entry, dict)
                 and type(entry.get("page")) is int
@@ -198,6 +206,7 @@ def write_ocr_evidence(
             pages = [
                 {
                     "page": int(pin.page_number),
+                    "text": prepared.text[pin.start : pin.end],
                     "blocks": (
                         pin.positions.get("blocks")
                         if isinstance(pin.positions, dict)

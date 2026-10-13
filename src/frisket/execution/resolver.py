@@ -360,6 +360,8 @@ def _ocr_inability(
             "a recognition-language hint (it detects script automatically — "
             "drop language to use it)"
         )
+    if options.get("keep_text_position") is True and not declared.geometry:
+        return "positioned OCR output (this route returns plain text only)"
     if options.get("searchable_pdf") is True and not declared.searchable_pdf:
         return (
             "searchable PDF output (it returns no text geometry suitable for "
