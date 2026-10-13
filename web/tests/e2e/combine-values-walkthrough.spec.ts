@@ -120,14 +120,14 @@ test('Combine values walkthrough cleans agency names and repairs their counts', 
   await walkthroughStep('group-transit-authority', async () => {
     await form.getByTestId('resolve-combine-new-bucket').click();
     await expect(form.getByTestId('resolve-footer-summary')).toHaveText(
-      '11 → 3 groups · 1 kept · 16 rows → agency_clean',
+      '11 → 3 groups · 1 kept · 16 rows',
     );
   });
   await walkthroughStep('keep-unmatched-values', async () => {
     await expect(form.getByTestId('resolve-combine-remainder-policy')).toHaveValue('keep');
   });
   await walkthroughStep('apply-agency-groups', async () => {
-    await form.getByTestId('resolve-apply').click();
+    await page.getByTestId('resolve-apply').click();
     await expect(page.getByTestId('action-drawer')).toHaveCount(0, { timeout: 15_000 });
   });
   await walkthroughStep('review-clean-column', async () => {

@@ -47,6 +47,18 @@ function authoredEndpointTarget(
   );
 }
 
+function authoredFormTarget(page: Page, stepId: string) {
+  const step = LOCAL_MODEL_LAB_WALKTHROUGH.steps.find((candidate) => candidate.id === stepId);
+  if (!step || (step.target.kind !== 'field'
+    && step.target.kind !== 'element'
+    && step.target.kind !== 'tour')) {
+    throw new Error(`${stepId} must use a form DOM target`);
+  }
+  return step.target.kind === 'tour'
+    ? page.locator(`[data-tour="${step.target.id}"]`)
+    : page.getByTestId(step.target.id);
+}
+
 function instructionText(instruction: WalkthroughInstruction): string {
   if (typeof instruction === 'string') return instruction;
   return `${instruction.lead} ${instruction.code}${instruction.explanation ? ` ${instruction.explanation}` : ''}`;
@@ -70,6 +82,31 @@ function schemaFromMessages(body: Record<string, unknown>): Record<string, unkno
     }
   }
   throw new Error('completion request did not include Frisket JSON schema guidance');
+}
+
+function responseForSchema(schema: Record<string, unknown>, preferredText: string): unknown {
+  const enumValues = Array.isArray(schema.enum) ? schema.enum : [];
+  if (enumValues.length > 0) {
+    return enumValues.includes(preferredText) ? preferredText : enumValues[0];
+  }
+  if (schema.type === 'object') {
+    const properties = typeof schema.properties === 'object' && schema.properties !== null
+      ? schema.properties as Record<string, Record<string, unknown>>
+      : {};
+    return Object.fromEntries(Object.entries(properties).map(([key, value]) => (
+      [key, responseForSchema(value, preferredText)]
+    )));
+  }
+  if (schema.type === 'array') {
+    const items = typeof schema.items === 'object' && schema.items !== null
+      ? schema.items as Record<string, unknown>
+      : {};
+    return [responseForSchema(items, preferredText)];
+  }
+  if (schema.type === 'boolean') return false;
+  if (schema.type === 'integer' || schema.type === 'number') return 1;
+  if (schema.type === 'null') return null;
+  return preferredText;
 }
 
 async function startWeakLocalModel(): Promise<{
@@ -96,31 +133,23 @@ async function startWeakLocalModel(): Promise<{
       const body = await requestJson(request);
       requestedModels.push(String(body.model));
       const schema = schemaFromMessages(body);
-      const properties = (
-        typeof schema.properties === 'object' && schema.properties !== null
-          ? schema.properties
-          : {}
-      ) as Record<string, unknown>;
-      const outputName = Object.keys(properties)[0];
-      if (!outputName) throw new Error('completion schema has no output property');
       const transcript = JSON.stringify(body.messages ?? []);
-      let value: string;
-      if (outputName === 'small_model_label') {
-        value = transcript.includes('MEETING NOTICE')
-          ? 'meeting'
-          : transcript.includes('INSPECTION REPORT')
-            ? 'inspection'
-            : 'contract';
-      } else {
-        // Deterministic weak-model behavior for the teaching boundary: valid
-        // structured output, but a confident answer that ignores the row's
-        // constraints. The tour compares this with challenge_answer.
-        value = 'REQ-000 — This looks like the safest record to review.';
-      }
+      const value = transcript.includes('MEETING NOTICE')
+        ? 'meeting'
+        : transcript.includes('INSPECTION REPORT')
+          ? 'inspection'
+          : transcript.includes('CONTRACT AWARD')
+            ? 'contract'
+            // Deterministic weak-model behavior for the teaching boundary:
+            // valid structured output, but a confident answer that ignores
+            // the row's constraints. The tour compares this with the key.
+            : 'REQ-000 — This looks like the safest record to review.';
       response.end(JSON.stringify({
         id: `local-lab-${completionCount}`,
         model: MODEL,
-        choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: JSON.stringify({ [outputName]: value }) } }],
+        choices: [{ finish_reason: 'stop', message: {
+          role: 'assistant', content: JSON.stringify(responseForSchema(schema, value)),
+        } }],
         usage: { prompt_tokens: 40, completion_tokens: 12 },
       }));
       return;
@@ -207,10 +236,16 @@ test('local-model walkthrough connects a named endpoint, succeeds simply, and ex
     });
     await walkthroughStep('open-local-classify', async () => {
       await page.getByTestId('ribbon-action-map.classify').click();
-      await expect(page.getByTestId('action-form')).toBeVisible();
+      await expect(page.getByTestId('generated-action-form')).toBeVisible();
     });
     await walkthroughStep('choose-easy-source-preview', async () => {
-      await page.getByTestId('classify-source-column-select').selectOption('easy_notice');
+      const source = authoredFormTarget(page, 'choose-easy-source-preview');
+      for (const remove of await source.getByRole('button', { name: /^Remove / }).all()) {
+        await remove.click();
+      }
+      await source.click();
+      await page.getByLabel('Filter columns').fill('easy_notice');
+      await page.getByRole('option', { name: /easy_notice/ }).click();
     });
     await walkthroughStep('open-local-account-menu', async () => {
       await page.getByTestId('chrome-account').click();
@@ -283,30 +318,39 @@ test('local-model walkthrough connects a named endpoint, succeeds simply, and ex
     });
     await walkthroughStep('reopen-local-classify', async () => {
       await page.getByTestId('ribbon-action-map.classify').click();
-      await expect(page.getByTestId('action-form')).toBeVisible();
+      await expect(page.getByTestId('generated-action-form')).toBeVisible();
     });
     await walkthroughStep('choose-easy-source', async () => {
-      await page.getByTestId('classify-source-column-select').selectOption('easy_notice');
+      const source = authoredFormTarget(page, 'choose-easy-source');
+      for (const remove of await source.getByRole('button', { name: /^Remove / }).all()) {
+        await remove.click();
+      }
+      await source.click();
+      await page.getByLabel('Filter columns').fill('easy_notice');
+      await page.getByRole('option', { name: /easy_notice/ }).click();
     });
     await walkthroughStep('choose-local-llm', async () => {
-      await expect(page.getByTestId('field-engine').locator('.engine-selector__trigger')).toBeVisible();
+      await expect(authoredFormTarget(page, 'choose-local-llm')
+        .locator('.engine-selector__trigger')).toBeVisible();
     });
     await walkthroughStep('set-easy-labels', async () => {
       await page.getByLabel('Field 1 labels').fill('meeting, inspection, contract');
     });
     await walkthroughStep('name-local-label', async () => {
-      await page.getByTestId('new-column-name').fill('small_model_label');
+      await authoredFormTarget(page, 'name-local-label').fill('small_model_label');
     });
     await walkthroughStep('choose-small-model', async () => {
-      const trigger = page.getByTestId('field-engine').locator('.engine-selector__trigger');
+      const trigger = authoredFormTarget(page, 'choose-small-model')
+        .locator('.engine-selector__trigger');
       await trigger.click();
       const dialog = page.getByTestId('engine-selector-dialog');
-      await dialog.getByRole('searchbox', { name: 'Search Engine' }).fill(MODEL);
-      await dialog.getByRole('button', { name: new RegExp(MODEL) }).click();
+      await dialog.getByRole('searchbox').fill(MODEL);
+      await dialog.locator('[data-choice-id]').filter({ hasText: 'Local model lab server' }).click();
       await expect(trigger).toContainText(MODEL);
+      await expect(trigger).toContainText('Local model lab server');
     });
     await walkthroughStep('run-easy-local-task', async () => {
-      await page.getByTestId('run-button').click();
+      await authoredFormTarget(page, 'run-easy-local-task').click();
       await expect(page.getByTestId('cost-gate-modal')).toHaveCount(0);
       await expect(page.getByTestId('action-drawer')).toHaveCount(0, { timeout: 20_000 });
     });
@@ -339,7 +383,7 @@ test('local-model walkthrough connects a named endpoint, succeeds simply, and ex
       await expect(page.getByTestId('generated-action-form')).toBeVisible();
     });
     await walkthroughStep('choose-hard-source', async () => {
-      const source = page.getByTestId('text-source-columns');
+      const source = authoredFormTarget(page, 'choose-hard-source');
       for (const remove of await source.getByRole('button', { name: /^Remove / }).all()) {
         await remove.click();
       }
@@ -348,23 +392,25 @@ test('local-model walkthrough connects a named endpoint, succeeds simply, and ex
       await page.getByRole('option', { name: /challenge_text/ }).click();
     });
     await walkthroughStep('enter-hard-question', async () => {
-      await page.getByTestId('field-question').fill(
+      await authoredFormTarget(page, 'enter-hard-question').fill(
         'Apply every rule in the text. Return the single requested ID or result, followed by one sentence explaining it.',
       );
     });
     await walkthroughStep('name-hard-answer', async () => {
-      await page.getByTestId('field-output-answer').fill('small_model_answer');
+      await authoredFormTarget(page, 'name-hard-answer').fill('small_model_answer');
     });
     await walkthroughStep('confirm-hard-model', async () => {
-      const trigger = page.getByTestId('field-engine').locator('.engine-selector__trigger');
+      const trigger = authoredFormTarget(page, 'confirm-hard-model')
+        .locator('.engine-selector__trigger');
       await trigger.click();
       const dialog = page.getByTestId('engine-selector-dialog');
-      await dialog.getByRole('searchbox', { name: 'Search Engine' }).fill(MODEL);
-      await dialog.getByRole('button', { name: new RegExp(MODEL) }).click();
+      await dialog.getByRole('searchbox').fill(MODEL);
+      await dialog.locator('[data-choice-id]').filter({ hasText: 'Local model lab server' }).click();
       await expect(trigger).toContainText(MODEL);
+      await expect(trigger).toContainText('Local model lab server');
     });
     await walkthroughStep('run-hard-local-task', async () => {
-      await page.getByTestId('generated-action-run').click();
+      await authoredFormTarget(page, 'run-hard-local-task').click();
       await expect(page.getByTestId('cost-gate-modal')).toHaveCount(0);
       await expect(page.getByTestId('action-drawer')).toHaveCount(0, { timeout: 20_000 });
     });
