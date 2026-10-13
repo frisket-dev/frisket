@@ -179,7 +179,7 @@ async function stopServer(server: Server): Promise<void> {
 
 test('local-model walkthrough connects a named endpoint, succeeds simply, and exposes a hard-task limit', async ({
   page,
-}) => {
+}, testInfo) => {
   test.setTimeout(120_000);
   const localModel = await startWeakLocalModel();
   const existingModel = await startWeakLocalModel();
@@ -189,9 +189,48 @@ test('local-model walkthrough connects a named endpoint, succeeds simply, and ex
     const walkthroughStep = async (id: string, body: () => Promise<void>) => {
       const step = LOCAL_MODEL_LAB_WALKTHROUGH.steps.find((candidate) => candidate.id === id);
       if (!step) throw new Error(`Unknown local-model walkthrough step: ${id}`);
+      expect(step).toBe(LOCAL_MODEL_LAB_WALKTHROUGH.steps[completedSteps.length]);
       await test.step(`${step.title} — ${instructionText(step.instruction)}`, async () => {
-        completedSteps.push(id);
+        const card = page.getByTestId('walkthrough-card');
+        await expect(card.getByRole('heading', { name: step.title, exact: true })).toBeVisible();
+        await expect(card.locator('.walkthrough-progress')).toHaveText(
+          `${completedSteps.length + 1} of ${LOCAL_MODEL_LAB_WALKTHROUGH.steps.length}`,
+        );
+        const box = page.getByTestId('walkthrough-target-box');
+        await expect(box, `${id} spotlight must resolve`).toBeVisible({
+          timeout: step.target.kind === 'completed-run' ? 30_000 : 10_000,
+        });
+        if (step.target.kind === 'tour') {
+          const liveTarget = page.locator(`[data-tour="${step.target.id}"]:visible`).first();
+          await expect(liveTarget, `${id} semantic tour target must be visible`).toBeVisible();
+          await expect(liveTarget.locator('.engine-selector__trigger')).not.toContainText(
+            'Loading choices…',
+            { timeout: 15_000 },
+          );
+          await expect.poll(async () => {
+            const [boxRect, targetRect] = await Promise.all([
+              box.boundingBox(),
+              liveTarget.boundingBox(),
+            ]);
+            if (!boxRect || !targetRect) return null;
+            return {
+              x: Math.round(Math.abs(boxRect.x - targetRect.x)),
+              y: Math.round(Math.abs(boxRect.y - targetRect.y)),
+            };
+          }, { timeout: 10_000 }).toEqual({ x: 3, y: 3 });
+        }
+        await page.screenshot({
+          path: testInfo.outputPath(`${String(completedSteps.length + 1).padStart(2, '0')}-${id}.png`),
+        });
         await body();
+        if (step.advance === 'next-button') {
+          await card.getByRole('button', {
+            name: completedSteps.length === LOCAL_MODEL_LAB_WALKTHROUGH.steps.length - 1
+              ? 'Finish'
+              : 'Next',
+          }).click();
+        }
+        completedSteps.push(id);
       });
     };
 
@@ -221,6 +260,9 @@ test('local-model walkthrough connects a named endpoint, succeeds simply, and ex
     // Route to the lab sheet up front so the workbench's initial sheet
     // hydration cannot race the authored tab click back to the first sheet.
     await openProject(page, pid, lab!.id);
+    await page.getByTestId('chrome-walkthrough').click();
+    await expect(page.getByTestId('walkthrough-chooser')).toBeVisible();
+    await page.getByTestId('walkthrough-choice-local-model-lab').click();
 
     await walkthroughStep('open-local-model-lab', async () => {
       await page.getByTestId(`workbench-mainView-tab-${lab!.id}`).click();
@@ -244,7 +286,7 @@ test('local-model walkthrough connects a named endpoint, succeeds simply, and ex
         await remove.click();
       }
       await source.click();
-      await page.getByLabel('Filter columns').fill('easy_notice');
+      await page.getByPlaceholder('Filter columns').fill('easy_notice');
       await page.getByRole('option', { name: /easy_notice/ }).click();
     });
     await walkthroughStep('open-local-account-menu', async () => {
@@ -326,7 +368,7 @@ test('local-model walkthrough connects a named endpoint, succeeds simply, and ex
         await remove.click();
       }
       await source.click();
-      await page.getByLabel('Filter columns').fill('easy_notice');
+      await page.getByPlaceholder('Filter columns').fill('easy_notice');
       await page.getByRole('option', { name: /easy_notice/ }).click();
     });
     await walkthroughStep('choose-local-llm', async () => {
@@ -388,7 +430,7 @@ test('local-model walkthrough connects a named endpoint, succeeds simply, and ex
         await remove.click();
       }
       await source.click();
-      await page.getByLabel('Filter columns').fill('challenge_text');
+      await page.getByPlaceholder('Filter columns').fill('challenge_text');
       await page.getByRole('option', { name: /challenge_text/ }).click();
     });
     await walkthroughStep('enter-hard-question', async () => {
@@ -440,6 +482,7 @@ test('local-model walkthrough connects a named endpoint, succeeds simply, and ex
     expect(existingModel.completions()).toBe(0);
     expect(existingModel.requestedModels()).toEqual([]);
     expect(completedSteps).toEqual(LOCAL_MODEL_LAB_WALKTHROUGH.steps.map((step) => step.id));
+    await expect(page.getByTestId('walkthrough-card')).toHaveCount(0);
   } finally {
     for (const endpointId of endpointIdsToDelete) {
       await page.request.delete(`/api/providers/local-endpoints/${endpointId}`);

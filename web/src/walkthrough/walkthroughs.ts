@@ -107,7 +107,7 @@ export const REGEX_EXTRACT_WALKTHROUGH: WalkthroughDefinition = {
     {
       id: 'name-output',
       title: 'Name the result column',
-      instruction: 'Set Save to to contract_id so the extracted values have a clear home.',
+      instruction: 'Set Result to contract_id so the extracted values have a clear home.',
       target: { kind: 'field', id: 'field-output-extracted' },
       advance: 'next-button',
     },
@@ -268,7 +268,7 @@ export const LAWSUIT_DOCUMENT_WALKTHROUGH: WalkthroughDefinition = {
     {
       id: 'name-filing-text',
       title: 'Name the text column',
-      instruction: 'Set Save to to filing_text.',
+      instruction: 'Set Result to filing_text.',
       target: { kind: 'field', id: 'field-output-markdown' },
       advance: 'next-button',
     },
@@ -383,7 +383,7 @@ export const LAWSUIT_DOCUMENT_WALKTHROUGH: WalkthroughDefinition = {
     {
       id: 'define-filing-fields',
       title: 'Define the filing facts',
-      instruction: 'Replace the three default output names with plaintiff, defendant, and requested_relief. Keep them as Text fields and describe the last one as the remedy the plaintiff asks the court to order.',
+      instruction: 'Keep the default field, add two more, and name the three Text fields plaintiff, defendant, and requested_relief. Describe the last one as the remedy the plaintiff asks the court to order.',
       target: { kind: 'field', id: 'output-fields-label' },
       advance: 'next-button',
     },
@@ -391,7 +391,7 @@ export const LAWSUIT_DOCUMENT_WALKTHROUGH: WalkthroughDefinition = {
       id: 'set-filing-extraction-prompt',
       title: 'Set the extraction rules',
       instruction: 'Ask for the plaintiff and defendant exactly as filed and a one-sentence description of the requested relief. Tell the model to leave a field blank rather than infer a missing value.',
-      target: { kind: 'field', id: 'action-prompt' },
+      target: { kind: 'field', id: 'field-instruction' },
       advance: 'next-button',
     },
     {
@@ -560,7 +560,7 @@ export const COUNCIL_AUDIO_WALKTHROUGH: WalkthroughDefinition = {
       id: 'name-meeting-brief',
       title: 'Name the meeting brief',
       instruction: {
-        lead: 'Set Save to to',
+        lead: 'Set Result to',
         code: 'meeting_brief',
       },
       target: { kind: 'field', id: 'field-output-summary' },
@@ -701,7 +701,7 @@ export const CIVIC_AI_TRIAGE_WALKTHROUGH: WalkthroughDefinition = {
     {
       id: 'name-summary',
       title: 'Name the summary column',
-      instruction: 'Set Save to to summary.',
+      instruction: 'Set Result to summary.',
       target: { kind: 'field', id: 'field-output-summary' },
       advance: 'next-button',
     },
@@ -747,7 +747,7 @@ export const CIVIC_AI_TRIAGE_WALKTHROUGH: WalkthroughDefinition = {
     {
       id: 'name-topic',
       title: 'Name the category column',
-      instruction: 'Set Save to to topic.',
+      instruction: 'Set Result to topic.',
       target: { kind: 'field', id: 'field-output-category' },
       advance: 'next-button',
     },
@@ -790,7 +790,7 @@ export const CIVIC_AI_TRIAGE_WALKTHROUGH: WalkthroughDefinition = {
     {
       id: 'name-next-check',
       title: 'Name the answer column',
-      instruction: 'Set Save to to next_check.',
+      instruction: 'Set Result to next_check.',
       target: { kind: 'field', id: 'field-output-answer' },
       advance: 'next-button',
     },
@@ -920,7 +920,7 @@ export const RSS_IMPORT_WALKTHROUGH: WalkthroughDefinition = {
       id: 'name-feed-topic',
       title: 'Name the category column',
       instruction: {
-        lead: 'Set Save to to',
+        lead: 'Set Result to',
         code: 'topic',
       },
       target: { kind: 'field', id: 'field-output-category' },
@@ -1090,7 +1090,7 @@ export const COMBINE_VALUES_WALKTHROUGH: WalkthroughDefinition = {
       id: 'review-clean-column',
       title: 'Compare raw and clean values',
       instruction: 'Scan agency beside agency_clean. Every reviewed variant has a canonical value, while the original export text remains intact.',
-      target: { kind: 'completed-run', target: { kind: 'grid-column', id: 'agency_clean' } },
+      target: { kind: 'element', id: 'grid' },
       advance: 'next-button',
     },
     {
@@ -1175,7 +1175,7 @@ export const MULTILINGUAL_NAMES_WALKTHROUGH: WalkthroughDefinition = {
       id: 'review-transliteration',
       title: 'Review the Latin-script results',
       instruction: 'Compare latin_text with name_as_written. Every value is now readable in Latin script, but variants such as Aleksandr, Alexander, case, initials, and spacing still remain.',
-      target: { kind: 'completed-run', target: { kind: 'grid-column', id: 'latin_text' } },
+      target: { kind: 'grid-column', id: 'latin_text' },
       expected: 'Transliteration solved the script difference without pretending it solved identity resolution.',
       advance: 'next-button',
     },
@@ -1225,7 +1225,7 @@ export const MULTILINGUAL_NAMES_WALKTHROUGH: WalkthroughDefinition = {
       id: 'review-standardized-names',
       title: 'Compare raw, transliterated, and canonical values',
       instruction: 'Scan name_as_written, latin_text, and latin_text_clean together. You now have source fidelity, a searchable transliteration, and one reviewed value suitable for grouping or joining.',
-      target: { kind: 'completed-run', target: { kind: 'grid-column', id: 'latin_text_clean' } },
+      target: { kind: 'grid-column', id: 'latin_text_clean' },
       expected: 'All ten rows share Alexander Petrov in the canonical column while the original evidence remains intact.',
       advance: 'next-button',
     },
@@ -1410,7 +1410,7 @@ export const LOCAL_MODEL_LAB_WALKTHROUGH: WalkthroughDefinition = {
     {
       id: 'name-local-label',
       title: 'Name the generated label',
-      instruction: { lead: 'Set Save to to', code: 'small_model_label' },
+      instruction: { lead: 'Set Result to', code: 'small_model_label' },
       target: { kind: 'field', id: 'field-output-category' },
       advance: 'next-button',
     },
@@ -1471,7 +1471,7 @@ export const LOCAL_MODEL_LAB_WALKTHROUGH: WalkthroughDefinition = {
     {
       id: 'name-hard-answer',
       title: 'Name the model answer',
-      instruction: { lead: 'Set Save to to', code: 'small_model_answer' },
+      instruction: { lead: 'Set Result to', code: 'small_model_answer' },
       target: { kind: 'field', id: 'field-output-answer' },
       advance: 'next-button',
     },

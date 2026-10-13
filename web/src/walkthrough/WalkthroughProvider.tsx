@@ -193,6 +193,7 @@ function WalkthroughHost({
   const [dragging, setDragging] = useState(false);
   const advanceTimer = useRef<number | null>(null);
   const cardRef = useRef<HTMLElement | null>(null);
+  const measureTargetRef = useRef<() => void>(() => undefined);
   const manuallyPositioned = useRef(false);
   const dragState = useRef<{
     pointerId: number;
@@ -224,7 +225,10 @@ function WalkthroughHost({
       childList: true,
       subtree: true,
     });
-    const poll = window.setInterval(resolve, TARGET_POLL_INTERVAL_MS);
+    const poll = window.setInterval(() => {
+      resolve();
+      measureTargetRef.current();
+    }, TARGET_POLL_INTERVAL_MS);
     return () => {
       observer.disconnect();
       window.clearInterval(poll);
@@ -243,6 +247,7 @@ function WalkthroughHost({
       ));
       setTargetBox(target ? targetBoxFor(target) : null);
     };
+    measureTargetRef.current = measure;
     let measureFrame: number | null = null;
     if (target) {
       const gridColumnName = target.dataset.walkthroughGridColumn;
@@ -268,6 +273,7 @@ function WalkthroughHost({
     window.addEventListener('scroll', measure, true);
     return () => {
       resizeObserver?.disconnect();
+      measureTargetRef.current = () => undefined;
       if (measureFrame !== null) window.cancelAnimationFrame(measureFrame);
       window.removeEventListener('resize', measure);
       window.removeEventListener('scroll', measure, true);
