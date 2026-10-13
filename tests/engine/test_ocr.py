@@ -377,7 +377,7 @@ def test_ocr_remote_vlm_engine_rides_router(tmp_path, monkeypatch):
                     "lines": [
                         {
                             "text": "VLM READ 9999",
-                            "bbox_xyxy_1000": [100, 200, 900, 800],
+                            "box_2d": [100, 200, 900, 800],
                         }
                     ]
                 },
@@ -399,15 +399,15 @@ def test_ocr_remote_vlm_engine_rides_router(tmp_path, monkeypatch):
     assert seen["model"] == "gemini/gemini-2.5-flash"
     assert seen["has_image"] and "lines" in seen["schema"]["properties"]
     line_properties = seen["schema"]["properties"]["lines"]["items"]["properties"]
-    assert "bbox_xyxy_1000" in line_properties
+    assert "box_2d" in line_properties
     assert "text is in" not in seen["ask"]  # no spec language → no hint
     assert _col_value(p, sheet, "ocr_text") == "VLM READ 9999"
     blocks = _col_value(p, sheet, "ocr_text_blocks")
     assert blocks[0]["blocks"][0]["bbox"] == [
-        [64.0, 24.0],
-        [576.0, 24.0],
-        [576.0, 96.0],
-        [64.0, 96.0],
+        [128.0, 12.0],
+        [512.0, 12.0],
+        [512.0, 108.0],
+        [128.0, 108.0],
     ]
     # The wire response's measured duration must land on the stored fact —
     # not a fabricated NULL for a live call.
@@ -492,6 +492,8 @@ def test_minimax_m3_ocr_uses_publisher_request_profile(tmp_path):
     assert result == [
         {
             "text": "MINIMAX READ",
+            "width": 4000,
+            "height": 400,
             "blocks": [
                 {
                     "text": "MINIMAX READ",
@@ -549,9 +551,7 @@ def test_ocr_vlm_language_hint_reaches_prompt(tmp_path, monkeypatch):
             seen["ask"] = next(p["text"] for p in parts if p.get("type") == "text")
             return LLMResponse(
                 content=None,
-                data={
-                    "lines": [{"text": "OLA", "bbox_xyxy_1000": [100, 200, 900, 800]}]
-                },
+                data={"lines": [{"text": "OLA", "box_2d": [100, 200, 900, 800]}]},
                 tokens_in=10,
                 tokens_out=5,
                 cost=0.0,
