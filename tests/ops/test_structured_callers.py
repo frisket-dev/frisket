@@ -73,7 +73,9 @@ def test_ocr_vlm_repairs_invalid_then_valid_via_completer(tmp_path):
     )
     ctx = OpContext(http=None, extras={"router": router})
     usage = {"calls": 0, "in": 0, "out": 0, "cost": 0.0}
-    out = run(OcrEngines()._ocr_vlm("mock/vlm", [page], ctx, usage))
+    out = run(
+        OcrEngines()._ocr_vlm("mock/vlm", [page], ctx, usage, keep_text_position=False)
+    )
     assert out == [{"text": "HELLO WORLD", "blocks": []}]
     assert len(adapter.seen) == 2
 
@@ -87,7 +89,11 @@ def test_ocr_vlm_exhausts_repair_and_raises(tmp_path):
     ctx = OpContext(http=None, extras={"router": router})
     usage = {"calls": 0, "in": 0, "out": 0, "cost": 0.0}
     with pytest.raises(SchemaViolation):
-        run(OcrEngines()._ocr_vlm("mock/vlm", [page], ctx, usage))
+        run(
+            OcrEngines()._ocr_vlm(
+                "mock/vlm", [page], ctx, usage, keep_text_position=False
+            )
+        )
 
 
 # ---------------------------------------------------------------------------

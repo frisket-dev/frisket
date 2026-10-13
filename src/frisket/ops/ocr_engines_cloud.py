@@ -52,6 +52,7 @@ async def ocr_cloud(
     usage: dict[str, Any],
     *,
     language: str | None = None,
+    keep_text_position: bool | None = None,
 ) -> list[dict[str, Any]]:
     """Send all rendered pages as one paid Cloud execution.
 
@@ -62,7 +63,12 @@ async def ocr_cloud(
     """
 
     transport, attempt = cloud_media_execution(ctx, "ocr", engine)
-    geometry = _admitted_geometry_support(ctx, engine)
+    geometry_support = _admitted_geometry_support(ctx, engine)
+    if keep_text_position is True and not geometry_support:
+        raise CloudExecutionRefused(
+            "route_changed", "Cloud OCR route does not support positioned text"
+        )
+    geometry = geometry_support if keep_text_position is None else keep_text_position
     if not pages:
         raise ValueError("Cloud OCR requires at least one rendered page")
 

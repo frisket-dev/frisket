@@ -260,6 +260,7 @@ def _ocr_support(
     transport: str,
     *,
     language: bool,
+    geometry: bool | None = None,
     run_scoped: bool = False,
     unavailable_reason: str | None = None,
 ) -> TargetEngineSupport:
@@ -269,7 +270,9 @@ def _ocr_support(
         capability=CAPABILITY_OCR,
         options=OcrOptionSupport(
             language=language,
-            geometry=ocr_engine_has_geometry(engine),
+            geometry=(
+                ocr_engine_has_geometry(engine) if geometry is None else geometry
+            ),
             searchable_pdf=ocr_engine_supports_searchable_pdf(engine),
         ),
         run_scoped=run_scoped,
@@ -313,10 +316,11 @@ def _gateway_ocr_engines() -> tuple[TargetEngineSupport, ...]:
 
 def _remote_ocr_wildcard_support(provider: str) -> TargetEngineSupport:
     """The ``{provider}/*`` OCR row: a router-served VLM reads the page as an
-    image part. It takes a language HINT (it rides the prompt) and returns no
-    geometry at all — so ``searchable_pdf`` refuses here rather than painting
-    an empty text layer."""
-    return _ocr_support(f"{provider}/*", "remote", language=True)
+    image part. It takes a language HINT (it rides the prompt) and can return
+    line geometry when the request asks to keep text position. Searchable PDF
+    remains unsupported because highlights alone do not establish a text-layer
+    alignment contract."""
+    return _ocr_support(f"{provider}/*", "remote", language=True, geometry=True)
 
 
 def _remote_wildcard_support(provider: str) -> TargetEngineSupport:

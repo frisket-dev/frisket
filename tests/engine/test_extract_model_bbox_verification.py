@@ -201,3 +201,34 @@ def test_corroborated_model_bbox_renders_region(
         assert spans[0]["bbox"]
     finally:
         project.close()
+
+
+def test_model_returned_ocr_boxes_do_not_verify_another_model_box(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seeded = _seed(tmp_path)
+    project: Project = seeded["project"]
+    try:
+        _run_ocr(seeded, monkeypatch)
+        project.db.execute(
+            "UPDATE source_artifacts SET metadata=json_set(metadata, '$.engine', ?)",
+            ("openai/gpt-6.1-sol",),
+        )
+        artifact = _extract_artifact(seeded)
+        spans = _source_spans(
+            project,
+            artifact=artifact,
+            item={
+                "grounding_method": "model_bbox",
+                "page": 1,
+                "quote": "the quick brown fox",
+                "bbox": {"x0": 0.1, "y0": 0.1, "x1": 0.9, "y1": 0.15},
+            },
+            rank=0,
+        )
+
+        assert len(spans) == 1
+        assert spans[0]["span_kind"] == "page_range"
+        assert "model_bbox_unverified" in spans[0]["metadata"]["warnings"]
+    finally:
+        project.close()

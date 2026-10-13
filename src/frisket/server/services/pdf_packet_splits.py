@@ -482,6 +482,8 @@ class PdfPacketSplitService:
             session.ocr.setdefault(engine, {})[number] = {
                 "text": str(page.get("text") or ""),
                 "blocks": list(page.get("blocks") or []),
+                "width": page.get("width"),
+                "height": page.get("height"),
             }
             session.analysis_revision += 1
 
@@ -906,7 +908,9 @@ class PdfPacketSplitService:
                     "blocks": blocks,
                 }
             with self._lock:
-                session.ocr.setdefault(tracked.engine or "", {}).update(copied)
+                cached = session.ocr.setdefault(tracked.engine or "", {})
+                for page, value in copied.items():
+                    cached[page] = {**cached.get(page, {}), **value}
                 tracked.copied = True
                 session.analysis_revision += 1
 

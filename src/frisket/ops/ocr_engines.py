@@ -155,6 +155,7 @@ class OcrEngines:
         *,
         usage: dict,
         language: str | None = None,
+        keep_text_position: bool | None = None,
         scratch: Path,
     ) -> list[dict]:
         """THE engine dispatch, public: rendered page images -> per-page
@@ -178,6 +179,7 @@ class OcrEngines:
                 ctx,
                 usage,
                 language=language,
+                keep_text_position=keep_text_position,
             )
         if engine == LIGHT_ENGINE:
             return await self._ocr_rapidocr(page_paths, scratch, language)
@@ -192,7 +194,16 @@ class OcrEngines:
         if engine == DATALAB_ENGINE:
             return await self._ocr_datalab(page_paths, ctx, usage)
         if "/" in engine:
-            return await self._ocr_vlm(engine, page_paths, ctx, usage, language)
+            return await self._ocr_vlm(
+                engine,
+                page_paths,
+                ctx,
+                usage,
+                language,
+                keep_text_position=(
+                    True if keep_text_position is None else keep_text_position
+                ),
+            )
         local_names = ", ".join(sorted(LOCAL_ENGINES))
         sidecar_names = ", ".join(sorted(SIDECAR_ENGINES))
         raise ValueError(
@@ -321,7 +332,22 @@ class OcrEngines:
     async def _ocr_datalab(self, pages, ctx, usage):
         return await hosted.ocr_datalab(pages, ctx, usage)
 
-    async def _ocr_vlm(self, model, pages, ctx, usage, language=None):
+    async def _ocr_vlm(
+        self,
+        model,
+        pages,
+        ctx,
+        usage,
+        language=None,
+        *,
+        keep_text_position=True,
+    ):
         return await hosted.ocr_vlm(
-            model, pages, ctx, usage, language, recipe_version=self.version
+            model,
+            pages,
+            ctx,
+            usage,
+            language,
+            recipe_version=self.version,
+            keep_text_position=keep_text_position,
         )

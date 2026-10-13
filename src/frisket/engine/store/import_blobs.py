@@ -507,6 +507,9 @@ def _publish_packet_ocr_evidence(
             positions.get("blocks") if isinstance(positions.get("blocks"), list) else []
         )
         engine = str(positions.get("engine") or blob.prepared_engine or "")
+        width = positions.get("width")
+        height = positions.get("height")
+        page_text = prepared.text[pin.start : pin.end].strip()
         selector = {
             "prepared_ref_id": int(prepared.ref_id),
             "prepared_set_id": int(prepared.set_id),
@@ -521,7 +524,8 @@ def _publish_packet_ocr_evidence(
             page_end=int(pin.page_number),
             selector=selector,
             snippet=(
-                " ".join(str(block.get("text") or "") for block in blocks).strip()
+                page_text
+                or " ".join(str(block.get("text") or "") for block in blocks).strip()
                 or f"Page {pin.page_number}"
             ),
             metadata={"engine": engine},
@@ -531,7 +535,9 @@ def _publish_packet_ocr_evidence(
             if not isinstance(block, dict):
                 continue
             text = str(block.get("text") or "").strip()
-            bbox = normalize_bbox(block.get("bbox"), frame="page")
+            bbox = normalize_bbox(
+                block.get("bbox"), frame="page", width=width, height=height
+            )
             descriptor = {
                 "artifact_id": int(artifact["id"]),
                 "page_start": int(pin.page_number),

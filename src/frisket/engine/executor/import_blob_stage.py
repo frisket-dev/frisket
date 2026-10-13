@@ -265,6 +265,16 @@ class AdmittedImportBlobStager:
                 or not page.engine
                 or getattr(page, "token_granularity", None)
                 not in {"word", "line", "block"}
+                or (
+                    (page.width is None) != (page.height is None)
+                    or page.width is not None
+                    and (
+                        type(page.width) is not int
+                        or type(page.height) is not int
+                        or page.width <= 0
+                        or page.height <= 0
+                    )
+                )
             ):
                 raise ValueError("invalid prepared packet OCR page")
             if engine is not None and page.engine != engine:
@@ -276,11 +286,14 @@ class AdmittedImportBlobStager:
                 raise ValueError("packet OCR pages must use one token granularity")
             engine = page.engine
             token_granularity = page.token_granularity
+            positions = {"engine": page.engine, "blocks": list(page.blocks)}
+            if page.width is not None:
+                positions.update(width=page.width, height=page.height)
             drafts.append(
                 PreparedPageDraft(
                     page_number=page.page,
                     text=page.text,
-                    positions={"engine": page.engine, "blocks": list(page.blocks)},
+                    positions=positions,
                 )
             )
         if drafts and len(drafts) != page_total:
