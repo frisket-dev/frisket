@@ -10,7 +10,12 @@ from pathlib import Path
 import pytest
 
 from frisket.ai.llm import pricing
-from frisket.ai.llm.pricing_refresh import refresh_pricing_once, _load_cached_pricing
+from frisket.ai.llm.pricing_refresh import (
+    MODEL_CATALOG_URL,
+    PRICING_URL,
+    _load_cached_catalogs,
+    refresh_pricing_once,
+)
 from frisket.opendocrouter_catalog import (
     DocumentCatalog,
     catalog_document,
@@ -85,9 +90,10 @@ def test_daily_refresh_updates_existing_provider_and_cached_restart(document, tm
     )
     assert quote.bound == Decimal("0.375")
     assert quote.charge_authority == "provider_usage"
+    assert fetched == [PRICING_URL, MODEL_CATALOG_URL]
     assert not refresh_pricing_once(cache_dir=tmp_path, now=100001, fetch=fetch)
-    assert len(fetched) == 1
-    _load_cached_pricing(tmp_path)
+    assert fetched == [PRICING_URL, MODEL_CATALOG_URL]
+    _load_cached_catalogs(tmp_path)
     assert find_model(engine).name == "New parser"
 
 
@@ -141,7 +147,7 @@ def test_invalid_provider_refresh_caches_last_good_catalog_for_reload(
 
     pricing.install_pricing_data(baseline)
     assert find_model(engine) is None
-    _load_cached_pricing(tmp_path)
+    _load_cached_catalogs(tmp_path)
     assert find_model(engine).name == "New parser"
     assert pricing.PRICES["fresh-text-model"] == (7.0, 8.0)
 
@@ -205,7 +211,7 @@ def test_cached_catalog_preserves_retired_models_and_reactivates_them(
         current_catalog().price_version, current_catalog().models
     )
     assert find_known_model(engine) is None
-    _load_cached_pricing(tmp_path)
+    _load_cached_catalogs(tmp_path)
     assert find_model(engine) is None
     assert find_known_model(engine).name == "New parser"
 
