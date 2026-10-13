@@ -25,14 +25,32 @@ function instructionText(instruction: WalkthroughInstruction): string {
 
 test('Combine values walkthrough cleans agency names and repairs their counts', async ({
   page,
-}) => {
+}, testInfo) => {
   const completedSteps: string[] = [];
   const walkthroughStep = async (id: string, body: () => Promise<void>) => {
     const step = COMBINE_VALUES_WALKTHROUGH.steps.find((candidate) => candidate.id === id);
     if (!step) throw new Error(`Unknown Combine values walkthrough step: ${id}`);
+    expect(step).toBe(COMBINE_VALUES_WALKTHROUGH.steps[completedSteps.length]);
     await test.step(`${step.title} — ${instructionText(step.instruction)}`, async () => {
-      completedSteps.push(id);
+      const card = page.getByTestId('walkthrough-card');
+      await expect(card.getByRole('heading', { name: step.title, exact: true })).toBeVisible();
+      await expect(card.locator('.walkthrough-progress')).toHaveText(
+        `${completedSteps.length + 1} of ${COMBINE_VALUES_WALKTHROUGH.steps.length}`,
+      );
+      await expect(page.getByTestId('walkthrough-target-box'), `${id} spotlight must resolve`)
+        .toBeVisible({ timeout: step.target.kind === 'completed-run' ? 30_000 : 10_000 });
+      await page.screenshot({
+        path: testInfo.outputPath(`${String(completedSteps.length + 1).padStart(2, '0')}-${id}.png`),
+      });
       await body();
+      if (step.advance === 'next-button') {
+        await card.getByRole('button', {
+          name: completedSteps.length === COMBINE_VALUES_WALKTHROUGH.steps.length - 1
+            ? 'Finish'
+            : 'Next',
+        }).click();
+      }
+      completedSteps.push(id);
     });
   };
 
@@ -43,6 +61,9 @@ test('Combine values walkthrough cleans agency names and repairs their counts', 
   const agencyPayments = sheets.find((sheet) => sheet.name === 'Agency payments');
   expect(agencyPayments).toBeTruthy();
   await openProject(page, pid);
+  await page.getByTestId('chrome-walkthrough').click();
+  await expect(page.getByTestId('walkthrough-chooser')).toBeVisible();
+  await page.getByTestId('walkthrough-choice-combine-values').click();
 
   await walkthroughStep('open-agency-payments', async () => {
     await page.getByTestId(`workbench-mainView-tab-${agencyPayments!.id}`).click();
@@ -120,18 +141,20 @@ test('Combine values walkthrough cleans agency names and repairs their counts', 
   await walkthroughStep('group-transit-authority', async () => {
     await form.getByTestId('resolve-combine-new-bucket').click();
     await expect(form.getByTestId('resolve-footer-summary')).toHaveText(
-      '11 → 3 groups · 1 kept · 16 rows → agency_clean',
+      '11 → 3 groups · 1 kept · 16 rows',
     );
   });
   await walkthroughStep('keep-unmatched-values', async () => {
     await expect(form.getByTestId('resolve-combine-remainder-policy')).toHaveValue('keep');
   });
   await walkthroughStep('apply-agency-groups', async () => {
-    await form.getByTestId('resolve-apply').click();
+    await page.getByTestId('resolve-apply').click();
     await expect(page.getByTestId('action-drawer')).toHaveCount(0, { timeout: 15_000 });
   });
   await walkthroughStep('review-clean-column', async () => {
-    await expect(page.getByTestId('grid-column-agency_clean')).toBeVisible({ timeout: 20_000 });
+    const cleanColumn = page.getByTestId('grid-column-agency_clean');
+    await cleanColumn.scrollIntoViewIfNeeded();
+    await expect(cleanColumn).toBeVisible({ timeout: 20_000 });
     await expect
       .poll(async () => {
         const data = await sheetData(page.request, pid, agencyPayments!.id);
@@ -174,4 +197,5 @@ test('Combine values walkthrough cleans agency names and repairs their counts', 
   });
 
   expect(completedSteps).toEqual(COMBINE_VALUES_WALKTHROUGH.steps.map((step) => step.id));
+  await expect(page.getByTestId('walkthrough-card')).toHaveCount(0);
 });
