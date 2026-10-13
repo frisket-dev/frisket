@@ -1,6 +1,6 @@
-import { X } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import type { ReviewRun, ReviewRunCounts } from '../../api/types';
+import { WindowCloseButton } from '../WindowCloseButton';
 import styles from './ReviewResultsPanel.module.css';
 
 export interface ReviewRunSummaryProps {
@@ -93,9 +93,7 @@ export function ReviewResultsPanel({ run, onClose }: ReviewResultsPanelProps) {
           <h2 className="modal-title" id="review-results-title">Results</h2>
           <p className={styles.description}>Run: {run.actionName || run.actionKind || 'AI run'} on {run.sheetName}</p>
         </div>
-        <button type="button" className="icon-btn" onClick={onClose} aria-label="Close review results">
-          <X size={16} aria-hidden />
-        </button>
+        <WindowCloseButton label="Close review results" onClick={onClose} />
       </header>
       <section className={styles.section} aria-labelledby="review-results-overall">
         <h3 id="review-results-overall">Overall</h3>

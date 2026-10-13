@@ -81,6 +81,7 @@ from frisket.server.services.selector_choices_projection import (
     _provider_identity,
     _provider_from_qualified,
     _default_action_model,
+    _recommendation_composition,
     _choices_have_cloud_relevance,
     _model_selection,
     _engine_selection,
@@ -617,7 +618,7 @@ class SelectorChoiceService:
             default_selection=_model_selection(
                 default_project_ask_model(
                     router,
-                    composition,
+                    _recommendation_composition(composition),
                     candidate_models=candidate_models,
                     directly_runnable_models=direct_models,
                     network_off=network_off,
@@ -900,6 +901,7 @@ class SelectorChoiceService:
                         can_mutate=capabilities.may_author_actions,
                         cloud_unknown=cloud_setup is not None,
                         network_off=_network_off(project),
+                        own_blocker=blocker if status == "unavailable" else None,
                     )
                     if route_capable
                     else None

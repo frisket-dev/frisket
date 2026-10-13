@@ -54,6 +54,17 @@ function renderSelector(onSelect = vi.fn()) {
 }
 
 describe('EngineSelector', () => {
+  it('closes from the shared window control and restores focus', async () => {
+    renderSelector();
+    const trigger = screen.getByRole('button', { name: /parakeet/i });
+    await userEvent.click(trigger);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Close Engine selector' }));
+
+    expect(screen.queryByTestId('engine-selector-dialog')).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
   it('does not present a preview as an authored selection', async () => {
     const onSelect = vi.fn();
     render(<EngineSelector label="Model" groups={groups} value={null}
@@ -310,12 +321,14 @@ describe('EngineSelector', () => {
     await userEvent.click(screen.getByRole('button', { name: /parakeet/i }));
     const dialog = screen.getByTestId('engine-selector-dialog');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Start route change' }));
+    expect(within(dialog).getByRole('button', { name: 'Close Engine selector' })).toBeDisabled();
 
     fireEvent.mouseEnter(dialog.querySelector('[data-engine-selector-choice="whisper"]')!);
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(within(dialog).getByRole('heading', { name: 'Parakeet' })).toBeVisible();
 
     await userEvent.click(within(dialog).getByRole('button', { name: 'Finish route change' }));
+    expect(within(dialog).getByRole('button', { name: 'Close Engine selector' })).toBeEnabled();
     fireEvent.mouseEnter(dialog.querySelector('[data-engine-selector-choice="whisper"]')!);
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(within(dialog).getByRole('heading', { name: 'Whisper' })).toBeVisible();
