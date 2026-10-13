@@ -467,6 +467,7 @@ def test_timestamp_only_regeneration_is_a_complete_noop(tmp_path: Path) -> None:
         "pr_numbers": [],
         "open_pr_returncodes": [],
     }
+    # rule19: inspect the artifact restored by executing the workflow shell.
     assert (tmp_path / "checkout" / OCR_GENERATED_PATH).read_text() == (
         "ocr generated before\n"
     )
