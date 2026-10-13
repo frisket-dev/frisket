@@ -754,6 +754,17 @@ def test_network_off_refuses_exact_cloud_media_but_keeps_gateway_lan(
     lan_selected = next(
         choice for choice in _choices(lan_response.json()) if choice["is_current"]
     )
+    # Choosing a route must not move the model into a different catalog group.
+    for payload in (response.json(), lan_response.json()):
+        group = next(
+            group
+            for group in payload["groups"]
+            if any(choice["is_current"] for choice in group["choices"])
+        )
+        assert (group["group_id"], group["label"]) == (
+            "provider:frisket",
+            "Frisket models",
+        )
     assert lan_selected["resolved_target"] == {
         "target_id": "models-gateway",
         "operator": "self",

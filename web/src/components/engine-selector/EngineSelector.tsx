@@ -11,6 +11,7 @@ import { ExternalLink } from 'lucide-react';
 import { createPortal } from 'react-dom';
 
 import { useAnchoredPosition } from '../../hooks/useAnchoredPosition';
+import { WindowCloseButton } from '../WindowCloseButton';
 import type {
   EngineSelectorChoice,
   EngineSelectorDetailFooterContext,
@@ -449,8 +450,11 @@ export function EngineSelector({
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />
-            <button type="button" className="engine-selector__close" aria-label={`Close ${label} selector`}
-              disabled={detailBusy} onClick={close}>×</button>
+            <WindowCloseButton
+              label={`Close ${label} selector`}
+              disabled={detailBusy}
+              onClick={close}
+            />
           </header>
 
           {notice}
