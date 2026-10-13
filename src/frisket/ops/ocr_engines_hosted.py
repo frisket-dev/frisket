@@ -6,6 +6,12 @@ import base64
 from pathlib import Path
 from typing import Any
 
+from frisket.ai.vision.coordinates import (
+    CoordinateProfile,
+    coordinate_instruction,
+    decode_bounding_box,
+)
+from frisket.ai.vision.region_locator import prepare_image_asset, profile_for_engine
 from frisket.execution.attempt import routed_admission_in_scope
 from frisket.execution.credential_use import (
     CredentialUseContext,
@@ -19,6 +25,149 @@ from frisket.ops.media_metadata import image_dimensions
 DATALAB_ENGINE = "datalab"
 MINIMAX_M3_ENGINE = "openrouter/minimax/minimax-m3"
 MINIMAX_M3_MAX_IMAGE_EDGE = 3584
+
+GENERIC_OCR_COORDINATE_PROFILE = CoordinateProfile(
+    profile_id="generic-ocr-xyxy-1000-v1",
+    model_patterns=(),
+    bbox_field="bbox_xyxy_1000",
+    coordinate_order="xyxy",
+    coordinate_space="normalized_1000",
+    prompt_version="ocr-lines-positioned-v1",
+    reasoning_policy=None,
+)
+
+OPENAI_GPT6_OCR_COORDINATE_PROFILE = CoordinateProfile(
+    profile_id="openai-gpt6-ocr-xyxy-pixel-v1",
+    model_patterns=(
+        "openai/gpt-6-luna",
+        "openai/gpt-6.1-sol",
+        "openrouter/openai/gpt-6-luna",
+        "openrouter/openai/gpt-6.1-sol",
+    ),
+    bbox_field="bbox_pixels_xyxy",
+    coordinate_order="xyxy",
+    coordinate_space="pixel",
+    prompt_version="ocr-lines-openai-gpt6-v1",
+    reasoning_policy=None,
+)
+
+_OCR_COORDINATE_PROFILE_ALIASES = {
+    "openrouter/anthropic/claude-sonnet-5": "anthropic/claude-sonnet-5",
+    "openrouter/openai/gpt-5": "openai/gpt-5",
+    "openrouter/openai/gpt-5-mini": "openai/gpt-5-mini",
+    "openrouter/openai/gpt-5.6-luna": "openai/gpt-5.6-luna",
+    "openrouter/openai/gpt-5.6-terra": "openai/gpt-5.6-terra",
+    "openrouter/openai/gpt-5.6-sol": "openai/gpt-5.6-sol",
+}
+
+
+def ocr_coordinate_profile(model: str) -> CoordinateProfile:
+    """Select a checked-in native dialect or the explicit generic contract."""
+
+    normalized = model.strip().lower()
+    profile = profile_for_engine(normalized)
+    if profile is not None:
+        return profile
+    alias = _OCR_COORDINATE_PROFILE_ALIASES.get(normalized)
+    if alias is not None:
+        aliased = profile_for_engine(alias)
+        if aliased is not None:
+            return aliased
+    if normalized in OPENAI_GPT6_OCR_COORDINATE_PROFILE.model_patterns:
+        return OPENAI_GPT6_OCR_COORDINATE_PROFILE
+    return GENERIC_OCR_COORDINATE_PROFILE
+
+
+def _positioned_ocr_schema(profile: CoordinateProfile) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "lines": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "text": {"type": "string", "minLength": 1},
+                        profile.bbox_field: {
+                            "type": "array",
+                            "items": {"type": "number"},
+                            "minItems": 4,
+                            "maxItems": 4,
+                        },
+                    },
+                    "required": ["text", profile.bbox_field],
+                },
+            }
+        },
+        "required": ["lines"],
+    }
+
+
+def _positioned_ocr_prompt(
+    profile: CoordinateProfile,
+    *,
+    image_width: int,
+    image_height: int,
+    language: str | None,
+) -> str:
+    prompt = (
+        "Transcribe every visible text line exactly once. Return lines in natural "
+        "reading order and keep that order even when lines are in multiple columns. "
+        "Each line must contain its literal text and one tight axis-aligned box. "
+        "The origin is the top-left, x increases right, and y increases down. "
+        f"The supplied image is {image_width} by {image_height} pixels. "
+        f"{coordinate_instruction(profile)} Return an empty lines list only when "
+        "the image contains no text. Do not return a separate transcription, "
+        "confidence, commentary, or inferred text."
+    )
+    if language:
+        prompt += f" The text is in {language}."
+    return prompt
+
+
+def _decode_positioned_ocr_page(
+    profile: CoordinateProfile,
+    data: Any,
+    *,
+    image_width: int,
+    image_height: int,
+    output_width: int,
+    output_height: int,
+) -> dict[str, Any]:
+    lines = data.get("lines") if isinstance(data, dict) else None
+    if not isinstance(lines, list):
+        raise ValueError("positioned OCR response must contain a lines list")
+    text_lines: list[str] = []
+    blocks: list[dict[str, Any]] = []
+    for index, line in enumerate(lines):
+        if not isinstance(line, dict):
+            raise ValueError(f"positioned OCR line {index} must be an object")
+        text = line.get("text")
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError(f"positioned OCR line {index} must contain text")
+        box = decode_bounding_box(
+            profile,
+            line.get(profile.bbox_field),
+            image_width=image_width,
+            image_height=image_height,
+        )
+        if box is None:
+            raise ValueError(
+                f"positioned OCR line {index} bbox is malformed, out of range, or degenerate"
+            )
+        text_lines.append(text)
+        blocks.append(
+            {
+                "text": text,
+                "bbox": box.pixel_quad(
+                    output_width=output_width,
+                    output_height=output_height,
+                ),
+            }
+        )
+    return {"text": "\n".join(text_lines), "blocks": blocks}
 
 
 def _datalab_credential(ctx: OpContext) -> Any:
@@ -199,10 +348,13 @@ async def ocr_vlm(
     language: str | None = None,
     *,
     recipe_version: str,
+    keep_text_position: bool = True,
 ) -> list[dict]:
     """Remote VLM engines ride the existing router: one structured-output
-    call per page with the page as an image part. ``language`` rides the
-    user turn as a hint — cheap, and it steers ambiguous scripts."""
+    call per page with the page as an image part. Positioned mode requests
+    ordered line text and declared-dialect boxes, then converts those boxes
+    into the original rendered page's pixel frame. ``language`` rides the user
+    turn as a hint — cheap, and it steers ambiguous scripts."""
     from frisket.ai.llm.structured import (
         StructuredCompleter,
         StructuredRequest,
@@ -229,7 +381,7 @@ async def ocr_vlm(
             f"the {provider} vision-model OCR call",
             context=ctx.credential_use_context,
         )
-    schema = {
+    text_schema = {
         "type": "object",
         "properties": {
             "text": {
@@ -239,9 +391,7 @@ async def ocr_vlm(
         },
         "required": ["text"],
     }
-    ask = "Transcribe the text."
-    if language:
-        ask += f" The text is in {language}."
+    coordinate_profile = ocr_coordinate_profile(model)
     out: list[dict] = []
     wire_history = []
     usage["input_pages"] = 0
@@ -250,15 +400,30 @@ async def ocr_vlm(
         image_data = p.read_bytes()
         temperature = 0.0
         params: dict[str, Any] = {}
-        reasoning_policy = None
-        if model == MINIMAX_M3_ENGINE:
+        reasoning_policy = (
+            coordinate_profile.reasoning_policy if keep_text_position else None
+        )
+        output_dimensions: tuple[int, int] | None = None
+        inference_dimensions: tuple[int, int] | None = None
+        if keep_text_position:
+            image = prepare_image_asset(
+                image_data,
+                source_media_type=mime,
+                max_edge=(
+                    MINIMAX_M3_MAX_IMAGE_EDGE if model == MINIMAX_M3_ENGINE else None
+                ),
+            )
+            assert image.display_width is not None and image.display_height is not None
+            output_dimensions = (image.display_width, image.display_height)
+            inference_dimensions = (image.width, image.height)
+            image_data = image.data
+            mime = image.media_type
+        elif model == MINIMAX_M3_ENGINE:
             # MiniMax recommends temperature=1.0 and top_p=0.95 for M3;
             # its docs say disabled thinking minimizes latency, and its
             # OmniDocBench evaluation bounds the image long edge at 3,584px.
             # Keep this exact profile local to the one curated OCR model
             # instead of inventing a general prompt-profile system.
-            from frisket.ai.vision.region_locator import prepare_image_asset
-
             dimensions = image_dimensions(image_data)
             if dimensions is None or max(dimensions) > MINIMAX_M3_MAX_IMAGE_EDGE:
                 image = prepare_image_asset(
@@ -268,9 +433,24 @@ async def ocr_vlm(
                 )
                 image_data = image.data
                 mime = image.media_type
+        if model == MINIMAX_M3_ENGINE:
             temperature = 1.0
             params = {"top_p": 0.95}
             reasoning_policy = "disabled"
+        if keep_text_position:
+            assert inference_dimensions is not None
+            ask = _positioned_ocr_prompt(
+                coordinate_profile,
+                image_width=inference_dimensions[0],
+                image_height=inference_dimensions[1],
+                language=language,
+            )
+            schema = _positioned_ocr_schema(coordinate_profile)
+        else:
+            ask = "Transcribe the text."
+            if language:
+                ask += f" The text is in {language}."
+            schema = text_schema
         image_part = {
             "type": "image",
             "media_type": mime,
@@ -329,9 +509,24 @@ async def ocr_vlm(
         accumulate_vlm_response_usage(usage, resp)
         usage["input_pages"] += 1
         wire_history.extend(result.wire_calls)
-        out.append(
-            {"text": (result.data or {}).get("text", ""), "blocks": []}
-        )  # VLMs return no geometry
+        if not keep_text_position:
+            out.append({"text": (result.data or {}).get("text", ""), "blocks": []})
+            continue
+        assert inference_dimensions is not None and output_dimensions is not None
+        try:
+            out.append(
+                _decode_positioned_ocr_page(
+                    coordinate_profile,
+                    result.data,
+                    image_width=inference_dimensions[0],
+                    image_height=inference_dimensions[1],
+                    output_width=output_dimensions[0],
+                    output_height=output_dimensions[1],
+                )
+            )
+        except Exception as exc:
+            exc.wire_calls = list(wire_history)
+            raise
     return out
 
 

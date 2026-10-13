@@ -5,6 +5,14 @@ image plus an instruction into canonical observations, but know nothing about
 sheets, rows, evidence publication, or any one action's coverage policy.
 """
 
+from .coordinates import (
+    CoordinateOrder,
+    CoordinateProfile,
+    CoordinateSpace,
+    DecodedBoundingBox,
+    coordinate_instruction,
+    decode_bounding_box,
+)
 from .region_locator import (
     HostedVLMRegionLocator,
     ImageAsset,
@@ -22,6 +30,10 @@ from .region_locator import (
 )
 
 __all__ = [
+    "CoordinateOrder",
+    "CoordinateProfile",
+    "CoordinateSpace",
+    "DecodedBoundingBox",
     "HostedVLMRegionLocator",
     "ImageAsset",
     "LocatedRegion",
@@ -32,6 +44,8 @@ __all__ = [
     "RegionLocatorProfile",
     "RegionProvenance",
     "UnsupportedRegionLocator",
+    "coordinate_instruction",
+    "decode_bounding_box",
     "decode_region_response",
     "prepare_image_asset",
     "profile_for_engine",

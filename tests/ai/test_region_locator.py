@@ -7,6 +7,7 @@ import math
 import pytest
 from PIL import Image
 
+from frisket.ai.vision.coordinates import CoordinateProfile, decode_bounding_box
 from frisket.ai.vision.region_locator import (
     ImageAsset,
     LocateRegionsRequest,
@@ -171,6 +172,45 @@ def test_prepare_image_asset_bounds_and_hashes_inference_copy() -> None:
     assert asset.sha256 == "sha256:" + hashlib.sha256(asset.data).hexdigest()
 
 
+def test_prepare_image_asset_can_preserve_ocr_resolution() -> None:
+    original = io.BytesIO()
+    Image.new("RGB", (2_000, 1_000), color="white").save(original, format="PNG")
+
+    asset = prepare_image_asset(
+        original.getvalue(), source_media_type="image/png", max_edge=None
+    )
+
+    assert (asset.width, asset.height) == (2_000, 1_000)
+    assert (asset.display_width, asset.display_height) == (2_000, 1_000)
+
+
+def test_shared_coordinate_decoder_maps_inference_pixels_to_output_frame() -> None:
+    profile = CoordinateProfile(
+        profile_id="pixel-test-v1",
+        model_patterns=(),
+        bbox_field="bbox_pixels_xyxy",
+        coordinate_order="xyxy",
+        coordinate_space="pixel",
+        prompt_version="test-v1",
+        reasoning_policy=None,
+    )
+
+    decoded = decode_bounding_box(
+        profile,
+        [100, 50, 900, 450],
+        image_width=1_000,
+        image_height=500,
+    )
+
+    assert decoded is not None
+    assert decoded.pixel_quad(output_width=2_000, output_height=1_000) == [
+        [200.0, 100.0],
+        [1800.0, 100.0],
+        [1800.0, 900.0],
+        [200.0, 900.0],
+    ]
+
+
 def test_prepare_image_asset_rejects_animated_sources() -> None:
     animated = io.BytesIO()
     first = Image.new("RGB", (20, 10), color="white")
@@ -330,6 +370,8 @@ def test_regions_are_sorted_in_canonical_page_order() -> None:
 
 def test_profile_selection_fails_closed_and_declares_reasoning_policy() -> None:
     assert profile_for_engine("openrouter/minimax/minimax-m3") is None
+    assert profile_for_engine("openrouter/anthropic/claude-sonnet-5") is None
+    assert profile_for_engine("openrouter/openai/gpt-6-luna") is None
     assert profile_for_engine("openrouter/unknown/model") is None
     assert profile_for_engine("openrouter/qwen/qwen3-vl-unqualified-instruct") is None
 
