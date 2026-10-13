@@ -1010,6 +1010,7 @@ kbd {
 /* Right-aligned live run summary + amber progress bar. */
 .workbench-bottom-summary {
   margin-left: auto;
+  align-self: center;
   display: inline-flex;
   align-items: center;
   gap: 8px;
