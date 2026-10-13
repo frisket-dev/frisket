@@ -635,7 +635,7 @@ def test_clef_setup_distinguishes_gateway_and_cloudflare(
             for choice in group["choices"]
         )
     )
-    assert flash_group["label"] == "Frisket models server"
+    assert flash_group["label"] == "Frisket models"
     flash = next(
         choice
         for choice in flash_group["choices"]

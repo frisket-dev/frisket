@@ -242,6 +242,7 @@ describe('typed OCR/transcription forms', () => {
     await screen.findByTestId('field-output-prefix');
     expect(screen.getByLabelText('Document')).toHaveValue('scan');
     expect(screen.getByLabelText('Text result')).toHaveValue('ocr_text_2');
+    expect(screen.getByLabelText('Text result')).toHaveAttribute('aria-autocomplete', 'list');
     expect(screen.getByTestId('field-output-prefix')).toHaveValue('ocr_text_2');
     expect(screen.queryByTestId('field-output-text')).not.toBeInTheDocument();
     expect(screen.queryByTestId('field-output-blocks')).not.toBeInTheDocument();

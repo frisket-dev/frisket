@@ -230,7 +230,7 @@ def test_explicit_route_persists_before_setup_and_rejects_unknown_model(
     assert exc_info.value.code == "unknown_model"
 
 
-def test_cloud_route_rejects_statically_ineligible_model_with_unknown_inventory(
+def test_catalog_openrouter_can_select_cloud_before_connecting(
     tmp_path, monkeypatch
 ) -> None:
     provider = _Provider(include_cloud=False, models=(OPENROUTER_MODEL,))
@@ -242,15 +242,16 @@ def test_cloud_route_rejects_statically_ineligible_model_with_unknown_inventory(
     )
     project_id = workspace.create("OpenRouter own route")["id"]
 
-    with pytest.raises(ProjectModelRouteError) as exc_info:
-        ProjectModelRoutesService(workspace).set_route(
-            project_id,
-            OPENROUTER_MODEL,
-            "cloud",
-        )
-
-    assert exc_info.value.status == 409
-    assert exc_info.value.code == "cloud_route_unsupported"
+    selected = ProjectModelRoutesService(workspace).set_route(
+        project_id, OPENROUTER_MODEL, "cloud"
+    )
+    assert selected.route == "cloud"
+    assert (
+        read_project_settings(workspace.get(project_id)).model_execution_routes[
+            OPENROUTER_MODEL
+        ]
+        == "cloud"
+    )
 
 
 def test_cloud_route_rejects_eligible_model_missing_from_known_inventory(

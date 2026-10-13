@@ -1,4 +1,4 @@
-import { Check, Copy, Download, ExternalLink, FileText, X } from 'lucide-react';
+import { Check, Copy, Download, ExternalLink, FileText } from 'lucide-react';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type RefObject } from 'react';
 import {
   type EvidenceArtifact,
@@ -14,6 +14,7 @@ import { PanelLoading } from './PanelPrimitives';
 import { SavedTextContext } from './EvidenceTextContext';
 import { textSegments, type TextSegment } from './evidenceTextSegments';
 import { PageRegion } from './PageRegion';
+import { WindowCloseButton } from './WindowCloseButton';
 import { normalizeRegion } from './regionGeometry';
 import { pdfPacketSourceCardData, type PdfPacketSourceCardData } from './evidence/pdfPacketSourceCardModel';
 
@@ -224,9 +225,7 @@ function EvidenceViewerHeader({
             <ExternalLink size={16} />
           </button>
         )}
-        <button type="button" className="icon-btn" aria-label="Close evidence viewer" onClick={onClose}>
-          <X size={16} />
-        </button>
+        <WindowCloseButton label="Close evidence viewer" onClick={onClose} />
       </div>
     </header>
   );
