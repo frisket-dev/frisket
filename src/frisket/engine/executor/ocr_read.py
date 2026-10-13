@@ -33,15 +33,29 @@ from frisket.execution.resolve_for_action import authored_options
 from frisket.execution.runtime_binding import bind_fact_to_route
 from frisket.execution.targets import CAPABILITY_OCR
 from frisket.ops.base import RecipeInvocationHalt
+from frisket.contracts.actions.schemas._engines import is_generic_vlm_ocr_engine
 
 
-def ocr_token_granularity(engine: str) -> str:
+def ocr_token_granularity(
+    engine: str, *, keep_text_position: bool | None = None
+) -> str:
     """Describe the geometry emitted by the selected OCR adapter."""
     if engine == "tesseract":
         return "word"
     if engine in {engines.LIGHT_ENGINE, "pp-ocrv6", engines.DATALAB_ENGINE}:
         return "line"
+    if is_generic_vlm_ocr_engine(engine):
+        return "block" if keep_text_position is False else "line"
     return "block"
+
+
+def _page_coordinate_frame(page: dict, *, required: bool) -> dict[str, int]:
+    width, height = page.get("width"), page.get("height")
+    if width is None and height is None and not required:
+        return {}
+    if type(width) is not int or type(height) is not int or width <= 0 or height <= 0:
+        raise RuntimeError("positioned OCR returned no valid coordinate frame")
+    return {"width": width, "height": height}
 
 
 class AdmittedOcrReader:
@@ -318,6 +332,7 @@ class _BoundOcrReader:
                         ctx,
                         usage=usage,
                         language=options.get("language"),
+                        keep_text_position=options.get("keep_text_position"),
                         scratch=scratch,
                     )
                     returned = True
@@ -351,28 +366,41 @@ class _BoundOcrReader:
                 )
                 fact_pages = []
                 blocks = []
+                fact_blocks = []
+                positioned_generic = is_generic_vlm_ocr_engine(engine) and options.get(
+                    "keep_text_position", True
+                )
                 for index, page in enumerate(pages, 1):
                     physical_page = selected_page or index
+                    positions = _page_coordinate_frame(
+                        page, required=bool(positioned_generic)
+                    )
                     page_fact = copy.deepcopy(page)
                     page_fact["page_number"] = physical_page
                     fact_pages.append(page_fact)
-                    blocks.append(
-                        {
-                            "page": physical_page,
-                            "engine": engine,
-                            "blocks": copy.deepcopy(page.get("blocks", [])),
-                        }
-                    )
+                    block_page = {
+                        "page": physical_page,
+                        "engine": engine,
+                        "blocks": copy.deepcopy(page.get("blocks", [])),
+                    }
+                    blocks.append(block_page)
+                    fact_block = copy.deepcopy(block_page)
+                    if positions:
+                        fact_block["positions"] = positions
+                    fact_blocks.append(fact_block)
                 text = "\n\n".join(str(page.get("text") or "") for page in pages)
                 fact = {
                     "kind": "ocr_read",
                     "call_id": uuid.uuid4().hex,
                     "engine": engine,
-                    "ocr_token_granularity": ocr_token_granularity(engine),
+                    "ocr_token_granularity": ocr_token_granularity(
+                        engine,
+                        keep_text_position=options.get("keep_text_position"),
+                    ),
                     "options": copy.deepcopy(options),
                     "source": source,
                     "text": text,
-                    "blocks": copy.deepcopy(blocks),
+                    "blocks": fact_blocks,
                     "pages": fact_pages,
                     "page_images": self._page_images(
                         source,

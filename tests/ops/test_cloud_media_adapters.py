@@ -262,6 +262,32 @@ def test_cloud_ocr_disables_geometry_for_admitted_plain_text_route(tmp_path):
     assert pages == [{"page": 1, "text": "Plain text", "blocks": []}]
 
 
+def test_cloud_ocr_sends_generic_users_actual_position_choice(tmp_path):
+    page = tmp_path / "page.png"
+    page.write_bytes(b"page")
+    response = _response(
+        "ocr",
+        CloudOCRResult(pages=[{"page": 1, "text": "Plain text", "blocks": []}]),
+        CloudOCRUsage(kind="ocr", pages=1),
+        CloudOCROptionSupport(
+            kind="ocr", language=True, geometry=True, searchable_pdf=False
+        ),
+    )
+    transport = _Transport(response)
+
+    asyncio.run(
+        ocr_cloud(
+            ENGINE,
+            [page],
+            _ctx(transport, "ocr", ocr_geometry=True),
+            {},
+            keep_text_position=False,
+        )
+    )
+
+    assert transport.calls[0]["options"].geometry is False
+
+
 def test_cloud_ocr_requires_exact_typed_binding_before_opening_files(tmp_path):
     missing = tmp_path / "missing.png"
 

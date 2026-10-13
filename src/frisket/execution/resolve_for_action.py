@@ -138,6 +138,7 @@ _CAPABILITY_OPTION_KEYS: dict[str, tuple[str, ...]] = {
     ),
     CAPABILITY_OCR: (
         "language",
+        "keep_text_position",
         "searchable_pdf",
     ),
     # Each set is exactly what its capability's ability checker can

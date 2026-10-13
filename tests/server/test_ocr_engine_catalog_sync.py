@@ -17,6 +17,40 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_generic_ocr_roster_tracks_shared_vision_catalog() -> None:
+    from frisket.ai.llm.model_catalog import MODEL_ENTRIES
+    from frisket.server.action_catalog_hints import ocr_vision_engines
+
+    expected = [
+        f"{provider}/{entry['id']}"
+        for provider, entries in MODEL_ENTRIES.items()
+        for entry in entries
+        if entry.get("vision") is True
+    ]
+
+    assert [entry["id"] for entry in ocr_vision_engines()] == expected
+    assert len(expected) == len(set(expected))
+
+
+def test_generic_ocr_roster_reads_the_current_catalog_snapshot(monkeypatch) -> None:
+    from frisket.server import action_catalog_hints
+
+    monkeypatch.setattr(
+        action_catalog_hints,
+        "MODEL_ENTRIES",
+        {
+            "sample": [
+                {"id": "text-only", "label": "Text only", "vision": False},
+                {"id": "vision", "label": "Vision", "vision": True},
+            ]
+        },
+    )
+
+    assert [entry["id"] for entry in action_catalog_hints.ocr_vision_engines()] == [
+        "sample/vision"
+    ]
+
+
 def test_web_ocr_fallback_is_in_sync_with_canonical_catalog(tmp_path: Path) -> None:
     subprocess.run(
         [

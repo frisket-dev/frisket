@@ -411,16 +411,21 @@ class TestVlmOcrTraceCapturesModelCalls:
         # The remote-api venue must be LIVE to resolve to it.
         monkeypatch.setenv("GEMINI_API_KEY", "key")
         monkeypatch.setenv("FRISKET_COST_CONSENT_USD", limit)
+        from io import BytesIO
+        from PIL import Image
+
+        image = BytesIO()
+        Image.new("RGB", (640, 120), "white").save(image, format="PNG")
         digest = project.add_blob(
-            b"\x89PNG\r\n\x1a\n" + b"\x00" * 64,
-            filename="scan.png",
-            mime="image/png",
+            image.getvalue(), filename="scan.png", mime="image/png"
         )
         sheet = _ocr_project(
             project, value=media_cell(digest, filename="scan.png", mime="image/png")
         )
         router = ModelRouter(cache=None, cache_mode="off")
-        adapter = _StubAdapter({"text": "VLM READ 4271"})
+        adapter = _StubAdapter(
+            {"lines": [{"text": "VLM READ 4271", "box_2d": [100, 100, 900, 900]}]}
+        )
         router._adapters["gemini"] = adapter  # noqa: SLF001 — stub injection, test-only
 
         runner = MapRunner(

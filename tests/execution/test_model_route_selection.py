@@ -272,7 +272,7 @@ def test_unconfigured_managed_local_candidate_does_not_hide_ready_cloud_route():
     assert outcome.target.id == "cloud"
 
 
-def test_cloud_default_does_not_capture_an_openrouter_catalog_model():
+def test_cloud_default_applies_to_openrouter_catalog_model_before_connecting():
     model = "openrouter/minimax/minimax-m3"
 
     class OwnProvider:
@@ -317,7 +317,7 @@ def test_cloud_default_does_not_capture_an_openrouter_catalog_model():
         model, capability=CAPABILITY_LLM, options={}
     )
 
-    assert request.route is None
+    assert request.route == "cloud"
 
 
 def test_canonical_model_route_id_is_shared_across_named_ocr_capabilities():

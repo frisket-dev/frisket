@@ -388,6 +388,20 @@ def test_remote_ocr_engines_consult_project_keys_not_just_env(monkeypatch, tmp_p
     catalog must resolve keys from the same three sources execution uses."""
     from frisket.server.action_catalog_hints import _recipe_engines
     from frisket.server import provider_config
+    from frisket.ai.llm.model_catalog import MODEL_ENTRIES
+
+    expected_by_provider = {
+        provider: {
+            f"{provider}/{entry['id']}"
+            for entry in entries
+            if entry.get("vision") is True
+        }
+        for provider, entries in MODEL_ENTRIES.items()
+    }
+    expected_by_provider = {
+        provider: ids for provider, ids in expected_by_provider.items() if ids
+    }
+    expected_ids = set().union(*expected_by_provider.values())
 
     for env_name in provider_config.ENV_VAR.values():
         monkeypatch.delenv(env_name, raising=False)
@@ -395,35 +409,33 @@ def test_remote_ocr_engines_consult_project_keys_not_just_env(monkeypatch, tmp_p
     def by_id(project):
         return {e["id"]: e for e in _recipe_engines("media.ocr", {}, project=project)}
 
-    # no env, no project: both remote engines unavailable with a hint that
-    # names BOTH configuration paths
+    # No env or project keys: every shared vision model remains visible with
+    # an honest unavailable reason and the generic position option declaration.
     engines = by_id(None)
-    assert engines["openai/gpt-4.1-mini"]["available"] is False
-    assert "Settings" in engines["openai/gpt-4.1-mini"]["error"]
-    assert engines["gemini/gemini-3.5-flash"]["available"] is False
-    assert engines["openrouter/minimax/minimax-m3"]["available"] is False
+    assert expected_ids <= engines.keys()
+    for engine_id in expected_ids:
+        assert engines[engine_id]["available"] is False
+        assert "Settings" in engines[engine_id]["error"]
+        assert engines[engine_id]["ocr_options"] == {"keep_text_position": True}
 
     class _ProjectWithKeys:
         path = tmp_path / "proj.frisket"
 
         def provider_model_keys(self):
-            return {
-                "openai": "sk-proj",
-                "gemini": "gk-proj",
-                "openrouter": "or-proj",
-            }
+            return {provider: "configured" for provider in expected_by_provider}
 
     engines = by_id(_ProjectWithKeys())
-    assert engines["openai/gpt-4.1-mini"]["available"] is True
-    assert engines["gemini/gemini-3.5-flash"]["available"] is True
-    assert engines["openrouter/minimax/minimax-m3"]["available"] is True
+    for provider, engine_ids in expected_by_provider.items():
+        expected = provider in provider_config.ENV_VAR
+        for engine_id in engine_ids:
+            assert engines[engine_id]["available"] is expected
 
     # env-only still works too (parity with the old behavior)
     monkeypatch.setenv("OPENAI_API_KEY", "sk-env")
     engines = by_id(None)
-    assert engines["openai/gpt-4.1-mini"]["available"] is True
-    assert engines["gemini/gemini-3.5-flash"]["available"] is False
-    assert engines["openrouter/minimax/minimax-m3"]["available"] is False
+    for provider, engine_ids in expected_by_provider.items():
+        for engine_id in engine_ids:
+            assert engines[engine_id]["available"] is (provider == "openai")
 
 
 # ---------- runtime <-> typed params <-> catalog engine acceptance ----------

@@ -113,6 +113,33 @@ def _credential_label(setup: Mapping[str, Any] | None, source: str) -> str | Non
     return f"{label} · {hint}" if hint else label
 
 
+def _recommendation_composition(
+    composition: ExecutionComposition,
+) -> ExecutionComposition:
+    """Recommend a model from all available routes, independently of route pins.
+
+    This presentation-only view must never be used to authorize execution.
+    The selected route still controls the choice's setup and run state.
+    """
+    if composition.model_routes is None:
+        return composition
+    return replace(composition, model_routes={}, model_route_default=None)
+
+
+def _choice_available_status(choice: Mapping[str, Any]) -> str:
+    routes = _mapping(choice.get("route_selection")).get("options") or []
+    statuses = [
+        route["status"]
+        for route in routes
+        if isinstance(route, Mapping) and not route.get("disabled_reason")
+    ]
+    return (
+        min(statuses, key=_GROUP_STATUS_ORDER.__getitem__)
+        if statuses
+        else choice["status"]
+    )
+
+
 def _default_action_model(
     choices: list[dict[str, Any]],
     composition: ExecutionComposition,
@@ -125,7 +152,7 @@ def _default_action_model(
         for choice in choices
         if isinstance((model := choice["authored_selection"].get("model")), str)
         and model
-        and choice["status"] == "ready"
+        and _choice_available_status(choice) == "ready"
     ]
     directly_runnable = [
         choice["authored_selection"]["model"]
@@ -136,7 +163,7 @@ def _default_action_model(
     ]
     preferred = preferred_resolved_engine(
         models,
-        composition.provider_for_resolution(),
+        _recommendation_composition(composition).provider_for_resolution(),
         composition.facts,
         options=options,
         allowed_egress_classes={"none", "operator_lan"} if network_off else None,
@@ -148,7 +175,7 @@ def _default_action_model(
         (
             model
             for choice in choices
-            if choice["status"] == "needs_setup"
+            if _choice_available_status(choice) == "needs_setup"
             and isinstance((model := choice["authored_selection"].get("model")), str)
             and model
         ),
@@ -483,6 +510,7 @@ def _route_selection(
     can_mutate: bool,
     cloud_unknown: bool,
     network_off: bool,
+    own_blocker: Mapping[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     model_id = canonical_model_route_id(engine, capability)
     if composition.model_routes is None or model_id is None:
@@ -496,6 +524,12 @@ def _route_selection(
         cloud_unknown=cloud_unknown,
         network_off=network_off,
     )
+    if own_blocker is not None and own["disabled_reason"] is None:
+        own = {
+            **own,
+            "status": "unavailable",
+            "disabled_reason": own_blocker["message"],
+        }
     own_provider = (
         PROVIDER_LABELS.get(_own_target.operator, _own_target.operator)
         if _own_target is not None

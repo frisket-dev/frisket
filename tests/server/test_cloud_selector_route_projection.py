@@ -157,6 +157,132 @@ def _choices(payload):
     return [choice for group in payload["groups"] for choice in group["choices"]]
 
 
+@pytest.mark.parametrize("subject_kind", ["action", "project_ask"])
+def test_route_choice_does_not_move_default_model_badge(tmp_path, subject_kind):
+    first = _llm_route()
+    second = first.model_copy(update={"engine": "openai/gpt-5"})
+    client, _workspace, _store, project_id = _cloud_selector_app(
+        tmp_path, routes=[first, second], local_keys={}
+    )
+    subject = (
+        {"kind": "action", "action_id": "map.extract", "field": "model", "params": {}}
+        if subject_kind == "action"
+        else {"kind": "project_ask"}
+    )
+    query = {"schema_version": "frisket.selector_choices_query.v1", "subject": subject}
+    with client:
+        before = client.post(f"/api/projects/{project_id}/selector-choices", json=query)
+        assert before.status_code == 200, before.text
+        default = next(
+            choice for choice in _choices(before.json()) if choice["is_default"]
+        )
+        model = default["authored_selection"]["model"]
+        switched = client.patch(
+            f"/api/projects/{project_id}/model-routes",
+            json={"model_id": model, "route": "own"},
+        )
+        assert switched.status_code == 200, switched.text
+        after = client.post(f"/api/projects/{project_id}/selector-choices", json=query)
+    assert after.status_code == 200, after.text
+    assert after.json()["default_choice_id"] == before.json()["default_choice_id"]
+    current = next(
+        choice
+        for choice in _choices(after.json())
+        if choice["choice_id"] == default["choice_id"]
+    )
+    assert current["status"] == "needs_setup"
+    assert current["can_run"] is False
+
+
+def test_offered_openrouter_cloud_model_switches_both_directions(tmp_path):
+    model = "openrouter/qwen/qwen3-vl-8b-instruct"
+    route = _llm_route().model_copy(update={"engine": model, "provider": "openrouter"})
+    client, _workspace, _store, project_id = _cloud_selector_app(
+        tmp_path, routes=[route], local_keys={}
+    )
+    query = {
+        "schema_version": "frisket.selector_choices_query.v1",
+        "subject": {"kind": "project_ask", "model": model},
+    }
+    with client:
+        for selected in (None, "own", "cloud"):
+            if selected is not None:
+                changed = client.patch(
+                    f"/api/projects/{project_id}/model-routes",
+                    json={"model_id": model, "route": selected},
+                )
+                assert changed.status_code == 200, changed.text
+            response = client.post(
+                f"/api/projects/{project_id}/selector-choices", json=query
+            )
+            assert response.status_code == 200, response.text
+            current = next(
+                choice for choice in _choices(response.json()) if choice["is_current"]
+            )
+            selection = current["route_selection"]
+            assert selection["selected"] == (selected or "cloud")
+            cloud = next(
+                option for option in selection["options"] if option["id"] == "cloud"
+            )
+            assert cloud["status"] == "ready"
+            assert cloud["disabled_reason"] is None
+            assert current["can_run"] is (selected != "own")
+
+
+@pytest.mark.parametrize("cloud_offered", [False, True])
+def test_default_recommendation_respects_own_key_spend_cap(
+    tmp_path, monkeypatch, cloud_offered
+):
+    from frisket.engine.store import Project
+
+    monkeypatch.setattr(
+        Project,
+        "provider_spend_state",
+        lambda _self, _provider: SimpleNamespace(over_cap=True, cap_enforceable=True),
+    )
+    model = "openai/gpt-5-mini"
+    client, workspace, _store, project_id = _cloud_selector_app(
+        tmp_path,
+        routes=[_llm_route()] if cloud_offered else [],
+        router=ModelRouter(
+            keys={"openai": "capped-key"},
+            key_sources={"openai": "project_key"},
+            use_env_keys=False,
+        ),
+    )
+    settings = read_project_settings(workspace.get(project_id))
+    write_project_settings(
+        workspace.get(project_id),
+        settings.model_copy(update={"model_execution_routes": {model: "own"}}),
+    )
+    with client:
+        response = client.post(
+            f"/api/projects/{project_id}/selector-choices",
+            json={
+                "schema_version": "frisket.selector_choices_query.v1",
+                "subject": {
+                    "kind": "action",
+                    "action_id": "map.extract",
+                    "field": "model",
+                    "params": {"model": model},
+                },
+            },
+        )
+    assert response.status_code == 200, response.text
+    current = next(
+        choice for choice in _choices(response.json()) if choice["is_current"]
+    )
+    assert current["can_run"] is False
+    own = next(
+        option
+        for option in current["route_selection"]["options"]
+        if option["id"] == "own"
+    )
+    assert own["status"] == "unavailable"
+    assert own["disabled_reason"]
+    assert current["is_default"] is cloud_offered
+
+
 def test_project_model_route_patch_persists_one_canonical_choice(tmp_path) -> None:
     client, workspace, _store, project_id = _cloud_selector_app(
         tmp_path,
@@ -339,7 +465,7 @@ def test_nonlocal_own_model_shows_disabled_unsupported_cloud_route(tmp_path) -> 
     }
 
 
-def test_signed_out_unsupported_nonlocal_model_keeps_cloud_disabled(tmp_path) -> None:
+def test_signed_out_catalog_model_offers_cloud_setup(tmp_path) -> None:
     model_id = "openrouter/qwen/qwen3-8b"
     client, workspace, _store, project_id = _cloud_selector_app(
         tmp_path,
@@ -369,8 +495,8 @@ def test_signed_out_unsupported_nonlocal_model_keeps_cloud_disabled(tmp_path) ->
     assert selected["route_selection"]["options"][0] == {
         "id": "cloud",
         "label": "Frisket Cloud",
-        "status": "unavailable",
-        "disabled_reason": "OpenRouter isn't offered through Frisket Cloud.",
+        "status": "needs_setup",
+        "disabled_reason": None,
     }
 
 

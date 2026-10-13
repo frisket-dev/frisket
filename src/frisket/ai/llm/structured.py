@@ -187,6 +187,7 @@ class StructuredResult:
 # Message translation (our list[dict{role,content}] <-> pydantic-ai typed parts).
 # Bidirectional and image-preserving so multimodal callers (map_runner image
 # rows) do not regress: our image parts round-trip through BinaryContent.
+_IMAGE_DETAIL_VENDOR_KEY = "frisket_image_detail"
 
 
 def _content_to_pai(content: Any) -> Any:
@@ -202,6 +203,11 @@ def _content_to_pai(content: Any) -> Any:
                 BinaryContent(
                     data=base64.b64decode(p["data"]),
                     media_type=p["media_type"],
+                    vendor_metadata=(
+                        {_IMAGE_DETAIL_VENDOR_KEY: p["detail"]}
+                        if p.get("detail") is not None
+                        else None
+                    ),
                 )
             )
     return out
@@ -218,13 +224,17 @@ def _content_from_pai(content: Any) -> Any:
         elif isinstance(c, TextContent):
             parts.append({"type": "text", "text": c.content})
         elif isinstance(c, BinaryContent):
-            parts.append(
-                {
-                    "type": "image",
-                    "media_type": c.media_type,
-                    "data": base64.b64encode(c.data).decode(),
-                }
-            )
+            image = {
+                "type": "image",
+                "media_type": c.media_type,
+                "data": base64.b64encode(c.data).decode(),
+            }
+            metadata = c.vendor_metadata
+            if isinstance(metadata, dict) and isinstance(
+                metadata.get(_IMAGE_DETAIL_VENDOR_KEY), str
+            ):
+                image["detail"] = metadata[_IMAGE_DETAIL_VENDOR_KEY]
+            parts.append(image)
         else:
             raise TypeError(f"unsupported pydantic-ai user content: {type(c).__name__}")
     return parts

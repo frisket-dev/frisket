@@ -12,7 +12,7 @@
 //
 // The list itself is generated (the OCR-list twin of modelCatalog.generated.ts):
 // scripts/dev/sync_ocr_engine_catalog.py derives it from the backend's
-// OCR_ENGINE_TABLE + OCR_VISION_ENGINES (src/frisket/server/action_catalog_hints.py),
+// OCR_ENGINE_TABLE + ocr_vision_engines() (src/frisket/server/action_catalog_hints.py),
 // and tests/server/test_ocr_engine_catalog_sync.py's `--check` run fails CI if
 // this drifts. The guard prevents a removed backend engine from remaining
 // selectable in the UI. Edit the backend roster, then run the sync script;

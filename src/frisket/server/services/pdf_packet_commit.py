@@ -74,6 +74,8 @@ class PdfPacketCommitter:
                             blocks=tuple(ocr_pages[source_page].get("blocks") or ()),
                             engine=ocr_engine,
                             token_granularity=ocr_token_granularity(ocr_engine),
+                            width=ocr_pages[source_page].get("width"),
+                            height=ocr_pages[source_page].get("height"),
                         )
                         for source_page in range(start, end + 1)
                     )

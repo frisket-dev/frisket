@@ -14,6 +14,7 @@ from frisket.actions.media_types import (
 )
 from frisket.actions.types import EngineRef, Row, RowResult
 from frisket.contracts.transcription_language import transcribe_language_declaration
+from frisket.contracts.actions.schemas._engines import is_generic_vlm_ocr_engine
 
 
 class OcrParams(OcrOptions):
@@ -53,6 +54,8 @@ def transcribe_options(params: TranscribeParams) -> TranscriptionOptions:
 
 
 def _ocr_outputs(params: OcrParams):
+    if is_generic_vlm_ocr_engine(params.engine.root) and not params.keep_text_position:
+        return ("text",)
     return ("text", "blocks", "pdf") if params.searchable_pdf else ("text", "blocks")
 
 

@@ -110,12 +110,18 @@ def test_ocr_vlm_cached_pages_do_not_count_as_requests(tmp_path, include_uncache
         ctx = OpContext(http=None, extras={"router": router})
         engines = OcrEngines()
         initial_usage = {"calls": 0, "in": 0, "out": 0, "cost": 0.0}
-        asyncio.run(engines._ocr_vlm("mock/vlm", [first], ctx, initial_usage))
+        asyncio.run(
+            engines._ocr_vlm(
+                "mock/vlm", [first], ctx, initial_usage, keep_text_position=False
+            )
+        )
         assert adapter.calls == 1
 
         pages = [first, second] if include_uncached else [first]
         usage = {"calls": 0, "in": 0, "out": 0, "cost": 0.0, "input_pages": len(pages)}
-        result = asyncio.run(engines._ocr_vlm("mock/vlm", pages, ctx, usage))
+        result = asyncio.run(
+            engines._ocr_vlm("mock/vlm", pages, ctx, usage, keep_text_position=False)
+        )
         fact = engines._model_call_for(
             "mock/vlm", first, result, usage, ctx=ctx
         ).as_dict()

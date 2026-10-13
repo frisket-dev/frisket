@@ -894,6 +894,17 @@ def ocr_engine_has_geometry(engine: str) -> bool:
     return declaration is not None and declaration.ocr_geometry
 
 
+def is_generic_vlm_ocr_engine(engine: str) -> bool:
+    """Whether OCR dispatches an unlisted provider/model through the VLM adapter.
+
+    Qualified dedicated engines such as OpenDocRouter keep their declared,
+    fixed geometry behavior. Only unknown qualified model ids expose the
+    generic adapter's request-time positioning choice.
+    """
+
+    return "/" in engine and find_engine(ocr_engine_table(), engine) is None
+
+
 def ocr_engine_supports_searchable_pdf(engine: str) -> bool:
     """Region highlights alone do not imply an aligned PDF text layer."""
     declaration = find_engine(ocr_engine_table(), engine)
