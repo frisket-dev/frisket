@@ -1,0 +1,304 @@
+name: reusable-catalog-refresh
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        description: Refresh pricing or discover models.
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    env:
+      REFRESH_MODE: ${{ inputs.mode }}
+      REFRESH_BRANCH: ${{ inputs.mode == 'models' && 'model-catalog-refresh' || 'pricing-refresh' }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: true
+      - name: Check for pending refresh PR
+        id: pending
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! pr_number_output="$(
+            gh pr list --state open --base main --head "$REFRESH_BRANCH" \
+              --json number --jq '.[].number'
+          )"; then
+            echo "Could not enumerate open PRs for $REFRESH_BRANCH" >&2
+            exit 1
+          fi
+          pr_numbers=()
+          if [ -n "$pr_number_output" ]; then
+            mapfile -t pr_numbers < <(printf '%s' "$pr_number_output")
+          fi
+          if [ "${#pr_numbers[@]}" -gt 1 ]; then
+            echo "Refusing ambiguous open PR set for $REFRESH_BRANCH" >&2
+            exit 1
+          fi
+          if [ "${#pr_numbers[@]}" -eq 1 ]; then
+            echo "Refresh PR #${pr_numbers[0]} is under review; leaving it unchanged."
+            echo "pending=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "pending=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Prepare exact main revision
+        id: base
+        if: steps.pending.outputs.pending == 'false'
+        run: |
+          origin_url="$(git config --get remote.origin.url)"
+          if [ -z "$origin_url" ]; then
+            echo "remote.origin.url is missing" >&2
+            exit 1
+          fi
+          if [ -n "${GITHUB_REPOSITORY:-}" ]; then
+            case "$origin_url" in
+              "https://github.com/${GITHUB_REPOSITORY}"|\
+              "https://github.com/${GITHUB_REPOSITORY}.git") ;;
+              *)
+                echo "Unexpected origin URL for ${GITHUB_REPOSITORY}: $origin_url" >&2
+                exit 1
+                ;;
+            esac
+          fi
+          echo "Verified origin: $origin_url"
+          main_sha="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+          if ! [[ "$main_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Could not resolve an exact origin main SHA" >&2
+            exit 1
+          fi
+          git fetch --no-tags origin \
+            "refs/heads/main:refs/remotes/origin/main"
+          if [ "$(git rev-parse refs/remotes/origin/main)" != "$main_sha" ]; then
+            echo "origin main moved while preparing the refresh" >&2
+            exit 1
+          fi
+          git switch --detach "$main_sha"
+          echo "sha=$main_sha" >> "$GITHUB_OUTPUT"
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        if: steps.pending.outputs.pending == 'false'
+      - name: Refresh catalog
+        id: refresh
+        if: steps.pending.outputs.pending == 'false'
+        run: |
+          refresh_tmp="$RUNNER_TEMP/catalog-refresh"
+          mkdir -p "$refresh_tmp"
+          pricing_path="src/frisket/ai/llm/pricing_data.json"
+          model_path="src/frisket/ai/llm/model_catalog.json"
+          generated_path="web/src/actions/modelCatalog.generated.ts"
+          ocr_generated_path="web/src/actions/engineCatalog.generated.ts"
+
+          cp "$pricing_path" "$refresh_tmp/pricing-before.json"
+          if [ "$REFRESH_MODE" = "models" ]; then
+            cp "$model_path" "$refresh_tmp/models-before.json"
+            cp "$generated_path" "$refresh_tmp/models-generated-before.ts"
+            cp "$ocr_generated_path" "$refresh_tmp/ocr-generated-before.ts"
+          elif [ "$REFRESH_MODE" != "pricing" ]; then
+            echo "Unsupported refresh mode: $REFRESH_MODE" >&2
+            exit 1
+          fi
+
+          uv run --no-project python scripts/dev/update_pricing.py \
+            --mode "$REFRESH_MODE"
+          if [ "$REFRESH_MODE" = "models" ]; then
+            uv run --no-project python scripts/dev/sync_model_catalog.py
+            uv run --frozen --no-dev python \
+              scripts/dev/sync_ocr_engine_catalog.py
+          fi
+
+          catalog_changed="$(python3 - "$REFRESH_MODE" "$refresh_tmp" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          mode = sys.argv[1]
+          refresh_tmp = Path(sys.argv[2])
+          pairs = [
+              (
+                  refresh_tmp / "pricing-before.json",
+                  Path("src/frisket/ai/llm/pricing_data.json"),
+              )
+          ]
+          if mode == "models":
+              pairs.append(
+                  (
+                      refresh_tmp / "models-before.json",
+                      Path("src/frisket/ai/llm/model_catalog.json"),
+                  )
+              )
+
+          changed = False
+          for before_path, after_path in pairs:
+              before = json.loads(before_path.read_text(encoding="utf-8"))
+              after = json.loads(after_path.read_text(encoding="utf-8"))
+              if not isinstance(before, dict) or not isinstance(after, dict):
+                  raise TypeError("catalog data must be a JSON object")
+              before = {key: value for key, value in before.items() if key != "updated"}
+              after = {key: value for key, value in after.items() if key != "updated"}
+              changed = changed or before != after
+          print("true" if changed else "false")
+          PY
+          )"
+
+          if [ "$catalog_changed" = "false" ]; then
+            cp "$refresh_tmp/pricing-before.json" "$pricing_path"
+            if [ "$REFRESH_MODE" = "models" ]; then
+              cp "$refresh_tmp/models-before.json" "$model_path"
+              cp "$refresh_tmp/models-generated-before.ts" "$generated_path"
+              cp "$refresh_tmp/ocr-generated-before.ts" "$ocr_generated_path"
+            fi
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          if [ "$REFRESH_MODE" = "pricing" ]; then
+            uv run --no-project python scripts/dev/pricing_delta_report.py \
+              "$refresh_tmp/pricing-before.json" "$pricing_path" \
+              > "$refresh_tmp/pr-body.md"
+            cat >> "$refresh_tmp/pr-body.md" <<'EOF'
+
+          ## Agent review
+
+          - [ ] Text prices still belong only to approved catalog models.
+          - [ ] OpenDocRouter model identities and capabilities are unchanged.
+          - [ ] Every changed rate matches an official provider source.
+          - [ ] Any large swing has been checked against the upstream source.
+          - [ ] Pricing and consent-boundary tests pass.
+          - [ ] The branch was rebased and regenerated from current `main` before merge.
+          - [ ] A reviewer triggered the required checks; bot-created PRs do not trigger them.
+          EOF
+          else
+            uv run --no-project python scripts/dev/pricing_delta_report.py \
+              "$refresh_tmp/pricing-before.json" "$pricing_path" \
+              "$refresh_tmp/models-before.json" "$model_path" \
+              > "$refresh_tmp/pr-body.md"
+            cat >> "$refresh_tmp/pr-body.md" <<'EOF'
+
+          ## Agent review
+
+          - [ ] Names match the providers' official names and contain no inferred power claims.
+          - [ ] Current frontier models are ordered strongest to smallest, followed by older generations.
+          - [ ] Vision and other capability facts match official provider metadata.
+          - [ ] Added models have matching prices; removed models have no stale prices.
+          - [ ] Model, pricing, frontend catalog, and OCR catalog tests pass.
+          - [ ] The branch was rebased and regenerated from current `main` before merge.
+          - [ ] A reviewer triggered the required checks; bot-created PRs do not trigger them.
+          EOF
+          fi
+      - name: Open review PR
+        if: steps.refresh.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GENERATION_BASE: ${{ steps.base.outputs.sha }}
+        run: |
+          refresh_tmp="$RUNNER_TEMP/catalog-refresh"
+          pricing_path="src/frisket/ai/llm/pricing_data.json"
+          model_path="src/frisket/ai/llm/model_catalog.json"
+          generated_path="web/src/actions/modelCatalog.generated.ts"
+          ocr_generated_path="web/src/actions/engineCatalog.generated.ts"
+          today="$(date -u +%Y-%m-%d)"
+
+          if [ "$REFRESH_MODE" = "pricing" ]; then
+            title="Pricing refresh $today"
+            commit_message="chore(ai): refresh pricing"
+            tracked_paths=("$pricing_path")
+          elif [ "$REFRESH_MODE" = "models" ]; then
+            title="Model catalog refresh $today"
+            commit_message="chore(ai): refresh model catalog"
+            tracked_paths=(
+              "$pricing_path"
+              "$model_path"
+              "$generated_path"
+              "$ocr_generated_path"
+            )
+          else
+            echo "Unsupported refresh mode: $REFRESH_MODE" >&2
+            exit 1
+          fi
+
+          if ! pr_number_output="$(
+            gh pr list --state open --base main --head "$REFRESH_BRANCH" \
+              --json number --jq '.[].number'
+          )"; then
+            echo "Could not enumerate open PRs for $REFRESH_BRANCH" >&2
+            exit 1
+          fi
+          pr_numbers=()
+          if [ -n "$pr_number_output" ]; then
+            mapfile -t pr_numbers < <(printf '%s' "$pr_number_output")
+          fi
+          if [ "${#pr_numbers[@]}" -gt 1 ]; then
+            echo "Refusing ambiguous open PR set for $REFRESH_BRANCH" >&2
+            exit 1
+          fi
+          if [ "${#pr_numbers[@]}" -eq 1 ]; then
+            echo "Refresh PR #${pr_numbers[0]} appeared during this run; leaving it unchanged."
+            exit 0
+          fi
+
+          origin_url="$(git config --get remote.origin.url)"
+          if [ -z "$origin_url" ]; then
+            echo "remote.origin.url is missing" >&2
+            exit 1
+          fi
+          if [ -n "${GITHUB_REPOSITORY:-}" ]; then
+            case "$origin_url" in
+              "https://github.com/${GITHUB_REPOSITORY}"|\
+              "https://github.com/${GITHUB_REPOSITORY}.git") ;;
+              *)
+                echo "Unexpected origin URL for ${GITHUB_REPOSITORY}: $origin_url" >&2
+                exit 1
+                ;;
+            esac
+          fi
+          echo "Verified origin: $origin_url"
+          current_main_sha="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+          if [ "$current_main_sha" != "$GENERATION_BASE" ]; then
+            echo "origin main moved after generation; refusing stale refresh" >&2
+            exit 1
+          fi
+          if [ "$(git rev-parse refs/remotes/origin/main)" != "$GENERATION_BASE" ]; then
+            echo "Fetched origin main does not match the generation base" >&2
+            exit 1
+          fi
+          remote_tip="$(
+            git ls-remote --heads origin "refs/heads/${REFRESH_BRANCH}" | awk '{print $1}'
+          )"
+          if [ -n "$remote_tip" ]; then
+            merged_head="$(
+              gh pr list --state merged --base main --head "$REFRESH_BRANCH" \
+                --limit 1 --json headRefOid --jq '.[0].headRefOid // empty'
+            )"
+            if [ "$merged_head" != "$remote_tip" ]; then
+              echo "Refusing unverified orphan branch $REFRESH_BRANCH" >&2
+              exit 1
+            fi
+            echo "Recycling the exact head of the last merged refresh PR."
+          fi
+
+          git config user.name "frisket-refresh[bot]"
+          git config user.email "actions@users.noreply.github.com"
+          git switch -C "$REFRESH_BRANCH" "$GENERATION_BASE"
+          git add -- "${tracked_paths[@]}"
+          if git diff --cached --quiet; then
+            echo "Current main already contains this refresh."
+            exit 0
+          fi
+          git commit --signoff -m "$commit_message"
+          push_main_sha="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+          if [ "$push_main_sha" != "$GENERATION_BASE" ]; then
+            echo "origin main moved before push; refusing stale refresh" >&2
+            exit 1
+          fi
+          git push --set-upstream \
+            --force-with-lease="refs/heads/${REFRESH_BRANCH}:${remote_tip}" \
+            origin "HEAD:refs/heads/${REFRESH_BRANCH}"
+          gh pr create --title "$title" --body-file "$refresh_tmp/pr-body.md" \
+            --base main --head "$REFRESH_BRANCH"

@@ -1,0 +1,20 @@
+name: refresh-models
+
+on:
+  schedule:
+    - cron: "47 6 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: refresh-models
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    uses: ./.github/workflows/refresh-catalog.yml
+    with:
+      mode: models
