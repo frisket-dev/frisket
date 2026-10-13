@@ -1074,6 +1074,24 @@ function GeneratedActionFormContents({
     )}
   </>;
 
+  const prefixConfig = customization?.outputPrefix;
+  const prefixOutput = outputs.find(({ key }) => key === prefixConfig?.keys?.[0]);
+  const prefixLabel = typeof prefixConfig?.label === 'function'
+    ? prefixConfig.label(outputs) : prefixConfig?.label;
+  const updateOutputPrefix = (prefix: string) => {
+    if (!prefixConfig) return;
+    const keys = prefixConfig.keys ?? outputs.map(({ key }) => key);
+    setOutputPrefix(prefix);
+    markOutputNamesEdited(keys);
+    setOutputNames((current) => Object.fromEntries(outputs.map(({ key }) => [key,
+      keys.includes(key)
+        ? prefixConfig.outputName(key, prefix.trim(), outputs)
+        : current[key] ?? dedupeDefaultColumnName(
+            customization?.defaultOutputName?.(key, draft) ?? key, columns,
+          ),
+    ])));
+  };
+
   return (
     <form className="action-form generated-action-form" data-testid="generated-action-form"
       onSubmit={(event) => {
@@ -1133,31 +1151,24 @@ function GeneratedActionFormContents({
         </div>
       )}
 
-      {customization?.outputPrefix && <div className="param-row">
-        <label className="form-label" htmlFor="generated-output-prefix">
-          {typeof customization.outputPrefix.label === 'function'
-            ? customization.outputPrefix.label(outputs) : customization.outputPrefix.label}
-        </label>
-        <input id="generated-output-prefix" className="form-input"
-          data-testid="field-output-prefix" value={outputPrefix} disabled={running}
-          onChange={(event) => {
-            const prefix = event.target.value;
-            const keys = customization.outputPrefix!.keys ?? outputs.map(({ key }) => key);
-            setOutputPrefix(prefix);
-            markOutputNamesEdited(keys);
-            setOutputNames((current) => Object.fromEntries(outputs.map(({ key }) => [key,
-              keys.includes(key)
-                ? customization.outputPrefix!.outputName(key, prefix.trim(), outputs)
-                : current[key] ?? dedupeDefaultColumnName(
-                    customization.defaultOutputName?.(key, draft) ?? key, columns,
-                  ),
-            ])));
-          }} />
-        {customization.outputPrefix.hint !== null && <p className="form-hint">
-          {customization.outputPrefix.hint === undefined ? <>Names {outputs.length} output {outputs.length === 1 ? 'column' : 'columns'}.
-            Individual names can be adjusted below.</> : customization.outputPrefix.hint}
+      {prefixConfig && <fieldset disabled={running} className="resolve-drawer-body-fields">
+        {prefixConfig.keys?.length ? <OutputNameCombobox
+          columns={createsSheet || !prefixOutput ? [] : compatibleOutputColumns(
+            columns, prefixOutput.column_type, prefixOutput.existing_column_policy,
+          )}
+          label={prefixLabel} inputTestId="field-output-prefix"
+          value={outputPrefix} allowExistingTargets={!createsSheet}
+          onChange={updateOutputPrefix} /> : <div className="param-row">
+          <label className="form-label" htmlFor="generated-output-prefix">{prefixLabel}</label>
+          <input id="generated-output-prefix" className="form-input"
+            data-testid="field-output-prefix" value={outputPrefix}
+            onChange={(event) => updateOutputPrefix(event.target.value)} />
+        </div>}
+        {prefixConfig.hint !== null && <p className="form-hint">
+          {prefixConfig.hint === undefined ? <>Names {outputs.length} output {outputs.length === 1 ? 'column' : 'columns'}.
+            Individual names can be adjusted below.</> : prefixConfig.hint}
         </p>}
-      </div>}
+      </fieldset>}
 
       {catalogEntry.kind === 'derive.join' && outputs.length > 0 && <JoinOutputNames
         outputs={outputs} names={outputNames} disabled={running || resolving}

@@ -938,15 +938,6 @@ def _group_identity(
     target_id = target.get("target_id")
     if destination.get("kind") == "local":
         return "local", "local", "On this device"
-    if destination.get("kind") in {"operator_network", "unknown"} and target_id:
-        label = (
-            "Frisket models server"
-            if target_id == MODELS_GATEWAY_TARGET_ID
-            else (server_labels or {}).get(
-                str(target_id), f"Model server · {target_id}"
-            )
-        )
-        return f"server:{target_id}", "server", label
     provider = selection.get("provider")
     if not provider:
         model = selection.get("model")
@@ -956,6 +947,11 @@ def _group_identity(
             _provider_from_qualified(engine) if isinstance(engine, str) else None
         )
     provider = provider or target.get("operator") or "external"
+    if target_id == MODELS_GATEWAY_TARGET_ID or provider == "frisket":
+        return "provider:frisket", "provider", "Frisket models"
+    if destination.get("kind") in {"operator_network", "unknown"} and target_id:
+        label = (server_labels or {}).get(str(target_id), f"Model server · {target_id}")
+        return f"server:{target_id}", "server", label
     return (
         f"provider:{provider}",
         "provider",

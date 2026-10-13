@@ -6,7 +6,7 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from 'react';
-import { Boxes, CheckCircle2, X } from 'lucide-react';
+import { Boxes, CheckCircle2 } from 'lucide-react';
 import type { EmbeddingProvider, SheetMeta } from '../../api/types';
 import type { EmbeddingApiPort } from '../../api/ports';
 import { formatUsd } from '../../format';
@@ -18,6 +18,7 @@ import {
 } from './costEstimate';
 import { SelectorField } from '../../engine-selector/SelectorField';
 import type { SelectorChoice } from '../../api/selectorChoices';
+import { WindowCloseButton } from '../WindowCloseButton';
 
 interface CreateEmbeddingIndexDialogProps {
   apiPort: Pick<EmbeddingApiPort, 'getSheetData'>;
@@ -299,14 +300,11 @@ export function CreateEmbeddingIndexDialog({
         <div className="modal-title">
           <Boxes size={15} aria-hidden />
           Create embedding index
-          <button
-            type="button"
-            className="icon-btn embeddings-modal-close"
-            aria-label="Close embedding index dialog"
+          <WindowCloseButton
+            className="embeddings-modal-close"
+            label="Close embedding index dialog"
             onClick={onClose}
-          >
-            <X size={15} />
-          </button>
+          />
         </div>
 
         <div className="embeddings-create-stages" aria-label="Embedding index steps">

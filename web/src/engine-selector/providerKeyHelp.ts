@@ -51,8 +51,8 @@ const HELP: Readonly<Record<string, ProviderKeyHelp>> = {
       'Copy the key. It starts with sk-or- and is shown once.',
     ],
   },
-  datalab: { label: 'Datalab' },
-  opendocrouter: { label: 'OpenDocRouter' },
+  datalab: { label: 'Datalab', url: 'https://www.datalab.to' },
+  opendocrouter: { label: 'OpenDocRouter', url: 'https://www.opendocrouter.ai' },
 };
 
 export function providerKeyHelp(provider: string): ProviderKeyHelp {
