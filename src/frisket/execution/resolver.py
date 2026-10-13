@@ -655,6 +655,35 @@ def _effective_model_route(
     return selected
 
 
+def selected_route_missing_refusal(
+    source: ExecutionTargetProvider,
+    *,
+    engine: str,
+    route: ModelRoute,
+) -> Refusal:
+    """Explain why an explicit route has no matching target.
+
+    A known Cloud inventory is authoritative, so reconnecting cannot make an
+    absent model runnable. Before that inventory is known, reconnecting is the
+    action that can discover the selected route. Keep this distinction here so
+    execution and catalog projection cannot give different remedies.
+    """
+
+    if route == "cloud":
+        remedy = (
+            "This model is not currently available through Frisket Cloud."
+            if getattr(source, "cloud_inventory_known", False) is True
+            else "Reconnect Frisket Cloud to use this model's selected Cloud route."
+        )
+    else:
+        remedy = "Set up this model's selected route and retry."
+    return Refusal(
+        family="no_live_target",
+        remedy=remedy,
+        engine=engine,
+    )
+
+
 def _configuration_rank(
     source: Sequence[ExecutionTarget] | ExecutionTargetProvider,
     target: ExecutionTarget,
@@ -1038,14 +1067,10 @@ def resolve(
         route=request.route,
     )
     if selected_route is not None and static_choice is None:
-        return Refusal(
-            family="no_live_target",
-            remedy=(
-                "Reconnect Frisket Cloud to use this model's selected Cloud route."
-                if selected_route == "cloud"
-                else "Set up this model's selected route and retry."
-            ),
+        return selected_route_missing_refusal(
+            provider,
             engine=engine_id,
+            route=selected_route,
         )
     if "/" in engine_id and static_choice is None:
         provider_name = engine_id.partition("/")[0]

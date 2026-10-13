@@ -443,7 +443,7 @@ def test_own_key_composition_keeps_provider_direct_options() -> None:
     assert "pricing" not in gateway
 
 
-def test_action_catalog_does_not_reconstruct_own_target_for_missing_cloud_route():
+def test_known_cloud_inventory_does_not_reconstruct_own_target_for_missing_route():
     composition = ExecutionComposition(
         facts=CompositionFacts(
             edition="hosted",
@@ -453,6 +453,7 @@ def test_action_catalog_does_not_reconstruct_own_target_for_missing_cloud_route(
         provider=StaticExecutionTargetProvider(),
         credential_use_context=CredentialUseContext(cost_posture="org_key"),
         model_routes={"openai/whisper-1": "cloud"},
+        cloud_inventory_known=True,
     )
 
     hints = project_action_catalog_launcher_hints({}, execution_composition=composition)
@@ -461,7 +462,9 @@ def test_action_catalog_does_not_reconstruct_own_target_for_missing_cloud_route(
     selected = engines["openai/whisper-1"]
     assert "target_id" not in selected
     assert selected["available"] is False
-    assert "Reconnect Frisket Cloud" in selected["error"]
+    assert selected["error"] == (
+        "This model is not currently available through Frisket Cloud."
+    )
 
 
 def test_project_route_builds_composition_from_the_same_effective_router(

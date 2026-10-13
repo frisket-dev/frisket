@@ -156,6 +156,34 @@ def test_explicit_missing_cloud_route_refuses_without_own_fallback_or_probe():
     assert provider.connection_calls == []
 
 
+def test_known_cloud_inventory_explains_missing_selected_route_without_probe():
+    provider = _RoutesProvider(include_cloud=False)
+    composition = _composition(
+        provider,
+        model_routes={MODEL: "cloud"},
+        cloud_inventory_known=True,
+    )
+    request = composition.resolution_request(
+        MODEL,
+        capability=CAPABILITY_LLM,
+        options={},
+    )
+
+    outcome = resolve(
+        request,
+        composition.provider_for_resolution(),
+        composition.facts,
+    )
+
+    assert isinstance(outcome, Refusal)
+    assert outcome.family == "no_live_target"
+    assert outcome.target_id is None
+    assert outcome.remedy == (
+        "This model is not currently available through Frisket Cloud."
+    )
+    assert provider.connection_calls == []
+
+
 def test_composition_route_map_and_projection_override_share_one_request_path():
     provider = _RoutesProvider()
     composition = _composition(
