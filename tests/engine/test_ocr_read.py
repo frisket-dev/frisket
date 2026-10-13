@@ -119,6 +119,8 @@ def recognition(monkeypatch):
             {
                 "text": "Revenue 42",
                 "blocks": [{"text": "42", "bbox": [1, 2, 3, 4], "score": 0.9}],
+                "width": 8,
+                "height": 12,
             }
         ]
 
@@ -223,6 +225,8 @@ async def test_actual_source_and_read_survive_returned_sibling_mutation(
         (fact,) = owner.calls_by_row[source[3]]
         assert fact["ocr_token_granularity"] == "word"
         assert fact["blocks"][0]["blocks"][0]["bbox"] == [1, 2, 3, 4]
+        assert fact["blocks"][0]["positions"] == {"width": 8, "height": 12}
+        assert "positions" not in result.blocks[0]
         assert fact["source"]["blob_hash"] == source[4]["blob"]
         assert fact["page_images"]["1"]["blob_hash"] == source[4]["blob"]
         assert fact["page_images"]["1"]["source_blob"] is True

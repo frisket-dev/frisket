@@ -151,6 +151,8 @@ def test_paid_ocr_image_plan_binds_source_and_returns_ephemeral_rows(
             return [
                 {
                     "text": "Invoice total 42",
+                    "width": 20,
+                    "height": 10,
                     "warnings": ["Page was rotated before recognition."],
                     "blocks": [
                         {
@@ -177,10 +179,10 @@ def test_paid_ocr_image_plan_binds_source_and_returns_ephemeral_rows(
         assert result.rows[0]["text"]["value"] == "Invoice total 42"
         assert result.rows[0]["blocks"]["value"][0]["bbox"] == {
             "space": "page_normalized",
-            "x0": 0.1,
-            "y0": 0.1,
-            "x1": 0.9,
-            "y1": 0.5,
+            "x0": 0.05,
+            "y0": 0.2,
+            "x1": 0.45,
+            "y1": 1.0,
         }
         assert result.rows[0]["warnings"]["value"] == [
             "Page was rotated before recognition."

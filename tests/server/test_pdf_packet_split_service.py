@@ -42,6 +42,7 @@ class _PreviewRuns:
     def __init__(self, registry: ActionPreviewJobRegistry) -> None:
         self.registry = registry
         self.failed_pages: set[int] = set()
+        self.text_only_pages: set[int] = {4}
         self.run_gate = None
 
     def prepare_ocr_scratch_path(
@@ -89,17 +90,16 @@ class _PreviewRuns:
                         "text": {"value": "" if failed else f"OCR page {page}"},
                         "blocks": {
                             "value": []
-                            if failed
+                            if failed or page in self.text_only_pages
                             else [
                                 {
                                     "text": f"OCR page {page}",
-                                    "bbox": {
-                                        "space": "page_normalized",
-                                        "x0": 0.1,
-                                        "y0": 0.1,
-                                        "x1": 0.9,
-                                        "y1": 0.2,
-                                    },
+                                    "bbox": [
+                                        [100, 50],
+                                        [900, 50],
+                                        [900, 100],
+                                        [100, 100],
+                                    ],
                                 }
                             ]
                         },
@@ -114,6 +114,8 @@ class _PreviewRuns:
                             "page": page,
                             "text": f"OCR page {page}",
                             "blocks": rows[-1]["blocks"]["value"],
+                            "width": 1000,
+                            "height": 500,
                         }
                     )
                 progress(index, total)
@@ -439,11 +441,12 @@ def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
         (sheet_id,),
     ).fetchall()
     assert len(child_artifacts) == 2
+    current_evidence = []
     for artifact in child_artifacts:
         stream = resolve_ocr_word_stream(project, artifact["blob_hash"])
         assert stream is not None
         assert stream.engine == "test-ocr"
-        assert [token.page for token in stream.stream.tokens] == [1, 2]
+        assert all(token.box == (0.1, 0.1, 0.9, 0.2) for token in stream.stream.tokens)
         current = resolve_current_ocr_evidence(
             project,
             sheet_id=sheet_id,
@@ -453,6 +456,31 @@ def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
         )
         assert len(current) == 1
         assert current[0].value_ref["prepared_ref_id"] > 0
+        current_evidence.append(current[0])
+    region_pages = {
+        evidence.artifact_id: [
+            row["page_start"]
+            for row in project.db.execute(
+                "SELECT page_start FROM source_spans "
+                "WHERE artifact_id=? AND span_kind='region' ORDER BY id",
+                (evidence.artifact_id,),
+            )
+        ]
+        for evidence in current_evidence
+    }
+    assert sorted(region_pages.values()) == [
+        [1],
+        [1, 2],
+    ]
+    text_only_artifact_id = next(
+        artifact_id for artifact_id, pages in region_pages.items() if pages == [1]
+    )
+    second_summary = project.db.execute(
+        "SELECT snippet FROM source_spans WHERE artifact_id=? "
+        "AND span_kind='page_range' AND page_start=2 ORDER BY id LIMIT 1",
+        (text_only_artifact_id,),
+    ).fetchone()
+    assert second_summary["snippet"] == "OCR page 4"
 
     source_links = project.db.execute(
         "SELECT id FROM evidence_links WHERE sheet_id=? "

@@ -63,10 +63,11 @@ def _page_spans(entry, page_images, engine, *, prepared_selector=None):
     blocks = entry.get("blocks") or []
     image = page_images.get(str(page)) or {}
     positions = entry.get("positions") or {}
-    # Stored display PNGs may be capped; engine coordinates use the original raster.
-    width = image.get("source_width") or image.get("width") or positions.get("width")
+    # Adapter-reported dimensions describe the exact coordinate frame. Source
+    # headers can differ after EXIF orientation, and display PNGs may be capped.
+    width = positions.get("width") or image.get("source_width") or image.get("width")
     height = (
-        image.get("source_height") or image.get("height") or positions.get("height")
+        positions.get("height") or image.get("source_height") or image.get("height")
     )
     block_text = " ".join(
         str(block.get("text") or "") for block in blocks if isinstance(block, dict)

@@ -14,6 +14,8 @@ class PacketOcrPage:
     blocks: tuple[dict[str, Any], ...]
     engine: str
     token_granularity: str
+    width: int | None = None
+    height: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

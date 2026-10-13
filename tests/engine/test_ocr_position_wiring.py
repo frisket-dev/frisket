@@ -5,6 +5,7 @@ import asyncio
 from frisket.actions.media import OcrParams, _ocr_outputs, ocr_options
 from frisket.contracts.actions.schemas._engines import is_generic_vlm_ocr_engine
 from frisket.engine.executor.ocr_read import ocr_token_granularity
+from frisket.engine.executor.ocr_evidence import _page_spans
 from frisket.execution.definitions import build_static_targets
 from frisket.execution.resolve_for_action import authored_options
 from frisket.execution.targets import CAPABILITY_OCR
@@ -85,7 +86,7 @@ def test_generic_vlm_dispatch_receives_actual_position_choice(
     assert seen == {"model": GENERIC_ENGINE, "keep_text_position": False}
 
 
-def test_generic_vlm_declares_geometry_and_line_granularity() -> None:
+def test_generic_vlm_declares_geometry_and_mode_aware_granularity() -> None:
     remote = next(
         target for target in build_static_targets() if target.id == "remote-api:openai"
     )
@@ -97,3 +98,33 @@ def test_generic_vlm_declares_geometry_and_line_granularity() -> None:
 
     assert support.options.geometry is True
     assert ocr_token_granularity(GENERIC_ENGINE) == "line"
+    assert ocr_token_granularity(GENERIC_ENGINE, keep_text_position=False) == "block"
+
+
+def test_evidence_uses_adapter_coordinate_frame_after_exif_orientation() -> None:
+    spans = list(
+        _page_spans(
+            {
+                "page": 1,
+                "blocks": [
+                    {
+                        "text": "full page",
+                        "bbox": [[0, 0], [900, 0], [900, 1200], [0, 1200]],
+                    }
+                ],
+                "positions": {"width": 900, "height": 1200},
+            },
+            {"1": {"source_width": 1200, "source_height": 900}},
+            GENERIC_ENGINE,
+        )
+    )
+
+    assert spans[1]["span_kind"] == "region"
+    assert spans[1]["bbox"][0] == {
+        "space": "page_normalized",
+        "x0": 0.0,
+        "y0": 0.0,
+        "x1": 1.0,
+        "y1": 1.0,
+        "raw": [[0, 0], [900, 0], [900, 1200], [0, 1200]],
+    }

@@ -270,8 +270,21 @@ def paid_ocr_scratch_plan(
             for index, page in enumerate(rendered):
                 raw = output_pages[index] if index < len(output_pages) else {}
                 text = str(raw.get("text") or "")
+                frame_width, frame_height = page.width, page.height
+                returned_width, returned_height = raw.get("width"), raw.get("height")
+                if returned_width is not None or returned_height is not None:
+                    if (
+                        type(returned_width) is not int
+                        or type(returned_height) is not int
+                        or returned_width <= 0
+                        or returned_height <= 0
+                    ):
+                        raise RuntimeError(
+                            "positioned OCR returned no valid coordinate frame"
+                        )
+                    frame_width, frame_height = returned_width, returned_height
                 blocks = normalize_ocr_blocks(
-                    raw.get("blocks"), width=page.width, height=page.height
+                    raw.get("blocks"), width=frame_width, height=frame_height
                 )
                 page_warnings = _page_messages(raw.get("warnings"))
                 page_errors = _page_messages(raw.get("errors"))
@@ -304,6 +317,8 @@ def paid_ocr_scratch_plan(
                             "page": page.page,
                             "text": text,
                             "blocks": blocks,
+                            "width": frame_width,
+                            "height": frame_height,
                             "warnings": page_warnings,
                             "errors": page_errors,
                         }
