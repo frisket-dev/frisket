@@ -901,6 +901,7 @@ class SelectorChoiceService:
                         can_mutate=capabilities.may_author_actions,
                         cloud_unknown=cloud_setup is not None,
                         network_off=_network_off(project),
+                        own_blocker=blocker if status == "unavailable" else None,
                     )
                     if route_capable
                     else None

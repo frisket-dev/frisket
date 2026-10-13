@@ -229,6 +229,60 @@ def test_offered_openrouter_cloud_model_switches_both_directions(tmp_path):
             assert current["can_run"] is (selected != "own")
 
 
+@pytest.mark.parametrize("cloud_offered", [False, True])
+def test_default_recommendation_respects_own_key_spend_cap(
+    tmp_path, monkeypatch, cloud_offered
+):
+    from frisket.engine.store import Project
+
+    monkeypatch.setattr(
+        Project,
+        "provider_spend_state",
+        lambda _self, _provider: SimpleNamespace(over_cap=True, cap_enforceable=True),
+    )
+    model = "openai/gpt-5-mini"
+    client, workspace, _store, project_id = _cloud_selector_app(
+        tmp_path,
+        routes=[_llm_route()] if cloud_offered else [],
+        router=ModelRouter(
+            keys={"openai": "capped-key"},
+            key_sources={"openai": "project_key"},
+            use_env_keys=False,
+        ),
+    )
+    settings = read_project_settings(workspace.get(project_id))
+    write_project_settings(
+        workspace.get(project_id),
+        settings.model_copy(update={"model_execution_routes": {model: "own"}}),
+    )
+    with client:
+        response = client.post(
+            f"/api/projects/{project_id}/selector-choices",
+            json={
+                "schema_version": "frisket.selector_choices_query.v1",
+                "subject": {
+                    "kind": "action",
+                    "action_id": "map.extract",
+                    "field": "model",
+                    "params": {"model": model},
+                },
+            },
+        )
+    assert response.status_code == 200, response.text
+    current = next(
+        choice for choice in _choices(response.json()) if choice["is_current"]
+    )
+    assert current["can_run"] is False
+    own = next(
+        option
+        for option in current["route_selection"]["options"]
+        if option["id"] == "own"
+    )
+    assert own["status"] == "unavailable"
+    assert own["disabled_reason"]
+    assert current["is_default"] is cloud_offered
+
+
 def test_project_model_route_patch_persists_one_canonical_choice(tmp_path) -> None:
     client, workspace, _store, project_id = _cloud_selector_app(
         tmp_path,

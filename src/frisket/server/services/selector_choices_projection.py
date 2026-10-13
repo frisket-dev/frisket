@@ -510,6 +510,7 @@ def _route_selection(
     can_mutate: bool,
     cloud_unknown: bool,
     network_off: bool,
+    own_blocker: Mapping[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     model_id = canonical_model_route_id(engine, capability)
     if composition.model_routes is None or model_id is None:
@@ -523,6 +524,12 @@ def _route_selection(
         cloud_unknown=cloud_unknown,
         network_off=network_off,
     )
+    if own_blocker is not None and own["disabled_reason"] is None:
+        own = {
+            **own,
+            "status": "unavailable",
+            "disabled_reason": own_blocker["message"],
+        }
     own_provider = (
         PROVIDER_LABELS.get(_own_target.operator, _own_target.operator)
         if _own_target is not None
