@@ -1264,6 +1264,12 @@ export interface TranscriptionOptionDeclaration {
   clean?: boolean;
 }
 
+/** Request controls exposed by generic vision OCR adapters. Dedicated OCR
+ * engines keep their intrinsic geometry behavior and omit this declaration. */
+export interface OcrOptionDeclaration {
+  keep_text_position: boolean;
+}
+
 // Only a FLAGGED (restricted/gated/custom) engine license carries this —
 // permissive engines (Apache-2.0, MIT, ...) attach no `license` field at
 // all, so EnginePicker's "render a hint only when present" check stays
@@ -1314,6 +1320,7 @@ export interface EngineOption {
   language?: LanguageDeclaration;
   diarization?: DiarizationDeclaration;
   transcription_options?: TranscriptionOptionDeclaration;
+  ocr_options?: OcrOptionDeclaration;
   /** Output shapes the Classify form may author for this engine. */
   classification_options?: ClassificationOptionDeclaration;
   /** Per-target availability rows for a collapsed multi-target

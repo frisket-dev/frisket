@@ -26,6 +26,7 @@ export function OcrParamsBody({ params, setParams, engine, Field }:
       setParams(next);
     }
   }, [engine, params, setParams]);
+  const offersPositionChoice = engine?.ocr_options?.keep_text_position === true;
   return <>
     <Field name="source" label="Document" />
     <Field name="engine" />
@@ -34,6 +35,12 @@ export function OcrParamsBody({ params, setParams, engine, Field }:
       onChange={(language) => setParams({ ...params, language: language || null })} />
       : <Field name="language" />}
     <Field name="dpi" label="PDF render resolution (DPI)" />
+    {offersPositionChoice && <label className="form-check" htmlFor="ocr-keep-text-position">
+      <input id="ocr-keep-text-position" type="checkbox" data-testid="ocr-keep-text-position"
+        checked={params.keep_text_position ?? true}
+        onChange={(event) => setParams({ ...params, keep_text_position: event.target.checked })} />
+      Keep text position
+    </label>}
     <Field name="searchable_pdf" label="Create searchable PDF" />
     <p className="form-hint">Extracted text and text blocks are saved separately.
       Searchable PDFs require an engine that returns text geometry.</p>

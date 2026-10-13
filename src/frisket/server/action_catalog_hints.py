@@ -8,6 +8,8 @@ from collections.abc import Mapping
 from decimal import Decimal
 from typing import Any
 
+from frisket.ai.llm.model_catalog import MODEL_ENTRIES
+from frisket.ai.models.metadata import is_remote_provider
 from frisket.ops import ytdlp
 from frisket.actions.system import root_action_catalog_payload
 from frisket.contracts.actions.schemas._engines import (
@@ -164,6 +166,7 @@ def _engine(
     language: dict[str, Any] | None = None,
     diarization: dict[str, Any] | None = None,
     transcription_options: dict[str, bool] | None = None,
+    ocr_options: dict[str, bool] | None = None,
     license_hint: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     out: dict[str, Any] = {
@@ -185,6 +188,8 @@ def _engine(
         out["diarization"] = diarization
     if transcription_options is not None:
         out["transcription_options"] = transcription_options
+    if ocr_options is not None:
+        out["ocr_options"] = ocr_options
     # Omit permissive licenses; presence signals a restricted/custom license.
     if license_hint is not None:
         out["license"] = license_hint
@@ -201,6 +206,7 @@ def _declared_engine(
     language: dict[str, Any] | None = None,
     diarization: dict[str, Any] | None = None,
     transcription_options: dict[str, bool] | None = None,
+    ocr_options: dict[str, bool] | None = None,
     license_hint: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Combine stable contract metadata with live catalog hints."""
@@ -216,6 +222,7 @@ def _declared_engine(
         language=language,
         diarization=diarization,
         transcription_options=transcription_options,
+        ocr_options=ocr_options,
         license_hint=license_hint,
     )
 
@@ -810,24 +817,26 @@ def _transcribe_diarization_hint(engine_id: str) -> dict[str, Any]:
     return hint
 
 
-# Source for the generated frontend fallback; regenerate it after edits here.
-OCR_VISION_ENGINES: tuple[dict[str, Any], ...] = (
-    {
-        "id": "openai/gpt-4.1-mini",
-        "label": "OpenAI GPT-4.1 mini vision OCR (remote)",
-        "billable": True,
-    },
-    {
-        "id": "gemini/gemini-3.5-flash",
-        "label": "Gemini 3.5 Flash vision OCR (remote)",
-        "billable": True,
-    },
-    {
-        "id": "openrouter/minimax/minimax-m3",
-        "label": "MiniMax M3 document OCR (OpenRouter)",
-        "billable": True,
-    },
-)
+# Source for the generated frontend fallback; regenerate it after catalog edits.
+# Generic OCR deliberately follows the shared model inventory: image input is
+# enough to offer an OCR attempt, while positioning quality remains a runtime
+# model limitation rather than a second allowlist maintained here.
+def ocr_vision_engines() -> tuple[dict[str, Any], ...]:
+    """Project the current shared image-capable model snapshot for OCR."""
+
+    return tuple(
+        {
+            "id": f"{provider}/{entry['id']}",
+            "label": entry["label"],
+            "provider": provider,
+            "model": entry["id"],
+            "tier": "hosted" if is_remote_provider(provider) else "local",
+            "billable": is_remote_provider(provider),
+        }
+        for provider, entries in MODEL_ENTRIES.items()
+        for entry in entries
+        if entry.get("vision") is True
+    )
 
 
 def _transcribe_options_hint(engine_id: str) -> dict[str, bool]:
@@ -1387,9 +1396,33 @@ def _recipe_engines(
             has_local_model_endpoint=has_local_model_endpoint,
             effective_router=effective_router,
         )
-        openai_available = "openai" in ocr_llm_providers
-        gemini_available = "gemini" in ocr_llm_providers
-        openrouter_available = "openrouter" in ocr_llm_providers
+        from frisket.server.provider_config import ENV_VAR, PROVIDER_LABELS
+
+        vision_engines = []
+        for entry in ocr_vision_engines():
+            provider = entry["provider"]
+            available = provider in ocr_llm_providers
+            label = PROVIDER_LABELS.get(provider, provider.replace("-", " ").title())
+            env_name = ENV_VAR.get(provider)
+            configuration_hint = (
+                f"env {env_name} or Settings → AI Providers"
+                if env_name
+                else "Settings → AI Providers"
+            )
+            vision_engines.append(
+                _engine(
+                    entry["id"],
+                    entry["label"],
+                    tier=entry["tier"],
+                    billable=entry["billable"],
+                    available=available,
+                    error=None
+                    if available
+                    else f"Configure {label} ({configuration_hint}) to use this model.",
+                    models=[entry["model"]],
+                    ocr_options={"keep_text_position": True},
+                )
+            )
         datalab_key = resolve_credential_for_use(
             project, "DATALAB_API_KEY", context=credential_context
         )
@@ -1443,39 +1476,7 @@ def _recipe_engines(
                 error=surya_err,
                 models=surya_models,
             ),
-            _engine(
-                OCR_VISION_ENGINES[0]["id"],
-                OCR_VISION_ENGINES[0]["label"],
-                tier="hosted",
-                billable=OCR_VISION_ENGINES[0]["billable"],
-                available=openai_available,
-                error=None
-                if openai_available
-                else "missing OpenAI key (env OPENAI_API_KEY or Settings → AI Providers)",
-                models=["gpt-4.1-mini"],
-            ),
-            _engine(
-                OCR_VISION_ENGINES[1]["id"],
-                OCR_VISION_ENGINES[1]["label"],
-                tier="hosted",
-                billable=OCR_VISION_ENGINES[1]["billable"],
-                available=gemini_available,
-                error=None
-                if gemini_available
-                else "missing Gemini key (env GEMINI_API_KEY or Settings → AI Providers)",
-                models=["gemini-3.5-flash"],
-            ),
-            _engine(
-                OCR_VISION_ENGINES[2]["id"],
-                OCR_VISION_ENGINES[2]["label"],
-                tier="hosted",
-                billable=OCR_VISION_ENGINES[2]["billable"],
-                available=openrouter_available,
-                error=None
-                if openrouter_available
-                else "missing OpenRouter key (env OPENROUTER_API_KEY or Settings → AI Providers)",
-                models=["minimax/minimax-m3"],
-            ),
+            *vision_engines,
             # Datalab hosted OCR: the vendor's own hosted product
             # (not one of their open models), so NO license hint — pricing
             # rides the shared external_pricing catalog for pay-per-call
