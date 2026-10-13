@@ -7,6 +7,7 @@ import pytest
 
 from frisket.ai.llm import pricing
 from frisket.ai.llm import pricing_refresh
+from frisket.ai.llm.model_catalog import MODEL_CATALOG, MODEL_ENTRIES
 from frisket.ai.llm.pricing_refresh import REFRESH_SECONDS, refresh_pricing_once
 
 
@@ -14,10 +15,36 @@ def _catalog(rate: float) -> bytes:
     return json.dumps({"text": {"fresh-model": [rate, rate * 2]}, "audio": {}}).encode()
 
 
+def _models(model: str = "gpt-6.1-sol") -> bytes:
+    return json.dumps(
+        {
+            "schema_version": "frisket.model_catalog.v1",
+            "updated": "2026-10-13",
+            "providers": {
+                "anthropic": [],
+                "openai": [{"id": model, "label": model, "vision": True}],
+                "gemini": [],
+                "openrouter": [],
+                "ollama": [],
+            },
+        }
+    ).encode()
+
+
 @pytest.fixture(autouse=True)
 def restore_catalog(monkeypatch):
     monkeypatch.setattr(pricing, "PRICES", pricing.PRICES)
     monkeypatch.setattr(pricing, "AUDIO_PRICES", pricing.AUDIO_PRICES)
+    original = {
+        "schema_version": "frisket.model_catalog.v1",
+        "updated": "2026-10-13",
+        "providers": {
+            provider: [dict(entry) for entry in entries]
+            for provider, entries in MODEL_ENTRIES.items()
+        },
+    }
+    yield
+    pricing_refresh.install_model_catalog(original)
 
 
 def test_refresh_installs_and_caches_catalog_at_most_daily(tmp_path):
@@ -25,7 +52,7 @@ def test_refresh_installs_and_caches_catalog_at_most_daily(tmp_path):
 
     def fetch(url: str) -> bytes:
         calls.append(url)
-        return _catalog(1.5)
+        return _models() if url == pricing_refresh.MODEL_CATALOG_URL else _catalog(1.5)
 
     assert refresh_pricing_once(cache_dir=tmp_path, now=100_000, fetch=fetch)
     assert pricing.PRICES["fresh-model"] == (1.5, 3.0)
@@ -35,7 +62,47 @@ def test_refresh_installs_and_caches_catalog_at_most_daily(tmp_path):
     assert not refresh_pricing_once(
         cache_dir=tmp_path, now=100_000 + REFRESH_SECONDS - 1, fetch=fetch
     )
-    assert len(calls) == 1
+    assert len(calls) == 2
+
+
+def test_refresh_installs_and_caches_model_catalog_with_pricing(tmp_path):
+    def fetch(url: str) -> bytes:
+        return (
+            _models("gpt-6-luna")
+            if url == pricing_refresh.MODEL_CATALOG_URL
+            else _catalog(1.5)
+        )
+
+    assert refresh_pricing_once(cache_dir=tmp_path, now=100_000, fetch=fetch)
+    assert MODEL_CATALOG["openai"] == ["gpt-6-luna"]
+    assert json.loads((tmp_path / "model_catalog.json").read_text())["providers"]
+
+
+def test_invalid_model_refresh_keeps_last_good_but_accepts_valid_pricing(tmp_path):
+    before = MODEL_CATALOG["openai"]
+
+    def fetch(url: str) -> bytes:
+        if url == pricing_refresh.MODEL_CATALOG_URL:
+            return b'{"schema_version":"future","providers":{}}'
+        return _catalog(7.0)
+
+    assert refresh_pricing_once(cache_dir=tmp_path, now=100_000, fetch=fetch)
+    assert MODEL_CATALOG["openai"] == before
+    assert pricing.PRICES["fresh-model"] == (7.0, 14.0)
+    assert not (tmp_path / "model_catalog.json").exists()
+
+
+def test_older_cached_model_catalog_does_not_override_newer_installed_data(tmp_path):
+    installed = json.loads(_models("gpt-6.1-sol"))
+    installed["updated"] = "2026-10-13"
+    pricing_refresh.install_model_catalog(installed)
+    cached = json.loads(_models("gpt-5"))
+    cached["updated"] = "2026-10-12"
+    (tmp_path / "model_catalog.json").write_text(json.dumps(cached))
+
+    pricing_refresh._load_cached_catalogs(tmp_path)
+
+    assert MODEL_CATALOG["openai"] == ["gpt-6.1-sol"]
 
 
 def test_failed_refresh_keeps_current_catalog_and_throttles_retry(tmp_path):

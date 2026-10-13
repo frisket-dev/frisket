@@ -4,7 +4,7 @@
     "openrouter": "https://openrouter.ai/api/v1/models",
     "opendocrouter": "https://www.opendocrouter.ai/v1/models"
   },
-  "updated": "2026-09-25",
+  "updated": "2026-10-13",
   "text": {
     "claude-haiku-4-5": [
       1.0,
@@ -26,6 +26,50 @@
       10.0,
       50.0
     ],
+    "claude-fable-5-1": [
+      10.0,
+      50.0
+    ],
+    "claude-haiku-5-5": [
+      0.1,
+      0.5
+    ],
+    "claude-mythos-5": [
+      10.0,
+      50.0
+    ],
+    "claude-mythos-5-1": [
+      10.0,
+      50.0
+    ],
+    "claude-opus-4-5": [
+      5.0,
+      25.0
+    ],
+    "claude-opus-4-6": [
+      5.0,
+      25.0
+    ],
+    "claude-opus-4-7": [
+      5.0,
+      25.0
+    ],
+    "claude-opus-5": [
+      5.0,
+      25.0
+    ],
+    "claude-opus-5-5": [
+      4.0,
+      20.0
+    ],
+    "claude-sonnet-4-5": [
+      3.0,
+      15.0
+    ],
+    "claude-sonnet-5-5": [
+      2.0,
+      10.0
+    ],
     "gpt-5-mini": [
       0.25,
       2.0
@@ -45,6 +89,54 @@
     "gpt-5.6-sol": [
       4.0,
       20.0
+    ],
+    "gpt-5-nano": [
+      0.05,
+      0.4
+    ],
+    "gpt-5.1": [
+      1.25,
+      10.0
+    ],
+    "gpt-5.2": [
+      1.75,
+      14.0
+    ],
+    "gpt-5.4": [
+      2.5,
+      15.0
+    ],
+    "gpt-5.4-mini": [
+      0.75,
+      4.5
+    ],
+    "gpt-5.4-nano": [
+      0.2,
+      1.25
+    ],
+    "gpt-5.5": [
+      5.0,
+      30.0
+    ],
+    "gpt-5.6": [
+      4.0,
+      20.0
+    ],
+    "gpt-6-astra": [
+      10.0,
+      50.0
+    ],
+    "gpt-6-luna": [
+      0.1,
+      0.5
+    ],
+    "gpt-6-sol": [
+      2.0,
+      10.0
+    ],
+    "gpt-6.1-sol": [
+      2.0,
+      10.0
     ],
     "gemini-3.5-flash-lite": [
       0.3,
@@ -66,25 +158,33 @@
       2.0,
       12.0
     ],
-    "qwen/qwen3-8b": [
-      0.117,
-      0.455
+    "gemini-3-flash-preview": [
+      0.5,
+      3.0
+    ],
+    "gemini-3.1-flash-lite-preview": [
+      0.25,
+      1.5
+    ],
+    "gemini-3.7-flash": [
+      0.75,
+      3.75
+    ],
+    "gemini-3.8-flash": [
+      0.75,
+      3.75
     ],
     "qwen/qwen3-vl-8b-instruct": [
-      0.117,
-      0.455
-    ],
-    "qwen/qwen3-vl-32b-instruct": [
-      0.104,
-      0.416
+      0.25,
+      0.75
     ],
     "z-ai/glm-5.3-flash": [
-      0.045,
-      0.14
+      0.0261,
+      0.9
     ],
     "moonshotai/kimi-k3": [
-      3.0,
-      15.0
+      0.73,
+      13.5
     ],
     "xiaomi/mimo-v2.5": [
       0.14,
@@ -93,6 +193,146 @@
     "minimax/minimax-m3": [
       0.3,
       1.2
+    ],
+    "qwen/qwen3-14b": [
+      0.12,
+      0.24
+    ],
+    "qwen/qwen3-30b-a3b": [
+      0.12,
+      0.5
+    ],
+    "qwen/qwen3-32b": [
+      0.08,
+      0.28
+    ],
+    "qwen/qwen3-next-80b-a3b-instruct": [
+      0.1,
+      1.1
+    ],
+    "qwen/qwen3-next-80b-a3b-thinking": [
+      0.15,
+      1.2
+    ],
+    "qwen/qwen3-vl-235b-a22b-instruct": [
+      0.21,
+      1.9
+    ],
+    "qwen/qwen3-vl-30b-a3b-instruct": [
+      0.15,
+      0.6
+    ],
+    "qwen/qwen3-vl-30b-a3b-thinking": [
+      0.29,
+      1.0
+    ],
+    "qwen/qwen3.5-122b-a10b": [
+      0.26,
+      2.08
+    ],
+    "qwen/qwen3.5-27b": [
+      0.26,
+      2.6
+    ],
+    "qwen/qwen3.5-35b-a3b": [
+      0.08,
+      0.75
+    ],
+    "qwen/qwen3.5-397b-a17b": [
+      0.55,
+      3.5
+    ],
+    "qwen/qwen3.5-9b": [
+      0.1,
+      0.15
+    ],
+    "qwen/qwen3.6-27b": [
+      0.32,
+      3.2
+    ],
+    "qwen/qwen3.6-35b-a3b": [
+      0.1,
+      0.95
+    ],
+    "qwen/qwen3.6-flash": [
+      0.1875,
+      1.125
+    ],
+    "qwen/qwen3.6-plus": [
+      0.325,
+      1.95
+    ],
+    "qwen/qwen3.7-flash": [
+      0.03,
+      0.13
+    ],
+    "qwen/qwen3.7-max": [
+      1.475,
+      4.425
+    ],
+    "qwen/qwen3.7-plus": [
+      0.32,
+      1.28
+    ],
+    "qwen/qwen3.8-2.4t-a95b": [
+      2.0,
+      6.0
+    ],
+    "qwen/qwen3.8-27b": [
+      0.04,
+      2.3
+    ],
+    "qwen/qwen3.8-flash": [
+      0.15,
+      0.47
+    ],
+    "qwen/qwen3.8-max-prime": [
+      4.0,
+      12.0
+    ],
+    "xiaomi/mimo-v2.5-pro": [
+      0.435,
+      0.87
+    ],
+    "xiaomi/mimo-v2.6-flash": [
+      0.14,
+      0.28
+    ],
+    "xiaomi/mimo-v2.6-pro": [
+      0.435,
+      0.87
+    ],
+    "xiaomi/mimo-v2.6-pro-ultraspeed": [
+      4.35,
+      8.7
+    ],
+    "z-ai/glm-5": [
+      0.6,
+      1.92
+    ],
+    "z-ai/glm-5-turbo": [
+      1.2,
+      4.0
+    ],
+    "z-ai/glm-5.1": [
+      0.966,
+      3.036
+    ],
+    "z-ai/glm-5.2": [
+      0.06,
+      7.0
+    ],
+    "z-ai/glm-5.3": [
+      0.079,
+      4.8
+    ],
+    "z-ai/glm-5.3-flashx": [
+      0.37,
+      1.25
+    ],
+    "z-ai/glm-5.3-prime": [
+      2.8,
+      8.8
     ]
   },
   "audio": {
@@ -117,10 +357,10 @@
       "output_per_token": 1e-05
     },
     "gpt-live-transcribe": {
-      "per_second": 0.0002833333333333333
+      "per_second": 0.000283333333333
     },
     "gpt-realtime-whisper": {
-      "per_second": 0.0002833333333333333
+      "per_second": 0.000283333333333
     },
     "gpt-transcribe": {
       "per_second": 7.5e-05
@@ -143,9 +383,9 @@
         "max_charge_per_page_usd": 0.784,
         "avg_charge_per_page_usd": 0.04882,
         "price_per_million_tokens": {
-          "input": 4,
+          "input": 4.0,
           "cached_input": 0.2,
-          "output": 20
+          "output": 20.0
         }
       },
       {
@@ -171,7 +411,7 @@
         "price_per_million_tokens": {
           "input": 0.5,
           "cached_input": 0.05,
-          "output": 3
+          "output": 3.0
         }
       },
       {
@@ -195,9 +435,9 @@
         "max_charge_per_page_usd": 0.436,
         "avg_charge_per_page_usd": 0.019886,
         "price_per_million_tokens": {
-          "input": 2,
+          "input": 2.0,
           "cached_input": 0.2,
-          "output": 12
+          "output": 12.0
         }
       },
       {
@@ -211,6 +451,32 @@
           "input": 0.1,
           "cached_input": 0.01,
           "output": 0.5
+        }
+      },
+      {
+        "id": "mistral/mistral-ocr-4-1",
+        "name": "Mistral OCR 4.1",
+        "version": "2026-10-07",
+        "max_sync_pages": 50,
+        "max_charge_per_page_usd": 0.004,
+        "avg_charge_per_page_usd": 0.003998,
+        "price_per_million_tokens": {
+          "input": 0.0,
+          "cached_input": 0.0,
+          "output": 0.8
+        }
+      },
+      {
+        "id": "mistral/mistral-ocr-4-1-annotations",
+        "name": "Mistral OCR 4.1 + Annotations",
+        "version": "2026-10-07",
+        "max_sync_pages": 50,
+        "max_charge_per_page_usd": 0.005,
+        "avg_charge_per_page_usd": 0.004997,
+        "price_per_million_tokens": {
+          "input": 0.0,
+          "cached_input": 0.0,
+          "output": 1.0
         }
       },
       {
@@ -276,6 +542,19 @@
           "input": 0.24,
           "cached_input": 0.24,
           "output": 1.2
+        }
+      },
+      {
+        "id": "lightonai/lightonocr-3-1b",
+        "name": "LightOnOCR-3-1B",
+        "version": "2026-10-08",
+        "max_sync_pages": 50,
+        "max_charge_per_page_usd": 0.019,
+        "avg_charge_per_page_usd": 0.003192,
+        "price_per_million_tokens": {
+          "input": 0.28,
+          "cached_input": 0.28,
+          "output": 1.4
         }
       }
     ]

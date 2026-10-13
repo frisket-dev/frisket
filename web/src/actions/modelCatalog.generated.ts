@@ -28,6 +28,50 @@ export const GENERATED_MODEL_OPTIONS = [
     "label": "Claude Fable 5 — frontier"
   },
   {
+    "id": "anthropic/claude-fable-5-1",
+    "label": "Claude Fable 5 1"
+  },
+  {
+    "id": "anthropic/claude-haiku-5-5",
+    "label": "Claude Haiku 5 5"
+  },
+  {
+    "id": "anthropic/claude-mythos-5",
+    "label": "Claude Mythos 5"
+  },
+  {
+    "id": "anthropic/claude-mythos-5-1",
+    "label": "Claude Mythos 5 1"
+  },
+  {
+    "id": "anthropic/claude-opus-4-5",
+    "label": "Claude Opus 4 5"
+  },
+  {
+    "id": "anthropic/claude-opus-4-6",
+    "label": "Claude Opus 4 6"
+  },
+  {
+    "id": "anthropic/claude-opus-4-7",
+    "label": "Claude Opus 4 7"
+  },
+  {
+    "id": "anthropic/claude-opus-5",
+    "label": "Claude Opus 5"
+  },
+  {
+    "id": "anthropic/claude-opus-5-5",
+    "label": "Claude Opus 5 5"
+  },
+  {
+    "id": "anthropic/claude-sonnet-4-5",
+    "label": "Claude Sonnet 4 5"
+  },
+  {
+    "id": "anthropic/claude-sonnet-5-5",
+    "label": "Claude Sonnet 5 5"
+  },
+  {
     "id": "openai/gpt-5-mini",
     "label": "GPT-5 mini — economical"
   },
@@ -48,6 +92,54 @@ export const GENERATED_MODEL_OPTIONS = [
     "label": "GPT-5.6 Sol — frontier"
   },
   {
+    "id": "openai/gpt-5-nano",
+    "label": "GPT 5 Nano"
+  },
+  {
+    "id": "openai/gpt-5.1",
+    "label": "GPT 5.1"
+  },
+  {
+    "id": "openai/gpt-5.2",
+    "label": "GPT 5.2"
+  },
+  {
+    "id": "openai/gpt-5.4",
+    "label": "GPT 5.4"
+  },
+  {
+    "id": "openai/gpt-5.4-mini",
+    "label": "GPT 5.4 Mini"
+  },
+  {
+    "id": "openai/gpt-5.4-nano",
+    "label": "GPT 5.4 Nano"
+  },
+  {
+    "id": "openai/gpt-5.5",
+    "label": "GPT 5.5"
+  },
+  {
+    "id": "openai/gpt-5.6",
+    "label": "GPT 5.6"
+  },
+  {
+    "id": "openai/gpt-6-astra",
+    "label": "GPT 6 Astra"
+  },
+  {
+    "id": "openai/gpt-6-luna",
+    "label": "GPT 6 Luna"
+  },
+  {
+    "id": "openai/gpt-6-sol",
+    "label": "GPT 6 Sol"
+  },
+  {
+    "id": "openai/gpt-6.1-sol",
+    "label": "GPT 6.1 Sol"
+  },
+  {
     "id": "gemini/gemini-3.1-flash-lite",
     "label": "Gemini 3.1 Flash-Lite — high throughput"
   },
@@ -64,16 +156,24 @@ export const GENERATED_MODEL_OPTIONS = [
     "label": "Gemini 3.1 Pro — complex work (preview)"
   },
   {
-    "id": "openrouter/qwen/qwen3-8b",
-    "label": "Qwen 3 8B — open weights; requests go to OpenRouter"
+    "id": "gemini/gemini-3-flash-preview",
+    "label": "Gemini 3 Flash Preview"
+  },
+  {
+    "id": "gemini/gemini-3.1-flash-lite-preview",
+    "label": "Gemini 3.1 Flash Lite Preview"
+  },
+  {
+    "id": "gemini/gemini-3.7-flash",
+    "label": "Gemini 3.7 Flash"
+  },
+  {
+    "id": "gemini/gemini-3.8-flash",
+    "label": "Gemini 3.8 Flash"
   },
   {
     "id": "openrouter/qwen/qwen3-vl-8b-instruct",
     "label": "Qwen3-VL 8B — open vision"
-  },
-  {
-    "id": "openrouter/qwen/qwen3-vl-32b-instruct",
-    "label": "Qwen3-VL 32B — open vision"
   },
   {
     "id": "openrouter/z-ai/glm-5.3-flash",
@@ -90,5 +190,145 @@ export const GENERATED_MODEL_OPTIONS = [
   {
     "id": "openrouter/minimax/minimax-m3",
     "label": "MiniMax M3 — hosted multimodal OCR via OpenRouter"
+  },
+  {
+    "id": "openrouter/qwen/qwen3-14b",
+    "label": "Qwen: Qwen3 14B"
+  },
+  {
+    "id": "openrouter/qwen/qwen3-30b-a3b",
+    "label": "Qwen: Qwen3 30B A3B"
+  },
+  {
+    "id": "openrouter/qwen/qwen3-32b",
+    "label": "Qwen: Qwen3 32B"
+  },
+  {
+    "id": "openrouter/qwen/qwen3-next-80b-a3b-instruct",
+    "label": "Qwen: Qwen3 Next 80B A3B Instruct"
+  },
+  {
+    "id": "openrouter/qwen/qwen3-next-80b-a3b-thinking",
+    "label": "Qwen: Qwen3 Next 80B A3B Thinking"
+  },
+  {
+    "id": "openrouter/qwen/qwen3-vl-235b-a22b-instruct",
+    "label": "Qwen: Qwen3 VL 235B A22B Instruct"
+  },
+  {
+    "id": "openrouter/qwen/qwen3-vl-30b-a3b-instruct",
+    "label": "Qwen: Qwen3 VL 30B A3B Instruct"
+  },
+  {
+    "id": "openrouter/qwen/qwen3-vl-30b-a3b-thinking",
+    "label": "Qwen: Qwen3 VL 30B A3B Thinking"
+  },
+  {
+    "id": "openrouter/qwen/qwen3.5-122b-a10b",
+    "label": "Qwen: Qwen3.5-122B-A10B"
+  },
+  {
+    "id": "openrouter/qwen/qwen3.5-27b",
+    "label": "Qwen: Qwen3.5-27B"
+  },
+  {
+    "id": "openrouter/qwen/qwen3.5-35b-a3b",
+    "label": "Qwen: Qwen3.5-35B-A3B"
+  },
+  {
+    "id": "openrouter/qwen/qwen3.5-397b-a17b",
+    "label": "Qwen: Qwen3.5 397B A17B"
+  },
+  {
+    "id": "openrouter/qwen/qwen3.5-9b",
+    "label": "Qwen: Qwen3.5-9B"
+  },
+  {
+    "id": "openrouter/qwen/qwen3.6-27b",
+    "label": "Qwen: Qwen3.6 27B"
+  },
+  {
+    "id": "openrouter/qwen/qwen3.6-35b-a3b",
+    "label": "Qwen: Qwen3.6 35B A3B"
+  },
+  {
+    "id": "openrouter/qwen/qwen3.6-flash",
+    "label": "Qwen: Qwen3.6 Flash"
+  },
+  {
+    "id": "openrouter/qwen/qwen3.6-plus",
+    "label": "Qwen: Qwen3.6 Plus"
+  },
+  {
+    "id": "openrouter/qwen/qwen3.7-flash",
+    "label": "Qwen: Qwen3.7 Flash"
+  },
+  {
+    "id": "openrouter/qwen/qwen3.7-max",
+    "label": "Qwen: Qwen3.7 Max"
+  },
+  {
+    "id": "openrouter/qwen/qwen3.7-plus",
+    "label": "Qwen: Qwen3.7 Plus"
+  },
+  {
+    "id": "openrouter/qwen/qwen3.8-2.4t-a95b",
+    "label": "Qwen: Qwen3.8 2.4T A95B"
+  },
+  {
+    "id": "openrouter/qwen/qwen3.8-27b",
+    "label": "Qwen: Qwen3.8 27B"
+  },
+  {
+    "id": "openrouter/qwen/qwen3.8-flash",
+    "label": "Qwen: Qwen3.8 Flash"
+  },
+  {
+    "id": "openrouter/qwen/qwen3.8-max-prime",
+    "label": "Qwen: Qwen3.8 Max Prime"
+  },
+  {
+    "id": "openrouter/xiaomi/mimo-v2.5-pro",
+    "label": "Xiaomi: MiMo-V2.5-Pro"
+  },
+  {
+    "id": "openrouter/xiaomi/mimo-v2.6-flash",
+    "label": "Xiaomi: MiMo-V2.6-Flash"
+  },
+  {
+    "id": "openrouter/xiaomi/mimo-v2.6-pro",
+    "label": "Xiaomi: MiMo-V2.6-Pro"
+  },
+  {
+    "id": "openrouter/xiaomi/mimo-v2.6-pro-ultraspeed",
+    "label": "Xiaomi: MiMo-V2.6-Pro-UltraSpeed"
+  },
+  {
+    "id": "openrouter/z-ai/glm-5",
+    "label": "Z.ai: GLM 5"
+  },
+  {
+    "id": "openrouter/z-ai/glm-5-turbo",
+    "label": "Z.ai: GLM 5 Turbo"
+  },
+  {
+    "id": "openrouter/z-ai/glm-5.1",
+    "label": "Z.ai: GLM 5.1"
+  },
+  {
+    "id": "openrouter/z-ai/glm-5.2",
+    "label": "Z.ai: GLM 5.2"
+  },
+  {
+    "id": "openrouter/z-ai/glm-5.3",
+    "label": "Z.ai: GLM 5.3"
+  },
+  {
+    "id": "openrouter/z-ai/glm-5.3-flashx",
+    "label": "Z.ai: GLM 5.3 FlashX"
+  },
+  {
+    "id": "openrouter/z-ai/glm-5.3-prime",
+    "label": "Z.ai: GLM 5.3 Prime"
   }
 ] satisfies ModelOption[];

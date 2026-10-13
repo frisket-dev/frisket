@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render a pricing-refresh PR body: every changed rate, big swings flagged.
+"""Render a catalog-refresh PR body: model and rate changes, big swings flagged.
 
 Usage: pricing_delta_report.py <before.json> <after.json>
 
@@ -41,14 +41,36 @@ def _named_rates(rates: list[float] | dict[str, Any]) -> dict[str, Any]:
     return rates
 
 
+def _models(doc: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {
+        f"{provider}/{entry['id']}": entry
+        for provider, entries in (doc.get("providers") or {}).items()
+        for entry in entries
+    }
+
+
 def main() -> int:
     before = _rates(json.load(open(sys.argv[1])))
     after = _rates(json.load(open(sys.argv[2])))
     lines = [
-        "Nightly price-table refresh. Review before merge — these",
-        "numbers feed cost estimates and consent bounds.",
+        "Nightly model and price catalog refresh. Review before merge — these",
+        "rows feed model selection, cost estimates and consent bounds.",
         "",
     ]
+    if len(sys.argv) == 5:
+        before_models = _models(json.load(open(sys.argv[3])))
+        after_models = _models(json.load(open(sys.argv[4])))
+        for model_id in sorted(set(before_models) | set(after_models)):
+            old = before_models.get(model_id)
+            new = after_models.get(model_id)
+            if old == new:
+                continue
+            if old is None:
+                lines.append(f"- **model:{model_id}**: NEW {new}")
+            elif new is None:
+                lines.append(f"- **model:{model_id}**: REMOVED (was {old})")
+            else:
+                lines.append(f"- **model:{model_id}**: {old} -> {new}")
     flagged = False
     for key in sorted(set(before) | set(after)):
         b, a = before.get(key), after.get(key)

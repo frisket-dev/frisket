@@ -20,6 +20,8 @@ import os
 import httpx
 from fastapi.testclient import TestClient
 
+from frisket.ai.llm.model_catalog import MODEL_ENTRIES
+from frisket.ai.llm.pricing import model_price
 from frisket.project_settings import read_project_settings
 from frisket.server import provider_config
 from frisket.server.app import create_app
@@ -243,50 +245,22 @@ def test_providers_catalog_groups_by_provider_with_models(
         assert "price" in model  # present (may be null)
 
     openrouter = by_id["openrouter"]
-    assert openrouter["models"] == [
-        {
-            "id": "openrouter/qwen/qwen3-8b",
-            "label": "Qwen 3 8B — open weights; requests go to OpenRouter",
-            "price": {"input": 0.117, "output": 0.455},
-            "local": False,
-        },
-        {
-            "id": "openrouter/qwen/qwen3-vl-8b-instruct",
-            "label": "Qwen3-VL 8B — open vision",
-            "price": {"input": 0.117, "output": 0.455},
-            "local": False,
-        },
-        {
-            "id": "openrouter/qwen/qwen3-vl-32b-instruct",
-            "label": "Qwen3-VL 32B — open vision",
-            "price": {"input": 0.104, "output": 0.416},
-            "local": False,
-        },
-        {
-            "id": "openrouter/z-ai/glm-5.3-flash",
-            "label": "GLM 5.3 Flash — open vision",
-            "price": {"input": 0.045, "output": 0.14},
-            "local": False,
-        },
-        {
-            "id": "openrouter/moonshotai/kimi-k3",
-            "label": "Kimi K3 — open vision",
-            "price": {"input": 3.0, "output": 15.0},
-            "local": False,
-        },
-        {
-            "id": "openrouter/xiaomi/mimo-v2.5",
-            "label": "MiMo V2.5 — open vision",
-            "price": {"input": 0.14, "output": 0.28},
-            "local": False,
-        },
-        {
-            "id": "openrouter/minimax/minimax-m3",
-            "label": "MiniMax M3 — hosted multimodal OCR via OpenRouter",
-            "price": {"input": 0.3, "output": 1.2},
-            "local": False,
-        },
-    ]
+    expected_openrouter = []
+    for model in MODEL_ENTRIES["openrouter"]:
+        price = model_price(f"openrouter/{model['id']}")
+        expected_openrouter.append(
+            {
+                "id": f"openrouter/{model['id']}",
+                "label": model["label"],
+                "price": (
+                    {"input": price[0], "output": price[1]}
+                    if price is not None
+                    else None
+                ),
+                "local": False,
+            }
+        )
+    assert openrouter["models"] == expected_openrouter
 
 
 def test_providers_catalog_live_listing_prices_installed_models_too(
