@@ -69,7 +69,8 @@ def test_catalog_key_setup_and_target(tmp_path, monkeypatch, action):
             ]
 
         missing = choices()
-        assert len(missing) == 11
+        active_engines = {model.engine for model in current_catalog().models}
+        assert {c["authored_selection"]["engine"] for c in missing} == active_engines
         assert all(
             c["status"] == "needs_setup" and c["setup"]["provider"] == "opendocrouter"
             for c in missing
@@ -101,7 +102,15 @@ def test_catalog_key_setup_and_target(tmp_path, monkeypatch, action):
         available = choices()
         assert all(c["status"] == "ready" for c in available), available
         odr = next(t for t in target.targets() if t.id == "opendocrouter")
-        assert len(odr.engines) == 22
+        catalog = current_catalog()
+        known_engines = {
+            model.engine for model in (*catalog.models, *catalog.retired_models)
+        }
+        assert {(support.engine, support.capability) for support in odr.engines} == {
+            (engine, capability)
+            for engine in known_engines
+            for capability in {"ocr", "document.convert"}
+        }
         assert {s.transport for s in odr.engines} == {"opendocrouter.parse"}
         # The already-running app exposes a refreshed model without a restart.
         from dataclasses import replace
