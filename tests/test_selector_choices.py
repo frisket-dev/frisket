@@ -221,8 +221,8 @@ def test_viewer_can_load_an_incomplete_action_draft_without_mutation_authority(
 @pytest.mark.parametrize(
     ("engine_id", "setup_ref", "download_size", "display_size"),
     [
-        ("gliclass", "engine-setup:gliclass.local@1", 754_867_256, "755 MB"),
-        ("jeff", "engine-setup:jeff.local@1", 1_726_558_966, "1.7 GB"),
+        ("gliclass", "engine-setup:gliclass.local@1", 754_867_256, "720 MB"),
+        ("jeff", "engine-setup:jeff.local@1", 1_726_558_966, "1.6 GB"),
     ],
 )
 def test_local_classifier_projects_one_managed_setup(

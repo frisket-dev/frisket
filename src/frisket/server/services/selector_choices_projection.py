@@ -1077,13 +1077,19 @@ def _destination(egress_class: str | None, operator: str | None) -> dict[str, st
 
 
 def _format_download_size(size: int) -> str:
-    if size >= 1_000_000_000:
-        return f"{size / 1_000_000_000:.1f} GB"
-    if size >= 1_000_000:
-        return f"{round(size / 1_000_000)} MB"
-    if size >= 1_000:
-        return f"{round(size / 1_000)} KB"
-    return f"{size} B"
+    # Match the grid and download-progress formatter's 1024-based units.
+    units = ("B", "KB", "MB", "GB", "TB")
+    value = float(size)
+    unit = 0
+    while value >= 1024 and unit < len(units) - 1:
+        value /= 1024
+        unit += 1
+    text = (
+        str(size)
+        if unit == 0
+        else format(value, ".1f" if value < 10 else ".0f").removesuffix(".0")
+    )
+    return f"{text} {units[unit]}"
 
 
 def _engine_facts(
