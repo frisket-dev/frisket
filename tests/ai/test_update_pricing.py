@@ -114,7 +114,7 @@ def test_model_catalog_adds_current_aliases_without_snapshots_or_specialists() -
     assert output["schema_version"] == "frisket.model_catalog.v1"
     assert output["providers"]["openai"] == [
         {"id": "gpt-5", "label": "Reviewed GPT label", "vision": True},
-        {"id": "gpt-6.1-sol", "label": "GPT 6.1 Sol", "vision": True},
+        {"id": "gpt-6.1-sol", "label": "GPT-6.1 Sol", "vision": True},
     ]
     assert output["providers"]["ollama"] == previous["providers"]["ollama"]
     assert [entry["id"] for entry in output["providers"]["gemini"]] == [
@@ -296,7 +296,7 @@ def test_refresh_preserves_last_good_opendocrouter_section(
 
     monkeypatch.setattr(updater.urllib.request, "urlopen", fake_urlopen)
 
-    updater.main()
+    updater.main([])
 
     refreshed = json.loads(output_path.read_text())
     assert refreshed["text"]["claude-haiku-4-5"] == [2.0, 4.0]
@@ -305,3 +305,154 @@ def test_refresh_preserves_last_good_opendocrouter_section(
     assert "WARNING" in warning
     assert "OpenDocRouter" in warning
     assert "preserving the previous complete snapshot" in warning
+
+
+@pytest.fixture
+def refresh_workspace(tmp_path, monkeypatch):
+    updater = _pricing_updater()
+    upstream_model = {
+        "mode": "chat",
+        "litellm_provider": "openai",
+        "input_cost_per_token": 2e-6,
+        "output_cost_per_token": 4e-6,
+        "supports_vision": True,
+    }
+    litellm = {"gpt-5": upstream_model}
+    router = {"data": []}
+    document = {
+        "price_version": "old",
+        "data": [_opendocrouter_model("vendor/ocr", rate=1)],
+    }
+    catalog = updater.build_model_catalog(litellm, router, previous={"providers": {}})
+    catalog["updated"] = "2026-01-01"
+    prices = updater.build_price_table(
+        litellm, router, catalog=catalog, opendocrouter=document
+    )
+    prices["updated"] = "2026-01-01"
+    for name, value in (("MODEL_OUT", catalog), ("OUT", prices)):
+        path = tmp_path / f"{name}.json"
+        path.write_text(json.dumps(value))
+        monkeypatch.setattr(updater, name, path)
+    incoming = {
+        "price_version": "new",
+        "data": [_opendocrouter_model("vendor/ocr", rate=2)],
+    }
+    responses = {
+        updater.LITELLM_SOURCE: litellm,
+        updater.OPENROUTER_SOURCE: router,
+        updater.OPENDOCROUTER_SOURCE: incoming,
+    }
+
+    def fetch(target, timeout):
+        url = target.full_url if hasattr(target, "full_url") else target
+        return io.BytesIO(json.dumps(responses[url]).encode())
+
+    monkeypatch.setattr(updater.urllib.request, "urlopen", fetch)
+    return updater, litellm, router, incoming
+
+
+def test_default_price_refresh_keeps_approved_models_and_document_metadata(
+    refresh_workspace,
+):
+    updater, litellm, _, document = refresh_workspace
+    before = updater.MODEL_OUT.read_bytes()
+    litellm["gpt-6.1-sol"] = dict(litellm["gpt-5"])
+    litellm["gpt-5"]["input_cost_per_token"] = 3e-6
+    document["data"][0].update(name="Renamed", version="2", max_sync_pages=20)
+    document["data"].append(_opendocrouter_model("vendor/new", rate=3))
+
+    updater.main([])
+
+    assert updater.MODEL_OUT.read_bytes() == before
+    prices = json.loads(updater.OUT.read_text())
+    assert prices["text"] == {"gpt-5": [3, 4]}
+    assert prices["opendocrouter"] == {
+        "price_version": "new",
+        "data": [_opendocrouter_model("vendor/ocr", rate=2)],
+    }
+
+
+def test_model_discovery_does_nothing_for_price_or_date_changes(refresh_workspace):
+    updater, litellm, _, _ = refresh_workspace
+    before = (updater.MODEL_OUT.read_bytes(), updater.OUT.read_bytes())
+    litellm["gpt-5"]["input_cost_per_token"] = 9e-6
+    updater.main(["--mode", "models"])
+    assert (updater.MODEL_OUT.read_bytes(), updater.OUT.read_bytes()) == before
+
+
+@pytest.mark.parametrize("change", ["llm", "ocr"])
+def test_model_discovery_proposes_catalog_and_matching_prices(
+    refresh_workspace, change
+):
+    updater, litellm, _, document = refresh_workspace
+    if change == "llm":
+        litellm["gpt-6.1-sol"] = dict(litellm["gpt-5"])
+    else:
+        document["data"] = [_opendocrouter_model("vendor/new", rate=3)]
+    updater.main(["--mode", "models"])
+    catalog = json.loads(updater.MODEL_OUT.read_text())
+    prices = json.loads(updater.OUT.read_text())
+    if change == "llm":
+        assert catalog["providers"]["openai"][-1]["id"] == "gpt-6.1-sol"
+        assert prices["text"]["gpt-6.1-sol"] == [2, 4]
+    else:
+        assert prices["opendocrouter"] == document
+
+
+def test_pricing_preserves_complete_document_snapshot_when_approved_model_disappears(
+    refresh_workspace,
+):
+    updater, _, _, document = refresh_workspace
+    previous = json.loads(updater.OUT.read_text())["opendocrouter"]
+    document["data"] = [_opendocrouter_model("vendor/new", rate=3)]
+    updater.main(["--mode", "pricing"])
+    assert json.loads(updater.OUT.read_text())["opendocrouter"] == previous
+
+
+@pytest.mark.parametrize("rate", [-1, float("nan"), float("inf")])
+def test_invalid_upstream_rate_does_not_partially_write_refresh(
+    refresh_workspace, rate
+):
+    updater, litellm, _, _ = refresh_workspace
+    before = (updater.MODEL_OUT.read_bytes(), updater.OUT.read_bytes())
+    litellm["gpt-6.1-sol"] = {**litellm["gpt-5"], "input_cost_per_token": rate}
+    with pytest.raises(ValueError, match="Invalid provider rate"):
+        updater.main(["--mode", "models"])
+    assert (updater.MODEL_OUT.read_bytes(), updater.OUT.read_bytes()) == before
+
+
+def test_new_model_names_use_supplied_names_or_provider_version_formatting():
+    updater = _pricing_updater()
+    model = {
+        "mode": "chat",
+        "litellm_provider": "anthropic",
+        "input_cost_per_token": 1e-6,
+        "output_cost_per_token": 2e-6,
+    }
+    catalog = updater.build_model_catalog(
+        {"claude-fable-5-1": model, "claude-haiku-5-5": model},
+        {
+            "data": [
+                {
+                    "id": "anthropic/claude-fable-5-1",
+                    "name": "Anthropic: Claude Fable 5.1",
+                }
+            ]
+        },
+        previous={"providers": {}},
+    )
+    assert [row["label"] for row in catalog["providers"]["anthropic"]] == [
+        "Claude Fable 5.1",
+        "Claude Haiku 5.5",
+    ]
+
+
+def test_missing_output_rate_leaves_model_unknown_but_refreshes_other_rates(
+    refresh_workspace,
+):
+    updater, litellm, _, _ = refresh_workspace
+    del litellm["gpt-5"]["output_cost_per_token"]
+    updater.main([])
+    prices = json.loads(updater.OUT.read_text())
+    assert "gpt-5" not in prices["text"]
+    assert prices["opendocrouter"]["price_version"] == "new"

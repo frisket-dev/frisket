@@ -66,3 +66,68 @@ def test_reporter_includes_model_additions(
     assert reporter["main"]() == 0
 
     assert "model:openai/gpt-6.1-sol" in capsys.readouterr().out
+
+
+def test_reporter_separates_document_model_metadata_from_rates(
+    tmp_path, monkeypatch, capsys
+):
+    old = {"opendocrouter": {"price_version": "1", "data": []}}
+    new = {
+        "opendocrouter": {
+            "price_version": "1",
+            "data": [
+                {
+                    "id": "vendor/ocr",
+                    "name": "OCR",
+                    "version": "2",
+                    "max_sync_pages": 10,
+                    "max_charge_per_page_usd": 0.01,
+                    "avg_charge_per_page_usd": 0.005,
+                    "price_per_million_tokens": {
+                        "input": 1,
+                        "cached_input": 0.5,
+                        "output": 2,
+                    },
+                }
+            ],
+        }
+    }
+    paths = [tmp_path / "old", tmp_path / "new"]
+    for path, payload in zip(paths, (old, new), strict=True):
+        path.write_text(json.dumps(payload))
+    monkeypatch.setattr(sys, "argv", [str(REPORTER), *(str(path) for path in paths)])
+    assert runpy.run_path(str(REPORTER))["main"]() == 0
+    output = capsys.readouterr().out
+    assert "model:opendocrouter/vendor/ocr**: NEW" in output
+    assert "'max_sync_pages': 10" in output
+    assert "opendocrouter:vendor/ocr**: NEW" in output
+
+
+def test_reporter_shows_reordering_and_retired_price_swings(
+    tmp_path, monkeypatch, capsys
+):
+    model = {
+        "id": "vendor/old",
+        "name": "Retired OCR",
+        "version": "1",
+        "max_sync_pages": 10,
+        "max_charge_per_page_usd": 0.01,
+        "avg_charge_per_page_usd": 0.005,
+        "price_per_million_tokens": {"input": 1, "cached_input": 0.5, "output": 2},
+    }
+    prices = {
+        "opendocrouter": {"price_version": "1", "data": [], "retired_data": [model]}
+    }
+    models = [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}]
+    paths = [tmp_path / name for name in ("p-old", "p-new", "m-old", "m-new")]
+    paths[0].write_text(json.dumps(prices))
+    model["max_charge_per_page_usd"] = 0.03
+    paths[1].write_text(json.dumps(prices))
+    paths[2].write_text(json.dumps({"providers": {"openai": models}}))
+    paths[3].write_text(json.dumps({"providers": {"openai": list(reversed(models))}}))
+    monkeypatch.setattr(sys, "argv", [str(REPORTER), *(str(path) for path in paths)])
+    assert runpy.run_path(str(REPORTER))["main"]() == 0
+    output = capsys.readouterr().out
+    assert "model:openai/a" in output
+    assert "'position': 1" in output and "'position': 2" in output
+    assert "max_per_page moved 0.01 -> 0.03 (>50%)" in output

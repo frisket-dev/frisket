@@ -1,10 +1,5 @@
-name: refresh-models-and-pricing
-# Nightly refresh of the bounded model/capability catalog and BYOK prices from
-# LiteLLM and OpenRouter. These numbers feed cost estimates and consent bounds, so the
-# refresh NEVER commits directly: it opens a PR showing exactly which
-# models moved, and any single price swinging more than 50% is called
-# out in the PR body — that's either real news or upstream breakage,
-# and both deserve eyes before merge.
+name: refresh-pricing
+
 on:
   schedule:
     - cron: "17 6 * * *"
@@ -14,125 +9,12 @@ permissions:
   contents: write
   pull-requests: write
 
+concurrency:
+  group: refresh-pricing
+  cancel-in-progress: false
+
 jobs:
   refresh:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-        with:
-          persist-credentials: true
-      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
-      - name: Refresh price table
-        id: refresh
-        run: |
-          cp src/frisket/ai/llm/pricing_data.json /tmp/pricing_before.json
-          cp src/frisket/ai/llm/model_catalog.json /tmp/model_catalog_before.json
-          cp web/src/actions/modelCatalog.generated.ts /tmp/model_catalog_generated_before.ts
-          cp web/src/actions/engineCatalog.generated.ts /tmp/ocr_engine_catalog_generated_before.ts
-          uv run --no-project python scripts/dev/update_pricing.py
-          uv run --no-project python scripts/dev/sync_model_catalog.py
-          uv run --frozen --no-dev python scripts/dev/sync_ocr_engine_catalog.py
-          catalog_changed="$(
-            python3 - <<'PY'
-          import json
-          from pathlib import Path
-
-          pairs = (
-              ("/tmp/pricing_before.json", "src/frisket/ai/llm/pricing_data.json"),
-              ("/tmp/model_catalog_before.json", "src/frisket/ai/llm/model_catalog.json"),
-          )
-          changed = False
-          for before_path, after_path in pairs:
-              before = json.loads(Path(before_path).read_text(encoding="utf-8"))
-              after = json.loads(Path(after_path).read_text(encoding="utf-8"))
-              if not isinstance(before, dict) or not isinstance(after, dict):
-                  raise TypeError("catalog data must be a JSON object")
-              before = {key: value for key, value in before.items() if key != "updated"}
-              after = {key: value for key, value in after.items() if key != "updated"}
-              changed = changed or before != after
-          print("true" if changed else "false")
-          PY
-          )"
-          if [ "$catalog_changed" = "false" ]; then
-            cp /tmp/pricing_before.json src/frisket/ai/llm/pricing_data.json
-            cp /tmp/model_catalog_before.json src/frisket/ai/llm/model_catalog.json
-            cp /tmp/model_catalog_generated_before.ts web/src/actions/modelCatalog.generated.ts
-            cp /tmp/ocr_engine_catalog_generated_before.ts web/src/actions/engineCatalog.generated.ts
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-            uv run --no-project python scripts/dev/pricing_delta_report.py \
-              /tmp/pricing_before.json src/frisket/ai/llm/pricing_data.json \
-              /tmp/model_catalog_before.json src/frisket/ai/llm/model_catalog.json \
-              > /tmp/pricing_delta.md
-          fi
-      - name: Open PR
-        if: steps.refresh.outputs.changed == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          pricing_path="src/frisket/ai/llm/pricing_data.json"
-          catalog_path="src/frisket/ai/llm/model_catalog.json"
-          generated_path="web/src/actions/modelCatalog.generated.ts"
-          ocr_generated_path="web/src/actions/engineCatalog.generated.ts"
-          today="$(date -u +%Y-%m-%d)"
-          branch="pricing-refresh-${today//-/}"
-
-          if ! pr_number_output="$(
-            gh pr list --state open --base main --head "$branch" \
-              --json number --jq '.[].number'
-          )"; then
-            echo "Could not enumerate existing PRs for $branch" >&2
-            exit 1
-          fi
-          mapfile -t pr_numbers < <(printf '%s' "$pr_number_output")
-          if [ "${#pr_numbers[@]}" -gt 1 ]; then
-            echo "Refusing ambiguous PR set for $branch" >&2
-            exit 1
-          fi
-
-          remote_tip="$(git ls-remote --heads origin "refs/heads/$branch" | awk '{print $1}')"
-          if [ -n "$remote_tip" ]; then
-            if [ "${#pr_numbers[@]}" -eq 0 ]; then
-              git fetch --no-tags origin \
-                "refs/heads/$branch:refs/remotes/origin/$branch"
-              if ! git diff --quiet "$remote_tip" -- \
-                "$pricing_path" "$catalog_path" "$generated_path" \
-                "$ocr_generated_path"; then
-                echo "Refusing stale orphan branch $branch; its catalogs differ from this refresh" >&2
-                exit 1
-              fi
-              gh pr create --title "Model and pricing refresh $today" \
-                --body-file /tmp/pricing_delta.md --base main --head "$branch"
-            else
-              echo "Pricing refresh PR #${pr_numbers[0]} already exists; leaving it unchanged."
-            fi
-            exit 0
-          fi
-          if [ "${#pr_numbers[@]}" -eq 1 ]; then
-            echo "Refusing open PR #${pr_numbers[0]} without its remote branch" >&2
-            exit 1
-          fi
-
-          cp "$pricing_path" /tmp/pricing_after.json
-          cp "$catalog_path" /tmp/model_catalog_after.json
-          cp "$generated_path" /tmp/model_catalog_generated_after.ts
-          cp "$ocr_generated_path" /tmp/ocr_engine_catalog_generated_after.ts
-          git config user.name "pricing-refresh[bot]"
-          git config user.email "actions@users.noreply.github.com"
-          git fetch --no-tags origin \
-            "refs/heads/main:refs/remotes/origin/main"
-          git switch --detach origin/main
-          git switch -c "$branch"
-          cp /tmp/pricing_after.json "$pricing_path"
-          cp /tmp/model_catalog_after.json "$catalog_path"
-          cp /tmp/model_catalog_generated_after.ts "$generated_path"
-          cp /tmp/ocr_engine_catalog_generated_after.ts "$ocr_generated_path"
-          git add "$pricing_path" "$catalog_path" "$generated_path" \
-            "$ocr_generated_path"
-          git commit -m "chore(ai): refresh model catalog and pricing"
-          git push --set-upstream \
-            --force-with-lease="refs/heads/$branch:" \
-            origin "HEAD:refs/heads/$branch"
-          gh pr create --title "Model and pricing refresh $today" \
-            --body-file /tmp/pricing_delta.md --base main --head "$branch"
+    uses: ./.github/workflows/refresh-catalog.yml
+    with:
+      mode: pricing

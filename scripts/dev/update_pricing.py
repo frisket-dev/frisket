@@ -4,17 +4,22 @@
 LiteLLM supplies direct-provider aliases, capabilities and prices. OpenRouter's
 public API supplies its active aliases, capabilities and prices. Deliberately
 narrow family filters keep dated snapshots, fine-tunes and specialist endpoints
-out of the picker while allowing new stable family aliases to arrive nightly.
+out of discovery proposals. Model additions require review; pricing refreshes
+never change the approved runnable inventory.
 
-Usage: uv run python scripts/dev/update_pricing.py
+Usage: uv run --no-project python scripts/dev/update_pricing.py --mode pricing
+       uv run --no-project python scripts/dev/update_pricing.py --mode models
 Commit the diff like a dependency bump — these numbers feed cost_actual.
 """
 
+import argparse
 import http.client
 import json
+import math
 import re
 import sys
 import urllib.request
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -23,6 +28,7 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 from frisket.opendocrouter_catalog import (  # noqa: E402 -- standalone stdlib-only updater
     SOURCE_URL as OPENDOCROUTER_SOURCE,
+    DocumentCatalog,
     parse_catalog,
     catalog_document,
 )
@@ -134,6 +140,10 @@ def _openrouter_model(entry: dict[str, Any]) -> bool:
 
 
 def _model_label(provider: str, model_id: str) -> str:
+    if provider == "openai":
+        return "GPT-" + model_id.removeprefix("gpt-").replace("-", " ").title()
+    if provider == "anthropic":
+        model_id = re.sub(r"(?<=\d)-(?=\d)", ".", model_id)
     words = model_id.replace("-", " ").split()
     names = {"gpt": "GPT", "claude": "Claude", "gemini": "Gemini"}
     return " ".join(names.get(word, word.capitalize()) for word in words)
@@ -173,6 +183,16 @@ def build_model_catalog(
     updated: date | None = None,
 ) -> dict[str, Any]:
     """Build the bounded runnable roster from upstream capability metadata."""
+    # Reuse the public provider names already in the OpenRouter response.
+    # Only exact IDs match; do not infer aliases across providers.
+    names = {
+        entry["id"]: entry["name"].split(": ", 1)[-1]
+        for entry in openrouter.get("data", [])
+        if isinstance(entry, dict)
+        and isinstance(entry.get("id"), str)
+        and isinstance(entry.get("name"), str)
+        and entry["name"].strip()
+    }
     providers: dict[str, list[dict[str, Any]]] = {}
     for provider in ("anthropic", "openai", "gemini"):
         discovered = {}
@@ -189,7 +209,10 @@ def build_model_catalog(
             if not _direct_model(provider, model_id, entry):
                 continue
             discovered[model_id] = {
-                "label": _model_label(provider, model_id),
+                "label": names.get(
+                    f"{'google' if provider == 'gemini' else provider}/{model_id}"
+                )
+                or _model_label(provider, model_id),
                 "vision": _supports_vision(entry),
             }
         providers[provider] = _ordered_entries(provider, discovered, previous)
@@ -215,10 +238,17 @@ def build_model_catalog(
     }
 
 
+def _rate(value: object) -> float:
+    result = float(value)
+    if not math.isfinite(result) or result < 0:
+        raise ValueError(f"Invalid provider rate: {value!r}")
+    return result
+
+
 def _rates(input_per_token: object, output_per_token: object) -> list[float]:
     return [
-        round(float(input_per_token) * 1e6, 4),
-        round(float(output_per_token) * 1e6, 4),
+        round(_rate(float(input_per_token) * 1e6), 4),
+        round(_rate(float(output_per_token) * 1e6), 4),
     ]
 
 
@@ -237,7 +267,10 @@ def build_price_table(
         for catalog_entry in entries:
             name = catalog_entry["id"]
             entry = litellm.get(f"gemini/{name}" if provider == "gemini" else name)
-            if not entry or "input_cost_per_token" not in entry:
+            if not entry or not all(
+                key in entry
+                for key in ("input_cost_per_token", "output_cost_per_token")
+            ):
                 print(
                     f"WARNING: {name} missing from LiteLLM — left out; estimates "
                     "surface as unknown",
@@ -272,11 +305,11 @@ def build_price_table(
             continue
         if "input_cost_per_token" in entry and "output_cost_per_token" in entry:
             audio[name] = {
-                "input_per_token": entry["input_cost_per_token"],
-                "output_per_token": entry["output_cost_per_token"],
+                "input_per_token": _rate(entry["input_cost_per_token"]),
+                "output_per_token": _rate(entry["output_cost_per_token"]),
             }
         elif "input_cost_per_second" in entry:
-            audio[name] = {"per_second": entry["input_cost_per_second"]}
+            audio[name] = {"per_second": _rate(entry["input_cost_per_second"])}
 
     for name, override in MAINTAINED_AUDIO_OVERRIDES.items():
         audio[name] = {"per_second": override["per_second"]}
@@ -320,8 +353,59 @@ def _fetch_opendocrouter_snapshot() -> dict[str, Any]:
         return snapshot
 
 
-def main() -> None:
+def approved_document_prices(previous: dict, fresh: dict) -> dict:
+    """Overlay rates without changing reviewed OCR identities or capabilities."""
+    approved = parse_catalog(previous)
+    incoming = parse_catalog(fresh)
+    rates = {model.id: model for model in (*incoming.models, *incoming.retired_models)}
+    old_models = (*approved.models, *approved.retired_models)
+    if any(model.id not in rates for model in old_models):
+        # One global price version describes the snapshot. Avoid claiming a new
+        # version while carrying some rates from a different generation.
+        print(
+            "WARNING: OpenDocRouter omitted approved models; preserving the "
+            "previous complete snapshot until model review",
+            file=sys.stderr,
+        )
+        return catalog_document(approved)
+
+    def priced(model):
+        fresh_model = rates[model.id]
+        return replace(
+            model,
+            max_charge_per_page_usd=fresh_model.max_charge_per_page_usd,
+            avg_charge_per_page_usd=fresh_model.avg_charge_per_page_usd,
+            input_per_million=fresh_model.input_per_million,
+            cached_input_per_million=fresh_model.cached_input_per_million,
+            output_per_million=fresh_model.output_per_million,
+        )
+
+    return catalog_document(
+        DocumentCatalog(
+            price_version=incoming.price_version,
+            models=tuple(priced(model) for model in approved.models),
+            retired_models=tuple(priced(model) for model in approved.retired_models),
+        )
+    )
+
+
+def document_inventory(snapshot: dict) -> dict:
+    """Executable metadata only; rate changes must not open discovery PRs."""
+    return {
+        section: [
+            {key: row[key] for key in ("id", "name", "version", "max_sync_pages")}
+            for row in snapshot.get(section, [])
+        ]
+        for section in ("data", "retired_data")
+    }
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--mode", choices=("pricing", "models"), default="pricing")
+    args = parser.parse_args(argv)
     previous_catalog = json.loads(MODEL_OUT.read_text())
+    previous_prices = json.loads(OUT.read_text())
     litellm = json.loads(urllib.request.urlopen(LITELLM_SOURCE, timeout=30).read())
     request = urllib.request.Request(
         OPENROUTER_SOURCE,
@@ -329,17 +413,30 @@ def main() -> None:
     )
     openrouter = json.loads(urllib.request.urlopen(request, timeout=30).read())
     opendocrouter = _fetch_opendocrouter_snapshot()
-    catalog = build_model_catalog(litellm, openrouter, previous=previous_catalog)
+    catalog = previous_catalog
+    if args.mode == "models":
+        catalog = build_model_catalog(litellm, openrouter, previous=previous_catalog)
+        if catalog["providers"] == previous_catalog["providers"] and document_inventory(
+            opendocrouter
+        ) == document_inventory(previous_prices["opendocrouter"]):
+            print("No model changes; pricing refresh is handled separately")
+            return
+    else:
+        opendocrouter = approved_document_prices(
+            previous_prices["opendocrouter"], opendocrouter
+        )
     output = build_price_table(
         litellm, openrouter, catalog=catalog, opendocrouter=opendocrouter
     )
 
-    MODEL_OUT.write_text(json.dumps(catalog, indent=2) + "\n")
-    OUT.write_text(json.dumps(output, indent=2) + "\n")
-    print(
-        f"wrote {MODEL_OUT}: "
-        f"{sum(len(rows) for rows in catalog['providers'].values())} models"
-    )
+    # Validate/build both documents before writing. A failed CI generation is
+    # never committed; no runtime service reads these working-tree files.
+    catalog_json = json.dumps(catalog, indent=2, allow_nan=False) + "\n"
+    prices_json = json.dumps(output, indent=2, allow_nan=False) + "\n"
+    if args.mode == "models":
+        MODEL_OUT.write_text(catalog_json)
+        print(f"wrote {MODEL_OUT}")
+    OUT.write_text(prices_json)
     print(
         f"wrote {OUT}: {len(output['text'])} text, {len(output['audio'])} audio prices"
     )

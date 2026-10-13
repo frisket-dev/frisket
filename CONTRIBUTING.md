@@ -250,3 +250,30 @@ read historical values by ID, without substituting a same-name successor.
   semantic mocks. To refresh the committed fixture intentionally, run the
   target with `FRISKET_CACHE_REFRESH=1 FRISKET_CACHE_MODE=replay`, then review
   and commit `tests/cache/llm_cache.db`.
+
+### Reviewing model and pricing updates
+
+Pricing refresh and model discovery are separate workflows. Both run on a
+schedule and can be started manually from GitHub Actions. Each keeps one open PR;
+a later run leaves that PR untouched so review edits are preserved. Neither
+workflow merges its PR automatically.
+
+- `update_pricing.py --mode pricing` (the default) refreshes rates for the approved
+  catalog. It never changes model names, ordering, capabilities, or OpenDocRouter
+  model membership. If OpenDocRouter omits an approved model, its complete prior
+  pricing snapshot is retained with a warning.
+- `update_pricing.py --mode models` proposes supported model additions, removals,
+  and capability changes, with matching prices. Price-only changes are a no-op.
+  Existing curated labels and ordering are preserved; new entries use supplied
+  names where available and append deterministically. This is a discovery draft,
+  not a ranking of model strength.
+
+Before merging a discovery PR, check provider documentation for names and
+capabilities. Put current frontier models first, strongest to smallest, followed
+by older models. Keep existing product annotations where useful. Regenerate
+`web/src/actions/modelCatalog.generated.ts` and the OCR catalog with the sync scripts after edits.
+
+Refresh either PR against current `main` before merging: pricing and model PRs
+both touch `pricing_data.json`, and an older proposal must not restore stale
+prices or OpenDocRouter membership. Rerun the appropriate updater and inspect the
+final diff after rebasing; for discovery, retain the reviewed names and ordering.
