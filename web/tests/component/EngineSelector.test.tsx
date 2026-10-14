@@ -245,27 +245,33 @@ describe('EngineSelector', () => {
     }
   });
 
-  it('places runnable choices ahead of recent setup choices after reopening', async () => {
-    renderSelector();
-    const trigger = screen.getByRole('button', { name: /parakeet/i });
+  it('keeps curated order within availability buckets after recording an older choice as recent', async () => {
+    const curatedGroups: EngineSelectorGroup[] = [{
+      id: 'models',
+      label: 'Models',
+      choices: [
+        { id: 'frontier-unavailable', label: 'Frontier unavailable', status: 'unavailable', canAuthor: false, canRun: false },
+        { id: 'current-frontier', label: 'Current frontier', status: 'ready', canAuthor: true, canRun: true },
+        { id: 'older-ready', label: 'Older ready', status: 'ready', canAuthor: true, canRun: true },
+      ],
+    }];
+    render(<EngineSelector label="Model" groups={curatedGroups} value="current-frontier"
+      recentNamespace="curated-order" onSelect={vi.fn()} />);
+    const trigger = screen.getByRole('button', { name: /current frontier/i });
     await userEvent.click(trigger);
     const choiceIds = () => Array.from(screen.getByTestId('engine-selector-dialog').querySelectorAll<HTMLElement>('[data-engine-selector-choice]'))
       .map((choice) => choice.dataset.engineSelectorChoice);
-    expect(choiceIds()).toEqual(['parakeet', 'whisper', 'legacy']);
-    await userEvent.click(screen.getByRole('button', { name: /whisper/i }));
-    expect(JSON.parse(localStorage.getItem('frisket:engine-selector:recent:component-test') ?? '[]')).toEqual(['whisper']);
-    expect(choiceIds()).toEqual(['parakeet', 'whisper', 'legacy']);
-    fireEvent(screen.getByTestId('engine-selector-dialog'), new Event('cancel', { cancelable: true }));
+    expect(choiceIds()).toEqual(['current-frontier', 'older-ready', 'frontier-unavailable']);
+    await userEvent.click(screen.getByRole('button', { name: /older ready/i }));
+    expect(JSON.parse(localStorage.getItem('frisket:engine-selector:recent:curated-order') ?? '[]')).toEqual(['older-ready']);
     await userEvent.click(trigger);
-    expect(choiceIds()).toEqual(['parakeet', 'whisper', 'legacy']);
+    expect(choiceIds()).toEqual(['current-frontier', 'older-ready', 'frontier-unavailable']);
     const dialog = screen.getByTestId('engine-selector-dialog');
-    const choices = dialog.querySelector('.engine-selector__choices')!;
-    expect(choices.firstElementChild).toHaveAttribute('data-engine-selector-choice', 'parakeet');
-    expect(dialog.querySelector('[data-engine-selector-recent-divider]')).not.toBeInTheDocument();
-    await waitFor(() => expect(within(dialog).getByRole('searchbox', { name: 'Search Engine' })).toHaveFocus());
-    dialog.querySelector<HTMLButtonElement>('[data-engine-selector-choice="parakeet"]')!.focus();
+    expect(within(dialog).getByText('Recent')).toBeVisible();
+    await waitFor(() => expect(within(dialog).getByRole('searchbox', { name: 'Search Model' })).toHaveFocus());
+    dialog.querySelector<HTMLButtonElement>('[data-engine-selector-choice="current-frontier"]')!.focus();
     await userEvent.keyboard('{ArrowDown}');
-    expect(dialog.querySelector('[data-engine-selector-choice="whisper"]')).toHaveFocus();
+    expect(dialog.querySelector('[data-engine-selector-choice="older-ready"]')).toHaveFocus();
   });
 
   it('uses searchboxes without native search Escape consumption and cancels with a populated query', async () => {

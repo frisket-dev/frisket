@@ -35,6 +35,7 @@ from frisket.engine.store.media_blobs import (
     media_cell,
     owned_media_metadata_document,
 )
+from frisket.engine.store.runs import RunResultStore
 from frisket.project_settings import ProjectSettings, write_project_settings
 from frisket.server.app import create_app
 from tests.deterministic_time import controlled_time
@@ -47,6 +48,24 @@ def _png() -> bytes:
 
 
 def _route(capability: str) -> CloudCapabilityRoute:
+    if capability == "vision_ocr":
+        return CloudCapabilityRoute(
+            capability="ocr",
+            engine="openai/gpt-5-mini",
+            provider="openai",
+            lane="frisket_credits",
+            route_revision="vision-ocr-route-1",
+            ready=True,
+            blocker=None,
+            price=CloudTokenPrice(
+                kind="tokens",
+                input_micro_per_million_tokens=250_000,
+                output_micro_per_million_tokens=2_000_000,
+            ),
+            options=CloudOCROptionSupport(
+                kind="ocr", language=True, geometry=True, searchable_pdf=False
+            ),
+        )
     if capability == "ocr":
         return CloudCapabilityRoute(
             capability=capability,
@@ -106,7 +125,12 @@ class _CloudClient:
         assert account_id == 41
         return CloudCapabilitiesResponse(
             account_id=41,
-            routes=[_route("ocr"), _route("document.convert"), _route("llm")],
+            routes=[
+                _route("ocr"),
+                _route("vision_ocr"),
+                _route("document.convert"),
+                _route("llm"),
+            ],
         )
 
     def close(self) -> None:
@@ -116,7 +140,7 @@ class _CloudClient:
 class _Transport:
     def __init__(self) -> None:
         self.media_calls: list[tuple[Any, str, bytes]] = []
-        self.llm_calls: list[tuple[Any, Any]] = []
+        self.llm_calls: list[tuple[Any, Any, str]] = []
 
     async def execute_media(
         self, attempt, *, capability, engine, options, uploads
@@ -154,14 +178,38 @@ class _Transport:
             ),
         )
 
-    async def execute_llm(self, attempt, request) -> CloudExecutionResponse:
-        self.llm_calls.append((attempt, request))
-        repaired = len(self.llm_calls) > 1
-        data = {"value": "Cloud result"} if repaired else {}
+    async def execute_llm(
+        self, attempt, request, *, capability="llm.complete"
+    ) -> CloudExecutionResponse:
+        self.llm_calls.append((attempt, request, capability))
+        calls_for_capability = sum(
+            seen_capability == capability
+            for _attempt, _request, seen_capability in self.llm_calls
+        )
+        repaired = calls_for_capability > 1
+        if capability == "ocr":
+            data = (
+                {
+                    "lines": [
+                        {
+                            "text": "Cloud model OCR",
+                            "bbox_pixels_xyxy": [1, 1, 11, 7],
+                        }
+                    ]
+                }
+                if repaired
+                else {}
+            )
+            route = _route("vision_ocr")
+            usage = CloudOCRUsage(kind="ocr", tokens_in=12, tokens_out=4)
+        else:
+            data = {"value": "Cloud result"} if repaired else {}
+            route = _route("llm")
+            usage = CloudLLMUsage(kind="llm.complete", tokens_in=12, tokens_out=4)
         return CloudExecutionResponse(
             execution_id=f"cloud-llm-{len(self.llm_calls)}",
             status="completed",
-            route=_route("llm"),
+            route=route,
             result=CloudLLMResult(
                 content=json.dumps(data),
                 data=data,
@@ -184,7 +232,7 @@ class _Transport:
                 engine="openai/gpt-5-mini",
                 charge_micro=30,
                 provider_cost_micro=20,
-                usage=CloudLLMUsage(kind="llm.complete", tokens_in=12, tokens_out=4),
+                usage=usage,
             ),
         )
 
@@ -288,6 +336,109 @@ def test_scratch_ocr_http_uses_admitted_cloud_binding(tmp_path) -> None:
     assert attempt.request_id.startswith("preview:")
     assert attempt.request_id.endswith(":row:1")
     assert attempt.payer.account_id == 41
+
+
+def test_scratch_vision_ocr_uses_cloud_model_receipts_and_retires_repairs(
+    tmp_path,
+) -> None:
+    client, transport = _client(tmp_path)
+    with client:
+        project_id = client.post("/api/projects", json={"name": "Vision OCR"}).json()[
+            "id"
+        ]
+        _select_cloud(client, project_id)
+        endpoint = f"/api/projects/{project_id}/ocr/compare-scratch"
+        upload = {
+            "files": {"file": ("scan.png", _png(), "image/png")},
+            "data": {"payload": json.dumps({"engine": "openai/gpt-5-mini"})},
+        }
+        quote = client.post(f"{endpoint}/estimate", **upload)
+        assert quote.status_code == 200, quote.text
+        confirmation = quote.json()["estimate"]["promise_set_hash"]
+        upload["data"]["payload"] = json.dumps(
+            {"engine": "openai/gpt-5-mini", "confirmation": confirmation}
+        )
+        started = client.post(endpoint, **upload)
+        assert started.status_code == 202, started.text
+        result = _poll(client, project_id, started.json()["preview_id"])
+        project = client.app.state.workspace.get(project_id)
+        calls = project.db.execute(
+            "SELECT id, capability, units FROM model_calls ORDER BY created_at, id"
+        ).fetchall()
+        child_count = project.db.execute(
+            "SELECT COUNT(*) FROM effect_checkpoints WHERE family='model_call'"
+        ).fetchone()[0]
+
+    assert result["status"] == "done", result
+    row = result["result"]["rows"][0]
+    assert row["text"]["value"] == "Cloud model OCR"
+    assert row["blocks"]["value"][0]["bbox"] == {
+        "space": "page_normalized",
+        "x0": 0.083333,
+        "y0": 0.125,
+        "x1": 0.916667,
+        "y1": 0.875,
+    }
+    assert len(transport.llm_calls) == 2
+    assert {capability for _attempt, _request, capability in transport.llm_calls} == {
+        "ocr"
+    }
+    assert all(
+        attempt.payer.engine == "openai/gpt-5-mini"
+        and attempt.payer.route_revision == "vision-ocr-route-1"
+        for attempt, _request, _capability in transport.llm_calls
+    )
+    assert [call[1] for call in calls] == ["ocr", "ocr"]
+    units = [json.loads(call[2]) for call in calls]
+    assert [(unit["tokens_in"], unit["tokens_out"]) for unit in units] == [
+        (12, 4),
+        (12, 4),
+    ]
+    assert all(unit["cloud_lane"] == "frisket_credits" for unit in units)
+    assert child_count == 0
+
+
+def test_scratch_vision_ocr_keeps_returned_checkpoints_when_accounting_write_fails(
+    tmp_path, monkeypatch
+) -> None:
+    def fail_write(*_args, **_kwargs):
+        raise RuntimeError("forced model-call write failure")
+
+    monkeypatch.setattr(RunResultStore, "write_model_calls", fail_write)
+    client, transport = _client(tmp_path)
+    with client:
+        project_id = client.post("/api/projects", json={"name": "Vision OCR"}).json()[
+            "id"
+        ]
+        _select_cloud(client, project_id)
+        endpoint = f"/api/projects/{project_id}/ocr/compare-scratch"
+        upload = {
+            "files": {"file": ("scan.png", _png(), "image/png")},
+            "data": {"payload": json.dumps({"engine": "openai/gpt-5-mini"})},
+        }
+        quote = client.post(f"{endpoint}/estimate", **upload)
+        assert quote.status_code == 200, quote.text
+        upload["data"]["payload"] = json.dumps(
+            {
+                "engine": "openai/gpt-5-mini",
+                "confirmation": quote.json()["estimate"]["promise_set_hash"],
+            }
+        )
+        started = client.post(endpoint, **upload)
+        assert started.status_code == 202, started.text
+        result = _poll(client, project_id, started.json()["preview_id"])
+        project = client.app.state.workspace.get(project_id)
+        checkpoint_count = project.db.execute(
+            "SELECT COUNT(*) FROM effect_checkpoints WHERE family='model_call'"
+        ).fetchone()[0]
+        model_call_count = project.db.execute(
+            "SELECT COUNT(*) FROM model_calls"
+        ).fetchone()[0]
+
+    assert result["status"] == "error", result
+    assert len(transport.llm_calls) == 2
+    assert checkpoint_count == 2
+    assert model_call_count == 0
 
 
 def test_markdown_and_llm_http_previews_bind_cloud_per_row(tmp_path) -> None:

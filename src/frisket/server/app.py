@@ -130,6 +130,10 @@ from frisket.ai.models.gateway_config import (
     ModelsGatewayConnection,
     resolve_models_gateway_env,
 )
+from frisket.execution.models_gateway_roster import (
+    InvalidManagedModelsGatewayConfig,
+    resolve_managed_models_gateway_roster,
+)
 from frisket.server.services.selector_choices import (
     SelectorCapabilities,
     SelectorCapabilitiesFor,
@@ -314,6 +318,25 @@ def _optional_timeout_env(name: str, default: float) -> float | None:
     return value if value > 0 else None
 
 
+def _managed_models_catalog_capabilities(
+    environment: Mapping[str, str],
+) -> dict[str, Any]:
+    """Resolve Cloud's promoted gateway catalog without probing its runtime."""
+
+    try:
+        roster = resolve_managed_models_gateway_roster(environment)
+    except InvalidManagedModelsGatewayConfig as exc:
+        error = str(exc)
+    else:
+        return roster.as_catalog_capabilities()
+    return {
+        "configured": False,
+        "managed_roster": True,
+        "engines": [],
+        "error": error,
+    }
+
+
 def _media_column_kind(mime: str | None) -> str:
     if mime and mime.startswith("audio/"):
         return "audio"
@@ -399,6 +422,13 @@ def create_app(
     app = FastAPI(title="frisket", version="0.1.0")
     install_fastapi_logging(app)
     register_route_error_handler(app)
+    managed_models_catalog = (
+        _managed_models_catalog_capabilities(os.environ) if edition == "cloud" else None
+    )
+    if managed_models_catalog is not None:
+        app.state.models_gateway_roster_status = managed_models_catalog
+        if error := managed_models_catalog.get("error"):
+            LOG.warning("Managed models catalog disabled: %s", error)
     bulk_limits = bulk_import_limits or BulkImportLimits()
     if bulk_limits.max_request_bytes is not None:
         app.add_middleware(
@@ -617,12 +647,9 @@ def create_app(
     register_action_catalog_routes(
         app,
         workspace=ws,
-        # Cloud's project composition already declares the gateway engines it
-        # sells. Probing /capabilities here would cold-start Modal merely to
-        # render the picker; diagnostics and execution retain live probes.
         sidecar_capabilities=lambda: (
-            {"catalog_from_composition": True}
-            if edition == "cloud"
+            managed_models_catalog
+            if managed_models_catalog is not None
             else _sidecar_capabilities()
         ),
         edition=edition,
@@ -845,6 +872,8 @@ def create_app(
         must surface as disabled engine metadata rather than taking /catalog
         down.
         """
+        if managed_models_catalog is not None:
+            return managed_models_catalog
         import httpx
 
         from frisket.ops._sidecar import probe_sidecar_capabilities

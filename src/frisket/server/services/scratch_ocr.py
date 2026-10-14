@@ -225,39 +225,48 @@ def paid_ocr_scratch_plan(
                     "duration_ms": 0,
                     "input_pages": len(selected),
                 }
-                ctx = context.op_context()
                 output_pages: list[dict[str, Any]] = []
                 returned = False
+                execution_failure: Exception | None = None
                 started = time.perf_counter()
-                try:
-                    output_pages = await recipe_impl.run_engine_on_pages(
-                        canonical_engine,
-                        selected,
-                        ctx,
-                        usage=usage,
-                        language=normalized_options.get("language"),
-                        keep_text_position=normalized_options.get("keep_text_position"),
-                        scratch=scratch,
-                    )
-                    returned = True
-                finally:
-                    if usage.get("model_calls") or usage["calls"] or returned:
-                        calls = usage.get("model_calls") or [
-                            recipe_impl._model_call_for(
-                                canonical_engine,
-                                source,
-                                output_pages,
-                                usage,
-                                ctx=ctx,
-                            ).as_dict()
-                        ]
-                        admission = routed_admission_in_scope(ctx.extras)
-                        if admission is not None:
-                            calls = [
-                                bind_fact_to_route(admission.route, call)
-                                for call in calls
+                with context.op_context_scope() as ctx:
+                    try:
+                        output_pages = await recipe_impl.run_engine_on_pages(
+                            canonical_engine,
+                            selected,
+                            ctx,
+                            usage=usage,
+                            language=normalized_options.get("language"),
+                            keep_text_position=normalized_options.get(
+                                "keep_text_position"
+                            ),
+                            scratch=scratch,
+                        )
+                        returned = True
+                    except Exception as exc:
+                        execution_failure = exc
+                    finally:
+                        if usage.get("model_calls") or usage["calls"] or returned:
+                            calls = usage.get("model_calls") or [
+                                recipe_impl._model_call_for(
+                                    canonical_engine,
+                                    source,
+                                    output_pages,
+                                    usage,
+                                    ctx=ctx,
+                                ).as_dict()
                             ]
-                        context.write_model_calls(calls)
+                            admission = routed_admission_in_scope(ctx.extras)
+                            if admission is not None:
+                                calls = [
+                                    bind_fact_to_route(admission.route, call)
+                                    for call in calls
+                                ]
+                            context.write_model_calls(calls)
+                if execution_failure is not None:
+                    raise execution_failure.with_traceback(
+                        execution_failure.__traceback__
+                    )
                 runtime_ms = max(0, round((time.perf_counter() - started) * 1000))
 
             warnings: list[str] = []

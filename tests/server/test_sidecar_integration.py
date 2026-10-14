@@ -1456,6 +1456,37 @@ def test_cloud_catalog_uses_composition_without_probing_sidecar(tmp_path, monkey
     )
 
 
+def test_cloud_catalog_uses_promoted_roster_without_probing_sidecar(
+    tmp_path, monkeypatch
+):
+    from fastapi.testclient import TestClient
+
+    from frisket.server.app import create_app
+
+    monkeypatch.setenv("FRISKET_MODELS_URL", "http://models:8500")
+    monkeypatch.setenv("FRISKET_MODELS_TOKEN", "sekrit")
+    monkeypatch.setenv(
+        "FRISKET_MODELS_ROSTER_JSON",
+        (
+            '{"schema_version":"frisket.models_gateway_roster.v1","engines":['
+            '{"name":"paddleocr-vl","route":"/ocr"}]}'
+        ),
+    )
+
+    def unexpected_get(*_args, **_kwargs):
+        raise AssertionError("Cloud catalog must not wake the models gateway")
+
+    monkeypatch.setattr(httpx, "get", unexpected_get)
+    client = TestClient(create_app(tmp_path / "ws", edition="cloud"))
+
+    response, hints = _catalog_hints(client)
+    assert response.status_code == 200
+    engines = {entry["id"]: entry for entry in hints["media.ocr"]["engines"]}
+    assert engines["paddleocr-vl"]["available"] is True
+    assert engines["dots.mocr"]["available"] is False
+    assert "managed deployment roster" in engines["dots.mocr"]["error"]
+
+
 def test_recipe_catalog_sidecar_probe_cache_expires_deterministically(
     tmp_path, monkeypatch
 ):

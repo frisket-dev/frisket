@@ -328,21 +328,25 @@ async def ocr_vlm(
         raise RuntimeError("remote ocr engines need the model router in OpContext")
     routed = routed_admission_in_scope(ctx.extras)
     if routed is not None:
-        # §3.5 pre-effect USE constraint, the same seat the remote
-        # TRANSCRIPTION path holds: the router genuinely chooses among a
-        # project key, an org BYOK key and the platform's own, so the class
-        # it selected is compared to the class the consent named before the
-        # page bytes leave the machine. A router that cannot report its
-        # provenance reports NONE — never a fabricated "local", which would
-        # make the check pass for the wrong reason.
+        # §3.5 pre-effect USE constraint for direct provider routes: the router
+        # genuinely chooses among a project key, an org BYOK key and the
+        # platform's own. Cloud model routes have no local provider credential
+        # to inspect; their admitted payer is verified by cloud_runtime_binding
+        # and the Cloud service selects the exact account-key/platform-key lane.
         provider = model.partition("/")[0]
-        reader = getattr(router, "credential_source_for", None)
-        halt_unless_consented_credential(
-            routed.route,
-            reader(provider) if callable(reader) else "none",
-            f"the {provider} vision-model OCR call",
-            context=ctx.credential_use_context,
+        payer = routed.binding.facts.cloud_payer
+        cloud_model_route = (
+            payer is not None
+            and routed.route.target_snapshot.get("transport") == "frisket.cloud.llm.v1"
         )
+        if not cloud_model_route:
+            reader = getattr(router, "credential_source_for", None)
+            halt_unless_consented_credential(
+                routed.route,
+                reader(provider) if callable(reader) else "none",
+                f"the {provider} vision-model OCR call",
+                context=ctx.credential_use_context,
+            )
     text_schema = {
         "type": "object",
         "properties": {
@@ -504,6 +508,11 @@ def accumulate_vlm_response_usage(usage: dict, resp: Any) -> None:
     )
     usage["in"] += resp.tokens_in or 0
     usage["out"] += resp.tokens_out or 0
+    actual = getattr(resp, "actual_accounting", None)
+    if actual is not None:
+        usage.setdefault("model_calls", []).extend(
+            dict(model_call) for model_call in actual.model_calls
+        )
     # resp.cost None = unpriced model; one unknown call makes the row's total
     # unknown (None), never silently $0.
     if getattr(resp, "cached", False):

@@ -160,17 +160,10 @@ export function EngineSelector({
         return !term || `${choice.label} ${choice.summary ?? ''} ${choice.route?.label ?? ''} ${choice.availability?.label ?? ''}`.toLowerCase().includes(term);
       }));
   const recents = recentIds.filter((id) => authoritativeIds.has(id));
-  const recentOrderedChoices = hasSearch
-    ? currentChoices
-    : [...currentChoices].sort((left, right) => {
-        const leftRecent = recents.indexOf(left.id);
-        const rightRecent = recents.indexOf(right.id);
-        if (leftRecent < 0 && rightRecent < 0) return 0;
-        if (leftRecent < 0) return 1;
-        if (rightRecent < 0) return -1;
-        return leftRecent - rightRecent;
-      });
-  const orderedChoices = prioritizeRunnableChoices(recentOrderedChoices);
+  // Recency is presentation history only. Preserve the server's curated order
+  // within each availability bucket so an older recent model cannot jump ahead
+  // of a current model.
+  const orderedChoices = prioritizeRunnableChoices(currentChoices);
   const showProviderFilter = !hasSearch && (currentGroup?.choices.length ?? 0) > 12;
   const positioning = useAnchoredPosition(triggerRef, {
     enabled: open,

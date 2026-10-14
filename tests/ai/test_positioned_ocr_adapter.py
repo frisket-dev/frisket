@@ -10,7 +10,11 @@ from PIL import Image
 
 from frisket.ai.llm.structured import StructuredCompleter
 from frisket.ops.base import OpContext
-from frisket.ops.ocr_engines_hosted import ocr_coordinate_profile, ocr_vlm
+from frisket.ops.ocr_engines_hosted import (
+    accumulate_vlm_response_usage,
+    ocr_coordinate_profile,
+    ocr_vlm,
+)
 
 
 def _page(tmp_path, *, size: tuple[int, int] = (200, 100)):
@@ -43,6 +47,24 @@ def _stub_completion(
 
     monkeypatch.setattr(StructuredCompleter, "complete", complete)
     return requests, wire_call
+
+
+def test_vlm_usage_retains_server_authored_model_call_facts() -> None:
+    usage = _usage()
+    fact = {"id": "cloud-ocr-1", "capability": "ocr"}
+    response = SimpleNamespace(
+        tokens_in=12,
+        tokens_out=8,
+        cost=0.002,
+        duration_ms=9,
+        cached=False,
+        actual_accounting=SimpleNamespace(model_calls=(fact,)),
+    )
+
+    accumulate_vlm_response_usage(usage, response)
+
+    assert usage["model_calls"] == [fact]
+    assert usage["model_calls"][0] is not fact
 
 
 @pytest.mark.parametrize(

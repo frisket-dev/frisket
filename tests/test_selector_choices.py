@@ -1692,9 +1692,12 @@ def test_extract_defaults_to_llm_from_available_choices(
         c for c in _choices(payload) if c["choice_id"] == payload["default_choice_id"]
     )
     assert choice["authored_selection"]["engine"] == "llm"
-    assert choice["authored_selection"]["model"].startswith(
-        f"{provider or 'anthropic'}/"
-    )
+    expected = {
+        "openai": "openai/gpt-6.1-sol",
+        "anthropic": "anthropic/claude-sonnet-5-5",
+        "gemini": "gemini/gemini-3.8-flash",
+    }
+    assert choice["authored_selection"]["model"] == expected[provider or "anthropic"]
     assert choice["status"] == ("ready" if provider else "needs_setup")
 
 

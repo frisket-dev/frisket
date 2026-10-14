@@ -242,6 +242,34 @@ test('Per-model routes survive key setup and drive real Cloud and own previews',
   await dialog.screenshot({ path: testInfo.outputPath('cloud-use-through-connected.png') });
   await page.keyboard.press('Escape');
 
+  const visionOCRSelector = page.waitForResponse((response) => (
+    response.request().method() === 'POST' && response.url().endsWith('/selector-choices') && response.ok()
+  ));
+  await page.goto(`/p/${projectId}/s/${sheetId}/action/media.ocr`);
+  const visionOCRPayload = await (await visionOCRSelector).json() as SelectorResponse;
+  const visionOCR = visionOCRPayload.groups.flatMap((group) => group.choices)
+    .find((choice) => choice.authored_selection.engine === 'gemini/gemini-3.5-flash-lite');
+  expect(visionOCR).toMatchObject({
+    execution_route: { kind: 'cloud_credits', account_id: 41 },
+    status: 'ready', can_run: true,
+  });
+  await page.getByTestId('field-engine').locator('.engine-selector__trigger').click();
+  await dialog.getByRole('searchbox').fill('Gemini 3.5 Flash-Lite');
+  await dialog.locator(`[data-choice-id="${visionOCR!.choice_id}"]`).hover();
+  await expect(dialog.getByRole('button', { name: 'Frisket Cloud', exact: true }))
+    .toHaveAttribute('aria-pressed', 'true');
+  await dialog.getByRole('button', { name: 'Your Gemini key', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: 'Your Gemini key', exact: true }))
+    .toHaveAttribute('aria-pressed', 'true');
+  await dialog.getByRole('button', { name: 'Frisket Cloud', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: 'Frisket Cloud', exact: true }))
+    .toHaveAttribute('aria-pressed', 'true');
+  await expect(dialog).toContainText('$0.30 per million input tokens');
+  await expect(dialog).toContainText('$2.50 per million output tokens');
+  await expect(dialog).not.toContainText('per usd');
+  await dialog.screenshot({ path: testInfo.outputPath('vision-ocr-cloud-route.png') });
+  await page.keyboard.press('Escape');
+
   for (const [action, engineId] of [
     ['media.ocr', 'paddleocr-vl'],
     ['media.transcribe', 'whisper-turbo'],

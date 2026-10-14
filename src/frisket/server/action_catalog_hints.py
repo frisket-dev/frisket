@@ -76,11 +76,22 @@ def _sidecar_engine(
             continue
         if engine.get("route") == route and engine.get("name") == name:
             models = engine.get("models", [])
+            if capabilities.get("managed_roster") is True:
+                return True, None, []
             return (
                 bool(engine.get("available")),
                 engine.get("error") if isinstance(engine.get("error"), str) else None,
                 models if isinstance(models, list) else [],
             )
+    if capabilities.get("managed_roster") is True:
+        error = capabilities.get("error")
+        return (
+            False,
+            error
+            if isinstance(error, str)
+            else f"Sidecar engine '{name}' is not in the managed deployment roster.",
+            [],
+        )
     if not capabilities.get("configured"):
         return (
             False,
@@ -124,6 +135,8 @@ def _sidecar_v1_engine(
         if not isinstance(engine, dict):
             continue
         if engine.get("route") == route and engine.get("name") == name:
+            if capabilities.get("managed_roster") is True:
+                return True, None, []
             versions = engine.get("contract_versions")
             if not isinstance(versions, list) or contract_version not in versions:
                 legacy_match = True
@@ -134,6 +147,15 @@ def _sidecar_v1_engine(
                 engine.get("error") if isinstance(engine.get("error"), str) else None,
                 models if isinstance(models, list) else [],
             )
+    if capabilities.get("managed_roster") is True:
+        error = capabilities.get("error")
+        return (
+            False,
+            error
+            if isinstance(error, str)
+            else f"Sidecar engine '{name}' is not in the managed deployment roster.",
+            [],
+        )
     if legacy_match:
         return (
             False,
@@ -1374,7 +1396,15 @@ def _recipe_engines(
         ]
     if action_kind == "media.ocr":
         from frisket.credentials import resolve_credential_for_use
+        from frisket.engine._workers.indra_ocr_artifacts import indra_ocr_artifact
+        from frisket.engine._workers.indra_ocr_model import (
+            MODEL_IDENTITY,
+            MODEL_LICENSE_NAME,
+            MODEL_LICENSE_URL,
+            SETUP_REF,
+        )
         from frisket.ops.ocr_engines import (
+            indra_ocr_available,
             rapidocr_available,
             tesseract_available,
         )
@@ -1396,6 +1426,11 @@ def _recipe_engines(
         )
         tess_ok, tess_err = tesseract_available()
         rapid_ok, rapid_err = rapidocr_available()
+        indra_ok, indra_err = indra_ocr_available()
+        indra_artifact = indra_ocr_artifact()
+        indra_snapshot = indra_artifact.hf_snapshot
+        if indra_snapshot is None:
+            raise RuntimeError("Indra OCR must use a pinned HF snapshot")
         ocr_llm_providers = _configured_llm_providers(
             project,
             org_provider_keys,
@@ -1433,7 +1468,39 @@ def _recipe_engines(
             project, "DATALAB_API_KEY", context=credential_context
         )
         decl = _table_decls(OCR_ENGINE_TABLE)
-        # Projector parity pins ``dots.mocr`` at index 3.
+        indra_engine = _declared_engine(
+            decl["indra-ocr"],
+            available=indra_ok,
+            error=indra_err,
+            models=[MODEL_IDENTITY] if indra_ok else None,
+            license_hint={
+                "name": MODEL_LICENSE_NAME,
+                "url": MODEL_LICENSE_URL,
+                "note": (
+                    "Limits organizational use above either $20M prior-year "
+                    "gross revenue or total funding, and competing products/services; "
+                    "requires attribution and this license on outputs."
+                ),
+                "restricted": True,
+            },
+        )
+        indra_engine.update(
+            {
+                "description": "Fast local CPU OCR by Datalab using pinned ONNX weights.",
+                "model_card_url": indra_artifact.source_url,
+                "setup_ref": SETUP_REF,
+                "downloadable_models": [
+                    {
+                        "ref": indra_artifact.ref,
+                        "display_name": indra_artifact.display_name,
+                        "revision": indra_snapshot.revision,
+                        "size": indra_artifact.approx_size_bytes,
+                        "license": indra_artifact.license,
+                    }
+                ],
+            }
+        )
+        # Projector parity pins ``dots.mocr`` at index 4.
         return [
             _declared_engine(
                 decl["rapidocr"],
@@ -1452,6 +1519,7 @@ def _recipe_engines(
                     "detects": False,
                 },
             ),
+            indra_engine,
             _declared_engine(
                 decl["paddleocr-vl"],
                 available=paddle_ok,

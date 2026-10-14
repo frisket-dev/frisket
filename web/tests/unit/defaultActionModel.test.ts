@@ -1,5 +1,5 @@
 // Bug: the action form's model picker defaulted every fresh launch to
-// MODEL_OPTIONS[0] (a Gemini model, see modelCatalog.generated.ts) regardless
+// MODEL_OPTIONS[0] regardless
 // of which provider the workspace actually configured — a workspace with
 // only an Anthropic key got a Gemini model preselected, then the run failed
 // (or silently asked for the wrong credential). defaultActionModel is the
@@ -44,21 +44,19 @@ function catalogOf(providers: LocalProviderEntry[]): LocalProviderCatalog {
 }
 
 describe('defaultActionModel', () => {
-  it('only Anthropic configured -> preselects an Anthropic model, not MODEL_OPTIONS[0] (Gemini)', () => {
-    // Sanity-check the bug's premise: the built-in catalog's first entry is
-    // a Gemini model, the exact wrong default this workspace must not get.
-    expect(modelProviderId(MODEL_OPTIONS[0].id)).toBe('gemini');
+  it('only OpenAI configured -> skips the unconfigured first provider', () => {
+    expect(modelProviderId(MODEL_OPTIONS[0].id)).toBe('anthropic');
 
     const catalog = catalogOf([
       entry({ id: 'gemini', label: 'Gemini', kind: 'platform_api', configured: false }),
-      entry({ id: 'anthropic', label: 'Anthropic', kind: 'platform_api', configured: true }),
-      entry({ id: 'openai', label: 'OpenAI', kind: 'platform_api', configured: false }),
+      entry({ id: 'anthropic', label: 'Anthropic', kind: 'platform_api', configured: false }),
+      entry({ id: 'openai', label: 'OpenAI', kind: 'platform_api', configured: true }),
       localEntry({ endpoint_id: 'desktop', label: 'Local server' }),
     ]);
 
     const picked = defaultActionModel(catalog);
     expect(picked).not.toBeNull();
-    expect(modelProviderId(picked as string)).toBe('anthropic');
+    expect(picked).toBe('openai/gpt-6.1-sol');
   });
 
   it('nothing configured -> null (the no-provider state), never a Gemini model presented as ready', () => {

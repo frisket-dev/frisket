@@ -105,6 +105,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "huggingface-hub", marker = "extra == 'classify'", specifier = "==1.31.0" },
     { name = "huggingface-hub", marker = "extra == 'classify-clef'", specifier = ">=1.0" },
+    { name = "indra-ocr", marker = "extra == 'ocr-indra'", specifier = "==0.3.1" },
     { name = "markdown-it-py", marker = "extra == 'ocr-lighton'", specifier = ">=3" },
     { name = "numpy", marker = "extra == 'classify'", specifier = "==2.5.3" },
     { name = "paddleocr", marker = "extra == 'ocr-paddle'", specifier = ">=3.7" },
@@ -133,7 +134,7 @@ requires-dist = [
     { name = "transformers", marker = "extra == 'ocr-lighton'", specifier = ">=5.5.4" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.49.0" },
 ]
-provides-extras = ["classify-clef", "ocr", "ocr-lighton", "ocr-paddle", "convert", "classify", "convert-chandra", "ner", "transcribe", "rerank", "embed", "all"]
+provides-extras = ["classify-clef", "ocr", "ocr-lighton", "ocr-indra", "ocr-paddle", "convert", "classify", "convert-chandra", "ner", "transcribe", "rerank", "embed", "all"]
 
 [package.metadata.requires-dev]
 dev = [

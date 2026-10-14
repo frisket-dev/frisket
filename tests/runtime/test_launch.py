@@ -32,6 +32,22 @@ def test_classifier_policy_only_accepts_owned_optional_runtime(monkeypatch, tmp_
         with_policy(command, {"version": 1})
 
 
+def test_indra_policy_only_accepts_owned_optional_runtime(monkeypatch, tmp_path):
+    from frisket.runtime import indra_ocr_install
+    from frisket.runtime.launch import is_worker_argv, with_policy
+
+    owned = tmp_path / "indra-python"
+    monkeypatch.setattr(indra_ocr_install, "runtime_python", lambda: owned)
+    command = worker_argv("runtime-info")
+    command[0] = str(owned)
+    command[3] = "indra-ocr"
+    assert is_worker_argv(command)
+    assert "--policy" in with_policy(command, {"version": 1})
+    command[0] = str(tmp_path / "arbitrary-python")
+    with pytest.raises(ValueError, match="managed Python"):
+        with_policy(command, {"version": 1})
+
+
 def test_private_interpreter_loads_separate_app_not_ambient_pythonpath(tmp_path):
     environment = tmp_path / "private Python"
     venv.EnvBuilder(with_pip=False).create(environment)

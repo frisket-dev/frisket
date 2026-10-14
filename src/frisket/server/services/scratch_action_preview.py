@@ -5,15 +5,16 @@ from frisket.execution.consent_coverage import ConsentCoverage
 
 import copy
 import threading
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
-from typing import Any, Awaitable, Callable, Mapping
+from typing import Any, Awaitable, Callable, Iterator, Mapping
 
 from frisket.engine.executor.table_preview import TablePreviewResult
 from frisket.engine.store.runs import RunResultStore
 from frisket.execution.attempt import ATTEMPT_EXTRA, AttemptCommitment
 from frisket.execution.resolve_for_action import SCRATCH_PREVIEW_UNIT_ID
 from frisket.execution.resolver import ResolvedExecution
-from frisket.ops.base import OpContext, RecipeInvocationHalt
+from frisket.ops.base import OpContext
 from frisket.ops.cost_source import estimate_from_cost_basis
 
 
@@ -86,6 +87,9 @@ class ScratchActionPreviewRunContext:
         return self.cancel_event.is_set()
 
     def op_context(self, *, http: Any = None) -> OpContext:
+        return self._op_context(self._cloud_binding(), http=http)
+
+    def _op_context(self, binding: Any, *, http: Any = None) -> OpContext:
         extras: dict[str, Any] = {
             "preview": True,
             "preview_execution": self.resolved_for_preview,
@@ -94,41 +98,47 @@ class ScratchActionPreviewRunContext:
         }
         if self.attempt is not None:
             extras[ATTEMPT_EXTRA] = self.attempt
-        cloud_execution = None
-        if self.attempt is not None:
-            from frisket.cloud_runtime_binding import cloud_runtime_binding
-
-            binding = cloud_runtime_binding(
-                self.project,
-                self.composition,
-                self.attempt,
-                row_id=SCRATCH_PREVIEW_UNIT_ID,
-                request_id=(
-                    f"preview:{self.attempt.receipt_id}:row:{SCRATCH_PREVIEW_UNIT_ID}"
-                ),
-                group_key=(
-                    f"preview:{self.attempt.receipt_id}:row:{SCRATCH_PREVIEW_UNIT_ID}"
-                ),
-                action_kind=self.action_kind,
-                run_id=None,
-                claim_token=None,
-                claimless_direct_effect=True,
-            )
-            if binding is not None:
-                cloud_execution = binding.media_binding
-                if binding.llm_coordinator is not None:
-                    raise RecipeInvocationHalt(
-                        "promise_violation",
-                        "Scratch media preview received a Cloud LLM route",
-                    )
         return OpContext(
             project=self.project,
             http=http if http is not None else getattr(self.router, "client", None),
             extras=extras,
             credential_use_context=self.credential_use_context,
             execution_limits=self.execution_limits,
-            cloud_execution=cloud_execution,
+            cloud_execution=binding.media_binding if binding is not None else None,
         )
+
+    def _cloud_binding(self) -> Any:
+        if self.attempt is None:
+            return None
+        from frisket.cloud_runtime_binding import cloud_runtime_binding
+
+        return cloud_runtime_binding(
+            self.project,
+            self.composition,
+            self.attempt,
+            row_id=SCRATCH_PREVIEW_UNIT_ID,
+            request_id=f"preview:{self.attempt.receipt_id}:row:{SCRATCH_PREVIEW_UNIT_ID}",
+            group_key=f"preview:{self.attempt.receipt_id}:row:{SCRATCH_PREVIEW_UNIT_ID}",
+            action_kind=self.action_kind,
+            run_id=None,
+            claim_token=None,
+            claimless_direct_effect=True,
+        )
+
+    @contextmanager
+    def op_context_scope(self, *, http: Any = None) -> Iterator[OpContext]:
+        """Scope scratch execution to the admitted durable Cloud model call."""
+
+        binding = self._cloud_binding()
+        ctx = self._op_context(binding, http=http)
+        if binding is None or binding.llm_binding is None:
+            yield ctx
+            return
+        from frisket.cloud_execution import cloud_llm_execution_scope
+
+        with cloud_llm_execution_scope(binding.llm_binding):
+            yield ctx
+        binding.llm_coordinator.retire_returned()
 
     @property
     def resolved_for_preview(self) -> ResolvedExecution | None:

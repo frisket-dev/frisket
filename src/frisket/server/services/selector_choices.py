@@ -46,7 +46,6 @@ from frisket.execution.resolver import (
     ModelRoute,
     Refusal,
     ResolutionRequest,
-    cloud_route_eligible,
     preferred_static_choice,
     resolve,
 )
@@ -98,12 +97,13 @@ from frisket.server.services.selector_choices_projection import (
     _engine_destination,
     _engine_facts,
     _model_facts,
-    _cloud_llm_model_facts,
+    _cloud_model_facts,
     _model_target,
     _embedding_target,
     _embedding_facts,
     _network_policy_forbids_target,
     _route_selection,
+    _model_route_selectable,
     _selected_route,
     _opus_pair_supported,
     _opus_pair_key,
@@ -888,8 +888,8 @@ class SelectorChoiceService:
                     )
                     facts = []
                 elif selected_route == "cloud" and presentation.target is not None:
-                    facts = _cloud_llm_model_facts(
-                        composition, presentation.target, model["id"]
+                    facts = _cloud_model_facts(
+                        composition, presentation.target, model["id"], CAPABILITY_LLM
                     )
                 route_selection = (
                     _route_selection(
@@ -1140,8 +1140,13 @@ class SelectorChoiceService:
                 if execution_capability is not None
                 else {}
             )
-            route_capable = execution_capability is not None and cloud_route_eligible(
-                engine_id, execution_capability
+            route_capable = (
+                execution_capability is not None
+                and _model_route_selectable(
+                    composition,
+                    capability=execution_capability,
+                    engine=engine_id,
+                )
             )
             outcome, selected_route = (
                 _resolve_route_choice(
@@ -1558,6 +1563,19 @@ class SelectorChoiceService:
                     for action in configuration_actions
                     if action.get("kind") not in {"api_key", "models_gateway"}
                 ]
+            facts = _engine_facts(
+                engine,
+                target,
+                include_active_route=not (selected_route == "cloud" and target is None),
+            )
+            if target is not None and execution_capability is not None:
+                token_facts = _cloud_model_facts(
+                    composition, target, engine_id, execution_capability
+                )
+                if token_facts:
+                    facts = [
+                        fact for fact in facts if fact["kind"] != "rate"
+                    ] + token_facts
             choices.append(
                 _choice(
                     selection=selection,
@@ -1567,13 +1585,7 @@ class SelectorChoiceService:
                     model_card_url=_optional_str(engine.get("model_card_url")),
                     resolved_target=resolved_target,
                     processing_destination=destination,
-                    facts=_engine_facts(
-                        engine,
-                        target,
-                        include_active_route=not (
-                            selected_route == "cloud" and target is None
-                        ),
-                    ),
+                    facts=facts,
                     status=status,
                     can_author=capabilities.may_author_actions
                     and status != "unavailable",

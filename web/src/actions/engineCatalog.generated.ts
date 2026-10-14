@@ -20,6 +20,13 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
     "error": "Action catalog unavailable"
   },
   {
+    "id": "indra-ocr",
+    "label": "Indra OCR (local CPU)",
+    "tier": "local",
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
     "id": "paddleocr-vl",
     "label": "PaddleOCR-VL document VLM (sidecar)",
     "tier": "sidecar",
@@ -55,52 +62,8 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
     "error": "Action catalog unavailable"
   },
   {
-    "id": "anthropic/claude-haiku-4-5",
-    "label": "Claude Haiku 4.5 — fastest",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "anthropic/claude-sonnet-4-6",
-    "label": "Claude Sonnet 4.6 — balanced",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "anthropic/claude-sonnet-5",
-    "label": "Claude Sonnet 5 — latest balanced",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "anthropic/claude-opus-4-8",
-    "label": "Claude Opus 4.8 — complex work",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "anthropic/claude-fable-5",
-    "label": "Claude Fable 5 — frontier",
+    "id": "anthropic/claude-sonnet-5-5",
+    "label": "Claude Sonnet 5.5",
     "tier": "hosted",
     "billable": true,
     "ocr_options": {
@@ -111,7 +74,18 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   },
   {
     "id": "anthropic/claude-fable-5-1",
-    "label": "Claude Fable 5 1",
+    "label": "Claude Fable 5.1",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "anthropic/claude-opus-5-5",
+    "label": "Claude Opus 5.5",
     "tier": "hosted",
     "billable": true,
     "ocr_options": {
@@ -122,18 +96,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   },
   {
     "id": "anthropic/claude-haiku-5-5",
-    "label": "Claude Haiku 5 5",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "anthropic/claude-mythos-5",
-    "label": "Claude Mythos 5",
+    "label": "Claude Haiku 5.5",
     "tier": "hosted",
     "billable": true,
     "ocr_options": {
@@ -144,7 +107,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   },
   {
     "id": "anthropic/claude-mythos-5-1",
-    "label": "Claude Mythos 5 1",
+    "label": "Claude Mythos 5.1 — restricted access",
     "tier": "hosted",
     "billable": true,
     "ocr_options": {
@@ -154,8 +117,8 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
     "error": "Action catalog unavailable"
   },
   {
-    "id": "anthropic/claude-opus-4-5",
-    "label": "Claude Opus 4 5",
+    "id": "anthropic/claude-fable-5",
+    "label": "Claude Fable 5",
     "tier": "hosted",
     "billable": true,
     "ocr_options": {
@@ -165,19 +128,8 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
     "error": "Action catalog unavailable"
   },
   {
-    "id": "anthropic/claude-opus-4-6",
-    "label": "Claude Opus 4 6",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "anthropic/claude-opus-4-7",
-    "label": "Claude Opus 4 7",
+    "id": "anthropic/claude-mythos-5",
+    "label": "Claude Mythos 5 — restricted access",
     "tier": "hosted",
     "billable": true,
     "ocr_options": {
@@ -198,8 +150,63 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
     "error": "Action catalog unavailable"
   },
   {
-    "id": "anthropic/claude-opus-5-5",
-    "label": "Claude Opus 5 5",
+    "id": "anthropic/claude-sonnet-5",
+    "label": "Claude Sonnet 5",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "anthropic/claude-opus-4-8",
+    "label": "Claude Opus 4.8",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "anthropic/claude-opus-4-7",
+    "label": "Claude Opus 4.7",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "anthropic/claude-opus-4-6",
+    "label": "Claude Opus 4.6",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "anthropic/claude-sonnet-4-6",
+    "label": "Claude Sonnet 4.6",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "anthropic/claude-opus-4-5",
+    "label": "Claude Opus 4.5",
     "tier": "hosted",
     "billable": true,
     "ocr_options": {
@@ -210,7 +217,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   },
   {
     "id": "anthropic/claude-sonnet-4-5",
-    "label": "Claude Sonnet 4 5",
+    "label": "Claude Sonnet 4.5",
     "tier": "hosted",
     "billable": true,
     "ocr_options": {
@@ -220,184 +227,8 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
     "error": "Action catalog unavailable"
   },
   {
-    "id": "anthropic/claude-sonnet-5-5",
-    "label": "Claude Sonnet 5 5",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "openai/gpt-5-mini",
-    "label": "GPT-5 mini — economical",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "openai/gpt-5",
-    "label": "GPT-5 — previous generation",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "openai/gpt-5.6-luna",
-    "label": "GPT-5.6 Luna — fast/economical",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "openai/gpt-5.6-terra",
-    "label": "GPT-5.6 Terra — balanced",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "openai/gpt-5.6-sol",
-    "label": "GPT-5.6 Sol — frontier",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "openai/gpt-5-nano",
-    "label": "GPT 5 Nano",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "openai/gpt-5.1",
-    "label": "GPT 5.1",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "openai/gpt-5.2",
-    "label": "GPT 5.2",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "openai/gpt-5.4",
-    "label": "GPT 5.4",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "openai/gpt-5.4-mini",
-    "label": "GPT 5.4 Mini",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "openai/gpt-5.4-nano",
-    "label": "GPT 5.4 Nano",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "openai/gpt-5.5",
-    "label": "GPT 5.5",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "openai/gpt-5.6",
-    "label": "GPT 5.6",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "openai/gpt-6-astra",
-    "label": "GPT 6 Astra",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "openai/gpt-6-luna",
-    "label": "GPT 6 Luna",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "openai/gpt-6-sol",
-    "label": "GPT 6 Sol",
+    "id": "anthropic/claude-haiku-4-5",
+    "label": "Claude Haiku 4.5",
     "tier": "hosted",
     "billable": true,
     "ocr_options": {
@@ -408,7 +239,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   },
   {
     "id": "openai/gpt-6.1-sol",
-    "label": "GPT 6.1 Sol",
+    "label": "GPT-6.1 Sol",
     "tier": "hosted",
     "billable": true,
     "ocr_options": {
@@ -418,8 +249,8 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
     "error": "Action catalog unavailable"
   },
   {
-    "id": "gemini/gemini-3.5-flash-lite",
-    "label": "Gemini 3.5 Flash-Lite — fast/cheap (default)",
+    "id": "openai/gpt-6-astra",
+    "label": "GPT-6 Astra",
     "tier": "hosted",
     "billable": true,
     "ocr_options": {
@@ -429,8 +260,8 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
     "error": "Action catalog unavailable"
   },
   {
-    "id": "gemini/gemini-3.1-flash-lite",
-    "label": "Gemini 3.1 Flash-Lite — high throughput",
+    "id": "openai/gpt-6-luna",
+    "label": "GPT-6 Luna",
     "tier": "hosted",
     "billable": true,
     "ocr_options": {
@@ -440,8 +271,8 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
     "error": "Action catalog unavailable"
   },
   {
-    "id": "gemini/gemini-3.5-flash",
-    "label": "Gemini 3.5 Flash — balanced",
+    "id": "openai/gpt-6-sol",
+    "label": "GPT-6 Sol",
     "tier": "hosted",
     "billable": true,
     "ocr_options": {
@@ -451,8 +282,8 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
     "error": "Action catalog unavailable"
   },
   {
-    "id": "gemini/gemini-3.6-flash",
-    "label": "Gemini 3.6 Flash — latest multimodal",
+    "id": "openai/gpt-5.6-sol",
+    "label": "GPT-5.6 Sol",
     "tier": "hosted",
     "billable": true,
     "ocr_options": {
@@ -462,8 +293,8 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
     "error": "Action catalog unavailable"
   },
   {
-    "id": "gemini/gemini-3.1-pro-preview",
-    "label": "Gemini 3.1 Pro — complex work (preview)",
+    "id": "openai/gpt-5.6-terra",
+    "label": "GPT-5.6 Terra",
     "tier": "hosted",
     "billable": true,
     "ocr_options": {
@@ -473,8 +304,8 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
     "error": "Action catalog unavailable"
   },
   {
-    "id": "gemini/gemini-3-flash-preview",
-    "label": "Gemini 3 Flash Preview",
+    "id": "openai/gpt-5.6-luna",
+    "label": "GPT-5.6 Luna",
     "tier": "hosted",
     "billable": true,
     "ocr_options": {
@@ -484,8 +315,8 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
     "error": "Action catalog unavailable"
   },
   {
-    "id": "gemini/gemini-3.1-flash-lite-preview",
-    "label": "Gemini 3.1 Flash Lite Preview",
+    "id": "openai/gpt-5.6",
+    "label": "GPT-5.6",
     "tier": "hosted",
     "billable": true,
     "ocr_options": {
@@ -495,8 +326,96 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
     "error": "Action catalog unavailable"
   },
   {
-    "id": "gemini/gemini-3.7-flash",
-    "label": "Gemini 3.7 Flash",
+    "id": "openai/gpt-5.5",
+    "label": "GPT-5.5",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "openai/gpt-5.4",
+    "label": "GPT-5.4",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "openai/gpt-5.4-mini",
+    "label": "GPT-5.4 mini",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "openai/gpt-5.4-nano",
+    "label": "GPT-5.4 nano",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "openai/gpt-5.2",
+    "label": "GPT-5.2",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "openai/gpt-5.1",
+    "label": "GPT-5.1",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "openai/gpt-5",
+    "label": "GPT-5",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "openai/gpt-5-mini",
+    "label": "GPT-5 mini",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "openai/gpt-5-nano",
+    "label": "GPT-5 nano",
     "tier": "hosted",
     "billable": true,
     "ocr_options": {
@@ -517,8 +436,8 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
     "error": "Action catalog unavailable"
   },
   {
-    "id": "openrouter/qwen/qwen3-vl-8b-instruct",
-    "label": "Qwen3-VL 8B — open vision",
+    "id": "gemini/gemini-3.5-flash-lite",
+    "label": "Gemini 3.5 Flash-Lite",
     "tier": "hosted",
     "billable": true,
     "ocr_options": {
@@ -528,8 +447,74 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
     "error": "Action catalog unavailable"
   },
   {
-    "id": "openrouter/z-ai/glm-5.3-flash",
-    "label": "GLM 5.3 Flash — open vision",
+    "id": "gemini/gemini-3.7-flash",
+    "label": "Gemini 3.7 Flash",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "gemini/gemini-3.6-flash",
+    "label": "Gemini 3.6 Flash",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "gemini/gemini-3.5-flash",
+    "label": "Gemini 3.5 Flash",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "gemini/gemini-3.1-pro-preview",
+    "label": "Gemini 3.1 Pro (preview)",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "gemini/gemini-3.1-flash-lite",
+    "label": "Gemini 3.1 Flash-Lite",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "gemini/gemini-3.1-flash-lite-preview",
+    "label": "Gemini 3.1 Flash-Lite (preview)",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "gemini/gemini-3-flash-preview",
+    "label": "Gemini 3 Flash (preview)",
     "tier": "hosted",
     "billable": true,
     "ocr_options": {
@@ -540,205 +525,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   },
   {
     "id": "openrouter/moonshotai/kimi-k3",
-    "label": "Kimi K3 — open vision",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "openrouter/xiaomi/mimo-v2.5",
-    "label": "MiMo V2.5 — open vision",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "openrouter/minimax/minimax-m3",
-    "label": "MiniMax M3 — hosted multimodal OCR via OpenRouter",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "openrouter/qwen/qwen3-vl-235b-a22b-instruct",
-    "label": "Qwen: Qwen3 VL 235B A22B Instruct",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "openrouter/qwen/qwen3-vl-30b-a3b-instruct",
-    "label": "Qwen: Qwen3 VL 30B A3B Instruct",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "openrouter/qwen/qwen3-vl-30b-a3b-thinking",
-    "label": "Qwen: Qwen3 VL 30B A3B Thinking",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "openrouter/qwen/qwen3.5-122b-a10b",
-    "label": "Qwen: Qwen3.5-122B-A10B",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "openrouter/qwen/qwen3.5-27b",
-    "label": "Qwen: Qwen3.5-27B",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "openrouter/qwen/qwen3.5-35b-a3b",
-    "label": "Qwen: Qwen3.5-35B-A3B",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "openrouter/qwen/qwen3.5-397b-a17b",
-    "label": "Qwen: Qwen3.5 397B A17B",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "openrouter/qwen/qwen3.5-9b",
-    "label": "Qwen: Qwen3.5-9B",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "openrouter/qwen/qwen3.6-27b",
-    "label": "Qwen: Qwen3.6 27B",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "openrouter/qwen/qwen3.6-35b-a3b",
-    "label": "Qwen: Qwen3.6 35B A3B",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "openrouter/qwen/qwen3.6-flash",
-    "label": "Qwen: Qwen3.6 Flash",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "openrouter/qwen/qwen3.6-plus",
-    "label": "Qwen: Qwen3.6 Plus",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "openrouter/qwen/qwen3.7-flash",
-    "label": "Qwen: Qwen3.7 Flash",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "openrouter/qwen/qwen3.7-plus",
-    "label": "Qwen: Qwen3.7 Plus",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "openrouter/qwen/qwen3.8-27b",
-    "label": "Qwen: Qwen3.8 27B",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "openrouter/qwen/qwen3.8-flash",
-    "label": "Qwen: Qwen3.8 Flash",
+    "label": "Kimi K3",
     "tier": "hosted",
     "billable": true,
     "ocr_options": {
@@ -749,18 +536,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   },
   {
     "id": "openrouter/qwen/qwen3.8-max-prime",
-    "label": "Qwen: Qwen3.8 Max Prime",
-    "tier": "hosted",
-    "billable": true,
-    "ocr_options": {
-      "keep_text_position": true
-    },
-    "available": false,
-    "error": "Action catalog unavailable"
-  },
-  {
-    "id": "openrouter/xiaomi/mimo-v2.6-flash",
-    "label": "Xiaomi: MiMo-V2.6-Flash",
+    "label": "Qwen3.8 Max Prime",
     "tier": "hosted",
     "billable": true,
     "ocr_options": {
@@ -771,7 +547,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   },
   {
     "id": "openrouter/xiaomi/mimo-v2.6-pro",
-    "label": "Xiaomi: MiMo-V2.6-Pro",
+    "label": "MiMo-V2.6-Pro",
     "tier": "hosted",
     "billable": true,
     "ocr_options": {
@@ -782,7 +558,40 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   },
   {
     "id": "openrouter/xiaomi/mimo-v2.6-pro-ultraspeed",
-    "label": "Xiaomi: MiMo-V2.6-Pro-UltraSpeed",
+    "label": "MiMo-V2.6-Pro-UltraSpeed",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "openrouter/minimax/minimax-m3",
+    "label": "MiniMax M3",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "openrouter/qwen/qwen3.8-flash",
+    "label": "Qwen3.8 Flash",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "openrouter/qwen/qwen3.8-27b",
+    "label": "Qwen3.8 27B",
     "tier": "hosted",
     "billable": true,
     "ocr_options": {
@@ -793,7 +602,205 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   },
   {
     "id": "openrouter/z-ai/glm-5.3-flashx",
-    "label": "Z.ai: GLM 5.3 FlashX",
+    "label": "GLM-5.3 FlashX",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "openrouter/z-ai/glm-5.3-flash",
+    "label": "GLM-5.3 Flash",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "openrouter/xiaomi/mimo-v2.6-flash",
+    "label": "MiMo-V2.6-Flash",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "openrouter/qwen/qwen3.7-plus",
+    "label": "Qwen3.7 Plus",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "openrouter/qwen/qwen3.7-flash",
+    "label": "Qwen3.7 Flash",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "openrouter/qwen/qwen3.6-plus",
+    "label": "Qwen3.6 Plus",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "openrouter/qwen/qwen3.6-35b-a3b",
+    "label": "Qwen3.6 35B A3B",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "openrouter/qwen/qwen3.6-27b",
+    "label": "Qwen3.6 27B",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "openrouter/qwen/qwen3.6-flash",
+    "label": "Qwen3.6 Flash",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "openrouter/qwen/qwen3.5-397b-a17b",
+    "label": "Qwen3.5 397B A17B",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "openrouter/qwen/qwen3.5-122b-a10b",
+    "label": "Qwen3.5-122B-A10B",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "openrouter/qwen/qwen3.5-35b-a3b",
+    "label": "Qwen3.5-35B-A3B",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "openrouter/qwen/qwen3.5-27b",
+    "label": "Qwen3.5-27B",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "openrouter/qwen/qwen3.5-9b",
+    "label": "Qwen3.5-9B",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "openrouter/xiaomi/mimo-v2.5",
+    "label": "MiMo-V2.5",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "openrouter/qwen/qwen3-vl-235b-a22b-instruct",
+    "label": "Qwen3-VL 235B A22B Instruct",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "openrouter/qwen/qwen3-vl-30b-a3b-thinking",
+    "label": "Qwen3-VL 30B A3B Thinking",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "openrouter/qwen/qwen3-vl-30b-a3b-instruct",
+    "label": "Qwen3-VL 30B A3B Instruct",
+    "tier": "hosted",
+    "billable": true,
+    "ocr_options": {
+      "keep_text_position": true
+    },
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "openrouter/qwen/qwen3-vl-8b-instruct",
+    "label": "Qwen3-VL 8B",
     "tier": "hosted",
     "billable": true,
     "ocr_options": {

@@ -215,6 +215,7 @@ class CloudLLMRequest(WireModel):
 
 
 class CloudLLMExecutionRequest(WireModel):
+    capability: Literal["llm.complete", "ocr"] = "llm.complete"
     account_id: int = Field(gt=0)
     route_revision: str = Field(min_length=1)
     request: CloudLLMRequest
@@ -375,7 +376,24 @@ class CloudLLMUsage(WireModel):
 
 class CloudOCRUsage(WireModel):
     kind: Literal["ocr"]
-    pages: int = Field(ge=0)
+    pages: int | None = Field(
+        default=None, ge=0, exclude_if=lambda value: value is None
+    )
+    tokens_in: int | None = Field(
+        default=None, ge=0, exclude_if=lambda value: value is None
+    )
+    tokens_out: int | None = Field(
+        default=None, ge=0, exclude_if=lambda value: value is None
+    )
+
+    @model_validator(mode="after")
+    def _one_usage_shape(self) -> "CloudOCRUsage":
+        has_pages = self.pages is not None
+        has_tokens = self.tokens_in is not None and self.tokens_out is not None
+        has_partial_tokens = (self.tokens_in is None) != (self.tokens_out is None)
+        if has_partial_tokens or has_pages == has_tokens:
+            raise ValueError("OCR usage must contain either pages or token counts")
+        return self
 
 
 class CloudTranscriptionUsage(WireModel):

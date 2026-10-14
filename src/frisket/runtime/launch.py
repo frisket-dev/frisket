@@ -58,8 +58,12 @@ def is_worker_argv(argv: list[str]) -> bool:
     if argv[3] == "classifier-session":
         from frisket.runtime.classifier_install import runtime_python
 
-        # Only this fixed worker may use the app-owned optional interpreter.
-        # Never trust an arbitrary interpreter supplied in argv.
+        # Only fixed workers may use app-owned optional interpreters. Never
+        # trust an arbitrary interpreter supplied in argv.
+        interpreter = runtime_python()
+    elif argv[3] == "indra-ocr":
+        from frisket.runtime.indra_ocr_install import runtime_python
+
         interpreter = runtime_python()
     return (
         Path(argv[0]) == interpreter

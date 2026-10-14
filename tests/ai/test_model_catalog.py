@@ -207,16 +207,12 @@ def test_text_cost_carries_local_pinned_and_unknown_source_by_value() -> None:
 
 def test_openrouter_open_weight_model_is_curated_remote_and_priced() -> None:
     entries = {entry["id"]: entry for entry in MODEL_ENTRIES["openrouter"]}
-    assert entries["qwen/qwen3-vl-8b-instruct"]["label"] == (
-        "Qwen3-VL 8B — open vision"
-    )
+    assert entries["qwen/qwen3-vl-8b-instruct"]["label"] == "Qwen3-VL 8B"
     assert model_price("openrouter/qwen/qwen3-vl-8b-instruct") == (0.25, 0.75)
     assert model_cost_source("openrouter/qwen/qwen3-vl-8b-instruct") == "pricing_data"
     assert model_price("ollama/@desk/qwen3:8b") == (0.0, 0.0)
 
-    assert entries["minimax/minimax-m3"]["label"] == (
-        "MiniMax M3 — hosted multimodal OCR via OpenRouter"
-    )
+    assert entries["minimax/minimax-m3"]["label"] == "MiniMax M3"
     assert model_price("openrouter/minimax/minimax-m3") == (0.3, 1.2)
     assert model_cost_source("openrouter/minimax/minimax-m3") == "pricing_data"
 

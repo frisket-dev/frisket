@@ -15,8 +15,15 @@ from frisket.ops.ocr_engines import (
     ENGINE_ALIASES,
     LOCAL_ENGINES,
     SIDECAR_ENGINES,
+    indra_ocr_available,
     rapidocr_available,
     tesseract_available,
+)
+from frisket.engine._workers.indra_ocr_artifacts import indra_ocr_artifact
+from frisket.engine._workers.indra_ocr_model import (
+    MODEL_IDENTITY as INDRA_MODEL_IDENTITY,
+    MODEL_LICENSE_URL as INDRA_MODEL_LICENSE_URL,
+    SETUP_REF as INDRA_SETUP_REF,
 )
 from frisket.engine.executor import run_action_spec
 from frisket.actions.media import OcrParams
@@ -185,10 +192,10 @@ def test_tesseract_run_without_wrapper_fails_with_pointer(tmp_path):
 def test_tesseract_catalog_hint_entry_present():
     """A tesseract engine reaches both UI surfaces via the catalog hint (zero
     web/src edits — the no-drift design). Its availability mirrors the honest
-    binary+wrapper probe. dots.mocr remains at the roster's pinned index 3."""
+    binary+wrapper probe. dots.mocr remains at the roster's pinned index 4."""
     engines = _ocr_engines()
     ids = [e["id"] for e in engines]
-    assert ids[3] == "dots.mocr"  # parity guard — do not shift dots.mocr
+    assert ids[4] == "dots.mocr"  # parity guard — do not shift dots.mocr
     tess = _by_id(engines, "tesseract")
     assert tess["tier"] == "local"
     assert tess["billable"] is False
@@ -203,6 +210,44 @@ def test_tesseract_catalog_hint_entry_present():
     assert tess["available"] == available
     if not available:
         assert tess["error"]
+
+
+def test_indra_catalog_discloses_pinned_model_and_restricted_license() -> None:
+    engine = _by_id(_ocr_engines(), "indra-ocr")
+    artifact = indra_ocr_artifact()
+    snapshot = artifact.hf_snapshot
+    assert snapshot is not None
+
+    assert engine["tier"] == "local"
+    assert engine["billable"] is False
+    assert engine["description"] == (
+        "Fast local CPU OCR by Datalab using pinned ONNX weights."
+    )
+    assert engine["model_card_url"] == artifact.source_url
+    assert engine["setup_ref"] == INDRA_SETUP_REF
+    assert engine["downloadable_models"] == [
+        {
+            "ref": artifact.ref,
+            "display_name": artifact.display_name,
+            "revision": snapshot.revision,
+            "size": artifact.approx_size_bytes,
+            "license": artifact.license,
+        }
+    ]
+    assert engine["license"] == {
+        "name": "AI PUBS OPEN RAIL-M LICENSE (MODIFIED)",
+        "url": INDRA_MODEL_LICENSE_URL,
+        "note": (
+            "Limits organizational use above either $20M prior-year gross revenue "
+            "or total funding, and competing products/services; requires attribution "
+            "and this license on outputs."
+        ),
+        "restricted": True,
+    }
+    available, error = indra_ocr_available()
+    assert engine["available"] is available
+    assert engine.get("models") == ([INDRA_MODEL_IDENTITY] if available else None)
+    assert engine.get("error") == error
 
 
 # ---------- local/team sidecar OCR engines ----------

@@ -1,6 +1,6 @@
 [project]
 name = "frisket-data"
-version = "0.1.1a91"
+version = "0.1.1a92"
 description = "Local-first AI spreadsheet workflows for journalists and researchers."
 readme = "README.md"
 authors = [
@@ -228,7 +228,7 @@ build-backend = "hatchling.build"
 artifacts = ["src/frisket/web_static/**"]
 
 [tool.hatch.build.targets.sdist]
-only-include = ["src/frisket", "sidecar/src", "sidecar/pyproject.toml", "sidecar/classify-constraints.txt", "sidecar/README.md", "README.md", "LICENSE"]
+only-include = ["src/frisket", "sidecar/src", "sidecar/pyproject.toml", "sidecar/classify-constraints.txt", "sidecar/indra-ocr-constraints.txt", "sidecar/README.md", "README.md", "LICENSE"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/frisket"]
@@ -239,6 +239,7 @@ packages = ["src/frisket"]
 "sidecar/src" = "frisket/data/model-server/src"
 "sidecar/pyproject.toml" = "frisket/data/model-server/pyproject.toml"
 "sidecar/classify-constraints.txt" = "frisket/data/model-server/classify-constraints.txt"
+"sidecar/indra-ocr-constraints.txt" = "frisket/data/model-server/indra-ocr-constraints.txt"
 "sidecar/README.md" = "frisket/data/model-server/README.md"
 
 [tool.uv]
@@ -246,7 +247,7 @@ exclude-newer = "1 week"
 # This matched release train is pinned above and landed inside the normal
 # one-week quarantine. Exact versions plus uv.lock hashes keep the exception
 # narrow while allowing the official Harness APIs this release introduces.
-exclude-newer-package = { pydantic-ai-harness = "2026-10-01", pydantic-ai-slim = "2026-10-01", pydantic-graph = "2026-10-01", genai-prices = "2026-10-01" }
+exclude-newer-package = { pydantic-ai-harness = "2026-10-01", pydantic-ai-slim = "2026-10-01", pydantic-graph = "2026-10-01", genai-prices = "2026-10-01", indra-ocr = "2026-10-13" }
 
 [dependency-groups]
 dev = [

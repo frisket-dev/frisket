@@ -85,7 +85,7 @@ class CloudExecutionTargetProvider:
         source: ExecutionTargetProvider,
         cloud_targets: Sequence[ExecutionTarget],
         payers: dict[tuple[str, str, str], CloudPayerSubject],
-        llm_prices: dict[tuple[str, str], CloudTokenPrice],
+        token_prices: dict[tuple[str, str, str], CloudTokenPrice],
         presentations: dict[tuple[str, str, str], CommercialPresentation],
         *,
         preference: str,
@@ -95,7 +95,7 @@ class CloudExecutionTargetProvider:
         self._cloud_targets = tuple(cloud_targets)
         self._cloud_by_id = {target.id: target for target in self._cloud_targets}
         self._payers = dict(payers)
-        self._llm_prices = dict(llm_prices)
+        self._token_prices = dict(token_prices)
         self._presentations = dict(presentations)
         self._execution_transport = execution_transport
         self._preference = preference
@@ -154,8 +154,10 @@ class CloudExecutionTargetProvider:
     ) -> CloudExecutionTransport | None:
         return self._execution_transport if target_id in self._cloud_by_id else None
 
-    def cloud_llm_price(self, target_id: str, engine: str) -> CloudTokenPrice | None:
-        return self._llm_prices.get((target_id, engine))
+    def cloud_token_price(
+        self, target_id: str, capability: str, engine: str
+    ) -> CloudTokenPrice | None:
+        return self._token_prices.get((target_id, capability, engine))
 
     def cloud_presentation(
         self, target_id: str, capability: str, engine: str
@@ -201,7 +203,7 @@ def compose_cloud_targets(
     base = replace(base, cloud_inventory_known=True)
     grouped: dict[str, list[TargetEngineSupport]] = defaultdict(list)
     payers: dict[tuple[str, str, str], CloudPayerSubject] = {}
-    llm_prices: dict[tuple[str, str], CloudTokenPrice] = {}
+    token_prices: dict[tuple[str, str, str], CloudTokenPrice] = {}
     presentations: dict[tuple[str, str, str], CommercialPresentation] = {}
     offerings: list[CommercialOffering] = []
     included: list[ExactExecutionMatch] = []
@@ -233,8 +235,8 @@ def compose_cloud_targets(
                 else f"{account.name} Cloud credits"
             ),
         )
-        if capability == CAPABILITY_LLM and isinstance(route.price, CloudTokenPrice):
-            llm_prices[(target_id, route.engine)] = route.price
+        if isinstance(route.price, CloudTokenPrice):
+            token_prices[(target_id, capability, route.engine)] = route.price
         offering = _offering(route, capability, target_id, account)
         if offering is None:
             included.append(
@@ -261,7 +263,7 @@ def compose_cloud_targets(
         base.provider,
         targets,
         payers,
-        llm_prices,
+        token_prices,
         presentations,
         preference=preference,
         execution_transport=execution_transport,
@@ -432,7 +434,11 @@ def _support(route: CloudCapabilityRoute, capability: str) -> TargetEngineSuppor
     unavailable = (
         route.blocker or "Cloud route unavailable" if not route.ready else None
     )
-    expected_price = CloudTokenPrice if capability == CAPABILITY_LLM else CloudUnitPrice
+    expected_price = (
+        (CloudTokenPrice, CloudUnitPrice)
+        if capability == CAPABILITY_OCR
+        else (CloudTokenPrice if capability == CAPABILITY_LLM else CloudUnitPrice)
+    )
     if unavailable is None and not isinstance(route.price, expected_price):
         unavailable = "Cloud route has no authoritative price"
     if capability == CAPABILITY_LLM:
@@ -455,7 +461,11 @@ def _support(route: CloudCapabilityRoute, capability: str) -> TargetEngineSuppor
         options = route.options
         return TargetEngineSupport(
             engine=route.engine,
-            transport=CLOUD_MEDIA_TRANSPORT,
+            transport=(
+                CLOUD_LLM_TRANSPORT
+                if isinstance(route.price, CloudTokenPrice)
+                else CLOUD_MEDIA_TRANSPORT
+            ),
             capability=capability,
             options=OcrOptionSupport(
                 language=options.language,
@@ -495,7 +505,7 @@ def _offering(
         if route.lane == "account_key"
         else f"{account.name} Cloud credits"
     )
-    if capability == CAPABILITY_LLM and isinstance(price, CloudTokenPrice):
+    if isinstance(price, CloudTokenPrice):
         return CommercialOffering(
             match=CommercialOfferingMatch(
                 target_id=target_id,

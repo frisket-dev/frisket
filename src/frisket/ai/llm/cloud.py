@@ -9,6 +9,7 @@ import httpx
 from frisket.cloud_execution import (
     CloudExecutionRefused,
     cloud_execution_accounting,
+    cloud_llm_execution_capability,
     execute_bound_cloud_llm,
 )
 from frisket.contracts.http.cloud_connection import (
@@ -16,6 +17,7 @@ from frisket.contracts.http.cloud_connection import (
     CloudLLMResult,
     CloudLLMToolCall,
     CloudLLMUsage,
+    CloudOCRUsage,
 )
 
 from .types import LLMActualAccounting, LLMRequest, LLMResponse, LLMToolCall
@@ -51,9 +53,10 @@ class CloudLLMAdapter:
             tools=request.tools,
             reasoning_policy=request.reasoning_policy,
         )
+        capability = cloud_llm_execution_capability(request.model)
         attempt, response = await execute_bound_cloud_llm(wire)
         accounting = cloud_execution_accounting(
-            attempt, response, capability="llm.complete"
+            attempt, response, capability=capability
         )
         result = response.result
         if not isinstance(result, CloudLLMResult):
@@ -72,12 +75,17 @@ class CloudLLMAdapter:
                 "route_changed", "Cloud LLM result differs from the admitted payer"
             )
         receipt = response.receipt
-        if receipt is None or not isinstance(receipt.usage, CloudLLMUsage):
+        expected_usage = (
+            CloudLLMUsage if capability == "llm.complete" else CloudOCRUsage
+        )
+        if receipt is None or not isinstance(receipt.usage, expected_usage):
             raise CloudExecutionRefused(
                 "cloud_protocol_error", "Cloud LLM execution returned invalid usage"
             )
         if (
-            result.tokens_in != receipt.usage.tokens_in
+            receipt.usage.tokens_in is None
+            or receipt.usage.tokens_out is None
+            or result.tokens_in != receipt.usage.tokens_in
             or result.tokens_out != receipt.usage.tokens_out
         ):
             raise CloudExecutionRefused(

@@ -16,11 +16,13 @@ from frisket.execution.provider import (
 from frisket.execution.targets import (
     CAPABILITY_LLM,
     CAPABILITY_OCR,
+    CAPABILITY_TRANSCRIBE,
     ExecutionTarget,
     LLMOptionSupport,
     OcrOptionSupport,
     TargetEngineSupport,
 )
+from frisket.contracts.transcription_sidecar import TranscriptionOptionSupport
 from frisket.project_settings import (
     ProjectSettings,
     read_project_settings,
@@ -362,6 +364,67 @@ def test_explicit_local_model_cannot_be_switched_to_cloud(
 
     assert exc_info.value.status == 409
     assert exc_info.value.code == "cloud_route_unsupported"
+
+
+def test_exact_cloud_offer_authorizes_qualified_engine_route(
+    tmp_path, monkeypatch
+) -> None:
+    model = "openai/whisper-1"
+
+    def target(target_id: str, *, cloud: bool) -> ExecutionTarget:
+        return ExecutionTarget(
+            id=target_id,
+            operator="frisket" if cloud else "openai",
+            egress_class="frisket_shared" if cloud else "third_party_api",
+            engines=(
+                TargetEngineSupport(
+                    engine=model,
+                    capability=CAPABILITY_TRANSCRIBE,
+                    transport="frisket.cloud.media.v1" if cloud else "remote",
+                    options=TranscriptionOptionSupport(
+                        diarization_mode="none",
+                        speaker_hint="none",
+                        language=True,
+                        model_size=False,
+                        vad=False,
+                        context=False,
+                    ),
+                ),
+            ),
+        )
+
+    provider = _Provider()
+    provider._targets = (target("own", cloud=False), target("cloud", cloud=True))
+
+    def composition(project, _router, _context):
+        settings = read_project_settings(project)
+        return ExecutionComposition(
+            facts=CompositionFacts(),
+            provider=provider,
+            credential_use_context=CredentialUseContext.open(),
+            model_routes=settings.model_execution_routes,
+            model_route_default=settings.model_execution_default,
+            cloud_inventory_known=True,
+        )
+
+    monkeypatch.setattr(
+        "frisket.server.services.project_model_routes.build_provider_catalog",
+        lambda *_args, **_kwargs: {"providers": []},
+    )
+    workspace = Workspace(
+        tmp_path / "workspace",
+        execution_composition_factory=composition,
+    )
+    project_id = workspace.create("Exact Cloud transcription route")["id"]
+
+    selected = ProjectModelRoutesService(workspace).set_route(
+        project_id, model, "cloud"
+    )
+
+    assert selected == ProjectModelRouteSelection(model_id=model, route="cloud")
+    assert read_project_settings(workspace.get(project_id)).model_execution_routes == {
+        model: "cloud"
+    }
 
 
 def test_route_mutation_ignores_unrelated_option_dependent_models(tmp_path) -> None:

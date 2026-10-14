@@ -8,6 +8,7 @@ import subprocess
 from collections.abc import Callable
 
 from frisket.contracts.classification import LOCAL_CLASSIFIERS
+from frisket.engine._workers.indra_ocr_model import SETUP_REF as INDRA_OCR_SETUP_REF
 from frisket.engine.jobs import model_pull_store
 
 PARAKEET_TDT_SETUP_REF = "engine-setup:parakeet-tdt.local-onnx@1"
@@ -15,9 +16,11 @@ DOCLING_SETUP_REF = "engine-setup:docling.local@1"
 
 
 def is_engine_setup_ref(ref: str) -> bool:
-    return ref in {PARAKEET_TDT_SETUP_REF, DOCLING_SETUP_REF} or any(
-        ref == spec.setup_ref for spec in LOCAL_CLASSIFIERS.values()
-    )
+    return ref in {
+        PARAKEET_TDT_SETUP_REF,
+        DOCLING_SETUP_REF,
+        INDRA_OCR_SETUP_REF,
+    } or any(ref == spec.setup_ref for spec in LOCAL_CLASSIFIERS.values())
 
 
 def run_engine_setup(
@@ -47,6 +50,13 @@ def run_engine_setup(
             )
     if row.model_ref == DOCLING_SETUP_REF:
         return _run_docling_setup(
+            engine=engine,
+            pull_id=pull_id,
+            should_cancel=should_cancel,
+            is_final_attempt=is_final_attempt,
+        )
+    if row.model_ref == INDRA_OCR_SETUP_REF:
+        return _run_indra_ocr_setup(
             engine=engine,
             pull_id=pull_id,
             should_cancel=should_cancel,
@@ -152,6 +162,61 @@ def _run_classifier_setup(
     return {"status": "done"}
 
 
+def _run_indra_ocr_setup(
+    *, engine, pull_id: int, should_cancel: Callable[[], bool], is_final_attempt: bool
+) -> dict[str, object]:
+    from frisket.engine._workers.indra_ocr_artifacts import (
+        cached_indra_ocr_path,
+        indra_ocr_artifact,
+    )
+    from frisket.engine.jobs.artifact_pull import _run_hf_snapshot_pull
+    from frisket.engine.jobs.model_pull import _fail
+    from frisket.runtime.indra_ocr_install import install_indra_ocr
+    from frisket.runtime.model_install import ModelInstallCancelled
+
+    try:
+        model_pull_store.update_progress(
+            engine,
+            pull_id,
+            phase="provisioning",
+            total_bytes=None,
+            completed_bytes=None,
+        )
+        install_indra_ocr(should_cancel=should_cancel, progress=lambda _: None)
+        artifact = indra_ocr_artifact()
+        result = _run_hf_snapshot_pull(
+            engine,
+            pull_id,
+            artifact,
+            should_cancel=should_cancel,
+            is_final_attempt=is_final_attempt,
+            mark_done=False,
+        )
+        if result.get("status") == "cancelled" or should_cancel():
+            raise ModelInstallCancelled
+        if cached_indra_ocr_path() is None:
+            raise RuntimeError("the Indra OCR snapshot is incomplete")
+    except ModelInstallCancelled:
+        model_pull_store.mark_cancelled(engine, pull_id)
+        return {"status": "cancelled"}
+    except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+        raise _fail(
+            engine,
+            pull_id,
+            error_code="engine_setup_unavailable",
+            message=(
+                "Could not set up Indra OCR. Check your connection and available "
+                "disk space, then retry."
+            ),
+            terminal=False,
+            is_final_attempt=is_final_attempt,
+        ) from exc
+    model_pull_store.mark_done(
+        engine, pull_id, resolved_digest=artifact.composite_digest
+    )
+    return {"status": "done"}
+
+
 def _run_docling_setup(
     *, engine, pull_id: int, should_cancel: Callable[[], bool], is_final_attempt: bool
 ) -> dict[str, object]:
@@ -214,6 +279,7 @@ def _run_docling_setup(
 
 __all__ = [
     "DOCLING_SETUP_REF",
+    "INDRA_OCR_SETUP_REF",
     "PARAKEET_TDT_SETUP_REF",
     "is_engine_setup_ref",
     "run_engine_setup",

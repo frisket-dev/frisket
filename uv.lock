@@ -25,6 +25,7 @@ genai-prices = "2026-10-02T00:00:00Z"
 pydantic-graph = "2026-10-02T00:00:00Z"
 pydantic-ai-harness = "2026-10-02T00:00:00Z"
 pydantic-ai-slim = "2026-10-02T00:00:00Z"
+indra-ocr = "2026-10-14T00:00:00Z"
 
 [[package]]
 name = "aiohappyeyeballs"
@@ -1257,7 +1258,7 @@ wheels = [
 
 [[package]]
 name = "frisket-data"
-version = "0.1.1a91"
+version = "0.1.1a92"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },

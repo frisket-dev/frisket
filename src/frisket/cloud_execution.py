@@ -51,6 +51,7 @@ if TYPE_CHECKING:
 
 
 CloudMediaCapability = Literal["ocr", "transcribe", "document.convert"]
+CloudModelCapability = Literal["llm.complete", "ocr"]
 CloudMediaOptions: TypeAlias = (
     CloudOCROptions | TranscriptionOptions | CloudDocumentConvertOptions
 )
@@ -171,8 +172,11 @@ class CloudLLMExecutionBinding:
     transport: CloudExecutionTransport | None = None
     attempt: CloudExecutionAttempt | None = None
     coordinator: Any | None = None
+    capability: CloudModelCapability = "llm.complete"
 
     def __post_init__(self) -> None:
+        if self.capability not in {"llm.complete", "ocr"}:
+            raise ValueError("Cloud model binding capability is invalid")
         fixed = self.transport is not None or self.attempt is not None
         if fixed and (
             self.transport is None
@@ -273,6 +277,8 @@ class CloudExecutionTransport(Protocol):
         self,
         attempt: CloudExecutionAttempt,
         request: CloudLLMRequest,
+        *,
+        capability: CloudModelCapability = "llm.complete",
     ) -> CloudExecutionResponse: ...
 
     async def execute_media(
@@ -417,13 +423,16 @@ class HttpCloudExecutionTransport:
         self,
         attempt: CloudExecutionAttempt,
         request: CloudLLMRequest,
+        *,
+        capability: CloudModelCapability = "llm.complete",
     ) -> CloudExecutionResponse:
         self._require_engine(attempt, request.model)
         body = CloudLLMExecutionRequest(
+            capability=capability,
             account_id=attempt.payer.account_id,
             route_revision=attempt.payer.route_revision,
             request=request,
-        ).model_dump(mode="json", by_alias=True)
+        ).model_dump(mode="json", by_alias=True, exclude_defaults=True)
 
         async def send(confirmation: str | None) -> httpx.Response:
             return await self._request(
@@ -436,8 +445,8 @@ class HttpCloudExecutionTransport:
 
         response = await self._create(attempt, send)
         response = await self._await_terminal(attempt, response)
-        response = self._validate_response(attempt, response, "llm.complete")
-        return self._require_success(attempt, response, "llm.complete")
+        response = self._validate_response(attempt, response, capability)
+        return self._require_success(attempt, response, capability)
 
     async def execute_media(
         self,
@@ -910,6 +919,29 @@ def cloud_llm_execution_bound(model: str) -> bool:
     return binding.attempt is not None and binding.attempt.payer.engine == model
 
 
+def cloud_llm_execution_capability(model: str) -> CloudModelCapability:
+    """Return the exact model-call capability bound to ``model``."""
+
+    binding = _cloud_llm_binding.get()
+    if not isinstance(binding, CloudLLMExecutionBinding):
+        raise CloudExecutionRefused(
+            "cloud_execution_unbound",
+            "Cloud LLM execution requires an admitted paid attempt",
+        )
+    payer = (
+        binding.coordinator.payer
+        if binding.coordinator is not None
+        else binding.attempt.payer
+        if binding.attempt is not None
+        else None
+    )
+    if payer is None or payer.engine != model:
+        raise CloudExecutionRefused(
+            "route_changed", "Cloud LLM model differs from its admitted route"
+        )
+    return binding.capability
+
+
 async def execute_bound_cloud_llm(
     request: CloudLLMRequest,
 ) -> tuple[CloudExecutionAttempt, CloudExecutionResponse]:
@@ -928,7 +960,11 @@ async def execute_bound_cloud_llm(
             )
         return await binding.coordinator.execute(request)
     transport, attempt = cloud_llm_execution(request.model)
-    return attempt, await transport.execute_llm(attempt, request)
+    if binding.capability == "llm.complete":
+        return attempt, await transport.execute_llm(attempt, request)
+    return attempt, await transport.execute_llm(
+        attempt, request, capability=binding.capability
+    )
 
 
 def cloud_execution_accounting(
@@ -980,7 +1016,7 @@ def cloud_execution_accounting(
         if receipt.provider_cost_micro is not None
         else None
     )
-    units = usage.model_dump(mode="json", exclude={"kind"})
+    units = usage.model_dump(mode="json", exclude={"kind"}, exclude_none=True)
     units.update(
         {
             "requests": 1,

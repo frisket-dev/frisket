@@ -7,7 +7,7 @@ import hashlib
 import io
 import json
 import threading
-from contextlib import closing
+from contextlib import closing, contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -75,6 +75,10 @@ class _RunContext:
                 "cancelled": self.cancel_event.is_set,
             },
         )
+
+    @contextmanager
+    def op_context_scope(self):
+        yield self.op_context()
 
     def write_model_calls(self, calls):
         self.calls.extend(calls)

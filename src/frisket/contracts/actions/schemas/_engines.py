@@ -67,6 +67,7 @@ OcrTransport = Literal[
     "datalab.convert",
     "opendocrouter.parse",
     "remote",
+    "frisket.cloud.llm.v1",
     "frisket.cloud.media.v1",
 ]
 
@@ -267,6 +268,14 @@ OCR_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
         tier="local",
         provider="local",
         aliases=("tess",),
+    ),
+    EngineDeclaration(
+        id="indra-ocr",
+        label="Indra OCR (local CPU)",
+        ocr_geometry=True,
+        ocr_searchable_pdf=True,
+        tier="local",
+        provider="local",
     ),
     EngineDeclaration(
         id="paddleocr-vl",

@@ -11,6 +11,7 @@ from frisket.cloud_execution import (
     CloudExecutionTransport,
     CloudPayerSubject,
     CloudQuoteAuthority,
+    CloudModelCapability,
     cloud_execution_accounting,
 )
 from frisket.contracts.http.cloud_connection import (
@@ -53,6 +54,7 @@ class CloudLLMCheckpointCoordinator:
         writer_attempt_id: str | None = None,
         claim_token: str | None = None,
         claimless_direct_effect: bool = False,
+        capability: CloudModelCapability = "llm.complete",
     ) -> None:
         if not callable(getattr(transport, "execute_llm", None)):
             raise TypeError("Cloud LLM transport is invalid")
@@ -60,6 +62,8 @@ class CloudLLMCheckpointCoordinator:
             raise TypeError("Cloud LLM payer is invalid")
         if not isinstance(quote_authority, CloudQuoteAuthority):
             raise TypeError("Cloud LLM quote authority is invalid")
+        if capability not in {"llm.complete", "ocr"}:
+            raise ValueError("Cloud model checkpoint capability is invalid")
         for name, value in (("group_key", group_key), ("action_kind", action_kind)):
             if not isinstance(value, str) or not value or value != value.strip():
                 raise ValueError(f"Cloud LLM {name} must be a clean string")
@@ -73,6 +77,7 @@ class CloudLLMCheckpointCoordinator:
         self.writer_attempt_id = writer_attempt_id
         self.claim_token = claim_token
         self.claimless_direct_effect = claimless_direct_effect
+        self.capability = capability
         self._returned: dict[str, CloudLLMCheckpointRef] = {}
         self._accounting: dict[str, dict[str, Any]] = {}
 
@@ -102,6 +107,8 @@ class CloudLLMCheckpointCoordinator:
             "group_key": self.group_key,
             "unit_key": unit_key,
         }
+        if self.capability != "llm.complete":
+            logical["capability"] = self.capability
         checkpoint_id = (
             "cloud_llm_"
             + hashlib.sha256(canonical_json(logical).encode("utf-8")).hexdigest()
@@ -188,7 +195,12 @@ class CloudLLMCheckpointCoordinator:
 
         # A reserved Cloud POST is deliberately replayable: Cloud binds the
         # idempotency key to this exact user/account/body and never rebills it.
-        response = await self.transport.execute_llm(attempt, request)
+        if self.capability == "llm.complete":
+            response = await self.transport.execute_llm(attempt, request)
+        else:
+            response = await self.transport.execute_llm(
+                attempt, request, capability=self.capability
+            )
         returned_payload = {**payload, "response": response.model_dump(mode="json")}
         store.complete(
             checkpoint_id,
@@ -243,7 +255,7 @@ class CloudLLMCheckpointCoordinator:
                 quote_authority=None,
             )
             accounting = cloud_execution_accounting(
-                prior_attempt, response, capability="llm.complete"
+                prior_attempt, response, capability=self.capability
             )
             prior_cost = accounting["model_calls"][0]["units"].get(
                 "cloud_effective_cost_micro"
@@ -314,7 +326,7 @@ class CloudLLMCheckpointCoordinator:
             identity=identity,
         )
         self._accounting[checkpoint_id] = cloud_execution_accounting(
-            attempt, response, capability="llm.complete"
+            attempt, response, capability=self.capability
         )
 
 
