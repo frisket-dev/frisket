@@ -41,6 +41,7 @@ from frisket.contracts.http.cloud_connection import (
     CloudSessionResponse,
     CloudUser,
     CloudLLMRequest,
+    CloudLLMExecutionRequest,
 )
 from frisket.ops.base import OpContext
 from frisket.engine.store.execution_routes import route_fact_hash
@@ -75,6 +76,47 @@ def test_cloud_attempt_carries_durable_id_and_exact_payer_without_a_secret():
     assert attempt.request_id == "cloud-request-1"
     assert attempt.payer.account_id == 41
     assert "token" not in repr(attempt).lower()
+
+
+def _llm_request() -> CloudLLMRequest:
+    return CloudLLMRequest(
+        model="anthropic/claude-haiku-4-5",
+        messages=[{"role": "user", "content": "Read this image"}],
+        max_tokens=128,
+        temperature=0,
+    )
+
+
+def test_cloud_llm_execution_request_defaults_to_llm_and_accepts_exact_ocr():
+    default_request = CloudLLMExecutionRequest(
+        account_id=41,
+        route_revision="route-1",
+        request=_llm_request(),
+    )
+    ocr_request = CloudLLMExecutionRequest(
+        capability="ocr",
+        account_id=41,
+        route_revision="route-2",
+        request=_llm_request(),
+    )
+
+    assert default_request.capability == "llm.complete"
+    assert ocr_request.capability == "ocr"
+
+
+def test_cloud_ocr_usage_accepts_exactly_one_page_or_token_shape():
+    assert CloudOCRUsage(kind="ocr", pages=2).pages == 2
+    token_usage = CloudOCRUsage(kind="ocr", tokens_in=120, tokens_out=24)
+    assert (token_usage.tokens_in, token_usage.tokens_out) == (120, 24)
+
+    for usage in (
+        {"kind": "ocr"},
+        {"kind": "ocr", "tokens_in": 120},
+        {"kind": "ocr", "tokens_out": 24},
+        {"kind": "ocr", "pages": 2, "tokens_in": 120, "tokens_out": 24},
+    ):
+        with pytest.raises(ValueError, match="either pages or token counts"):
+            CloudOCRUsage.model_validate(usage)
 
 
 def test_cloud_row_quote_authority_uses_only_the_admitted_row_allocation():
