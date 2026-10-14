@@ -130,10 +130,9 @@ from frisket.ai.models.gateway_config import (
     ModelsGatewayConnection,
     resolve_models_gateway_env,
 )
-from frisket.contracts.models_gateway_roster import (
-    InvalidModelsGatewayRoster,
-    MODELS_GATEWAY_ROSTER_ENV,
-    parse_models_gateway_roster,
+from frisket.execution.models_gateway_roster import (
+    InvalidManagedModelsGatewayConfig,
+    resolve_managed_models_gateway_roster,
 )
 from frisket.server.services.selector_choices import (
     SelectorCapabilities,
@@ -324,26 +323,11 @@ def _managed_models_catalog_capabilities(
 ) -> dict[str, Any]:
     """Resolve Cloud's promoted gateway catalog without probing its runtime."""
 
-    raw_roster = (environment.get(MODELS_GATEWAY_ROSTER_ENV) or "").strip()
     try:
-        connection = resolve_models_gateway_env(environment)
-    except InvalidModelsGatewayConfig:
-        connection = None
-    error: str | None = None
-    roster = None
-    if connection is None:
-        error = (
-            f"{MODELS_GATEWAY_ROSTER_ENV} is inactive because the managed "
-            "models gateway URL/token pair is missing or invalid"
-        )
-    elif not raw_roster:
-        error = f"{MODELS_GATEWAY_ROSTER_ENV} is missing or empty"
+        roster = resolve_managed_models_gateway_roster(environment)
+    except InvalidManagedModelsGatewayConfig as exc:
+        error = str(exc)
     else:
-        try:
-            roster = parse_models_gateway_roster(raw_roster)
-        except InvalidModelsGatewayRoster as exc:
-            error = str(exc)
-    if roster is not None:
         return roster.as_catalog_capabilities()
     return {
         "configured": False,

@@ -7,12 +7,17 @@ import pytest
 from frisket.contracts.models_gateway_roster import (
     InvalidModelsGatewayRoster,
     ModelsGatewayRoster,
+    ModelsGatewayRosterEntry,
     models_gateway_roster_from_capabilities,
     parse_models_gateway_roster,
 )
 from frisket.execution.definitions import (
     MODELS_GATEWAY_TARGET_ID,
     build_static_targets,
+)
+from frisket.execution.models_gateway_roster import (
+    InvalidManagedModelsGatewayConfig,
+    resolve_managed_models_gateway_roster,
 )
 
 
@@ -113,3 +118,51 @@ def test_managed_roster_filters_gateway_support_by_exact_route_and_name() -> Non
     assert [(support.capability, support.engine) for support in gateway.engines] == [
         ("ocr", "paddleocr-vl")
     ]
+
+
+def test_managed_gateway_resolver_requires_connection_and_returns_roster() -> None:
+    roster = resolve_managed_models_gateway_roster(
+        {
+            "FRISKET_MODELS_URL": "https://models.example.invalid",
+            "FRISKET_MODELS_TOKEN": "models-token",
+            "FRISKET_MODELS_ROSTER_JSON": (
+                '{"schema_version":"frisket.models_gateway_roster.v1",'
+                '"engines":[{"name":"paddleocr-vl","route":"/ocr"}]}'
+            ),
+        }
+    )
+
+    assert roster.engines == (
+        ModelsGatewayRosterEntry(route="/ocr", name="paddleocr-vl"),
+    )
+
+
+@pytest.mark.parametrize(
+    "environment",
+    [
+        {},
+        {
+            "FRISKET_MODELS_URL": "https://models.example.invalid",
+            "FRISKET_MODELS_TOKEN": "models-token",
+        },
+        {
+            "FRISKET_MODELS_URL": "https://models.example.invalid",
+            "FRISKET_MODELS_ROSTER_JSON": (
+                '{"schema_version":"frisket.models_gateway_roster.v1","engines":[]}'
+            ),
+        },
+        {
+            "FRISKET_MODELS_URL": "https://models.example.invalid",
+            "FRISKET_MODELS_TOKEN": "models-token",
+            "FRISKET_MODELS_ROSTER_JSON": "not-json",
+        },
+    ],
+)
+def test_managed_gateway_resolver_refuses_incomplete_or_invalid_config(
+    environment: dict[str, str],
+) -> None:
+    with pytest.raises(
+        InvalidManagedModelsGatewayConfig,
+        match="FRISKET_MODELS_ROSTER_JSON",
+    ):
+        resolve_managed_models_gateway_roster(environment)
