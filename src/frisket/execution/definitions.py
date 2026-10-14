@@ -27,7 +27,7 @@ run-scoped behavior:
 
 **A target is a VENUE, not a kind of work.** Each ``TargetEngineSupport``
 row declares the CAPABILITY it serves, so the same rows above carry OCR too:
-``local`` gains rapidocr/tesseract, ``models-gateway`` gains dots.mocr,
+``local`` gains RapidOCR, Tesseract, and Indra OCR; ``models-gateway`` gains dots.mocr,
 GLM-OCR, Surya 2, and paddleocr-vl over its own ``sidecar.ocr`` wire, and every
 ``remote-api`` target gains an OCR ``{provider}/*`` row for vision-model OCR.
 Only Datalab needed a new venue. Resolution filters candidates by capability
@@ -302,6 +302,12 @@ def _local_ocr_engines() -> tuple[TargetEngineSupport, ...]:
             "local",
             language=True,
             run_scoped=_roster_run_scoped("tesseract"),
+        ),
+        _ocr_support(
+            "indra-ocr",
+            "local",
+            language=False,
+            run_scoped=_roster_run_scoped("indra-ocr"),
         ),
     )
 
