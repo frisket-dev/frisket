@@ -1275,15 +1275,16 @@ def _model_facts(model: Mapping[str, Any]) -> list[dict[str, Any]]:
     return facts
 
 
-def _cloud_llm_model_facts(
+def _cloud_model_facts(
     composition: ExecutionComposition,
     target: ExecutionTarget,
     engine: str,
+    capability: str,
 ) -> list[dict[str, Any]]:
-    """Project authoritative rates for the exact selected Cloud LLM route."""
+    """Project token rates for the exact selected Cloud capability and model."""
 
-    price_hook = getattr(composition.provider, "cloud_llm_price", None)
-    price = price_hook(target.id, engine) if callable(price_hook) else None
+    price_hook = getattr(composition.provider, "cloud_token_price", None)
+    price = price_hook(target.id, capability, engine) if callable(price_hook) else None
     if not isinstance(price, CloudTokenPrice):
         return []
     return _model_facts(

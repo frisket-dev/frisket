@@ -264,6 +264,9 @@ test('Per-model routes survive key setup and drive real Cloud and own previews',
   await dialog.getByRole('button', { name: 'Frisket Cloud', exact: true }).click();
   await expect(dialog.getByRole('button', { name: 'Frisket Cloud', exact: true }))
     .toHaveAttribute('aria-pressed', 'true');
+  await expect(dialog).toContainText('$0.30 per million input tokens');
+  await expect(dialog).toContainText('$2.50 per million output tokens');
+  await expect(dialog).not.toContainText('per usd');
   await dialog.screenshot({ path: testInfo.outputPath('vision-ocr-cloud-route.png') });
   await page.keyboard.press('Escape');
 
