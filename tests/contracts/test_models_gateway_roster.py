@@ -29,6 +29,7 @@ def test_deployment_roster_keeps_identity_and_discards_live_health() -> None:
                 {
                     "name": "paddleocr-vl",
                     "route": "/ocr",
+                    "configured": True,
                     "available": False,
                     "loaded": False,
                     "error": "worker is cold",
@@ -37,6 +38,7 @@ def test_deployment_roster_keeps_identity_and_discards_live_health() -> None:
                 {
                     "name": "docling",
                     "route": "/to-markdown",
+                    "configured": True,
                     "available": True,
                     "loaded": True,
                     "error": None,
@@ -94,17 +96,77 @@ def test_capability_export_rejects_entries_without_stable_identity() -> None:
         match="require string name and route",
     ):
         models_gateway_roster_from_capabilities(
-            {"engines": [{"name": "paddleocr-vl", "available": True}]}
+            {
+                "engines": [
+                    {
+                        "name": "paddleocr-vl",
+                        "configured": True,
+                        "available": True,
+                    }
+                ]
+            }
         )
+
+
+def test_capability_export_keeps_configured_cold_and_omits_unconfigured() -> None:
+    roster = models_gateway_roster_from_capabilities(
+        {
+            "engines": [
+                {
+                    "name": "paddleocr-vl",
+                    "route": "/ocr",
+                    "configured": True,
+                    "available": False,
+                },
+                {
+                    "name": "surya2",
+                    "route": "/ocr",
+                    "configured": False,
+                    "available": False,
+                },
+            ]
+        }
+    )
+
+    assert roster.engines == (
+        ModelsGatewayRosterEntry(route="/ocr", name="paddleocr-vl"),
+    )
+
+
+@pytest.mark.parametrize("configured", [None, "true", 1])
+def test_capability_export_requires_explicit_boolean_configuration(
+    configured: object,
+) -> None:
+    row = {"name": "paddleocr-vl", "route": "/ocr"}
+    if configured is not None:
+        row["configured"] = configured
+
+    with pytest.raises(
+        InvalidModelsGatewayRoster,
+        match="require boolean configured",
+    ):
+        models_gateway_roster_from_capabilities({"engines": [row]})
 
 
 def test_managed_roster_filters_gateway_support_by_exact_route_and_name() -> None:
     roster = models_gateway_roster_from_capabilities(
         {
             "engines": [
-                {"name": "paddleocr-vl", "route": "/ocr"},
-                {"name": "paddleocr-vl", "route": "/to-markdown"},
-                {"name": "unknown-engine", "route": "/ocr"},
+                {
+                    "name": "paddleocr-vl",
+                    "route": "/ocr",
+                    "configured": True,
+                },
+                {
+                    "name": "paddleocr-vl",
+                    "route": "/to-markdown",
+                    "configured": True,
+                },
+                {
+                    "name": "unknown-engine",
+                    "route": "/ocr",
+                    "configured": True,
+                },
             ]
         }
     )

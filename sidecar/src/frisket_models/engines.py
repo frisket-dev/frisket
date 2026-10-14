@@ -141,10 +141,12 @@ class Engine:
         )
 
     def describe(self) -> dict:
+        configured = self.installed
         description = {
             "name": self.name,
             "route": self.route,
-            "available": self.installed and self.state.error is None,
+            "configured": configured,
+            "available": configured and self.state.error is None,
             "loaded": self.loaded,
             "models": self.models,
             "error": self.state.error,

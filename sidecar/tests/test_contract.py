@@ -97,7 +97,14 @@ class TestCapabilities:
         ]:
             entry = by_name[name]
             assert entry["route"] == route
-            assert {"available", "loaded", "models", "error"} <= entry.keys()
+            assert {
+                "configured",
+                "available",
+                "loaded",
+                "models",
+                "error",
+            } <= entry.keys()
+            assert entry["configured"] is True
         turbo = by_name["whisper-turbo"]
         assert turbo["contract_versions"] == [CONTRACT_VERSION]
         assert turbo["options"] == {
@@ -113,6 +120,7 @@ class TestCapabilities:
     def test_missing_extra_reads_unavailable(self, client):
         body = client.get("/capabilities", headers=AUTH).json()
         entry = next(e for e in body["engines"] if e["name"] == "docling-missing")
+        assert entry["configured"] is False
         assert entry["available"] is False
 
     def test_loader_failure_surfaces_as_error(self, client):

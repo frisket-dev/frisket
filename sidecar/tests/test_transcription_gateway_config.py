@@ -131,6 +131,7 @@ def test_configured_moss_stays_selectable_without_waking_scale_to_zero_worker() 
 
     capability = asyncio.run(catalog())
     assert capability["name"] == "moss"
+    assert capability["configured"] is True
     assert capability["available"] is True
     assert capability["loaded"] is False
     assert capability["error"] is None

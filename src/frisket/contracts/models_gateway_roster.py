@@ -138,6 +138,13 @@ def models_gateway_roster_from_capabilities(
             raise InvalidModelsGatewayRoster(
                 "gateway capabilities engine entries require string name and route"
             )
+        configured = row.get("configured")
+        if not isinstance(configured, bool):
+            raise InvalidModelsGatewayRoster(
+                "gateway capabilities engine entries require boolean configured"
+            )
+        if not configured:
+            continue
         entries.append(ModelsGatewayRosterEntry(route=route, name=name))
     return ModelsGatewayRoster(tuple(entries))
 

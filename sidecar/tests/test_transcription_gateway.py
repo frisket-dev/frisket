@@ -245,6 +245,7 @@ def test_public_capabilities_validate_worker_and_allow_runtime_digest() -> None:
         },
     }
     assert capability["available"] is True
+    assert capability["configured"] is True
     assert capability["loaded"] is False
     assert capability["revision"] == descriptor.revision
     assert capability["runtime_image_id"] == runtime_descriptor.runtime_image_id
@@ -263,6 +264,7 @@ def test_public_capabilities_degrade_incompatible_worker_to_unavailable() -> Non
             return await gateway.public_capabilities()
 
     (capability,) = asyncio.run(scenario())
+    assert capability["configured"] is True
     assert capability["available"] is False
     assert capability["loaded"] is False
     assert capability["error"] == "worker capability probe failed"

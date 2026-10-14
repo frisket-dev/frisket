@@ -452,6 +452,9 @@ def _public_capability_payload(
     return {
         "name": descriptor.engine,
         "route": TRANSCRIBE_ENDPOINT,
+        # Reaching this projection means the deployment registered an endpoint.
+        # Runtime probe state below is deliberately independent of that fact.
+        "configured": True,
         "available": probe.available and probe.error is None,
         "loaded": probe.loaded,
         "models": list(descriptor.model_ids),
