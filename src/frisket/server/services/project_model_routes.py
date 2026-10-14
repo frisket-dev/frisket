@@ -275,7 +275,7 @@ class ProjectModelRoutesService:
         composition: Any,
     ) -> None:
         if route == "cloud":
-            cloud_eligible = any(
+            cloud_eligible = entry.has_cloud or any(
                 cloud_route_eligible(raw_engine, capability)
                 for capability, raw_engine in entry.variants
             )

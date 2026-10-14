@@ -46,7 +46,6 @@ from frisket.execution.resolver import (
     ModelRoute,
     Refusal,
     ResolutionRequest,
-    cloud_route_eligible,
     preferred_static_choice,
     resolve,
 )
@@ -104,6 +103,7 @@ from frisket.server.services.selector_choices_projection import (
     _embedding_facts,
     _network_policy_forbids_target,
     _route_selection,
+    _model_route_selectable,
     _selected_route,
     _opus_pair_supported,
     _opus_pair_key,
@@ -1140,8 +1140,10 @@ class SelectorChoiceService:
                 if execution_capability is not None
                 else {}
             )
-            route_capable = execution_capability is not None and cloud_route_eligible(
-                engine_id, execution_capability
+            route_capable = execution_capability is not None and _model_route_selectable(
+                composition,
+                capability=execution_capability,
+                engine=engine_id,
             )
             outcome, selected_route = (
                 _resolve_route_choice(

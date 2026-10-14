@@ -545,7 +545,14 @@ def _route_selection(
         route="cloud",
         cloud_unknown=cloud_unknown,
         network_off=network_off,
-        cloud_eligible=cloud_route_eligible(engine, capability),
+        cloud_eligible=(
+            cloud_route_eligible(engine, capability)
+            or _has_exact_cloud_route(
+                composition,
+                capability=capability,
+                engine=engine,
+            )
+        ),
         unsupported_cloud_provider=own_provider,
     )
     return {
@@ -597,6 +604,55 @@ def _matching_targets(
             for support in target.engines
         )
     )
+
+
+def _has_exact_cloud_route(
+    composition: ExecutionComposition, *, capability: str, engine: str
+) -> bool:
+    """Whether the current account inventory offers this exact work."""
+
+    provider = composition.provider_for_resolution()
+    return any(
+        model_route_for_target(provider, target, capability, engine) == "cloud"
+        for target in _matching_targets(
+            composition,
+            capability=capability,
+            engine=engine,
+        )
+    )
+
+
+def _model_route_selectable(
+    composition: ExecutionComposition, *, capability: str, engine: str
+) -> bool:
+    """Whether this engine participates in the shared model-route control.
+
+    Static eligibility keeps a disconnected Cloud option visible for declared
+    catalog engines. An exact Cloud target is authoritative once account
+    inventory is known. Provider-model adapters use the shared ``remote``
+    transport for the user's own route, including vision OCR and hosted
+    transcription engines that do not live in a symbolic engine table.
+    """
+
+    if composition.model_routes is None:
+        return False
+    if canonical_model_route_id(engine, capability) is None:
+        return False
+    if cloud_route_eligible(engine, capability):
+        return True
+
+    provider = composition.provider_for_resolution()
+    for target in _matching_targets(
+        composition,
+        capability=capability,
+        engine=engine,
+    ):
+        if model_route_for_target(provider, target, capability, engine) == "cloud":
+            return True
+        support = _target_support(target, capability, engine)
+        if support is not None and support.transport == "remote":
+            return True
+    return False
 
 
 def _has_exact_cloud_overlap(
