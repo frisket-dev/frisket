@@ -35,6 +35,7 @@ from frisket.engine.store.media_blobs import (
     media_cell,
     owned_media_metadata_document,
 )
+from frisket.engine.store.runs import RunResultStore
 from frisket.project_settings import ProjectSettings, write_project_settings
 from frisket.server.app import create_app
 from tests.deterministic_time import controlled_time
@@ -395,6 +396,49 @@ def test_scratch_vision_ocr_uses_cloud_model_receipts_and_retires_repairs(
     ]
     assert all(unit["cloud_lane"] == "frisket_credits" for unit in units)
     assert child_count == 0
+
+
+def test_scratch_vision_ocr_keeps_returned_checkpoints_when_accounting_write_fails(
+    tmp_path, monkeypatch
+) -> None:
+    def fail_write(*_args, **_kwargs):
+        raise RuntimeError("forced model-call write failure")
+
+    monkeypatch.setattr(RunResultStore, "write_model_calls", fail_write)
+    client, transport = _client(tmp_path)
+    with client:
+        project_id = client.post("/api/projects", json={"name": "Vision OCR"}).json()[
+            "id"
+        ]
+        _select_cloud(client, project_id)
+        endpoint = f"/api/projects/{project_id}/ocr/compare-scratch"
+        upload = {
+            "files": {"file": ("scan.png", _png(), "image/png")},
+            "data": {"payload": json.dumps({"engine": "openai/gpt-5-mini"})},
+        }
+        quote = client.post(f"{endpoint}/estimate", **upload)
+        assert quote.status_code == 200, quote.text
+        upload["data"]["payload"] = json.dumps(
+            {
+                "engine": "openai/gpt-5-mini",
+                "confirmation": quote.json()["estimate"]["promise_set_hash"],
+            }
+        )
+        started = client.post(endpoint, **upload)
+        assert started.status_code == 202, started.text
+        result = _poll(client, project_id, started.json()["preview_id"])
+        project = client.app.state.workspace.get(project_id)
+        checkpoint_count = project.db.execute(
+            "SELECT COUNT(*) FROM effect_checkpoints WHERE family='model_call'"
+        ).fetchone()[0]
+        model_call_count = project.db.execute(
+            "SELECT COUNT(*) FROM model_calls"
+        ).fetchone()[0]
+
+    assert result["status"] == "error", result
+    assert len(transport.llm_calls) == 2
+    assert checkpoint_count == 2
+    assert model_call_count == 0
 
 
 def test_markdown_and_llm_http_previews_bind_cloud_per_row(tmp_path) -> None:

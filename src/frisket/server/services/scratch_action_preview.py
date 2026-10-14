@@ -136,11 +136,9 @@ class ScratchActionPreviewRunContext:
             return
         from frisket.cloud_execution import cloud_llm_execution_scope
 
-        try:
-            with cloud_llm_execution_scope(binding.llm_binding):
-                yield ctx
-        finally:
-            binding.llm_coordinator.retire_returned()
+        with cloud_llm_execution_scope(binding.llm_binding):
+            yield ctx
+        binding.llm_coordinator.retire_returned()
 
     @property
     def resolved_for_preview(self) -> ResolvedExecution | None:

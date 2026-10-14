@@ -227,6 +227,7 @@ def paid_ocr_scratch_plan(
                 }
                 output_pages: list[dict[str, Any]] = []
                 returned = False
+                execution_failure: Exception | None = None
                 started = time.perf_counter()
                 with context.op_context_scope() as ctx:
                     try:
@@ -242,6 +243,8 @@ def paid_ocr_scratch_plan(
                             scratch=scratch,
                         )
                         returned = True
+                    except Exception as exc:
+                        execution_failure = exc
                     finally:
                         if usage.get("model_calls") or usage["calls"] or returned:
                             calls = usage.get("model_calls") or [
@@ -260,6 +263,10 @@ def paid_ocr_scratch_plan(
                                     for call in calls
                                 ]
                             context.write_model_calls(calls)
+                if execution_failure is not None:
+                    raise execution_failure.with_traceback(
+                        execution_failure.__traceback__
+                    )
                 runtime_ms = max(0, round((time.perf_counter() - started) * 1000))
 
             warnings: list[str] = []
