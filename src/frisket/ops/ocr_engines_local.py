@@ -38,15 +38,17 @@ from frisket.engine._workers.rapidocr_session import (
     RapidOCRSessionFailure,
     rapidocr_topology,
 )
+from frisket.engine.sandbox import fence
 from frisket.engine.sandbox.shim import (
     SandboxPolicy,
     SandboxTeardownError,
     run_sandboxed,
 )
-from frisket.runtime.launch import worker_argv
+from frisket.runtime.launch import PythonRuntime, worker_argv
 from frisket.ops.base import RecipeInvocationHalt
 
 LIGHT_ENGINE = "rapidocr"
+INDRA_OCR_ENGINE = "indra-ocr"
 TESSERACT_LANGUAGE_CODES = {"en": "eng"}
 _LOG = logging.getLogger(__name__)
 
@@ -413,6 +415,19 @@ def tesseract_available() -> tuple[bool, str | None]:
     return False, "Tesseract OCR needs " + " and ".join(missing) + "."
 
 
+def indra_ocr_available() -> tuple[bool, str | None]:
+    from frisket.engine._workers.indra_ocr_artifacts import (
+        cached_indra_ocr_path,
+        indra_ocr_runtime_present,
+    )
+
+    if not indra_ocr_runtime_present():
+        return False, "Download and set up the local Indra OCR engine."
+    if cached_indra_ocr_path() is None:
+        return False, "Download the pinned Indra OCR model files."
+    return True, None
+
+
 async def ocr_rapidocr(pool, pages, scratch, language=None):
     if pool is None:
         raise RuntimeError("RapidOCR requires its invocation pool")
@@ -473,3 +488,71 @@ async def ocr_tesseract(
     if data.get("error"):
         raise RuntimeError(data["error"])
     return data["pages"]
+
+
+async def ocr_indra(
+    pages: list[Path], scratch: Path, *, cancelled=None
+) -> list[dict[str, Any]]:
+    from frisket.engine._workers.indra_ocr_artifacts import cached_indra_ocr_path
+    from frisket.runtime.indra_ocr_install import runtime_python
+
+    model_dir = cached_indra_ocr_path()
+    available, error = indra_ocr_available()
+    if not available or model_dir is None:
+        raise RecipeInvocationHalt(
+            "local_artifact_unavailable",
+            error or "the local Indra OCR engine is unavailable",
+        )
+    pages = [page.absolute() for page in pages]
+    scratch = scratch.absolute()
+    output = scratch / "indra-ocr-result.json"
+    runtime = PythonRuntime(runtime_python(), PythonRuntime.current().app_code_root)
+    topology = rapidocr_topology(expected_rows=1)
+    result = await run_sandboxed(
+        worker_argv("indra-ocr", runtime=runtime),
+        policy=SandboxPolicy(
+            cpu_seconds=1800,
+            wall_seconds=3600,
+            memory_mb=4096,
+            trusted_python_netwall=True,
+            confine=fence.Confinement(
+                op="ocr (indra worker)",
+                read=(
+                    *(str(page) for page in pages),
+                    # Hub snapshot entries are symlinks into this repository's
+                    # sibling blobs directory, so confine the one repo cache.
+                    str(model_dir.parent.parent),
+                    "/proc/cpuinfo",
+                    "/sys/devices/system/cpu",
+                ),
+                write=(str(scratch),),
+            ),
+        ),
+        stdin_data=json.dumps(
+            {
+                "paths": [str(page) for page in pages],
+                "out": str(output),
+                "model_dir": str(model_dir),
+                "threads": topology.onnx_intra_threads,
+            },
+            separators=(",", ":"),
+        ).encode(),
+        scratch_dir=scratch,
+        should_cancel=cancelled,
+    )
+    if result.cancelled:
+        raise OcrCancelled("OCR cancelled")
+    if not result.ok or not output.is_file():
+        raise RuntimeError("Indra OCR worker failed")
+    try:
+        data = json.loads(output.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("Indra OCR worker returned an invalid result") from exc
+    if not isinstance(data, dict) or set(data) not in ({"pages"}, {"error"}):
+        raise RuntimeError("Indra OCR worker returned an invalid result")
+    if data.get("error"):
+        raise RuntimeError(str(data["error"]))
+    output_pages = data.get("pages")
+    if not isinstance(output_pages, list) or len(output_pages) != len(pages):
+        raise RuntimeError("Indra OCR worker returned the wrong page count")
+    return output_pages

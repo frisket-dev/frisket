@@ -587,11 +587,14 @@ def register_operational_routes(
     def setup_org_model_engine(
         request: Request, body: TeamEngineSetupRequest
     ) -> dict[str, Any]:
-        """Owner-gated, audited start for the allowlisted Parakeet bundle."""
-        from frisket.engine.jobs.engine_setup import PARAKEET_TDT_SETUP_REF
+        """Owner-gated, audited start for an allowlisted local engine bundle."""
+        from frisket.engine.jobs.engine_setup import (
+            INDRA_OCR_SETUP_REF,
+            PARAKEET_TDT_SETUP_REF,
+        )
 
         actor = require_owner(request)
-        if body.setup_ref != PARAKEET_TDT_SETUP_REF:
+        if body.setup_ref not in {PARAKEET_TDT_SETUP_REF, INDRA_OCR_SETUP_REF}:
             raise HTTPException(
                 400,
                 {
@@ -600,7 +603,7 @@ def register_operational_routes(
                 },
             )
         return _org_enqueue_pull_and_respond(
-            canonical=PARAKEET_TDT_SETUP_REF,
+            canonical=body.setup_ref,
             endpoint_id=None,
             endpoint_origin=None,
             actor=actor,

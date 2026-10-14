@@ -68,3 +68,44 @@ def test_billable_compare_refuses_before_opening_local_resources(tmp_path, monke
             )
     finally:
         project.close()
+
+
+def test_indra_compare_uses_the_common_ocr_dispatch(tmp_path, monkeypatch):
+    page = tmp_path / "page.png"
+    page.touch()
+    seen = {}
+
+    async def run_engine_on_pages(
+        self, engine, paths, ctx, *, usage, language, scratch, **kwargs
+    ):
+        seen.update(
+            engine=engine,
+            paths=paths,
+            language=language,
+            scratch=scratch,
+            has_project=ctx.project is not None,
+        )
+        return [{"text": "Indra result", "blocks": []}]
+
+    monkeypatch.setattr(preview.OcrEngines, "run_engine_on_pages", run_engine_on_pages)
+    project = Project.create(tmp_path / "compare.frisket", name="Compare")
+    try:
+        result = asyncio.run(
+            preview.run_ocr_engine_preview(
+                "indra-ocr",
+                [preview.RenderedPreviewPage(page=1, path=page)],
+                project=project,
+                language=None,
+                scratch=tmp_path,
+            )
+        )
+        assert result.pages == [{"text": "Indra result", "blocks": []}]
+        assert seen == {
+            "engine": "indra-ocr",
+            "paths": [page],
+            "language": None,
+            "scratch": tmp_path,
+            "has_project": True,
+        }
+    finally:
+        project.close()

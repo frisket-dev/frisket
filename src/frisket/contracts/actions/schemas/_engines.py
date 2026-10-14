@@ -270,6 +270,14 @@ OCR_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
         aliases=("tess",),
     ),
     EngineDeclaration(
+        id="indra-ocr",
+        label="Indra OCR (local CPU)",
+        ocr_geometry=True,
+        ocr_searchable_pdf=True,
+        tier="local",
+        provider="local",
+    ),
+    EngineDeclaration(
         id="paddleocr-vl",
         label="PaddleOCR-VL document VLM (sidecar)",
         ocr_geometry=True,

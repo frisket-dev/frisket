@@ -860,6 +860,18 @@ def test_org_engine_setup_requires_owner_deduplicates_and_audits(tmp_path) -> No
     assert refused.json()["detail"]["code"] == "unknown_engine_setup"
 
 
+def test_org_indra_ocr_engine_setup_is_allowlisted(tmp_path) -> None:
+    from frisket.engine.jobs.engine_setup import INDRA_OCR_SETUP_REF
+
+    app = _app(tmp_path)
+    response = _owner(app).post(
+        "/api/org/models/setup", json={"setup_ref": INDRA_OCR_SETUP_REF}
+    )
+    assert response.status_code == 202, response.text
+    assert response.json()["pull"]["model"] == INDRA_OCR_SETUP_REF
+    assert "engine_setup_requested" in _audit_actions(app)
+
+
 def test_org_completed_artifact_never_advertises_unowned_remove(tmp_path) -> None:
     app = _app(tmp_path)
     workspace = app.state.workspace

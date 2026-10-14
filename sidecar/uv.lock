@@ -2,7 +2,9 @@ version = 1
 revision = 3
 requires-python = ">=3.12"
 resolution-markers = [
-    "extra != 'extra-14-frisket-models-all' and extra == 'extra-14-frisket-models-classify' and extra != 'extra-14-frisket-models-convert' and extra != 'extra-14-frisket-models-convert-chandra' and extra != 'extra-14-frisket-models-embed' and extra != 'extra-14-frisket-models-ner' and extra != 'extra-14-frisket-models-ocr' and extra != 'extra-14-frisket-models-ocr-paddle' and extra != 'extra-14-frisket-models-rerank' and extra != 'extra-14-frisket-models-transcribe'",
+    "sys_platform == 'darwin' and extra != 'extra-14-frisket-models-all' and extra == 'extra-14-frisket-models-classify' and extra != 'extra-14-frisket-models-convert' and extra != 'extra-14-frisket-models-convert-chandra' and extra != 'extra-14-frisket-models-embed' and extra != 'extra-14-frisket-models-ner' and extra != 'extra-14-frisket-models-ocr' and extra != 'extra-14-frisket-models-ocr-paddle' and extra != 'extra-14-frisket-models-rerank' and extra != 'extra-14-frisket-models-transcribe'",
+    "platform_machine == 'aarch64' and sys_platform == 'linux' and extra != 'extra-14-frisket-models-all' and extra == 'extra-14-frisket-models-classify' and extra != 'extra-14-frisket-models-convert' and extra != 'extra-14-frisket-models-convert-chandra' and extra != 'extra-14-frisket-models-embed' and extra != 'extra-14-frisket-models-ner' and extra != 'extra-14-frisket-models-ocr' and extra != 'extra-14-frisket-models-ocr-paddle' and extra != 'extra-14-frisket-models-rerank' and extra != 'extra-14-frisket-models-transcribe'",
+    "(platform_machine != 'aarch64' and sys_platform == 'linux' and extra != 'extra-14-frisket-models-all' and extra == 'extra-14-frisket-models-classify' and extra != 'extra-14-frisket-models-convert' and extra != 'extra-14-frisket-models-convert-chandra' and extra != 'extra-14-frisket-models-embed' and extra != 'extra-14-frisket-models-ner' and extra != 'extra-14-frisket-models-ocr' and extra != 'extra-14-frisket-models-ocr-paddle' and extra != 'extra-14-frisket-models-rerank' and extra != 'extra-14-frisket-models-transcribe') or (sys_platform != 'darwin' and sys_platform != 'linux' and extra != 'extra-14-frisket-models-all' and extra == 'extra-14-frisket-models-classify' and extra != 'extra-14-frisket-models-convert' and extra != 'extra-14-frisket-models-convert-chandra' and extra != 'extra-14-frisket-models-embed' and extra != 'extra-14-frisket-models-ner' and extra != 'extra-14-frisket-models-ocr' and extra != 'extra-14-frisket-models-ocr-paddle' and extra != 'extra-14-frisket-models-rerank' and extra != 'extra-14-frisket-models-transcribe')",
     "python_full_version >= '3.14' and sys_platform == 'darwin' and extra == 'extra-14-frisket-models-all' and extra != 'extra-14-frisket-models-classify' and extra != 'extra-14-frisket-models-convert-chandra' and extra == 'extra-14-frisket-models-embed' and extra != 'extra-14-frisket-models-ocr'",
     "python_full_version >= '3.14' and platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'extra-14-frisket-models-all' and extra != 'extra-14-frisket-models-classify' and extra != 'extra-14-frisket-models-convert-chandra' and extra == 'extra-14-frisket-models-embed' and extra != 'extra-14-frisket-models-ocr'",
     "python_full_version >= '3.14' and sys_platform == 'win32' and extra == 'extra-14-frisket-models-all' and extra != 'extra-14-frisket-models-classify' and extra != 'extra-14-frisket-models-convert-chandra' and extra == 'extra-14-frisket-models-embed' and extra != 'extra-14-frisket-models-ocr'",
@@ -113,6 +115,9 @@ conflicts = [[
 [options]
 exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for backwards compatibility when using relative exclude-newer values.
 exclude-newer-span = "P1W"
+
+[options.exclude-newer-package]
+indra-ocr = "2026-10-14T00:00:00Z"
 
 [[package]]
 name = "accelerate"
@@ -1296,6 +1301,9 @@ ner = [
 ocr = [
     { name = "surya-ocr" },
 ]
+ocr-indra = [
+    { name = "indra-ocr" },
+]
 ocr-lighton = [
     { name = "markdown-it-py" },
     { name = "pillow", version = "10.4.0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-14-frisket-models-all' and extra == 'extra-14-frisket-models-classify') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-convert') or (extra != 'extra-14-frisket-models-convert' and extra == 'extra-14-frisket-models-convert-chandra') or (extra != 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-convert-chandra') or (extra == 'extra-14-frisket-models-all' and extra != 'extra-14-frisket-models-convert-chandra' and extra == 'extra-14-frisket-models-ocr') or (extra == 'extra-14-frisket-models-classify' and extra != 'extra-14-frisket-models-convert-chandra' and extra == 'extra-14-frisket-models-embed') or (extra == 'extra-14-frisket-models-classify' and extra != 'extra-14-frisket-models-convert-chandra' and extra == 'extra-14-frisket-models-ner') or (extra == 'extra-14-frisket-models-classify' and extra != 'extra-14-frisket-models-convert-chandra' and extra == 'extra-14-frisket-models-ocr') or (extra == 'extra-14-frisket-models-classify' and extra != 'extra-14-frisket-models-convert-chandra' and extra == 'extra-14-frisket-models-ocr-paddle') or (extra == 'extra-14-frisket-models-classify' and extra != 'extra-14-frisket-models-convert-chandra' and extra == 'extra-14-frisket-models-rerank') or (extra == 'extra-14-frisket-models-classify' and extra != 'extra-14-frisket-models-convert-chandra' and extra == 'extra-14-frisket-models-transcribe') or (extra != 'extra-14-frisket-models-convert-chandra' and extra == 'extra-14-frisket-models-embed' and extra == 'extra-14-frisket-models-ocr') or (extra != 'extra-14-frisket-models-all' and extra != 'extra-14-frisket-models-classify' and extra != 'extra-14-frisket-models-embed')" },
@@ -1340,6 +1348,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "huggingface-hub", marker = "extra == 'classify'", specifier = "==1.31.0" },
     { name = "huggingface-hub", marker = "extra == 'classify-clef'", specifier = ">=1.0" },
+    { name = "indra-ocr", marker = "extra == 'ocr-indra'", specifier = "==0.3.1" },
     { name = "markdown-it-py", marker = "extra == 'ocr-lighton'", specifier = ">=3" },
     { name = "numpy", marker = "extra == 'classify'", specifier = "==2.5.3" },
     { name = "paddleocr", marker = "extra == 'ocr-paddle'", specifier = ">=3.7" },
@@ -1368,7 +1377,7 @@ requires-dist = [
     { name = "transformers", marker = "extra == 'ocr-lighton'", specifier = ">=5.5.4" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.49.0" },
 ]
-provides-extras = ["classify-clef", "ocr", "ocr-lighton", "ocr-paddle", "convert", "classify", "convert-chandra", "ner", "transcribe", "rerank", "embed", "all"]
+provides-extras = ["classify-clef", "ocr", "ocr-lighton", "ocr-indra", "ocr-paddle", "convert", "classify", "convert-chandra", "ner", "transcribe", "rerank", "embed", "all"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1661,6 +1670,23 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/6c/e6/7bf14eeb8f8b7251141944835abd42eb20a658d89084b7e1f3e5fe394090/imagesize-2.0.0.tar.gz", hash = "sha256:8e8358c4a05c304f1fccf7ff96f036e7243a189e9e42e90851993c558cfe9ee3", size = 1773045, upload-time = "2026-03-03T14:18:29.941Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/5f/53/fb7122b71361a0d121b669dcf3d31244ef75badbbb724af388948de543e2/imagesize-2.0.0-py2.py3-none-any.whl", hash = "sha256:5667c5bbb57ab3f1fa4bc366f4fbc971db3d5ed011fd2715fd8001f782718d96", size = 9441, upload-time = "2026-03-03T14:18:27.892Z" },
+]
+
+[[package]]
+name = "indra-ocr"
+version = "0.3.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "huggingface-hub" },
+    { name = "numpy", version = "2.3.5", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-14-frisket-models-all' or extra != 'extra-14-frisket-models-classify' or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-convert') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-convert-chandra') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-embed') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-ner') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-ocr') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-ocr-paddle') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-rerank') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-transcribe')" },
+    { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-14-frisket-models-classify' or (extra == 'extra-14-frisket-models-all' and extra == 'extra-14-frisket-models-convert-chandra') or (extra == 'extra-14-frisket-models-all' and extra == 'extra-14-frisket-models-ocr') or (extra == 'extra-14-frisket-models-convert-chandra' and extra == 'extra-14-frisket-models-embed') or (extra == 'extra-14-frisket-models-embed' and extra == 'extra-14-frisket-models-ocr')" },
+    { name = "onnxruntime" },
+    { name = "opencv-python-headless" },
+    { name = "pypdfium2" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ad/79/eda27ce9530858eba84cc3c2d13c7f4daec00d716b62c5199276cfa44c40/indra_ocr-0.3.1.tar.gz", hash = "sha256:d7880cf342590e53c61cec8f5eb71e481d19c0f434b84dcd7ce0e79a40cc34b7", size = 82709, upload-time = "2026-10-13T15:38:11.663Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fe/8c/0b22e4d17f8c7a84fa6a26fe6b97fcbd097b1186715a544265d49a1aafb0/indra_ocr-0.3.1-py3-none-any.whl", hash = "sha256:9a99d2a18cf288c336c065946204be45f8cffb3bc37e96357b73939251442ed2", size = 76530, upload-time = "2026-10-13T15:38:10.337Z" },
 ]
 
 [[package]]
@@ -2430,6 +2456,11 @@ wheels = [
 name = "numpy"
 version = "2.5.3"
 source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "sys_platform == 'darwin'",
+    "platform_machine == 'aarch64' and sys_platform == 'linux'",
+    "(platform_machine != 'aarch64' and sys_platform == 'linux') or (sys_platform != 'darwin' and sys_platform != 'linux')",
+]
 sdist = { url = "https://files.pythonhosted.org/packages/13/01/11703282db468b85f6f7b8c7f22d058de5970d5c7e60a3a8aaa313c3de36/numpy-2.5.3.tar.gz", hash = "sha256:df2d5874ff183595a4ba404edd04f6bd9b5505c1d7708573f6a6c17489a67563", size = 20791231, upload-time = "2026-09-06T16:27:47.073Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d6/50/8fdbb16af64895706a45f06a4068e29db732ec180f3c1375f14123359138/numpy-2.5.3-cp312-cp312-macosx_10_13_x86_64.whl", hash = "sha256:cb189f09db39283b26bfd061ec16189e14f71c6755207f72a0f7540867afe5b9", size = 16994982, upload-time = "2026-09-06T16:24:29.244Z" },
@@ -2681,10 +2712,11 @@ name = "onnxruntime"
 version = "1.26.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "flatbuffers", marker = "extra == 'extra-14-frisket-models-all' or extra != 'extra-14-frisket-models-classify' or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-convert') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-convert-chandra') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-embed') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-ner') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-ocr') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-ocr-paddle') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-rerank') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-transcribe')" },
+    { name = "flatbuffers" },
     { name = "numpy", version = "2.3.5", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-14-frisket-models-all' or extra != 'extra-14-frisket-models-classify' or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-convert') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-convert-chandra') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-embed') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-ner') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-ocr') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-ocr-paddle') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-rerank') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-transcribe')" },
-    { name = "packaging", marker = "extra == 'extra-14-frisket-models-all' or extra != 'extra-14-frisket-models-classify' or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-convert') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-convert-chandra') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-embed') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-ner') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-ocr') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-ocr-paddle') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-rerank') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-transcribe')" },
-    { name = "protobuf", marker = "extra == 'extra-14-frisket-models-all' or extra != 'extra-14-frisket-models-classify' or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-convert') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-convert-chandra') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-embed') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-ner') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-ocr') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-ocr-paddle') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-rerank') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-transcribe')" },
+    { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-14-frisket-models-classify' or (extra == 'extra-14-frisket-models-all' and extra == 'extra-14-frisket-models-convert-chandra') or (extra == 'extra-14-frisket-models-all' and extra == 'extra-14-frisket-models-ocr') or (extra == 'extra-14-frisket-models-convert-chandra' and extra == 'extra-14-frisket-models-embed') or (extra == 'extra-14-frisket-models-embed' and extra == 'extra-14-frisket-models-ocr')" },
+    { name = "packaging" },
+    { name = "protobuf" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/81/b1/d111b1df656761f980d9e298a60039a9cb66036b1d039e777537743d0ac3/onnxruntime-1.26.0-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:05b028781b322ad74b57ce5b50aa5280bb1fe96ceec334628ade681e0b24c1ac", size = 18016624, upload-time = "2026-05-12T00:41:01.735Z" },
@@ -2767,7 +2799,8 @@ name = "opencv-python-headless"
 version = "4.11.0.86"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "numpy", version = "2.3.5", source = { registry = "https://pypi.org/simple" } },
+    { name = "numpy", version = "2.3.5", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-14-frisket-models-all' or extra != 'extra-14-frisket-models-classify' or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-convert') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-convert-chandra') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-embed') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-ner') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-ocr') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-ocr-paddle') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-rerank') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-transcribe')" },
+    { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-14-frisket-models-classify' or (extra == 'extra-14-frisket-models-all' and extra == 'extra-14-frisket-models-convert-chandra') or (extra == 'extra-14-frisket-models-all' and extra == 'extra-14-frisket-models-ocr') or (extra == 'extra-14-frisket-models-convert-chandra' and extra == 'extra-14-frisket-models-embed') or (extra == 'extra-14-frisket-models-embed' and extra == 'extra-14-frisket-models-ocr')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/36/2f/5b2b3ba52c864848885ba988f24b7f105052f68da9ab0e693cc7c25b0b30/opencv-python-headless-4.11.0.86.tar.gz", hash = "sha256:996eb282ca4b43ec6a3972414de0e2331f5d9cda2b41091a49739c19fb843798", size = 95177929, upload-time = "2025-01-16T13:53:40.22Z" }
 wheels = [
@@ -3018,7 +3051,9 @@ name = "pillow"
 version = "12.3.0"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
-    "extra != 'extra-14-frisket-models-all' and extra == 'extra-14-frisket-models-classify' and extra != 'extra-14-frisket-models-convert' and extra != 'extra-14-frisket-models-convert-chandra' and extra != 'extra-14-frisket-models-embed' and extra != 'extra-14-frisket-models-ner' and extra != 'extra-14-frisket-models-ocr' and extra != 'extra-14-frisket-models-ocr-paddle' and extra != 'extra-14-frisket-models-rerank' and extra != 'extra-14-frisket-models-transcribe'",
+    "sys_platform == 'darwin' and extra != 'extra-14-frisket-models-all' and extra == 'extra-14-frisket-models-classify' and extra != 'extra-14-frisket-models-convert' and extra != 'extra-14-frisket-models-convert-chandra' and extra != 'extra-14-frisket-models-embed' and extra != 'extra-14-frisket-models-ner' and extra != 'extra-14-frisket-models-ocr' and extra != 'extra-14-frisket-models-ocr-paddle' and extra != 'extra-14-frisket-models-rerank' and extra != 'extra-14-frisket-models-transcribe'",
+    "platform_machine == 'aarch64' and sys_platform == 'linux' and extra != 'extra-14-frisket-models-all' and extra == 'extra-14-frisket-models-classify' and extra != 'extra-14-frisket-models-convert' and extra != 'extra-14-frisket-models-convert-chandra' and extra != 'extra-14-frisket-models-embed' and extra != 'extra-14-frisket-models-ner' and extra != 'extra-14-frisket-models-ocr' and extra != 'extra-14-frisket-models-ocr-paddle' and extra != 'extra-14-frisket-models-rerank' and extra != 'extra-14-frisket-models-transcribe'",
+    "(platform_machine != 'aarch64' and sys_platform == 'linux' and extra != 'extra-14-frisket-models-all' and extra == 'extra-14-frisket-models-classify' and extra != 'extra-14-frisket-models-convert' and extra != 'extra-14-frisket-models-convert-chandra' and extra != 'extra-14-frisket-models-embed' and extra != 'extra-14-frisket-models-ner' and extra != 'extra-14-frisket-models-ocr' and extra != 'extra-14-frisket-models-ocr-paddle' and extra != 'extra-14-frisket-models-rerank' and extra != 'extra-14-frisket-models-transcribe') or (sys_platform != 'darwin' and sys_platform != 'linux' and extra != 'extra-14-frisket-models-all' and extra == 'extra-14-frisket-models-classify' and extra != 'extra-14-frisket-models-convert' and extra != 'extra-14-frisket-models-convert-chandra' and extra != 'extra-14-frisket-models-embed' and extra != 'extra-14-frisket-models-ner' and extra != 'extra-14-frisket-models-ocr' and extra != 'extra-14-frisket-models-ocr-paddle' and extra != 'extra-14-frisket-models-rerank' and extra != 'extra-14-frisket-models-transcribe')",
     "python_full_version >= '3.14' and sys_platform == 'darwin' and extra == 'extra-14-frisket-models-all' and extra != 'extra-14-frisket-models-classify' and extra != 'extra-14-frisket-models-convert-chandra' and extra == 'extra-14-frisket-models-embed' and extra != 'extra-14-frisket-models-ocr'",
     "python_full_version >= '3.14' and platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'extra-14-frisket-models-all' and extra != 'extra-14-frisket-models-classify' and extra != 'extra-14-frisket-models-convert-chandra' and extra == 'extra-14-frisket-models-embed' and extra != 'extra-14-frisket-models-ocr'",
     "python_full_version >= '3.14' and sys_platform == 'win32' and extra == 'extra-14-frisket-models-all' and extra != 'extra-14-frisket-models-classify' and extra != 'extra-14-frisket-models-convert-chandra' and extra == 'extra-14-frisket-models-embed' and extra != 'extra-14-frisket-models-ocr'",
@@ -4603,6 +4638,11 @@ wheels = [
 name = "tokenizers"
 version = "0.23.2"
 source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "sys_platform == 'darwin'",
+    "platform_machine == 'aarch64' and sys_platform == 'linux'",
+    "(platform_machine != 'aarch64' and sys_platform == 'linux') or (sys_platform != 'darwin' and sys_platform != 'linux')",
+]
 dependencies = [
     { name = "huggingface-hub", marker = "extra == 'extra-14-frisket-models-classify' or (extra == 'extra-14-frisket-models-all' and extra == 'extra-14-frisket-models-convert-chandra') or (extra == 'extra-14-frisket-models-all' and extra == 'extra-14-frisket-models-ocr') or (extra == 'extra-14-frisket-models-convert-chandra' and extra == 'extra-14-frisket-models-embed') or (extra == 'extra-14-frisket-models-embed' and extra == 'extra-14-frisket-models-ocr')" },
 ]
@@ -4798,6 +4838,11 @@ wheels = [
 name = "transformers"
 version = "5.17.0"
 source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "sys_platform == 'darwin'",
+    "platform_machine == 'aarch64' and sys_platform == 'linux'",
+    "(platform_machine != 'aarch64' and sys_platform == 'linux') or (sys_platform != 'darwin' and sys_platform != 'linux')",
+]
 dependencies = [
     { name = "huggingface-hub", marker = "extra == 'extra-14-frisket-models-classify' or (extra == 'extra-14-frisket-models-all' and extra == 'extra-14-frisket-models-convert-chandra') or (extra == 'extra-14-frisket-models-all' and extra == 'extra-14-frisket-models-ocr') or (extra == 'extra-14-frisket-models-convert-chandra' and extra == 'extra-14-frisket-models-embed') or (extra == 'extra-14-frisket-models-embed' and extra == 'extra-14-frisket-models-ocr')" },
     { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-14-frisket-models-classify' or (extra == 'extra-14-frisket-models-all' and extra == 'extra-14-frisket-models-convert-chandra') or (extra == 'extra-14-frisket-models-all' and extra == 'extra-14-frisket-models-ocr') or (extra == 'extra-14-frisket-models-convert-chandra' and extra == 'extra-14-frisket-models-embed') or (extra == 'extra-14-frisket-models-embed' and extra == 'extra-14-frisket-models-ocr')" },

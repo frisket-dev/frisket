@@ -57,6 +57,12 @@ ocr-lighton = [
     "markdown-it-py>=3",
     "safetensors>=0.7",
 ]
+# Indra OCR is a small CPU-only ONNX engine installed into its own private
+# Frisket runtime. Its model weights are provisioned separately from a pinned
+# Hugging Face snapshot and carry a modified OpenRAIL license.
+ocr-indra = [
+    "indra-ocr==0.3.1",
+]
 # PaddleOCR-VL document VLM and PP-OCRv6 text OCR. Verified install
 # (paddleocr 3.7.0 / paddlex 3.7.2 / paddlepaddle 3.3.1):
 # the `paddleocr` dist alone is NOT enough — PaddleOCR-VL is a paddlex
@@ -138,6 +144,10 @@ build-backend = "uv_build"
 # the repository policy here so its lock remains valid when the parent
 # pyproject.toml is intentionally absent from the image build.
 exclude-newer = "1 week"
+# The user-requested Indra release landed inside the normal one-week
+# quarantine. Keep the exception to this one exact package and release day;
+# the package version and uv.lock hashes remain pinned.
+exclude-newer-package = { indra-ocr = "2026-10-13" }
 # Surya 2 and Chandra can coexist, but neither resolves with FastEmbed's
 # dependency bounds. ``all`` includes FastEmbed, so keep those combinations
 # explicitly separate while allowing operators to install both OCR engines.

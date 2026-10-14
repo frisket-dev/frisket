@@ -30,6 +30,7 @@ from frisket.ops import ocr_engines_sidecar as sidecar
 logger = logging.getLogger("frisket.executor")
 
 LIGHT_ENGINE = local.LIGHT_ENGINE
+INDRA_OCR_ENGINE = local.INDRA_OCR_ENGINE
 LOCAL_ENGINES = set(engine_ids(OCR_ENGINE_TABLE, tier="local"))
 SIDECAR_ENGINES = set(engine_ids(OCR_ENGINE_TABLE, tier="sidecar"))
 DATALAB_ENGINE = hosted.DATALAB_ENGINE
@@ -45,6 +46,7 @@ image_dimensions = _image_dimensions
 OcrCancelled = local.OcrCancelled
 RAPIDOCR_MODELS_NOT_PROVISIONED = local.RAPIDOCR_MODELS_NOT_PROVISIONED
 rapidocr_available = local.rapidocr_available
+indra_ocr_available = local.indra_ocr_available
 rapidocr_models_present = local.rapidocr_models_present
 rapidocr_shared_model_cache_dir = local.rapidocr_shared_model_cache_dir
 rapidocr_execution_scope = local.rapidocr_execution_scope
@@ -183,6 +185,8 @@ class OcrEngines:
             )
         if engine == LIGHT_ENGINE:
             return await self._ocr_rapidocr(page_paths, scratch, language)
+        if engine == INDRA_OCR_ENGINE:
+            return await self._ocr_indra(page_paths, scratch)
         if engine == "tesseract":
             return await self._ocr_tesseract(page_paths, scratch, language)
         if engine in SIDECAR_ENGINES:
@@ -325,6 +329,9 @@ class OcrEngines:
         return await local.ocr_tesseract(
             pages, scratch, language, cancelled=self.cancelled
         )
+
+    async def _ocr_indra(self, pages, scratch):
+        return await local.ocr_indra(pages, scratch, cancelled=self.cancelled)
 
     async def _ocr_sidecar(self, engine, pages, ctx):
         return await sidecar.ocr_sidecar(engine, pages, ctx)

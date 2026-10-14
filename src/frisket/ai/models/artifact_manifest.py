@@ -70,6 +70,15 @@ from frisket.contracts.classification import (
     JEFF_ENGINE_ID,
     LOCAL_CLASSIFIERS,
 )
+from frisket.engine._workers.indra_ocr_model import (
+    MODEL_DOWNLOAD_SIZE as _INDRA_OCR_DOWNLOAD_SIZE,
+    MODEL_FILES as _INDRA_OCR_FILES,
+    MODEL_LICENSE as _INDRA_OCR_LICENSE,
+    MODEL_LICENSE_URL as _INDRA_OCR_LICENSE_URL,
+    MODEL_REF as INDRA_OCR_REF,
+    MODEL_REPO as _INDRA_OCR_REPO,
+    MODEL_REVISION as _INDRA_OCR_REVISION,
+)
 from frisket.engine._workers.parakeet_model import (
     MODEL_FILES as _PARAKEET_MODEL_FILES,
     MODEL_REVISION as _PARAKEET_MODEL_REVISION,
@@ -255,6 +264,24 @@ def opus_mt_source_url(src: str, tgt: str, revision: str, filename: str) -> str:
 
 
 _MANIFEST: dict[str, PinnedArtifact] = {
+    INDRA_OCR_REF: PinnedArtifact(
+        ref=INDRA_OCR_REF,
+        kind="hf_snapshot",
+        display_name="Indra OCR v3.1 (ONNX)",
+        manifest_version="2026.10.1",
+        license=_INDRA_OCR_LICENSE,
+        license_url=_INDRA_OCR_LICENSE_URL,
+        source_url=(
+            f"https://huggingface.co/{_INDRA_OCR_REPO}/tree/{_INDRA_OCR_REVISION}"
+        ),
+        files=(),
+        hf_snapshot=HfSnapshotSource(
+            repo_id=_INDRA_OCR_REPO,
+            revision=_INDRA_OCR_REVISION,
+            files=_INDRA_OCR_FILES,
+        ),
+        approx_size_bytes=_INDRA_OCR_DOWNLOAD_SIZE,
+    ),
     # spaCy's small English OntoNotes pipeline. The wheel hash is the same pin
     # formerly held by uv.lock; moving it here removes the direct-URL package
     # metadata that PyPI rejects while retaining exact reproducibility.
@@ -768,6 +795,7 @@ __all__ = [
     "FRISKET_HF_ORG",
     "GLICLASS_REF",
     "HY_MT2_REF",
+    "INDRA_OCR_REF",
     "JEFF_REF",
     "PARAKEET_MODEL_HF_REPO",
     "PARAKEET_MODEL_REF",
