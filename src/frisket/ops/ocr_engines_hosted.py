@@ -328,13 +328,11 @@ async def ocr_vlm(
         raise RuntimeError("remote ocr engines need the model router in OpContext")
     routed = routed_admission_in_scope(ctx.extras)
     if routed is not None:
-        # §3.5 pre-effect USE constraint, the same seat the remote
-        # TRANSCRIPTION path holds: the router genuinely chooses among a
-        # project key, an org BYOK key and the platform's own, so the class
-        # it selected is compared to the class the consent named before the
-        # page bytes leave the machine. A router that cannot report its
-        # provenance reports NONE — never a fabricated "local", which would
-        # make the check pass for the wrong reason.
+        # §3.5 pre-effect USE constraint for direct provider routes: the router
+        # genuinely chooses among a project key, an org BYOK key and the
+        # platform's own. Cloud model routes have no local provider credential
+        # to inspect; their admitted payer is verified by cloud_runtime_binding
+        # and the Cloud service selects the exact account-key/platform-key lane.
         provider = model.partition("/")[0]
         payer = routed.binding.facts.cloud_payer
         cloud_model_route = (
