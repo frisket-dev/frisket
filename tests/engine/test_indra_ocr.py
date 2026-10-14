@@ -73,7 +73,7 @@ def test_indra_model_manifest_is_revision_pinned_with_exact_files():
     assert artifact is not None
     assert artifact.integrity == "hf_revision_pinned"
     assert artifact.license_url == MODEL_LICENSE_URL
-    assert artifact.license == "AI PUBS OPEN RAIL-M LICENSE (MODIFIED)"
+    assert artifact.license == "LicenseRef-Datalab-Indra-OpenRAIL-M-Modified"
     assert MODEL_LICENSE_URL == (
         "https://huggingface.co/datalab-to/indra-ocr/blob/"
         "d7c839c892bfe4b8993373db64c62f154d05d70b/LICENSE"

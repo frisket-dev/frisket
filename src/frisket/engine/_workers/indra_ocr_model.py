@@ -19,7 +19,8 @@ MODEL_FILES = (
     "script.onnx",
 )
 MODEL_DOWNLOAD_SIZE = 18_312_922
-MODEL_LICENSE = "AI PUBS OPEN RAIL-M LICENSE (MODIFIED)"
+MODEL_LICENSE = "LicenseRef-Datalab-Indra-OpenRAIL-M-Modified"
+MODEL_LICENSE_NAME = "AI PUBS OPEN RAIL-M LICENSE (MODIFIED)"
 MODEL_LICENSE_URL = (
     f"https://huggingface.co/datalab-to/indra-ocr/blob/{MODEL_REVISION}/LICENSE"
 )
@@ -33,6 +34,7 @@ __all__ = [
     "MODEL_FILES",
     "MODEL_IDENTITY",
     "MODEL_LICENSE",
+    "MODEL_LICENSE_NAME",
     "MODEL_LICENSE_URL",
     "MODEL_REF",
     "MODEL_REPO",

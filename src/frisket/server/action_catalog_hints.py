@@ -1399,6 +1399,7 @@ def _recipe_engines(
         from frisket.engine._workers.indra_ocr_artifacts import indra_ocr_artifact
         from frisket.engine._workers.indra_ocr_model import (
             MODEL_IDENTITY,
+            MODEL_LICENSE_NAME,
             MODEL_LICENSE_URL,
             SETUP_REF,
         )
@@ -1473,7 +1474,7 @@ def _recipe_engines(
             error=indra_err,
             models=[MODEL_IDENTITY] if indra_ok else None,
             license_hint={
-                "name": indra_artifact.license,
+                "name": MODEL_LICENSE_NAME,
                 "url": MODEL_LICENSE_URL,
                 "note": (
                     "Limits organizational use above either $20M prior-year "

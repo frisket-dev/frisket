@@ -20,6 +20,13 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
     "error": "Action catalog unavailable"
   },
   {
+    "id": "indra-ocr",
+    "label": "Indra OCR (local CPU)",
+    "tier": "local",
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
     "id": "paddleocr-vl",
     "label": "PaddleOCR-VL document VLM (sidecar)",
     "tier": "sidecar",
