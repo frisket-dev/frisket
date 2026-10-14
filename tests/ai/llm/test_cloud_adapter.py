@@ -22,6 +22,8 @@ from frisket.contracts.http.cloud_connection import (
     CloudLLMResult,
     CloudLLMToolCall,
     CloudLLMUsage,
+    CloudOCROptionSupport,
+    CloudOCRUsage,
     CloudTokenPrice,
 )
 
@@ -241,6 +243,67 @@ def test_cloud_adapter_round_trips_request_result_and_receipt_accounting():
         assert durable["cost"] == 0.025
         assert durable["model_calls"] == [model_call]
         assert durable["execution_receipts"] == [receipt]
+
+    asyncio.run(scenario())
+
+
+def test_cloud_adapter_preserves_ocr_identity_and_token_receipt():
+    async def scenario() -> None:
+        response = _response().model_copy(
+            update={
+                "route": _response().route.model_copy(
+                    update={
+                        "capability": "ocr",
+                        "options": CloudOCROptionSupport(
+                            kind="ocr",
+                            language=True,
+                            geometry=True,
+                            searchable_pdf=False,
+                        ),
+                    }
+                ),
+                "receipt": _response().receipt.model_copy(
+                    update={
+                        "usage": CloudOCRUsage(kind="ocr", tokens_in=23, tokens_out=7)
+                    }
+                ),
+            }
+        )
+
+        class OCRTransport:
+            capability = None
+
+            async def execute_llm(self, attempt, request, *, capability):
+                del attempt, request
+                self.capability = capability
+                return response
+
+        transport = OCRTransport()
+        router = _router()
+        try:
+            with cloud_llm_execution_scope(
+                CloudLLMExecutionBinding(
+                    transport,
+                    _attempt(),
+                    capability="ocr",
+                )
+            ):
+                result = await router.complete_transport(
+                    LLMRequest(
+                        model=MODEL,
+                        messages=[{"role": "user", "content": "Read the image"}],
+                        schema={"type": "object"},
+                    )
+                )
+        finally:
+            await router.aclose()
+
+        assert transport.capability == "ocr"
+        assert result.actual_accounting is not None
+        [model_call] = result.actual_accounting.model_calls
+        assert model_call["capability"] == "ocr"
+        assert model_call["units"]["tokens_in"] == 23
+        assert model_call["units"]["tokens_out"] == 7
 
     asyncio.run(scenario())
 

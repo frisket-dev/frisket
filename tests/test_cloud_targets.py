@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 
@@ -39,7 +40,7 @@ from frisket.execution.provider import (
     TargetConfigurationError,
 )
 from frisket.execution.resolver import Refusal, ResolutionRequest, resolve
-from frisket.execution.resolve_for_action import resolve_for_action
+from frisket.execution.resolve_for_action import BoundedScratchInput, resolve_for_action
 from frisket.execution.targets import (
     CAPABILITY_LLM,
     CAPABILITY_OCR,
@@ -292,6 +293,27 @@ def _llm_capabilities(*, ready: bool = True) -> CloudCapabilitiesResponse:
                     vision=True,
                     max_output_tokens=65_536,
                 ),
+            )
+        ],
+    )
+
+
+def _vision_ocr_capabilities(*, ready: bool = True) -> CloudCapabilitiesResponse:
+    llm = _llm_capabilities(ready=ready).routes[0]
+    return CloudCapabilitiesResponse(
+        account_id=41,
+        routes=[
+            llm.model_copy(
+                update={
+                    "capability": "ocr",
+                    "route_revision": "ocr-openai-route-1",
+                    "options": CloudOCROptionSupport(
+                        kind="ocr",
+                        language=True,
+                        geometry=True,
+                        searchable_pdf=False,
+                    ),
+                }
             )
         ],
     )
@@ -825,6 +847,43 @@ def test_cloud_llm_route_carries_typed_price_and_payer():
     assert outcome.facts.cloud_payer.account_id == 41
     price = composition.provider.cloud_llm_price(outcome.target.id, "openai/gpt-5-mini")
     assert price.output_micro_per_million_tokens == 2_000_000
+
+
+def test_cloud_vision_ocr_uses_model_transport_and_unbounded_receipt_pricing():
+    composition = compose_cloud_targets(
+        _base_without_local_route(),
+        user_id=7,
+        account=_account(),
+        capabilities=_vision_ocr_capabilities(),
+        preference="cloud_first",
+    )
+    resolved = resolve_for_action(
+        object(),
+        {"engine": "openai/gpt-5-mini"},
+        SimpleNamespace(
+            name="ocr.compare",
+            consumes_resolution=True,
+            execution_capability=CAPABILITY_OCR,
+        ),
+        composition=composition,
+        bounded_scratch_input=BoundedScratchInput(
+            quantity=1,
+            work_scope={"identity": "scratch-vision-ocr"},
+        ),
+    )
+
+    assert resolved is not None and not isinstance(resolved, Refusal)
+    assert resolved.resolution.support.transport == "frisket.cloud.llm.v1"
+    assert isinstance(resolved.cost_basis, PricedCostBasis)
+    assert resolved.cost_basis.estimated_quantity is None
+    assert resolved.cost_basis.row_quote_quantities is None
+    assert resolved.cost_basis.quantity_unit == "usd"
+    assert resolved.cost_basis.meter_key == "cloud_effective_cost_micro"
+    assert resolved.cost_basis.pricing_key.endswith(":openai:ocr:openai/gpt-5-mini")
+    [cost_claim] = [
+        claim for claim in resolved.promise_set.promises if claim.field == "cost"
+    ]
+    assert cost_claim.op == "unbounded"
 
 
 def test_legacy_cloud_first_project_keeps_cloud_when_own_key_is_configured(tmp_path):

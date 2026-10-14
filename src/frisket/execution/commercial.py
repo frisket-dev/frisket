@@ -225,7 +225,11 @@ class CommercialOffering:
             raise ValueError(
                 f"free public APIs cannot carry a commercial offering: {self.match!r}"
             )
-        expected_meter = QUOTE_METER_KEY_BY_CAPABILITY[self.match.capability]
+        expected_meter = (
+            "cloud_effective_cost_micro"
+            if self.quote.quantity_unit == "usd"
+            else QUOTE_METER_KEY_BY_CAPABILITY[self.match.capability]
+        )
         if self.settlement.meter_key != expected_meter:
             raise ValueError(
                 "commercial offering settlement meter does not match the "

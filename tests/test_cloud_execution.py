@@ -30,6 +30,7 @@ from frisket.contracts.http.cloud_connection import (
     CloudExecutionQuote,
     CloudErrorResponse,
     CloudLLMOptionSupport,
+    CloudLLMResult,
     CloudLLMUsage,
     CloudExecutionReceipt,
     CloudExecutionResponse,
@@ -39,6 +40,7 @@ from frisket.contracts.http.cloud_connection import (
     CloudOCRUsage,
     CloudQuoteChallenge,
     CloudSessionResponse,
+    CloudTokenPrice,
     CloudUser,
     CloudLLMRequest,
     CloudLLMExecutionRequest,
@@ -105,9 +107,16 @@ def test_cloud_llm_execution_request_defaults_to_llm_and_accepts_exact_ocr():
 
 
 def test_cloud_ocr_usage_accepts_exactly_one_page_or_token_shape():
-    assert CloudOCRUsage(kind="ocr", pages=2).pages == 2
+    page_usage = CloudOCRUsage(kind="ocr", pages=2)
+    assert page_usage.pages == 2
+    assert page_usage.model_dump(mode="json") == {"kind": "ocr", "pages": 2}
     token_usage = CloudOCRUsage(kind="ocr", tokens_in=120, tokens_out=24)
     assert (token_usage.tokens_in, token_usage.tokens_out) == (120, 24)
+    assert token_usage.model_dump(mode="json") == {
+        "kind": "ocr",
+        "tokens_in": 120,
+        "tokens_out": 24,
+    }
 
     for usage in (
         {"kind": "ocr"},
@@ -398,6 +407,63 @@ async def test_http_transport_retries_uncertain_post_with_identical_key_and_body
 
     assert len(seen) == 2
     assert seen[0] == seen[1]
+
+
+@pytest.mark.asyncio
+async def test_http_model_transport_sends_and_validates_exact_ocr_capability(tmp_path):
+    captured: dict = {}
+    base = _response()
+    response = base.model_copy(
+        update={
+            "route": base.route.model_copy(
+                update={
+                    "price": CloudTokenPrice(
+                        kind="tokens",
+                        input_micro_per_million_tokens=250_000,
+                        output_micro_per_million_tokens=2_000_000,
+                    )
+                }
+            ),
+            "result": CloudLLMResult(
+                content='{"text":"Cloud OCR"}',
+                data={"text": "Cloud OCR"},
+                tokens_in=12,
+                tokens_out=4,
+                cost=0.00003,
+                model=base.route.engine,
+                cost_source="cloud_receipt",
+                cached=False,
+                provider=base.route.provider,
+                credential_source="platform_key",
+                raw={},
+                output_limited=False,
+            ),
+            "receipt": base.receipt.model_copy(
+                update={
+                    "provider_cost_micro": 20,
+                    "usage": CloudOCRUsage(kind="ocr", tokens_in=12, tokens_out=4),
+                }
+            ),
+        }
+    )
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(await request.aread()))
+        return httpx.Response(200, json=response.model_dump(mode="json"))
+
+    transport = HttpCloudExecutionTransport(
+        _store(tmp_path),
+        "https://cloud.example.test",
+        http_transport=httpx.MockTransport(handler),
+    )
+    result = await transport.execute_llm(
+        CloudExecutionAttempt("durable-ocr-request-1", _payer(), None),
+        _llm_request(),
+        capability="ocr",
+    )
+
+    assert captured["capability"] == "ocr"
+    assert result.route.capability == "ocr"
 
 
 @pytest.mark.asyncio

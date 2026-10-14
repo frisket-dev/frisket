@@ -38,7 +38,10 @@ class CloudRuntimeBinding:
     def llm_binding(self) -> CloudLLMExecutionBinding | None:
         if self.llm_coordinator is None:
             return None
-        return CloudLLMExecutionBinding(coordinator=self.llm_coordinator)
+        return CloudLLMExecutionBinding(
+            coordinator=self.llm_coordinator,
+            capability=self.llm_coordinator.capability,
+        )
 
 
 def cloud_runtime_binding(
@@ -129,7 +132,10 @@ def cloud_runtime_binding(
             llm_coordinator=None,
             route=routed.route,
         )
-    if transport_kind == "frisket.cloud.llm.v1" and capability == "llm.complete":
+    if transport_kind == "frisket.cloud.llm.v1" and capability in {
+        "llm.complete",
+        "ocr",
+    }:
         return CloudRuntimeBinding(
             media_binding=None,
             llm_coordinator=CloudLLMCheckpointCoordinator(
@@ -143,6 +149,7 @@ def cloud_runtime_binding(
                 writer_attempt_id=attempt.attempt_id,
                 claim_token=claim_token,
                 claimless_direct_effect=claimless_direct_effect,
+                capability=capability,
             ),
             route=routed.route,
         )

@@ -233,7 +233,7 @@ def compose_cloud_targets(
                 else f"{account.name} Cloud credits"
             ),
         )
-        if capability == CAPABILITY_LLM and isinstance(route.price, CloudTokenPrice):
+        if isinstance(route.price, CloudTokenPrice):
             llm_prices[(target_id, route.engine)] = route.price
         offering = _offering(route, capability, target_id, account)
         if offering is None:
@@ -432,7 +432,11 @@ def _support(route: CloudCapabilityRoute, capability: str) -> TargetEngineSuppor
     unavailable = (
         route.blocker or "Cloud route unavailable" if not route.ready else None
     )
-    expected_price = CloudTokenPrice if capability == CAPABILITY_LLM else CloudUnitPrice
+    expected_price = (
+        (CloudTokenPrice, CloudUnitPrice)
+        if capability == CAPABILITY_OCR
+        else (CloudTokenPrice if capability == CAPABILITY_LLM else CloudUnitPrice)
+    )
     if unavailable is None and not isinstance(route.price, expected_price):
         unavailable = "Cloud route has no authoritative price"
     if capability == CAPABILITY_LLM:
@@ -455,7 +459,11 @@ def _support(route: CloudCapabilityRoute, capability: str) -> TargetEngineSuppor
         options = route.options
         return TargetEngineSupport(
             engine=route.engine,
-            transport=CLOUD_MEDIA_TRANSPORT,
+            transport=(
+                CLOUD_LLM_TRANSPORT
+                if isinstance(route.price, CloudTokenPrice)
+                else CLOUD_MEDIA_TRANSPORT
+            ),
             capability=capability,
             options=OcrOptionSupport(
                 language=options.language,
@@ -495,7 +503,7 @@ def _offering(
         if route.lane == "account_key"
         else f"{account.name} Cloud credits"
     )
-    if capability == CAPABILITY_LLM and isinstance(price, CloudTokenPrice):
+    if isinstance(price, CloudTokenPrice):
         return CommercialOffering(
             match=CommercialOfferingMatch(
                 target_id=target_id,

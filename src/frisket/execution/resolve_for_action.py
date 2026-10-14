@@ -356,6 +356,8 @@ def _ocr_cost_basis(
         capability=CAPABILITY_OCR,
         engine=engine,
     )
+    if offering is not None and offering.quote.quantity_unit == "usd":
+        return _cloud_model_cost_basis(resolution, CAPABILITY_OCR), None
     if offering is None and (
         isinstance(funding, PlatformMetered)
         or sku_for(
@@ -727,39 +729,54 @@ def _llm_cost_basis(
                 price,
             )
 
-    def usd(micro: int) -> str:
-        return format(Decimal(micro) / Decimal(1_000_000), "f")
+    return (
+        _cloud_model_cost_basis(
+            resolution,
+            CAPABILITY_LLM,
+            row_micro=row_micro if bounded_one_call else None,
+        ),
+        sum(row_micro.values()) if bounded_one_call else None,
+    )
+
+
+def _cloud_model_cost_basis(
+    resolution: Resolution,
+    capability: str,
+    *,
+    row_micro: Mapping[int, int] | None = None,
+) -> PricedCostBasis:
+    """Bind a token-priced Cloud model route to receipt-authoritative spend."""
 
     payer = resolution.facts.cloud_payer
     if payer is None:
-        raise ValueError("Cloud LLM route has no payer")
-    total_micro = sum(row_micro.values())
-    return (
-        PricedCostBasis(
-            pricing_key=(
-                f"frisket-cloud:{payer.account_id}:{payer.lane}:"
-                f"{payer.provider}:{CAPABILITY_LLM}:{payer.engine}"
-            ),
-            unit_rate="1",
-            estimated_quantity=usd(total_micro) if bounded_one_call else None,
-            quantity_unit="usd",
-            terms_version=payer.route_revision,
-            quantity_rounding_mode="exact",
-            quantity_rounding_decimal_places=None,
-            meter_key="cloud_effective_cost_micro",
-            meter_units_per_quantity_unit="1000000",
-            ceiling_mode="consented_quantity",
-            row_settlement_mode="quoted_successful_rows",
-            charge_authority="frisket_cloud_receipt",
-            row_quote_quantities=(
-                tuple(
-                    (row_id, usd(micro)) for row_id, micro in sorted(row_micro.items())
-                )
-                if bounded_one_call
-                else None
-            ),
+        raise ValueError("Cloud model route has no payer")
+
+    def usd(micro: int) -> str:
+        return format(Decimal(micro) / Decimal(1_000_000), "f")
+
+    return PricedCostBasis(
+        pricing_key=(
+            f"frisket-cloud:{payer.account_id}:{payer.lane}:"
+            f"{payer.provider}:{capability}:{payer.engine}"
         ),
-        total_micro if bounded_one_call else None,
+        unit_rate="1",
+        estimated_quantity=(
+            usd(sum(row_micro.values())) if row_micro is not None else None
+        ),
+        quantity_unit="usd",
+        terms_version=payer.route_revision,
+        quantity_rounding_mode="exact",
+        quantity_rounding_decimal_places=None,
+        meter_key="cloud_effective_cost_micro",
+        meter_units_per_quantity_unit="1000000",
+        ceiling_mode="consented_quantity",
+        row_settlement_mode="quoted_successful_rows",
+        charge_authority="frisket_cloud_receipt",
+        row_quote_quantities=(
+            tuple((row_id, usd(micro)) for row_id, micro in sorted(row_micro.items()))
+            if row_micro is not None
+            else None
+        ),
     )
 
 
@@ -1017,16 +1034,19 @@ def resolve_for_action(
                 row_audio_seconds={SCRATCH_PREVIEW_UNIT_ID: float(quantity)},
             )
         elif capability == CAPABILITY_OCR:
-            if int(quantity) != quantity or quantity <= 0:
+            if offering is not None and offering.quote.quantity_unit == "usd":
+                cost_basis = _cloud_model_cost_basis(outcome, CAPABILITY_OCR)
+            elif int(quantity) != quantity or quantity <= 0:
                 raise ValueError("bounded OCR scratch quantity must be positive pages")
-            cost_basis = quote_ocr(
-                target_id=outcome.target.id,
-                engine=outcome.facts.engine,
-                funding=funding,
-                offering=offering,
-                pages=int(quantity),
-                row_pages={SCRATCH_PREVIEW_UNIT_ID: int(quantity)},
-            )
+            else:
+                cost_basis = quote_ocr(
+                    target_id=outcome.target.id,
+                    engine=outcome.facts.engine,
+                    funding=funding,
+                    offering=offering,
+                    pages=int(quantity),
+                    row_pages={SCRATCH_PREVIEW_UNIT_ID: int(quantity)},
+                )
         else:
             raise ValueError(
                 f"bounded scratch input does not support capability {capability!r}"
