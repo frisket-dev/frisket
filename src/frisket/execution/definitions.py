@@ -73,6 +73,7 @@ from frisket.contracts.actions.schemas._engines import (
     find_engine,
 )
 from frisket.contracts.transcription_sidecar import TranscriptionOptionSupport
+from frisket.contracts.models_gateway_roster import ModelsGatewayRoster
 from frisket.ai.models.gateway_config import (
     InvalidModelsGatewayConfig,
     MODELS_GATEWAY_TOKEN_ENV,
@@ -138,6 +139,13 @@ LOCAL_ONNX_TARGET_ID = "local-onnx"
 MODELS_GATEWAY_TARGET_ID = "models-gateway"
 LOCAL_MODELS_URL_ENV = "FRISKET_LOCAL_MODELS_URL"
 LOCAL_MODELS_TOKEN_ENV = "FRISKET_LOCAL_MODELS_TOKEN"
+
+_MODELS_GATEWAY_ROUTE_BY_CAPABILITY = {
+    CAPABILITY_CLASSIFY: "/classify",
+    CAPABILITY_OCR: "/ocr",
+    CAPABILITY_TO_MARKDOWN: "/to-markdown",
+    CAPABILITY_TRANSCRIBE: "/v1/transcribe",
+}
 
 
 def managed_local_models_configured(env: Mapping[str, str]) -> bool:
@@ -514,6 +522,7 @@ def build_static_targets(
     *,
     include_managed_local_models: bool = False,
     prefer_managed_local_models: bool = True,
+    managed_models_gateway_roster: ModelsGatewayRoster | None = None,
 ) -> tuple[ExecutionTarget, ...]:
     """Build code-owned targets in preference-free declaration order."""
     managed_local_models = (
@@ -526,6 +535,44 @@ def build_static_targets(
     )
     if not include_managed_local_models:
         managed_local_models = ()
+    models_gateway_engines = (
+        TargetEngineSupport(
+            engine="whisper-turbo",
+            transport="frisket.transcription.v1",
+            capability=CAPABILITY_TRANSCRIBE,
+            options=_option_support(
+                language=True,
+                vad=True,
+                context=True,
+            ),
+        ),
+        TargetEngineSupport(
+            engine="parakeet-tdt",
+            transport="frisket.transcription.v1",
+            capability=CAPABILITY_TRANSCRIBE,
+            options=_option_support(
+                language=False, vad=True, diarization_mode="optional"
+            ),
+        ),
+        _engine_support("moss"),
+        _engine_support("vibevoice-asr"),
+        *_gateway_ocr_engines(),
+        *_gateway_to_markdown_engines(),
+        _classify_support("clef-flash", "sidecar.classify"),
+    )
+    if managed_models_gateway_roster is not None:
+        configured = {
+            (entry.route, entry.name) for entry in managed_models_gateway_roster.engines
+        }
+        models_gateway_engines = tuple(
+            support
+            for support in models_gateway_engines
+            if (
+                _MODELS_GATEWAY_ROUTE_BY_CAPABILITY.get(support.capability),
+                support.engine,
+            )
+            in configured
+        )
     return (
         ExecutionTarget(
             id=LOCAL_TARGET_ID,
@@ -575,31 +622,7 @@ def build_static_targets(
             id=MODELS_GATEWAY_TARGET_ID,
             operator="self",
             egress_class="operator_lan",
-            engines=(
-                TargetEngineSupport(
-                    engine="whisper-turbo",
-                    transport="frisket.transcription.v1",
-                    capability=CAPABILITY_TRANSCRIBE,
-                    options=_option_support(
-                        language=True,
-                        vad=True,
-                        context=True,
-                    ),
-                ),
-                TargetEngineSupport(
-                    engine="parakeet-tdt",
-                    transport="frisket.transcription.v1",
-                    capability=CAPABILITY_TRANSCRIBE,
-                    options=_option_support(
-                        language=False, vad=True, diarization_mode="optional"
-                    ),
-                ),
-                _engine_support("moss"),
-                _engine_support("vibevoice-asr"),
-                *_gateway_ocr_engines(),
-                *_gateway_to_markdown_engines(),
-                _classify_support("clef-flash", "sidecar.classify"),
-            ),
+            engines=models_gateway_engines,
         ),
         *(managed_local_models if not prefer_managed_local_models else ()),
         ExecutionTarget(
@@ -729,6 +752,7 @@ class StaticExecutionTargetProvider:
         router: Any | None = None,
         models_gateway_resolver: Callable[[], ModelsGatewayConnection | None]
         | None = None,
+        managed_models_gateway_roster: ModelsGatewayRoster | None = None,
         include_managed_local_models: bool = False,
         credential_use_context: CredentialUseContext | None = None,
     ) -> None:
@@ -755,6 +779,7 @@ class StaticExecutionTargetProvider:
             # selection; with no gateway, the managed choice stays visible so
             # the selector can offer its install operation.
             prefer_managed_local_models=prefer_managed_local_models,
+            managed_models_gateway_roster=managed_models_gateway_roster,
         )
         self._by_id = {target.id: target for target in self._targets}
         self.probe_counts: dict[str, int] = {}

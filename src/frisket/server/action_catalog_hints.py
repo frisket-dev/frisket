@@ -76,11 +76,22 @@ def _sidecar_engine(
             continue
         if engine.get("route") == route and engine.get("name") == name:
             models = engine.get("models", [])
+            if capabilities.get("managed_roster") is True:
+                return True, None, []
             return (
                 bool(engine.get("available")),
                 engine.get("error") if isinstance(engine.get("error"), str) else None,
                 models if isinstance(models, list) else [],
             )
+    if capabilities.get("managed_roster") is True:
+        error = capabilities.get("error")
+        return (
+            False,
+            error
+            if isinstance(error, str)
+            else f"Sidecar engine '{name}' is not in the managed deployment roster.",
+            [],
+        )
     if not capabilities.get("configured"):
         return (
             False,
@@ -124,6 +135,8 @@ def _sidecar_v1_engine(
         if not isinstance(engine, dict):
             continue
         if engine.get("route") == route and engine.get("name") == name:
+            if capabilities.get("managed_roster") is True:
+                return True, None, []
             versions = engine.get("contract_versions")
             if not isinstance(versions, list) or contract_version not in versions:
                 legacy_match = True
@@ -134,6 +147,15 @@ def _sidecar_v1_engine(
                 engine.get("error") if isinstance(engine.get("error"), str) else None,
                 models if isinstance(models, list) else [],
             )
+    if capabilities.get("managed_roster") is True:
+        error = capabilities.get("error")
+        return (
+            False,
+            error
+            if isinstance(error, str)
+            else f"Sidecar engine '{name}' is not in the managed deployment roster.",
+            [],
+        )
     if legacy_match:
         return (
             False,

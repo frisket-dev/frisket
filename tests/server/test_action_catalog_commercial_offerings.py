@@ -30,6 +30,10 @@ from frisket.execution.provider import (
     ExecutionCompositionContext,
 )
 from frisket.execution.targets import CAPABILITY_TO_MARKDOWN
+from frisket.contracts.models_gateway_roster import (
+    ModelsGatewayRoster,
+    ModelsGatewayRosterEntry,
+)
 from frisket.server.action_catalog_hints import (
     project_action_catalog_launcher_hints,
 )
@@ -205,6 +209,43 @@ def test_cloud_composition_marker_keeps_gateway_engine_selectable() -> None:
     assert docling["id"] == "docling"
     assert docling["available"] is True
     assert docling["target_id"] == MODELS_GATEWAY_TARGET_ID
+
+
+def test_managed_roster_is_the_exact_gateway_catalog_without_worker_metadata() -> None:
+    roster = ModelsGatewayRoster(
+        (
+            ModelsGatewayRosterEntry(route="/ocr", name="paddleocr-vl"),
+            ModelsGatewayRosterEntry(route="/v1/transcribe", name="moss"),
+            ModelsGatewayRosterEntry(route="/ocr", name="unknown-engine"),
+        )
+    )
+    provider = StaticExecutionTargetProvider(
+        env={
+            "FRISKET_MODELS_URL": "https://models.example.invalid",
+            "FRISKET_MODELS_TOKEN": "models-token",
+        },
+        managed_models_gateway_roster=roster,
+    )
+    composition = ExecutionComposition(
+        facts=CompositionFacts(
+            edition="hosted",
+            org_id="org-catalog",
+            funding=ByokZero(),
+        ),
+        provider=provider,
+        credential_use_context=CredentialUseContext(cost_posture="org_key"),
+    )
+
+    hints = project_action_catalog_launcher_hints(
+        roster.as_catalog_capabilities(),
+        execution_composition=composition,
+    )
+
+    ocr_ids = {row["id"] for row in hints["media.ocr"]["engines"]}
+    transcribe_ids = {row["id"] for row in hints["media.transcribe"]["engines"]}
+    assert "paddleocr-vl" in ocr_ids
+    assert {"dots.mocr", "glm-ocr", "pp-ocrv6", "unknown-engine"}.isdisjoint(ocr_ids)
+    assert "moss" in transcribe_ids
 
 
 def test_transient_probe_failure_does_not_hide_dead_composition_target() -> None:
