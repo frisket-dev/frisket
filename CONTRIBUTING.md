@@ -269,8 +269,9 @@ workflow merges its PR automatically.
   not a ranking of model strength.
 
 Before merging a discovery PR, check provider documentation for names and
-capabilities. Put current frontier models first, strongest to smallest, followed
-by older models. Keep existing product annotations where useful. Regenerate
+capabilities. Start each provider with a current balanced model for fresh forms,
+then its other current models, followed by older models. Keep names concise;
+defaults and recent-use badges must not silently reshuffle the list. Regenerate
 `web/src/actions/modelCatalog.generated.ts` and the OCR catalog with the sync scripts after edits.
 
 Refresh either PR against current `main` before merging: pricing and model PRs
