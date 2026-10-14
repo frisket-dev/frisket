@@ -8,6 +8,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, Zap } from 'lucide-react';
 import { DropdownIndicator } from './DropdownIndicator';
+import { RemovableChip } from './RemovableChip';
 import { useAnchoredPosition } from '../hooks/useAnchoredPosition';
 import { useNativePopover } from '../hooks/useNativePopover';
 
@@ -97,7 +98,7 @@ export function MultiColumnPicker({
         onMouseDown={(event) => {
           if (disabled) return;
           // Clicks on the box (not a chip's ×) open the dropdown.
-          if ((event.target as HTMLElement).closest('.multi-col-chip-remove')) return;
+          if ((event.target as HTMLElement).closest('button')) return;
           if (!open) {
             event.preventDefault();
             setOpen(true);
@@ -107,19 +108,11 @@ export function MultiColumnPicker({
         {value.map((name) => {
           const option = optionByName.get(name);
           return (
-            <span key={name} className={`multi-col-chip${option?.ai ? ' is-ai' : ''}`}>
+            <RemovableChip key={name} tone={option?.ai ? 'ai' : 'accent'}
+              removeLabel={`Remove ${name}`} disabled={disabled} onRemove={() => remove(name)}>
               {option?.ai && <Zap size={11} aria-hidden />}
               {name}
-              <button
-                type="button"
-                className="multi-col-chip-remove"
-                aria-label={`Remove ${name}`}
-                disabled={disabled}
-                onClick={() => remove(name)}
-              >
-                ×
-              </button>
-            </span>
+            </RemovableChip>
           );
         })}
         {open ? (

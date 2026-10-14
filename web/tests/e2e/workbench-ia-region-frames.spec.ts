@@ -296,7 +296,8 @@ test('C2: adopted panel headers share identical vertical padding and close-chip 
   await expect(inspectHeader).toHaveClass(/panel-frame-header/);
   const inspectBox = await box(inspectHeader);
   const inspectClose = page.getByTestId('inspect-detail-close');
-  await expect(inspectClose).toHaveClass(/panel-frame-close/);
+  await expect(inspectClose).toHaveClass(/icon-button/);
+  await expect(inspectClose).toHaveAttribute('data-icon-size', 'compact');
   const inspectCloseBox = await box(inspectClose);
 
   // Drawer header (column drawer — the shared Drawer chrome).
@@ -307,7 +308,8 @@ test('C2: adopted panel headers share identical vertical padding and close-chip 
   await expect(drawerHeader).toHaveClass(/panel-frame-header/);
   const drawerBox = await box(drawerHeader);
   const drawerClose = page.getByTestId('column-drawer').getByRole('button', { name: 'Close drawer' });
-  await expect(drawerClose).toHaveClass(/panel-frame-close/);
+  await expect(drawerClose).toHaveClass(/icon-button/);
+  await expect(drawerClose).toHaveAttribute('data-icon-size', 'compact');
   const drawerCloseBox = await box(drawerClose);
 
   // Identical VERTICAL padding across the adopted headers.

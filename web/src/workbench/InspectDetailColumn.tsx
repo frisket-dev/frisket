@@ -5,6 +5,7 @@ import { useEscapeDismiss } from '../hooks/useEscapeDismiss';
 import { useResizable } from '../components/useResizable';
 import { ResizeSeam } from '../components/ResizeSeam';
 import { PanelHeader } from '../components/PanelPrimitives';
+import { IconButton } from '../components/IconButton';
 import type { CellValue, ColumnDef, PreviewCellDetail, Row, SheetMeta } from '../api/open';
 import type { WorkbenchResolvedLayoutContribution } from './layout';
 import { rowTitle } from './rowTitle';
@@ -141,34 +142,28 @@ export function InspectDetailColumn({
             >
               {title}
             </span>
-            <button
-              type="button"
-              className="inspect-detail-chip"
+            <IconButton
+              icon={ChevronUp}
               data-testid="inspect-detail-prev"
-              aria-label="Previous row"
+              label="Previous row"
               title="Previous row"
               disabled={!canPrev}
               onClick={() => onPrev?.()}
-            >
-              <ChevronUp size={14} />
-            </button>
-            <button
-              type="button"
-              className="inspect-detail-chip"
+            />
+            <IconButton
+              icon={ChevronDown}
               data-testid="inspect-detail-next"
-              aria-label="Next row"
+              label="Next row"
               title="Next row"
               disabled={!canNext}
               onClick={() => onNext?.()}
-            >
-              <ChevronDown size={14} />
-            </button>
+            />
           </div>
         }
         chips={headerChips}
         onClose={onClose}
         closeTestId="inspect-detail-close"
-        closeClassName="panel-frame-close inspect-detail-chip inspect-detail-close"
+        closeClassName="inspect-detail-close"
         // "Close drawer" is the pinned label carried over from the retired
         // overlay Drawer (many specs target it by role/name).
         closeAriaLabel="Close drawer"

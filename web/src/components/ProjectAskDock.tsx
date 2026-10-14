@@ -12,6 +12,8 @@ import { useActionCatalogHandle } from '../bind/useActionCatalogHandle';
 import { SelectorField } from '../engine-selector/SelectorField';
 import { MenuPop } from './MenuPop';
 import { PanelEmpty } from './PanelPrimitives';
+import { RemovableChip } from './RemovableChip';
+import { IconButton } from './IconButton';
 import { AskEventContent } from './project-ask/AskEventContent';
 import { askActionProposal } from './project-ask/actionProposal';
 import { AskThreadControls } from './project-ask/AskThreadControls';
@@ -200,10 +202,9 @@ export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposa
         onStop={() => void qa.stop()}
       />}
       <div className="ask-composer-sources" aria-label="Question sources">
-        <div className="ask-scope-chips">{activeSources.length ? activeSources.map((source, index) => <span key={JSON.stringify(source)}>{scopeLabel(source)}
-          <button type="button" aria-label={`Remove ${scopeLabel(source)}`} onClick={() => { const sources = state.scope?.sources?.filter((_, i) => i !== index) ?? []; qa.setOptions({ scope: sources.length ? { kind: 'sources', sources } : { kind: 'project' } }); }}>×</button>
-        </span>) : <span>Entire project</span>}</div>
-        <button type="button" className="ask-source-add" aria-label="Add sources" title="Add sources" onClick={() => setSourcesOpen(true)}><Plus size={15} aria-hidden /></button>
+        <div className="ask-scope-chips">{activeSources.length ? activeSources.map((source, index) => <RemovableChip key={JSON.stringify(source)} tone="neutral"
+          removeLabel={`Remove ${scopeLabel(source)}`} onRemove={() => { const sources = state.scope?.sources?.filter((_, i) => i !== index) ?? []; qa.setOptions({ scope: sources.length ? { kind: 'sources', sources } : { kind: 'project' } }); }}>{scopeLabel(source)}</RemovableChip>) : <span className="ask-scope-all">Entire project</span>}</div>
+        <IconButton icon={Plus} label="Add sources" title="Add sources" onClick={() => setSourcesOpen(true)} />
       </div>
       {state.scope && !scopeMatchesCurrentView && <div className="ask-scope-mismatch"><span>Viewing {currentViewLabel}</span><button type="button" onClick={() => qa.setOptions({ scope: initialScope })}>{contextIsSelection ? 'Use current selection' : 'Use this sheet'}</button></div>}
       <div className="ask-compose-box">

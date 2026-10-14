@@ -1,4 +1,6 @@
-import { Check, Columns2, Copy, Maximize2, X } from 'lucide-react';
+import { Check, Columns2, Copy, Maximize2 } from 'lucide-react';
+import { WindowCloseButton } from '../components/WindowCloseButton';
+import { IconButton } from '../components/IconButton';
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
 import type { ColumnDef, Row } from '../api/types';
 import { FieldValue } from '../components/RowDrawer';
@@ -111,16 +113,13 @@ export function DocumentAlongsidePane({
       <header className={styles.header}>
         <div className={styles.headingRow}>
           <h2 id={headingId} title={selectedColumn?.name}>{selectedColumn?.name ?? 'Show alongside'}</h2>
-          {selectedColumn && <button ref={changeRef} type="button" className="icon-btn" aria-label="Change column" title="Change column"
-            aria-expanded={choosing} onClick={() => setChoosing(!choosing)}><Columns2 size={15} /></button>}
-          <button type="button" className="icon-btn" aria-label="Copy value" title={status === 'Copied' ? 'Copied' : 'Copy value'}
-            disabled={value === null || value === ''} onClick={() => void copyValue()}>
-            {status === 'Copied' ? <Check size={15} /> : <Copy size={15} />}
-          </button>
-          <button type="button" className="icon-btn" aria-label="Expand value" title="Expand value"
-            disabled={!selectedColumn || !row} onClick={() => setExpanded(true)}><Maximize2 size={15} /></button>
-          <button type="button" className="icon-btn" aria-label="Close alongside panel" title="Close alongside panel"
-            onClick={onClose}><X size={15} /></button>
+          {selectedColumn && <IconButton icon={Columns2} ref={changeRef} label="Change column" title="Change column"
+            aria-expanded={choosing} onClick={() => setChoosing(!choosing)} />}
+          <IconButton icon={status === 'Copied' ? Check : Copy} label="Copy value" title={status === 'Copied' ? 'Copied' : 'Copy value'}
+            disabled={value === null || value === ''} onClick={() => void copyValue()} />
+          <IconButton icon={Maximize2} label="Expand value" title="Expand value"
+            disabled={!selectedColumn || !row} onClick={() => setExpanded(true)} />
+          <WindowCloseButton size="compact" label="Close alongside panel" title="Close alongside panel" onClick={onClose} />
         </div>
         {chooserVisible && (
           <PanelSelect ref={pickerRef} ariaLabel="Column to show alongside" testId="document-alongside-column-select"
@@ -137,8 +136,7 @@ export function DocumentAlongsidePane({
         onCancel={(event) => { event.preventDefault(); setExpanded(false); }}>
         <header className={styles.headingRow}>
           <h2 id={expandedHeadingId}>{selectedColumn?.name}</h2>
-          <button type="button" className="icon-btn" aria-label="Close expanded value" title="Close expanded value"
-            onClick={() => setExpanded(false)}><X size={16} /></button>
+          <WindowCloseButton size="compact" label="Close expanded value" title="Close expanded value" onClick={() => setExpanded(false)} />
         </header>
         <div className={styles.body}>{expanded && content}</div>
       </dialog>

@@ -125,7 +125,7 @@ describe('PluginManager lifecycle affordances', () => {
 
     const badge = screen.getByTestId('plugin-manager-state-badge');
     expect(badge).toHaveAttribute('data-state', 'enabled');
-    expect(badge).toHaveClass('plugin-manager-state-badge-positive');
+    expect(badge).toHaveAttribute('data-tone', 'success');
     expect(badge).toHaveTextContent('Enabled');
     expect(screen.getByText(/Available to this project/i)).toBeInTheDocument();
     expect(screen.getByTestId('plugin-manager-contributions')).toHaveTextContent('Actions');
@@ -151,9 +151,7 @@ describe('PluginManager lifecycle affordances', () => {
       }),
     });
 
-    expect(screen.getByTestId('plugin-manager-state-badge')).toHaveClass(
-      'plugin-manager-state-badge-negative',
-    );
+    expect(screen.getByTestId('plugin-manager-state-badge')).toHaveAttribute('data-tone', 'error');
     expect(screen.getByTestId('plugin-manager-state-badge')).toHaveTextContent('Failed');
     expect(screen.getByRole('alert')).toHaveTextContent('invalid_plugin_manifest');
     expect(screen.getByRole('alert')).toHaveTextContent('Manifest id did not match.');

@@ -5,6 +5,7 @@
 // callbacks; every mutation here is a pure transform dispatched through
 // them. This module never builds an action request or decides readiness.
 import { Plus, Trash2 } from 'lucide-react';
+import { IconButton } from '../IconButton';
 import type { ActionKind, ColumnType, OutputField } from '../../api/open';
 import { PanelSelect } from '../PanelSelect';
 import {
@@ -195,16 +196,14 @@ function FieldRow({
         onChange={(e) => onDescChange(e.target.value)}
       />
       {showDelete && (
-        <button
-          type="button"
-          className="icon-btn"
+        <IconButton
+          icon={Trash2}
+          className="field-remove-button"
           data-testid={deleteTestId}
-          aria-label={`Remove ${ariaLabel}`}
+          label={`Remove ${ariaLabel}`}
           disabled={deleteDisabled}
           onClick={onDelete}
-        >
-          <Trash2 size={13} />
-        </button>
+        />
       )}
     </div>
   );

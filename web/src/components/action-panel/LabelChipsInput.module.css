@@ -15,33 +15,6 @@
   gap: 6px;
 }
 
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  border: 1px solid #c7d5f7;
-  background: #f5f8ff;
-  color: var(--accent);
-  border-radius: var(--radius-999);
-  padding: 3px 5px 3px 10px;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.remove {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  border-radius: var(--radius-999);
-  color: inherit;
-}
-
-.remove:hover {
-  background: var(--accent-bg);
-}
-
 .draft {
   flex: 1 1 120px;
   min-width: 120px;
