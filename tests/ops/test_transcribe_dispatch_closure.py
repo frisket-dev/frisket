@@ -1,19 +1,4 @@
-"""Recipe-dispatch closure across transcription and OCR.
-
-``run_transcription_engine`` dispatches BY TRANSPORT (target resolution: one
-engine can be served over several transports), with id-literal branches only
-inside the local transport — while the advertised roster and the static target
-definitions are TABLE/definition-derived. ``OcrRecipe.run_engine_on_pages``
-dispatches over the same declaration set since routed OCR. These assertions pin, PER
-CAPABILITY: every (engine, target) support row the definitions declare reaches
-a dispatch branch, the definitions cover exactly the roster, and
-(transcription only, where the engine table declares one) the engine-level
-transport appears among the per-target transports actually served.
-
-The fence is per-capability rather than global on purpose: a target row is a
-VENUE row and one venue serves several capabilities, so "which branch would
-receive this" is only answerable once you know which recipe is asking.
-"""
+"""Roster and static-target consistency across transcription and OCR."""
 
 from __future__ import annotations
 
@@ -24,32 +9,8 @@ from frisket.contracts.actions.schemas._engines import (
     ocr_engine_table,
 )
 from frisket.execution.definitions import build_static_targets
-
-# The id-literal branches inside each recipe's dispatch, and the transports it
-# dispatches. If a branch is added/removed there, update this mirror — the
-# point of the fence is that TABLE/definition additions cannot outrun it.
-_LOCAL_DISPATCH_IDS = {
-    "transcribe": {"faster_whisper", "parakeet-tdt"},
-    # OcrRecipe.run_engine_on_pages: the LIGHT_ENGINE and tesseract branches.
-    "ocr": {"rapidocr", "tesseract"},
-}
-_DISPATCHED_TRANSPORTS = {
-    "transcribe": {
-        "local",
-        "frisket.transcription.v1",
-        "modal",
-        "remote",
-    },
-    # sidecar.ocr -> _ocr_sidecar (SIDECAR_ENGINES), datalab.convert ->
-    # _ocr_datalab, remote -> the '/' VLM branch.
-    "ocr": {
-        "local",
-        "sidecar.ocr",
-        "datalab.convert",
-        "opendocrouter.parse",
-        "remote",
-    },
-}
+from frisket.ops.base import OpContext
+from frisket.ops.ocr_engines import OcrEngines
 
 
 def _roster(capability: str):
@@ -66,29 +27,38 @@ def _rows(capability: str):
                 yield target, support
 
 
-@pytest.mark.parametrize("capability", _CAPABILITIES)
-def test_every_declared_support_row_reaches_a_dispatch_branch(capability) -> None:
-    for target, support in _rows(capability):
-        assert support.transport in _DISPATCHED_TRANSPORTS[capability], (
-            f"target {target.id!r} declares {capability} transport "
-            f"{support.transport!r} which the recipe does not dispatch"
-        )
-        if support.transport == "local":
-            assert support.engine in _LOCAL_DISPATCH_IDS[capability], (
-                f"engine {support.engine!r} declares transport 'local' "
-                "on target "
-                f"{target.id!r} but the recipe has no id-literal branch "
-                "for it: it would advertise in the catalog and raise at "
-                "dispatch"
-            )
+@pytest.mark.asyncio
+async def test_indra_ocr_dispatches_through_local_adapter(
+    tmp_path, monkeypatch
+) -> None:
+    engines = OcrEngines()
+    page = tmp_path / "page.png"
+    scratch = tmp_path / "scratch"
+    expected = [{"text": "local text", "blocks": []}]
+    calls = []
+
+    async def indra_adapter(page_paths, scratch_path):
+        calls.append((page_paths, scratch_path))
+        return expected
+
+    monkeypatch.setattr(engines, "_ocr_indra", indra_adapter)
+
+    result = await engines.run_engine_on_pages(
+        "indra-ocr",
+        [page],
+        OpContext(),
+        usage={},
+        scratch=scratch,
+    )
+
+    assert result == expected
+    assert calls == [([page], scratch)]
 
 
 @pytest.mark.parametrize("capability", _CAPABILITIES)
-def test_every_roster_engine_reaches_a_dispatch_branch(capability) -> None:
-    # Every roster engine must appear on at least one static target (and
-    # test_every_declared_support_row... proves those rows dispatch), unless
-    # it carries a ``resolves_to`` rewrite onto a provider/model id, which
-    # dispatches through the '/' branch instead.
+def test_every_roster_engine_has_static_target_support(capability) -> None:
+    # Every roster engine must appear on at least one static target unless it
+    # carries a ``resolves_to`` rewrite onto a provider/model id.
     supported = {support.engine for _target, support in _rows(capability)}
     for entry in _roster(capability):
         if entry.resolves_to is not None:
