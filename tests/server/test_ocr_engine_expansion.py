@@ -235,7 +235,7 @@ def test_indra_catalog_discloses_pinned_model_and_restricted_license() -> None:
         }
     ]
     assert engine["license"] == {
-        "name": artifact.license,
+        "name": "AI PUBS OPEN RAIL-M LICENSE (MODIFIED)",
         "url": INDRA_MODEL_LICENSE_URL,
         "note": (
             "Limits organizational use above either $20M prior-year gross revenue "
