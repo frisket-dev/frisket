@@ -163,7 +163,7 @@ def _provider_completion(request: httpx.Request) -> httpx.Response:
     )
     assert request.headers["Authorization"] == "Bearer e2e-personal-gemini-key"
     body = json.loads(request.content)
-    assert body["model"] == "gemini-3.5-flash-lite"
+    assert body["model"] == "gemini-3.8-flash"
     assert "Alice signed the agreement." in json.dumps(body["messages"])
     return httpx.Response(
         200,
