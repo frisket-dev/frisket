@@ -85,7 +85,7 @@ class CloudExecutionTargetProvider:
         source: ExecutionTargetProvider,
         cloud_targets: Sequence[ExecutionTarget],
         payers: dict[tuple[str, str, str], CloudPayerSubject],
-        llm_prices: dict[tuple[str, str], CloudTokenPrice],
+        token_prices: dict[tuple[str, str, str], CloudTokenPrice],
         presentations: dict[tuple[str, str, str], CommercialPresentation],
         *,
         preference: str,
@@ -95,7 +95,7 @@ class CloudExecutionTargetProvider:
         self._cloud_targets = tuple(cloud_targets)
         self._cloud_by_id = {target.id: target for target in self._cloud_targets}
         self._payers = dict(payers)
-        self._llm_prices = dict(llm_prices)
+        self._token_prices = dict(token_prices)
         self._presentations = dict(presentations)
         self._execution_transport = execution_transport
         self._preference = preference
@@ -154,8 +154,10 @@ class CloudExecutionTargetProvider:
     ) -> CloudExecutionTransport | None:
         return self._execution_transport if target_id in self._cloud_by_id else None
 
-    def cloud_llm_price(self, target_id: str, engine: str) -> CloudTokenPrice | None:
-        return self._llm_prices.get((target_id, engine))
+    def cloud_token_price(
+        self, target_id: str, capability: str, engine: str
+    ) -> CloudTokenPrice | None:
+        return self._token_prices.get((target_id, capability, engine))
 
     def cloud_presentation(
         self, target_id: str, capability: str, engine: str
@@ -201,7 +203,7 @@ def compose_cloud_targets(
     base = replace(base, cloud_inventory_known=True)
     grouped: dict[str, list[TargetEngineSupport]] = defaultdict(list)
     payers: dict[tuple[str, str, str], CloudPayerSubject] = {}
-    llm_prices: dict[tuple[str, str], CloudTokenPrice] = {}
+    token_prices: dict[tuple[str, str, str], CloudTokenPrice] = {}
     presentations: dict[tuple[str, str, str], CommercialPresentation] = {}
     offerings: list[CommercialOffering] = []
     included: list[ExactExecutionMatch] = []
@@ -234,7 +236,7 @@ def compose_cloud_targets(
             ),
         )
         if isinstance(route.price, CloudTokenPrice):
-            llm_prices[(target_id, route.engine)] = route.price
+            token_prices[(target_id, capability, route.engine)] = route.price
         offering = _offering(route, capability, target_id, account)
         if offering is None:
             included.append(
@@ -261,7 +263,7 @@ def compose_cloud_targets(
         base.provider,
         targets,
         payers,
-        llm_prices,
+        token_prices,
         presentations,
         preference=preference,
         execution_transport=execution_transport,

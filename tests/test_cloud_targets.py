@@ -845,8 +845,54 @@ def test_cloud_llm_route_carries_typed_price_and_payer():
     assert outcome.support.transport == "frisket.cloud.llm.v1"
     assert outcome.facts.cloud_payer is not None
     assert outcome.facts.cloud_payer.account_id == 41
-    price = composition.provider.cloud_llm_price(outcome.target.id, "openai/gpt-5-mini")
+    price = composition.provider.cloud_token_price(
+        outcome.target.id, CAPABILITY_LLM, "openai/gpt-5-mini"
+    )
     assert price.output_micro_per_million_tokens == 2_000_000
+
+
+@pytest.mark.parametrize("ocr_first", [False, True])
+def test_cloud_token_prices_are_bound_to_capability_regardless_of_route_order(
+    ocr_first,
+):
+    llm_route = _llm_capabilities().routes[0]
+    ocr_route = llm_route.model_copy(
+        update={
+            "capability": "ocr",
+            "route_revision": "ocr-openai-route-different-price",
+            "price": CloudTokenPrice(
+                kind="tokens",
+                input_micro_per_million_tokens=300_000,
+                output_micro_per_million_tokens=2_500_000,
+            ),
+            "options": CloudOCROptionSupport(
+                kind="ocr", language=True, geometry=True, searchable_pdf=False
+            ),
+        }
+    )
+    routes = [ocr_route, llm_route] if ocr_first else [llm_route, ocr_route]
+    composition = compose_cloud_targets(
+        _base_without_local_route(),
+        user_id=7,
+        account=_account(),
+        capabilities=CloudCapabilitiesResponse(account_id=41, routes=routes),
+        preference="cloud_first",
+    )
+    target_id = "frisket-cloud:41:frisket_credits:openai"
+
+    llm_price = composition.provider.cloud_token_price(
+        target_id, CAPABILITY_LLM, "openai/gpt-5-mini"
+    )
+    ocr_price = composition.provider.cloud_token_price(
+        target_id, CAPABILITY_OCR, "openai/gpt-5-mini"
+    )
+
+    assert isinstance(llm_price, CloudTokenPrice)
+    assert isinstance(ocr_price, CloudTokenPrice)
+    assert llm_price.input_micro_per_million_tokens == 250_000
+    assert llm_price.output_micro_per_million_tokens == 2_000_000
+    assert ocr_price.input_micro_per_million_tokens == 300_000
+    assert ocr_price.output_micro_per_million_tokens == 2_500_000
 
 
 def test_cloud_vision_ocr_uses_model_transport_and_unbounded_receipt_pricing():

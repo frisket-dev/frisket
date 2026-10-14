@@ -110,7 +110,7 @@ def test_action_llm_quote_uses_the_cloud_wire_payload_formula():
 
     class Provider:
         @staticmethod
-        def cloud_llm_price(_target_id, _engine):
+        def cloud_token_price(_target_id, _capability, _engine):
             return price
 
     resolution = SimpleNamespace(
@@ -147,7 +147,7 @@ def test_structured_and_agent_llm_calls_use_explicit_unknown_quantity():
 
     class Provider:
         @staticmethod
-        def cloud_llm_price(_target_id, _engine):
+        def cloud_token_price(_target_id, _capability, _engine):
             return price
 
     resolution = SimpleNamespace(

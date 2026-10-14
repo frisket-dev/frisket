@@ -699,9 +699,9 @@ def _llm_cost_basis(
         CloudTokenPrice,
     )
 
-    price_hook = getattr(composition.provider, "cloud_llm_price", None)
+    price_hook = getattr(composition.provider, "cloud_token_price", None)
     price = (
-        price_hook(resolution.target.id, resolution.facts.engine)
+        price_hook(resolution.target.id, CAPABILITY_LLM, resolution.facts.engine)
         if callable(price_hook)
         else None
     )
