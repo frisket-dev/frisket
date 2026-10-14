@@ -94,6 +94,22 @@ def _media_routes() -> list[CloudCapabilityRoute]:
     return [
         CloudCapabilityRoute(
             capability="ocr",
+            engine=_MODEL,
+            provider="gemini",
+            lane="frisket_credits",
+            route_revision="cloud-e2e-gemini-ocr-v1",
+            ready=True,
+            blocker=None,
+            price=_route().price,
+            options=CloudOCROptionSupport(
+                kind="ocr",
+                language=True,
+                geometry=True,
+                searchable_pdf=False,
+            ),
+        ),
+        CloudCapabilityRoute(
+            capability="ocr",
             engine="datalab",
             provider="datalab",
             lane="account_key",
