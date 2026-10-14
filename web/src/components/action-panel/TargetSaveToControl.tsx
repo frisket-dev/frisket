@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
+import { DropdownIndicator } from '../DropdownIndicator';
 import type { ColumnDef, SheetMeta } from '../../api/open';
 import { existingColumnByName, NEW_COLUMN } from './formControlHelpers';
 import styles from './TargetSaveToControl.module.css';
@@ -206,7 +207,7 @@ export function OutputNameCombobox({
                   inputRef.current?.focus();
                 }
               }}
-            />
+            ><DropdownIndicator /></button>
           )}
           <datalist id={datalistId}>
             {allowExistingTargets && columns.map((column) => (

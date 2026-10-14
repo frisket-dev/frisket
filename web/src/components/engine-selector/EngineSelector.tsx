@@ -12,6 +12,7 @@ import { createPortal } from 'react-dom';
 
 import { useAnchoredPosition } from '../../hooks/useAnchoredPosition';
 import { WindowCloseButton } from '../WindowCloseButton';
+import { DropdownIndicator } from '../DropdownIndicator';
 import type {
   EngineSelectorChoice,
   EngineSelectorDetailFooterContext,
@@ -413,7 +414,7 @@ export function EngineSelector({
             value={triggerProgressValue}
           />}
         </span>
-        <span aria-hidden>⌄</span>
+        <DropdownIndicator />
       </button>
 
       {open && createPortal(

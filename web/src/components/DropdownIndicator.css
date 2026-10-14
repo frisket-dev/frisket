@@ -1,0 +1,13 @@
+.dropdown-indicator {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  color: var(--text-light);
+  stroke-width: 2;
+  pointer-events: none;
+}
+
+/* The run split-button uses its solid button's contrasting foreground. */
+.dropdown-indicator.run-scope-indicator {
+  color: inherit;
+}

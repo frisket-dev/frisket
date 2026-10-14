@@ -7,6 +7,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, Zap } from 'lucide-react';
+import { DropdownIndicator } from './DropdownIndicator';
 import { useAnchoredPosition } from '../hooks/useAnchoredPosition';
 import { useNativePopover } from '../hooks/useNativePopover';
 
@@ -148,7 +149,7 @@ export function MultiColumnPicker({
         ) : (
           <span className="multi-col-add">+ column</span>
         )}
-        <span className="multi-col-caret" aria-hidden>▾</span>
+        <DropdownIndicator className="multi-col-caret" />
       </div>
       {open && !disabled &&
         createPortal(

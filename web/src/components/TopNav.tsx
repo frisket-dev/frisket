@@ -13,9 +13,9 @@ import {
   type RefObject,
 } from 'react';
 import { PanelSelect } from './PanelSelect';
+import { DropdownIndicator } from './DropdownIndicator';
 import {
   Archive,
-  ChevronDown,
   Database,
   Download,
   FileArchive,
@@ -176,7 +176,7 @@ function ExportDataGroup({
       >
         <Download size={12} />
         <span className="menu-item-name">Export data</span>
-        <ChevronDown size={11} />
+        <DropdownIndicator />
       </button>
       {exportOpen && (
         <div className="menu-nested" data-testid="export-menu">
@@ -684,7 +684,7 @@ export function ProjectMenu({
         title="Switch project"
         onClick={() => dispatch({ type: 'toggleOpen' })}
       >
-        {project.name} <ChevronDown size={11} />
+        {project.name} <DropdownIndicator />
       </button>
       {open && (
         <ProjectMenuPopover

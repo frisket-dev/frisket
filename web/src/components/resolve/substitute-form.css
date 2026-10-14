@@ -278,7 +278,7 @@
   align-items: center;
   gap: 8px;
 }
-.resolve-substitute-policy-row select {
+.resolve-substitute-policy-row > .panel-select-shell {
   margin-left: auto;
   max-width: 150px;
 }

@@ -9,6 +9,26 @@ import { PanelSelect } from '../../src/components/PanelSelect';
 
 afterEach(cleanup);
 
+describe('PanelSelect shared indicator', () => {
+  it('keeps its base control and decorative chevron when a caller supplies a class', () => {
+    render(<PanelSelect className="settings-project-select" value="one"
+      ariaLabel="Project" options={[{ value: 'one', label: 'One' }]} />);
+    const select = screen.getByRole('combobox', { name: 'Project' });
+    expect(select).toHaveClass('panel-select-control', 'settings-project-select');
+    const indicator = select.parentElement?.querySelector('.dropdown-indicator');
+    expect(indicator).toHaveAttribute('aria-hidden', 'true');
+    expect(indicator).toHaveAttribute('focusable', 'false');
+    expect(select.parentElement?.querySelectorAll('.dropdown-indicator')).toHaveLength(1);
+  });
+
+  it('shows one indicator alongside a note and leading icon', () => {
+    const { container } = render(<PanelSelect value="one" note="local" ariaLabel="Projects"
+      options={[{ value: 'one', label: 'One', leadingIcon: <span>●</span> }]} />);
+    expect(container.querySelectorAll('.dropdown-indicator')).toHaveLength(1);
+    expect(screen.getByText('local')).toBeVisible();
+  });
+});
+
 describe('PanelSelect empty state', () => {
   it('shows the default non-selectable row when no options exist', () => {
     render(<PanelSelect value="" onValueChange={vi.fn()} options={[]} testId="empty-picker" />);

@@ -4,7 +4,6 @@ import {
   Braces,
   CalendarClock,
   Check,
-  ChevronDown,
   CircleHelp,
   Code,
   Combine,
@@ -22,6 +21,7 @@ import {
 
 import type { ActionTemplate } from '../../api/types';
 import { PanelHeader } from '../PanelPrimitives';
+import { DropdownIndicator } from '../DropdownIndicator';
 import { ActionHelpPopover } from './ActionHelpPopover';
 
 const ACTION_ICONS: Partial<Record<string, LucideIcon>> = {
@@ -121,7 +121,7 @@ export function ActionFormHeader({
             onClick={() => setActionMenuOpen((open) => !open)}
           >
             <span className="action-title-text" data-testid="action-form-title">{formTitle}</span>
-            <ChevronDown size={14} className="action-title-caret" aria-hidden />
+            <DropdownIndicator />
           </button>
           {actionMenuOpen && (
             <div className="action-title-menu-list" role="menu" data-testid="action-title-menu">

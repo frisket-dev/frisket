@@ -3224,7 +3224,6 @@ li.panel-empty { list-style: none; }
   text-align: left;
 }
 .action-title-button:hover { background: var(--bg-hover); }
-.action-title-button .action-title-caret { color: var(--text-light); flex-shrink: 0; }
 .action-title-text {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
@@ -3382,15 +3381,6 @@ li.panel-empty { list-style: none; }
   outline: none;
   border-color: var(--accent);
   box-shadow: var(--shadow-ring);
-}
-/* Match native select affordances to the editable destination combobox. */
-.action-panel select.form-input:not([multiple]) {
-  appearance: none;
-  -webkit-appearance: none;
-  padding-right: 30px;
-  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 11px center;
 }
 .action-panel .form-textarea { padding: 10px 12px; line-height: 1.5; }
 /* Compact single-
@@ -3719,7 +3709,7 @@ li.panel-empty { list-style: none; }
   justify-self: end;
   border: 0;
   background-color: var(--bg-hover);
-  padding: 3px 24px 3px 9px;
+  padding: 3px 32px 3px 9px;
   min-height: 0;
   font-size: 12px;
   font-weight: 600;
@@ -3792,7 +3782,7 @@ li.panel-empty { list-style: none; }
 .action-panel .list-item-field-row .field-name { font-size: 12px; }
 .action-panel .list-item-field-row select.field-type {
   font-size: 11px;
-  padding: 2px 20px 2px 8px;
+  padding: 2px 32px 2px 8px;
 }
 .action-panel .list-item-field-row .field-desc { font-size: 11.5px; min-height: 18px; }
 .action-panel .list-item-field-row > .icon-btn { width: 24px; height: 24px; }
@@ -3832,7 +3822,7 @@ li.panel-empty { list-style: none; }
    radius), so this follows suit with a literal. */
 .tabular-join-key-pairs { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
 .tabular-join-key-pair-row { display: flex; align-items: center; gap: 6px; }
-.tabular-join-key-pair-row select { flex: 1; min-width: 0; }
+.tabular-join-key-pair-row > .panel-select-shell { flex: 1; min-width: 0; }
 .tabular-join-key-pair-glyph { color: var(--text-mid); flex: 0 0 auto; font-size: 12px; }
 @layer base {
 .segmented {
@@ -4292,7 +4282,7 @@ li.panel-empty { list-style: none; }
      shrinking to it. */
   min-width: 0;
 }
-.ocr-compare-configure-field > select {
+.ocr-compare-configure-field .panel-select-control {
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
@@ -7726,7 +7716,7 @@ output.account-note {
 }
 .active-saved-view-chip { cursor: pointer; }
 .menu-item-select { justify-content: space-between; }
-.menu-item-select .row-height-select { flex: 0 0 auto; max-width: 96px; }
+.menu-item-select .panel-select-shell { flex: 0 0 auto; max-width: 96px; }
 
 .import-mode-list {
   display: grid;
@@ -11219,10 +11209,6 @@ dialog.modal-card::backdrop {
 }
 
 /* Engine-select trigger note ("· local, default") overlaid at the right edge. */
-.panel-select-shell {
-  position: relative;
-  display: block;
-}
 .panel-select-shell.has-leading-icon > select { padding-left: 30px; }
 .panel-select-leading-icon {
   position: absolute;
@@ -11539,8 +11525,6 @@ dialog.modal-card::backdrop {
 }
 .multi-col-caret {
   margin-left: auto;
-  font-size: 13px;
-  color: var(--text-light);
   align-self: center;
 }
 /* Native `popover="manual"` element (MultiColumnPicker.tsx useNativePopover,
