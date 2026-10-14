@@ -67,6 +67,7 @@ OcrTransport = Literal[
     "datalab.convert",
     "opendocrouter.parse",
     "remote",
+    "frisket.cloud.llm.v1",
     "frisket.cloud.media.v1",
 ]
 
