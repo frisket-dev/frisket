@@ -254,8 +254,13 @@ It's easy to set up an API key to talk to AI providers like OpenAI, Anthropic, O
 - LM Studio and Ollama are supported out-of-the-box for local LLMs/VLMs
 - Local transcription can be powered by Parakeet, Whisper, MOSS, VibeVoice-ASR
 - spaCy or GLiNER for local entity extraction
-- Plenty of OCR engines like RapidOCR, Surya 2, dots.mocr, PaddleOCR-VL, Tesseract
+- Plenty of OCR engines like RapidOCR, Indra OCR, Surya 2, dots.mocr, PaddleOCR-VL, Tesseract
 - PDF to Markdown conversion with Markitdown, Docling
+
+Indra OCR runs locally on CPU using an approximately 18 MB model. It is by
+[Datalab](https://www.datalab.to/) and uses a
+[restricted model license](https://huggingface.co/datalab-to/indra-ocr/blob/d7c839c892bfe4b8993373db64c62f154d05d70b/LICENSE).
+It is available for local/self-hosted use, not through Frisket Cloud.
 
 ## Reclaim unused local files
 
