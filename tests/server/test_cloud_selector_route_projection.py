@@ -456,9 +456,7 @@ def test_saved_cloud_model_route_exposes_own_ocr_without_falling_back(tmp_path) 
 
         assert ocr_response.status_code == 200, ocr_response.text
         ocr = next(
-            choice
-            for choice in _choices(ocr_response.json())
-            if choice["is_current"]
+            choice for choice in _choices(ocr_response.json()) if choice["is_current"]
         )
         assert ocr["status"] == "unavailable"
         assert ocr["processing_destination"] == {
@@ -489,9 +487,7 @@ def test_saved_cloud_model_route_exposes_own_ocr_without_falling_back(tmp_path) 
 
         assert llm_response.status_code == 200, llm_response.text
         llm = next(
-            choice
-            for choice in _choices(llm_response.json())
-            if choice["is_current"]
+            choice for choice in _choices(llm_response.json()) if choice["is_current"]
         )
         assert llm["status"] == "ready"
         assert llm["execution_route"]["kind"] == "cloud_credits"
@@ -507,9 +503,7 @@ def test_saved_cloud_model_route_exposes_own_ocr_without_falling_back(tmp_path) 
     assert changed.status_code == 200, changed.text
     assert switched_response.status_code == 200, switched_response.text
     switched = next(
-        choice
-        for choice in _choices(switched_response.json())
-        if choice["is_current"]
+        choice for choice in _choices(switched_response.json()) if choice["is_current"]
     )
     assert switched["status"] == "ready"
     assert switched["execution_route"]["kind"] == "local_key"
