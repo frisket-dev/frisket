@@ -376,9 +376,15 @@ class CloudLLMUsage(WireModel):
 
 class CloudOCRUsage(WireModel):
     kind: Literal["ocr"]
-    pages: int | None = Field(default=None, ge=0)
-    tokens_in: int | None = Field(default=None, ge=0)
-    tokens_out: int | None = Field(default=None, ge=0)
+    pages: int | None = Field(
+        default=None, ge=0, exclude_if=lambda value: value is None
+    )
+    tokens_in: int | None = Field(
+        default=None, ge=0, exclude_if=lambda value: value is None
+    )
+    tokens_out: int | None = Field(
+        default=None, ge=0, exclude_if=lambda value: value is None
+    )
 
     @model_validator(mode="after")
     def _one_usage_shape(self) -> "CloudOCRUsage":
