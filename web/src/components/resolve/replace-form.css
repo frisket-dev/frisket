@@ -136,4 +136,5 @@
   justify-content: space-between;
   gap: 8px;
 }
-.resolve-replace-policy { width: auto; min-width: 150px; }
+.resolve-replace-policy-row > .panel-select-shell { min-width: 150px; }
+.resolve-replace-policy { width: auto; }

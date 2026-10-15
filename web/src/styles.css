@@ -6622,6 +6622,7 @@ dialog.sources-connections-layer::backdrop { background: transparent; }
 .sources-add { align-self: flex-start; }
 .sources-form { display: flex; flex-direction: column; gap: 6px; }
 .sources-form-row { display: flex; gap: 6px; }
+.sources-form-row > .panel-select-shell { flex: 1; min-width: 0; }
 .sources-form-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -6692,6 +6693,7 @@ dialog.sources-connections-layer::backdrop { background: transparent; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .source-controls { display: flex; align-items: center; gap: 6px; }
+.source-controls > .panel-select-shell { flex: 1; min-width: 0; }
 .source-controls .source-sched { flex: 1; min-width: 0; margin: 0; padding: 3px 6px; font-size: 11.5px; }
 .source-enabled { display: flex; align-items: center; }
 .icon-btn.danger { color: var(--red); }
@@ -7114,7 +7116,7 @@ dialog.sources-connections-layer::backdrop { background: transparent; }
   border: 1px solid var(--border); border-radius: var(--radius-5); background: var(--bg);
 }
 .friendly-range-inputs label:focus-within { border-color: var(--focus); }
-.friendly-range-inputs label span {
+.friendly-range-inputs label > span:first-child {
   align-self: stretch; display: flex; align-items: center; padding: 0 5px;
   border-right: 1px solid var(--border); color: var(--text-light); font-size: 9.5px;
 }
@@ -7719,6 +7721,7 @@ output.account-note {
   color: var(--text-light);
   font-size: 11px;
 }
+.import-field-label > .panel-select-shell + .panel-select-shell { margin-top: 6px; }
 .import-url-list {
   width: 100%;
   resize: vertical;
@@ -7914,8 +7917,8 @@ dialog.import-workspace-layer::backdrop {
   gap: 3px;
   min-width: 0;
 }
-.import-csv-preview-controls strong,
-.import-csv-preview-controls span {
+.import-csv-preview-controls > div > strong,
+.import-csv-preview-controls > div > span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -12380,7 +12383,7 @@ dialog.modal-card::backdrop {
   font-size: 12px;
   color: var(--text-mid);
 }
-.answers-column-picker-row select { min-width: 160px; }
+.answers-column-picker-row > .panel-select-shell { min-width: 160px; }
 .answers-column-picker-static { font-size: 13px; font-weight: 600; color: var(--text); }
 .answers-column-body {
   flex: 1;
