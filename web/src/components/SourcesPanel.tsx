@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
-import { PanelEmpty, PanelError } from './PanelPrimitives';
+import { PanelEmpty, PanelError, StatusChip, type StatusTone } from './PanelPrimitives';
+import { WindowCloseButton } from './WindowCloseButton';
 import { PanelSelect } from './PanelSelect';
 import {
   Activity,
@@ -528,6 +529,15 @@ function statusLabel(value: string | null | undefined): string {
 
 function statusClass(value: string | null | undefined): string {
   return `status-${value || 'never'}`.replace(/[^a-z0-9_-]/gi, '-');
+}
+
+function SourceStatus({ value, testId }: { value: string | null | undefined; testId?: string }) {
+  const tones: Record<string, StatusTone> = {
+    ok: 'success', healthy: 'success', error: 'error', failing: 'error', stale: 'warning',
+  };
+  return <StatusChip className="source-status" tone={tones[value ?? ''] ?? 'neutral'} size="sm" uppercase testId={testId}>
+    {statusLabel(value)}
+  </StatusChip>;
 }
 
 function formatWhen(value: string | null | undefined): string {
@@ -1058,12 +1068,7 @@ function SourceList({ actions, armedDelete, busy, expanded, items, runPages, run
             <div className="source-head">
               <span className="source-kind-icon">{sourceKindIcon(s.kind)}</span>
               <span className="source-name" title={s.name}>{s.name}</span>
-              <span
-                className={`source-status ${statusClass(status)}`}
-                data-testid={`source-status-${s.id}`}
-              >
-                {statusLabel(status)}
-              </span>
+              <SourceStatus value={status} testId={`source-status-${s.id}`} />
             </div>
             <div className="source-kind-line">
               <span data-testid={`source-kind-${s.id}`}>{sourceKindLabel(s.kind)}</span>
@@ -1167,7 +1172,7 @@ function SourceList({ actions, armedDelete, busy, expanded, items, runPages, run
                   <>
                     {runs[s.id].map((r) => (
                       <li key={r.id} className={`source-run ${statusClass(r.status)}`}>
-                        <span className={`source-status ${statusClass(r.status)}`}>{statusLabel(r.status)}</span>
+                        <SourceStatus value={r.status} />
                         <span className="source-run-rows">{runDeltaText(r)}</span>
                         <span className="source-run-when">{formatWhen(r.startedAt)}</span>
                         {r.warningCount > 0 && (
@@ -1268,14 +1273,7 @@ function SourceHealthDrawer({
             Open main view
           </button>
         )}
-        <button
-          type="button"
-          className="icon-btn"
-          aria-label="Close source details"
-          onClick={actions.closeHealth}
-        >
-          <X size={14} />
-        </button>
+        <WindowCloseButton size="compact" label="Close source details" onClick={actions.closeHealth} />
       </div>
 
       <div className="source-detail-tabstrip" role="tablist" aria-label="Source detail">
@@ -1335,12 +1333,7 @@ function SourceHealthDrawer({
               <div className="source-health-summary" data-testid={`source-health-summary-${healthOpenId}`}>
                 <div>
                   <span className="source-health-label">Status</span>
-                  <span
-                    className={`source-status ${statusClass(openHealth.summary.status)}`}
-                    data-testid={`source-health-status-${healthOpenId}`}
-                  >
-                    {statusLabel(openHealth.summary.status)}
-                  </span>
+                  <SourceStatus value={openHealth.summary.status} testId={`source-health-status-${healthOpenId}`} />
                 </div>
                 <div>
                   <span className="source-health-label">Last success</span>
@@ -1397,7 +1390,7 @@ function SourceHealthDrawer({
                   ) : openHealth.runs.map((run) => (
                     <li key={run.id} className="source-health-run">
                       <div>
-                        <span className={`source-status ${statusClass(run.status)}`}>{statusLabel(run.status)}</span>
+                        <SourceStatus value={run.status} />
                         <span>{runDeltaText(run)}</span>
                       </div>
                       <div className="source-health-run-meta">
@@ -1422,7 +1415,7 @@ function SourceHealthDrawer({
                     {openHealth.downstreamJobs.map((job) => (
                       <li key={job.jobId}>
                         <span>{job.kind}</span>
-                        <span className={`source-status ${statusClass(job.status)}`}>{statusLabel(job.status)}</span>
+                        <SourceStatus value={job.status} />
                         {job.errorSummary && <span className="source-run-error">{job.errorSummary}</span>}
                       </li>
                     ))}
@@ -1513,14 +1506,7 @@ export function SourceHealthMainView({
           <div className="source-health-title">{health?.source.name ?? 'Source health'}</div>
           {health && <div className="source-health-subtitle">{sourceKindLabel(health.source.kind)}</div>}
         </div>
-        <button
-          type="button"
-          className="icon-btn"
-          aria-label="Close source health"
-          onClick={onClose}
-        >
-          <X size={14} />
-        </button>
+        <WindowCloseButton size="compact" label="Close source health" onClick={onClose} />
       </div>
 
       {error && (
@@ -1533,12 +1519,7 @@ export function SourceHealthMainView({
           <div className="source-health-summary" data-testid={`source-health-summary-${sourceId}`}>
             <div>
               <span className="source-health-label">Status</span>
-              <span
-                className={`source-status ${statusClass(health.summary.status)}`}
-                data-testid={`source-health-status-${sourceId}`}
-              >
-                {statusLabel(health.summary.status)}
-              </span>
+              <SourceStatus value={health.summary.status} testId={`source-health-status-${sourceId}`} />
             </div>
             <div>
               <span className="source-health-label">Last success</span>
@@ -1591,7 +1572,7 @@ export function SourceHealthMainView({
               ) : health.runs.map((run) => (
                 <li key={run.id} className="source-health-run">
                   <div>
-                    <span className={`source-status ${statusClass(run.status)}`}>{statusLabel(run.status)}</span>
+                    <SourceStatus value={run.status} />
                     <span>{runDeltaText(run)}</span>
                   </div>
                   <div className="source-health-run-meta">
@@ -1616,7 +1597,7 @@ export function SourceHealthMainView({
                 {health.downstreamJobs.map((job) => (
                   <li key={job.jobId}>
                     <span>{job.kind}</span>
-                    <span className={`source-status ${statusClass(job.status)}`}>{statusLabel(job.status)}</span>
+                    <SourceStatus value={job.status} />
                     {job.errorSummary && <span className="source-run-error">{job.errorSummary}</span>}
                   </li>
                 ))}
@@ -1785,16 +1766,13 @@ export function SourcesConnectionsDialog({
               <p>Manage recurring feeds, polling, and connection health for this project.</p>
             </div>
           </div>
-          <button
+          <WindowCloseButton
             ref={closeButtonRef}
-            type="button"
-            className="icon-btn"
-            aria-label="Close Sources & connections"
+            size="compact"
+            label="Close Sources & connections"
             data-testid="sources-connections-close"
             onClick={onClose}
-          >
-            <X size={16} />
-          </button>
+          />
         </header>
         <main className="sources-connections-content">
           <SourcesPanel {...panelProps} />

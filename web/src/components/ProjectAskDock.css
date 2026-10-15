@@ -69,11 +69,7 @@
 .ask-source-preview > button { float: right; }
 
 .ask-scope-chips { display: flex; min-width: 0; flex: 1; flex-wrap: wrap; gap: 5px; }
-.ask-scope-chips > span { display: inline-flex; align-items: center; gap: 3px; border: 1px solid var(--border); border-radius: 999px; padding: 3px 6px 3px 8px; background: var(--bg-panel); color: var(--text-mid); font-size: 11px; line-height: 1.1; }
-.ask-scope-chips button { display: grid; place-items: center; width: 15px; height: 15px; border: 0; border-radius: 50%; padding: 0; background: transparent; color: var(--text-mid); cursor: pointer; font: inherit; }
-.ask-scope-chips button:hover { background: var(--bg-hover); color: var(--text); }
-.ask-source-add { display: grid; place-items: center; width: 26px; height: 26px; flex-shrink: 0; border: 1px solid var(--border); border-radius: 50%; padding: 0; background: var(--bg-panel); color: var(--text-mid); cursor: pointer; }
-.ask-source-add:hover { background: var(--bg-hover); color: var(--text); }
+.ask-scope-all { color: var(--text-mid); font-size: 12px; }
 .ask-source-picker { width: min(480px, 90vw); }
 .ask-source-picker h2 { font-size: 16px; margin-top: 0; }
 .ask-source-picker label { display: flex; gap: 8px; align-items: center; padding: 5px 0; overflow-wrap: anywhere; }

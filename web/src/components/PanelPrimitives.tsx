@@ -1,5 +1,6 @@
 import { useId, type InputHTMLAttributes, type ReactNode } from 'react';
-import { X, type LucideIcon } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import { WindowCloseButton } from './WindowCloseButton';
 
 /**
  * Shared action-panel form primitives: a full-width segmented switch and a
@@ -105,7 +106,7 @@ export function PanelError({
  * embedding-badge, sheet-info-badge, and LineagePanel's lineage-node-sync)
  * with a single primitive: tone maps to
  * color in exactly ONE place — the `.status-chip[data-tone=...]` rules in
- * styles.css. Count/removable chips (multi-col-chip, engine-tier-chip,
+ * styles.css. Count/removable chips (RemovableChip, engine-tier-chip,
  * ocr-compare-vote-chip) are a different genus and are NOT this primitive.
  */
 export type StatusTone = 'success' | 'warning' | 'error' | 'info' | 'neutral';
@@ -297,18 +298,10 @@ export function ToggleRow({
 }
 
 /**
- * The one panel-header anatomy. An earlier pass shipped only the CSS half — the shared
- * `.panel-frame-header` / `.panel-frame-close` rules four of the six
- * anatomies already carry as classNames. This is the COMPONENT half: a
- * structural kicker/title/chips/actions/close slot order, with CSS left
- * entirely to the caller's `className` (some sites, e.g. ActionPanel's
- * action-drawer-header, deliberately never adopted `.panel-frame-header` —
- * migrating the component must not retrofit that CSS decision). The close
- * chip renders only when `onClose` is passed (LineagePanel/DocumentReader
- * have no dismiss affordance at all), and its className/aria-label/icon size
- * are all caller-overridable because the six anatomies genuinely differ
- * (Drawer's "Close drawer" vs ActionPanel's "Close action drawer" + 16px
- * icon vs everyone else's 15px).
+ * Shared kicker/title/chips/actions/close order. Header layout belongs to
+ * the caller's className; the close
+ * button renders only when `onClose` is passed. Callers own its accessible
+ * name and layout; WindowCloseButton owns the compact control's appearance.
  */
 export function PanelHeader({
   kicker,
@@ -319,8 +312,7 @@ export function PanelHeader({
   closeTestId,
   closeAriaLabel = 'Close',
   closeTitle,
-  closeClassName = 'icon-btn panel-frame-close',
-  closeIconSize = 15,
+  closeClassName,
   className,
   testId,
 }: {
@@ -333,7 +325,6 @@ export function PanelHeader({
   closeAriaLabel?: string;
   closeTitle?: string;
   closeClassName?: string;
-  closeIconSize?: number;
   className?: string;
   testId?: string;
 }) {
@@ -344,16 +335,14 @@ export function PanelHeader({
       {chips}
       {actions}
       {onClose && (
-        <button
-          type="button"
+        <WindowCloseButton
+          size="compact"
           className={closeClassName}
           data-testid={closeTestId}
-          aria-label={closeAriaLabel}
+          label={closeAriaLabel}
           title={closeTitle}
           onClick={onClose}
-        >
-          <X size={closeIconSize} />
-        </button>
+        />
       )}
     </header>
   );

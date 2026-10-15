@@ -1,0 +1,17 @@
+.icon-button {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-6);
+  background: transparent;
+  color: var(--text-mid);
+  cursor: pointer;
+}
+.icon-button[data-icon-size='inline'] { width: 20px; height: 20px; }
+.icon-button[data-icon-size='compact'] { width: 26px; height: 26px; }
+.icon-button[data-icon-size='standard'] { width: 36px; height: 36px; }
+.icon-button:hover:not(:disabled) { background: var(--bg-hover); color: var(--text); }
+.icon-button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.icon-button:disabled { cursor: not-allowed; opacity: 0.45; }

@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { X } from 'lucide-react';
+import { WindowCloseButton } from './WindowCloseButton';
 import type { ReviewBundleOrder } from '../api/types';
 import { useEscapeDismiss } from '../hooks/useEscapeDismiss';
 import { ReviewRunControls } from './review/ReviewRunControls';
@@ -37,7 +37,7 @@ export function ReviewQueue({ onClose, onChanged, runId }: ReviewQueueProps) {
         onRunStatusChange={(_run, status) => leave(() => { void runs.setRunStatus(status); })}>
         {navigation}
       </ReviewRunControls>
-      <button type="button" className="icon-btn" disabled={busy} onClick={() => leave(onClose)} aria-label="Close review queue"><X size={16} /></button>
+      <WindowCloseButton size="compact" disabled={busy} onClick={() => leave(onClose)} label="Close review queue" />
     </div>
   );
 

@@ -739,13 +739,6 @@ kbd {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .inspect-detail-header .inspect-detail-close { flex-shrink: 0; }
-.inspect-detail-chip {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 24px; height: 24px; border-radius: var(--radius-7);
-  color: var(--text-mid);
-}
-.inspect-detail-chip:hover:not(:disabled) { background: var(--bg-hover); color: var(--text); }
-.inspect-detail-chip:disabled { opacity: 0.35; cursor: default; }
 .inspect-detail-body { overflow-y: auto; overflow-x: hidden; padding: 6px 14px 20px; flex: 1; min-height: 0; }
 .inspect-detail-preview-error {
   margin: 4px 0 10px;
@@ -1503,20 +1496,6 @@ kbd {
   max-width: 360px;
   text-align: right;
 }
-.plugin-manager-state-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 7px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-.plugin-manager-state-badge-positive { background: var(--green-bg); color: var(--green); }
-.plugin-manager-state-badge-attention { background: var(--amber-bg); color: var(--amber); }
-.plugin-manager-state-badge-negative { background: var(--red-bg); color: var(--red); }
-.plugin-manager-state-badge-neutral { background: var(--bg-hover); color: var(--text-mid); }
 .plugin-manager-state-description { color: var(--text-light); font-size: 11px; line-height: 1.35; }
 .plugin-manager-plugin-failure {
   display: grid;
@@ -2964,15 +2943,7 @@ kbd {
 .grid-control-panel-close {
   margin-left: auto;
   align-self: center;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: var(--radius-6);
-  color: var(--text-light);
 }
-.grid-control-panel-close:hover { background: var(--bg-hover); color: var(--text); }
 .grid-control-panel label {
   display: inline-flex;
   flex-direction: column;
@@ -3187,6 +3158,7 @@ li.panel-empty { list-style: none; }
 .status-chip {
   display: inline-flex;
   align-items: center;
+  gap: 5px;
   flex-shrink: 0;
   white-space: nowrap;
   border-radius: var(--radius-999);
@@ -3224,7 +3196,6 @@ li.panel-empty { list-style: none; }
   text-align: left;
 }
 .action-title-button:hover { background: var(--bg-hover); }
-.action-title-button .action-title-caret { color: var(--text-light); flex-shrink: 0; }
 .action-title-text {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
@@ -3382,15 +3353,6 @@ li.panel-empty { list-style: none; }
   outline: none;
   border-color: var(--accent);
   box-shadow: var(--shadow-ring);
-}
-/* Match native select affordances to the editable destination combobox. */
-.action-panel select.form-input:not([multiple]) {
-  appearance: none;
-  -webkit-appearance: none;
-  padding-right: 30px;
-  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 11px center;
 }
 .action-panel .form-textarea { padding: 10px 12px; line-height: 1.5; }
 /* Compact single-
@@ -3719,22 +3681,17 @@ li.panel-empty { list-style: none; }
   justify-self: end;
   border: 0;
   background-color: var(--bg-hover);
-  padding: 3px 24px 3px 9px;
+  padding: 3px 32px 3px 9px;
   min-height: 0;
   font-size: 12px;
   font-weight: 600;
   color: var(--text-mid);
   border-radius: var(--radius-7);
 }
-.action-panel .fields-builder .field-row-calm > .icon-btn {
+.action-panel .fields-builder .field-row-calm > .field-remove-button {
   grid-column: 3;
   grid-row: 1;
-  width: var(--icon-button-size);
-  height: var(--icon-button-size);
   align-self: center;
-  border: 1px solid var(--border-strong);
-  background: var(--bg);
-  color: var(--text-light);
 }
 .action-panel .fields-builder .field-row-calm .field-desc {
   grid-column: 1 / -1;
@@ -3792,10 +3749,9 @@ li.panel-empty { list-style: none; }
 .action-panel .list-item-field-row .field-name { font-size: 12px; }
 .action-panel .list-item-field-row select.field-type {
   font-size: 11px;
-  padding: 2px 20px 2px 8px;
+  padding: 2px 32px 2px 8px;
 }
 .action-panel .list-item-field-row .field-desc { font-size: 11.5px; min-height: 18px; }
-.action-panel .list-item-field-row > .icon-btn { width: 24px; height: 24px; }
 .action-panel .list-item-fields .field-row-calm + .field-row-calm {
   border-top: 1px solid var(--border);
   padding-top: 6px;
@@ -3832,7 +3788,7 @@ li.panel-empty { list-style: none; }
    radius), so this follows suit with a literal. */
 .tabular-join-key-pairs { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
 .tabular-join-key-pair-row { display: flex; align-items: center; gap: 6px; }
-.tabular-join-key-pair-row select { flex: 1; min-width: 0; }
+.tabular-join-key-pair-row > .panel-select-shell { flex: 1; min-width: 0; }
 .tabular-join-key-pair-glyph { color: var(--text-mid); flex: 0 0 auto; font-size: 12px; }
 @layer base {
 .segmented {
@@ -4292,7 +4248,7 @@ li.panel-empty { list-style: none; }
      shrinking to it. */
   min-width: 0;
 }
-.ocr-compare-configure-field > select {
+.ocr-compare-configure-field .panel-select-control {
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
@@ -6666,6 +6622,7 @@ dialog.sources-connections-layer::backdrop { background: transparent; }
 .sources-add { align-self: flex-start; }
 .sources-form { display: flex; flex-direction: column; gap: 6px; }
 .sources-form-row { display: flex; gap: 6px; }
+.sources-form-row > .panel-select-shell { flex: 1; min-width: 0; }
 .sources-form-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -6712,19 +6669,8 @@ dialog.sources-connections-layer::backdrop { background: transparent; }
 .source-kind-icon { display: inline-flex; color: var(--text-light); flex-shrink: 0; }
 .source-name { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .source-status {
-  margin-left: auto; flex-shrink: 0;
-  font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.03em;
-  border-radius: var(--radius-8); padding: 1px 7px;
-  color: var(--text-light); background: var(--bg-hover);
+  margin-left: auto;
 }
-.source-status.status-ok { color: var(--green); background: var(--green-bg); }
-.source-status.status-error { color: var(--red); background: var(--red-bg); }
-.source-status.status-healthy { color: var(--green); background: var(--green-bg); }
-.source-status.status-failing { color: var(--red); background: var(--red-bg); }
-.source-status.status-stale { color: #8a5a00; background: #fff4cc; }
-.source-status.status-disabled,
-.source-status.status-never,
-.source-status.status-never_run { color: var(--text-light); background: var(--bg-hover); }
 .source-kind-line {
   display: flex;
   gap: 6px;
@@ -6747,6 +6693,7 @@ dialog.sources-connections-layer::backdrop { background: transparent; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .source-controls { display: flex; align-items: center; gap: 6px; }
+.source-controls > .panel-select-shell { flex: 1; min-width: 0; }
 .source-controls .source-sched { flex: 1; min-width: 0; margin: 0; padding: 3px 6px; font-size: 11.5px; }
 .source-enabled { display: flex; align-items: center; }
 .icon-btn.danger { color: var(--red); }
@@ -7169,7 +7116,7 @@ dialog.sources-connections-layer::backdrop { background: transparent; }
   border: 1px solid var(--border); border-radius: var(--radius-5); background: var(--bg);
 }
 .friendly-range-inputs label:focus-within { border-color: var(--focus); }
-.friendly-range-inputs label span {
+.friendly-range-inputs label > span:first-child {
   align-self: stretch; display: flex; align-items: center; padding: 0 5px;
   border-right: 1px solid var(--border); color: var(--text-light); font-size: 9.5px;
 }
@@ -7726,7 +7673,7 @@ output.account-note {
 }
 .active-saved-view-chip { cursor: pointer; }
 .menu-item-select { justify-content: space-between; }
-.menu-item-select .row-height-select { flex: 0 0 auto; max-width: 96px; }
+.menu-item-select .panel-select-shell { flex: 0 0 auto; max-width: 96px; }
 
 .import-mode-list {
   display: grid;
@@ -7774,6 +7721,7 @@ output.account-note {
   color: var(--text-light);
   font-size: 11px;
 }
+.import-field-label > .panel-select-shell + .panel-select-shell { margin-top: 6px; }
 .import-url-list {
   width: 100%;
   resize: vertical;
@@ -7969,8 +7917,8 @@ dialog.import-workspace-layer::backdrop {
   gap: 3px;
   min-width: 0;
 }
-.import-csv-preview-controls strong,
-.import-csv-preview-controls span {
+.import-csv-preview-controls > div > strong,
+.import-csv-preview-controls > div > span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -11219,10 +11167,6 @@ dialog.modal-card::backdrop {
 }
 
 /* Engine-select trigger note ("· local, default") overlaid at the right edge. */
-.panel-select-shell {
-  position: relative;
-  display: block;
-}
 .panel-select-shell.has-leading-icon > select { padding-left: 30px; }
 .panel-select-leading-icon {
   position: absolute;
@@ -11495,32 +11439,6 @@ dialog.modal-card::backdrop {
   border-color: var(--accent);
   box-shadow: var(--shadow-ring);
 }
-.multi-col-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  background: var(--accent-bg);
-  color: #3452c4;
-  font-size: 12.5px;
-  font-weight: 600;
-  padding: 4px 8px;
-  border-radius: var(--radius-7);
-}
-.multi-col-chip.is-ai {
-  background: var(--ai-bg);
-  color: var(--ai);
-}
-.multi-col-chip-remove {
-  border: none;
-  background: transparent;
-  color: inherit;
-  opacity: 0.55;
-  cursor: pointer;
-  font-size: 13px;
-  line-height: 1;
-  padding: 0;
-}
-.multi-col-chip-remove:hover { opacity: 1; }
 .multi-col-add {
   font-size: 12.5px;
   color: var(--text-light);
@@ -11539,8 +11457,6 @@ dialog.modal-card::backdrop {
 }
 .multi-col-caret {
   margin-left: auto;
-  font-size: 13px;
-  color: var(--text-light);
   align-self: center;
 }
 /* Native `popover="manual"` element (MultiColumnPicker.tsx useNativePopover,
@@ -12467,7 +12383,7 @@ dialog.modal-card::backdrop {
   font-size: 12px;
   color: var(--text-mid);
 }
-.answers-column-picker-row select { min-width: 160px; }
+.answers-column-picker-row > .panel-select-shell { min-width: 160px; }
 .answers-column-picker-static { font-size: 13px; font-weight: 600; color: var(--text); }
 .answers-column-body {
   flex: 1;
@@ -12800,14 +12716,6 @@ dialog.modal-card::backdrop {
   padding: 10px 12px;
   flex-shrink: 0;
 }
-.panel-frame-close {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 24px; height: 24px;
-  border-radius: var(--radius-7);
-  color: var(--text-mid);
-  flex-shrink: 0;
-}
-.panel-frame-close:hover:not(:disabled) { background: var(--bg-hover); color: var(--text); }
 
 /* PDF-tables picker (pdf-tables-picker-v1): post-run "Review tables →" review
    surface rendered inside the pdf_tables action form. Scoped block; uses shared

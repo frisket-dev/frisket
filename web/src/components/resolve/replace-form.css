@@ -56,6 +56,7 @@
 }
 .resolve-replace-rule .form-input { height: 26px; font-size: 11.5px; }
 .resolve-replace-rule-kind { flex-shrink: 0; width: 92px; }
+.resolve-replace-rule-main > .panel-select-shell { flex: 0 0 92px; }
 .resolve-replace-rule-pattern {
   flex: 1;
   min-width: 0;
@@ -135,4 +136,5 @@
   justify-content: space-between;
   gap: 8px;
 }
-.resolve-replace-policy { width: auto; min-width: 150px; }
+.resolve-replace-policy-row > .panel-select-shell { min-width: 150px; }
+.resolve-replace-policy { width: auto; }

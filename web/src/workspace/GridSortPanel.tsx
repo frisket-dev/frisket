@@ -1,6 +1,6 @@
 // Toolbar-grade grid sort panel, opened from the column header menu's
 // "Advanced sort…".
-import { X } from 'lucide-react';
+import { WindowCloseButton } from '../components/WindowCloseButton';
 import type { GridSortDirection, SheetMeta } from '../api/open';
 import { PanelSelect } from '../components/PanelSelect';
 
@@ -23,16 +23,14 @@ export function GridSortPanel({
 }) {
   return (
     <section className="grid-control-panel" data-testid="grid-sort-panel" aria-label="Grid sort">
-      <button
-        type="button"
+      <WindowCloseButton
+        size="compact"
         className="grid-control-panel-close"
         data-testid="grid-sort-panel-close"
-        aria-label="Close sort panel"
+        label="Close sort panel"
         title="Close"
         onClick={onClose}
-      >
-        <X size={14} aria-hidden />
-      </button>
+      />
       <label>
         <span>Column</span>
         <PanelSelect

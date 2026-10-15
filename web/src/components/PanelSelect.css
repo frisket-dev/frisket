@@ -1,0 +1,29 @@
+/* The indicator belongs to the control, independent of its page or caller class. */
+.panel-select-shell {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+}
+
+.panel-select-shell > select {
+  min-width: 0;
+  max-width: 100%;
+}
+
+select.panel-select-control:not([multiple]) {
+  appearance: none;
+  padding-right: 32px;
+  background-image: none;
+}
+
+.panel-select-shell > .dropdown-indicator {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.panel-select-shell:has(> select:disabled) > .dropdown-indicator {
+  opacity: 0.5;
+}

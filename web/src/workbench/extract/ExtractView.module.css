@@ -1,7 +1,7 @@
 .workspace { display: flex; flex-direction: column; min-height: 0; height: 100%; color: var(--text, #211c19); background: var(--bg, #fff); }
 .toolbar { display: flex; align-items: center; flex-wrap: nowrap; flex-shrink: 0; gap: 8px; padding: 5px 10px; overflow: visible; background: var(--bg); border-bottom: 1px solid var(--border); font-size: 12px; }
 .toolbarLabel { display: flex; align-items: center; flex: 0 0 auto; gap: 5px; }
-.toolbarLabel select { max-width: 150px; }
+.toolbarLabel :global(.panel-select-shell) { max-width: 150px; }
 .saveStatus { display: inline-flex; flex: 0 0 auto; align-items: center; }
 .toolbarStatus { flex: 0 0 auto; color: var(--text-mid); }
 .tools { flex-shrink: 0; margin-left: 0; }
@@ -74,5 +74,5 @@
 @media (max-width: 1200px) {
   .tools button span, .toolbarLabelText { display: none; }
   .tools button { padding-inline: 7px; }
-  .toolbarLabel select { max-width: 125px; }
+  .toolbarLabel :global(.panel-select-shell) { max-width: 125px; }
 }

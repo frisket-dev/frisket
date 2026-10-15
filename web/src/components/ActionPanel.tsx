@@ -513,9 +513,8 @@ export function ActionPanel({
             title="Action unavailable"
             onClose={onClose}
             closeTestId="action-drawer-close"
-            closeClassName="icon-btn panel-frame-close action-drawer-close"
+            closeClassName="action-drawer-close"
             closeAriaLabel="Close action drawer"
-            closeIconSize={16}
           />
           <div className="action-credential-gate">
             <AlertTriangle size={14} aria-hidden />

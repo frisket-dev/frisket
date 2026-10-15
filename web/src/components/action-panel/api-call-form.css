@@ -65,6 +65,10 @@
 .api-pair-row .template-insert-bar.compact .template-column-insert {
   width: 100%;
 }
+.api-pair-row .template-insert-bar.compact > .panel-select-shell {
+  flex: 1;
+  min-width: 0;
+}
 
 .api-pair-remove {
   width: 28px;

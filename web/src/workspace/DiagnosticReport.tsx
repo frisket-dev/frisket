@@ -2,7 +2,8 @@
 // that bundles a diagnostic report, and the reader for recent client-side error
 // ids captured on window. Self-contained; rendered only in hosted mode.
 import { useState } from 'react';
-import { Bug, Send, X } from 'lucide-react';
+import { Bug, Send } from 'lucide-react';
+import { WindowCloseButton } from '../components/WindowCloseButton';
 import { createDiagnosticBundle } from '../api/open';
 import { browserRouteContext } from '../routeContext';
 
@@ -90,14 +91,11 @@ export function DiagnosticReportButton() {
         <div className="diagnostic-popover" data-testid="diagnostic-popover">
           <div className="diagnostic-head">
             <strong>Report issue</strong>
-            <button
-              type="button"
-              className="icon-btn"
-              aria-label="Close report issue"
+            <WindowCloseButton
+              size="compact"
+              label="Close report issue"
               onClick={() => setReport((state) => ({ ...state, open: false }))}
-            >
-              <X size={15} />
-            </button>
+            />
           </div>
           {report.error && <div className="form-error" role="alert" data-testid="diagnostic-error">{report.error}</div>}
           <label className="field-group">

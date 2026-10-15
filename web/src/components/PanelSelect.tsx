@@ -22,6 +22,8 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, Zap } from 'lucide-react';
+import { DropdownIndicator } from './DropdownIndicator';
+import './PanelSelect.css';
 import { useAnchoredPosition } from '../hooks/useAnchoredPosition';
 
 export interface PanelSelectOption {
@@ -186,7 +188,7 @@ export const PanelSelect = forwardRef<HTMLSelectElement, PanelSelectProps>(funct
     <select data-native-select-escape="panel-select-trigger"
       {...selectProps}
       ref={setSelectRef}
-      className={className}
+      className={`panel-select-control ${className}`}
       id={id}
       data-testid={effectiveTestId}
       aria-label={ariaLabel ?? nativeAriaLabel}
@@ -215,11 +217,12 @@ export const PanelSelect = forwardRef<HTMLSelectElement, PanelSelectProps>(funct
 
   return (
     <>
-      {note || leadingIcon ? (
+      {!selectProps.multiple ? (
         <span className={`panel-select-shell${leadingIcon ? ' has-leading-icon' : ''}`}>
           {selectEl}
           {leadingIcon && <span className="panel-select-leading-icon">{leadingIcon}</span>}
           {note && <span className="panel-select-note" aria-hidden>{note}</span>}
+          <DropdownIndicator />
         </span>
       ) : (
         selectEl

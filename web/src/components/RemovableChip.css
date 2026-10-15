@@ -1,0 +1,16 @@
+.removable-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  padding: 2px 3px 2px 8px;
+  border-radius: var(--radius-6);
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+.removable-chip[data-tone='ai'] { background: var(--ai-bg); color: var(--ai); }
+.removable-chip[data-tone='neutral'] { background: var(--bg-hover); color: var(--text-mid); }
+.removable-chip > .removable-chip-remove { color: inherit; }

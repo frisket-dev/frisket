@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X } from 'lucide-react';
+import { RemovableChip } from '../RemovableChip';
 import { parseCommaLabels } from './formControlHelpers';
 import styles from './LabelChipsInput.module.css';
 
@@ -46,17 +46,10 @@ export function LabelChipsInput(props: LabelChipsInputProps) {
       {labels.length > 0 && (
         <div className={styles.list}>
           {labels.map((label, index) => (
-            <span key={`${label}-${index}`} className={styles.chip} data-testid={`${testId}-chip`}>
+            <RemovableChip key={`${label}-${index}`} testId={`${testId}-chip`}
+              removeLabel={`Remove ${label}`} onRemove={() => removeLabel(label)}>
               {label}
-              <button
-                type="button"
-                className={styles.remove}
-                aria-label={`Remove ${label}`}
-                onClick={() => removeLabel(label)}
-              >
-                <X size={11} />
-              </button>
-            </span>
+            </RemovableChip>
           ))}
         </div>
       )}

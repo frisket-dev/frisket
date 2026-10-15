@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { ChevronDown, Eye, Play, RefreshCcw } from 'lucide-react';
+import { Eye, Play, RefreshCcw } from 'lucide-react';
+import { DropdownIndicator } from '../DropdownIndicator';
 
 export interface RunScopeFooterProps {
   children?: ReactNode;
@@ -175,7 +176,7 @@ export function RunScopeFooter({
                 closeScopePopup(false);
               }}
             >
-              <ChevronDown size={14} />
+              <DropdownIndicator className="run-scope-indicator" />
             </button>}
           </div>
           {hasScopeMenu && menuOpen && (

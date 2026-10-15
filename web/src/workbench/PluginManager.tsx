@@ -7,6 +7,7 @@ import type {
 } from '../api/types';
 import type { WorkbenchApiPort } from '../api/ports';
 import { formatFrontendComponentBindings } from './pluginUiRuntime';
+import { StatusChip, type StatusTone } from '../components/PanelPrimitives';
 
 export interface PluginManagerProps {
   runtimeIndex: WorkbenchPluginRuntimeIndex | null;
@@ -120,7 +121,7 @@ function pluginSourceValue(plugin: WorkbenchPluginRuntimePlugin): string {
 type PluginStatePresentation = {
   label: string;
   description: string;
-  tone: 'positive' | 'attention' | 'neutral' | 'negative';
+  tone: StatusTone;
   Icon: typeof CheckCircle2;
 };
 
@@ -130,14 +131,14 @@ function pluginStatePresentation(state: string): PluginStatePresentation {
       return {
         label: 'Enabled',
         description: 'Available to this project and ready to contribute features.',
-        tone: 'positive',
+        tone: 'success',
         Icon: CheckCircle2,
       };
     case 'installed':
       return {
         label: 'Needs review',
         description: 'Installed for the workspace. Review its access before enabling it for this project.',
-        tone: 'attention',
+        tone: 'warning',
         Icon: Info,
       };
     case 'disabled':
@@ -151,7 +152,7 @@ function pluginStatePresentation(state: string): PluginStatePresentation {
       return {
         label: 'Failed',
         description: 'Frisket could not load this plugin. Review the failure below.',
-        tone: 'negative',
+        tone: 'error',
         Icon: AlertTriangle,
       };
     case 'uninstalled':
@@ -198,14 +199,14 @@ function PluginStateBadge({ plugin }: { plugin: WorkbenchPluginRuntimePlugin }) 
   const StateIcon = state.Icon;
   return (
     <div className="plugin-manager-state">
-      <span
-        className={`plugin-manager-state-badge plugin-manager-state-badge-${state.tone}`}
-        data-testid="plugin-manager-state-badge"
+      <StatusChip
+        tone={state.tone}
+        testId="plugin-manager-state-badge"
         data-state={plugin.installState}
       >
         <StateIcon size={13} aria-hidden />
         {state.label}
-      </span>
+      </StatusChip>
       <span className="plugin-manager-state-description">{state.description}</span>
     </div>
   );

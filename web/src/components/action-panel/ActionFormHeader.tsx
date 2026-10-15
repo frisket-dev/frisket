@@ -4,7 +4,6 @@ import {
   Braces,
   CalendarClock,
   Check,
-  ChevronDown,
   CircleHelp,
   Code,
   Combine,
@@ -22,6 +21,8 @@ import {
 
 import type { ActionTemplate } from '../../api/types';
 import { PanelHeader } from '../PanelPrimitives';
+import { DropdownIndicator } from '../DropdownIndicator';
+import { IconButton } from '../IconButton';
 import { ActionHelpPopover } from './ActionHelpPopover';
 
 const ACTION_ICONS: Partial<Record<string, LucideIcon>> = {
@@ -106,9 +107,7 @@ export function ActionFormHeader({
           <HeaderIcon size={16} />
         </span>
       ) : (
-          <button type="button" className="icon-btn" onClick={onBack} aria-label="Back to actions">
-          <ArrowLeft size={15} />
-        </button>
+        <IconButton icon={ArrowLeft} onClick={onBack} label="Back to actions" />
       )}
       title={canSwitchActions ? (
         <div className="action-title-menu" ref={actionMenuRef}>
@@ -121,7 +120,7 @@ export function ActionFormHeader({
             onClick={() => setActionMenuOpen((open) => !open)}
           >
             <span className="action-title-text" data-testid="action-form-title">{formTitle}</span>
-            <ChevronDown size={14} className="action-title-caret" aria-hidden />
+            <DropdownIndicator />
           </button>
           {actionMenuOpen && (
             <div className="action-title-menu-list" role="menu" data-testid="action-title-menu">
@@ -161,9 +160,8 @@ export function ActionFormHeader({
       actions={variant === 'drawer' ? <ActionHelpPopover action={actionTemplate} /> : undefined}
       onClose={variant === 'drawer' ? onClose : undefined}
       closeTestId="action-drawer-close"
-      closeClassName="icon-btn panel-frame-close action-drawer-close"
+      closeClassName="action-drawer-close"
       closeAriaLabel="Close action drawer"
-      closeIconSize={16}
     />
   );
 }
