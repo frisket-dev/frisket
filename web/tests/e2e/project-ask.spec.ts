@@ -118,11 +118,12 @@ test('Ask stays docked, keeps its draft, and reconnects to saved progress', asyn
   await expect(dock.getByText('Viewing council audio', { exact: true })).toHaveCount(0);
   await dock.getByRole('button', { name: 'Remove council audio', exact: true }).click();
   await expect(dock.getByText('Entire project', { exact: true })).toBeVisible();
+  await expect(dock.locator('.ask-model-setup').getByText('Test model', { exact: true })).toBeVisible();
   await dock.getByRole('button', { name: 'Ask options', exact: true }).click();
   const settings = page.getByRole('dialog', { name: 'Ask settings' });
   await expect(settings).toBeVisible();
   await expect(settings.getByRole('checkbox', { name: 'Web', exact: true })).toBeVisible();
-  await expect(settings.getByText('Test model', { exact: true })).toBeVisible();
+  await expect(settings.getByText('Test model', { exact: true })).toHaveCount(0);
   const settingsBounds = await settings.boundingBox();
   expect(settingsBounds).not.toBeNull();
   expect(settingsBounds!.y + settingsBounds!.height).toBeLessThanOrEqual(page.viewportSize()!.height);

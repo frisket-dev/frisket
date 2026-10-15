@@ -1,5 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 import { localStack } from './playwright.local-stack';
+import { returningUserStorageState } from './playwright.returning-user';
 
 const configuredWorkers = Number(process.env.FRISKET_PLUGIN_CONTRACT_WORKERS ?? '1');
 const workers = Number.isFinite(configuredWorkers) && configuredWorkers > 0 ? configuredWorkers : 1;
@@ -16,6 +17,7 @@ export default defineConfig({
   reporter: [['list'], ['./playwright.checklog-reporter.mjs']],
   use: {
     baseURL: stack.baseURL,
+    storageState: returningUserStorageState(stack.baseURL),
     actionTimeout: 8_000,
     navigationTimeout: 20_000,
     trace: 'retain-on-failure',

@@ -10,6 +10,7 @@ import { selectorChoicesApi } from '../api/selectorChoices';
 import { createTeamLocalModelsApi } from '../api/teamLocalModels';
 import type { ModelPullDto } from '../api/types';
 import { usePoll } from '../hooks/usePoll';
+import { CLOUD_CONNECTION_CHANGED } from '../cloud/connectionChanged';
 
 export type SelectorChoicesLoader = (
   projectId: string,
@@ -405,6 +406,12 @@ export function useSelectorChoices({
     requestRefresh();
     return promise;
   }, [enabled, projectId, scopeKey]);
+  useEffect(() => {
+    if (!enabled || !projectId) return;
+    const refresh = () => { void refreshChoices(); };
+    window.addEventListener(CLOUD_CONNECTION_CHANGED, refresh);
+    return () => window.removeEventListener(CLOUD_CONNECTION_CHANGED, refresh);
+  }, [enabled, projectId, refreshChoices]);
   if (!enabled || !projectId) {
     return {
       response: null,

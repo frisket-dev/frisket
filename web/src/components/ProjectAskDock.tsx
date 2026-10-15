@@ -9,7 +9,6 @@ import { usePoll } from '../hooks/usePoll';
 import { useAnchoredPosition } from '../hooks/useAnchoredPosition';
 import { useNativePopover } from '../hooks/useNativePopover';
 import { useActionCatalogHandle } from '../bind/useActionCatalogHandle';
-import { SelectorField } from '../engine-selector/SelectorField';
 import { MenuPop } from './MenuPop';
 import { PanelEmpty } from './PanelPrimitives';
 import { RemovableChip } from './RemovableChip';
@@ -17,6 +16,7 @@ import { IconButton } from './IconButton';
 import { AskEventContent } from './project-ask/AskEventContent';
 import { askActionProposal } from './project-ask/actionProposal';
 import { AskThreadControls } from './project-ask/AskThreadControls';
+import { AskModelSetup } from './project-ask/AskModelSetup';
 import { AskSourcePicker } from './project-ask/AskSourcePicker';
 import { compactAskToolEvents } from './project-ask/activityEvents';
 import { AskWorkingActivity } from './project-ask/AskToolActivity';
@@ -192,6 +192,9 @@ export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposa
       {state.activeTurn && !toolEventsByTurn.has(state.activeTurn.id) && <AskWorkingActivity events={[]} active />}
     </div>
     <div className="ask-composer">
+      <AskModelSetup projectId={projectId} model={state.model}
+        onCurrentChoiceChange={setChoice}
+        onSelect={(selected) => { if (selected.authored_selection.kind === 'model') qa.setOptions({ model: selected.authored_selection.model }); }} />
       {state.error && <p className="ask-error" role="alert">{state.error}</p>}
       {tooManyRows && <p className="ask-error">Choose up to 1,000 rows, or change the scope to the whole sheet.</p>}
       {researchApproval && <AskResearchApproval
@@ -227,10 +230,6 @@ export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposa
               onRetry={state.researchConfigurationError ? () => void qa.loadResearchConfiguration() : undefined}
               onChange={(research) => qa.setOptions({ research: research ?? null })}
             />
-            <div className="ask-option-model"><SelectorField projectId={projectId} label="Model" recentNamespace={`${projectId}:ask`}
-              query={{ schema_version: 'frisket.selector_choices_query.v1', subject: { kind: 'project_ask', ...(state.model ? { model: state.model } : {}) } }}
-              onCurrentChoiceChange={setChoice}
-              onSelect={(selected) => { if (selected.authored_selection.kind === 'model') qa.setOptions({ model: selected.authored_selection.model }); }} /></div>
           </MenuPop>
           {state.activeTurn ? <button type="button" disabled={state.activeTurn.status === 'stopping'} onClick={() => void qa.stop()}><Square size={14} />Stop</button>
             : <button type="button" disabled={!canSend} onClick={send}><Send size={14} />Send</button>}

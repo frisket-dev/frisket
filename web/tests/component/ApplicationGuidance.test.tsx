@@ -9,12 +9,16 @@ import { EditionModuleProvider } from '../../src/editions/module';
 import { LOCAL_EDITION_MODULE } from '../../src/editions/openModules';
 import { installDialogPolyfill } from '../support/domPolyfills';
 
-const api = vi.hoisted(() => ({ catalog: vi.fn(), updateProfile: vi.fn() }));
+const api = vi.hoisted(() => ({ catalog: vi.fn(), updateProfile: vi.fn(), identityMode: true }));
 vi.mock('../../src/api/walkthroughs', () => ({ listWalkthroughs: api.catalog }));
 vi.mock('../../src/api/open', () => ({ updateProfile: api.updateProfile }));
 vi.mock('../../src/shellIdentity', () => ({ useShellIdentity: () => ({
-  resolved: true, identityMode: true, me: { email: 'reporter@example.test', cost_preapproval_usd: null },
+  resolved: true, identityMode: api.identityMode, me: { email: 'reporter@example.test', cost_preapproval_usd: null },
 }) }));
+vi.mock('../../src/components/FirstLaunchCloudSuggestion', () => ({
+  FirstLaunchCloudSuggestion: ({ onComplete }: { onComplete(): void }) =>
+    <button onClick={onComplete}>Skip Cloud suggestion</button>,
+}));
 
 function Flow({ telemetryReady }: { telemetryReady: boolean }) {
   return <EditionModuleProvider edition={LOCAL_EDITION_MODULE}>
@@ -29,12 +33,24 @@ function Flow({ telemetryReady }: { telemetryReady: boolean }) {
 beforeEach(() => {
   installDialogPolyfill();
   localStorage.clear();
+  api.identityMode = true;
   api.catalog.mockResolvedValue({ walkthroughs: [{ id: 'regex-extract', badges: ['Backend badge'] }] });
   api.updateProfile.mockResolvedValue({ email: 'reporter@example.test', cost_preapproval_usd: '2' });
 });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 describe('existing first-use disclosures before sample introduction', () => {
+  it('sequences local Cloud suggestion after telemetry and before sample introduction', async () => {
+    api.identityMode = false;
+    const view = render(<Flow telemetryReady={false} />);
+    expect(screen.queryByText('Skip Cloud suggestion')).not.toBeInTheDocument();
+    view.rerender(<Flow telemetryReady />);
+    expect(screen.queryByTestId('sample-project-intro')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('Skip Cloud suggestion'));
+    await screen.findByTestId('sample-project-intro');
+    expect(screen.queryByText('Skip Cloud suggestion')).not.toBeInTheDocument();
+  });
+
   it('waits for telemetry and a successful cost choice, then renders backend badges', async () => {
     const view = render(<Flow telemetryReady={false} />);
     expect(screen.queryByTestId('cost-preapproval-setup')).not.toBeInTheDocument();

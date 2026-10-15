@@ -1,6 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 import { TEAM_SPEC_PATTERNS } from './playwright.edition-specs';
 import { localStack } from './playwright.local-stack';
+import { returningUserStorageState } from './playwright.returning-user';
 
 const configuredWorkers = Number(process.env.FRISKET_E2E_WORKERS ?? '2');
 const workers = Number.isFinite(configuredWorkers) && configuredWorkers > 0 ? configuredWorkers : 1;
@@ -26,6 +27,7 @@ export default defineConfig({
   reporter: [['list'], ['./playwright.checklog-reporter.mjs']],
   use: {
     baseURL: stack.baseURL,
+    storageState: returningUserStorageState(stack.baseURL),
     actionTimeout: 8_000,
     navigationTimeout: 20_000,
     trace: 'on-first-retry',
