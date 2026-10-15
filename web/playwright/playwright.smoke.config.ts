@@ -1,5 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 import { localStack } from './playwright.local-stack';
+import { returningUserStorageState } from './playwright.returning-user';
 
 const stack = process.env.FRISKET_E2E_BASE_URL ? undefined : localStack();
 const baseURL = process.env.FRISKET_E2E_BASE_URL ?? stack?.baseURL ?? 'http://127.0.0.1:5173';
@@ -23,6 +24,7 @@ export default defineConfig({
   reporter: [['list'], ['./playwright.checklog-reporter.mjs']],
   use: {
     baseURL,
+    storageState: returningUserStorageState(baseURL),
     actionTimeout: 8_000,
     navigationTimeout: 20_000,
     trace: 'on-first-retry',

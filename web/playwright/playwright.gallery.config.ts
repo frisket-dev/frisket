@@ -1,4 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
+import { returningUserStorageState } from './playwright.returning-user';
+
+const baseURL = 'http://localhost:5173';
 
 // Config for `npm run gallery` — a single sequential walk through every major
 // view that saves labeled full-page screenshots to screenshots/gallery/.
@@ -13,7 +16,8 @@ export default defineConfig({
   retries: 0,
   reporter: [['list'], ['./playwright.checklog-reporter.mjs']],
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL,
+    storageState: returningUserStorageState(baseURL),
     viewport: { width: 1440, height: 900 },
     trace: 'off',
     screenshot: 'off',

@@ -1,5 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 import { localStack } from './playwright.local-stack';
+import { returningUserStorageState } from './playwright.returning-user';
 
 // Golden-project suite (goldens #1–2): LIVE model
 // calls through the real UI, run on a weekly schedule by
@@ -36,6 +37,7 @@ export default defineConfig({
   reporter: [['list'], ['./playwright.checklog-reporter.mjs']],
   use: {
     baseURL: stack.baseURL,
+    storageState: returningUserStorageState(stack.baseURL),
     actionTimeout: 15_000,
     navigationTimeout: 30_000,
     trace: 'retain-on-failure',

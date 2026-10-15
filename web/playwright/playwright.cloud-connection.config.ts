@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { defineConfig, devices } from '@playwright/test';
+import { returningUserStorageState } from './playwright.returning-user';
 
 import {
   durationWrappedServerCommand,
@@ -60,6 +61,7 @@ export default defineConfig({
   reporter: [['list'], ['./playwright.checklog-reporter.mjs']],
   use: {
     baseURL,
+    storageState: returningUserStorageState(baseURL),
     actionTimeout: 10_000,
     navigationTimeout: 20_000,
     trace: 'retain-on-failure',
