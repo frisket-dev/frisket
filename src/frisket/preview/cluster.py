@@ -138,6 +138,7 @@ def compute_method_clusters(
     key_template: str | None = None,
     embed: Embedder | None = None,
     embed_id: str | None = None,
+    embedding_vectors: list[list[float]] | None = None,
     values: dict[int, str] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Compute clusters for ``method`` over ``column``, returning
@@ -223,6 +224,7 @@ def compute_method_clusters(
             min_size=min_size,
             values=values,
             derive_key=derive_key,
+            embedding_vectors=embedding_vectors,
         )
         return clusters, {
             "method": "semantic",

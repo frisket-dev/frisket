@@ -167,6 +167,7 @@ def compute_semantic_clusters(
     values: dict[int, str] | None = None,
     derive_key: Callable[[str], str] | None = None,
     embedding_dimension: int | None = None,
+    embedding_vectors: list[list[float]] | None = None,
 ) -> tuple[list[dict[str, Any]], int, int]:
     """Group a column's values by pairwise cosine >= ``threshold``.
 
@@ -205,22 +206,29 @@ def compute_semantic_clusters(
             and reported_dimension > 0
         ):
             embedding_dimension = reported_dimension
-    vectors: list[list[float]] = []
-    for batch_index, offset in enumerate(
-        range(0, len(embed_texts), SEMANTIC_EMBED_BATCH_SIZE)
-    ):
-        planned_batch = embed_texts[offset : offset + SEMANTIC_EMBED_BATCH_SIZE]
-        vectors.extend(
-            encode_project_legacy_texts(
-                project,
-                planned_batch,
-                embed=lambda texts, index=batch_index: _embed_planned_batch(
-                    embed, index, texts
-                ),
-                model_id=embed_id,
-                dimension=embedding_dimension,
+    if embedding_vectors is None:
+        vectors: list[list[float]] = []
+        for batch_index, offset in enumerate(
+            range(0, len(embed_texts), SEMANTIC_EMBED_BATCH_SIZE)
+        ):
+            planned_batch = embed_texts[offset : offset + SEMANTIC_EMBED_BATCH_SIZE]
+            vectors.extend(
+                encode_project_legacy_texts(
+                    project,
+                    planned_batch,
+                    embed=lambda texts, index=batch_index: _embed_planned_batch(
+                        embed, index, texts
+                    ),
+                    model_id=embed_id,
+                    dimension=embedding_dimension,
+                )
             )
-        )
+    else:
+        vectors = embedding_vectors
+        if len(vectors) != len(embed_texts):
+            raise RuntimeError(
+                "precomputed embeddings do not cover the semantic cluster inputs"
+            )
     units = [_unit(v) for v in vectors]
 
     clusters: list[dict[str, Any]] = []

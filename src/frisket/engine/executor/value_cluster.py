@@ -175,6 +175,7 @@ def compute_reviewed_clusters(
     options: ClusterOptions,
     embed=None,
     embed_id: str | None = None,
+    embedding_vectors: list[list[float]] | None = None,
 ) -> ClusterComputation:
     if options.review and options.review.source_hash is not None:
         actual_hash = hash_column_values(list(source_values), source_values)
@@ -193,6 +194,7 @@ def compute_reviewed_clusters(
         key_template=options.key_template,
         embed=embed,
         embed_id=embed_id,
+        embedding_vectors=embedding_vectors,
         values=cluster_snapshot(source_values),
     )
     adjusted = apply_group_edits(

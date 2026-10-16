@@ -283,6 +283,7 @@ class _ClusterProgram(_TypedMapBatchProgram):
             )
         model = state["embedding_model"]
         checkpoints = []
+        embedding_vectors = None
         if options.method == "semantic":
             backend = embedding_backends.resolve_embedder(
                 ctx.extras.get("router"), allow_remote=True
@@ -295,6 +296,7 @@ class _ClusterProgram(_TypedMapBatchProgram):
             if remote and ctx.extras.get("preview") is True:
                 raise ValueError("Cluster review preview only uses local embeddings")
             texts = cluster_embedding_inputs(values, options)
+            embedding_vectors = []
 
             def before_batch(batch):
                 if remote:
@@ -329,12 +331,14 @@ class _ClusterProgram(_TypedMapBatchProgram):
                     if remote
                     else backend[0]
                 )
-                await encode_project_legacy_texts_async(
-                    ctx.project,
-                    batch_texts,
-                    embed=embed,
-                    model_id=model,
-                    before_fresh_batch=before_batch,
+                embedding_vectors.extend(
+                    await encode_project_legacy_texts_async(
+                        ctx.project,
+                        batch_texts,
+                        embed=embed,
+                        model_id=model,
+                        before_fresh_batch=before_batch,
+                    )
                 )
                 if remote and embed.store.get(embed.id) is not None:
                     checkpoints.append(embed.id)
@@ -346,6 +350,7 @@ class _ClusterProgram(_TypedMapBatchProgram):
             options=options,
             embed=_cache_only_embedding if model else None,
             embed_id=model,
+            embedding_vectors=embedding_vectors,
         )
         if ctx.extras.get("preview") is not True:
             attempt = attempt_in_scope(ctx.extras)
