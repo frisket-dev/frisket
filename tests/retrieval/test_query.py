@@ -3,6 +3,7 @@ from __future__ import annotations
 import subprocess
 import sys
 from pathlib import Path
+from time import perf_counter
 
 import pytest
 
@@ -211,6 +212,79 @@ def _included_scope(sheet: int, body: int) -> RetrievalScope:
             ),
         )
     )
+
+
+def test_large_correlated_cell_scope_is_bounded_and_private(tmp_path):
+    project = Project.create(tmp_path / "large-scope.frisket", name="large-scope")
+    try:
+        sheet = project.add_sheet("Documents")
+        left = project.add_column(sheet, "left")
+        right = project.add_column(sheet, "right")
+        row_count = 600
+        rows = project.add_rows(
+            sheet,
+            [
+                {"left": f"target left {index}", "right": f"target right {index}"}
+                for index in range(row_count)
+            ],
+            {"left": left, "right": right},
+        )
+        selected_columns = {
+            row_id: left if index % 2 == 0 else right
+            for index, row_id in enumerate(rows)
+        }
+        with RetrievalStore(project).open() as store:
+            for index, row_id in enumerate(rows):
+                column_id = selected_columns[row_id]
+                side = "left" if column_id == left else "right"
+                text = f"target {side} {index}"
+                revision = read_binding_revision(
+                    project.db, row_id=row_id, column_id=column_id
+                )
+                assert revision is not None
+                _publish(
+                    store,
+                    row_id=row_id,
+                    sheet_id=sheet,
+                    column_id=column_id,
+                    text=text,
+                    vector=(1.0, 0.0, 0.0),
+                    version=revision,
+                )
+        bind_retrieval_sidecar(project)
+        project.db.execute("DELETE FROM search_dirty_scopes")
+        project.db.commit()
+        request = SearchRequest(
+            scope=RetrievalScope(
+                sheets=tuple(
+                    SheetScope(
+                        sheet,
+                        row_ids=(row_id,),
+                        column_ids=(selected_columns[row_id],),
+                    )
+                    for row_id in rows
+                )
+            ),
+            query=TextQuery("target"),
+            mode="lexical",
+            group_by="row",
+            limit=row_count,
+            ranking=RankingPolicy(rerank="off"),
+        )
+
+        started = perf_counter()
+        response = search(project, request)
+        elapsed = perf_counter() - started
+
+        assert {
+            (group.primary.binding.row_id, group.primary.binding.column_id)
+            for group in response.results
+        } == set(selected_columns.items())
+        # The former inlined scope took 1.5s locally and over 10s in the
+        # sandboxed probe. Materializing once leaves ample platform headroom.
+        assert elapsed < 1.0
+    finally:
+        project.close()
 
 
 @pytest.mark.parametrize("identifier", ["ORCHID-79", "Case:123"])

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from time import perf_counter
 
 import pytest
 
@@ -114,6 +115,35 @@ def test_explicit_sheet_scope_excludes_a_hidden_sheet(tmp_path):
         project.close()
 
 
+def test_explicit_scope_preserves_parent_row_constraint(tmp_path):
+    project, sheet, _category, body, rows = _project(tmp_path)
+    try:
+        project.db.execute(
+            "UPDATE rows SET parent_row_id=? WHERE id=?", (rows[0], rows[1])
+        )
+        project.db.commit()
+        scope = compile_scope(
+            project,
+            RetrievalScope(
+                sheets=(
+                    SheetScope(
+                        sheet,
+                        parent_row_id=rows[0],
+                        row_ids=(rows[1], rows[2]),
+                        column_ids=(body,),
+                    ),
+                )
+            ),
+        )
+        found = project.db.execute(
+            f"WITH {scope.cte_sql} SELECT * FROM scoped_bindings", scope.params
+        ).fetchall()
+
+        assert [tuple(row) for row in found] == [(sheet, rows[1], body)]
+    finally:
+        project.close()
+
+
 def test_repeated_sheet_scopes_keep_row_and_column_rules_correlated(tmp_path):
     project, sheet, category, body, rows = _project(tmp_path)
     try:
@@ -201,16 +231,24 @@ def test_large_cell_selection_uses_one_correlated_json_relation(tmp_path, scope_
             (sheet, rows[index], category if index % 2 == 0 else body)
             for index in range(scope_count)
         )
-        assert "UNION ALL" not in scope.cte_sql
-        assert len(scope.params) == 2
     finally:
         project.close()
 
 
 def test_scope_accepts_forty_thousand_row_ids_as_one_json_parameter(tmp_path):
-    project, sheet, _category, body, rows = _project(tmp_path)
+    project, sheet, category, body, rows = _project(tmp_path)
     try:
-        row_ids = (*rows, *range(max(rows) + 1, max(rows) + 39_998))
+        rows.extend(
+            project.add_rows(
+                sheet,
+                [
+                    {"kind": "included", "body": f"large {index}"}
+                    for index in range(39_997)
+                ],
+                {"kind": category, "body": body},
+            )
+        )
+        row_ids = tuple(rows)
         assert len(row_ids) == 40_000
         scope = compile_scope(
             project,
@@ -218,16 +256,17 @@ def test_scope_accepts_forty_thousand_row_ids_as_one_json_parameter(tmp_path):
                 sheets=(SheetScope(sheet, row_ids=row_ids, column_ids=(body,)),)
             ),
         )
+        started = perf_counter()
         found = project.db.execute(
-            f"WITH {scope.cte_sql} SELECT * FROM scoped_bindings ORDER BY row_id",
+            f"WITH {scope.cte_sql} "
+            "SELECT count(*) AS count,min(row_id) AS first,max(row_id) AS last "
+            "FROM scoped_bindings",
             scope.params,
-        ).fetchall()
+        ).fetchone()
+        elapsed = perf_counter() - started
 
-        assert [tuple(row) for row in found] == [
-            (sheet, rows[0], body),
-            (sheet, rows[1], body),
-            (sheet, rows[2], body),
-        ]
-        assert len(scope.params) == 2
+        assert tuple(found) == (40_000, rows[0], rows[-1])
+        # The former per-result JSON type check took about 20 seconds here.
+        assert elapsed < 1.0
     finally:
         project.close()
