@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from dataclasses import replace
 import pytest
 
+from frisket.engine.jobs import model_pull_store
 from frisket.server.app import create_app
 from frisket.server.services import search_preparation as preparation_module
 from frisket.server.services.search_preparation import SearchPreparationService
@@ -153,6 +154,36 @@ def test_missing_ocr_setup_never_starts_before_exact_consent(
     )
     assert decided.status == "preparing"
     assert setup_calls == [("engine-setup:rapidocr.local@1", "owner-1")]
+
+
+def test_unselected_manual_pull_is_not_attached_to_preparation(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setattr(preparation_module, "_requirements", lambda: (_Requirement(),))
+    workspace = Workspace(tmp_path / "workspace")
+    project_id = workspace.create("Manual pull")["id"]
+    project = workspace.get(project_id)
+    sheet_id = project.add_sheet("Files")
+    image_column = project.add_column(sheet_id, "Image", type="image")
+    digest = project.add_blob(b"image", filename="scan.png", mime="image/png")
+    project.add_rows(
+        sheet_id,
+        [{"Image": {"blob": digest, "filename": "scan.png", "mime": "image/png"}}],
+        {"Image": image_column},
+    )
+    model_pull_store.create_or_get_active(
+        workspace.queue.engine,
+        workspace_root=str(workspace.root),
+        model_ref=_Requirement.setup_ref,
+        initiated_by="operator",
+    )
+
+    batch = SearchPreparationService(workspace).create(
+        project_id, sheet_id=sheet_id, row_ids=None, force_ocr=False
+    )
+
+    assert batch.status == "needs_consent"
+    assert batch.models[0].pull_id is None
 
 
 def test_identical_decision_replays_after_setup_facts_change(

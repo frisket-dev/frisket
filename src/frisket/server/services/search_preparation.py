@@ -1328,7 +1328,11 @@ class SearchPreparationService:
             unavailable_required = unavailable_required or (
                 planned["required"] and not ready and not setup_eligible
             )
-            pull = pulls.get(planned["setup_ref"])
+            pull = (
+                pulls.get(planned["setup_ref"])
+                if planned["setup_ref"] in row.selected_setup_refs
+                else None
+            )
             if pull is not None and planned["setup_ref"] in row.selected_setup_refs:
                 setup_active = setup_active or pull.status in {"pending", "running"}
                 if pull.status in {"failed", "cancelled"} and not ready:
