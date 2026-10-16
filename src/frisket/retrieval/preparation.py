@@ -300,7 +300,6 @@ def dispatch_resolved_evidence_source(
     resolved: ResolvedCellTranscriptSource | ResolvedCellOcrTextSource,
     *,
     space: EmbeddingGemma2Space = DEFAULT_TEXT_SPACE,
-    semantic_available: bool = True,
     policy: PreparationPolicy = DEFAULT_PREPARATION_POLICY,
 ) -> None:
     if isinstance(resolved, ResolvedCellTranscriptSource):
@@ -340,7 +339,6 @@ def dispatch_resolved_blob_source(
     resolved: ResolvedCellBlobSource,
     *,
     space: EmbeddingGemma2Space = DEFAULT_TEXT_SPACE,
-    semantic_available: bool = True,
     policy: PreparationPolicy = DEFAULT_PREPARATION_POLICY,
 ) -> None:
     """Register one exact blob for each policy-selected native channel."""
@@ -428,7 +426,6 @@ def dispatch_resolved_text_source(
     *,
     recipe: TextChunkRecipe | None = DEFAULT_TEXT_RECIPE,
     space: EmbeddingGemma2Space = DEFAULT_TEXT_SPACE,
-    semantic_available: bool = True,
 ) -> None:
     recipe_id = DISABLED_TEXT_RECIPE_ID if recipe is None else recipe.recipe_id
     if recipe is None:
@@ -698,6 +695,10 @@ def _record_encoding_error(
     work: PreparationWork,
     error: EncodingError,
 ) -> None:
+    if error.code == "engine_busy":
+        # Shared runtime contention is job-level and transient. The existing
+        # worker retry/backoff resumes this exact preparing target.
+        raise error
     if error.code == "model_unavailable":
         store.mark_preparation_unavailable(
             work.source_revision,

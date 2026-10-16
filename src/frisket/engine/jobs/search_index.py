@@ -65,9 +65,6 @@ def process_index_batches(
             project,
             batch_size=INDEX_BATCH_SIZE,
             max_bytes=INDEX_BATCH_MAX_BYTES,
-            semantic_available=(
-                embedding_encoder is not None and embedding_encoder.available()
-            ),
             preparation_policy=policy,
         )
         processed += progress.processed

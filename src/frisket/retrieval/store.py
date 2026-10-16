@@ -32,7 +32,6 @@ PreparationStatus = Literal["pending", "preparing", "ready", "unavailable", "fai
 _EVENT_RETRYABLE_FAILURES = frozenset(
     {
         "encoding_failed",
-        "engine_busy",
         "media_decode_failed",
         "missing_blob",
         "missing_media_tool",

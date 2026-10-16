@@ -238,7 +238,6 @@ def _replace_cell(
     descriptor,
     old,
     retrieval: RetrievalStore,
-    semantic_available: bool,
     policy: PreparationPolicy,
 ) -> None:
     if descriptor is not None and resolved:
@@ -247,7 +246,6 @@ def _replace_cell(
                 dispatch_resolved_text_source(
                     retrieval,
                     source,
-                    semantic_available=semantic_available,
                     recipe=policy.text_recipe,
                 )
             elif isinstance(
@@ -256,14 +254,12 @@ def _replace_cell(
                 dispatch_resolved_evidence_source(
                     retrieval,
                     source,
-                    semantic_available=semantic_available,
                     policy=policy,
                 )
             else:
                 dispatch_resolved_blob_source(
                     retrieval,
                     source,
-                    semantic_available=semantic_available,
                     policy=policy,
                 )
         sheet_id = int(descriptor["sheet_id"])
@@ -302,7 +298,6 @@ def index_batch(
     batch_size: int = 500,
     max_bytes: int = 4 * 1024 * 1024,
     cancel_event: threading.Event | None = None,
-    semantic_available: bool = False,
     preparation_policy: PreparationPolicy | None = None,
 ) -> IndexProgress:
     """Reconcile one bounded dirty page and acknowledge only durable publication."""
@@ -416,7 +411,6 @@ def index_batch(
                         descriptor,
                         old_by_row.get(row_id),
                         retrieval,
-                        semantic_available,
                         policy,
                     )
                     processed += 1

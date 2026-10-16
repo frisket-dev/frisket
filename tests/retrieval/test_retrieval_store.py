@@ -122,7 +122,6 @@ def test_store_uses_one_16k_contentless_sidecar_without_text_copy(tmp_path):
     "error_code",
     [
         "encoding_failed",
-        "engine_busy",
         "media_decode_failed",
         "missing_blob",
         "missing_media_tool",

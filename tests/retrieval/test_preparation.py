@@ -146,12 +146,8 @@ def _three_blank_page_pdf() -> bytes:
     return output.getvalue()
 
 
-def _drain_dirty(project, *, semantic_available: bool = True) -> None:
-    while not index_batch(
-        project,
-        batch_size=10,
-        semantic_available=semantic_available,
-    ).complete:
+def _drain_dirty(project) -> None:
+    while not index_batch(project, batch_size=10).complete:
         pass
 
 
@@ -779,11 +775,7 @@ def test_dirty_dispatch_prepares_real_timestamped_transcript_column(tmp_path) ->
     try:
         _source, transcript_column_id, _link = _seed_source(project)
 
-        while not index_batch(
-            project,
-            batch_size=10,
-            semantic_available=True,
-        ).complete:
+        while not index_batch(project, batch_size=10).complete:
             pass
 
         with RetrievalStore(project).open() as store:
