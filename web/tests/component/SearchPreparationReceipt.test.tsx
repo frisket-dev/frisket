@@ -102,7 +102,7 @@ describe('SearchPreparationReceipt', () => {
     expect(decideSearchPreparation).not.toHaveBeenCalled();
     expect((semantic as HTMLInputElement).checked).toBe(false);
     expect((screen.getByTestId('search-preparation-model-read_text').querySelector('input') as HTMLInputElement).disabled).toBe(true);
-    expect(screen.getByText('1.5 GB')).not.toBeNull();
+    expect(screen.getByText('About 1.5 GB')).not.toBeNull();
     expect(screen.getByText(/Additional runtime files may also be downloaded/)).not.toBeNull();
 
     fireEvent.click(screen.getByTestId('search-preparation-decision-prepare'));

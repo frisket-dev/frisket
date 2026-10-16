@@ -377,8 +377,9 @@ export function SearchPreparationReceipt({
                     {model.source_url && <> · <a href={model.source_url} target="_blank" rel="noreferrer">Source</a></>}
                   </small>
                 )}
+                {model.remediation && <small>{model.remediation}</small>}
               </span>
-              <b>{formatBytes(model.download_bytes)}</b>
+              <b>{model.download_bytes == null ? formatBytes(model.download_bytes) : `About ${formatBytes(model.download_bytes)}`}</b>
             </label>
           ))}
           {batch.models.some((model) => model.additional_runtime_download) && (
@@ -386,7 +387,7 @@ export function SearchPreparationReceipt({
           )}
           {!batch.can_setup && (
             <div className="import-field-error" role="alert">
-              This account cannot install models on the Frisket server.
+              Model setup is unavailable. See the model details above.
             </div>
           )}
           <div className="search-preparation-actions">

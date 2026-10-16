@@ -268,7 +268,7 @@ describe('located palette search', () => {
     expect(startEngineSetup).not.toHaveBeenCalled();
     const consent = screen.getByTestId('search-setup-consent');
     expect(consent).toHaveTextContent('Download EmbeddingGemma 2?');
-    expect(consent).toHaveTextContent('1.5 GB');
+    expect(consent).toHaveTextContent('About 1.5 GB');
     expect(consent).toHaveTextContent(/Additional runtime files/);
     fireEvent.click(screen.getByTestId('search-setup-confirm'));
     await waitFor(() => expect(startEngineSetup).toHaveBeenCalledWith(

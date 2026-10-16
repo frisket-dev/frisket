@@ -333,7 +333,11 @@ export function PaletteSearchSection({
         <section className="search-setup-consent" data-testid="search-setup-consent">
           <div>
             <strong>Download {consentSetup.display_name}?</strong>
-            <span>Model download: {formatDownloadBytes(consentSetup.download_bytes)}</span>
+            <span>
+              Model download: {consentSetup.download_bytes == null
+                ? formatDownloadBytes(consentSetup.download_bytes)
+                : `About ${formatDownloadBytes(consentSetup.download_bytes)}`}
+            </span>
           </div>
           <p>This model runs on the Frisket server. Nothing downloads until you choose Download and set up.</p>
           {(consentSetup.license || consentSetup.source_url) && (
@@ -394,7 +398,7 @@ export function PaletteSearchSection({
               disabled={!canPrepareGap || preparationBusy}
               onClick={onPrepareGap}
             >
-              {preparationBusy ? 'Starting…' : 'Prepare'}
+              {preparationBusy ? 'Starting…' : 'Prepare this sheet'}
             </button>
           )}
         </div>
