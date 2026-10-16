@@ -264,7 +264,7 @@ def test_typed_preview_preserves_local_hybrid_and_receipt_facts(env, monkeypatch
     assert receipt.provider_use[0]["external_api"] is False
 
 
-def test_hybrid_requested_limit_at_public_cap_returns_every_match(tmp_path):
+def test_hybrid_saved_limit_above_public_cap_remains_valid(tmp_path):
     from frisket.ai.embeddings.hybrid import resolve_embedding_hybrid
 
     project = Project.create(tmp_path / "large-hybrid.frisket", name="large-hybrid")
@@ -277,13 +277,58 @@ def test_hybrid_requested_limit_at_public_cap_returns_every_match(tmp_path):
 
     result = resolve_embedding_hybrid(
         project,
-        _hybrid_query(index_id, sheet, "drone", limit=500),
+        _hybrid_query(index_id, sheet, "drone", limit=750),
         gateway=MappedGateway(),
     )
 
-    assert len(result.hits) == 500
+    assert len(result.hits) == 501
     assert all(hit.keyword_rank is None for hit in result.hits)
     project.close()
+
+
+def test_hybrid_preserves_fts_boolean_syntax(env):
+    from frisket.ai.embeddings.hybrid import resolve_embedding_hybrid
+
+    project, sheet, cols, index_id = env
+    _VEC["drone OR tractor"] = [1.0, 0.0, 0.0]
+    try:
+        result = resolve_embedding_hybrid(
+            project,
+            _hybrid_query(index_id, sheet, "drone OR tractor"),
+            gateway=MappedGateway(),
+        )
+    finally:
+        _VEC.pop("drone OR tractor", None)
+
+    tractor = _row(project, sheet, cols, "tractor")
+    tractor_hit = next(hit for hit in result.hits if hit.row_id == tractor)
+    assert tractor_hit.keyword_rank is not None
+
+
+def test_hybrid_keyword_channel_searches_whole_sheet(env):
+    from frisket.ai.embeddings.hybrid import resolve_embedding_hybrid
+
+    project, sheet, cols, index_id = env
+    keyword_only = _row(project, sheet, cols, "drone bee colony")
+    with RetrievalStore(project) as retrieval:
+        retrieval.db.execute(
+            "DELETE FROM named_dataset_membership WHERE dataset_id=? AND part_id IN ("
+            "SELECT part.part_id FROM parts AS part JOIN bindings AS binding "
+            "ON binding.source_id=part.source_id "
+            "AND binding.version_kind=part.version_kind "
+            "AND binding.version_value=part.version_value "
+            "AND binding.version_type=part.version_type WHERE binding.row_id=?"
+            ")",
+            (index_id, keyword_only),
+        )
+
+    result = resolve_embedding_hybrid(
+        project, _hybrid_query(index_id, sheet, "drone"), gateway=MappedGateway()
+    )
+
+    hit = next(hit for hit in result.hits if hit.row_id == keyword_only)
+    assert hit.vector_rank is None
+    assert hit.keyword_rank is not None
 
 
 def test_hybrid_blocks_stale_index(env):

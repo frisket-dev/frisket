@@ -179,8 +179,20 @@ def test_limit_and_threshold(env):
         _row(project, sheet, cols, "kitten")
     ]
 
+    none = resolve_embedding_similarity(
+        project, _row_query(index_id, cat, threshold=-0.01)
+    )
+    assert none.hits == []
+    all_matches = resolve_embedding_similarity(
+        project, _row_query(index_id, cat, threshold=2.01)
+    )
+    assert [hit.row_id for hit in all_matches.hits] == [
+        _row(project, sheet, cols, "kitten"),
+        _row(project, sheet, cols, "airplane"),
+    ]
 
-def test_requested_limit_at_shared_cap_returns_every_match(tmp_path):
+
+def test_saved_limit_above_public_cap_remains_valid(tmp_path):
     project = Project.create(tmp_path / "large-sim.frisket", name="large-sim")
     sheet = project.add_sheet("documents")
     cols = {"headline": project.add_column(sheet, "headline")}
@@ -192,10 +204,10 @@ def test_requested_limit_at_shared_cap_returns_every_match(tmp_path):
 
     anchor = _row(project, sheet, cols, texts[0])
     result = resolve_embedding_similarity(
-        project, _row_query(index_id, anchor, limit=500)
+        project, _row_query(index_id, anchor, limit=750)
     )
 
-    assert result.limit == 500
+    assert result.limit == 750
     assert len(result.hits) == 500
     project.close()
 
@@ -532,6 +544,32 @@ def test_manual_text_blocks_remote_egress_without_policy(tmp_path):
     project.close()
 
 
+def test_manual_text_honors_effective_network_policy_before_remote_call(tmp_path):
+    project = Project.create(tmp_path / "network-off.frisket", name="network-off")
+    sheet = project.add_sheet("animals")
+    cols = {"headline": project.add_column(sheet, "headline")}
+    project.add_rows(sheet, [{"headline": text} for text in _VECTORS], cols)
+    gateway = MappedGateway(_VECTORS, dim=1536)
+    index_id = _create_index(
+        project,
+        sheet,
+        provider="openai",
+        policy={"allow_remote": True},
+        key="network-off",
+    )
+    project.set_network_policy(mode="off")
+
+    with pytest.raises(SimilarityError) as exc:
+        resolve_embedding_similarity(
+            project, _manual_query(index_id, "uncached network query"), gateway=gateway
+        )
+
+    assert exc.value.code == "network_disabled"
+    assert exc.value.details == {"capability": "provider:platform_api"}
+    assert gateway.calls == []
+    project.close()
+
+
 def test_manual_text_runs_when_policy_allows(tmp_path):
     project = Project.create(tmp_path / "remote2.frisket", name="remote2")
     sheet = project.add_sheet("animals")
@@ -723,6 +761,43 @@ def test_query_preview_blocks_incomplete_after_append(env):
     with pytest.raises(QueryPreviewError) as excinfo:
         resolve_query_preview(project, _row_query(index_id, cat, sheet_id=sheet))
     assert excinfo.value.code == "embedding_index_incomplete"
+
+
+def test_query_preview_rejects_concurrent_named_membership_swap(env, monkeypatch):
+    import frisket.ai.embeddings.similarity as similarity_module
+    from frisket.preview.query import QueryPreviewError, resolve_query_preview
+
+    project, sheet, cols, index_id = env
+    cat = _row(project, sheet, cols, "cat")
+    original = similarity_module.resolve_embedding_similarity
+
+    def resolve_then_change_membership(*args, **kwargs):
+        result = original(*args, **kwargs)
+        with RetrievalStore(project) as retrieval:
+            member = retrieval.db.execute(
+                "SELECT part_id,representation_id "
+                "FROM named_dataset_membership WHERE dataset_id=? "
+                "ORDER BY part_id,representation_id LIMIT 1",
+                (index_id,),
+            ).fetchone()
+            assert member is not None
+            retrieval.db.execute(
+                "DELETE FROM named_dataset_membership "
+                "WHERE dataset_id=? AND part_id=? AND representation_id=?",
+                (index_id, member["part_id"], member["representation_id"]),
+            )
+        return result
+
+    monkeypatch.setattr(
+        similarity_module,
+        "resolve_embedding_similarity",
+        resolve_then_change_membership,
+    )
+
+    with pytest.raises(QueryPreviewError) as excinfo:
+        resolve_query_preview(project, _row_query(index_id, cat, sheet_id=sheet))
+    assert excinfo.value.code == "stale_input"
+    assert excinfo.value.field == "query.embedding_index_id"
 
 
 def test_query_preview_limit_zero_is_empty_window_total_preserved(env):

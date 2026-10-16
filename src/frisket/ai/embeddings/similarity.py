@@ -10,7 +10,6 @@ from typing import Any
 from frisket.engine.store import Project
 from frisket.retrieval.contracts import (
     BindingRevision,
-    MAX_SEARCH_LIMIT,
     RetrievalScope,
     ScopedBinding,
     SearchRequest,
@@ -26,6 +25,7 @@ from frisket.retrieval.query import (
     RetrievalQueryService,
     SemanticQueryVectors,
 )
+from frisket.retrieval.ranking import RankingError
 from frisket.retrieval.store import RetrievalStore
 
 from .facade import EmbeddingFacade
@@ -112,26 +112,6 @@ def normalize_manual_text_terms(anchor: dict[str, Any]) -> list[dict[str, Any]]:
             raise ValueError(f"term {index} weight must be a finite number")
         out.append({"text": value.strip(), "weight": float(weight)})
     return out
-
-
-def _compose_query_vector(
-    vectors: list[list[float]], weights: list[float], dim: int
-) -> list[float]:
-    acc = [0.0] * dim
-    for vector, weight in zip(vectors, weights, strict=True):
-        norm = math.sqrt(sum(value * value for value in vector))
-        if norm == 0.0:
-            continue
-        for index, value in enumerate(vector):
-            acc[index] += value * weight / norm
-    total = math.sqrt(sum(value * value for value in acc))
-    if total <= 1e-12:
-        raise SimilarityError(
-            "embedding_composed_query_degenerate",
-            "the composed query vector cancels to zero; adjust the terms or weights",
-            field="anchor.terms",
-        )
-    return [value / total for value in acc]
 
 
 class SimilarityError(Exception):
@@ -248,12 +228,6 @@ def _requested_limit(query: dict[str, Any]) -> int:
         raise SimilarityError(
             "invalid_query_spec", "limit must be a positive integer", field="limit"
         )
-    if value > MAX_SEARCH_LIMIT:
-        raise SimilarityError(
-            "invalid_query_spec",
-            f"limit must not exceed {MAX_SEARCH_LIMIT}",
-            field="limit",
-        )
     return value
 
 
@@ -265,11 +239,10 @@ def _threshold(query: dict[str, Any]) -> float | None:
         isinstance(value, bool)
         or not isinstance(value, int | float)
         or not math.isfinite(value)
-        or not 0.0 <= float(value) <= 2.0
     ):
         raise SimilarityError(
             "invalid_query_spec",
-            "threshold must be a finite maximum cosine distance in [0, 2]",
+            "threshold must be a finite maximum cosine distance",
             field="threshold",
         )
     return float(value)
@@ -399,6 +372,12 @@ def resolve_embedding_similarity(
                 else exc.code
             )
             raise SimilarityError(code, str(exc), field="anchor.row_id") from exc
+        except RankingError as exc:
+            raise SimilarityError(
+                "embedding_composed_query_degenerate",
+                "the composed query vector cancels to zero; adjust the terms or weights",
+                field="anchor.terms",
+            ) from exc
         binding = _embedding_query_binding(index, space, retrieval)
 
     hits: list[SimilarityHit] = []
@@ -564,6 +543,13 @@ def _manual_query(
         )
     accounting_project = effect_project if effect_project is not None else project
     if provider_kind in REMOTE_PROVIDER_KINDS:
+        if accounting_project.effective_network_policy() == "off":
+            raise SimilarityError(
+                "network_disabled",
+                "this project's network setting blocks remote query embedding",
+                field="anchor.text",
+                details={"capability": f"provider:{provider_kind}"},
+            )
         from frisket.engine.runner.validation import (
             ProviderKeyRefusal,
             assert_provider_spend_cap,
@@ -650,7 +636,9 @@ def _manual_query(
             for exclude in excludes
         ),
         minimum_similarity=(
-            None if maximum_distance is None else 1.0 - maximum_distance
+            None
+            if maximum_distance is None or not 0.0 <= maximum_distance <= 2.0
+            else 1.0 - maximum_distance
         ),
     )
     return (

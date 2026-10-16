@@ -14,9 +14,9 @@ from frisket.retrieval.contracts import (
     TextQuery,
 )
 from frisket.retrieval.query import RetrievalQueryError, RetrievalQueryService
+from frisket.retrieval.ranking import RankingError
 from frisket.retrieval.store import RetrievalStore
 
-from .scope import IndexScopeError, resolve_index_scope_rows
 from .similarity import (
     EmbeddingQueryBinding,
     QueryEmbeddingUse,
@@ -82,13 +82,9 @@ def resolve_embedding_hybrid(
         )
     text = text.strip()
     raw_limit = query.get("limit", 50)
-    if (
-        isinstance(raw_limit, bool)
-        or not isinstance(raw_limit, int)
-        or not 1 <= raw_limit <= 500
-    ):
+    if isinstance(raw_limit, bool) or not isinstance(raw_limit, int) or raw_limit < 1:
         raise SimilarityError(
-            "invalid_query_spec", "limit must be in [1, 500]", field="limit"
+            "invalid_query_spec", "limit must be a positive integer", field="limit"
         )
     raw_k = query.get("k_rrf", DEFAULT_RRF_K)
     if isinstance(raw_k, bool) or not isinstance(raw_k, int) or raw_k < 1:
@@ -105,13 +101,6 @@ def resolve_embedding_hybrid(
             "the requested sheet is not the embedding index sheet",
             field="sheet_id",
         )
-    try:
-        row_ids = tuple(resolve_index_scope_rows(project, index))
-    except IndexScopeError as exc:
-        raise SimilarityError(
-            exc.code, exc.message, field="embedding_index_id"
-        ) from exc
-
     with RetrievalStore(project) as retrieval:
         _semantic_query, vectors, query_use = _manual_query(
             project,
@@ -126,8 +115,8 @@ def resolve_embedding_hybrid(
             effect_project=effect_project,
         )
         request = SearchRequest(
-            scope=RetrievalScope((SheetScope(sheet_id=sheet_id, row_ids=row_ids),)),
-            query=TextQuery(text=text, lexical_syntax="plain"),
+            scope=RetrievalScope((SheetScope(sheet_id=sheet_id),)),
+            query=TextQuery(text=text, lexical_syntax="fts"),
             mode="hybrid",
             group_by="row",
             limit=raw_limit,
@@ -141,6 +130,12 @@ def resolve_embedding_hybrid(
             )
         except RetrievalQueryError as exc:
             raise SimilarityError(exc.code, str(exc)) from exc
+        except RankingError as exc:
+            raise SimilarityError(
+                "embedding_composed_query_degenerate",
+                "the composed query vector cancels to zero; adjust the terms or weights",
+                field="text",
+            ) from exc
         binding = _embedding_query_binding(index, space, retrieval)
 
     hits: list[HybridHit] = []
