@@ -46,6 +46,7 @@ class ProjectSettings(BaseModel):
     cloud_execution_preference: Literal["local_first", "cloud_first"] | None = None
     model_execution_routes: dict[str, Literal["cloud", "own"]] | None = None
     model_execution_default: Literal["cloud"] | None = None
+    prepare_new_files_automatically: bool = True
 
 
 class ProjectSettingsPatch(BaseModel):
@@ -59,6 +60,7 @@ class ProjectSettingsPatch(BaseModel):
     cloud_execution_preference: Literal["local_first", "cloud_first"] | None = None
     model_execution_routes: dict[str, Literal["cloud", "own"]] | None = None
     model_execution_default: Literal["cloud"] | None = None
+    prepare_new_files_automatically: bool | None = None
 
 
 def read_project_settings(project: Any) -> ProjectSettings:

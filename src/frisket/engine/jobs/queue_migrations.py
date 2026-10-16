@@ -28,7 +28,7 @@ from frisket.engine.jobs.queue_provision import (
 from frisket.engine.worker_version import code_version, require_known_code_identity
 
 
-QUEUE_SCHEMA_VERSION = 9
+QUEUE_SCHEMA_VERSION = 10
 QUEUE_SCHEMA_MIGRATION_LOCK_ID = 7_154_819_250_847_113_102
 QUEUE_SCHEMA_LEDGER = "frisket_queue_schema_migrations"
 STORAGE_RECONCILIATION_INDEX = "idx_jobs_storage_project_status_id"
@@ -41,6 +41,8 @@ _REQUIRED_TABLES = (
     "worker_heartbeats",
     "model_pulls",
     HANDLER_AUTHORITY_TABLE,
+    "search_preparation_batches",
+    "search_preparation_children",
     QUEUE_SCHEMA_LEDGER,
 )
 _REQUIRED_JOBS_COLUMNS = (
@@ -225,6 +227,18 @@ def _apply_model_pulls_table(connection: Connection) -> None:
     from frisket.engine.jobs.model_pull_store import model_pulls_table
 
     model_pulls_table.create(bind=connection, checkfirst=True)
+
+
+def _apply_search_preparation_tables(connection: Connection) -> None:
+    """v10: workspace-local preparation intent and deterministic children."""
+
+    from frisket.engine.jobs.search_preparation_store import (
+        search_preparation_batches_table,
+        search_preparation_children_table,
+    )
+
+    search_preparation_batches_table.create(bind=connection, checkfirst=True)
+    search_preparation_children_table.create(bind=connection, checkfirst=True)
 
 
 _SUPERSEDED_BY_MIGRATION_MESSAGE = (
@@ -716,6 +730,7 @@ MIGRATIONS = (
     QueueMigration(version=7, apply=_apply_org_scoped_active_dedupe_index),
     QueueMigration(version=8, apply=_apply_handler_authority_table),
     QueueMigration(version=9, apply=_apply_model_pull_endpoint_identity),
+    QueueMigration(version=10, apply=_apply_search_preparation_tables),
 )
 
 
@@ -745,6 +760,7 @@ def _grant_runtime_privileges(connection: Connection) -> None:
         sa.text(
             "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "
             "jobs, worker_heartbeats, model_pulls, "
+            "search_preparation_batches, search_preparation_children, "
             f"{HANDLER_AUTHORITY_TABLE} TO {runtime}"
         )
     )

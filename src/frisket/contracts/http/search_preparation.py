@@ -76,6 +76,8 @@ class SearchPreparationModel(WireModel):
     download_bytes: int | None = Field(default=None, ge=0)
     additional_runtime_download: bool
     remediation: str | None
+    license: str
+    source_url: str
     pull_id: int | None = Field(default=None, gt=0)
 
 
@@ -110,6 +112,8 @@ class SearchPreparationTextSample(WireModel):
     column_id: int = Field(gt=0)
     filename: str | None
     page_number: int = Field(gt=0)
+    page_count: int = Field(gt=0)
+    preview_url: str
     text: str
     source: Literal["native", "prepared"]
     truncated: bool
