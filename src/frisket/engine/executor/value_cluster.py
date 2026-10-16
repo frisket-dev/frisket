@@ -6,7 +6,10 @@ from typing import Any
 import sqlite3
 
 from frisket.actions.cluster_types import ClusterColumn, ClusterOptions
-from frisket.ai.embeddings.analytics import legacy_analytical_space
+from frisket.ai.embeddings.analytics import (
+    existing_legacy_analytical_space,
+    legacy_analytical_space,
+)
 from frisket.ai.embeddings.facade import embedding_input_hash
 from frisket.preview.cluster import (
     apply_group_edits,
@@ -48,7 +51,12 @@ def missing_cluster_vectors(project, texts, model):
     sidecar = project.path / "project.retrieval.db"
     if not keys or not sidecar.exists():
         return len(keys)
-    space = legacy_analytical_space(model)
+    space = existing_legacy_analytical_space(project, model, normalization=None)
+    if space is None:
+        try:
+            space = legacy_analytical_space(model)
+        except ValueError:
+            return len(keys)
     cached = set()
     try:
         db = sqlite3.connect(f"{sidecar.resolve().as_uri()}?mode=ro", uri=True)

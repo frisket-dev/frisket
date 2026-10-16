@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 import math
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any, TypeAlias
 
 from frisket.retrieval.encoding import (
     EmbeddingVector,
+    EncodingError,
     EncodingPurpose,
     TextEncodingInput,
 )
@@ -169,6 +172,126 @@ def _reported_dimension(embed: Any, dimension: int | None) -> int | None:
     return reported
 
 
+def existing_legacy_analytical_space(
+    project: Any,
+    model_id: str,
+    *,
+    normalization: str | None = None,
+) -> DescriptorEmbeddingSpace | None:
+    """Find an exact previously established custom-model space."""
+
+    rows = project.db.execute(
+        "SELECT id,dimension FROM embedding_spaces "
+        "WHERE actual_model_id=? AND modality='text'",
+        (model_id,),
+    ).fetchall()
+    for row in rows:
+        candidate = legacy_analytical_space(
+            model_id,
+            dimension=int(row["dimension"]),
+            normalization=normalization,
+        )
+        if candidate.identity == row["id"]:
+            return candidate
+    return None
+
+
+def _discovered_dimension(result: EmbeddingResult, expected: int) -> int:
+    values = result.get("vectors") if isinstance(result, dict) else result
+    if (
+        not isinstance(values, Sequence)
+        or isinstance(values, str | bytes)
+        or len(values) != expected
+        or not values
+    ):
+        raise EncodingError(
+            "invalid_encoder_result",
+            "The embedding provider returned no usable vector batch.",
+        )
+    first = values[0]
+    if not isinstance(first, Sequence) or isinstance(first, str | bytes) or not first:
+        raise EncodingError(
+            "invalid_encoder_result",
+            "The embedding provider returned an invalid vector.",
+        )
+    dimension = len(first)
+    if any(
+        not isinstance(vector, Sequence)
+        or isinstance(vector, str | bytes)
+        or len(vector) != dimension
+        for vector in values
+    ):
+        raise EncodingError(
+            "invalid_encoder_result",
+            "The embedding provider returned inconsistent vector dimensions.",
+        )
+    return dimension
+
+
+def _discovery_values(texts: Sequence[str]) -> list[str]:
+    return list(dict.fromkeys(texts[:MAX_CACHED_BATCH]))
+
+
+def _resolved_project_space(
+    project: Any,
+    model_id: str,
+    *,
+    embed: Any,
+    dimension: int | None,
+    normalization: str | None,
+) -> DescriptorEmbeddingSpace | None:
+    reported = _reported_dimension(embed, dimension)
+    if reported is not None:
+        return ensure_legacy_analytical_space(
+            project, model_id, dimension=reported, normalization=normalization
+        )
+    return existing_legacy_analytical_space(
+        project, model_id, normalization=normalization
+    )
+
+
+class _BufferedFresh:
+    """Replay one dimension-discovery result without repeating its callbacks."""
+
+    def __init__(
+        self,
+        embed: AsyncTextEmbedder,
+        result: EmbeddingResult | None,
+        before: BeforeFreshTexts | None,
+        after: OnFreshTexts | None,
+    ) -> None:
+        self.embed = embed
+        self.result = result
+        self.skip_callbacks = result is not None
+        self.before_callback = before
+        self.after_callback = after
+
+    def before(self, batch: list[str]) -> None:
+        if not self.skip_callbacks and self.before_callback is not None:
+            self.before_callback(batch)
+
+    def after(self, result: EmbeddingResult, batch: list[str]) -> None:
+        if self.skip_callbacks:
+            self.skip_callbacks = False
+        elif self.after_callback is not None:
+            self.after_callback(result, batch)
+
+    def sync_embed(self, batch: list[str]):
+        if self.result is not None:
+            result, self.result = self.result, None
+            return result
+        return self.embed(batch)
+
+    async def async_embed(self, batch: list[str]):
+        if self.result is not None:
+            result, self.result = self.result, None
+            return result
+        result = _fresh_adapter(self.embed)(
+            [TextEncodingInput(value) for value in batch]
+        )
+        return await result if inspect.isawaitable(result) else result
+
+
 def _text_inputs(texts: Sequence[str]) -> tuple[list[str], list[TextEncodingInput]]:
     values = list(texts)
     if any(not isinstance(value, str) for value in values):
@@ -284,20 +407,46 @@ def encode_project_legacy_texts(
 ) -> list[list[float]]:
     """Persist the space and synchronously use one project's shared cache."""
 
-    space = ensure_legacy_analytical_space(
+    values = list(texts)
+    space = _resolved_project_space(
         project,
         model_id,
-        dimension=_reported_dimension(embed, dimension),
+        embed=embed,
+        dimension=dimension,
         normalization=normalization,
     )
+    buffered_result: EmbeddingResult | None = None
+    if space is None and values:
+        discovery = _discovery_values(values)
+        if before_fresh_batch is not None:
+            before_fresh_batch(discovery)
+        inputs = [TextEncodingInput(value) for value in discovery]
+        buffered_result = _fresh_adapter(embed)(inputs)
+        if inspect.isawaitable(buffered_result):
+            buffered_result = asyncio.run(buffered_result)
+        if on_fresh_batch is not None:
+            on_fresh_batch(buffered_result, discovery)
+        space = ensure_legacy_analytical_space(
+            project,
+            model_id,
+            dimension=_discovered_dimension(buffered_result, len(discovery)),
+            normalization=normalization,
+        )
+    if space is None:
+        return []
+
+    buffered = _BufferedFresh(
+        embed, buffered_result, before_fresh_batch, on_fresh_batch
+    )
+
     with RetrievalStore(project) as cache:
         return encode_legacy_texts(
             cache,
-            texts,
-            embed=embed,
+            values,
+            embed=buffered.sync_embed,
             space=space,
-            before_fresh_batch=before_fresh_batch,
-            on_fresh_batch=on_fresh_batch,
+            before_fresh_batch=buffered.before,
+            on_fresh_batch=buffered.after,
         )
 
 
@@ -314,20 +463,46 @@ async def encode_project_legacy_texts_async(
 ) -> list[list[float]]:
     """Persist the space and asynchronously use one project's shared cache."""
 
-    space = ensure_legacy_analytical_space(
+    values = list(texts)
+    space = _resolved_project_space(
         project,
         model_id,
-        dimension=_reported_dimension(embed, dimension),
+        embed=embed,
+        dimension=dimension,
         normalization=normalization,
     )
+    buffered_result: EmbeddingResult | None = None
+    if space is None and values:
+        discovery = _discovery_values(values)
+        if before_fresh_batch is not None:
+            before_fresh_batch(discovery)
+        inputs = [TextEncodingInput(value) for value in discovery]
+        buffered_result = _fresh_adapter(embed)(inputs)
+        if inspect.isawaitable(buffered_result):
+            buffered_result = await buffered_result
+        if on_fresh_batch is not None:
+            on_fresh_batch(buffered_result, discovery)
+        space = ensure_legacy_analytical_space(
+            project,
+            model_id,
+            dimension=_discovered_dimension(buffered_result, len(discovery)),
+            normalization=normalization,
+        )
+    if space is None:
+        return []
+
+    buffered = _BufferedFresh(
+        embed, buffered_result, before_fresh_batch, on_fresh_batch
+    )
+
     with RetrievalStore(project) as cache:
         return await encode_legacy_texts_async(
             cache,
-            texts,
-            embed=embed,
+            values,
+            embed=buffered.async_embed,
             space=space,
-            before_fresh_batch=before_fresh_batch,
-            on_fresh_batch=on_fresh_batch,
+            before_fresh_batch=buffered.before,
+            on_fresh_batch=buffered.after,
         )
 
 
@@ -340,6 +515,7 @@ __all__ = [
     "encode_project_legacy_texts",
     "encode_project_legacy_texts_async",
     "ensure_legacy_analytical_space",
+    "existing_legacy_analytical_space",
     "legacy_analytical_descriptor",
     "legacy_analytical_space",
 ]

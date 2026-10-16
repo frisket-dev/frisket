@@ -28,6 +28,7 @@ from .analytics import (
     encode_project_legacy_texts,
     encode_project_legacy_texts_async,
     ensure_legacy_analytical_space,
+    existing_legacy_analytical_space,
     legacy_analytical_descriptor,
     legacy_analytical_space,
 )
@@ -92,6 +93,7 @@ __all__ = [
     "encode_project_legacy_texts",
     "encode_project_legacy_texts_async",
     "ensure_legacy_analytical_space",
+    "existing_legacy_analytical_space",
     "legacy_analytical_descriptor",
     "legacy_analytical_space",
     "make_space_descriptor",

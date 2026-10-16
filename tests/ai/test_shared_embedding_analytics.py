@@ -5,6 +5,7 @@ import pytest
 from frisket.ai.embeddings.analytics import (
     encode_legacy_texts,
     encode_legacy_texts_async,
+    encode_project_legacy_texts,
     encode_project_legacy_texts_async,
     ensure_legacy_analytical_space,
     legacy_analytical_descriptor,
@@ -129,5 +130,49 @@ async def test_project_encoder_persists_same_space_used_by_shared_cache(tmp_path
         assert vectors == [[0.25, 0.5]]
         assert tuple(row) == (model, 2, "none")
         assert count == 1
+    finally:
+        project.close()
+
+
+def test_custom_project_model_discovers_dimension_from_first_admitted_batch(tmp_path):
+    project = Project.create(tmp_path / "custom-analytics.frisket")
+    events = []
+
+    def embed(texts):
+        events.append(("provider", list(texts)))
+        return [[2.0, float(index), 0.5] for index, _text in enumerate(texts)]
+
+    callbacks = {
+        "before_fresh_batch": lambda texts: events.append(("admission", texts)),
+        "on_fresh_batch": lambda _result, texts: events.append(("receipt", texts)),
+    }
+    try:
+        first = encode_project_legacy_texts(
+            project,
+            ["alpha", "beta", "alpha"],
+            embed=embed,
+            model_id="custom/unregistered",
+            **callbacks,
+        )
+        second = encode_project_legacy_texts(
+            project,
+            ["beta", "alpha"],
+            embed=embed,
+            model_id="custom/unregistered",
+            **callbacks,
+        )
+        row = project.db.execute(
+            "SELECT dimension FROM embedding_spaces "
+            "WHERE actual_model_id='custom/unregistered'"
+        ).fetchone()
+
+        assert first == [[2.0, 0.0, 0.5], [2.0, 1.0, 0.5], [2.0, 0.0, 0.5]]
+        assert second == [[2.0, 1.0, 0.5], [2.0, 0.0, 0.5]]
+        assert row["dimension"] == 3
+        assert [event[0] for event in events] == [
+            "admission",
+            "provider",
+            "receipt",
+        ]
     finally:
         project.close()
