@@ -9,6 +9,7 @@ safe to repeat because every underlying migration write is content-addressed.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import sqlite3
 import tempfile
@@ -16,6 +17,8 @@ from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, TextIO
+
+from filelock import FileLock, Timeout
 
 from frisket.ai.embeddings.analytics import ensure_legacy_analytical_space
 from frisket.ai.embeddings.backends import (
@@ -38,13 +41,16 @@ from .store import RetrievalStore
 
 
 LEGACY_EMBEDDING_UPGRADE_META_KEY = "retrieval_legacy_embedding_upgrade_v1"
-_MARKER_VERSION = 1
+_MARKER_VERSION = 2
+_UPGRADE_LOCK_NAME = ".retrieval-upgrade.lock"
+_LEGACY_FILENAMES = ("project.search.db", "project.embeddings.db")
 _SEMANTIC_PREFIX_CHARACTERS = 50_000
 _CLASSIFIER_CHUNK_WORDS = 384
 _CLASSIFIER_CHUNK_CHARACTERS = 1_600
 _CLASSIFIER_MAX_CHUNKS = 8
 _CELL_VECTOR_COLUMNS = frozenset({"key", "vec"})
 _SEMANTIC_ACTION_KINDS = ("cluster.values", "join.semantic")
+_LOG = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,7 +63,7 @@ class LegacyEmbeddingUpgradeReport:
     analytical_proofs: int
     analytical_space_rejections: int
     analytical_vector_shape_rejections: int
-    already_complete: bool = False
+    reused: bool = False
 
     @property
     def complete(self) -> bool:
@@ -67,24 +73,42 @@ class LegacyEmbeddingUpgradeReport:
 def prepare_retrieval_on_open(project: Any) -> None:
     """Recover disposable storage and import old caches under the bundle-open lock."""
 
-    if not (Path(project.path) / "project.retrieval.db").is_file():
-        # Analytical cache admission can create the sidecar before the lexical
-        # worker sees it. Persist repair first, including on marker-fast-path opens.
-        with project.db:
-            if (
-                project.db.execute(
-                    "SELECT 1 FROM search_dirty_scopes WHERE sheet_id IS NULL "
-                    "AND scan_cursor='[0,0]' LIMIT 1"
-                ).fetchone()
-                is None
-            ):
-                project.db.execute("BEGIN IMMEDIATE")
+    from frisket.search_index import bind_retrieval_sidecar
+
+    project_path = Path(project.path)
+    sidecar_exists = (project_path / "project.retrieval.db").is_file()
+    legacy_exists = any((project_path / name).is_file() for name in _LEGACY_FILENAMES)
+    if sidecar_exists or legacy_exists:
+        # Existing derived state must be bound before readers can consider it
+        # current. A legacy import also needs a sidecar to receive its rows.
+        bind_retrieval_sidecar(project)
+    else:
+        # Opening a project remains read-only with respect to derived storage.
+        # Persist the repair intent in the authoritative database; the bounded
+        # maintenance writer creates and binds the sidecar on its first batch.
+        with project.transaction_scope():
+            global_scope = project.db.execute(
+                "SELECT 1 FROM search_dirty_scopes WHERE sheet_id IS NULL "
+                "AND scan_cursor='[0,0]' LIMIT 1"
+            ).fetchone()
+            if global_scope is None:
                 enqueue_dirty_scope(project.db)
-    if any(
-        (Path(project.path) / name).is_file()
-        for name in ("project.search.db", "project.embeddings.db")
-    ):
-        upgrade_legacy_embedding_caches(project)
+        return
+    if not legacy_exists:
+        return
+    lock = FileLock(str(project_path / _UPGRADE_LOCK_NAME), timeout=0)
+    try:
+        with lock:
+            try:
+                _upgrade_legacy_embedding_caches(project, batch_size=250)
+            except Exception:
+                _LOG.exception(
+                    "legacy retrieval cache upgrade failed during project open"
+                )
+    except Timeout:
+        # Another opener owns the same idempotent attempt. It will persist the
+        # report; this opener must not wait on derived-cache recovery.
+        return
 
 
 def upgrade_legacy_embedding_caches(
@@ -100,21 +124,33 @@ def upgrade_legacy_embedding_caches(
     derived retrieval state before reopening the bundle.
     """
 
+    lock = FileLock(str(Path(project.path) / _UPGRADE_LOCK_NAME), timeout=-1)
+    with lock:
+        return _upgrade_legacy_embedding_caches(project, batch_size=batch_size)
+
+
+def _upgrade_legacy_embedding_caches(
+    project: Any,
+    *,
+    batch_size: int,
+) -> LegacyEmbeddingUpgradeReport:
     if isinstance(batch_size, bool) or not 1 <= batch_size <= 1000:
         raise ValueError("batch_size must be in [1, 1000]")
     if project.db.in_transaction:
         raise ValueError("legacy embedding upgrade requires no active transaction")
-    marked = _read_marker(project)
-    if marked is not None:
-        return replace(marked, already_complete=True)
+    fingerprints = _legacy_fingerprints(Path(project.path))
+    with RetrievalStore(project).open() as retrieval_store:
+        sidecar_id = retrieval_store.sidecar_id()
+        marked = _read_marker(project, sidecar_id=sidecar_id, fingerprints=fingerprints)
+        if marked is not None:
+            return replace(marked, reused=True)
 
-    with tempfile.TemporaryFile(mode="w+t", encoding="utf-8") as matches:
-        discovery = _discover_analytical_matches(
-            project, matches=matches, batch_size=batch_size
-        )
-        spaces, space_rejections = _ensure_matched_spaces(project, matches)
-        proof_count = _count_proofs(matches, spaces)
-        with RetrievalStore(project).open() as retrieval_store:
+        with tempfile.TemporaryFile(mode="w+t", encoding="utf-8") as matches:
+            discovery = _discover_analytical_matches(
+                project, matches=matches, batch_size=batch_size
+            )
+            spaces, space_rejections = _ensure_matched_spaces(project, matches)
+            proof_count = _count_proofs(matches, spaces)
             migration = migrate_legacy_embedding_caches(
                 project,
                 retrieval_store,
@@ -122,16 +158,20 @@ def upgrade_legacy_embedding_caches(
                 batch_size=batch_size,
             )
 
-    report = LegacyEmbeddingUpgradeReport(
-        migration=migration,
-        analytical_candidate_keys=discovery.candidate_keys,
-        analytical_matches=discovery.matches,
-        analytical_proofs=proof_count,
-        analytical_space_rejections=space_rejections,
-        analytical_vector_shape_rejections=discovery.vector_shape_rejections,
-    )
-    if report.complete:
-        _write_marker(project, report)
+        report = LegacyEmbeddingUpgradeReport(
+            migration=migration,
+            analytical_candidate_keys=discovery.candidate_keys,
+            analytical_matches=discovery.matches,
+            analytical_proofs=proof_count,
+            analytical_space_rejections=space_rejections,
+            analytical_vector_shape_rejections=discovery.vector_shape_rejections,
+        )
+        _write_marker(
+            project,
+            sidecar_id=sidecar_id,
+            fingerprints=fingerprints,
+            report=report,
+        )
     return report
 
 
@@ -151,11 +191,12 @@ def _discover_analytical_matches(
     path = Path(project.path) / "project.search.db"
     if not path.is_file():
         return _Discovery()
-    legacy = sqlite3.connect(
-        f"{path.resolve().as_uri()}?mode=ro", uri=True, isolation_level=None
-    )
-    legacy.row_factory = sqlite3.Row
+    legacy: sqlite3.Connection | None = None
     try:
+        legacy = sqlite3.connect(
+            f"{path.resolve().as_uri()}?mode=ro", uri=True, isolation_level=None
+        )
+        legacy.row_factory = sqlite3.Row
         if not _has_cell_vector_schema(legacy):
             return _Discovery()
         legacy.execute("BEGIN")
@@ -189,8 +230,11 @@ def _discover_analytical_matches(
         matches.flush()
         matches.seek(0)
         return _Discovery(candidate_count, match_count, shape_rejections)
+    except (sqlite3.Error, OSError):
+        return _Discovery()
     finally:
-        legacy.close()
+        if legacy is not None:
+            legacy.close()
 
 
 def _write_matches(
@@ -409,16 +453,45 @@ def _has_cell_vector_schema(db: sqlite3.Connection) -> bool:
     return _CELL_VECTOR_COLUMNS <= columns
 
 
-def _write_marker(project: Any, report: LegacyEmbeddingUpgradeReport) -> None:
+def _legacy_fingerprints(project_path: Path) -> dict[str, list[int]]:
+    fingerprints: dict[str, list[int]] = {}
+    for name in _LEGACY_FILENAMES:
+        path = project_path / name
+        if not path.is_file():
+            continue
+        stat = path.stat()
+        fingerprints[name] = [int(stat.st_size), int(stat.st_mtime_ns)]
+    return fingerprints
+
+
+def _write_marker(
+    project: Any,
+    *,
+    sidecar_id: str,
+    fingerprints: dict[str, list[int]],
+    report: LegacyEmbeddingUpgradeReport,
+) -> None:
     project.db.execute(
         "INSERT INTO meta(key,value) VALUES (?,?) "
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-        (LEGACY_EMBEDDING_UPGRADE_META_KEY, _encode_report(report)),
+        (
+            LEGACY_EMBEDDING_UPGRADE_META_KEY,
+            _encode_marker(
+                sidecar_id=sidecar_id,
+                fingerprints=fingerprints,
+                report=report,
+            ),
+        ),
     )
     project.db.commit()
 
 
-def _read_marker(project: Any) -> LegacyEmbeddingUpgradeReport | None:
+def _read_marker(
+    project: Any,
+    *,
+    sidecar_id: str,
+    fingerprints: dict[str, list[int]],
+) -> LegacyEmbeddingUpgradeReport | None:
     row = project.db.execute(
         "SELECT value FROM meta WHERE key=?", (LEGACY_EMBEDDING_UPGRADE_META_KEY,)
     ).fetchone()
@@ -426,69 +499,89 @@ def _read_marker(project: Any) -> LegacyEmbeddingUpgradeReport | None:
         return None
     try:
         payload = json.loads(row["value"])
-        if payload.get("version") != _MARKER_VERSION:
-            raise ValueError
-        migration_payload = payload["migration"]
-        migration = LegacyCacheMigrationReport(
-            named_sidecar_found=bool(migration_payload["named_sidecar_found"]),
-            analytical_sidecar_found=bool(
-                migration_payload["analytical_sidecar_found"]
-            ),
-            named_scan_complete=bool(migration_payload["named_scan_complete"]),
-            analytical_scan_complete=bool(
-                migration_payload["analytical_scan_complete"]
-            ),
-            named_indexes=int(migration_payload["named_indexes"]),
-            named_items=int(migration_payload["named_items"]),
-            named_imported=int(migration_payload["named_imported"]),
-            analytical_items=int(migration_payload["analytical_items"]),
-            analytical_imported=int(migration_payload["analytical_imported"]),
-            misses=tuple(
-                MigrationMiss(str(item["reason"]), int(item["count"]))
-                for item in migration_payload["misses"]
-            ),
-        )
-        return LegacyEmbeddingUpgradeReport(
-            migration=migration,
-            analytical_candidate_keys=int(payload["analytical_candidate_keys"]),
-            analytical_matches=int(payload["analytical_matches"]),
-            analytical_proofs=int(payload["analytical_proofs"]),
-            analytical_space_rejections=int(payload["analytical_space_rejections"]),
-            analytical_vector_shape_rejections=int(
-                payload["analytical_vector_shape_rejections"]
-            ),
-        )
-    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
-        raise RuntimeError("legacy embedding upgrade marker is invalid") from exc
+        if (
+            not isinstance(payload, dict)
+            or payload.get("version") != _MARKER_VERSION
+            or payload.get("sidecar_id") != sidecar_id
+            or payload.get("legacy") != fingerprints
+        ):
+            return None
+        return _decode_report(payload["report"])
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return None
 
 
-def _encode_report(report: LegacyEmbeddingUpgradeReport) -> str:
+def _report_payload(report: LegacyEmbeddingUpgradeReport) -> dict[str, Any]:
     migration = report.migration
+    return {
+        "migration": {
+            "named_sidecar_found": migration.named_sidecar_found,
+            "analytical_sidecar_found": migration.analytical_sidecar_found,
+            "named_scan_complete": migration.named_scan_complete,
+            "analytical_scan_complete": migration.analytical_scan_complete,
+            "named_indexes": migration.named_indexes,
+            "named_items": migration.named_items,
+            "named_imported": migration.named_imported,
+            "analytical_items": migration.analytical_items,
+            "analytical_imported": migration.analytical_imported,
+            "misses": [
+                {"reason": miss.reason, "count": miss.count}
+                for miss in migration.misses
+            ],
+        },
+        "analytical_candidate_keys": report.analytical_candidate_keys,
+        "analytical_matches": report.analytical_matches,
+        "analytical_proofs": report.analytical_proofs,
+        "analytical_space_rejections": report.analytical_space_rejections,
+        "analytical_vector_shape_rejections": (
+            report.analytical_vector_shape_rejections
+        ),
+    }
+
+
+def _decode_report(payload: Any) -> LegacyEmbeddingUpgradeReport:
+    if not isinstance(payload, dict):
+        raise ValueError("upgrade report must be an object")
+    migration_payload = payload["migration"]
+    migration = LegacyCacheMigrationReport(
+        named_sidecar_found=bool(migration_payload["named_sidecar_found"]),
+        analytical_sidecar_found=bool(migration_payload["analytical_sidecar_found"]),
+        named_scan_complete=bool(migration_payload["named_scan_complete"]),
+        analytical_scan_complete=bool(migration_payload["analytical_scan_complete"]),
+        named_indexes=int(migration_payload["named_indexes"]),
+        named_items=int(migration_payload["named_items"]),
+        named_imported=int(migration_payload["named_imported"]),
+        analytical_items=int(migration_payload["analytical_items"]),
+        analytical_imported=int(migration_payload["analytical_imported"]),
+        misses=tuple(
+            MigrationMiss(str(item["reason"]), int(item["count"]))
+            for item in migration_payload["misses"]
+        ),
+    )
+    return LegacyEmbeddingUpgradeReport(
+        migration=migration,
+        analytical_candidate_keys=int(payload["analytical_candidate_keys"]),
+        analytical_matches=int(payload["analytical_matches"]),
+        analytical_proofs=int(payload["analytical_proofs"]),
+        analytical_space_rejections=int(payload["analytical_space_rejections"]),
+        analytical_vector_shape_rejections=int(
+            payload["analytical_vector_shape_rejections"]
+        ),
+    )
+
+
+def _encode_marker(
+    *,
+    sidecar_id: str,
+    fingerprints: dict[str, list[int]],
+    report: LegacyEmbeddingUpgradeReport,
+) -> str:
     return json.dumps(
         {
             "version": _MARKER_VERSION,
-            "migration": {
-                "named_sidecar_found": migration.named_sidecar_found,
-                "analytical_sidecar_found": migration.analytical_sidecar_found,
-                "named_scan_complete": migration.named_scan_complete,
-                "analytical_scan_complete": migration.analytical_scan_complete,
-                "named_indexes": migration.named_indexes,
-                "named_items": migration.named_items,
-                "named_imported": migration.named_imported,
-                "analytical_items": migration.analytical_items,
-                "analytical_imported": migration.analytical_imported,
-                "misses": [
-                    {"reason": miss.reason, "count": miss.count}
-                    for miss in migration.misses
-                ],
-            },
-            "analytical_candidate_keys": report.analytical_candidate_keys,
-            "analytical_matches": report.analytical_matches,
-            "analytical_proofs": report.analytical_proofs,
-            "analytical_space_rejections": report.analytical_space_rejections,
-            "analytical_vector_shape_rejections": (
-                report.analytical_vector_shape_rejections
-            ),
+            "sidecar_id": sidecar_id,
+            "legacy": fingerprints,
+            "report": _report_payload(report),
         },
         ensure_ascii=False,
         allow_nan=False,

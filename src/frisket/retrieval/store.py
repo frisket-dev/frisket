@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import uuid
 from collections.abc import Iterable, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -17,6 +18,7 @@ from .sources import canonical_json, input_hash
 
 RETRIEVAL_DB_NAME = "project.retrieval.db"
 SCHEMA_VERSION = 1
+SIDECAR_ID_META_KEY = "sidecar_id"
 PAGE_SIZE = 16 * 1024
 CACHE_KIB = 32 * 1024
 MMAP_SIZE = 1024 * 1024 * 1024
@@ -163,6 +165,7 @@ class RetrievalStore:
             self._connection = db
             self.ensure_schema()
         except BaseException:
+            self._connection = None
             db.close()
             raise
         return self
@@ -180,6 +183,30 @@ class RetrievalStore:
 
     def ensure_schema(self) -> None:
         """Create the version-one sidecar without storing authoritative source text."""
+
+        tables = {
+            str(row[0])
+            for row in self.db.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        if "retrieval_meta" in tables:
+            row = self.db.execute(
+                "SELECT value FROM retrieval_meta WHERE key='schema_version'"
+            ).fetchone()
+            try:
+                version = None if row is None else int(row[0])
+            except (TypeError, ValueError):
+                version = None
+            if version != SCHEMA_VERSION:
+                raise RuntimeError(
+                    f"unsupported retrieval schema version "
+                    f"{None if row is None else row[0]!r}; expected {SCHEMA_VERSION}"
+                )
+        elif tables:
+            raise RuntimeError(
+                "unsupported retrieval schema: schema version is missing"
+            )
 
         self.db.executescript(_SCHEMA)
         preparation_columns = {
@@ -209,6 +236,38 @@ class RetrievalStore:
                 f"unsupported retrieval schema version {row[0]!r}; "
                 f"expected {SCHEMA_VERSION}"
             )
+        sidecar = self.db.execute(
+            "SELECT value FROM retrieval_meta WHERE key=?", (SIDECAR_ID_META_KEY,)
+        ).fetchone()
+        try:
+            sidecar_id = None if sidecar is None else str(uuid.UUID(str(sidecar[0])))
+        except (TypeError, ValueError, AttributeError):
+            sidecar_id = None
+        if sidecar_id is None:
+            generated = str(uuid.uuid4())
+            if sidecar is None:
+                self.db.execute(
+                    "INSERT OR IGNORE INTO retrieval_meta(key,value) VALUES (?,?)",
+                    (SIDECAR_ID_META_KEY, generated),
+                )
+            else:
+                self.db.execute(
+                    "UPDATE retrieval_meta SET value=? WHERE key=?",
+                    (generated, SIDECAR_ID_META_KEY),
+                )
+
+    def sidecar_id(self) -> str:
+        """Return this disposable sidecar incarnation's stable UUID."""
+
+        row = self.db.execute(
+            "SELECT value FROM retrieval_meta WHERE key=?", (SIDECAR_ID_META_KEY,)
+        ).fetchone()
+        if row is None:
+            raise RuntimeError("retrieval sidecar identity is missing")
+        try:
+            return str(uuid.UUID(str(row[0])))
+        except (TypeError, ValueError, AttributeError) as exc:
+            raise RuntimeError("retrieval sidecar identity is invalid") from exc
 
     def begin_preparation(
         self,
@@ -1073,6 +1132,28 @@ class RetrievalStore:
                 for member in publication.named_memberships
             ],
         )
+
+
+def read_sidecar_id(project_or_path: Any) -> str | None:
+    """Read a sidecar incarnation without creating or repairing storage."""
+
+    project_path = getattr(project_or_path, "path", project_or_path)
+    path = Path(project_path)
+    path = path if path.name == RETRIEVAL_DB_NAME else path / RETRIEVAL_DB_NAME
+    if not path.is_file():
+        return None
+    db: sqlite3.Connection | None = None
+    try:
+        db = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=0)
+        row = db.execute(
+            "SELECT value FROM retrieval_meta WHERE key=?", (SIDECAR_ID_META_KEY,)
+        ).fetchone()
+        return None if row is None else str(uuid.UUID(str(row[0])))
+    except (sqlite3.Error, TypeError, ValueError, AttributeError):
+        return None
+    finally:
+        if db is not None:
+            db.close()
 
 
 def _revision_fields(

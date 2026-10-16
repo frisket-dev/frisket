@@ -36,6 +36,7 @@ from frisket.ai.embeddings.spaces import (
     validate_descriptor,
 )
 from frisket.engine.store.retrieval_lifecycle import read_binding_revisions
+from frisket.engine.store.blob_backend import BlobStoreError
 from frisket.features.watchlists.specs import (
     canonical_json as query_canonical_json,
     normalize_query_spec,
@@ -207,8 +208,9 @@ def migrate_legacy_embedding_caches(
         named_indexes = len(indexes)
 
         if named_found:
-            legacy = _open_readonly(named_path)
+            legacy: sqlite3.Connection | None = None
             try:
+                legacy = _open_readonly(named_path)
                 if not _has_schema(legacy, _NAMED_TABLES):
                     misses["named_sidecar_schema_invalid"] += 1
                 else:
@@ -252,14 +254,16 @@ def migrate_legacy_embedding_caches(
                         named_imported += imported
                         named_items += seen
                     named_complete = True
-            except sqlite3.Error:
+            except (sqlite3.Error, OSError):
                 misses["named_sidecar_unreadable"] += 1
             finally:
-                legacy.close()
+                if legacy is not None:
+                    legacy.close()
 
         if analytical_found:
-            legacy = _open_readonly(analytical_path)
+            legacy = None
             try:
+                legacy = _open_readonly(analytical_path)
                 if not _has_schema(legacy, {"cell_vec": {"key", "vec"}}):
                     misses["analytical_sidecar_schema_invalid"] += 1
                 else:
@@ -284,10 +288,11 @@ def migrate_legacy_embedding_caches(
                         0, analytical_items - accounted
                     )
                     analytical_complete = True
-            except sqlite3.Error:
+            except (sqlite3.Error, OSError):
                 misses["analytical_sidecar_unreadable"] += 1
             finally:
-                legacy.close()
+                if legacy is not None:
+                    legacy.close()
 
     return LegacyCacheMigrationReport(
         named_sidecar_found=named_found,
@@ -431,7 +436,7 @@ def _migrate_named_batch(
             continue
         try:
             encoder_input = named_encoder_input(project, payload, plan.space.descriptor)
-        except (LookupError, OSError, TypeError, ValueError):
+        except (BlobStoreError, LookupError, OSError, TypeError, ValueError):
             misses["named_input_unprovable"] += 1
             continue
         exact_input_hash = input_hash(encoder_input)

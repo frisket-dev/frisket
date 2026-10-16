@@ -11,6 +11,7 @@ import pytest
 from frisket.ai.embeddings import EmbeddingStore, make_space_descriptor
 from frisket.ai.embeddings.source_payload import build_source_payloads
 from frisket.engine.store import Project
+from frisket.engine.store.blob_backend import BlobStoreError
 from frisket.engine.store.retrieval_lifecycle import read_binding_revisions
 from frisket.retrieval.migration import (
     LegacyCellVectorProof,
@@ -337,6 +338,43 @@ def test_malformed_legacy_sidecars_fail_closed_without_removal(tmp_path):
         }
     assert (project.path / "project.embeddings.db").is_file()
     assert (project.path / "project.search.db").is_file()
+    project.close()
+
+
+def test_unreadable_legacy_sidecars_are_reported_without_raising(tmp_path):
+    project = Project.create(tmp_path / "corrupt.frisket", name="corrupt")
+    (project.path / "project.embeddings.db").write_bytes(b"not sqlite")
+    (project.path / "project.search.db").write_bytes(b"also not sqlite")
+
+    with RetrievalStore(project).open() as target:
+        report = migrate_legacy_embedding_caches(project, target)
+        assert not report.complete
+        assert _misses(report) == {
+            "analytical_sidecar_unreadable": 1,
+            "named_sidecar_unreadable": 1,
+        }
+    project.close()
+
+
+def test_blob_materialization_failure_is_an_explicit_named_miss(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    import frisket.retrieval.migration as migration_module
+
+    project, index_id, space_id, *_rest = _legacy_project(tmp_path)
+
+    def fail_input(*_args, **_kwargs):
+        raise BlobStoreError("blob backend unavailable")
+
+    monkeypatch.setattr(migration_module, "named_encoder_input", fail_input)
+    with RetrievalStore(project).open() as target:
+        report = migrate_legacy_embedding_caches(project, target)
+        assert report.complete
+        assert report.named_imported == 0
+        assert _misses(report) == {"named_input_unprovable": 1}
+        assert not target.read_named_dataset_vectors(
+            index_id, space_id=space_id, limit=10
+        )
     project.close()
 
 

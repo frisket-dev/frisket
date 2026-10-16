@@ -37,7 +37,11 @@ from frisket.retrieval.source_adapter import (
     resolve_cell_transcript_source,
 )
 from frisket.retrieval.sources import cell_source_binding_id
-from frisket.retrieval.store import RETRIEVAL_DB_NAME, RetrievalStore
+from frisket.retrieval.store import (
+    RETRIEVAL_DB_NAME,
+    RetrievalStore,
+    read_sidecar_id,
+)
 
 
 class SearchIndexNotReady(RuntimeError):
@@ -58,6 +62,7 @@ class IndexProgress:
 
 
 _SQLITE_ROW_ID_CHUNK = 900
+RETRIEVAL_SIDECAR_META_KEY = "retrieval_sidecar_id"
 
 
 def _raise_if_cancelled(cancel_event: threading.Event | None) -> None:
@@ -71,7 +76,8 @@ def index_needs_work(project: Project) -> bool:
     if read_dirty_scopes(project.db, limit=1):
         return True
     path = project.path / RETRIEVAL_DB_NAME
-    if not path.is_file():
+    sidecar_id = read_sidecar_id(path)
+    if sidecar_id is None or project.get_meta(RETRIEVAL_SIDECAR_META_KEY) != sidecar_id:
         return True
     db = None
     try:
@@ -89,18 +95,16 @@ def index_needs_work(project: Project) -> bool:
             db.close()
 
 
-def _ensure_rebuild_scope(project: Project) -> None:
-    """Recreate a deleted disposable sidecar through the existing dirty stream."""
+def bind_retrieval_sidecar(project: Project) -> str:
+    """Bind the project to one sidecar incarnation and schedule its rebuild."""
 
-    if (project.path / RETRIEVAL_DB_NAME).is_file():
-        return
-    project.db.execute("BEGIN IMMEDIATE")
-    try:
-        enqueue_dirty_scope(project.db)
-        project.db.commit()
-    except BaseException:
-        project.db.rollback()
-        raise
+    with RetrievalStore(project).open() as retrieval:
+        sidecar_id = retrieval.sidecar_id()
+    with project.transaction_scope():
+        if project.get_meta(RETRIEVAL_SIDECAR_META_KEY) != sidecar_id:
+            enqueue_dirty_scope(project.db)
+            project.set_meta(RETRIEVAL_SIDECAR_META_KEY, sidecar_id, commit=False)
+    return sidecar_id
 
 
 def _next_column(source, retrieval: RetrievalStore, scope, after: int) -> int | None:
@@ -295,7 +299,7 @@ def index_batch(
         raise ValueError("batch_size and max_bytes must be positive")
     if project.db.in_transaction:
         raise RuntimeError("index maintenance requires its own source transaction")
-    _ensure_rebuild_scope(project)
+    bind_retrieval_sidecar(project)
     policy = (
         read_preparation_policy(project)
         if preparation_policy is None

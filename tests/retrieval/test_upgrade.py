@@ -5,6 +5,9 @@ import struct
 import json
 from array import array
 
+import pytest
+from filelock import FileLock
+
 from frisket.ai.embeddings import EmbeddingStore, make_space_descriptor
 from frisket.ai.embeddings.analytics import legacy_analytical_space
 from frisket.ai.embeddings.backends import LOCAL_MODEL
@@ -13,9 +16,10 @@ from frisket.engine.store import Project
 from frisket.engine.store.evidence import record_source_artifact, record_source_span
 from frisket.retrieval.migration import legacy_cell_vector_key
 from frisket.retrieval.sources import input_hash
-from frisket.retrieval.store import RetrievalStore
+from frisket.retrieval.store import RetrievalStore, read_sidecar_id
 from frisket.retrieval.upgrade import (
     LEGACY_EMBEDDING_UPGRADE_META_KEY,
+    prepare_retrieval_on_open,
     upgrade_legacy_embedding_caches,
 )
 
@@ -136,7 +140,7 @@ def test_upgrade_proves_current_and_preserved_inputs_then_marks_once(tmp_path) -
         report = upgrade_legacy_embedding_caches(project, batch_size=2)
 
         assert report.complete
-        assert not report.already_complete
+        assert not report.reused
         assert report.migration.analytical_items == 3
         assert report.migration.analytical_imported == 2
         assert report.analytical_matches == 2
@@ -163,8 +167,9 @@ def test_upgrade_proves_current_and_preserved_inputs_then_marks_once(tmp_path) -
         late_text = "late legacy write"
         _write_cell_vectors(project, [(custom_model, late_text, [0.0, 1.0, 0.0])])
         rerun = upgrade_legacy_embedding_caches(project, batch_size=1)
-        assert rerun.already_complete
-        assert rerun.migration == report.migration
+        assert not rerun.reused
+        assert rerun.migration.analytical_items == 4
+        assert _misses(rerun) == {"analytical_input_unproven": 2}
         with RetrievalStore(project).open() as store:
             assert (
                 store.get_representations(
@@ -229,21 +234,17 @@ def test_upgrade_imports_named_index_before_marking_completion(tmp_path) -> None
         db.execute("DELETE FROM embedding_items")
         db.commit()
         db.close()
-        assert upgrade_legacy_embedding_caches(project).already_complete
+        rerun = upgrade_legacy_embedding_caches(project)
+        assert not rerun.reused
         with RetrievalStore(project).open() as store:
-            assert (
-                len(
-                    store.read_named_dataset_vectors(
-                        index_id, space_id=space_id, limit=10
-                    )
-                )
-                == 1
+            assert not store.read_named_dataset_vectors(
+                index_id, space_id=space_id, limit=10
             )
     finally:
         project.close()
 
 
-def test_structural_failure_stays_unmarked_and_retries_after_repair(tmp_path) -> None:
+def test_structural_failure_is_recorded_once_and_retries_after_repair(tmp_path) -> None:
     project = Project.create(tmp_path / "retry.frisket")
     try:
         sheet_id = project.add_sheet("Notes")
@@ -259,12 +260,20 @@ def test_structural_failure_stays_unmarked_and_retries_after_repair(tmp_path) ->
 
         assert not failed.complete
         assert _misses(failed) == {"analytical_sidecar_schema_invalid": 1}
-        assert (
-            project.db.execute(
-                "SELECT 1 FROM meta WHERE key=?", (LEGACY_EMBEDDING_UPGRADE_META_KEY,)
-            ).fetchone()
-            is None
+        assert project.db.execute(
+            "SELECT 1 FROM meta WHERE key=?", (LEGACY_EMBEDDING_UPGRADE_META_KEY,)
+        ).fetchone()
+        project.db.execute(
+            "UPDATE meta SET value='not-json' WHERE key=?",
+            (LEGACY_EMBEDDING_UPGRADE_META_KEY,),
         )
+        project.db.commit()
+        redone = upgrade_legacy_embedding_caches(project)
+        assert not redone.reused
+        assert redone.migration == failed.migration
+        unchanged = upgrade_legacy_embedding_caches(project)
+        assert unchanged.reused
+        assert unchanged.migration == failed.migration
 
         db = sqlite3.connect(path)
         db.execute("DROP TABLE cell_vec")
@@ -276,6 +285,7 @@ def test_structural_failure_stays_unmarked_and_retries_after_repair(tmp_path) ->
         repaired = upgrade_legacy_embedding_caches(project)
 
         assert repaired.complete
+        assert not repaired.reused
         assert repaired.migration.analytical_imported == 1
         assert project.db.execute(
             "SELECT 1 FROM meta WHERE key=?", (LEGACY_EMBEDDING_UPGRADE_META_KEY,)
@@ -298,7 +308,7 @@ def test_project_open_imports_legacy_cache_before_consumers(tmp_path):
     project = Project(path)
     try:
         report = upgrade_legacy_embedding_caches(project)
-        assert report.already_complete
+        assert report.reused
         assert report.analytical_matches == 1
     finally:
         project.close()
@@ -314,8 +324,12 @@ def test_project_open_requeues_rebuild_before_any_cache_recreates_sidecar(tmp_pa
     project.add_rows(sheet, [{"body": "rebuild needle"}], {"body": column})
     drain_index(project)
     assert not project.db.execute("SELECT 1 FROM search_dirty_scopes").fetchone()
+    original_sidecar_id = read_sidecar_id(path)
     project.close()
     (path / "project.retrieval.db").unlink()
+    with RetrievalStore(path).open() as recreated:
+        recreated_sidecar_id = recreated.sidecar_id()
+    assert recreated_sidecar_id != original_sidecar_id
     reopened = Project(path)
     try:
         assert reopened.db.execute(
@@ -328,3 +342,92 @@ def test_project_open_requeues_rebuild_before_any_cache_recreates_sidecar(tmp_pa
         assert index_needs_work(reopened)
     finally:
         reopened.close()
+
+
+def test_sidecar_replacement_invalidates_a_matching_legacy_attempt(tmp_path) -> None:
+    project = Project.create(tmp_path / "sidecar-replaced.frisket")
+    try:
+        sheet = project.add_sheet("Notes")
+        column = project.add_column(sheet, "body")
+        project.add_rows(sheet, [{"body": "cached"}], {"body": column})
+        _write_cell_vectors(
+            project,
+            [(f"fastembed/{LOCAL_MODEL}", "cached", [0.25] * 384)],
+        )
+        first = upgrade_legacy_embedding_caches(project)
+        assert not first.reused
+        assert first.migration.analytical_imported == 1
+        old_sidecar_id = read_sidecar_id(project)
+
+        (project.path / "project.retrieval.db").unlink()
+        second = upgrade_legacy_embedding_caches(project)
+
+        assert not second.reused
+        assert second.migration.analytical_imported == 1
+        assert read_sidecar_id(project) != old_sidecar_id
+    finally:
+        project.close()
+
+
+def test_corrupt_legacy_cache_records_attempt_without_blocking_open(tmp_path) -> None:
+    path = tmp_path / "corrupt-legacy.frisket"
+    project = Project.create(path)
+    project.close()
+    (path / "project.search.db").write_bytes(b"not a sqlite database")
+
+    reopened = Project(path)
+    try:
+        report = upgrade_legacy_embedding_caches(reopened)
+        assert report.reused
+        assert not report.complete
+        assert _misses(report) == {"analytical_sidecar_unreadable": 1}
+    finally:
+        reopened.close()
+
+
+def test_open_skips_upgrade_while_another_process_lock_is_held(tmp_path) -> None:
+    project = Project.create(tmp_path / "locked-upgrade.frisket")
+    try:
+        (project.path / "project.search.db").write_bytes(b"not sqlite")
+        lock = FileLock(str(project.path / ".retrieval-upgrade.lock"))
+        with lock:
+            prepare_retrieval_on_open(project)
+        assert (
+            project.db.execute(
+                "SELECT 1 FROM meta WHERE key=?", (LEGACY_EMBEDDING_UPGRADE_META_KEY,)
+            ).fetchone()
+            is None
+        )
+
+        prepare_retrieval_on_open(project)
+        assert project.db.execute(
+            "SELECT 1 FROM meta WHERE key=?", (LEGACY_EMBEDDING_UPGRADE_META_KEY,)
+        ).fetchone()
+    finally:
+        project.close()
+
+
+def test_unknown_sidecar_schema_is_rejected_before_ddl(tmp_path) -> None:
+    path = tmp_path / "unknown-sidecar"
+    path.mkdir()
+    sidecar = path / "project.retrieval.db"
+    db = sqlite3.connect(sidecar)
+    db.execute("CREATE TABLE retrieval_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL)")
+    db.execute("INSERT INTO retrieval_meta(key,value) VALUES ('schema_version','999')")
+    db.commit()
+    db.close()
+
+    store = RetrievalStore(path)
+    with pytest.raises(RuntimeError, match="unsupported retrieval schema version"):
+        store.open()
+    with pytest.raises(RuntimeError, match="retrieval store is not open"):
+        _ = store.db
+
+    db = sqlite3.connect(sidecar)
+    try:
+        assert {
+            row[0]
+            for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        } == {"retrieval_meta"}
+    finally:
+        db.close()
