@@ -830,10 +830,7 @@ def test_org_artifact_pull_opus_mt_skips_daemon_and_audits(
 
 
 def test_org_engine_setup_requires_owner_deduplicates_and_audits(tmp_path) -> None:
-    from frisket.engine.jobs.engine_setup import (
-        DOCLING_SETUP_REF,
-        PARAKEET_TDT_SETUP_REF,
-    )
+    from frisket.engine.jobs.engine_setup import PARAKEET_TDT_SETUP_REF
 
     app = _app(tmp_path)
     owner = _owner(app)
@@ -855,20 +852,26 @@ def test_org_engine_setup_requires_owner_deduplicates_and_audits(tmp_path) -> No
     assert second.json()["deduplicated"] is True
     assert first.json()["pull"]["operation_kind"] == "engine_setup"
     assert "engine_setup_requested" in _audit_actions(app)
-    refused = owner.post("/api/org/models/setup", json={"setup_ref": DOCLING_SETUP_REF})
+    refused = owner.post(
+        "/api/org/models/setup", json={"setup_ref": "engine-setup:unknown@1"}
+    )
     assert refused.status_code == 400
     assert refused.json()["detail"]["code"] == "unknown_engine_setup"
 
 
-def test_org_indra_ocr_engine_setup_is_allowlisted(tmp_path) -> None:
-    from frisket.engine.jobs.engine_setup import INDRA_OCR_SETUP_REF
-
+@pytest.mark.parametrize(
+    "setup_ref",
+    [
+        "engine-setup:indra-ocr.local@1",
+        "engine-setup:embeddinggemma-2.local@1",
+        "engine-setup:docling.local@1",
+    ],
+)
+def test_org_local_engine_setup_is_allowlisted(tmp_path, setup_ref) -> None:
     app = _app(tmp_path)
-    response = _owner(app).post(
-        "/api/org/models/setup", json={"setup_ref": INDRA_OCR_SETUP_REF}
-    )
+    response = _owner(app).post("/api/org/models/setup", json={"setup_ref": setup_ref})
     assert response.status_code == 202, response.text
-    assert response.json()["pull"]["model"] == INDRA_OCR_SETUP_REF
+    assert response.json()["pull"]["model"] == setup_ref
     assert "engine_setup_requested" in _audit_actions(app)
 
 

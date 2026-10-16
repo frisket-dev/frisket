@@ -157,6 +157,8 @@ exclude-newer = "1 week"
 # The user-requested Indra release landed inside the normal one-week
 # quarantine. Keep the exception to this one exact package and release day;
 # the package version and uv.lock hashes remain pinned.
+# Tokenizers 0.23.3 is pinned by the isolated EmbeddingGemma runtime and is
+# the version used in its real-model validation; other extras retain their bounds.
 exclude-newer-package = { indra-ocr = "2026-10-13", tokenizers = "2026-10-10" }
 # Surya 2 and Chandra can coexist, but neither resolves with FastEmbed's
 # dependency bounds. ``all`` includes FastEmbed, so keep those combinations

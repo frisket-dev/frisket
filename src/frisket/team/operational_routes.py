@@ -588,13 +588,10 @@ def register_operational_routes(
         request: Request, body: TeamEngineSetupRequest
     ) -> dict[str, Any]:
         """Owner-gated, audited start for an allowlisted local engine bundle."""
-        from frisket.engine.jobs.engine_setup import (
-            INDRA_OCR_SETUP_REF,
-            PARAKEET_TDT_SETUP_REF,
-        )
+        from frisket.engine.jobs.engine_setup import is_engine_setup_ref
 
         actor = require_owner(request)
-        if body.setup_ref not in {PARAKEET_TDT_SETUP_REF, INDRA_OCR_SETUP_REF}:
+        if not is_engine_setup_ref(body.setup_ref):
             raise HTTPException(
                 400,
                 {

@@ -23,7 +23,9 @@ _SETUP_NAMES = {
     INDRA_OCR_SETUP_REF: "Indra OCR",
     EMBEDDINGGEMMA_SETUP_REF: "EmbeddingGemma 2",
     **{
-        spec.setup_ref: {"gliclass": "GLiClass", "jeff": "Jeff"}[engine_id]
+        spec.setup_ref: {"gliclass": "GLiClass", "jeff": "Jeff"}.get(
+            engine_id, engine_id
+        )
         for engine_id, spec in LOCAL_CLASSIFIERS.items()
     },
 }

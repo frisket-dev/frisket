@@ -221,17 +221,20 @@ complete = [
 ]
 
 [build-system]
-requires = ["hatchling>=1.27,<2"]
+requires = ["hatchling>=1.27,<2", "packaging>=24,<27"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build]
 artifacts = ["src/frisket/web_static/**"]
 
 [tool.hatch.build.targets.sdist]
-only-include = ["src/frisket", "sidecar/src", "sidecar/pyproject.toml", "sidecar/classify-constraints.txt", "sidecar/retrieval-constraints.txt", "sidecar/indra-ocr-constraints.txt", "sidecar/README.md", "README.md", "LICENSE"]
+only-include = ["src/frisket", "sidecar/src", "sidecar/pyproject.toml", "sidecar/classify-constraints.txt", "sidecar/retrieval-constraints.txt", "sidecar/indra-ocr-constraints.txt", "sidecar/README.md", "README.md", "LICENSE", "hatch_build.py", "scripts/build_vec1.py", "vendor/sqlite-vec1"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/frisket"]
+
+[tool.hatch.build.targets.wheel.hooks.custom]
+path = "hatch_build.py"
 
 # Ship the existing standalone project as data, not an app import. Hatchling's
 # path mapping avoids generated copies, build hooks, and a second publication.
