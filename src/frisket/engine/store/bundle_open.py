@@ -29,6 +29,9 @@ from .extraction_layouts_migration import migrate_extraction_layouts
 from .prepared_content_migration import (
     migrate_prepared_content as _migrate_prepared_content,
 )
+from .retrieval_lifecycle_migration import (
+    migrate_retrieval_lifecycle as _migrate_retrieval_lifecycle,
+)
 
 # v0.1.1a62 (907a324c) -> v0.1.1a64's receipt-owned execution attempts.
 # Fixed endpoints cannot accidentally stamp a future schema edit as current.
@@ -141,6 +144,7 @@ def open_bundle(project: Any) -> None:
         _migrate_scalar_current_values(project.db)
         migrate_extraction_layouts(project.db)
         _migrate_prepared_content(project.db, bundle_path=project.db_path)
+        _migrate_retrieval_lifecycle(project.db, bundle_path=project.db_path)
         require_current_schema(project.db, bundle_path=project.path)
         _reconcile_open_time_policy(project)
 

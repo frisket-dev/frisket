@@ -22,6 +22,10 @@ from frisket.engine.store.citation_text import (
 from frisket.engine.store.deep_link import compose_deep_link
 from frisket.engine.store.media_blobs import MediaBlobStore
 from frisket.engine.store.project import Project
+from frisket.engine.store.retrieval_lifecycle import (
+    RETRIEVAL_EVIDENCE_LINK_ROLES,
+    touch_binding_revisions,
+)
 
 
 CELL_EVIDENCE_SCHEMA_VERSION = "frisket.cell_evidence.v1"
@@ -455,6 +459,15 @@ def record_evidence_link(
                     span.get("note"),
                 ),
             )
+        if (
+            status == "active"
+            and link_role in RETRIEVAL_EVIDENCE_LINK_ROLES
+            and type(row_id) is int
+            and row_id > 0
+            and type(column_id) is int
+            and column_id > 0
+        ):
+            touch_binding_revisions(project.db, [(row_id, column_id)])
         if owns_transaction:
             project.db.commit()
     except Exception:

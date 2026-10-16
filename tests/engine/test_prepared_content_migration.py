@@ -22,6 +22,9 @@ from frisket.engine.store.prepared_content_migration import (
     PREPARED_CONTENT_TO_DIGEST,
     migrate_prepared_content,
 )
+from frisket.engine.store.retrieval_lifecycle_migration import (
+    RETRIEVAL_LIFECYCLE_FROM_DIGEST,
+)
 from frisket.engine.store.extraction_layouts_migration import (
     EXTRACTION_LAYOUTS_FROM_DIGEST,
     EXTRACTION_LAYOUTS_TO_DIGEST,
@@ -188,7 +191,7 @@ def test_exact_prior_schema_preserves_values_history_undo_and_reopen(
         _assert_exact_predecessor(db)
 
     project = Project(path)
-    assert PREPARED_CONTENT_TO_DIGEST == SCHEMA_DIGEST
+    assert PREPARED_CONTENT_TO_DIGEST == RETRIEVAL_LIFECYCLE_FROM_DIGEST
     assert project.get_meta(SCHEMA_DIGEST_META_KEY) == SCHEMA_DIGEST
     assert project.get_values(sheet_id, source_column_id) == {
         row_ids[0]: 10,
