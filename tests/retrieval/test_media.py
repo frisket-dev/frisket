@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import array
 import asyncio
 import hashlib
 import io
@@ -99,6 +100,80 @@ def _offset_audio_fixture(path: Path) -> None:
     )
 
 
+def _delayed_av_fixture(path: Path) -> None:
+    _run_ffmpeg(
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=black:s=48x32:r=4:d=3",
+        "-itsoffset",
+        "0.375",
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=440:sample_rate=16000:duration=2",
+        "-map",
+        "0:v:0",
+        "-map",
+        "1:a:0",
+        "-c:v",
+        "ffv1",
+        "-c:a",
+        "pcm_s16le",
+        "-y",
+        str(path),
+    )
+
+
+def _gapped_audio_fixture(path: Path) -> None:
+    _run_ffmpeg(
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=440:sample_rate=16000:duration=2",
+        "-af",
+        "aselect='lt(t,0.5)+gte(t,1.5)'",
+        "-c:a",
+        "pcm_s16le",
+        "-y",
+        str(path),
+    )
+
+
+def _offset_flv_fixture(path: Path) -> None:
+    _run_ffmpeg(
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc2=s=48x32:r=4:d=3",
+        "-vf",
+        "setpts=PTS+1.5/TB",
+        "-c:v",
+        "flv1",
+        "-y",
+        str(path),
+    )
+
+
+def _negative_pts_fixture(path: Path) -> None:
+    _run_ffmpeg(
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc2=s=48x32:r=4:d=2",
+        "-vf",
+        "setpts=PTS-1/TB",
+        "-fps_mode",
+        "passthrough",
+        "-c:v",
+        "ffv1",
+        "-avoid_negative_ts",
+        "disabled",
+        "-y",
+        str(path),
+    )
+
+
 def _bound(path: Path) -> tuple[BoundLocalFile, object]:
     stream = path.open("rb")
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -128,7 +203,8 @@ def test_periodic_frames_use_actual_vfr_pts_and_disclose_point_locations(
         ),
     )
 
-    assert produced.coverage.complete
+    assert not produced.coverage.complete
+    assert produced.coverage.truncation_reason == "missing_samples"
     frames = produced.items
     assert len(frames) == 4
     assert all(isinstance(item, LocatedFrame) for item in frames)
@@ -229,7 +305,7 @@ def test_shot_clips_split_long_shots_and_cover_the_tail(tmp_path: Path) -> None:
             max_duration_seconds=0.6,
             sample_fps=2,
             max_clips=20,
-            detector_threshold=10.0,
+            scene_score_threshold=0.1,
             min_scene_len_frames=1,
         ),
     )
@@ -241,6 +317,7 @@ def test_shot_clips_split_long_shots_and_cover_the_tail(tmp_path: Path) -> None:
     assert all(
         item.end_seconds - item.start_seconds <= 0.6 + 1e-6 for item in produced.items
     )
+    assert any(item.end_seconds == pytest.approx(1.0) for item in produced.items)
 
 
 def test_audio_windows_are_pcm16_mono_16khz_and_keep_track_offset(
@@ -272,6 +349,102 @@ def test_audio_windows_are_pcm16_mono_16khz_and_keep_track_offset(
             expected_samples * 2, abs=2
         )
         assert window.input.sample_rate == 16_000
+
+
+def test_delayed_av_audio_keeps_the_full_track_tail(tmp_path: Path) -> None:
+    source = tmp_path / "delayed-av.mkv"
+    _delayed_av_fixture(source)
+
+    produced = _produce(
+        source,
+        AudioWindowRecipe(
+            duration_seconds=0.5,
+            stride_seconds=0.5,
+            max_windows=20,
+        ),
+    )
+
+    assert produced.coverage.complete
+    assert not produced.coverage.timeline_estimated
+    assert produced.coverage.source_start_seconds == pytest.approx(0.375, abs=0.02)
+    assert produced.coverage.source_end_seconds == pytest.approx(2.375, abs=0.02)
+    assert produced.items[-1].end_seconds == pytest.approx(2.375, abs=1 / 16_000)
+    assert sum(
+        len(item.input.pcm16le_bytes) for item in produced.items
+    ) == pytest.approx(2 * 16_000 * 2, abs=16)
+
+
+def test_audio_packet_gap_is_preserved_as_silence(tmp_path: Path) -> None:
+    source = tmp_path / "gapped.mkv"
+    _gapped_audio_fixture(source)
+
+    produced = _produce(
+        source,
+        AudioWindowRecipe(
+            duration_seconds=0.5,
+            stride_seconds=0.5,
+            max_windows=20,
+        ),
+    )
+
+    assert produced.coverage.complete
+    assert len(produced.items) == 4
+    amplitudes = []
+    for window in produced.items:
+        samples = array.array("h", window.input.pcm16le_bytes)
+        amplitudes.append(sum(abs(sample) for sample in samples) / len(samples))
+    assert amplitudes[1] < amplitudes[0] * 0.05
+    assert amplitudes[2] == 0
+    assert amplitudes[3] > amplitudes[0] * 0.5
+
+
+def test_flv_format_duration_is_treated_as_length(tmp_path: Path) -> None:
+    source = tmp_path / "offset.flv"
+    _offset_flv_fixture(source)
+
+    produced = _produce(
+        source,
+        PeriodicFrameRecipe(
+            interval_seconds=1,
+            adjacent_dedup_threshold=None,
+            max_frames=20,
+        ),
+    )
+
+    assert produced.coverage.complete
+    assert produced.coverage.timeline_estimated
+    assert produced.coverage.source_start_seconds == pytest.approx(1.5, abs=0.02)
+    assert produced.coverage.source_end_seconds == pytest.approx(4.5, abs=0.02)
+    assert [item.point.seconds for item in produced.items] == pytest.approx(
+        [1.5, 2.5, 3.5], abs=0.03
+    )
+
+
+def test_negative_stream_start_is_refused_before_locations_escape_time_range(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "negative.mkv"
+    _negative_pts_fixture(source)
+
+    with pytest.raises(MediaProductionError, match="starts before zero") as caught:
+        _produce(source, PeriodicFrameRecipe())
+
+    assert caught.value.code == "invalid_media_timeline"
+
+
+def test_nopts_showinfo_frame_is_refused_without_shifting_later_timestamps() -> None:
+    from frisket.retrieval import media
+
+    stderr = "\n".join(
+        (
+            "[Parsed_showinfo_0] n: 0 pts: 0 pts_time:0",
+            "[Parsed_showinfo_0] n: 1 pts: NOPTS pts_time:NOPTS",
+            "[Parsed_showinfo_0] n: 2 pts: 20 pts_time:2",
+        )
+    )
+
+    with pytest.raises(MediaProductionError, match="without a presentation"):
+        media._showinfo_points(stderr)
 
 
 def test_preobserved_cancellation_starts_no_decode(
@@ -321,7 +494,7 @@ def test_stream_tell_failure_is_reported_without_masking_cleanup_error() -> None
     assert isinstance(caught.value.__cause__, OSError)
 
 
-def test_short_final_pcm_window_is_disclosed_as_missing_samples(
+def test_decoder_observed_shorter_audio_end_replaces_container_estimate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     data = b"admitted bytes"
@@ -358,8 +531,10 @@ def test_short_final_pcm_window_is_disclosed_as_missing_samples(
 
     assert len(produced.items) == 1
     assert produced.items[0].end_seconds == pytest.approx(0.5)
-    assert not produced.coverage.complete
-    assert produced.coverage.truncation_reason == "missing_samples"
+    assert produced.coverage.complete
+    assert produced.coverage.source_end_seconds == pytest.approx(0.5)
+    assert not produced.coverage.timeline_estimated
+    assert produced.coverage.truncation_reason is None
 
 
 def test_recipe_rejects_a_clip_that_exceeds_native_frame_budget() -> None:

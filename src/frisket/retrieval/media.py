@@ -40,8 +40,9 @@ from frisket.retrieval.encoding import (
 CancelCheck: TypeAlias = Callable[[], bool]
 _PCM_BYTES_PER_SAMPLE = 2
 _COPY_CHUNK_BYTES = 1024 * 1024
-_SHOWINFO_POINT = re.compile(r"\bn:\s*\d+\s+pts:\s*(-?\d+)\s+pts_time:\s*([-+\d.eE]+)")
+_SHOWINFO_FRAME = re.compile(r"\bn:\s*\d+\s+pts:\s*(\S+)\s+pts_time:\s*(\S+)")
 _SHOWINFO_TIME_BASE = re.compile(r"config in time_base:\s*(\d+)\s*/\s*(\d+)")
+_FORMAT_DURATION_IS_END = frozenset({"matroska", "webm", "nut"})
 
 
 class MediaProductionError(RuntimeError):
@@ -132,18 +133,24 @@ class FixedClipRecipe:
 
 @dataclass(frozen=True, slots=True)
 class ShotClipRecipe:
+    """Clip on ffmpeg's versioned 0..1 scene score, then split long shots."""
+
     max_duration_seconds: float = 8.0
     sample_fps: float = 1.0
     max_clips: int = 450
-    detector_threshold: float = 27.0
+    scene_score_threshold: float = 0.1
     min_scene_len_frames: int = 15
     max_dimension: int = 448
-    strategy: Literal["shot_clips"] = "shot_clips"
+    strategy: Literal["shot_clips_ffmpeg_scene_v1"] = "shot_clips_ffmpeg_scene_v1"
 
     def __post_init__(self) -> None:
         duration = _positive_number(self.max_duration_seconds, "max_duration_seconds")
         fps = _positive_number(self.sample_fps, "sample_fps")
-        threshold = _positive_number(self.detector_threshold, "detector_threshold")
+        threshold = _positive_number(
+            self.scene_score_threshold, "scene_score_threshold"
+        )
+        if threshold > 1:
+            raise ValueError("scene_score_threshold must not exceed one")
         if math.ceil(duration * fps) > EMBEDDINGGEMMA2_MAX_VIDEO_FRAMES:
             raise ValueError("a shot recipe must produce at most 32 sampled frames")
         object.__setattr__(self, "max_duration_seconds", duration)
@@ -151,7 +158,7 @@ class ShotClipRecipe:
         object.__setattr__(
             self, "max_clips", _positive_count(self.max_clips, "max_clips")
         )
-        object.__setattr__(self, "detector_threshold", threshold)
+        object.__setattr__(self, "scene_score_threshold", threshold)
         object.__setattr__(
             self,
             "min_scene_len_frames",
@@ -230,6 +237,7 @@ class MediaCoverage:
     truncation_reason: (
         Literal["max_frames", "max_clips", "max_windows", "missing_samples"] | None
     ) = None
+    timeline_estimated: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -244,6 +252,7 @@ class _StreamProbe:
     end_seconds: float
     time_base_num: int
     time_base_den: int
+    estimated: bool
 
 
 def _check_cancelled(cancelled: CancelCheck | None) -> None:
@@ -387,7 +396,7 @@ async def _probe(
             "-v",
             "error",
             "-show_entries",
-            "format=start_time,duration:stream=index,codec_type,start_time,duration,time_base",
+            "format=format_name,start_time,duration:stream=index,codec_type,start_time,duration,time_base",
             "-of",
             "json",
             str(path),
@@ -413,16 +422,28 @@ async def _probe(
     start = _decimal(stream.get("start_time"))
     if start is None:
         start = _decimal(format_facts.get("start_time")) or Decimal(0)
+    if start < 0:
+        raise MediaProductionError(
+            "invalid_media_timeline",
+            f"{kind} stream starts before zero; leading preroll is unsupported",
+        )
     stream_duration = _decimal(stream.get("duration"))
     format_duration = _decimal(format_facts.get("duration"))
+    estimated = False
     if stream_duration is not None:
         end = start + stream_duration
     elif format_duration is not None:
-        # ffprobe's container duration is measured on the container timeline.
-        # In particular, Matroska with a delayed first track can report
-        # start=0.375,duration=1.375 for content ending at 1.375.  Adding the
-        # offset again would manufacture a nonexistent tail.
-        end = format_duration
+        # Container families disagree: Matroska/WebM and NUT report an
+        # absolute timeline end, while FLV and ISO-BMFF report a length. This
+        # fallback is disclosed as estimated because it may describe a longer
+        # sibling stream rather than this selected stream.
+        names = set(str(format_facts.get("format_name") or "").split(","))
+        end = (
+            format_duration
+            if names & _FORMAT_DURATION_IS_END
+            else start + format_duration
+        )
+        estimated = True
     else:
         end = None
     if end is None or end <= start:
@@ -445,7 +466,34 @@ async def _probe(
         end_seconds=float(end),
         time_base_num=numerator,
         time_base_den=denominator,
+        estimated=estimated,
     )
+
+
+def _showinfo_points(stderr: str) -> list[tuple[int, float]]:
+    points: list[tuple[int, float]] = []
+    for match in _SHOWINFO_FRAME.finditer(stderr):
+        pts_raw, seconds_raw = match.groups()
+        if pts_raw == "NOPTS" or seconds_raw == "NOPTS":
+            raise MediaProductionError(
+                "invalid_media_timeline",
+                "ffmpeg returned a decoded frame without a presentation timestamp",
+            )
+        try:
+            pts = int(pts_raw)
+            seconds = float(seconds_raw)
+        except ValueError as exc:
+            raise MediaProductionError(
+                "invalid_media_timeline",
+                "ffmpeg returned an invalid decoded-frame timestamp",
+            ) from exc
+        if not math.isfinite(seconds):
+            raise MediaProductionError(
+                "invalid_media_timeline",
+                "ffmpeg returned a non-finite decoded-frame timestamp",
+            )
+        points.append((pts, seconds))
+    return points
 
 
 def _scale_filter(max_dimension: int) -> str:
@@ -515,7 +563,7 @@ async def _decode_video_frames(
         numerator, denominator = fallback_time_base
     else:
         numerator, denominator = map(int, time_base_match.groups())
-    points = [int(match.group(1)) for match in _SHOWINFO_POINT.finditer(result.stderr)]
+    points = _showinfo_points(result.stderr)
     paths = sorted(output.glob("frame-*.jpg"))
     # Encoders can request one filtered frame ahead before the output frame
     # limit closes the muxer.  showinfo observes that frame, while no file is
@@ -527,7 +575,7 @@ async def _decode_video_frames(
             "ffmpeg did not return one presentation timestamp per decoded frame",
         )
     frames: list[LocatedFrame] = []
-    for frame_path, pts in zip(paths, points[: len(paths)]):
+    for frame_path, (pts, _seconds) in zip(paths, points[: len(paths)]):
         _check_cancelled(cancelled)
         if frame_path.is_symlink() or frame_path.parent.resolve() != output.resolve():
             raise MediaProductionError(
@@ -611,45 +659,39 @@ async def _detect_shot_cuts(
     min_scene_len_frames: int,
     cancelled: CancelCheck | None,
 ) -> tuple[float, ...]:
-    """Run PySceneDetect while retaining bounded cooperative cancellation."""
+    """Detect cuts inside the same confined, cancellable ffmpeg boundary."""
 
-    from scenedetect import ContentDetector, SceneManager, open_video
-
-    video = open_video(str(path))
-    manager = SceneManager()
-    manager.add_detector(
-        ContentDetector(
-            threshold=threshold,
-            min_scene_len=min_scene_len_frames,
-        )
+    ffmpeg = _binary("ffmpeg")
+    select = (
+        f"select='gt(scene\\,{threshold:.12g})*"
+        f"(isnan(prev_selected_n)+gte(n-prev_selected_n\\,{min_scene_len_frames}))',"
+        "showinfo"
     )
-    detection = asyncio.create_task(
-        asyncio.to_thread(manager.detect_scenes, video=video, show_progress=False)
+    result = await _run_tool(
+        [
+            ffmpeg,
+            "-hide_banner",
+            "-nostdin",
+            "-copyts",
+            "-i",
+            str(path),
+            "-map",
+            "0:v:0",
+            "-vf",
+            select,
+            "-fps_mode",
+            "passthrough",
+            "-an",
+            "-f",
+            "null",
+            "-",
+        ],
+        op="retrieval.media.shot_detect",
+        read=path,
+        write=None,
+        cancelled=cancelled,
     )
-    try:
-        while not detection.done():
-            _check_cancelled(cancelled)
-            await asyncio.wait({detection}, timeout=0.1)
-        await detection
-    except BaseException:
-        manager.stop()
-        # PySceneDetect owns a decoder thread.  Settle it before scratch can be
-        # removed, even when the surrounding asyncio task was cancelled.
-        settling_cancel = False
-        while not detection.done():
-            try:
-                await asyncio.shield(detection)
-            except asyncio.CancelledError:
-                settling_cancel = True
-        with contextlib.suppress(asyncio.CancelledError):
-            detection.result()
-        if settling_cancel:
-            raise asyncio.CancelledError
-        raise
-    return tuple(
-        float(start.seconds)
-        for start, _end in manager.get_scene_list(start_in_scene=True)[1:]
-    )
+    return tuple(seconds for _pts, seconds in _showinfo_points(result.stderr))
 
 
 def _clip_items(
@@ -685,6 +727,7 @@ def _coverage(
         indexed_spans=tuple(spans),
         complete=complete,
         truncation_reason=reason,
+        timeline_estimated=probe.estimated,
     )
 
 
@@ -709,6 +752,7 @@ async def _produce_frames(
         fallback_time_base=(probe.time_base_num, probe.time_base_den),
         cancelled=cancelled,
     )
+    missing_samples = len(frames) < min(planned, recipe.max_frames)
     frames = _deduplicate(frames, recipe.adjacent_dedup_threshold)
     spans = tuple((frame.point.seconds, frame.point.seconds) for frame in frames)
     return ProducedMedia(
@@ -716,8 +760,14 @@ async def _produce_frames(
         coverage=_coverage(
             probe,
             spans,
-            complete=complete,
-            reason=None if complete else "max_frames",
+            complete=complete and not missing_samples,
+            reason=(
+                "max_frames"
+                if not complete
+                else "missing_samples"
+                if missing_samples
+                else None
+            ),
         ),
     )
 
@@ -774,14 +824,13 @@ async def _produce_shot_clips(
 ) -> ProducedMedia:
     probe = await _probe(path, "video", cancelled)
     _check_cancelled(cancelled)
-    relative_cuts = await _detect_shot_cuts(
+    cut_seconds = await _detect_shot_cuts(
         path,
-        threshold=recipe.detector_threshold,
+        threshold=recipe.scene_score_threshold,
         min_scene_len_frames=recipe.min_scene_len_frames,
         cancelled=cancelled,
     )
     _check_cancelled(cancelled)
-    cut_seconds = tuple(probe.start_seconds + cut for cut in relative_cuts)
     planned = _shot_spans(
         probe.start_seconds,
         probe.end_seconds,
@@ -852,6 +901,8 @@ async def _produce_audio(
             str(path),
             "-map",
             "0:a:0",
+            "-af",
+            "asetpts=PTS-STARTPTS,aresample=16000:async=1:first_pts=0",
             "-t",
             f"{coverage_end - probe.start_seconds:.12g}",
             "-ac",
@@ -870,9 +921,36 @@ async def _produce_audio(
         write=scratch,
         cancelled=cancelled,
     )
+    decoded_bytes = output.stat().st_size
+    if decoded_bytes % _PCM_BYTES_PER_SAMPLE:
+        decoded_bytes -= 1
+    decoded_duration = (
+        decoded_bytes / _PCM_BYTES_PER_SAMPLE / EMBEDDINGGEMMA2_AUDIO_SAMPLE_RATE
+    )
+    sample_tolerance = 0.5 / EMBEDDINGGEMMA2_AUDIO_SAMPLE_RATE
+    if decoded_duration <= sample_tolerance:
+        raise MediaProductionError(
+            "media_decode_failed", "ffmpeg returned no decodable audio samples"
+        )
+    decoded_end = probe.start_seconds + decoded_duration
+    if decoded_end + sample_tolerance < coverage_end:
+        probe = _StreamProbe(
+            start_seconds=probe.start_seconds,
+            end_seconds=decoded_end,
+            time_base_num=probe.time_base_num,
+            time_base_den=probe.time_base_den,
+            estimated=False,
+        )
+        planned = _fixed_spans(
+            probe.start_seconds,
+            probe.end_seconds,
+            recipe.duration_seconds,
+            recipe.stride_seconds,
+        )
+        complete = len(planned) <= recipe.max_windows
+        spans = planned[: recipe.max_windows]
     windows: list[AudioWindow] = []
     missing_samples = False
-    sample_tolerance = 0.5 / EMBEDDINGGEMMA2_AUDIO_SAMPLE_RATE
     with output.open("rb") as pcm:
         for start, end in spans:
             _check_cancelled(cancelled)
