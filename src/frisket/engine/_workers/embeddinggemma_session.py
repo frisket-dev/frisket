@@ -7,6 +7,7 @@ import json
 import math
 import shutil
 import tempfile
+import weakref
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
@@ -80,6 +81,34 @@ class EmbeddingGemma2Session:
         self._lease = None
         self._closed = False
         self._staging = Path(tempfile.mkdtemp(prefix="frisket-embeddinggemma-"))
+        self._staging_cleanup = weakref.finalize(
+            self, shutil.rmtree, self._staging, True
+        )
+
+    @classmethod
+    def from_installed(
+        cls, *, cancelled: Callable[[], bool] | None = None
+    ) -> EmbeddingGemma2Session:
+        """Construct a production session from host-validated installed paths."""
+
+        from frisket.engine._workers.embeddinggemma_artifacts import (
+            cached_embeddinggemma_path,
+            embeddinggemma_ready,
+        )
+        from frisket.runtime.embeddinggemma_install import runtime_python
+
+        try:
+            ready = embeddinggemma_ready()
+            snapshot = cached_embeddinggemma_path() if ready else None
+        except (OSError, RuntimeError):
+            snapshot = None
+        if snapshot is None:
+            raise EncodingError(
+                "model_unavailable",
+                "Prepare the pinned EmbeddingGemma 2 model and runtime before semantic retrieval.",
+            )
+        runtime = PythonRuntime(runtime_python(), PythonRuntime.current().app_code_root)
+        return cls(snapshot, runtime, cancelled=cancelled)
 
     async def _exchange(self, request: dict[str, Any]) -> dict[str, Any]:
         payload = encode_frame(request)
@@ -191,6 +220,24 @@ class EmbeddingGemma2Session:
         path.write_bytes(value)
         return str(path)
 
+    @staticmethod
+    def _validate_staging_size(inputs: Sequence[EncodingInput]) -> None:
+        total_bytes = sum(
+            len(value.image_bytes)
+            if isinstance(value, ImageEncodingInput)
+            else len(value.pcm16le_bytes)
+            if isinstance(value, AudioEncodingInput)
+            else sum(len(frame.image_bytes) for frame in value.frames)
+            if isinstance(value, VideoClipEncodingInput)
+            else 0
+            for value in inputs
+        )
+        if total_bytes > MAX_STAGED_BATCH_BYTES:
+            raise EncodingError(
+                "encoding_input_too_large",
+                "This media embedding input exceeds the 512 MiB staging limit.",
+            )
+
     def _stage(
         self, directory: Path, inputs: Sequence[EncodingInput]
     ) -> list[dict[str, Any]]:
@@ -206,13 +253,12 @@ class EmbeddingGemma2Session:
             raise EncodingError(
                 "invalid_input", "Media inputs are encoded one at a time."
             )
+        self._validate_staging_size(inputs)
         staged: list[dict[str, Any]] = []
-        total_bytes = 0
         for index, value in enumerate(inputs):
             if isinstance(value, TextEncodingInput):
                 staged.append({"kind": "text", "text": value.text})
             elif isinstance(value, ImageEncodingInput):
-                total_bytes += len(value.image_bytes)
                 staged.append(
                     {
                         "kind": "image",
@@ -222,7 +268,6 @@ class EmbeddingGemma2Session:
                     }
                 )
             elif isinstance(value, AudioEncodingInput):
-                total_bytes += len(value.pcm16le_bytes)
                 staged.append(
                     {
                         "kind": "audio",
@@ -235,7 +280,6 @@ class EmbeddingGemma2Session:
             elif isinstance(value, VideoClipEncodingInput):
                 paths = []
                 for frame_index, frame in enumerate(value.frames):
-                    total_bytes += len(frame.image_bytes)
                     paths.append(
                         self._write(
                             directory,
@@ -246,11 +290,6 @@ class EmbeddingGemma2Session:
                 staged.append({"kind": "video", "frames": paths})
             else:
                 raise TypeError("unsupported retrieval encoding input")
-            if total_bytes > MAX_STAGED_BATCH_BYTES:
-                raise EncodingError(
-                    "encoding_input_too_large",
-                    "This media embedding input exceeds the 512 MiB staging limit.",
-                )
         return staged
 
     @staticmethod
@@ -340,6 +379,7 @@ class EmbeddingGemma2Session:
                 if self._lease is not None:
                     self._lease.poison()
                 self._closed = True
+                self._staging_cleanup()
                 raise
             except Exception as exc:
                 await self._close(abort=True)
@@ -370,7 +410,7 @@ class EmbeddingGemma2Session:
         finally:
             if self._lease is not None:
                 self._lease.release()
-            shutil.rmtree(self._staging, ignore_errors=True)
+            self._staging_cleanup()
 
     async def aclose(self) -> None:
         async with self._lock:

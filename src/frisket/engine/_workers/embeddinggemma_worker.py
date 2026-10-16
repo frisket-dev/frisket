@@ -18,6 +18,8 @@ from frisket.engine._workers.embeddinggemma_model import (
     MODEL_REVISION,
     PILLOW_VERSION,
     REQUIRED_SNAPSHOT_FILES,
+    TORCH_VERSION,
+    TORCHVISION_VERSION,
     TRANSFORMERS_VERSION,
 )
 from frisket.engine._workers.framing import FrameCodec
@@ -26,6 +28,7 @@ from frisket.retrieval.encoding import (
     EMBEDDINGGEMMA2_CONTEXT_TOKENS,
     EMBEDDINGGEMMA2_DOCUMENT_PREFIX,
     EMBEDDINGGEMMA2_IMAGE_SOFT_TOKENS,
+    EMBEDDINGGEMMA2_MAX_AUDIO_BYTES,
     EMBEDDINGGEMMA2_MAX_VIDEO_FRAMES,
     EMBEDDINGGEMMA2_PREPROCESSING_BASE_ID,
     EMBEDDINGGEMMA2_QUERY_PREFIX,
@@ -102,6 +105,7 @@ class EmbeddingGemma2Runtime:
     def __init__(self, snapshot: Path) -> None:
         import numpy as np
         import torch
+        import torchvision
         import transformers
         from PIL import Image, __version__ as pillow_version
         from transformers import AutoModel, AutoProcessor
@@ -112,6 +116,12 @@ class EmbeddingGemma2Runtime:
             )
         if pillow_version != PILLOW_VERSION:
             raise RuntimeError(f"EmbeddingGemma 2 requires Pillow {PILLOW_VERSION}")
+        if torch.__version__.partition("+")[0] != TORCH_VERSION:
+            raise RuntimeError(f"EmbeddingGemma 2 requires Torch {TORCH_VERSION}")
+        if torchvision.__version__.partition("+")[0] != TORCHVISION_VERSION:
+            raise RuntimeError(
+                f"EmbeddingGemma 2 requires Torchvision {TORCHVISION_VERSION}"
+            )
         torch.set_num_threads(2)
         Image.MAX_IMAGE_PIXELS = MAX_DECODED_IMAGE_PIXELS
         self._np = np
@@ -202,8 +212,11 @@ class EmbeddingGemma2Runtime:
                 if item["sample_rate"] != EMBEDDINGGEMMA2_AUDIO_SAMPLE_RATE:
                     raise WorkerProtocolError("invalid audio sampling rate")
                 path = _staged_file(staging_root, item["path"])
-                if path.stat().st_size % 2:
+                size = path.stat().st_size
+                if size % 2:
                     raise WorkerProtocolError("audio input has an incomplete sample")
+                if size > EMBEDDINGGEMMA2_MAX_AUDIO_BYTES:
+                    raise WorkerProtocolError("audio input exceeds 30 seconds")
                 samples = self._np.fromfile(path, dtype="<i2")
                 if samples.size == 0:
                     raise WorkerProtocolError("audio input must not be empty")

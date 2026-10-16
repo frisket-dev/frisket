@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sys
+import tempfile
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
@@ -93,6 +96,54 @@ def test_snapshot_confinement_grants_final_content_store_blobs(tmp_path):
         expected.add(str(final.resolve()))
 
     assert set(_snapshot_read_paths(snapshot)) == expected
+
+
+@pytest.mark.asyncio
+async def test_installed_factory_resolves_host_owned_runtime_paths(
+    monkeypatch, tmp_path
+):
+    snapshot = tmp_path / EMBEDDINGGEMMA2_MODEL_REVISION
+    snapshot.mkdir()
+    runtime_python = tmp_path / "runtime" / "bin" / "python"
+    runtime_python.parent.mkdir(parents=True)
+    runtime_python.touch()
+    artifacts = ModuleType("frisket.engine._workers.embeddinggemma_artifacts")
+    setattr(artifacts, "cached_embeddinggemma_path", lambda: snapshot)
+    setattr(artifacts, "embeddinggemma_ready", lambda: True)
+    install = ModuleType("frisket.runtime.embeddinggemma_install")
+    setattr(install, "runtime_python", lambda: runtime_python)
+    monkeypatch.setitem(
+        sys.modules, "frisket.engine._workers.embeddinggemma_artifacts", artifacts
+    )
+    monkeypatch.setitem(sys.modules, "frisket.runtime.embeddinggemma_install", install)
+    monkeypatch.setattr(
+        PythonRuntime,
+        "current",
+        classmethod(lambda _cls: PythonRuntime(Path(sys.executable), tmp_path)),
+    )
+
+    session = EmbeddingGemma2Session.from_installed()
+
+    assert session._snapshot == snapshot
+    assert session._runtime == PythonRuntime(runtime_python, tmp_path)
+    await session.aclose()
+
+
+def test_oversize_batch_is_rejected_before_any_staging_write(monkeypatch, tmp_path):
+    import frisket.engine._workers.embeddinggemma_session as session_module
+
+    monkeypatch.setattr(session_module, "MAX_STAGED_BATCH_BYTES", 4)
+    session = EmbeddingGemma2Session(
+        tmp_path / EMBEDDINGGEMMA2_MODEL_REVISION, _runtime(tmp_path)
+    )
+    request_dir = Path(tempfile.mkdtemp(dir=session._staging, prefix="batch-"))
+    try:
+        with pytest.raises(EncodingError, match="512 MiB"):
+            session._stage(request_dir, [ImageEncodingInput(b"12345")])
+        assert list(request_dir.iterdir()) == []
+    finally:
+        shutil.rmtree(request_dir)
+        session._staging_cleanup()
 
 
 @pytest.mark.asyncio

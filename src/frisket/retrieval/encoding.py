@@ -13,10 +13,15 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Protocol, TypeAlias
 
+from frisket.engine._workers.embeddinggemma_model import (
+    MODEL_ID as EMBEDDINGGEMMA2_MODEL_ID,
+    MODEL_REVISION as EMBEDDINGGEMMA2_MODEL_REVISION,
+    PILLOW_VERSION,
+    TORCH_VERSION,
+    TORCHVISION_VERSION,
+    TRANSFORMERS_VERSION,
+)
 
-EMBEDDINGGEMMA2_MODEL_ID = "google/embeddinggemma-2"
-EMBEDDINGGEMMA2_MODEL_REVISION = "914f7f89142e33e77833254d9c9b90c3cef7303b"
-EMBEDDINGGEMMA2_TRANSFORMERS_SERIES = "5.19"
 EMBEDDINGGEMMA2_SUPPORTED_DIMENSIONS = frozenset({768, 512, 256, 128})
 EMBEDDINGGEMMA2_MAX_VIDEO_FRAMES = 32
 EMBEDDINGGEMMA2_CONTEXT_TOKENS = 8192
@@ -26,6 +31,11 @@ EMBEDDINGGEMMA2_VIDEO_FRAME_WRAPPER_TOKENS = 2
 EMBEDDINGGEMMA2_SUPPORTED_VISUAL_SOFT_TOKENS = frozenset({70, 140, 280})
 EMBEDDINGGEMMA2_MAX_ENCODED_IMAGE_BYTES = 64 * 1024 * 1024
 EMBEDDINGGEMMA2_AUDIO_SAMPLE_RATE = 16_000
+EMBEDDINGGEMMA2_MAX_AUDIO_SECONDS = 30
+EMBEDDINGGEMMA2_MAX_AUDIO_SAMPLES = (
+    EMBEDDINGGEMMA2_AUDIO_SAMPLE_RATE * EMBEDDINGGEMMA2_MAX_AUDIO_SECONDS
+)
+EMBEDDINGGEMMA2_MAX_AUDIO_BYTES = EMBEDDINGGEMMA2_MAX_AUDIO_SAMPLES * 2
 EMBEDDINGGEMMA2_QUERY_PREFIX = "task: search result | query: "
 EMBEDDINGGEMMA2_DOCUMENT_PREFIX = "title: none | text: "
 
@@ -34,12 +44,18 @@ EMBEDDINGGEMMA2_DOCUMENT_PREFIX = "title: none | text: "
 # facts, so changing those recipes does not incorrectly create another model
 # space for unrelated representations.
 EMBEDDINGGEMMA2_PREPROCESSING_BASE_ID = (
-    "transformers-5.19.0:pillow-12.1.1:auto-processor;"
-    "text=retrieval-query-document-prompts-v1,max-length-8192;"
+    f"transformers-{TRANSFORMERS_VERSION}:torch-{TORCH_VERSION}:"
+    f"torchvision-{TORCHVISION_VERSION}:pillow-{PILLOW_VERSION}:auto-processor;"
+    f"text=query-prefix-{EMBEDDINGGEMMA2_QUERY_PREFIX!r},"
+    f"document-prefix-{EMBEDDINGGEMMA2_DOCUMENT_PREFIX!r},"
+    f"max-length-{EMBEDDINGGEMMA2_CONTEXT_TOKENS};"
     "image=pillow-decoded-rgb;"
-    "video=pillow-decoded-rgb,predecoded,no-sampling,max-frames-32,"
+    f"video=pillow-decoded-rgb,predecoded,no-sampling,"
+    f"max-frames-{EMBEDDINGGEMMA2_MAX_VIDEO_FRAMES},"
     "no-timestamps;"
-    "audio=pcm16le-mono-16000hz;pool=attention-mask-mean-float32;"
+    f"audio=pcm16le-mono-{EMBEDDINGGEMMA2_AUDIO_SAMPLE_RATE}hz,"
+    f"max-samples-{EMBEDDINGGEMMA2_MAX_AUDIO_SAMPLES};"
+    "pool=attention-mask-mean-float32;"
     "truncate-prefix-then-l2"
 )
 
@@ -110,6 +126,8 @@ class AudioEncodingInput:
             raise TypeError("audio pcm16le_bytes must be bytes")
         if not self.pcm16le_bytes or len(self.pcm16le_bytes) % 2:
             raise ValueError("audio must contain complete signed PCM16 samples")
+        if len(self.pcm16le_bytes) > EMBEDDINGGEMMA2_MAX_AUDIO_BYTES:
+            raise ValueError("EmbeddingGemma 2 audio must not exceed 30 seconds")
         if self.sample_rate != EMBEDDINGGEMMA2_AUDIO_SAMPLE_RATE:
             raise ValueError("EmbeddingGemma 2 audio must be mono PCM16 at 16000 Hz")
 
@@ -286,6 +304,9 @@ class EmbeddingGemma2Encoder:
 __all__ = [
     "AudioEncodingInput",
     "EMBEDDINGGEMMA2_AUDIO_SAMPLE_RATE",
+    "EMBEDDINGGEMMA2_MAX_AUDIO_BYTES",
+    "EMBEDDINGGEMMA2_MAX_AUDIO_SAMPLES",
+    "EMBEDDINGGEMMA2_MAX_AUDIO_SECONDS",
     "EMBEDDINGGEMMA2_CONTEXT_TOKENS",
     "EMBEDDINGGEMMA2_DOCUMENT_PREFIX",
     "EMBEDDINGGEMMA2_IMAGE_SOFT_TOKENS",
@@ -297,7 +318,6 @@ __all__ = [
     "EMBEDDINGGEMMA2_QUERY_PREFIX",
     "EMBEDDINGGEMMA2_SUPPORTED_DIMENSIONS",
     "EMBEDDINGGEMMA2_SUPPORTED_VISUAL_SOFT_TOKENS",
-    "EMBEDDINGGEMMA2_TRANSFORMERS_SERIES",
     "EMBEDDINGGEMMA2_VIDEO_SOFT_TOKENS_PER_FRAME",
     "EMBEDDINGGEMMA2_VIDEO_FRAME_WRAPPER_TOKENS",
     "EmbeddingGemma2Encoder",

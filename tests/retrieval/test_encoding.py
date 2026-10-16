@@ -5,6 +5,9 @@ import math
 import pytest
 
 from frisket.retrieval.encoding import (
+    EMBEDDINGGEMMA2_MAX_AUDIO_BYTES,
+    EMBEDDINGGEMMA2_MAX_AUDIO_SAMPLES,
+    EMBEDDINGGEMMA2_PREPROCESSING_BASE_ID,
     AudioEncodingInput,
     EmbeddingGemma2Encoder,
     EmbeddingGemma2Space,
@@ -32,6 +35,24 @@ def test_media_inputs_are_bounded_and_clip_reuses_generic_images():
         AudioEncodingInput(b"odd")
     with pytest.raises(ValueError, match="16000 Hz"):
         AudioEncodingInput(b"\x00\x00", sample_rate=48_000)
+    assert len(
+        AudioEncodingInput(b"\x00" * EMBEDDINGGEMMA2_MAX_AUDIO_BYTES).pcm16le_bytes
+    ) == (EMBEDDINGGEMMA2_MAX_AUDIO_BYTES)
+    with pytest.raises(ValueError, match="30 seconds"):
+        AudioEncodingInput(b"\x00" * (EMBEDDINGGEMMA2_MAX_AUDIO_BYTES + 2))
+
+
+def test_preprocessing_identity_pins_enforced_runtime_and_audio_limit():
+    assert "transformers-5.19.0" in EMBEDDINGGEMMA2_PREPROCESSING_BASE_ID
+    assert "torch-2.14.1" in EMBEDDINGGEMMA2_PREPROCESSING_BASE_ID
+    assert "torchvision-0.29.1" in EMBEDDINGGEMMA2_PREPROCESSING_BASE_ID
+    assert "pillow-12.1.1" in EMBEDDINGGEMMA2_PREPROCESSING_BASE_ID
+    assert (
+        f"max-samples-{EMBEDDINGGEMMA2_MAX_AUDIO_SAMPLES}"
+        in EMBEDDINGGEMMA2_PREPROCESSING_BASE_ID
+    )
+    assert "task: search result | query: " in EMBEDDINGGEMMA2_PREPROCESSING_BASE_ID
+    assert "title: none | text: " in EMBEDDINGGEMMA2_PREPROCESSING_BASE_ID
 
 
 def test_space_identity_includes_embedding_affecting_visual_budgets():
