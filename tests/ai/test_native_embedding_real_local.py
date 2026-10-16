@@ -13,9 +13,9 @@ from __future__ import annotations
 import pytest
 
 from frisket.ai.embeddings import EmbeddingGateway
+from frisket.ai.embeddings.backends import local_embedder
 from frisket.ai.embeddings.similarity import resolve_embedding_similarity
 from frisket.engine.executor import ExecutorDeps, run_action_spec
-from frisket.semantic import local_embedder
 from frisket.engine.store import Project
 
 pytestmark = [

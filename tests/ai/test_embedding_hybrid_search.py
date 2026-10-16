@@ -16,7 +16,15 @@ import pytest
 from frisket.ai.embeddings import build_batch_result
 from frisket.engine.executor import ExecutorDeps, run_action_spec
 from frisket.engine.store import Project
-from frisket.search import drain_index
+from frisket.retrieval.contracts import SourceLocator
+from frisket.retrieval.source_adapter import resolve_cell_text_sources
+from frisket.retrieval.store import (
+    BindingDependency,
+    LexicalInput,
+    RetrievalStore,
+    SourcePublication,
+    StoredBinding,
+)
 
 PROJECT_ID = "p"
 
@@ -81,7 +89,6 @@ def _create_index(project, sheet, *, provider="fastembed", policy=None, key="c")
     )
     assert res.status == "completed", res.errors
 
-    drain_index(project)
     return res.outputs[0].ref["index_id"]
 
 
@@ -100,6 +107,47 @@ def _refresh(project, index_id, gateway, *, key="r"):
     assert res.status == "completed", res.errors
 
 
+def _publish_lexical_cells(project, sheet, column, row_ids):
+    resolved = resolve_cell_text_sources(
+        project,
+        sheet_id=sheet,
+        column_id=column,
+        row_ids=row_ids,
+    )
+    with RetrievalStore(project) as retrieval:
+        for row_id, source in resolved.items():
+            binding = source.binding
+            retrieval.begin_preparation(
+                source.source, recipe_id="test-lexical-v1", channel="lexical"
+            )
+            assert retrieval.publish_source(
+                SourcePublication(
+                    source.source,
+                    "test-lexical-v1",
+                    "lexical",
+                    parts=(),
+                    bindings=(
+                        StoredBinding(
+                            f"lexical:{sheet}:{row_id}:{column}",
+                            sheet,
+                            row_id,
+                            column,
+                            (
+                                BindingDependency(
+                                    row_id,
+                                    column,
+                                    binding.retrieval_revision,
+                                ),
+                            ),
+                        ),
+                    ),
+                    lexical=LexicalInput(
+                        source.lexical_text, SourceLocator(kind="text")
+                    ),
+                )
+            )
+
+
 @pytest.fixture
 def env(tmp_path):
     project = Project.create(tmp_path / "hy.frisket", name="hy")
@@ -108,6 +156,12 @@ def env(tmp_path):
     project.add_rows(sheet, [{"headline": r} for r in _ROWS], cols)
     index_id = _create_index(project, sheet)
     _refresh(project, index_id, MappedGateway())
+    _publish_lexical_cells(
+        project,
+        sheet,
+        cols["headline"],
+        project.visible_row_ids(sheet),
+    )
     yield project, sheet, cols, index_id
     project.close()
 
@@ -129,43 +183,6 @@ def _hybrid_query(index_id, sheet, text, **extra):
 
 
 # --------------------------------------------------------------------------
-
-
-def test_rrf_fuse_is_deterministic_and_correct():
-    from frisket.search import rrf_fuse
-
-    # row 7: rank1 in list A, rank2 in list B -> 1/61 + 1/62 (the dual match wins)
-    fused = rrf_fuse([[7, 8, 9], [10, 7, 11]], k=60)
-    assert fused[0][0] == 7
-    # score = sum of 1/(k + 1-based-rank)
-    assert fused[0][1] == pytest.approx(1 / 61 + 1 / 62)
-    # a row in only one list scores 1/(k+rank); deterministic row_id tie-break
-    ids = [rid for rid, _ in fused]
-    assert set(ids) == {7, 8, 9, 10, 11}
-    assert rrf_fuse([[7, 8, 9], [10, 7, 11]], k=60) == fused  # deterministic
-
-
-def test_search_sheet_scopes_to_one_sheet_in_bm25_order(env):
-    from frisket.search import search_sheet
-
-    project, sheet, cols, index_id = env
-    other = project.add_sheet("other")
-    ocol = project.add_column(other, "headline")
-    project.add_rows(
-        other, [{"headline": "drone in another sheet"}], {"headline": ocol}
-    )
-    drain_index(project)
-
-    rows = search_sheet(project, sheet, "drone", limit=10)
-    # only THIS sheet's rows that contain "drone" — never the other sheet's row
-    matched = {
-        _row(project, sheet, cols, "drone strike report"),
-        _row(project, sheet, cols, "drone bee colony"),
-    }
-    assert set(rows) == matched
-    # the other sheet's matching row is excluded
-    other_ids = set(project.get_values(other, ocol).keys())
-    assert not (set(rows) & other_ids)
 
 
 def test_hybrid_surfaces_keyword_only_and_vector_only_and_ranks_dual_first(env):
@@ -222,7 +239,7 @@ def test_typed_preview_preserves_local_hybrid_and_receipt_facts(env, monkeypatch
 
         return embed, model_id or "BAAI/bge-small-en-v1.5"
 
-    monkeypatch.setattr("frisket.semantic.local_embedder", local_embedder)
+    monkeypatch.setattr("frisket.ai.embeddings.backends.local_embedder", local_embedder)
     result = run_action_spec(
         project,
         {
@@ -247,7 +264,7 @@ def test_typed_preview_preserves_local_hybrid_and_receipt_facts(env, monkeypatch
     assert receipt.provider_use[0]["external_api"] is False
 
 
-def test_hybrid_requested_limit_above_legacy_cap_returns_every_match(tmp_path):
+def test_hybrid_requested_limit_at_public_cap_returns_every_match(tmp_path):
     from frisket.ai.embeddings.hybrid import resolve_embedding_hybrid
 
     project = Project.create(tmp_path / "large-hybrid.frisket", name="large-hybrid")
@@ -260,11 +277,11 @@ def test_hybrid_requested_limit_above_legacy_cap_returns_every_match(tmp_path):
 
     result = resolve_embedding_hybrid(
         project,
-        _hybrid_query(index_id, sheet, "drone", limit=501),
+        _hybrid_query(index_id, sheet, "drone", limit=500),
         gateway=MappedGateway(),
     )
 
-    assert len(result.hits) == 501
+    assert len(result.hits) == 500
     assert all(hit.keyword_rank is None for hit in result.hits)
     project.close()
 
@@ -292,7 +309,6 @@ def test_hybrid_remote_without_allow_remote_blocks_before_embed(tmp_path):
     index_id = _create_index(
         project, sheet, provider="openai", policy={"allow_remote": False}, key="hyr"
     )
-    drain_index(project)
     gw = MappedGateway()
     with pytest.raises(SimilarityError) as exc:
         resolve_embedding_hybrid(

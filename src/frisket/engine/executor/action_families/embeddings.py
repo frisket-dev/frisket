@@ -1926,9 +1926,19 @@ def _do_refresh(
     source_columns = json.loads(index["source_columns_json"])
     payloads = build_source_payloads(project, index, source_columns, row_ids)
     retrieval = RetrievalStore(project).open()
-    recipe, planned_items = plan_named_index_items(
-        project, index=index, space=space, payloads=payloads
-    )
+    try:
+        recipe, planned_items = plan_named_index_items(
+            project, index=index, space=space, payloads=payloads
+        )
+    except (TypeError, ValueError) as exc:
+        retrieval.close()
+        return _error(
+            action,
+            project_id,
+            "embedding_source_unsupported",
+            str(exc),
+            field="params.index_id",
+        )
     planned_by_key = {item.source_key: item for item in planned_items}
     payload_by_key = {str(item["source_key"]): item for item in payloads}
     existing_rows = dataset_rows(retrieval, str(index["id"]))

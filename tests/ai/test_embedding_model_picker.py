@@ -3,9 +3,9 @@ from __future__ import annotations
 import pytest
 
 from frisket.ai.embeddings import EmbeddingGateway, EmbeddingStore
+from frisket.ai.embeddings.backends import _FASTEMBED_ALIASES, local_embedder
 from frisket.ai.embeddings.capabilities import embedding_capabilities
 from frisket.engine.executor import run_action_spec
-from frisket.semantic import local_embedder
 from frisket.engine.store import Project
 
 _BGE_SMALL = "BAAI/bge-small-en-v1.5"
@@ -96,8 +96,6 @@ def test_catalog_numbers_are_sourced_from_fastembed_not_invented():
     # Every curated local model's dimension + size MUST match fastembed's own
     # registry — so a number can never be fabricated or silently drift.
     from fastembed import TextEmbedding
-
-    from frisket.semantic import _FASTEMBED_ALIASES
 
     src = {m["model"]: m for m in TextEmbedding.list_supported_models()}
     for cap in embedding_capabilities(local_available=True):
