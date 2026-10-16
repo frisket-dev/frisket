@@ -56,6 +56,8 @@ from .store import PROJECT_SIDECAR_META_KEY, RETRIEVAL_DB_NAME, SIDECAR_ID_META_
 
 HYBRID_POOL = 400
 RERANK_POOL = 100
+SUPPORTING_HIT_LIMIT = 3
+_GROUP_HIT_LIMIT = 1 + SUPPORTING_HIT_LIMIT
 Reranker = Callable[[str, Sequence[str]], Sequence[float]]
 
 
@@ -88,16 +90,13 @@ class _Candidate:
     raw_score: float
     representation_id: str | None
     space_id: str | None
+    group_key: str
+    group_hit_count: int
+    additional_binding_count: int
     lexical_rowid: int | None = None
     lexical_content_hash: str | None = None
     snippet: str | None = None
     rerank_text: str | None = None
-
-    def fusion_key(self, grouping: Literal["source", "row"]) -> str:
-        if grouping == "row":
-            return f"row:{self.binding.sheet_id}:{self.binding.row_id}"
-        return _source_key(self.source)
-
 
 class PinnedRetrievalReader(AbstractContextManager["PinnedRetrievalReader"]):
     """One connection with project.db as main and a read-only attached sidecar."""
@@ -196,6 +195,28 @@ class PinnedRetrievalReader(AbstractContextManager["PinnedRetrievalReader"]):
             apply_edits=apply_edits,
             tolerate_decode_errors=tolerate_decode_errors,
             preserve_invalid=preserve_invalid,
+        )
+
+    def get_values_with_refs(
+        self,
+        sheet_id: int,
+        column_id: int,
+        row_ids: list[int] | None = None,
+        *,
+        apply_edits: bool = True,
+        tolerate_decode_errors: bool = False,
+        preserve_invalid: bool = False,
+        include_validity: bool = False,
+    ) -> tuple[dict[int, Any], dict[int, dict[str, Any]]]:
+        return cells.get_values_with_refs(
+            self,
+            sheet_id,
+            column_id,
+            row_ids,
+            apply_edits=apply_edits,
+            tolerate_decode_errors=tolerate_decode_errors,
+            preserve_invalid=preserve_invalid,
+            include_validity=include_validity,
         )
 
 
@@ -456,21 +477,42 @@ class RetrievalQueryService:
             AND {_visible_column("retrieval_binding")}
             AND {_binding_is_current("retrieval_binding")}
             {dataset_where}
-        ), ranked AS (
+        ), binding_ranked AS (
           SELECT *,ROW_NUMBER() OVER (
-            PARTITION BY group_key ORDER BY raw_score,binding_id
-          ) AS group_rank
+            PARTITION BY group_key,lexical_rowid
+            ORDER BY raw_score,binding_id
+          ) AS binding_rank,
+          COUNT(*) OVER (
+            PARTITION BY lexical_rowid
+          ) AS binding_count
           FROM matched
+        ), distinct_hits AS (
+          SELECT * FROM binding_ranked WHERE binding_rank=1
+        ), ranked_hits AS (
+          SELECT *,ROW_NUMBER() OVER (
+            PARTITION BY group_key ORDER BY raw_score,binding_id,source_id
+          ) AS hit_rank,
+          COUNT(*) OVER (PARTITION BY group_key) AS group_hit_count
+          FROM distinct_hits
+        ), group_heads AS (
+          SELECT *,ROW_NUMBER() OVER (
+            ORDER BY raw_score,group_key,binding_id,source_id
+          ) AS result_rank
+          FROM ranked_hits WHERE hit_rank=1
+        ), chosen_groups AS MATERIALIZED (
+          SELECT group_key,result_rank FROM group_heads WHERE result_rank<=?
         )
-        SELECT * FROM ranked WHERE group_rank=1
-        ORDER BY raw_score,binding_id,source_id
-        LIMIT ?
+        SELECT ranked_hits.* FROM ranked_hits
+        JOIN chosen_groups USING (group_key)
+        WHERE ranked_hits.hit_rank<=?
+        ORDER BY chosen_groups.result_rank,ranked_hits.hit_rank
         """
         params = [
             *scope.params,
             query,
             *dataset_params,
             limit,
+            _GROUP_HIT_LIMIT,
         ]
         try:
             rows = reader.db.execute(sql, params).fetchall()
@@ -611,34 +653,52 @@ class RetrievalQueryService:
             {exclude_sql}
         ), accepted AS NOT MATERIALIZED (
           SELECT * FROM eligible WHERE 1=1{minimum_sql}
-        ), grouped AS (
+        ), binding_ranked AS (
+          SELECT *,ROW_NUMBER() OVER (
+            PARTITION BY group_partition,part_key,representation_key,channel
+            ORDER BY similarity DESC,binding_id,part_id,representation_id
+          ) AS binding_rank,
+          COUNT(*) OVER (
+            PARTITION BY part_key,representation_key,channel
+          ) AS binding_count
+          FROM accepted
+        ), distinct_hits AS (
+          SELECT * FROM binding_ranked WHERE binding_rank=1
+        ), ranked_hits AS (
           SELECT *,ROW_NUMBER() OVER (
             PARTITION BY group_partition
             ORDER BY similarity DESC,binding_id,part_id,representation_id
-          ) AS group_rank
-          FROM accepted
-        ), chosen AS MATERIALIZED (
-          SELECT * FROM grouped WHERE group_rank=1
-          ORDER BY similarity DESC,group_sort,binding_id,part_id,representation_id
-          LIMIT ?
+          ) AS hit_rank,
+          COUNT(*) OVER (PARTITION BY group_partition) AS group_hit_count
+          FROM distinct_hits
+        ), group_heads AS (
+          SELECT *,ROW_NUMBER() OVER (
+            ORDER BY similarity DESC,group_sort,binding_id,part_id,representation_id
+          ) AS result_rank
+          FROM ranked_hits WHERE hit_rank=1
+        ), chosen_groups AS MATERIALIZED (
+          SELECT group_partition,result_rank
+          FROM group_heads WHERE result_rank<=?
         )
         SELECT part.part_id,source.source_id,source.version_kind,
                source.version_value,source.version_type,part.recipe_id,
                part.part_kind,part.locator_json,source.source_kind,
                source.content_hash,retrieval_binding.binding_id,
                retrieval_binding.sheet_id,retrieval_binding.row_id,
-               retrieval_binding.column_id,chosen.channel,
+               retrieval_binding.column_id,ranked_hits.channel,
                representation.representation_id,representation.space_id,
-               chosen.similarity
-        FROM chosen
-        JOIN idx.parts AS part ON part.part_key=chosen.part_key
+               ranked_hits.similarity,ranked_hits.group_sort AS group_key,
+               ranked_hits.group_hit_count,ranked_hits.binding_count
+        FROM ranked_hits
+        JOIN chosen_groups USING (group_partition)
+        JOIN idx.parts AS part ON part.part_key=ranked_hits.part_key
         JOIN idx.sources AS source ON source.source_key=part.source_key
         JOIN idx.bindings AS retrieval_binding
-          ON retrieval_binding.binding_key=chosen.binding_key
+          ON retrieval_binding.binding_key=ranked_hits.binding_key
         JOIN idx.representations AS representation
-          ON representation.representation_key=chosen.representation_key
-        ORDER BY chosen.similarity DESC,chosen.group_sort,chosen.binding_id,
-                 chosen.part_id,chosen.representation_id
+          ON representation.representation_key=ranked_hits.representation_key
+        WHERE ranked_hits.hit_rank<=?
+        ORDER BY chosen_groups.result_rank,ranked_hits.hit_rank
         """
         params: list[Any] = [
             *scope.params,
@@ -652,7 +712,7 @@ class RetrievalQueryService:
             params.extend((sqlite3.Binary(blob), threshold))
         if minimum is not None:
             params.append(minimum)
-        params.append(limit)
+        params.extend((limit, _GROUP_HIT_LIMIT))
         return _hydrate_semantic(
             reader,
             _attach_binding_dependencies(
@@ -1048,6 +1108,9 @@ def _lexical_candidate(row: sqlite3.Row) -> _Candidate:
         raw_score=float(row["raw_score"]),
         representation_id=None,
         space_id=None,
+        group_key=str(row["group_key"]),
+        group_hit_count=int(row["group_hit_count"]),
+        additional_binding_count=int(row["binding_count"]) - 1,
         lexical_rowid=int(row["lexical_rowid"]),
         lexical_content_hash=str(row["lexical_content_hash"]),
     )
@@ -1066,6 +1129,9 @@ def _semantic_candidate(row: sqlite3.Row) -> _Candidate:
         raw_score=float(row["similarity"]),
         representation_id=str(row["representation_id"]),
         space_id=str(row["space_id"]),
+        group_key=str(row["group_key"]),
+        group_hit_count=int(row["group_hit_count"]),
+        additional_binding_count=int(row["binding_count"]) - 1,
     )
 
 
@@ -1195,45 +1261,104 @@ def _hydrate_semantic(
 def _single_method_groups(
     candidates: list[_Candidate], request: SearchRequest
 ) -> list[ResultGroup]:
+    del request
     groups: list[ResultGroup] = []
-    for rank, candidate in enumerate(candidates, start=1):
-        key = _request_group_key(candidate, request)
-        hit = _located_hit(candidate, rank=rank, rank_score=1.0 / rank)
-        groups.append(ResultGroup(group_key=key, primary=hit))
+    for rank, (key, grouped) in enumerate(_candidate_groups(candidates), start=1):
+        hits = tuple(
+            _located_hit(candidate, rank=rank, rank_score=1.0 / rank)
+            for candidate in grouped
+        )
+        groups.append(
+            ResultGroup(
+                group_key=key,
+                primary=hits[0],
+                supporting=hits[1:],
+                additional_count=max(grouped[0].group_hit_count - len(hits), 0),
+            )
+        )
     return groups
 
 
 def _hybrid_groups(
     lexical: list[_Candidate], semantic: list[_Candidate], request: SearchRequest
 ) -> list[ResultGroup]:
-    grouping: Literal["source", "row"] = (
-        "row" if request.group_by == "row" else "source"
-    )
-    lexical_by_key = {row.fusion_key(grouping): row for row in lexical}
-    semantic_by_key = {row.fusion_key(grouping): row for row in semantic}
+    lexical_by_key = dict(_candidate_groups(lexical))
+    semantic_by_key = dict(_candidate_groups(semantic))
     fused = reciprocal_rank_fusion(
         [list(semantic_by_key), list(lexical_by_key)], k=request.ranking.k_rrf
     )
     groups: list[ResultGroup] = []
     for fused_rank, item in enumerate(fused, start=1):
         key = str(item.key)
-        semantic_candidate = semantic_by_key.get(key)
-        lexical_candidate = lexical_by_key.get(key)
-        primary = semantic_candidate or lexical_candidate
+        semantic_candidates = semantic_by_key.get(key, [])
+        lexical_candidates = lexical_by_key.get(key, [])
+        primary = (semantic_candidates or lexical_candidates or [None])[0]
         if primary is None:
             continue
-        hit = _located_hit(primary, rank=fused_rank, rank_score=item.score)
-        contributions: list[RetrievalContribution] = []
         semantic_rank, lexical_rank = item.ranks
-        if semantic_candidate is not None and semantic_rank is not None:
-            contributions.append(_contribution(semantic_candidate, semantic_rank))
-        if lexical_candidate is not None and lexical_rank is not None:
-            contributions.append(_contribution(lexical_candidate, lexical_rank))
-            if hit.snippet is None:
-                hit = replace(hit, snippet=lexical_candidate.snippet)
+        candidates = _interleave_candidates(semantic_candidates, lexical_candidates)
+        hits = [
+            _located_hit(
+                candidate,
+                rank=(
+                    semantic_rank
+                    if candidate.method == "semantic"
+                    else lexical_rank
+                )
+                or fused_rank,
+                rank_score=item.score,
+            )
+            for candidate in candidates[:_GROUP_HIT_LIMIT]
+        ]
+        hit = hits[0]
+        contributions: list[RetrievalContribution] = []
+        if semantic_candidates and semantic_rank is not None:
+            contributions.append(_contribution(semantic_candidates[0], semantic_rank))
+        if lexical_candidates and lexical_rank is not None:
+            lexical_primary = lexical_candidates[0]
+            if not semantic_candidates or lexical_primary.source == primary.source:
+                contributions.append(_contribution(lexical_primary, lexical_rank))
+                if hit.snippet is None:
+                    hit = replace(hit, snippet=lexical_primary.snippet)
         hit = replace(hit, contributions=tuple(contributions))
-        groups.append(ResultGroup(group_key=key, primary=hit))
+        total = sum(
+            rows[0].group_hit_count
+            for rows in (semantic_candidates, lexical_candidates)
+            if rows
+        )
+        groups.append(
+            ResultGroup(
+                group_key=key,
+                primary=hit,
+                supporting=tuple(hits[1:]),
+                additional_count=max(total - len(hits), 0),
+            )
+        )
     return groups
+
+
+def _candidate_groups(
+    candidates: list[_Candidate],
+) -> list[tuple[str, list[_Candidate]]]:
+    groups: list[tuple[str, list[_Candidate]]] = []
+    for candidate in candidates:
+        if groups and groups[-1][0] == candidate.group_key:
+            groups[-1][1].append(candidate)
+        else:
+            groups.append((candidate.group_key, [candidate]))
+    return groups
+
+
+def _interleave_candidates(
+    semantic: list[_Candidate], lexical: list[_Candidate]
+) -> list[_Candidate]:
+    candidates: list[_Candidate] = []
+    for index in range(max(len(semantic), len(lexical))):
+        if index < len(semantic):
+            candidates.append(semantic[index])
+        if index < len(lexical):
+            candidates.append(lexical[index])
+    return candidates
 
 
 def _located_hit(candidate: _Candidate, *, rank: int, rank_score: float) -> LocatedHit:
@@ -1255,6 +1380,7 @@ def _located_hit(candidate: _Candidate, *, rank: int, rank_score: float) -> Loca
             else "exact"
         ),
         snippet=candidate.snippet,
+        additional_binding_count=candidate.additional_binding_count,
     )
 
 
@@ -1267,14 +1393,6 @@ def _contribution(candidate: _Candidate, rank: int) -> RetrievalContribution:
         space_id=candidate.space_id,
         score=candidate.raw_score,
     )
-
-
-def _request_group_key(candidate: _Candidate, request: SearchRequest) -> str:
-    if request.group_by == "part":
-        return candidate.part_id
-    if request.group_by == "row":
-        return candidate.fusion_key("row")
-    return candidate.fusion_key("source")
 
 
 def _rerank_query_text(request: SearchRequest) -> str | None:
@@ -1358,10 +1476,6 @@ def _sql_source_key(alias: str) -> str:
         f"printf('source:%s:%s:%s:%s',{alias}.source_id,{alias}.version_kind,"
         f"{alias}.version_type,{alias}.version_value)"
     )
-
-
-def _source_key(source: SourceRevision) -> str:
-    return identity_digest("source_group", source)
 
 
 def _semantic_dataset_filter(

@@ -53,6 +53,7 @@ def query_native_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
         # every argument is fixed or a pytest-created path, with no shell.
         subprocess.run(  # noqa: S603
             [
+                # subprocess-boundary: compile the actual SQLite extension
                 sys.executable,
                 str(ROOT / "scripts" / "build_vec1.py"),
                 "--output-root",
@@ -106,6 +107,7 @@ def _publish(
     vector: tuple[float, float, float],
     version: int,
     parts: tuple[tuple[str, tuple[float, float, float], int, int], ...] | None = None,
+    extra_bindings: tuple[StoredBinding, ...] = (),
 ):
     revision = SourceRevision(
         source_id=f"cell:{row_id}:{column_id}",
@@ -161,6 +163,7 @@ def _publish(
                     column_id=column_id,
                     dependencies=(BindingDependency(row_id, column_id, version),),
                 ),
+                *extra_bindings,
             ),
             representations=tuple(representations),
             attachments=tuple(attachments),
@@ -583,7 +586,8 @@ def test_overlapping_moments_group_to_best_part(tmp_path):
     try:
         sheet = project.add_sheet("Videos")
         body = project.add_column(sheet, "body")
-        [row] = project.add_rows(sheet, [{"body": "first second"}], {"body": body})
+        text = "first second third fourth fifth sixth"
+        [row] = project.add_rows(sheet, [{"body": text}], {"body": body})
         revision = read_binding_revision(project.db, row_id=row, column_id=body)
         assert revision is not None
         with RetrievalStore(project).open() as store:
@@ -592,12 +596,16 @@ def test_overlapping_moments_group_to_best_part(tmp_path):
                 row_id=row,
                 sheet_id=sheet,
                 column_id=body,
-                text="first second",
+                text=text,
                 vector=(1.0, 0.0, 0.0),
                 version=revision,
                 parts=(
                     ("moment:1", (1.0, 0.0, 0.0), 0, 5),
-                    ("moment:2", (0.8, 0.6, 0.0), 6, 12),
+                    ("moment:2", (0.995, 0.1, 0.0), 6, 12),
+                    ("moment:3", (0.98, 0.2, 0.0), 13, 18),
+                    ("moment:4", (0.954, 0.3, 0.0), 19, 25),
+                    ("moment:5", (0.9165, 0.4, 0.0), 26, 31),
+                    ("moment:6", (0.8660254, 0.5, 0.0), 32, 37),
                 ),
             )
 
@@ -625,12 +633,190 @@ def test_overlapping_moments_group_to_best_part(tmp_path):
             ),
             semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
         )
+        hybrid = search(
+            project,
+            SearchRequest(
+                scope=RetrievalScope(sheets=(SheetScope(sheet),)),
+                query=TextQuery("first"),
+                mode="hybrid",
+                group_by="source",
+                space_id="space:test",
+                limit=10,
+            ),
+            semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
+        )
 
         assert [group.primary.part.part_id for group in grouped.results] == ["moment:1"]
+        assert [hit.part.part_id for hit in grouped.results[0].supporting] == [
+            "moment:2",
+            "moment:3",
+            "moment:4",
+        ]
+        assert grouped.results[0].additional_count == 2
         assert [group.primary.part.part_id for group in parts.results] == [
             "moment:1",
             "moment:2",
+            "moment:3",
+            "moment:4",
+            "moment:5",
+            "moment:6",
         ]
+        assert len(hybrid.results[0].supporting) == 3
+        assert {
+            hit.part.part_id for hit in hybrid.results[0].supporting
+        } >= {"moment:2", "moment:3"}
+        assert hybrid.results[0].additional_count == 3
+        assert {item.method for item in hybrid.results[0].primary.contributions} == {
+            "lexical",
+            "semantic",
+        }
+    finally:
+        project.close()
+
+
+def test_row_groups_bound_scoped_locations_and_report_hidden_count(tmp_path):
+    project = Project.create(tmp_path / "row-supporting.frisket", name="row-supporting")
+    try:
+        sheet = project.add_sheet("Documents")
+        columns = [project.add_column(sheet, f"body_{index}") for index in range(8)]
+        values = {f"body_{index}": f"target text {index}" for index in range(8)}
+        [row] = project.add_rows(
+            sheet,
+            [values],
+            {f"body_{index}": column for index, column in enumerate(columns)},
+        )
+        with RetrievalStore(project).open() as store:
+            for index, column in enumerate(columns):
+                revision = read_binding_revision(
+                    project.db, row_id=row, column_id=column
+                )
+                assert revision is not None
+                _publish(
+                    store,
+                    row_id=row,
+                    sheet_id=sheet,
+                    column_id=column,
+                    text=values[f"body_{index}"],
+                    vector=(0.6, 0.8, 0.0) if index == 0 else (1.0, 0.0, 0.0),
+                    version=revision,
+                )
+        project.db.execute(
+            "UPDATE current_cells SET retrieval_revision=retrieval_revision+1 "
+            "WHERE row_id=? AND column_id=?",
+            (row, columns[5]),
+        )
+        project.db.commit()
+        scope = RetrievalScope(
+            (SheetScope(sheet, column_ids=tuple(columns[:6])),)
+        )
+
+        lexical = search(
+            project,
+            SearchRequest(
+                scope=scope,
+                query=TextQuery("target"),
+                mode="lexical",
+                group_by="row",
+            ),
+        )
+        semantic = search(
+            project,
+            SearchRequest(
+                scope=scope,
+                query=TextQuery("target"),
+                mode="semantic",
+                group_by="row",
+                space_id="space:test",
+            ),
+            semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
+        )
+        hybrid = search(
+            project,
+            SearchRequest(
+                scope=scope,
+                query=TextQuery("target"),
+                mode="hybrid",
+                group_by="row",
+                space_id="space:test",
+            ),
+            semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
+        )
+
+        for response in (lexical, semantic):
+            [group] = response.results
+            assert len(group.supporting) == 3
+            assert group.additional_count == 1
+            returned = {group.primary.binding.column_id} | {
+                hit.binding.column_id for hit in group.supporting
+            }
+            assert returned <= set(columns[:5])
+        [hybrid_group] = hybrid.results
+        assert len(hybrid_group.supporting) == 3
+        assert hybrid_group.additional_count == 6
+        assert {
+            item.method for item in hybrid_group.primary.contributions
+        } == {"semantic"}
+        assert any(
+            hit.contributions[0].method == "lexical"
+            for hit in hybrid_group.supporting
+        )
+    finally:
+        project.close()
+
+
+def test_source_hit_counts_other_authorized_bindings(tmp_path):
+    project = Project.create(tmp_path / "binding-count.frisket", name="binding-count")
+    try:
+        sheet = project.add_sheet("Documents")
+        body = project.add_column(sheet, "body")
+        rows = project.add_rows(
+            sheet,
+            [{"body": "shared target"}, {"body": "shared target"}],
+            {"body": body},
+        )
+        revisions = [
+            read_binding_revision(project.db, row_id=row, column_id=body)
+            for row in rows
+        ]
+        assert all(revision is not None for revision in revisions)
+        with RetrievalStore(project).open() as store:
+            _publish(
+                store,
+                row_id=rows[0],
+                sheet_id=sheet,
+                column_id=body,
+                text="shared target",
+                vector=(1.0, 0.0, 0.0),
+                version=revisions[0],
+                extra_bindings=(
+                    StoredBinding(
+                        "binding:shared:second",
+                        sheet,
+                        rows[1],
+                        column_id=body,
+                        dependencies=(
+                            BindingDependency(rows[1], body, revisions[1]),
+                        ),
+                    ),
+                ),
+            )
+
+        response = search(
+            project,
+            SearchRequest(
+                scope=RetrievalScope((SheetScope(sheet),)),
+                query=TextQuery("target"),
+                mode="semantic",
+                group_by="source",
+                space_id="space:test",
+            ),
+            semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
+        )
+
+        [group] = response.results
+        assert group.primary.additional_binding_count == 1
+        assert group.supporting == ()
+        assert group.additional_count == 0
     finally:
         project.close()
 
