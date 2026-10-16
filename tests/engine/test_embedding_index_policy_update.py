@@ -216,7 +216,7 @@ def test_policy_update_has_exact_receipt_facts_without_provider_or_vector_work(
         pytest.fail("policy update attempted provider or vector work")
 
     monkeypatch.setattr(embeddings, "EmbeddingGateway", forbidden)
-    monkeypatch.setattr(embeddings, "VectorBackend", forbidden)
+    monkeypatch.setattr(embeddings, "publish_named_index", forbidden)
     result = _update(project, index_id, maintenance={}, provider={"allow_remote": True})
     assert result.status == "completed", result.errors
     receipt = json.loads(

@@ -96,7 +96,7 @@ def test_embedding_provider_fact_survives_vector_write_failure(
         def fail_upsert(*args: Any, **kwargs: Any) -> None:
             raise RuntimeError("fault after provider response")
 
-        monkeypatch.setattr(family.VectorBackend, "upsert_item", fail_upsert)
+        monkeypatch.setattr(family.RetrievalStore, "put_representations", fail_upsert)
         with pytest.raises(RuntimeError, match="fault after provider response"):
             run_action_spec(
                 project,

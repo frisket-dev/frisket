@@ -19,7 +19,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from frisket.ai.embeddings import EmbeddingStore, VectorBackend, build_batch_result
+from frisket.ai.embeddings import EmbeddingStore, build_batch_result
+from unified_embedding_probe import UnifiedEmbeddingProbe as VectorBackend
 from frisket.engine.executor import ExecutorDeps, run_action_spec
 from frisket.engine.jobs import (
     EMBEDDING_REFRESH_KIND,

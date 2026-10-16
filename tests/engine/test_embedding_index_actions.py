@@ -15,12 +15,17 @@ from __future__ import annotations
 import pytest
 
 from frisket.actions.system import root_action_catalog, validate_root_action
-from frisket.ai.embeddings import EmbeddingStore, VectorBackend, build_batch_result
+from frisket.ai.embeddings import EmbeddingStore, build_batch_result
 from frisket.engine.executor import ExecutorDeps, run_action_spec
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from frisket.team.security.secrets import encrypt_secret
 from helpers import replace_test_source_cell, write_claimless_test_model_calls
+from unified_embedding_probe import UnifiedEmbeddingProbe
+
+
+VectorBackend = UnifiedEmbeddingProbe
+
 
 PROJECT_ID = "project-embeddings"
 
@@ -652,19 +657,18 @@ def test_refresh_repair_recounts_sidecar_without_marking_refreshed(project):
     assert idx["last_refresh_receipt_id"] is None
     assert idx["last_refreshed_at"] is None
 
-    row_id = int(project.visible_row_ids(project._sheet_id)[0])
-    backend = VectorBackend(project)
-    backend.ensure_schema()
-    backend.upsert_item(
-        index_id=index_id,
-        space_id=idx["space_id"],
-        source_key=str(row_id),
-        source_ref={"kind": "row", "row_id": row_id},
-        source_hash="sha256:written-before-receipt",
-        status="ready",
-        vector=[1.0] + [0.0] * 383,
+    scoped = _refresh_action(index_id, key="repair-seed")
+    scoped["params"]["row_scope"] = _sheet_filter(
+        project._sheet_id, {"headline": {"contains": "story 0"}}
     )
-    backend.close()
+    seeded = _run(project, scoped, gateway=FakeGateway())
+    assert seeded.status == "completed", seeded.errors
+    project.db.execute(
+        "UPDATE embedding_indexes SET total_items=0,ready_items=0,"
+        "last_refresh_receipt_id=NULL,last_refreshed_at=NULL WHERE id=?",
+        (index_id,),
+    )
+    project.db.commit()
 
     assert repair_unfinalized_refresh(project, index_id) == {
         "total": 1,

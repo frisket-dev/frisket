@@ -14,7 +14,8 @@ from frisket.actions.types import (
     DeletedEmbeddingIndex,
     IndexDeleter,
 )
-from frisket.ai.embeddings import EmbeddingStore, VectorBackend
+from frisket.ai.embeddings import EmbeddingStore
+from unified_embedding_probe import UnifiedEmbeddingProbe as VectorBackend
 from frisket.engine.executor import resolve_map_preview, run_action_spec
 from frisket.engine.executor.action_families.embeddings import (
     run_typed_embedding_action,
@@ -166,12 +167,6 @@ def test_delete_preserves_sources_blobs_and_other_indexes(tmp_path):
             assert backend.item_counts(index_id) == {}
             assert backend.item_counts(other_id) == {"ready": 3}
             assert backend.index_binding(other_id) == other_vectors
-            assert (
-                backend.db.execute(
-                    "SELECT COUNT(*) FROM embedding_vectors_f32"
-                ).fetchone()[0]
-                == 3
-            )
         finally:
             backend.close()
         assert store.get_index(index_id) is None

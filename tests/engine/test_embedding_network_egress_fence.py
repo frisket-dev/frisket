@@ -12,7 +12,8 @@ from __future__ import annotations
 
 import pytest
 
-from frisket.ai.embeddings import VectorBackend, build_batch_result
+from frisket.ai.embeddings import build_batch_result
+from unified_embedding_probe import UnifiedEmbeddingProbe as VectorBackend
 from frisket.engine.executor import ExecutorDeps, run_action_spec
 from frisket.engine.store import Project
 
