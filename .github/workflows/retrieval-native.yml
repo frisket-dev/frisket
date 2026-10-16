@@ -177,7 +177,9 @@ jobs:
           set -euo pipefail
           shopt -s nullglob
           wheels=(dist/*.whl)
-          uv venv --python 3.13 .native-test
+          # Match the uv-managed runtime shipped by Desktop; Apple system
+          # Python builds can omit SQLite loadable-extension support.
+          uv venv --managed-python --python 3.13 .native-test
           if [ "$RUNNER_OS" = Windows ]; then
             python=.native-test/Scripts/python.exe
           else

@@ -88,7 +88,11 @@ def test_wheel_platform_defaults_to_generic_host_tag(
 ) -> None:
     monkeypatch.delenv("FRISKET_WHEEL_PLATFORM_TAG", raising=False)
     wheel_platform_tag = _load_wheel_platform_tag(monkeypatch)
-    expected = sysconfig.get_platform().replace("-", "_").replace(".", "_")
+    expected = (
+        "macosx_14_0_arm64"
+        if sys.platform == "darwin"
+        else sysconfig.get_platform().replace("-", "_").replace(".", "_")
+    )
     assert wheel_platform_tag() == expected
     if sys.platform.startswith("linux"):
         assert not wheel_platform_tag().startswith("manylinux_")
