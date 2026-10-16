@@ -14,7 +14,10 @@ from frisket.contracts.http.history_review import (
     ReviewRunStatus,
     ReviewRunStatusRequest,
 )
-from frisket.contracts.http.project_search import ProjectSearchPage
+from frisket.contracts.http.project_search import (
+    ProjectSearchRequest,
+    ProjectSearchResponse,
+)
 from frisket.contracts.http.run_provenance import ProvenanceManifest
 from frisket.server.paging import PageLimit100, PageOffset
 from frisket.server.route_errors import http_error_responses
@@ -33,25 +36,18 @@ def register_project_search_routes(
     *,
     service: ProjectSearchService,
 ) -> None:
-    @app.get(
+    @app.post(
         "/api/projects/{pid}/search",
-        response_model=ProjectSearchPage,
+        response_model=ProjectSearchResponse,
         response_model_exclude_unset=True,
         responses=http_error_responses(401, 403, 404, 422, 500),
     )
     def search_ep(
         pid: str,
-        q: str,
-        limit: PageLimit100 = 50,
-        mode: str = "keyword",
-        rerank: str = "auto",
-    ) -> ProjectSearchPage:
-        return service.search(
-            pid,
-            q=q,
-            limit=limit,
-            mode=mode,
-            rerank=rerank,
+        request: ProjectSearchRequest,
+    ) -> ProjectSearchResponse:
+        return ProjectSearchResponse.model_validate(
+            service.search(pid, request=request)
         )
 
 
