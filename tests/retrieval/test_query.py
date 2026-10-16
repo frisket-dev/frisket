@@ -1448,6 +1448,7 @@ def test_lexical_coverage_reports_scoped_unprepared_media_without_intent(
             prepared_count=0,
             failed_count=0,
             reason="media_needs_preparation",
+            gap_sheet_ids=(sheet,),
         )
     finally:
         project.close()
@@ -1489,6 +1490,7 @@ def test_coverage_reports_new_media_before_its_sidecar_binding_is_indexed(tmp_pa
         )
         assert (gap.eligible_count, gap.prepared_count) == (1, 0)
         assert gap.state == "unavailable"
+        assert gap.gap_sheet_ids == (media_sheet,)
     finally:
         project.close()
 

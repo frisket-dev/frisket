@@ -106,8 +106,15 @@ class SearchPreparationBatch(WireModel):
     errors: list[str]
 
 
+class SearchPreparationIndexing(WireModel):
+    status: Literal["idle", "pending", "queued", "running", "failed"]
+    job_id: int | None = Field(default=None, gt=0)
+    error: str | None = None
+
+
 class SearchPreparationBatchList(WireModel):
     batches: list[SearchPreparationBatch]
+    indexing: SearchPreparationIndexing
 
 
 class SearchPreparationTextSample(WireModel):
@@ -137,6 +144,7 @@ __all__ = [
     "SearchPreparationCreateRequest",
     "SearchPreparationDecisionRequest",
     "SearchPreparationGroup",
+    "SearchPreparationIndexing",
     "SearchPreparationJob",
     "SearchPreparationModel",
     "SearchPreparationTextSample",

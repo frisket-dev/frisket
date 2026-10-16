@@ -9024,6 +9024,7 @@ type HttpProjectSearchResponse_ProjectSearchChannelCoverage = ({
   "channel": (string);
   "eligible_count"?: (((number)) | ((null)));
   "failed_count"?: (((number)) | ((null)));
+  "gap_sheet_ids"?: (((Array<(number)>)) | ((null)));
   "prepared_count"?: (((number)) | ((null)));
   "reason": (((string)) | ((null)));
   "recipe_id": (((string)) | ((null)));
@@ -10137,6 +10138,12 @@ type HttpSearchPreparationBatchList_SearchPreparationGroup = ({
   "status": ("planning" | "needs_consent" | "waiting_for_download" | "queued" | "running" | "complete" | "not_prepared" | "stopped" | "failed") & (string);
 });
 
+type HttpSearchPreparationBatchList_SearchPreparationIndexing = ({
+  "error"?: (((string)) | ((null)));
+  "job_id"?: (((number)) | ((null)));
+  "status": ("idle" | "pending" | "queued" | "running" | "failed") & (string);
+});
+
 type HttpSearchPreparationBatchList_SearchPreparationJob = ({
   "action_kind"?: (((string)) | ((null)));
   "job_id": (number);
@@ -10161,6 +10168,7 @@ type HttpSearchPreparationBatchList_SearchPreparationModel = ({
 
 export type HttpSearchPreparationBatchList = ({
   "batches": (Array<(HttpSearchPreparationBatchList_SearchPreparationBatch)>);
+  "indexing": (HttpSearchPreparationBatchList_SearchPreparationIndexing);
 });
 
 export type HttpSearchPreparationCreateRequest = ({

@@ -1,12 +1,19 @@
 import { Bell, Bookmark, LoaderCircle, SearchCheck, X } from 'lucide-react';
 import { useState } from 'react';
-import type { EmbeddingIndexSummary } from '../api/open';
+import {
+  getModelPull,
+  orgGetModelPull,
+  type EmbeddingIndexSummary,
+  type ModelPullDto,
+} from '../api/open';
 import type {
   ProjectSearchGroupWire,
   ProjectSearchHitWire,
   ProjectSearchResponseWire,
 } from '../api/projectSearch';
 import { PanelSelect } from '../components/PanelSelect';
+import { ModelPullProgress } from '../components/ModelPullProgress';
+import type { PaletteSearchSetupOperation } from './usePaletteSearch';
 import { decodeEscapedText } from '../displayText';
 import { formatNumberDisplay } from '../format';
 
@@ -152,10 +159,13 @@ export function PaletteSearchSection({
   onFindSimilar,
   setupBusy,
   setupError,
+  setupOperation,
   onStartSetup,
+  onFinishSetup,
   preparationBusy,
   preparationError,
   canPrepareGap,
+  activeSheetId,
   onPrepareGap,
   onViewJobs,
 }: {
@@ -190,17 +200,33 @@ export function PaletteSearchSection({
   onFindSimilar(hit: ProjectSearchHitWire): void;
   setupBusy: boolean;
   setupError: string | null;
+  setupOperation: PaletteSearchSetupOperation | null;
   onStartSetup(setupRef: string, scope: 'workspace' | 'organization'): void;
+  onFinishSetup(pull: ModelPullDto): void;
   preparationBusy: boolean;
   preparationError: string | null;
   canPrepareGap: boolean;
-  onPrepareGap(): void;
+  activeSheetId: string | number | null | undefined;
+  onPrepareGap(sheetId: number): void;
   onViewJobs(): void;
 }) {
   const [setupConsentRef, setSetupConsentRef] = useState<string | null>(null);
+  const [selectedGapSheetId, setSelectedGapSheetId] = useState('');
   const status = coverageMessage(coverage);
   const setup = coverage?.channels.find((channel) => channel.setup)?.setup;
-  const consentSetup = setup?.setup_ref === setupConsentRef ? setup : null;
+  const operationForSetup = setupOperation?.setupRef === setup?.setup_ref
+    ? setupOperation
+    : null;
+  const currentSetupOperation = operationForSetup?.pull.operation_kind === 'engine_setup'
+    && operationForSetup.pull.model === setup?.setup_ref
+    ? operationForSetup
+    : null;
+  const blockingSetupOperation = operationForSetup && !currentSetupOperation
+    ? operationForSetup
+    : null;
+  const consentSetup = !operationForSetup && setup?.setup_ref === setupConsentRef
+    ? setup
+    : null;
   const resultCount = groups?.length ?? 0;
   const materialGap = coverage?.channels.find((channel) => (
     channel.setup == null
@@ -215,6 +241,16 @@ export function PaletteSearchSection({
   const materialGapCount = materialGap?.eligible_count != null && materialGap.prepared_count != null
     ? materialGap.eligible_count - materialGap.prepared_count
     : null;
+  const gapSheetIds = materialGap?.channel === 'search_preparation'
+    ? ((materialGap as typeof materialGap & { gap_sheet_ids?: number[] | null }).gap_sheet_ids ?? [])
+    : [];
+  const activeSheetKey = activeSheetId == null ? '' : String(activeSheetId);
+  const gapSheetKeys = gapSheetIds.map(String);
+  const effectiveGapSheetKey = gapSheetKeys.includes(selectedGapSheetId)
+    ? selectedGapSheetId
+    : gapSheetKeys.includes(activeSheetKey)
+      ? activeSheetKey
+      : gapSheetKeys[0] ?? '';
 
   return (
     <div className="palette-section palette-search-section" data-testid="palette-section-search">
@@ -308,7 +344,7 @@ export function PaletteSearchSection({
       {!searchError && status && (
         <div className="search-empty" role="status">
           {status}
-          {setup && (
+          {setup && !operationForSetup && (
             <button
               type="button"
               className="mini-btn"
@@ -354,6 +390,55 @@ export function PaletteSearchSection({
           </div>
         </section>
       )}
+      {currentSetupOperation && (
+        <section className="search-setup-consent" data-testid="search-setup-progress">
+          <div>
+            <strong>Setting up semantic search</strong>
+            <span>You can close Search and return here to check progress.</span>
+          </div>
+          <ModelPullProgress
+            pull={currentSetupOperation.pull}
+            fetchPull={currentSetupOperation.scope === 'organization'
+              ? orgGetModelPull
+              : getModelPull}
+            onDone={onFinishSetup}
+            onFailed={onFinishSetup}
+            readOnly
+          />
+          {(currentSetupOperation.pull.status === 'failed'
+            || currentSetupOperation.pull.status === 'cancelled') && (
+            <button
+              type="button"
+              className="btn btn-primary"
+              data-testid="search-setup-retry"
+              disabled={setupBusy}
+              onClick={() => onStartSetup(
+                currentSetupOperation.setupRef,
+                currentSetupOperation.scope,
+              )}
+            >
+              {setupBusy ? 'Starting…' : 'Retry setup'}
+            </button>
+          )}
+        </section>
+      )}
+      {blockingSetupOperation && (
+        <section className="search-setup-consent" data-testid="search-setup-blocked-progress">
+          <div>
+            <strong>Another setup operation is active</strong>
+            <span>Wait for it to finish, then try semantic setup again.</span>
+          </div>
+          <ModelPullProgress
+            pull={blockingSetupOperation.pull}
+            fetchPull={blockingSetupOperation.scope === 'organization'
+              ? orgGetModelPull
+              : getModelPull}
+            onDone={onFinishSetup}
+            onFailed={onFinishSetup}
+            readOnly
+          />
+        </section>
+      )}
       {setupError && <div className="picker-error">{setupError}</div>}
       {materialGap && (
         <div className="search-preparation-gap" data-testid="search-preparation-gap">
@@ -373,16 +458,34 @@ export function PaletteSearchSection({
             >
               View Jobs
             </button>
-          ) : (
-            <button
-              type="button"
-              className="mini-btn"
-              data-testid="search-preparation-gap-action"
-              disabled={!canPrepareGap || preparationBusy}
-              onClick={onPrepareGap}
-            >
-              {preparationBusy ? 'Starting…' : 'Prepare this sheet'}
-            </button>
+          ) : effectiveGapSheetKey && (
+            <>
+              {gapSheetKeys.length > 1 && (
+                <PanelSelect
+                  className="row-height-select"
+                  data-testid="search-preparation-sheet-select"
+                  aria-label="Sheet to prepare"
+                  value={effectiveGapSheetKey}
+                  disabled={preparationBusy}
+                  onChange={(event) => setSelectedGapSheetId(event.target.value)}
+                >
+                  {gapSheetIds.map((sheetId) => (
+                    <option key={sheetId} value={sheetId}>{sheetName(sheetId)}</option>
+                  ))}
+                </PanelSelect>
+              )}
+              <button
+                type="button"
+                className="mini-btn"
+                data-testid="search-preparation-gap-action"
+                disabled={!canPrepareGap || preparationBusy}
+                onClick={() => onPrepareGap(Number(effectiveGapSheetKey))}
+              >
+                {preparationBusy
+                  ? 'Starting…'
+                  : `Prepare ${sheetName(effectiveGapSheetKey)}`}
+              </button>
+            </>
           )}
         </div>
       )}

@@ -900,9 +900,10 @@ def _material_preparation_coverage(
             ))
           GROUP BY scoped.sheet_id,source_current.row_id,
                    source_current.column_id,blob_hash,page_number
-        ), {prepared_source_readiness_ctes(scope_relation="eligible_media", schema="main")}
-        SELECT count(*) AS eligible_count,
-               coalesce(sum(CASE WHEN
+        ), {prepared_source_readiness_ctes(scope_relation="eligible_media", schema="main")},
+        preparation_inventory AS MATERIALIZED (
+          SELECT eligible.sheet_id,
+                 CASE WHEN
                  EXISTS (
                    SELECT 1 FROM current_prepared_sources AS prepared
                    WHERE prepared.source_sheet_id=eligible.sheet_id
@@ -954,8 +955,17 @@ def _material_preparation_coverage(
                        LIMIT 1
                      )
                    LIMIT 1
-                 ) THEN 1 ELSE 0 END),0) AS prepared_count
-        FROM eligible_media AS eligible""",
+                 ) THEN 1 ELSE 0 END AS prepared
+          FROM eligible_media AS eligible
+        )
+        SELECT count(*) AS eligible_count,
+               coalesce(sum(prepared),0) AS prepared_count,
+               coalesce(
+                 json_group_array(DISTINCT sheet_id)
+                   FILTER (WHERE prepared=0),
+                 '[]'
+               ) AS gap_sheet_ids
+        FROM preparation_inventory""",
         scope.params,
     ).fetchone()
     eligible_count = int(row["eligible_count"])
@@ -963,6 +973,9 @@ def _material_preparation_coverage(
         return None
     prepared_count = int(row["prepared_count"])
     has_gap = prepared_count < eligible_count
+    gap_sheet_ids = tuple(
+        sorted(int(value) for value in json.loads(row["gap_sheet_ids"]))
+    )
     return ChannelCoverage(
         channel="search_preparation",
         state="unavailable" if has_gap else "ready",
@@ -970,6 +983,7 @@ def _material_preparation_coverage(
         prepared_count=prepared_count,
         failed_count=0,
         reason="media_needs_preparation" if has_gap else None,
+        gap_sheet_ids=gap_sheet_ids,
     )
 
 

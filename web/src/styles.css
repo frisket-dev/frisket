@@ -5105,6 +5105,22 @@ li.panel-empty { list-style: none; }
   background: #edf2ff;
   box-shadow: 0 8px 28px rgba(20, 26, 40, 0.14);
 }
+.status-notice-stack {
+  position: fixed;
+  left: var(--sidebar-width);
+  bottom: 44px;
+  z-index: 45;
+  display: grid;
+  gap: 8px;
+  min-width: 340px;
+  width: min(620px, calc(100vw - var(--sidebar-width) - 24px));
+}
+.status-notice-stack > .active-run-banner {
+  position: relative;
+  inset: auto;
+  min-width: 0;
+  width: 100%;
+}
 .active-run-main {
   display: flex;
   align-items: center;
@@ -5134,6 +5150,49 @@ li.panel-empty { list-style: none; }
   font-weight: 650;
   color: var(--ai);
 }
+.search-preparation-banner.status-warning {
+  border-color: #dec47b;
+  background: #fff8df;
+}
+.search-preparation-banner.status-error {
+  border-color: #e8aba7;
+  background: #fff1f0;
+}
+.search-preparation-banner.status-complete {
+  border-color: #a9d0b0;
+  background: #effaf1;
+}
+.search-preparation-complete-icon { color: var(--green); }
+.search-preparation-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-mid);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.search-preparation-progress .model-pull-progress-bar { flex: 1; }
+.search-preparation-details {
+  display: grid;
+  gap: 4px;
+  color: var(--text-mid);
+  font-size: 11px;
+}
+.search-preparation-details-toggle {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 650;
+}
+.search-preparation-details-toggle:hover { text-decoration: underline; }
+.search-preparation-details ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.search-preparation-review { justify-self: start; }
 
 .status-right { display: flex; align-items: center; gap: 2px; }
 .status-btn {
@@ -8566,7 +8625,6 @@ dialog.import-workspace-layer::backdrop {
   color: #655d56;
   font-size: 12px;
 }
-.search-preparation-status { padding: 0 7px; color: #5f5751; }
 
 @media (max-width: 700px) {
   .search-preparation-receipt { padding: 16px; }

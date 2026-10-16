@@ -373,6 +373,7 @@ jobs:
           golden-extract-people-search.spec.ts
           project-ask.spec.ts
           review-rendering.spec.ts
+          search-preparation-progress.spec.ts
           sheet-tab-overflow.spec.ts
           workbench-ia-sheet-tabs.spec.ts
         working-directory: web

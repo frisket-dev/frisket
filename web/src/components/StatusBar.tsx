@@ -5,11 +5,12 @@ import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { formatUsd } from '../actions/model';
 import { isActiveRunStatus, runCompletedWithErrors, runStatusLabel } from '../runStatusModel';
 import { RunFailureTriage } from './RunFailureTriage';
+import { SearchPreparationNotice } from './SearchPreparationNotice';
 import { useNativePopover } from '../hooks/useNativePopover';
 import { useAnchoredPosition } from '../hooks/useAnchoredPosition';
 import type { WorkbenchProjectionStatus } from '../workbench/WorkbenchBottomDock';
-import { listSearchPreparations, type SearchPreparationBatch } from '../api/searchPreparation';
-import { usePoll } from '../hooks/usePoll';
+import { useEditionModule } from '../editions/module';
+import { useSearchPreparationNotice } from './useSearchPreparationNotice';
 
 // A queued run whose worker never showed up must not spin forever: the
 // reconciler flags no_live_worker so we can show a fix-it warning instead.
@@ -96,27 +97,12 @@ export function StatusBar({
   run, history, reviewCount, projectionStatus, onUndo, onRedo, onOpenReview, onCancelRun,
   onShowFailedRows, onRetryFailedRows,
 }: StatusBarProps) {
-  const { chromePreferences: { projectId } } = useWorkspaceStores();
-  const [searchPreparations, setSearchPreparations] = useState<SearchPreparationBatch[]>([]);
-  const refreshSearchPreparation = async () => {
-    const result = await listSearchPreparations(projectId);
-    setSearchPreparations(result.batches);
-  };
-  useEffect(() => {
-    let live = true;
-    void listSearchPreparations(projectId)
-      .then((result) => { if (live) setSearchPreparations(result.batches); })
-      .catch(() => undefined);
-    return () => { live = false; };
-  }, [projectId]);
-  const activeSearchPreparation = searchPreparations.find((batch) => (
-    batch.status === 'planning' || batch.status === 'needs_consent' || batch.status === 'preparing'
-  )) ?? searchPreparations.find((batch) => batch.status === 'failed') ?? null;
-  usePoll(refreshSearchPreparation, {
-    active: true,
-    intervalMs: activeSearchPreparation === null ? 5_000 : 2_000,
-    guardOverlap: true,
-  });
+  const { chrome, chromePreferences: { projectId } } = useWorkspaceStores();
+  const { descriptor } = useEditionModule();
+  const searchPreparationNotice = useSearchPreparationNotice(
+    projectId,
+    descriptor.capabilities.team,
+  );
   const canUndo = history !== null && history.undoTarget !== null;
   const canRedo = history !== null && history.redoTarget !== null;
   // The op the buttons would act on, surfaced as hover tooltips.
@@ -145,35 +131,45 @@ export function StatusBar({
 
   return (
     <>
-    {run && runActive && (
-      <section
-        className={`active-run-banner status-${run.status}`}
-        data-testid="active-run-banner"
-        role="status"
-        aria-live="polite"
-        aria-atomic="true"
-      >
-        <div className="active-run-main">
-          {isNoLiveWorker(run) ? (
-            <AlertTriangle size={16} className="run-warning-icon" aria-hidden data-testid="run-no-worker-warning" />
-          ) : (
-            <span className="run-spinner" aria-hidden />
-          )}
-          <div className="active-run-copy">
-            <strong>{actionTitle(run.actionName)}</strong>
-            <span>{activeStatusCopy(run)} · {formatUsd(run.costSoFar)}</span>
-            {isNoLiveWorker(run) && (
-              <span className="run-no-worker-hint">
-                Start a worker (<code>frisket worker</code>) or check the worker container, then the queue drains.
-              </span>
-            )}
-          </div>
-        </div>
-        <ActiveRunWatcher run={run} />
-        <span className="pending-ai-cells" data-testid="pending-ai-cells">
-          {pendingRunCopy(run.status)}
-        </span>
-      </section>
+    {(run && runActive || searchPreparationNotice) && (
+      <div className="status-notice-stack" data-testid="status-notice-stack">
+        {run && runActive && (
+          <section
+            className={`active-run-banner status-${run.status}`}
+            data-testid="active-run-banner"
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            <div className="active-run-main">
+              {isNoLiveWorker(run) ? (
+                <AlertTriangle size={16} className="run-warning-icon" aria-hidden data-testid="run-no-worker-warning" />
+              ) : (
+                <span className="run-spinner" aria-hidden />
+              )}
+              <div className="active-run-copy">
+                <strong>{actionTitle(run.actionName)}</strong>
+                <span>{activeStatusCopy(run)} · {formatUsd(run.costSoFar)}</span>
+                {isNoLiveWorker(run) && (
+                  <span className="run-no-worker-hint">
+                    Start a worker (<code>frisket worker</code>) or check the worker container, then the queue drains.
+                  </span>
+                )}
+              </div>
+            </div>
+            <ActiveRunWatcher run={run} />
+            <span className="pending-ai-cells" data-testid="pending-ai-cells">
+              {pendingRunCopy(run.status)}
+            </span>
+          </section>
+        )}
+        {searchPreparationNotice && (
+          <SearchPreparationNotice
+            notice={searchPreparationNotice}
+            onReviewApproval={chrome.openCommandPalette}
+          />
+        )}
+      </div>
     )}
     <footer className="status-bar">
       <div className="status-left" data-testid="run-progress">
@@ -260,24 +256,6 @@ export function StatusBar({
           <span className="run-label muted">idle</span>
         )}
         {projectionStatus && <ProjectionChip status={projectionStatus} />}
-        {activeSearchPreparation && (
-          <span
-            className="run-summary search-preparation-status"
-            data-testid="status-search-preparation"
-            data-status={activeSearchPreparation.status}
-          >
-            {activeSearchPreparation.status === 'needs_consent'
-              ? 'Search preparation needs approval'
-              : activeSearchPreparation.status === 'failed'
-                ? 'Search preparation needs attention'
-                : activeSearchPreparation.status === 'planning'
-                  ? 'Checking files for search'
-                  : `Preparing ${activeSearchPreparation.groups
-                    .filter((group) => group.status !== 'complete')
-                    .reduce((sum, group) => sum + group.count, 0)
-                    .toLocaleString()} files`}
-          </span>
-        )}
       </div>
 
       <div className="status-right">
