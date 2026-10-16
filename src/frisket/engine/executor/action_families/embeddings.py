@@ -3400,11 +3400,19 @@ def run_typed_embedding_action(
         )
     perform = _perform_index_update_policy_in_txn
     replay_validate = _embedding_update_policy_replay_error
+    resolve = None
+    post_commit = None
     if terminal.capabilities == (IndexDeleter,):
-        from frisket.engine.executor.embedding_delete import _perform_delete_in_txn
+        from frisket.engine.executor.embedding_delete import (
+            _finalize_delete_effects,
+            _perform_delete_in_txn,
+            _resolve_delete_effects,
+        )
 
         perform = _perform_delete_in_txn
         replay_validate = _embedding_delete_replay_error
+        resolve = _resolve_delete_effects
+        post_commit = _finalize_delete_effects
     run = build_plain_action_run_fn(
         kind=envelope.kind,
         params_model=terminal.params_model,
@@ -3413,5 +3421,7 @@ def run_typed_embedding_action(
         ),
         params_hash_fn=lambda _action: params_hash,
         replay_validate_fn=replay_validate,
+        resolve_fn=resolve,
+        post_commit_fn=post_commit,
     )
     return run(project, envelope, bound.params, project_id=project_id)

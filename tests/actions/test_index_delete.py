@@ -277,7 +277,7 @@ def test_retired_delete_envelope_refuses(tmp_path):
         project.close()
 
 
-def test_receipt_failure_rolls_back_project_not_external_sidecar_or_artifacts(
+def test_receipt_failure_preserves_project_sidecar_and_export_artifacts(
     tmp_path, monkeypatch
 ):
     from frisket.engine.executor import embedding_delete
@@ -313,14 +313,125 @@ def test_receipt_failure_rolls_back_project_not_external_sidecar_or_artifacts(
             project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0]
             == before_receipts
         )
-        # These effects use separate storage and are not undone by project SQL.
-        assert not artifact.exists()
+        # Derived cleanup runs only after the metadata and receipt commit.
+        assert artifact.read_text() == "exported artifact"
         backend = UnifiedEmbeddingProbe(project)
         backend.ensure_schema()
         try:
-            assert backend.item_counts(index_id) == {}
+            assert backend.item_counts(index_id) == {"ready": 3}
         finally:
             backend.close()
+    finally:
+        project.close()
+
+
+def test_post_commit_cleanup_failure_keeps_committed_authoritative_delete(
+    tmp_path, monkeypatch
+):
+    project = Project.create(tmp_path / "project")
+    try:
+        seeded = _seed(project, tmp_path)
+        index_id = seeded["index_id"]
+
+        def fail_cleanup(*_args, **_kwargs):
+            raise RuntimeError("injected derived cleanup failure")
+
+        monkeypatch.setattr(
+            "frisket.retrieval.store.RetrievalStore.replace_named_dataset_members",
+            fail_cleanup,
+        )
+
+        result = run_action_spec(project, _request(index_id), project_id="p")
+
+        assert result.status == "completed", result.errors
+        assert result.receipt_id is not None
+        assert EmbeddingStore(project).get_index(index_id) is None
+        backend = UnifiedEmbeddingProbe(project)
+        backend.ensure_schema()
+        try:
+            assert backend.item_counts(index_id) == {"ready": 3}
+        finally:
+            backend.close()
+    finally:
+        project.close()
+
+
+@pytest.mark.parametrize("reference_kind", ["watch", "lens"])
+def test_delete_refuses_live_saved_search_references(tmp_path, reference_kind):
+    project = Project.create(tmp_path / "project")
+    try:
+        seeded = _seed(project, tmp_path)
+        index_id = seeded["index_id"]
+        row_id = project.visible_row_ids(seeded["sheet_id"])[0]
+        query = {
+            "kind": "embedding_similarity",
+            "scope": {"kind": "sheet", "sheet_id": seeded["sheet_id"]},
+            "embedding_index_id": index_id,
+            "anchor": {"kind": "row", "row_id": row_id},
+        }
+        if reference_kind == "watch":
+            project.add_watch(
+                "Similar stories",
+                scope="sheet",
+                sheet_id=seeded["sheet_id"],
+                query=query,
+            )
+        else:
+            from frisket.features.watchlists.specs import normalize_lens_spec
+
+            project.add_lens(
+                "Similar stories",
+                normalize_lens_spec(query),
+                sheet_id=seeded["sheet_id"],
+            )
+
+        result = run_action_spec(project, _request(index_id), project_id="p")
+
+        assert result.status == "failed"
+        assert result.errors[0].code == "embedding_index_in_use"
+        assert reference_kind in result.errors[0].message
+        assert EmbeddingStore(project).get_index(index_id) is not None
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM receipts WHERE idempotency_key='typed-delete'"
+            ).fetchone()[0]
+            == 0
+        )
+        backend = UnifiedEmbeddingProbe(project)
+        backend.ensure_schema()
+        try:
+            assert backend.item_counts(index_id) == {"ready": 3}
+        finally:
+            backend.close()
+    finally:
+        project.close()
+
+
+def test_disabled_watch_does_not_block_index_delete(tmp_path):
+    project = Project.create(tmp_path / "project")
+    try:
+        seeded = _seed(project, tmp_path)
+        index_id = seeded["index_id"]
+        project.add_watch(
+            "Paused similarity",
+            scope="sheet",
+            sheet_id=seeded["sheet_id"],
+            enabled=False,
+            query={
+                "kind": "embedding_similarity",
+                "scope": {"kind": "sheet", "sheet_id": seeded["sheet_id"]},
+                "embedding_index_id": index_id,
+                "anchor": {
+                    "kind": "row",
+                    "row_id": project.visible_row_ids(seeded["sheet_id"])[0],
+                },
+            },
+        )
+
+        result = run_action_spec(project, _request(index_id), project_id="p")
+
+        assert result.status == "completed", result.errors
+        assert EmbeddingStore(project).get_index(index_id) is None
     finally:
         project.close()
 
