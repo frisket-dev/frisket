@@ -428,3 +428,4 @@ class SearchCoverage:
 class SearchResponse:
     results: tuple[ResultGroup, ...]
     coverage: SearchCoverage
+    response_anchor: SourceAnchor | None = None

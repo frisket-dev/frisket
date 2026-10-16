@@ -153,7 +153,7 @@ class ProjectSearchRequest(WireModel):
     query: ProjectSearchQuery
     mode: Literal["lexical", "semantic", "hybrid"] = "hybrid"
     group_by: Literal["part", "source", "row"] = "source"
-    limit: int = Field(default=50, ge=1, le=100)
+    limit: int = Field(default=50, ge=1, le=500)
     named_index_id: str | None = None
     ranking: ProjectSearchRanking = Field(default_factory=ProjectSearchRanking)
 
@@ -262,6 +262,7 @@ class ProjectSearchResponse(WireModel):
 
     groups: list[ProjectSearchGroup]
     coverage: ProjectSearchCoverage
+    response_anchor: ProjectSearchLocatedAnchor | None = None
 
 
 __all__ = [

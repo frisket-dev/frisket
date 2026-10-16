@@ -749,64 +749,19 @@ def _semantic_coverage_channels(
 ) -> tuple[str, ...]:
     """List scoped semantic channels independently of the returned top-k rows."""
 
-    dataset_join, dataset_where, dataset_params = _semantic_dataset_filter(request)
-    preparation_dataset_sql, preparation_dataset_params = _preparation_dataset_filter(
-        request
-    )
+    # Discover the small channel roster without enumerating every scoped part.
+    # Scope, freshness, space and named-index membership are checked by EXISTS
+    # in the shared coverage reader below.
     rows = reader.db.execute(
-        f"""
-        WITH {scope.cte_sql}, scoped_channels(channel) AS (
-          SELECT DISTINCT part_representation.channel
-          FROM scoped_bindings AS scoped
-          JOIN idx.bindings AS retrieval_binding
-            ON retrieval_binding.sheet_id=scoped.sheet_id
-           AND retrieval_binding.row_id=scoped.row_id
-           AND (scoped.column_id IS NULL
-                OR scoped.column_id=retrieval_binding.column_id)
-          JOIN idx.parts AS part
-            ON part.source_id=retrieval_binding.source_id
-           AND part.version_kind=retrieval_binding.version_kind
-           AND part.version_value=retrieval_binding.version_value
-           AND part.version_type=retrieval_binding.version_type
-          JOIN idx.part_representations AS part_representation
-            ON part_representation.part_id=part.part_id
-          JOIN idx.representations AS representation
-            ON representation.representation_id=part_representation.representation_id
-          {dataset_join}
-          WHERE {_visible_column("retrieval_binding")}
-            AND {_binding_is_current("retrieval_binding")}
-            AND representation.space_id=?
-            {dataset_where}
-          UNION
-          SELECT DISTINCT preparation.channel
-          FROM scoped_bindings AS scoped
-          JOIN idx.bindings AS retrieval_binding
-            ON retrieval_binding.sheet_id=scoped.sheet_id
-           AND retrieval_binding.row_id=scoped.row_id
-           AND (scoped.column_id IS NULL
-                OR scoped.column_id=retrieval_binding.column_id)
-          JOIN idx.preparation AS preparation
-            ON preparation.source_id=retrieval_binding.source_id
-           AND preparation.target_version_kind=retrieval_binding.version_kind
-           AND preparation.target_version_value=retrieval_binding.version_value
-           AND preparation.target_version_type=retrieval_binding.version_type
-          WHERE {_visible_column("retrieval_binding")}
-            AND {_binding_is_current("retrieval_binding")}
-            AND preparation.status!='ready'
-            AND preparation.space_id=?
-            {preparation_dataset_sql}
-        )
-        SELECT channel FROM scoped_channels ORDER BY channel
-        """,
-        (
-            *scope.params,
-            request.space_id,
-            *dataset_params,
-            request.space_id,
-            *preparation_dataset_params,
-        ),
+        "SELECT DISTINCT channel FROM idx.part_representations "
+        "UNION SELECT DISTINCT channel FROM idx.preparation WHERE status!='ready' "
+        "ORDER BY channel"
     ).fetchall()
-    return tuple(str(row["channel"]) for row in rows)
+    return tuple(
+        str(row["channel"])
+        for row in rows
+        if any(_scoped_coverage_state(reader, request, scope, str(row["channel"])))
+    )
 
 
 def search(

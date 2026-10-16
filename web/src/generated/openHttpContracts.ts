@@ -3115,8 +3115,10 @@ export type HttpArtifactUninstallRequest = ({
 type HttpAskCitation_AskCellTarget = ({
   "column_id": (number);
   "kind": ("cell") & (string);
+  "navigation"?: (((HttpAskCitation_ProjectSearchDocumentNavigation)) | ((null)));
   "row_id": (number);
   "sheet_id": (number);
+  "text_range"?: (((HttpAskCitation_ProjectSearchTextRange)) | ((null)));
 });
 
 type HttpAskCitation_AskEvidenceTarget = ({
@@ -3151,6 +3153,22 @@ type HttpAskCitation_AskWebTarget = ({
 
 type HttpAskCitation_JsonValue = JsonValue;
 
+type HttpAskCitation_ProjectSearchDocumentNavigation = ({
+  "column_id": (number);
+  "kind": ("document") & (string);
+  "page"?: (((number)) | ((null)));
+  "row_id": (number);
+  "sheet_id": (number);
+  "time_seconds"?: (((number)) | ((null)));
+});
+
+type HttpAskCitation_ProjectSearchTextRange = ({
+  "content_hash": (string);
+  "end": (number);
+  "start": (number);
+  "text_surface_id": (string);
+});
+
 export type HttpAskCitation = ({
   "excerpt": (((string)) | ((null)));
   "id": (string);
@@ -3164,8 +3182,10 @@ export type HttpAskCitation = ({
 type HttpAskEventsPage_AskCellTarget = ({
   "column_id": (number);
   "kind": ("cell") & (string);
+  "navigation"?: (((HttpAskEventsPage_ProjectSearchDocumentNavigation)) | ((null)));
   "row_id": (number);
   "sheet_id": (number);
+  "text_range"?: (((HttpAskEventsPage_ProjectSearchTextRange)) | ((null)));
 });
 
 type HttpAskEventsPage_AskCitation = ({
@@ -3291,6 +3311,22 @@ type HttpAskEventsPage_AskWebTarget = ({
 
 type HttpAskEventsPage_JsonValue = JsonValue;
 
+type HttpAskEventsPage_ProjectSearchDocumentNavigation = ({
+  "column_id": (number);
+  "kind": ("document") & (string);
+  "page"?: (((number)) | ((null)));
+  "row_id": (number);
+  "sheet_id": (number);
+  "time_seconds"?: (((number)) | ((null)));
+});
+
+type HttpAskEventsPage_ProjectSearchTextRange = ({
+  "content_hash": (string);
+  "end": (number);
+  "start": (number);
+  "text_surface_id": (string);
+});
+
 export type HttpAskEventsPage = ({
   "active_turn": (((HttpAskEventsPage_AskTurn)) | ((null)));
   "cursor": (number);
@@ -3410,8 +3446,10 @@ export type HttpAskThreadCreate = ({
 type HttpAskThreadDetail_AskCellTarget = ({
   "column_id": (number);
   "kind": ("cell") & (string);
+  "navigation"?: (((HttpAskThreadDetail_ProjectSearchDocumentNavigation)) | ((null)));
   "row_id": (number);
   "sheet_id": (number);
+  "text_range"?: (((HttpAskThreadDetail_ProjectSearchTextRange)) | ((null)));
 });
 
 type HttpAskThreadDetail_AskCitation = ({
@@ -3557,6 +3595,22 @@ type HttpAskThreadDetail_AskWebTarget = ({
 });
 
 type HttpAskThreadDetail_JsonValue = JsonValue;
+
+type HttpAskThreadDetail_ProjectSearchDocumentNavigation = ({
+  "column_id": (number);
+  "kind": ("document") & (string);
+  "page"?: (((number)) | ((null)));
+  "row_id": (number);
+  "sheet_id": (number);
+  "time_seconds"?: (((number)) | ((null)));
+});
+
+type HttpAskThreadDetail_ProjectSearchTextRange = ({
+  "content_hash": (string);
+  "end": (number);
+  "start": (number);
+  "text_surface_id": (string);
+});
 
 export type HttpAskThreadDetail = ({
   "active_turn": (((HttpAskThreadDetail_AskTurn)) | ((null)));
@@ -8978,6 +9032,14 @@ type HttpProjectSearchResponse_ProjectSearchHit = ({
   "source": (HttpProjectSearchResponse_ProjectSearchSource);
 });
 
+type HttpProjectSearchResponse_ProjectSearchLocatedAnchor = ({
+  "binding"?: (((HttpProjectSearchResponse_ProjectSearchBinding)) | ((null)));
+  "exclude_exact"?: (boolean);
+  "kind": ("located") & (string);
+  "location": (HttpProjectSearchResponse_ProjectSearchLocation);
+  "source": (HttpProjectSearchResponse_ProjectSearchSource);
+});
+
 type HttpProjectSearchResponse_ProjectSearchLocation = ({
   "kind": (string);
   "pages": (((HttpProjectSearchResponse_ProjectSearchPageRange)) | ((null)));
@@ -9026,6 +9088,7 @@ type HttpProjectSearchResponse_ProjectSearchTimeRange = ({
 export type HttpProjectSearchResponse = ({
   "coverage": (HttpProjectSearchResponse_ProjectSearchCoverage);
   "groups": (Array<(HttpProjectSearchResponse_ProjectSearchGroup)>);
+  "response_anchor"?: (((HttpProjectSearchResponse_ProjectSearchLocatedAnchor)) | ((null)));
 });
 
 type HttpProjectSecretCatalogResponse_ProjectSecret = ({

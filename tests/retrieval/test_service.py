@@ -11,6 +11,7 @@ from frisket.retrieval.contracts import (
     RankingPolicy,
     RetrievalScope,
     SearchRequest,
+    SourceAnchor,
     SourceLocator,
     SourceRevision,
     TextQuery,
@@ -153,7 +154,9 @@ def test_missing_model_keeps_empty_lexical_search_available(
     try:
         with RetrievalStore(project):
             pass
-        result = search_with_encoding(project, request(), runtime=Encoder(unavailable=True))
+        result = search_with_encoding(
+            project, request(), runtime=Encoder(unavailable=True)
+        )
         assert not result.results
         assert result.coverage.state == "partial"
         assert result.coverage.effective_modes == ("lexical",)
@@ -190,3 +193,16 @@ def test_unprepared_project_reports_readiness_without_starting_work(tmp_path, mo
         assert not (project.path / "project.retrieval.db").exists()
     finally:
         project.close()
+
+
+def test_find_similar_echoes_exact_resolved_source(indexed_project):
+    project, _ = indexed_project
+    encoder = Encoder()
+    hit = search_with_encoding(project, request(), runtime=encoder).results[0].primary
+    anchor = SourceAnchor(hit.part.source, hit.part.locator, hit.binding)
+    response = search_with_encoding(
+        project, replace(request(), query=anchor), runtime=encoder
+    )
+    assert response.response_anchor == anchor
+    assert encoder.calls == 1  # Reuse the exact indexed document vector.
+    assert not response.results

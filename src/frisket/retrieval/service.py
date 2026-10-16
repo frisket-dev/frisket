@@ -100,10 +100,11 @@ def search_with_encoding(
         anchor_input = selected.input
     if isinstance(request.query, SourceAnchor):
         try:
-            return query.search(
+            response = query.search(
                 replace(request, space_id=request.space_id or space.identity),
                 cancel_event=cancel_event,
             )
+            return replace(response, response_anchor=request.query)
         except RetrievalQueryError as exc:
             if exc.code != "source_anchor_not_found" or anchor_input is None:
                 raise
@@ -145,13 +146,19 @@ def search_with_encoding(
             encoder.close()
     if progress is not None:
         progress("Searching project material")
-    return query.search(
+    response = query.search(
         replace(request, space_id=space.identity),
         semantic_vectors=SemanticQueryVectors(
             term_vectors=tuple(vectors[:term_count]),
             exclusion_vectors=tuple(vectors[term_count:]),
         ),
         cancel_event=cancel_event,
+    )
+    return replace(
+        response,
+        response_anchor=request.query
+        if isinstance(request.query, SourceAnchor)
+        else None,
     )
 
 

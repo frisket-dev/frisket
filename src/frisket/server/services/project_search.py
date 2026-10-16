@@ -17,6 +17,7 @@ from frisket.retrieval.contracts import (
     BindingRevision,
     CellAnchor,
     LocatedHit,
+    LocationPrecision,
     PageRange,
     RankingPolicy,
     RetrievalScope,
@@ -49,10 +50,15 @@ def _source_payload(source: SourceRevision) -> dict[str, Any]:
 
 
 def _location_payload(hit: LocatedHit) -> dict[str, Any]:
-    locator = hit.part.locator
+    return _locator_payload(hit.part.locator, precision=hit.precision)
+
+
+def _locator_payload(
+    locator: SourceLocator, *, precision: LocationPrecision = "exact"
+) -> dict[str, Any]:
     return {
         "kind": locator.kind,
-        "precision": hit.precision,
+        "precision": precision,
         "text": (
             {
                 "text_surface_id": locator.text.text_surface_id,
@@ -367,7 +373,21 @@ class ProjectSearchService:
             )
             return _search_hit_payload(project, hit, column=column)
 
+        anchor = response.response_anchor
         return {
+            "response_anchor": (
+                {
+                    "kind": "located",
+                    "source": _source_payload(anchor.source),
+                    "location": _locator_payload(anchor.locator),
+                    "binding": _binding_payload(anchor.binding)
+                    if anchor.binding
+                    else None,
+                    "exclude_exact": anchor.exclude_exact,
+                }
+                if anchor is not None
+                else None
+            ),
             "groups": [
                 {
                     "group_key": group.group_key,
