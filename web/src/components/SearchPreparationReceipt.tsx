@@ -20,12 +20,12 @@ const TERMINAL = new Set<SearchPreparationBatch['status']>(['complete', 'stopped
 
 function formatBytes(value: number | null): string {
   if (value === null) return 'Size not measured';
-  if (value < 1024) return `${value} B`;
+  if (value < 1_000) return `${value} B`;
   const units = ['KB', 'MB', 'GB', 'TB'];
-  let amount = value / 1024;
+  let amount = value / 1_000;
   let unit = units[0];
-  for (let index = 1; index < units.length && amount >= 1024; index += 1) {
-    amount /= 1024;
+  for (let index = 1; index < units.length && amount >= 1_000; index += 1) {
+    amount /= 1_000;
     unit = units[index];
   }
   return `${amount >= 10 ? amount.toFixed(0) : amount.toFixed(1)} ${unit}`;
@@ -87,7 +87,6 @@ function TextCheck({
   const [pages, setPages] = useState<number[]>([]);
   const [loading, setLoading] = useState(false);
   const [forcing, setForcing] = useState(false);
-  const [scope, setScope] = useState<'this' | 'all'>('this');
 
   const load = async (rowId?: number, pageNumber?: number) => {
     setLoading(true);
@@ -124,7 +123,7 @@ function TextCheck({
     try {
       const next = await createSearchPreparation(projectId, {
         sheet_id: batch.sheet_id,
-        ...(scope === 'this' ? { row_ids: [sample.row_id] } : {}),
+        row_ids: [sample.row_id],
         force_ocr: true,
       });
       onBatchChange(next);
@@ -188,35 +187,7 @@ function TextCheck({
                 loading={loading}
               />
               <p className="form-hint">
-                Frisket is using this text for search. The original PDF is not changed.
-              </p>
-              <fieldset className="search-preparation-force-scope">
-                <legend>Extract again with OCR</legend>
-                <label>
-                  <input
-                    type="radio"
-                    name="search-preparation-force-scope"
-                    data-testid="search-preparation-force-scope-this"
-                    checked={scope === 'this'}
-                    onChange={() => setScope('this')}
-                  />
-                  This PDF
-                </label>
-                {(batch.groups.find((group) => group.kind === 'native_pdf')?.count ?? 0) > 1 && (
-                  <label>
-                    <input
-                      type="radio"
-                      name="search-preparation-force-scope"
-                      data-testid="search-preparation-force-scope-all"
-                      checked={scope === 'all'}
-                      onChange={() => setScope('all')}
-                    />
-                    All PDFs in this import
-                  </label>
-                )}
-              </fieldset>
-              <p className="form-hint">
-                This replaces Frisket’s search text. It does not change the original PDF.
+                Replaces the text Frisket uses for search. Your PDF stays unchanged.
               </p>
               <button
                 type="button"
@@ -225,7 +196,7 @@ function TextCheck({
                 disabled={forcing}
                 onClick={() => void forceOcr()}
               >
-                {forcing ? 'Starting…' : 'Extract text again with OCR'}
+                {forcing ? 'Starting…' : 'Replace existing text with OCR'}
               </button>
             </>
           ) : loading ? (
@@ -305,6 +276,7 @@ export function SearchPreparationReceipt({
         selected_setup_refs: decision === 'prepare' ? selectedRefs : [],
       }));
     } catch (error) {
+      setSemanticSelected(false);
       onError(error instanceof Error ? error.message : String(error));
       void refresh();
     } finally {

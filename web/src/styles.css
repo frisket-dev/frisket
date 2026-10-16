@@ -8447,9 +8447,6 @@ dialog.import-workspace-layer::backdrop {
   white-space: nowrap;
 }
 .search-preparation-sample-pages > button.active { border-color: #4b4ddb; color: #3436b8; background: #f1f1ff; }
-.search-preparation-force-scope { display: flex; gap: 16px; padding: 0; border: 0; }
-.search-preparation-force-scope legend { margin-bottom: 6px; font-size: 12px; font-weight: 650; }
-.search-preparation-force-scope label { display: flex; gap: 6px; align-items: center; font-size: 12px; }
 .pdf-text-preview-placeholder {
   min-height: 220px;
   display: grid;
@@ -8480,7 +8477,6 @@ dialog.import-workspace-layer::backdrop {
   .search-preparation-receipt { padding: 16px; }
   .search-preparation-group { align-items: flex-start; flex-direction: column; gap: 3px; padding: 8px 0; }
   .search-preparation-text-preview .pdf-packet-page-and-text { grid-template-columns: 1fr; }
-  .search-preparation-force-scope { flex-direction: column; gap: 6px; }
 }
 .pdf-packet-text-card > strong { font-size: 12px; }
 .pdf-packet-text-loading {

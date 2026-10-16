@@ -98,7 +98,7 @@ describe('SearchPreparationReceipt', () => {
     expect(decideSearchPreparation).not.toHaveBeenCalled();
     expect((semantic as HTMLInputElement).checked).toBe(false);
     expect((screen.getByTestId('search-preparation-model-read_text').querySelector('input') as HTMLInputElement).disabled).toBe(true);
-    expect(screen.getByText('1.4 GB')).not.toBeNull();
+    expect(screen.getByText('1.5 GB')).not.toBeNull();
     expect(screen.getByText(/Additional runtime files may also be downloaded/)).not.toBeNull();
 
     fireEvent.click(screen.getByTestId('search-preparation-decision-prepare'));
@@ -170,7 +170,7 @@ describe('SearchPreparationReceipt', () => {
     fireEvent.click(await screen.findByTestId('search-preparation-check-text'));
     expect(createSearchPreparation).not.toHaveBeenCalled();
     await screen.findByText('Native text from the PDF');
-    expect(screen.getByText(/does not change the original PDF/)).not.toBeNull();
+    expect(screen.getByText(/Your PDF stays unchanged/)).not.toBeNull();
     fireEvent.click(screen.getByTestId('search-preparation-force-ocr'));
     await waitFor(() => expect(createSearchPreparation).toHaveBeenCalledWith('project-1', {
       sheet_id: 7,
