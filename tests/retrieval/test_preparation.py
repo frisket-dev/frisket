@@ -63,7 +63,7 @@ def test_lexical_dispatch_and_text_cursor_resume_across_store_opens(tmp_path) ->
         )[0]
         resolved = _source(project, sheet_id, column_id, row_id)
         with RetrievalStore(project).open() as store:
-            dispatch_resolved_text_source(store, resolved, recipe=recipe)
+            dispatch_resolved_text_source(store, resolved, recipe=recipe, space=space)
             assert (
                 store.db.execute(
                     "SELECT count(*) FROM lexical_fts WHERE lexical_fts MATCH 'gamma'"
@@ -86,6 +86,7 @@ def test_lexical_dispatch_and_text_cursor_resume_across_store_opens(tmp_path) ->
                 channel=TEXT_CHANNEL,
             )
             assert state is not None
+            assert state.space_id == space.identity
             assert state.status == "preparing" and state.cursor_json is not None
 
         for _ in range(10):
@@ -126,6 +127,7 @@ def test_lexical_dispatch_and_text_cursor_resume_across_store_opens(tmp_path) ->
 def test_missing_encoder_is_unavailable_until_explicit_requeue(tmp_path) -> None:
     project = Project.create(tmp_path / "unavailable.frisket")
     recipe = TextChunkRecipe(max_codepoints=8, overlap_codepoints=2)
+    space = EmbeddingGemma2Space(dimensions=128)
     try:
         sheet_id = project.add_sheet("Documents")
         column_id = project.add_column(sheet_id, "body")
@@ -134,13 +136,13 @@ def test_missing_encoder_is_unavailable_until_explicit_requeue(tmp_path) -> None
         )[0]
         resolved = _source(project, sheet_id, column_id, row_id)
         with RetrievalStore(project).open() as store:
-            dispatch_resolved_text_source(store, resolved, recipe=recipe)
+            dispatch_resolved_text_source(store, resolved, recipe=recipe, space=space)
 
         result = process_text_preparation_batch(
             project,
             encoder=None,
             recipe=recipe,
-            space=EmbeddingGemma2Space(dimensions=128),
+            space=space,
         )
         assert result.complete and result.processed_parts == 0
         assert preparation_work_marker(project.path) is None
@@ -160,6 +162,7 @@ def test_missing_encoder_is_unavailable_until_explicit_requeue(tmp_path) -> None
 def test_runtime_startup_model_miss_becomes_retryable_unavailable(tmp_path) -> None:
     project = Project.create(tmp_path / "startup-miss.frisket")
     recipe = TextChunkRecipe(max_codepoints=8, overlap_codepoints=2)
+    space = EmbeddingGemma2Space(dimensions=128)
     encoder = _MissingAtStartEncoder()
     try:
         sheet_id = project.add_sheet("Documents")
@@ -169,13 +172,13 @@ def test_runtime_startup_model_miss_becomes_retryable_unavailable(tmp_path) -> N
         )[0]
         resolved = _source(project, sheet_id, column_id, row_id)
         with RetrievalStore(project).open() as store:
-            dispatch_resolved_text_source(store, resolved, recipe=recipe)
+            dispatch_resolved_text_source(store, resolved, recipe=recipe, space=space)
 
         result = process_text_preparation_batch(
             project,
             encoder=encoder,
             recipe=recipe,
-            space=EmbeddingGemma2Space(dimensions=128),
+            space=space,
         )
         assert result.complete and encoder.calls == 1
         with RetrievalStore(project).open() as store:
@@ -189,6 +192,51 @@ def test_runtime_startup_model_miss_becomes_retryable_unavailable(tmp_path) -> N
                 "unavailable",
                 "encoder_unavailable",
             )
+    finally:
+        project.close()
+
+
+def test_preparation_reuses_project_representation_cache(tmp_path) -> None:
+    project = Project.create(tmp_path / "cache.frisket")
+    recipe = TextChunkRecipe(max_codepoints=32, overlap_codepoints=0)
+    space = EmbeddingGemma2Space(dimensions=128)
+    encoder = _Encoder()
+    try:
+        sheet_id = project.add_sheet("Documents")
+        column_id = project.add_column(sheet_id, "body")
+        row_ids = project.add_rows(
+            sheet_id,
+            [{"body": "same text"}, {"body": "same text"}],
+            {"body": column_id},
+        )
+        with project.read_snapshot() as snapshot:
+            resolved = resolve_cell_text_sources(
+                snapshot,
+                sheet_id=sheet_id,
+                column_id=column_id,
+                row_ids=row_ids,
+            )
+        with RetrievalStore(project).open() as store:
+            for row_id in row_ids:
+                dispatch_resolved_text_source(
+                    store, resolved[row_id], recipe=recipe, space=space
+                )
+
+        for _ in row_ids:
+            process_text_preparation_batch(
+                project,
+                encoder=encoder,
+                recipe=recipe,
+                space=space,
+            )
+
+        assert encoder.calls == 1
+        with RetrievalStore(project).open() as store:
+            assert (
+                store.db.execute("SELECT count(*) FROM representations").fetchone()[0]
+                == 1
+            )
+            assert store.db.execute("SELECT count(*) FROM parts").fetchone()[0] == 2
     finally:
         project.close()
 
@@ -207,7 +255,7 @@ def test_edit_during_preparation_rejects_old_cursor_target(tmp_path) -> None:
         )[0]
         old = _source(project, sheet_id, column_id, row_id)
         with RetrievalStore(project).open() as store:
-            dispatch_resolved_text_source(store, old, recipe=recipe)
+            dispatch_resolved_text_source(store, old, recipe=recipe, space=space)
         assert process_text_preparation_batch(
             project,
             encoder=_Encoder(),

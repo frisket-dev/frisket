@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
-from frisket.ai.embeddings.facade import embedding_input_hash
+from frisket.ai.embeddings.facade import EmbeddingFacade, embedding_input_hash
 from frisket.retrieval.content import (
     PreparedDocumentSurface,
     ProducedPart,
@@ -147,10 +147,12 @@ def publish_lexical_source(
 ) -> None:
     """Durably publish one full logical text and its current binding."""
 
-    store.begin_preparation(
+    store.register_preparation(
         resolved.source,
+        (_binding(resolved),),
         recipe_id=LEXICAL_RECIPE_ID,
         channel=LEXICAL_CHANNEL,
+        space_id=None,
     )
     published = store.publish_source(
         SourcePublication(
@@ -158,8 +160,9 @@ def publish_lexical_source(
             recipe_id=LEXICAL_RECIPE_ID,
             channel=LEXICAL_CHANNEL,
             parts=(),
-            bindings=(_binding(resolved),),
+            bindings=(),
             lexical=LexicalInput(resolved.lexical_text, _whole_locator(resolved)),
+            space_id=None,
         )
     )
     if not published:
@@ -171,6 +174,7 @@ def queue_text_preparation(
     resolved: ResolvedCellTextSource,
     *,
     recipe: TextChunkRecipe = DEFAULT_TEXT_RECIPE,
+    space: EmbeddingGemma2Space = DEFAULT_TEXT_SPACE,
 ) -> None:
     """Register a scoped semantic target without copying its source surface."""
 
@@ -179,6 +183,7 @@ def queue_text_preparation(
         (_binding(resolved),),
         recipe_id=recipe.recipe_id,
         channel=TEXT_CHANNEL,
+        space_id=space.identity,
     )
 
 
@@ -187,15 +192,17 @@ def dispatch_resolved_text_source(
     resolved: ResolvedCellTextSource,
     *,
     recipe: TextChunkRecipe = DEFAULT_TEXT_RECIPE,
+    space: EmbeddingGemma2Space = DEFAULT_TEXT_SPACE,
     semantic_available: bool = True,
 ) -> None:
-    queue_text_preparation(store, resolved, recipe=recipe)
+    queue_text_preparation(store, resolved, recipe=recipe, space=space)
     publish_lexical_source(store, resolved)
     if not semantic_available:
         store.mark_preparation_unavailable(
             resolved.source,
             recipe_id=recipe.recipe_id,
             channel=TEXT_CHANNEL,
+            space_id=space.identity,
             reason="the configured local retrieval encoder is unavailable",
         )
 
@@ -355,6 +362,7 @@ def _publication(
         representations=tuple(representations),
         attachments=tuple(attachments),
         complete=complete,
+        space_id=space.identity,
     )
 
 
@@ -373,7 +381,7 @@ def process_text_preparation_batch(
         raise ValueError("max_parts must be positive")
     _check_cancelled(cancelled)
     with RetrievalStore(project).open() as store:
-        work = store.next_preparation(channel=TEXT_CHANNEL)
+        work = store.next_preparation(channel=TEXT_CHANNEL, space_id=space.identity)
         if work is None:
             return PreparationProgress(0, False, True)
         resolved = _resolve_work_source(project, store, work)
@@ -382,25 +390,34 @@ def process_text_preparation_batch(
                 work.source_revision,
                 recipe_id=work.recipe_id,
                 channel=work.channel,
+                space_id=work.space_id,
                 error_code="stale_source",
                 error_message="no current binding still resolves this source revision",
             )
-            pending = store.next_preparation(channel=TEXT_CHANNEL) is not None
+            pending = (
+                store.next_preparation(channel=TEXT_CHANNEL, space_id=space.identity)
+                is not None
+            )
             return PreparationProgress(0, pending, not pending)
         if encoder is None or not encoder.available():
             store.mark_preparation_unavailable(
                 resolved.source,
                 recipe_id=work.recipe_id,
                 channel=work.channel,
+                space_id=work.space_id,
                 reason="the configured local retrieval encoder is unavailable",
             )
-            pending = store.next_preparation(channel=TEXT_CHANNEL) is not None
+            pending = (
+                store.next_preparation(channel=TEXT_CHANNEL, space_id=space.identity)
+                is not None
+            )
             return PreparationProgress(0, pending, not pending)
 
         store.begin_preparation(
             resolved.source,
             recipe_id=recipe.recipe_id,
             channel=TEXT_CHANNEL,
+            space_id=space.identity,
         )
         batch = _produced_batch(
             resolved,
@@ -411,11 +428,16 @@ def process_text_preparation_batch(
         )
         _check_cancelled(cancelled)
         try:
-            encoded = encoder.encode(
+            encoded = EmbeddingFacade(store).encode(
                 [item.input for item in batch.items],
+                encoder=lambda inputs, *, purpose, space: encoder.encode(
+                    inputs,
+                    purpose=purpose,
+                    space=space,
+                    cancelled=cancelled,
+                ),
                 purpose=EncodingPurpose.DOCUMENT,
                 space=space,
-                cancelled=cancelled,
             )
         except EncodingError as exc:
             if exc.code != "model_unavailable":
@@ -424,9 +446,13 @@ def process_text_preparation_batch(
                 resolved.source,
                 recipe_id=recipe.recipe_id,
                 channel=TEXT_CHANNEL,
+                space_id=space.identity,
                 reason=str(exc),
             )
-            pending = store.next_preparation(channel=TEXT_CHANNEL) is not None
+            pending = (
+                store.next_preparation(channel=TEXT_CHANNEL, space_id=space.identity)
+                is not None
+            )
             return PreparationProgress(0, pending, not pending)
         if len(encoded) != len(batch.items):
             raise ValueError("encoder returned the wrong vector count")
@@ -450,12 +476,16 @@ def process_text_preparation_batch(
                 resolved.source,
                 recipe_id=recipe.recipe_id,
                 channel=TEXT_CHANNEL,
+                space_id=space.identity,
                 cursor_json=cursor_json,
             ):
                 raise RuntimeError(
                     "text preparation was superseded while saving its cursor"
                 )
-        pending = store.next_preparation(channel=TEXT_CHANNEL) is not None
+        pending = (
+            store.next_preparation(channel=TEXT_CHANNEL, space_id=space.identity)
+            is not None
+        )
         return PreparationProgress(len(batch.items), pending, not pending)
 
 
@@ -474,7 +504,7 @@ def preparation_work_marker(project_path: str | Path) -> str | None:
         if exists is None:
             return None
         row = db.execute(
-            "SELECT source_id,recipe_id,channel,target_version_kind,"
+            "SELECT source_id,recipe_id,channel,space_id,target_version_kind,"
             "target_version_value,target_version_type,cursor_json "
             "FROM preparation WHERE status IN ('pending','preparing') "
             "ORDER BY CASE status WHEN 'preparing' THEN 0 ELSE 1 END,"
@@ -482,7 +512,7 @@ def preparation_work_marker(project_path: str | Path) -> str | None:
         ).fetchone()
         if row is None:
             return None
-        cursor = "start" if row[6] is None else identity_digest("cursor", row[6])
+        cursor = "start" if row[7] is None else identity_digest("cursor", row[7])
         return ":".join(
             (
                 str(row[0]),
@@ -491,6 +521,7 @@ def preparation_work_marker(project_path: str | Path) -> str | None:
                 str(row[3]),
                 str(row[4]),
                 str(row[5]),
+                str(row[6]),
                 cursor,
             )
         )

@@ -212,6 +212,53 @@ def test_preparation_cursor_resumes_and_retargets_conditionally(tmp_path):
         )
 
 
+def test_preparation_space_is_an_exact_target_and_retarget_clears_cursor(tmp_path):
+    revision = SourceRevision("cell:2:3", "text", "cell_revision", 11)
+    with RetrievalStore(tmp_path).open() as store:
+        store.register_preparation(
+            revision,
+            (
+                StoredBinding(
+                    "binding:1",
+                    sheet_id=1,
+                    row_id=2,
+                    column_id=3,
+                    dependencies=(BindingDependency(2, 3, 11),),
+                ),
+            ),
+            recipe_id="passages:v1",
+            channel="text",
+            space_id="space:first",
+        )
+        assert store.advance_preparation(
+            revision,
+            recipe_id="passages:v1",
+            channel="text",
+            space_id="space:first",
+            cursor_json='{"next_offset":128}',
+        )
+
+        store.queue_preparation(
+            revision,
+            recipe_id="passages:v1",
+            channel="text",
+            space_id="space:second",
+        )
+
+        state = store.preparation_state(
+            revision.source_id, recipe_id="passages:v1", channel="text"
+        )
+        assert state is not None
+        assert (state.space_id, state.status, state.cursor_json) == (
+            "space:second",
+            "pending",
+            None,
+        )
+        assert store.next_preparation(channel="text", space_id="space:first") is None
+        selected = store.next_preparation(channel="text", space_id="space:second")
+        assert selected is not None and selected.space_id == "space:second"
+
+
 def test_unavailable_preparation_requires_explicit_requeue(tmp_path):
     revision = SourceRevision("cell:2:3", "text", "cell_revision", 11)
     with RetrievalStore(tmp_path).open() as store:
