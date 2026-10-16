@@ -15,7 +15,11 @@ from frisket.engine.store.search_index_work import (
     latest_revision,
     read_dirty_scopes,
 )
-from frisket.search_hydration import searchable_text, source_hash
+from frisket.retrieval.source_adapter import (
+    ResolvedCellTextSource,
+    resolve_cell_text_sources,
+)
+from frisket.search_hydration import source_hash
 from frisket.search_storage import (
     keyword_schema_is_current,
     keyword_storage_has_rows,
@@ -182,8 +186,15 @@ def _column_descriptor(source, column: int):
     ).fetchone()
 
 
-def _replace_cell(index, column: int, row_id: int, value, descriptor, old) -> None:
-    text = searchable_text(value) if descriptor is not None else None
+def _replace_cell(
+    index,
+    column: int,
+    row_id: int,
+    resolved: ResolvedCellTextSource | None,
+    descriptor,
+    old,
+) -> None:
+    text = resolved.lexical_text if descriptor is not None and resolved else None
     digest = source_hash(text) if text is not None else None
     if (
         old is not None
@@ -302,9 +313,12 @@ def index_batch(
                 admitted_live = [
                     row_id for row_id, _size in admitted if row_id in live_ids
                 ]
-                values = (
-                    snapshot.get_values(
-                        int(descriptor["sheet_id"]), column, row_ids=admitted_live
+                resolved_sources = (
+                    resolve_cell_text_sources(
+                        snapshot,
+                        sheet_id=int(descriptor["sheet_id"]),
+                        column_id=column,
+                        row_ids=admitted_live,
                     )
                     if admitted_live
                     else {}
@@ -315,13 +329,13 @@ def index_batch(
                         index,
                         column,
                         row_id,
-                        values.get(row_id) if row_id in live_ids else None,
+                        (resolved_sources.get(row_id) if row_id in live_ids else None),
                         descriptor,
                         old_by_row.get(row_id),
                     )
                     processed += 1
                     row = row_id
-                del values
+                del resolved_sources
                 if processed_bytes >= max_bytes:
                     byte_limit_reached = True
                 if byte_limit_reached:

@@ -1,0 +1,181 @@
+from __future__ import annotations
+
+import hashlib
+
+from frisket.engine.store import Project
+from frisket.engine.store.evidence import record_source_artifact
+from frisket.engine.store.prepared_content import (
+    PreparedContentStore,
+    PreparedPageDraft,
+)
+from frisket.retrieval.content import PreparedDocumentSurface, TextSurface
+from frisket.retrieval.source_adapter import resolve_cell_text_sources
+
+
+def _sha256(text: str) -> str:
+    return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def test_resolves_plain_text_with_exact_binding_revision(tmp_path) -> None:
+    project = Project.create(tmp_path / "plain.frisket")
+    try:
+        sheet_id = project.add_sheet("Documents")
+        column_id = project.add_column(sheet_id, "body")
+        row_id = project.add_rows(
+            sheet_id, [{"body": "alpha beta"}], {"body": column_id}
+        )[0]
+
+        with project.read_snapshot() as snapshot:
+            [resolved] = resolve_cell_text_sources(
+                snapshot,
+                sheet_id=sheet_id,
+                column_id=column_id,
+                row_ids=[row_id],
+            ).values()
+
+        assert resolved.binding.row_id == row_id
+        assert resolved.binding.column_id == column_id
+        assert resolved.binding.retrieval_revision == resolved.source.version_value
+        assert resolved.source.source_id == f"cell:{row_id}:{column_id}"
+        assert resolved.source.source_kind == "text"
+        assert resolved.source.version_kind == "retrieval_revision"
+        assert resolved.source.content_hash == _sha256("alpha beta")
+        assert resolved.lexical_text == "alpha beta"
+        assert isinstance(resolved.surface, TextSurface)
+        assert resolved.surface.text_surface_id == f"cell:{row_id}:{column_id}"
+    finally:
+        project.close()
+
+
+def test_prepared_selector_uses_its_ordered_pins_not_newer_set(tmp_path) -> None:
+    project = Project.create(tmp_path / "prepared.frisket")
+    try:
+        sheet_id = project.add_sheet("Documents")
+        column_id = project.add_column(sheet_id, "body")
+        project.db.execute("BEGIN IMMEDIATE")
+        op_id = project.append_op("prepare.test", commit=False)
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="document",
+            media_type="application/pdf",
+            page_count=2,
+        )
+        store = PreparedContentStore(project)
+        selected = store.stage_reference(
+            source_artifact_id=int(artifact["id"]),
+            producing_op_id=op_id,
+            pages=(
+                PreparedPageDraft(1, "selected one"),
+                PreparedPageDraft(2, "selected two"),
+            ),
+        )
+        newer = store.stage_reference(
+            source_artifact_id=int(artifact["id"]),
+            producing_op_id=op_id,
+            pages=(
+                PreparedPageDraft(1, "newer one"),
+                PreparedPageDraft(2, "newer two"),
+            ),
+        )
+        row_id = project.add_rows(
+            sheet_id, [{"body": selected}], {"body": column_id}, commit=False
+        )[0]
+        project.db.commit()
+
+        with project.read_snapshot() as snapshot:
+            resolved = resolve_cell_text_sources(
+                snapshot,
+                sheet_id=sheet_id,
+                column_id=column_id,
+                row_ids=[row_id],
+            )[row_id]
+
+        selected_text = store.resolve(selected.ref_id)
+        assert resolved.lexical_text == "selected one\n\nselected two"
+        assert newer.ref_id != selected.ref_id
+        assert resolved.source.source_id == f"prepared-ref:{selected.ref_id}"
+        assert resolved.source.source_kind == "prepared_text"
+        assert resolved.source.version_kind == "prepared_page_versions"
+        assert isinstance(resolved.surface, PreparedDocumentSurface)
+        assert [page.version_id for page in resolved.surface.pages] == [
+            pin.version_id for pin in selected_text.pins
+        ]
+        assert [page.page_number for page in resolved.surface.pages] == [1, 2]
+    finally:
+        project.close()
+
+
+def test_snapshot_resolution_stays_old_after_concurrent_edit(tmp_path) -> None:
+    project = Project.create(tmp_path / "edit.frisket")
+    try:
+        sheet_id = project.add_sheet("Documents")
+        column_id = project.add_column(sheet_id, "body")
+        row_id = project.add_rows(sheet_id, [{"body": "before"}], {"body": column_id})[
+            0
+        ]
+
+        with project.read_snapshot() as snapshot:
+            before = resolve_cell_text_sources(
+                snapshot,
+                sheet_id=sheet_id,
+                column_id=column_id,
+                row_ids=[row_id],
+            )[row_id]
+            project.apply_edits(
+                [{"row_id": row_id, "column_id": column_id, "value": "after"}]
+            )
+            still_before = resolve_cell_text_sources(
+                snapshot,
+                sheet_id=sheet_id,
+                column_id=column_id,
+                row_ids=[row_id],
+            )[row_id]
+
+        with project.read_snapshot() as snapshot:
+            after = resolve_cell_text_sources(
+                snapshot,
+                sheet_id=sheet_id,
+                column_id=column_id,
+                row_ids=[row_id],
+            )[row_id]
+
+        assert still_before == before
+        assert after.lexical_text == "after"
+        assert after.binding.retrieval_revision > before.binding.retrieval_revision
+        assert after.source != before.source
+    finally:
+        project.close()
+
+
+def test_batch_omits_blank_missing_and_nonsearchable_cells(tmp_path) -> None:
+    project = Project.create(tmp_path / "eligibility.frisket")
+    try:
+        sheet_id = project.add_sheet("Documents")
+        text_id = project.add_column(sheet_id, "body")
+        number_id = project.add_column(sheet_id, "amount", type="number")
+        rows = project.add_rows(
+            sheet_id,
+            [{"body": "kept", "amount": 7}, {"body": "   ", "amount": 8}],
+            {"body": text_id, "amount": number_id},
+        )
+
+        with project.read_snapshot() as snapshot:
+            assert list(
+                resolve_cell_text_sources(
+                    snapshot,
+                    sheet_id=sheet_id,
+                    column_id=text_id,
+                    row_ids=[*rows, rows[-1] + 999],
+                )
+            ) == [rows[0]]
+            assert (
+                resolve_cell_text_sources(
+                    snapshot,
+                    sheet_id=sheet_id,
+                    column_id=number_id,
+                    row_ids=rows,
+                )
+                == {}
+            )
+    finally:
+        project.close()
