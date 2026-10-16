@@ -234,6 +234,14 @@ export function PaletteSearchSection({
   const [setupConsentRef, setSetupConsentRef] = useState<string | null>(null);
   const [selectedGapSheetId, setSelectedGapSheetId] = useState('');
   const status = coverageMessage(coverage);
+  const semanticUnavailable = coverage?.requested_mode !== 'lexical'
+    ? coverage?.channels.find((channel) => (
+      channel.channel === 'semantic'
+      && channel.state === 'unavailable'
+      && !channel.setup
+      && channel.reason
+    ))?.reason
+    : null;
   const setup = coverage?.channels.find((channel) => channel.setup)?.setup;
   const operationForSetup = setupOperation?.setupRef === setup?.setup_ref
     ? setupOperation
@@ -250,7 +258,8 @@ export function PaletteSearchSection({
     : null;
   const resultCount = groups?.length ?? 0;
   const materialGap = coverage?.channels.find((channel) => (
-    channel.setup == null
+    channel.channel === 'search_preparation'
+    && channel.setup == null
     && (
       (channel.eligible_count != null
         && channel.prepared_count != null
@@ -362,7 +371,13 @@ export function PaletteSearchSection({
         </div>
       )}
       {searchError && <div className="picker-error">{searchError}</div>}
-      {!searchError && status && !preparationReview && (
+      {!searchError && semanticUnavailable && (
+        <div className="search-empty" role="status" data-testid="search-semantic-unavailable">
+          <span>{semanticUnavailable}</span>
+          {coverage?.effective_modes.includes('lexical') && <span>Keyword search is available.</span>}
+        </div>
+      )}
+      {!searchError && status && !preparationReview && !semanticUnavailable && (
         <div className="search-empty" role="status">
           {status}
           {setup && !operationForSetup && (

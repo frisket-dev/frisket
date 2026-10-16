@@ -530,6 +530,68 @@ describe('located palette search', () => {
     expect(screen.queryByText(/while more material is prepared/i)).not.toBeInTheDocument();
   });
 
+  it.each(['hybrid', 'semantic', 'lexical'] as const)(
+    'explains unavailable semantic runtime in %s mode alongside media preparation',
+    async (requestedMode) => {
+      const reason = 'Semantic search is unavailable in this SQLite runtime. Install a supported Frisket runtime to enable it.';
+      searchProject.mockResolvedValue({
+        ...completeResponse,
+        coverage: {
+          ...completeResponse.coverage, requested_mode: requestedMode,
+          effective_modes: ['lexical'], state: 'partial',
+          channels: [{ channel: 'semantic', state: 'unavailable', reason, setup: null }, {
+            channel: 'search_preparation', state: 'unavailable', eligible_count: 1,
+            prepared_count: 0, gap_sheet_ids: [1],
+          }],
+        },
+      });
+      if (requestedMode === 'semantic') {
+        const batch = {
+          schemaVersion: 'frisket.search_preparation.v1', id: 'prep-runtime', sheet_id: 1,
+          plan_hash: 'sha256:runtime', status: 'needs_consent',
+          groups: [{ kind: 'ocr', count: 1, status: 'needs_consent' }],
+          models: [], jobs: [], can_stop: false, can_setup: true, errors: [],
+        };
+        listSearchPreparations.mockResolvedValue({ batches: [batch] });
+        getSearchPreparation.mockResolvedValue(batch);
+      }
+      render(<PaletteHarness />);
+      expect(await screen.findByTestId('search-results')).toBeVisible();
+      if (requestedMode === 'lexical') {
+        expect(screen.queryByTestId('search-semantic-unavailable')).not.toBeInTheDocument();
+        expect(screen.getByRole('status')).toHaveTextContent('Showing available search results.');
+      } else {
+        const notice = screen.getByTestId('search-semantic-unavailable');
+        expect(notice).toHaveTextContent(reason);
+        expect(notice).toHaveTextContent('Keyword search is available.');
+        expect(screen.queryByTestId('search-setup')).not.toBeInTheDocument();
+      }
+      if (requestedMode === 'semantic') {
+        expect(screen.getByTestId('search-preparation-receipt')).toBeVisible();
+      } else {
+        expect(screen.getByTestId('search-preparation-gap')).toHaveTextContent('1 current media item needs search preparation.');
+        expect(screen.getByTestId('search-preparation-gap-action')).toHaveTextContent('Prepare Documents');
+      }
+    },
+  );
+
+  it('does not turn a semantic runtime problem into a file preparation gap', async () => {
+    searchProject.mockResolvedValue({
+      ...completeResponse,
+      coverage: {
+        ...completeResponse.coverage, requested_mode: 'hybrid', effective_modes: ['lexical'],
+        state: 'partial', channels: [{
+          channel: 'semantic', state: 'unavailable', setup: null,
+          reason: 'Install a supported Frisket runtime to enable semantic search.',
+        }],
+      },
+    });
+    render(<PaletteHarness />);
+
+    expect(await screen.findByTestId('search-semantic-unavailable')).toHaveTextContent('Keyword search is available.');
+    expect(screen.queryByTestId('search-preparation-gap')).not.toBeInTheDocument();
+  });
+
   it('prepares the sheet named by project coverage instead of the unrelated active sheet', async () => {
     searchProject.mockResolvedValue({
       groups: [],
