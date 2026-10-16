@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from fastapi import FastAPI, HTTPException, Path, Query
+from fastapi import FastAPI, HTTPException, Path, Query, Request
 
 from frisket.contracts.http.history_review import (
     ReviewBatchRequest,
@@ -29,12 +29,16 @@ from frisket.server.services.project_entity_review import (
 )
 from frisket.server.services.project_provenance import ProjectProvenanceService
 from frisket.server.services.project_search import ProjectSearchService
+from frisket.server.services.selector_choices_capabilities import (
+    SelectorCapabilitiesFor,
+)
 
 
 def register_project_search_routes(
     app: FastAPI,
     *,
     service: ProjectSearchService,
+    capabilities_for: SelectorCapabilitiesFor,
 ) -> None:
     @app.post(
         "/api/projects/{pid}/search",
@@ -43,11 +47,16 @@ def register_project_search_routes(
         responses=http_error_responses(401, 403, 404, 422, 500),
     )
     def search_ep(
+        http_request: Request,
         pid: str,
         request: ProjectSearchRequest,
     ) -> ProjectSearchResponse:
         return ProjectSearchResponse.model_validate(
-            service.search(pid, request=request)
+            service.search(
+                pid,
+                request=request,
+                offer_setup=capabilities_for(http_request, pid).manage_model_downloads,
+            )
         )
 
 

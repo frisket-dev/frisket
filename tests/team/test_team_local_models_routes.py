@@ -864,7 +864,6 @@ def test_org_engine_setup_requires_owner_deduplicates_and_audits(tmp_path) -> No
     [
         "engine-setup:indra-ocr.local@1",
         "engine-setup:embeddinggemma-2.local@1",
-        "engine-setup:docling.local@1",
     ],
 )
 def test_org_local_engine_setup_is_allowlisted(tmp_path, setup_ref) -> None:
@@ -873,6 +872,18 @@ def test_org_local_engine_setup_is_allowlisted(tmp_path, setup_ref) -> None:
     assert response.status_code == 202, response.text
     assert response.json()["pull"]["model"] == setup_ref
     assert "engine_setup_requested" in _audit_actions(app)
+
+
+def test_org_engine_setup_keeps_docling_outside_team_allowlist(tmp_path) -> None:
+    app = _app(tmp_path)
+
+    response = _owner(app).post(
+        "/api/org/models/setup",
+        json={"setup_ref": "engine-setup:docling.local@1"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "unknown_engine_setup"
 
 
 def test_org_completed_artifact_never_advertises_unowned_remove(tmp_path) -> None:

@@ -4880,6 +4880,7 @@ const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
           onLaunchAction={runActionFromSurface}
           onNavigateSheet={selectSheet}
           searchSheets={sheets}
+          activeSearchSheetId={sheet?.id}
           searchSeed={commandPaletteSearchSeed}
           onNavigateSearchHit={navigateToSearchHit}
           launcherCommands={paletteLauncherCommands}

@@ -9,6 +9,10 @@ import { WorkbenchCommandPalette } from '../../src/workbench/WorkbenchCommandPal
 
 const searchProject = vi.fn();
 const startEngineSetup = vi.fn();
+const embeddingIndexes = vi.fn();
+const saveLens = vi.fn();
+const createWatch = vi.fn();
+const projectApi = { embeddingIndexes, saveLens, createWatch };
 
 vi.mock('../../src/api/open', async (importOriginal) => ({
   ...await importOriginal<typeof import('../../src/api/open')>(),
@@ -23,7 +27,7 @@ vi.mock('../../src/api/engineSetup', async (importOriginal) => ({
 vi.mock('../../src/bind/useWorkspaceStores', () => ({
   useWorkspaceStores: () => ({
     chromePreferences: { projectId: 'project-1' },
-    projectApi: { createWatch: vi.fn() },
+    projectApi,
   }),
 }));
 
@@ -108,6 +112,7 @@ function PaletteHarness() {
       onLaunchAction={vi.fn()}
       onNavigateSheet={vi.fn()}
       searchSheets={[{ id: '1', name: 'Documents' } as never]}
+      activeSearchSheetId="1"
       onNavigateSearchHit={vi.fn()}
     />
   );
@@ -131,7 +136,9 @@ function AnchoredPaletteHarness() {
       onLaunchAction={vi.fn()}
       onNavigateSheet={vi.fn()}
       searchSheets={[{ id: '1', name: 'Documents' } as never]}
+      activeSearchSheetId="1"
       searchSeed={{
+        namedIndexId: 'index-1',
         label: 'page 2',
         anchor: {
           kind: 'cell',
@@ -157,6 +164,16 @@ function AnchoredPaletteHarness() {
 beforeEach(() => {
   searchProject.mockReset();
   startEngineSetup.mockReset();
+  embeddingIndexes.mockReset();
+  saveLens.mockReset();
+  createWatch.mockReset();
+  embeddingIndexes.mockResolvedValue([{
+    indexId: 'index-1',
+    name: 'Research passages',
+    sheetId: 1,
+  }]);
+  saveLens.mockResolvedValue({});
+  createWatch.mockResolvedValue({});
 });
 
 afterEach(cleanup);
@@ -245,5 +262,88 @@ describe('located palette search', () => {
       'engine-setup:embeddinggemma-2.local@1',
     ));
     await waitFor(() => expect(searchProject).toHaveBeenCalledTimes(2));
+  });
+
+  it('selects a named index for free-text search and saves its semantic view', async () => {
+    searchProject.mockResolvedValue(completeResponse);
+    render(<PaletteHarness />);
+
+    const indexSelect = await screen.findByTestId('search-index-select');
+    await waitFor(() => expect(indexSelect).toHaveTextContent('Research passages'));
+    fireEvent.change(indexSelect, { target: { value: 'index-1' } });
+    fireEvent.change(screen.getByTestId('search-mode-select'), {
+      target: { value: 'semantic' },
+    });
+
+    await waitFor(() => expect(searchProject.mock.calls.at(-1)?.[1]).toMatchObject({
+      named_index_id: 'index-1',
+      mode: 'semantic',
+      group_by: 'row',
+      query: { kind: 'text', text: 'budget' },
+    }));
+    fireEvent.click(screen.getByTestId('save-search-lens-button'));
+
+    await waitFor(() => expect(saveLens).toHaveBeenCalledWith({
+      name: 'Search: budget',
+      query: {
+        kind: 'embedding_similarity',
+        embedding_index_id: 'index-1',
+        sheet_id: 1,
+        anchor: {
+          kind: 'manual_text_query',
+          terms: [{ text: 'budget', weight: 1 }],
+        },
+      },
+    }));
+    expect(await screen.findByTestId('save-search-lens-status')).toHaveTextContent('Saved view');
+  });
+
+  it('creates a persisted row-similarity watch from a named-index anchor', async () => {
+    searchProject.mockResolvedValue(completeResponse);
+    render(<AnchoredPaletteHarness />);
+
+    const watch = await screen.findByTestId('watch-search-button');
+    await waitFor(() => expect(watch).toBeEnabled());
+    fireEvent.click(watch);
+
+    await waitFor(() => expect(createWatch).toHaveBeenCalledWith({
+      name: 'Similar to page 2',
+      scope: { kind: 'sheet', sheet_id: 1 },
+      query: {
+        kind: 'embedding_similarity',
+        embedding_index_id: 'index-1',
+        anchor: { kind: 'row', row_id: 2 },
+      },
+    }));
+
+    fireEvent.click(screen.getByTestId('save-search-lens-button'));
+    await waitFor(() => expect(saveLens).toHaveBeenCalledWith({
+      name: 'Similar to page 2',
+      query: {
+        kind: 'embedding_similarity',
+        embedding_index_id: 'index-1',
+        sheet_id: 1,
+        anchor: { kind: 'row', row_id: 2 },
+        limit: 500,
+      },
+    }));
+  });
+
+  it('keeps project keyword watches available', async () => {
+    searchProject.mockResolvedValue(completeResponse);
+    render(<PaletteHarness />);
+
+    fireEvent.change(screen.getByTestId('search-mode-select'), {
+      target: { value: 'lexical' },
+    });
+    const watch = screen.getByTestId('watch-search-button');
+    await waitFor(() => expect(watch).toBeEnabled());
+    fireEvent.click(watch);
+
+    await waitFor(() => expect(createWatch).toHaveBeenCalledWith({
+      name: 'Search: budget',
+      scope: { kind: 'project' },
+      query: { kind: 'fts', q: 'budget', mode: 'keyword', rerank: 'off' },
+    }));
   });
 });

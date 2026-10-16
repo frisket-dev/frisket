@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from frisket.contracts.http.project_search import (
     ProjectSearchCellAnchor,
@@ -198,7 +198,9 @@ def _search_hit_payload(
 
 
 def _coverage_payload(
-    coverage: SearchCoverage, *, offer_local_setup: bool
+    coverage: SearchCoverage,
+    *,
+    setup_scope: Literal["workspace", "organization"] | None,
 ) -> dict[str, Any]:
     return {
         "requested_mode": coverage.requested_mode,
@@ -217,8 +219,8 @@ def _coverage_payload(
                 "failed_count": channel.failed_count,
                 "reason": channel.reason,
                 "setup": (
-                    {"setup_ref": SETUP_REF, "scope": "workspace"}
-                    if offer_local_setup
+                    {"setup_ref": SETUP_REF, "scope": setup_scope}
+                    if setup_scope is not None
                     and channel.channel == "semantic"
                     and channel.state == "unavailable"
                     else None
@@ -350,7 +352,11 @@ class ProjectSearchService:
         self._workspace = workspace
 
     def search(
-        self, project_id: str, *, request: ProjectSearchRequest
+        self,
+        project_id: str,
+        *,
+        request: ProjectSearchRequest,
+        offer_setup: bool | None = None,
     ) -> dict[str, Any]:
         project = self._workspace.get(project_id)
         search_request = _request_from_wire(request)
@@ -374,6 +380,16 @@ class ProjectSearchService:
             return _search_hit_payload(project, hit, column=column)
 
         anchor = response.response_anchor
+        edition = getattr(self._workspace, "edition", "solo")
+        if offer_setup is None:
+            offer_setup = edition == "solo"
+        setup_scope: Literal["workspace", "organization"] | None = None
+        if offer_setup and request.named_index_id is None:
+            if edition == "solo":
+                setup_scope = "workspace"
+            elif edition == "team":
+                setup_scope = "organization"
+
         return {
             "response_anchor": (
                 {
@@ -399,7 +415,7 @@ class ProjectSearchService:
             ],
             "coverage": _coverage_payload(
                 response.coverage,
-                offer_local_setup=request.named_index_id is None,
+                setup_scope=setup_scope,
             ),
         }
 

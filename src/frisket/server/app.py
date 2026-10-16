@@ -972,6 +972,7 @@ def create_app(
     register_project_search_routes(
         app,
         service=ProjectSearchService(ws),
+        capabilities_for=selector_capabilities_for,
     )
 
     register_project_provenance_routes(

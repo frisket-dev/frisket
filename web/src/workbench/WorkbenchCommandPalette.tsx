@@ -82,6 +82,7 @@ export function WorkbenchCommandPalette({
   onLaunchAction,
   onNavigateSheet,
   searchSheets,
+  activeSearchSheetId,
   searchSeed,
   onNavigateSearchHit,
   launcherCommands = EMPTY_LAUNCHER_COMMANDS,
@@ -101,6 +102,7 @@ export function WorkbenchCommandPalette({
   onLaunchAction: (actionKind: string, sourceColumn?: string) => void;
   onNavigateSheet: (sheetId: string) => void;
   searchSheets: SheetMeta[];
+  activeSearchSheetId?: string | number | null;
   onNavigateSearchHit: (hit: ProjectSearchHitWire) => void;
   searchSeed?: PaletteSearchSeed | null;
 }) {
@@ -188,6 +190,14 @@ export function WorkbenchCommandPalette({
     watchBusy,
     watchStatus,
     createSearchWatch,
+    namedIndexes,
+    namedIndexId,
+    setNamedIndexId,
+    namedIndexError,
+    canSaveLens,
+    saveBusy,
+    saveStatus,
+    saveSearchLens,
     sheetName,
     anchor,
     anchorLabel,
@@ -196,7 +206,13 @@ export function WorkbenchCommandPalette({
     setupBusy,
     setupError,
     startSetup,
-  } = usePaletteSearch(query, searchSheets, onClose, searchSeed);
+  } = usePaletteSearch(
+    query,
+    searchSheets,
+    activeSearchSheetId,
+    onClose,
+    searchSeed,
+  );
   const anchored = anchor !== null;
   const hasAnyFilteredResults =
     anchored
@@ -430,10 +446,18 @@ export function WorkbenchCommandPalette({
             onModeChange={setMode}
             rerank={rerank}
             onRerankChange={setRerank}
+            namedIndexes={namedIndexes}
+            namedIndexId={namedIndexId}
+            onNamedIndexChange={setNamedIndexId}
+            namedIndexError={namedIndexError}
             canWatch={canWatch}
             watchBusy={watchBusy}
             watchStatus={watchStatus}
             onCreateWatch={createSearchWatch}
+            canSaveLens={canSaveLens}
+            saveBusy={saveBusy}
+            saveStatus={saveStatus}
+            onSaveLens={saveSearchLens}
             searchError={searchError}
             groups={groups}
             coverage={coverage}

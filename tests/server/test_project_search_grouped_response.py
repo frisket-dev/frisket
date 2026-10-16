@@ -6,6 +6,8 @@ import sqlite3
 from dataclasses import dataclass
 from types import SimpleNamespace
 
+import pytest
+
 from frisket.contracts.http.project_search import ProjectSearchRequest
 from frisket.retrieval.contracts import (
     BindingRevision,
@@ -286,6 +288,50 @@ def test_unlinked_media_uses_document_time_and_unavailable_model_has_setup(
         "setup_ref": "engine-setup:embeddinggemma-2.local@1",
         "scope": "workspace",
     }
+
+
+@pytest.mark.parametrize(
+    ("edition", "offer_setup", "expected_scope"),
+    [
+        ("team", True, "organization"),
+        ("team", False, None),
+        ("cloud", True, None),
+    ],
+)
+def test_semantic_setup_offer_respects_edition_and_capability(
+    monkeypatch, edition, offer_setup, expected_scope
+) -> None:
+    project = _Project(_db())
+    response = SearchResponse(
+        results=(),
+        coverage=SearchCoverage(
+            requested_mode="semantic",
+            effective_modes=(),
+            state="unavailable",
+            searched_channels=(),
+            is_top_k=True,
+            truncated=False,
+            channels=(ChannelCoverage(channel="semantic", state="unavailable"),),
+        ),
+    )
+    monkeypatch.setattr(
+        project_search, "search_with_encoding", lambda *a, **k: response
+    )
+    workspace = _Workspace(project)
+    workspace.edition = edition
+
+    payload = ProjectSearchService(workspace).search(
+        "project", request=_request(), offer_setup=offer_setup
+    )
+
+    setup = payload["coverage"]["channels"][0]["setup"]
+    if expected_scope is None:
+        assert setup is None
+    else:
+        assert setup == {
+            "setup_ref": "engine-setup:embeddinggemma-2.local@1",
+            "scope": expected_scope,
+        }
 
 
 def test_navigation_normalizes_sqlite_column_rows(monkeypatch) -> None:

@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { searchProject, type SheetMeta } from '../api/open';
+import {
+  MAX_LENS_VIEW_ROWS,
+  searchProject,
+  type EmbeddingIndexSummary,
+  type SheetMeta,
+} from '../api/open';
 import { startEngineSetup } from '../api/engineSetup';
 import type {
   ProjectSearchAnchorWire,
@@ -9,6 +14,7 @@ import type {
   ProjectSearchResponseWire,
 } from '../api/projectSearch';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
+import { parseComposedQuery } from '../embeddings/composedQuery';
 import { usePoll } from '../hooks/usePoll';
 
 export interface PaletteSearchSeed {
@@ -29,6 +35,14 @@ export interface PaletteSearch {
   watchBusy: boolean;
   watchStatus: string | null;
   createSearchWatch(): void;
+  namedIndexes: EmbeddingIndexSummary[];
+  namedIndexId: string | undefined;
+  setNamedIndexId(indexId: string | undefined): void;
+  namedIndexError: string | null;
+  canSaveLens: boolean;
+  saveBusy: boolean;
+  saveStatus: string | null;
+  saveSearchLens(): void;
   sheetName(id: string | number): string;
   anchor: ProjectSearchAnchorWire | null;
   anchorLabel: string | null;
@@ -77,6 +91,12 @@ function labelForHit(hit: ProjectSearchHitWire): string {
     || 'selected result';
 }
 
+function anchorRowId(anchor: ProjectSearchAnchorWire | null): number | null {
+  if (!anchor) return null;
+  if (anchor.kind === 'cell') return anchor.row_id;
+  return anchor.binding?.row_id ?? null;
+}
+
 function searchRequest(
   query: string,
   mode: PaletteSearch['mode'],
@@ -101,6 +121,7 @@ function searchRequest(
 export function usePaletteSearch(
   query: string,
   searchSheets: SheetMeta[],
+  activeSheetId: string | number | null | undefined,
   onClose: () => void,
   seed?: PaletteSearchSeed | null,
 ): PaletteSearch {
@@ -119,6 +140,31 @@ export function usePaletteSearch(
   const [namedIndexId, setNamedIndexId] = useState<string | undefined>(
     seed?.namedIndexId,
   );
+  const activeSheetKey = activeSheetId == null ? null : String(activeSheetId);
+  const [namedIndexLoad, setNamedIndexLoad] = useState<{
+    sheetKey: string;
+    indexes: EmbeddingIndexSummary[];
+    error: string | null;
+  } | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    if (activeSheetKey == null) return undefined;
+    void projectApi.embeddingIndexes(Number(activeSheetId))
+      .then((indexes) => {
+        if (live) setNamedIndexLoad({ sheetKey: activeSheetKey, indexes, error: null });
+      })
+      .catch((error: Error) => {
+        if (live) setNamedIndexLoad({ sheetKey: activeSheetKey, indexes: [], error: error.message });
+      });
+    return () => { live = false; };
+  }, [activeSheetId, activeSheetKey, projectApi]);
+  const namedIndexes = namedIndexLoad?.sheetKey === activeSheetKey
+    ? namedIndexLoad.indexes
+    : [];
+  const namedIndexError = namedIndexLoad?.sheetKey === activeSheetKey
+    ? namedIndexLoad.error
+    : null;
   const [searchResult, setSearchResult] = useState<{
     key: string;
     response: ProjectSearchResponseWire;
@@ -196,23 +242,99 @@ export function usePaletteSearch(
 
   const [watchBusy, setWatchBusy] = useState(false);
   const [watchStatus, setWatchStatus] = useState<string | null>(null);
-  const canWatch = Boolean(trimmedQuery) && !anchor && mode === 'lexical' && !watchBusy;
+  const selectedIndex = namedIndexes.find((index) => index.indexId === namedIndexId);
+  const selectedRowId = anchorRowId(anchor);
+  const canWatch = !watchBusy && (
+    (Boolean(trimmedQuery) && !anchor && !namedIndexId && mode === 'lexical')
+    || (selectedIndex?.sheetId != null && selectedRowId != null)
+  );
   const createSearchWatch = () => {
     if (!canWatch) return;
+    const similarity = selectedIndex?.sheetId != null && selectedRowId != null;
     setWatchBusy(true);
     setWatchStatus(null);
     void projectApi
-      .createWatch({
-        name: `Search: ${trimmedQuery}`,
-        scope: { kind: 'project' },
-        query: { kind: 'fts', q: trimmedQuery, mode: 'keyword', rerank: rerank ? 'auto' : 'off' },
-      })
+      .createWatch(similarity
+        ? {
+            name: `Similar to ${anchorLabel ?? `row ${selectedRowId}`}`,
+            scope: { kind: 'sheet', sheet_id: selectedIndex.sheetId },
+            query: {
+              kind: 'embedding_similarity',
+              embedding_index_id: selectedIndex.indexId,
+              anchor: { kind: 'row', row_id: selectedRowId },
+            },
+          }
+        : {
+            name: `Search: ${trimmedQuery}`,
+            scope: { kind: 'project' },
+            query: {
+              kind: 'fts',
+              q: trimmedQuery,
+              mode: 'keyword',
+              rerank: rerank ? 'auto' : 'off',
+            },
+          })
       .then(() => {
         window.dispatchEvent(new Event('frisket:watches-changed'));
         onClose();
       })
       .catch((error: Error) => setWatchStatus(error.message))
       .finally(() => setWatchBusy(false));
+  };
+
+  const [saveBusy, setSaveBusy] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<string | null>(null);
+  const canSaveLens = !saveBusy
+    && selectedIndex?.sheetId != null
+    && (selectedRowId != null || Boolean(trimmedQuery));
+  const saveSearchLens = () => {
+    if (!canSaveLens || !selectedIndex || selectedIndex.sheetId == null) return;
+    let lensName: string;
+    let lensQuery: Record<string, unknown>;
+    if (selectedRowId != null) {
+      lensName = `Similar to ${anchorLabel ?? `row ${selectedRowId}`}`;
+      lensQuery = {
+        kind: 'embedding_similarity',
+        embedding_index_id: selectedIndex.indexId,
+        sheet_id: selectedIndex.sheetId,
+        anchor: { kind: 'row', row_id: selectedRowId },
+        limit: MAX_LENS_VIEW_ROWS,
+      };
+    } else if (mode === 'hybrid') {
+      lensName = `Search: ${trimmedQuery}`;
+      lensQuery = {
+        kind: 'embedding_hybrid',
+        embedding_index_id: selectedIndex.indexId,
+        sheet_id: selectedIndex.sheetId,
+        text: trimmedQuery,
+      };
+    } else {
+      const { terms, exclude } = parseComposedQuery(trimmedQuery);
+      if (!terms.length) {
+        setSaveStatus('Add a search term before saving this view.');
+        return;
+      }
+      lensName = `Search: ${trimmedQuery}`;
+      lensQuery = {
+        kind: 'embedding_similarity',
+        embedding_index_id: selectedIndex.indexId,
+        sheet_id: selectedIndex.sheetId,
+        anchor: {
+          kind: 'manual_text_query',
+          terms,
+          ...(exclude.length ? { exclude } : {}),
+        },
+      };
+    }
+    setSaveBusy(true);
+    setSaveStatus(null);
+    void projectApi.saveLens({ name: lensName, query: lensQuery })
+      .then(() => {
+        setSaveStatus('Saved view');
+        window.dispatchEvent(new Event('frisket:lenses-changed'));
+      })
+      .catch((error: Error) => setSaveStatus(error.message))
+      .finally(() => setSaveBusy(false));
   };
 
   const [setupBusy, setSetupBusy] = useState(false);
@@ -249,6 +371,19 @@ export function usePaletteSearch(
     watchBusy,
     watchStatus,
     createSearchWatch,
+    namedIndexes,
+    namedIndexId,
+    setNamedIndexId(indexId) {
+      setNamedIndexId(indexId);
+      if (indexId && mode === 'lexical') setMode('semantic');
+      setWatchStatus(null);
+      setSaveStatus(null);
+    },
+    namedIndexError,
+    canSaveLens,
+    saveBusy,
+    saveStatus,
+    saveSearchLens,
     sheetName,
     anchor,
     anchorLabel: effectiveAnchorLabel ?? anchorLabel,

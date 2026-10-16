@@ -489,9 +489,19 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
     )
     def setup_model_engine(body: EngineSetupRequest) -> ModelPullStartResponse:
         """Start an allowlisted local engine setup operation."""
-        from frisket.engine.jobs.engine_setup import is_engine_setup_ref
+        from frisket.engine.jobs.engine_setup import (
+            DOCLING_SETUP_REF,
+            EMBEDDINGGEMMA_SETUP_REF,
+            INDRA_OCR_SETUP_REF,
+            PARAKEET_TDT_SETUP_REF,
+        )
 
-        if not is_engine_setup_ref(body.setup_ref):
+        if body.setup_ref not in {
+            PARAKEET_TDT_SETUP_REF,
+            DOCLING_SETUP_REF,
+            INDRA_OCR_SETUP_REF,
+            EMBEDDINGGEMMA_SETUP_REF,
+        }:
             raise RouteError(
                 400,
                 {

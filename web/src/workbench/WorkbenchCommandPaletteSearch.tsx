@@ -1,4 +1,5 @@
-import { Bell, SearchCheck, X } from 'lucide-react';
+import { Bell, Bookmark, SearchCheck, X } from 'lucide-react';
+import type { EmbeddingIndexSummary } from '../api/open';
 import type {
   ProjectSearchGroupWire,
   ProjectSearchHitWire,
@@ -115,10 +116,18 @@ export function PaletteSearchSection({
   onModeChange,
   rerank,
   onRerankChange,
+  namedIndexes,
+  namedIndexId,
+  onNamedIndexChange,
+  namedIndexError,
   canWatch,
   watchBusy,
   watchStatus,
   onCreateWatch,
+  canSaveLens,
+  saveBusy,
+  saveStatus,
+  onSaveLens,
   searchError,
   groups,
   coverage,
@@ -140,10 +149,18 @@ export function PaletteSearchSection({
   onModeChange(mode: 'lexical' | 'semantic' | 'hybrid'): void;
   rerank: boolean;
   onRerankChange(rerank: boolean): void;
+  namedIndexes: EmbeddingIndexSummary[];
+  namedIndexId: string | undefined;
+  onNamedIndexChange(indexId: string | undefined): void;
+  namedIndexError: string | null;
   canWatch: boolean;
   watchBusy: boolean;
   watchStatus: string | null;
   onCreateWatch(): void;
+  canSaveLens: boolean;
+  saveBusy: boolean;
+  saveStatus: string | null;
+  onSaveLens(): void;
   searchError: string | null;
   groups: ProjectSearchGroupWire[] | null;
   coverage: ProjectSearchResponseWire['coverage'] | null;
@@ -171,6 +188,18 @@ export function PaletteSearchSection({
         Search
         <span className="palette-search-controls">
           <PanelSelect
+            className="row-height-select palette-search-index-select"
+            data-testid="search-index-select"
+            aria-label="Search collection"
+            value={namedIndexId ?? ''}
+            onChange={(event) => onNamedIndexChange(event.target.value || undefined)}
+          >
+            <option value="">Project</option>
+            {namedIndexes.map((index) => (
+              <option key={index.indexId} value={index.indexId}>{index.name}</option>
+            ))}
+          </PanelSelect>
+          <PanelSelect
             className="row-height-select"
             data-testid="search-mode-select"
             aria-label="Search mode"
@@ -179,7 +208,7 @@ export function PaletteSearchSection({
             onChange={(event) =>
               onModeChange(event.target.value as 'lexical' | 'semantic' | 'hybrid')}
           >
-            <option value="lexical">Keyword</option>
+            <option value="lexical" disabled={Boolean(namedIndexId)}>Keyword</option>
             <option value="hybrid">Hybrid</option>
             <option value="semantic">Semantic</option>
           </PanelSelect>
@@ -198,17 +227,37 @@ export function PaletteSearchSection({
             data-testid="watch-search-button"
             disabled={!canWatch}
             onClick={onCreateWatch}
-            title={mode === 'lexical' ? 'Watch this search' : 'Watch a keyword search'}
+            title={anchored && namedIndexId
+              ? 'Watch rows similar to this anchor'
+              : mode === 'lexical'
+                ? 'Watch this search'
+                : 'Watch a keyword search'}
           >
             <Bell size={12} /> {watchBusy ? 'Watching…' : 'Watch search'}
+          </button>
+          <button
+            type="button"
+            className="mini-btn search-save-btn"
+            data-testid="save-search-lens-button"
+            disabled={!canSaveLens}
+            onClick={onSaveLens}
+            title="Save this named-index search as a view"
+          >
+            <Bookmark size={12} /> {saveBusy ? 'Saving…' : 'Save view'}
           </button>
           {watchStatus && (
             <span className="search-watch-status" data-testid="watch-search-status">
               {watchStatus}
             </span>
           )}
+          {saveStatus && (
+            <span className="search-watch-status" data-testid="save-search-lens-status">
+              {saveStatus}
+            </span>
+          )}
         </span>
       </div>
+      {namedIndexError && <div className="picker-error">{namedIndexError}</div>}
       {anchorLabel && (
         <div className="palette-search-anchor" data-testid="search-anchor">
           <span>Similar to {anchorLabel}</span>

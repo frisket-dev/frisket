@@ -17,6 +17,7 @@ from frisket.contracts.http.project_search import (
     ProjectSearchResponse,
 )
 from frisket.server.routes.project_research import register_project_search_routes
+from frisket.server.services.selector_choices_capabilities import SelectorCapabilities
 
 
 @dataclass
@@ -26,8 +27,14 @@ class _SearchService:
     def __post_init__(self) -> None:
         self.calls: list[dict[str, object]] = []
 
-    def search(self, pid: str, *, request: ProjectSearchRequest) -> dict[str, object]:
-        self.calls.append({"pid": pid, "request": request})
+    def search(
+        self,
+        pid: str,
+        *,
+        request: ProjectSearchRequest,
+        offer_setup: bool | None = None,
+    ) -> dict[str, object]:
+        self.calls.append({"pid": pid, "request": request, "offer_setup": offer_setup})
         return self.response
 
 
@@ -129,9 +136,15 @@ def _response() -> dict[str, object]:
     }
 
 
-def _app(service: _SearchService) -> FastAPI:
+def _app(service: _SearchService, *, manage_model_downloads: bool = True) -> FastAPI:
     app = FastAPI()
-    register_project_search_routes(app, service=service)  # type: ignore[arg-type]
+    register_project_search_routes(
+        app,
+        service=service,  # type: ignore[arg-type]
+        capabilities_for=lambda _request, _pid: SelectorCapabilities(
+            manage_model_downloads=manage_model_downloads
+        ),
+    )
     return app
 
 
@@ -239,6 +252,24 @@ def test_project_search_route_preserves_typed_body_and_group_order() -> None:
     request = service.calls[0]["request"]
     assert isinstance(request, ProjectSearchRequest)
     assert request.limit == 12
+    assert service.calls[0]["offer_setup"] is True
+
+
+def test_project_search_route_hides_setup_without_model_management_authority() -> None:
+    service = _SearchService(_response())
+
+    response = TestClient(_app(service, manage_model_downloads=False)).post(
+        "/api/projects/project/search", json=_text_request()
+    )
+
+    assert response.status_code == 200
+    assert service.calls == [
+        {
+            "pid": "project",
+            "request": ProjectSearchRequest.model_validate(_text_request()),
+            "offer_setup": False,
+        }
+    ]
 
 
 def test_project_search_endpoint_catalog_exposes_only_the_post_operation(
