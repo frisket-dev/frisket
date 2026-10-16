@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from frisket.engine.store import Project
+from frisket.engine.store.retrieval_lifecycle import read_binding_revision
 from frisket.retrieval import native
 from frisket.retrieval.contracts import (
     RetrievalScope,
@@ -81,12 +82,10 @@ def _project(tmp_path):
         ],
         {"status": status, "body": body},
     )
-    project.db.execute(
-        "ALTER TABLE current_cells ADD COLUMN retrieval_revision INTEGER NOT NULL DEFAULT 1"
-    )
     project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (rows[3],))
     project.db.execute(
-        "UPDATE current_cells SET retrieval_revision=2 WHERE row_id=? AND column_id=?",
+        "UPDATE current_cells SET retrieval_revision=retrieval_revision+1 "
+        "WHERE row_id=? AND column_id=?",
         (rows[4], body),
     )
     project.db.commit()
@@ -101,7 +100,7 @@ def _publish(
     column_id: int,
     text: str,
     vector: tuple[float, float, float],
-    version: int = 1,
+    version: int,
     parts: tuple[tuple[str, tuple[float, float, float], int, int], ...] | None = None,
 ):
     revision = SourceRevision(
@@ -178,6 +177,8 @@ def _prepare_project(tmp_path):
     ]
     with RetrievalStore(project).open() as store:
         for row_id, (text, vector) in zip(rows, values, strict=True):
+            revision = read_binding_revision(project.db, row_id=row_id, column_id=body)
+            assert revision is not None
             _publish(
                 store,
                 row_id=row_id,
@@ -185,6 +186,7 @@ def _prepare_project(tmp_path):
                 column_id=body,
                 text=text,
                 vector=vector,
+                version=revision - 1 if row_id == rows[4] else revision,
             )
     return project, sheet, status, body, rows
 
@@ -231,7 +233,7 @@ def test_semantic_scope_and_freshness_are_applied_before_top_k(tmp_path):
             group.primary.binding.row_id for group in response.results
         ]
         assert (
-            response.results[0].primary.binding.dependencies[0].retrieval_revision == 1
+            response.results[0].primary.binding.dependencies[0].retrieval_revision > 0
         )
         assert "<b>target eligible second</b>" in (
             response.results[0].primary.snippet or ""
@@ -375,12 +377,14 @@ def test_composite_binding_is_invalidated_when_any_dependency_changes(tmp_path):
             [{"title": "alpha", "body": "bravo"}],
             {"title": title, "body": body},
         )
-        project.db.execute(
-            "ALTER TABLE current_cells ADD COLUMN retrieval_revision INTEGER NOT NULL DEFAULT 1"
-        )
-        project.db.commit()
+        title_revision = read_binding_revision(project.db, row_id=row, column_id=title)
+        body_revision = read_binding_revision(project.db, row_id=row, column_id=body)
+        assert title_revision is not None and body_revision is not None
         revision = SourceRevision(
-            "composite:row:1", "row_composite", "members", "alpha@1,bravo@1"
+            "composite:row:1",
+            "row_composite",
+            "members",
+            f"alpha@{title_revision},bravo@{body_revision}",
         )
         locator = SourceLocator(kind="row_composite")
         with RetrievalStore(project).open() as store:
@@ -405,8 +409,8 @@ def test_composite_binding_is_invalidated_when_any_dependency_changes(tmp_path):
                             sheet,
                             row,
                             dependencies=(
-                                BindingDependency(row, title, 1),
-                                BindingDependency(row, body, 1),
+                                BindingDependency(row, title, title_revision),
+                                BindingDependency(row, body, body_revision),
                             ),
                         ),
                     ),
@@ -430,7 +434,7 @@ def test_composite_binding_is_invalidated_when_any_dependency_changes(tmp_path):
         assert len(search(project, request, semantic_vectors=vectors).results) == 1
 
         project.db.execute(
-            "UPDATE current_cells SET retrieval_revision=2 "
+            "UPDATE current_cells SET retrieval_revision=retrieval_revision+1 "
             "WHERE row_id=? AND column_id=?",
             (row, title),
         )
@@ -446,10 +450,8 @@ def test_overlapping_moments_group_to_best_part(tmp_path):
         sheet = project.add_sheet("Videos")
         body = project.add_column(sheet, "body")
         [row] = project.add_rows(sheet, [{"body": "first second"}], {"body": body})
-        project.db.execute(
-            "ALTER TABLE current_cells ADD COLUMN retrieval_revision INTEGER NOT NULL DEFAULT 1"
-        )
-        project.db.commit()
+        revision = read_binding_revision(project.db, row_id=row, column_id=body)
+        assert revision is not None
         with RetrievalStore(project).open() as store:
             _publish(
                 store,
@@ -458,6 +460,7 @@ def test_overlapping_moments_group_to_best_part(tmp_path):
                 column_id=body,
                 text="first second",
                 vector=(1.0, 0.0, 0.0),
+                version=revision,
                 parts=(
                     ("moment:1", (1.0, 0.0, 0.0), 0, 5),
                     ("moment:2", (0.8, 0.6, 0.0), 6, 12),
@@ -512,12 +515,21 @@ def test_repeated_sheet_scope_union_does_not_leak_columns_between_rows(tmp_path)
             ],
             {"left": left, "right": right},
         )
-        project.db.execute(
-            "ALTER TABLE current_cells ADD COLUMN retrieval_revision "
-            "INTEGER NOT NULL DEFAULT 1"
-        )
-        project.db.commit()
         with RetrievalStore(project).open() as store:
+            first_left_revision = read_binding_revision(
+                project.db, row_id=rows[0], column_id=left
+            )
+            second_right_revision = read_binding_revision(
+                project.db, row_id=rows[1], column_id=right
+            )
+            second_left_revision = read_binding_revision(
+                project.db, row_id=rows[1], column_id=left
+            )
+            assert None not in (
+                first_left_revision,
+                second_right_revision,
+                second_left_revision,
+            )
             _publish(
                 store,
                 row_id=rows[0],
@@ -525,6 +537,7 @@ def test_repeated_sheet_scope_union_does_not_leak_columns_between_rows(tmp_path)
                 column_id=left,
                 text="allowed one",
                 vector=(0.8, 0.6, 0.0),
+                version=first_left_revision,
             )
             _publish(
                 store,
@@ -533,6 +546,7 @@ def test_repeated_sheet_scope_union_does_not_leak_columns_between_rows(tmp_path)
                 column_id=right,
                 text="allowed two",
                 vector=(0.6, 0.8, 0.0),
+                version=second_right_revision,
             )
             _publish(
                 store,
@@ -541,6 +555,7 @@ def test_repeated_sheet_scope_union_does_not_leak_columns_between_rows(tmp_path)
                 column_id=left,
                 text="forbidden",
                 vector=(1.0, 0.0, 0.0),
+                version=second_left_revision,
             )
 
         response = search(
@@ -603,5 +618,29 @@ def test_search_honors_cancellation_and_injected_reranker(tmp_path):
                 reranker=lambda _q, docs: [0.0] * len(docs),
                 cancel_event=Cancelled(),
             )
+    finally:
+        project.close()
+
+
+def test_coverage_is_scoped_and_unavailable_without_eligible_records(tmp_path):
+    project, sheet, status, _body, _rows = _prepare_project(tmp_path)
+    try:
+        response = search(
+            project,
+            SearchRequest(
+                scope=RetrievalScope(sheets=(SheetScope(sheet, column_ids=(status,)),)),
+                query=TextQuery("target"),
+                mode="semantic",
+                group_by="source",
+                space_id="space:test",
+            ),
+            semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
+        )
+
+        assert response.results == ()
+        assert response.coverage.state == "unavailable"
+        assert response.coverage.channels[0].state == "unavailable"
+        assert response.coverage.channels[0].prepared_count is None
+        assert response.coverage.channels[0].failed_count is None
     finally:
         project.close()

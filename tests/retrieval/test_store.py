@@ -4,6 +4,8 @@ import sqlite3
 import struct
 from dataclasses import replace
 
+import pytest
+
 from frisket.retrieval.contracts import SourceLocator, SourceRevision
 from frisket.retrieval.store import (
     BindingDependency,
@@ -272,7 +274,7 @@ def test_representation_cache_is_independent_of_located_parts(tmp_path):
         "representation:cache-only",
         "space:demo",
         "input:cache-only",
-        struct.pack("<2f", 0.6, 0.8),
+        struct.pack("<2f", 2.0, 0.0),
         2,
     )
     with RetrievalStore(tmp_path).open() as store:
@@ -283,6 +285,15 @@ def test_representation_cache_is_independent_of_located_parts(tmp_path):
             "space:demo", ("input:cache-only", "input:cache-only")
         ) == {"input:cache-only": cached}
         assert store.db.execute("SELECT count(*) FROM parts").fetchone()[0] == 0
+
+        invalid = replace(
+            cached,
+            representation_id="representation:not-finite",
+            input_hash="input:not-finite",
+            vector=struct.pack("<2f", float("nan"), 0.0),
+        )
+        with pytest.raises(ValueError, match="finite"):
+            store.put_representations((invalid,))
 
 
 def test_named_dataset_vector_read_is_bounded_and_ordered(tmp_path):

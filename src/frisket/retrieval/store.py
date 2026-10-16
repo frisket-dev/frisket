@@ -766,7 +766,11 @@ def _validate_cached_representation(representation: CachedRepresentation) -> Non
         raise ValueError("only float32 retrieval representations are supported")
     if isinstance(representation.dimension, bool) or representation.dimension < 1:
         raise ValueError("representation dimension must be positive")
-    validate_vector_blob(representation.vector, dimensions=representation.dimension)
+    validate_vector_blob(
+        representation.vector,
+        dimensions=representation.dimension,
+        require_unit_norm=False,
+    )
 
 
 def _duplicates(values: Iterable[str]) -> set[str]:

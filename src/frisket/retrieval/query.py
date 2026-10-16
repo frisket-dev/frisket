@@ -235,7 +235,7 @@ class RetrievalQueryService:
                         )
                         groups = _single_method_groups(lexical, request)
                         coverage = self._coverage(
-                            reader, request, searched=("lexical",)
+                            reader, request, scope, searched=("lexical",)
                         )
                     elif request.mode == "semantic":
                         semantic = self._semantic_candidates(
@@ -248,7 +248,10 @@ class RetrievalQueryService:
                         groups = _single_method_groups(semantic, request)
                         channels = tuple(dict.fromkeys(row.channel for row in semantic))
                         coverage = self._coverage(
-                            reader, request, searched=channels or ("semantic",)
+                            reader,
+                            request,
+                            scope,
+                            searched=channels or ("semantic",),
                         )
                     else:
                         pool = min(HYBRID_POOL, max(rerank_pool, request.limit * 4))
@@ -269,7 +272,9 @@ class RetrievalQueryService:
                                 ("lexical", *(row.channel for row in semantic))
                             )
                         )
-                        coverage = self._coverage(reader, request, searched=channels)
+                        coverage = self._coverage(
+                            reader, request, scope, searched=channels
+                        )
                     groups = self._rerank(groups, request)
                 finally:
                     if cancel_event is not None:
@@ -447,7 +452,8 @@ class RetrievalQueryService:
         }[grouping]
         dataset_join, dataset_where, dataset_params = _semantic_dataset_filter(request)
         exclude_sql = "".join(
-            " AND (1.0-vec1_cos_distance(vector,?))<?" for _ in exclusion_blobs
+            " AND (1.0-vec1_cos_distance(representation.vector,?))<?"
+            for _ in exclusion_blobs
         )
         minimum_sql = "" if minimum is None else " AND similarity>=?"
         sql = f"""
@@ -458,7 +464,8 @@ class RetrievalQueryService:
                  retrieval_binding.binding_id,retrieval_binding.sheet_id,
                  retrieval_binding.row_id,retrieval_binding.column_id,
                  part_representation.channel,representation.representation_id,
-                 representation.space_id,representation.vector,{group_sql} AS group_key
+                 representation.space_id,{group_sql} AS group_key,
+                 1.0-vec1_cos_distance(representation.vector,?) AS similarity
           FROM scoped_bindings AS scoped
           JOIN idx.bindings AS retrieval_binding
             ON retrieval_binding.sheet_id=scoped.sheet_id
@@ -485,11 +492,9 @@ class RetrievalQueryService:
             AND representation.space_id=? AND representation.dimension=?
             {dataset_where}
             {"AND part.part_id<>?" if anchor_part_id is not None and request.query.exclude_exact else ""}
-        ), scored AS NOT MATERIALIZED (
-          SELECT *,1.0-vec1_cos_distance(vector,?) AS similarity
-          FROM eligible
+            {exclude_sql}
         ), accepted AS NOT MATERIALIZED (
-          SELECT * FROM scored WHERE 1=1{exclude_sql}{minimum_sql}
+          SELECT * FROM eligible WHERE 1=1{minimum_sql}
         ), grouped AS (
           SELECT *,ROW_NUMBER() OVER (
             PARTITION BY group_key
@@ -503,6 +508,7 @@ class RetrievalQueryService:
         """
         params: list[Any] = [
             *scope.params,
+            sqlite3.Binary(query_blob),
             request.space_id,
             dimension,
             *dataset_params,
@@ -511,7 +517,6 @@ class RetrievalQueryService:
                 if anchor_part_id is not None and request.query.exclude_exact
                 else ()
             ),
-            sqlite3.Binary(query_blob),
         ]
         for blob, threshold in zip(exclusion_blobs, thresholds, strict=True):
             params.extend((sqlite3.Binary(blob), threshold))
@@ -530,58 +535,131 @@ class RetrievalQueryService:
         self,
         reader: PinnedRetrievalReader,
         request: SearchRequest,
+        scope: CompiledRetrievalScope,
         *,
         searched: tuple[str, ...],
     ) -> SearchCoverage:
-        rows = reader.db.execute(
-            "SELECT channel,status,count(*) AS amount,sum(prepared_parts) AS parts "
-            "FROM idx.preparation GROUP BY channel,status"
-        ).fetchall()
-        by_channel: dict[str, dict[str, int]] = defaultdict(dict)
-        parts: dict[str, int] = defaultdict(int)
-        for row in rows:
-            by_channel[str(row["channel"])][str(row["status"])] = int(row["amount"])
-            if row["status"] == "ready":
-                parts[str(row["channel"])] += int(row["parts"] or 0)
         requested_channels = tuple(dict.fromkeys(searched or (request.mode,)))
         channels: list[ChannelCoverage] = []
-        partial = False
-        failed = False
         for channel in requested_channels:
-            statuses = by_channel.get(channel, {})
-            if statuses.get("failed"):
-                state = "failed"
-                failed = True
-            elif statuses.get("pending") or statuses.get("preparing"):
-                state = "pending"
-                partial = True
-            else:
-                state = "ready"
-            channels.append(
-                ChannelCoverage(
-                    channel=channel,
-                    state=state,
-                    prepared_count=parts.get(channel),
-                    failed_count=statuses.get("failed", 0),
-                )
+            ready, pending, failed = _scoped_coverage_state(
+                reader, request, scope, channel
             )
-        state = (
-            "failed"
-            if failed and not searched
-            else ("partial" if partial or failed else "complete")
-        )
+            if failed:
+                state = "failed"
+            elif pending:
+                state = "pending"
+            elif ready:
+                state = "ready"
+            else:
+                state = "unavailable"
+            channels.append(ChannelCoverage(channel=channel, state=state))
+        states = {channel.state for channel in channels}
+        if states == {"ready"}:
+            coverage_state = "complete"
+        elif states == {"failed"}:
+            coverage_state = "failed"
+        elif states == {"unavailable"}:
+            coverage_state = "unavailable"
+        else:
+            coverage_state = "partial"
         effective = (
             ("lexical", "semantic") if request.mode == "hybrid" else (request.mode,)
         )
         return SearchCoverage(
             requested_mode=request.mode,
             effective_modes=effective,
-            state=state,
+            state=coverage_state,
             searched_channels=requested_channels,
             is_top_k=True,
             truncated=False,
             channels=tuple(channels),
         )
+
+
+def _scoped_coverage_state(
+    reader: PinnedRetrievalReader,
+    request: SearchRequest,
+    scope: CompiledRetrievalScope,
+    channel: str,
+) -> tuple[bool, bool, bool]:
+    binding_join = (
+        "FROM scoped_bindings AS scoped "
+        "JOIN idx.bindings AS retrieval_binding "
+        "ON retrieval_binding.sheet_id=scoped.sheet_id "
+        "AND retrieval_binding.row_id=scoped.row_id "
+        "AND (scoped.column_id IS NULL "
+        "OR scoped.column_id=retrieval_binding.column_id) "
+    )
+    binding_where = (
+        _visible_column("retrieval_binding")
+        + " AND "
+        + _binding_is_current("retrieval_binding")
+    )
+    if channel == "lexical":
+        row = reader.db.execute(
+            f"""
+            WITH {scope.cte_sql}
+            SELECT EXISTS (
+              SELECT 1 {binding_join}
+              JOIN idx.lexical_sources AS lexical_source
+                ON lexical_source.source_id=retrieval_binding.source_id
+               AND lexical_source.version_kind=retrieval_binding.version_kind
+               AND lexical_source.version_value=retrieval_binding.version_value
+               AND lexical_source.version_type=retrieval_binding.version_type
+              WHERE {binding_where} LIMIT 1
+            ) AS ready
+            """,
+            scope.params,
+        ).fetchone()
+        return bool(row["ready"]), False, False
+
+    concrete_channel = channel != "semantic"
+    ready_channel_sql = "AND part_representation.channel=?" if concrete_channel else ""
+    preparation_channel_sql = "AND preparation.channel=?" if concrete_channel else ""
+    params: list[Any] = [*scope.params, request.space_id]
+    if concrete_channel:
+        params.append(channel)
+    if concrete_channel:
+        params.append(channel)
+    if concrete_channel:
+        params.append(channel)
+    row = reader.db.execute(
+        f"""
+        WITH {scope.cte_sql}
+        SELECT EXISTS (
+          SELECT 1 {binding_join}
+          JOIN idx.parts AS part
+            ON part.source_id=retrieval_binding.source_id
+           AND part.version_kind=retrieval_binding.version_kind
+           AND part.version_value=retrieval_binding.version_value
+           AND part.version_type=retrieval_binding.version_type
+          JOIN idx.part_representations AS part_representation
+            ON part_representation.part_id=part.part_id
+          JOIN idx.representations AS representation
+            ON representation.representation_id=part_representation.representation_id
+          WHERE {binding_where} AND representation.space_id=?
+          {ready_channel_sql} LIMIT 1
+        ) AS ready,
+        EXISTS (
+          SELECT 1 {binding_join}
+          JOIN idx.preparation AS preparation
+            ON preparation.source_id=retrieval_binding.source_id
+          WHERE {binding_where}
+            AND preparation.status IN ('pending','preparing')
+            {preparation_channel_sql} LIMIT 1
+        ) AS pending,
+        EXISTS (
+          SELECT 1 {binding_join}
+          JOIN idx.preparation AS preparation
+            ON preparation.source_id=retrieval_binding.source_id
+          WHERE {binding_where} AND preparation.status='failed'
+            {preparation_channel_sql} LIMIT 1
+        ) AS failed
+        """,
+        params,
+    ).fetchone()
+    return bool(row["ready"]), bool(row["pending"]), bool(row["failed"])
 
 
 def search(
