@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, Callable
 
@@ -11,6 +12,8 @@ from frisket.engine.store import Project
 from .project_opener import ProjectOpener, open_payload_project
 from .ports import JobHandlerContext
 from .worker import HandlerRegistration, HandlerRegistry
+
+LOG = logging.getLogger(__name__)
 
 
 def register_enclosure_download_handler(
@@ -50,7 +53,12 @@ def register_enclosure_download_handler(
             except ValueError as exc:
                 result = {"status": "error", "row_id": row_id, "error": str(exc)}
             if result.get("status") == "downloaded" and on_downloaded is not None:
-                on_downloaded(project_id, sheet_id, row_id)
+                try:
+                    on_downloaded(project_id, sheet_id, row_id)
+                except Exception:
+                    LOG.warning(
+                        "search_preparation_enclosure_hook_failed", exc_info=True
+                    )
             return {"project_id": project_id, "sheet_id": sheet_id, **result}
         finally:
             project.close()

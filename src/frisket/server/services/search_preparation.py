@@ -319,8 +319,6 @@ class SearchPreparationService:
             if current != planned:
                 return False
         for item in row.plan["items"]:
-            if item["kind"] == "native_pdf":
-                continue
             source = resolve_cell_blob_source(
                 project,
                 sheet_id=row.sheet_id,
@@ -347,7 +345,9 @@ class SearchPreparationService:
         return self._project(row)
 
     def setup_completed(self, setup_ref: str) -> None:
-        """Wake waiting intents after a durable setup terminal event."""
+        """Wake every decided intent when the workspace setup slot becomes free."""
+
+        del setup_ref
 
         for project in self.workspace.list():
             project_id = str(project["id"])
@@ -356,10 +356,7 @@ class SearchPreparationService:
                 storage_org_id=self.workspace.queue_storage_org_id,
                 limit=100,
             ):
-                if (
-                    setup_ref in row.selected_setup_refs
-                    and row.stop_requested_at is None
-                ):
+                if row.decision == "prepare" and row.stop_requested_at is None:
                     self._start_next_setup(row)
                     self._advance(row)
 
@@ -437,7 +434,9 @@ class SearchPreparationService:
             if row_id is not None and item["row_id"] != row_id:
                 continue
             wanted_page = page_number or item.get("page_number") or 1
-            text, count, source = self._sample_pdf(project, item, wanted_page)
+            text, count, source = self._sample_pdf(
+                project, row.sheet_id, item, wanted_page
+            )
             samples.append(
                 SearchPreparationTextSample(
                     row_id=item["row_id"],
@@ -513,7 +512,11 @@ class SearchPreparationService:
                         kind = "ocr"
                     elif mime.startswith("audio/") or mime.startswith("video/"):
                         kind = "transcribe"
-                    if kind is None or self._has_current_result(project, source, kind):
+                    if kind is None:
+                        continue
+                    if not (
+                        force_ocr and mime == "application/pdf" and kind == "ocr"
+                    ) and self._has_current_result(project, source, kind):
                         continue
                     item = {
                         "kind": kind,
@@ -643,7 +646,7 @@ class SearchPreparationService:
                 requirement["weights_ready"] and requirement["runtime_ready"]
             ):
                 continue
-            key = f"{kind}:{column_id}:{_sha([(i['row_id'], i['blob_hash'], i['retrieval_revision']) for i in items])}"
+            key = self._child_key(kind, column_id, items)
             child = children.get(key)
             if child is not None and child.receipt_id is not None:
                 continue
@@ -664,7 +667,7 @@ class SearchPreparationService:
                     message="A source file changed before search preparation started.",
                 )
                 return
-            body = self._action_body(row, kind, column_name, items, key)
+            body = self._action_body(project, row, kind, column_name, items, key)
             response = self.action_runs.run_action(row.project_id, body)
             receipt_id = response.payload.get("receipt_id")
             if not isinstance(receipt_id, str):
@@ -695,6 +698,20 @@ class SearchPreparationService:
             )
 
     @staticmethod
+    def _child_key(
+        kind: str, column_id: int, items: Sequence[Mapping[str, Any]]
+    ) -> str:
+        identity = [
+            (
+                int(item["row_id"]),
+                str(item["blob_hash"]),
+                int(item["retrieval_revision"]),
+            )
+            for item in items
+        ]
+        return f"{kind}:{column_id}:{_sha(identity)}"
+
+    @staticmethod
     def _source_item_current(
         project: Any, sheet_id: int, item: Mapping[str, Any]
     ) -> bool:
@@ -710,8 +727,9 @@ class SearchPreparationService:
             and source.binding.retrieval_revision == item["retrieval_revision"]
         )
 
-    @staticmethod
     def _action_body(
+        self,
+        project: Any,
         row: SearchPreparationBatchRow,
         kind: str,
         column_name: str,
@@ -735,15 +753,30 @@ class SearchPreparationService:
                 "output_names": {"text": f"Search text · {column_name}"},
             }
         if kind == "ocr":
-            return {
+            text_name = (
+                f"Search text · {column_name}"
+                if row.force_ocr
+                else f"OCR text · {column_name}"
+            )
+            body = {
                 **common,
                 "action_id": "media.ocr",
                 "params": {"source": column_name, "engine": "rapidocr"},
                 "output_names": {
-                    "text": f"Search text · {column_name}",
+                    "text": text_name,
                     "blocks": f"Search positions · {column_name}",
                 },
             }
+            if row.force_ocr:
+                columns = {
+                    str(column["name"]): int(column["id"])
+                    for column in project.columns(row.sheet_id, include_hidden=True)
+                }
+                body["replace_existing"] = True
+                body["expected_output_columns"] = {
+                    name: columns.get(name) for name in body["output_names"].values()
+                }
+            return body
         return {
             **common,
             "action_id": "media.transcribe",
@@ -758,7 +791,12 @@ class SearchPreparationService:
         if self.setup_start is None or row.decision != "prepare":
             return
         requirements = {item.setup_ref: item for item in _requirements()}
-        for ref in row.selected_setup_refs:
+        planned = {item["setup_ref"]: item for item in row.plan["models"]}
+        ordered = sorted(
+            row.selected_setup_refs,
+            key=lambda ref: (not bool(planned.get(ref, {}).get("required")), ref),
+        )
+        for ref in ordered:
             requirement = requirements.get(ref)
             if requirement is not None and (
                 not requirement.weights_ready
@@ -772,7 +810,18 @@ class SearchPreparationService:
     ) -> SearchPreparationBatch:
         from frisket.engine.jobs import model_pull_store
 
-        children = self.store.children(row.id)
+        grouped: defaultdict[tuple[str, int], list[dict[str, Any]]] = defaultdict(list)
+        for item in row.plan["items"]:
+            grouped[(item["kind"], item["column_id"])].append(item)
+        expected_keys = {
+            self._child_key(kind, column_id, items)
+            for (kind, column_id), items in grouped.items()
+        }
+        children = [
+            child
+            for child in self.store.children(row.id)
+            if child.child_key in expected_keys
+        ]
         project = self.workspace.get(row.project_id)
         receipts = ReceiptStore(project)
         jobs: list[SearchPreparationJob] = []
@@ -807,15 +856,18 @@ class SearchPreparationService:
                     )
                 )
         current = {item.setup_ref: item for item in _requirements()}
-        pulls = {
-            pull.model_ref: pull
-            for pull in model_pull_store.list_recent(
-                self.workspace.queue.engine,
-                str(self.workspace.root),
-                limit=100,
-                persist=False,
-            )
-        }
+        pulls = {}
+        for pull in model_pull_store.list_recent(
+            self.workspace.queue.engine,
+            str(self.workspace.root),
+            limit=100,
+            persist=False,
+        ):
+            if (
+                pull.model_ref in row.selected_setup_refs
+                and pull.model_ref not in pulls
+            ):
+                pulls[pull.model_ref] = pull
         models: list[SearchPreparationModel] = []
         missing_required = False
         setup_failed = False
@@ -859,9 +911,7 @@ class SearchPreparationService:
                 )
             )
         job_statuses = set(child_states.values())
-        all_children = len(children) == len(
-            {(item["kind"], item["column_id"]) for item in row.plan["items"]}
-        )
+        all_children = len(children) == len(expected_keys)
         indexing = index_work_marker(project, include_preparation=False) is not None
         if row.stop_requested_at is not None:
             status = "stopped"
@@ -922,24 +972,35 @@ class SearchPreparationService:
             can_stop=status in {"preparing", "needs_consent"},
             can_setup=may_setup_models
             and status == "needs_consent"
-            and any(
-                m.required
-                and not m.ready
-                and (m.runtime_ready or planned["runtime_installable"])
+            and bool([m for m in models if m.required and not m.ready])
+            and all(
+                m.runtime_ready or planned["runtime_installable"]
                 for m, planned in zip(models, row.plan["models"], strict=True)
+                if m.required and not m.ready
             ),
             errors=projection_errors,
         )
 
     @staticmethod
     def _sample_pdf(
-        project: Any, item: Mapping[str, Any], page: int
+        project: Any, sheet_id: int, item: Mapping[str, Any], page: int
     ) -> tuple[str, int, str]:
         # Prefer canonical prepared content associated with this exact artifact.
         row = project.db.execute(
-            "SELECT c.prepared_ref_id FROM current_cell_values c "
-            "WHERE c.row_id=? AND c.prepared_ref_id IS NOT NULL ORDER BY c.column_id DESC LIMIT 1",
-            (item["row_id"],),
+            "SELECT current.prepared_ref_id FROM current_cell_values current "
+            "JOIN prepared_content_refs ref ON ref.id=current.prepared_ref_id "
+            "JOIN prepared_content_sets content ON content.id=ref.set_id "
+            "JOIN source_artifacts artifact ON artifact.id=content.source_artifact_id "
+            "WHERE current.row_id=? AND artifact.blob_hash=? "
+            "AND artifact.source_sheet_id=? AND artifact.source_row_id=? "
+            "AND artifact.source_column_id=? LIMIT 1",
+            (
+                item["row_id"],
+                item["blob_hash"],
+                sheet_id,
+                item["row_id"],
+                item["column_id"],
+            ),
         ).fetchone()
         if row is not None:
             prepared = PreparedContentStore(project).resolve(int(row[0]))

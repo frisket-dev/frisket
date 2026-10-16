@@ -537,13 +537,23 @@ def register_model_pull_handler(
 
             should_cancel = _make_cancel_checker(queue, job_id, engine, pull_id)
             if is_engine_setup_ref(canonical_ref):
-                result = run_engine_setup(
-                    engine=engine,
-                    pull_id=pull_id,
-                    should_cancel=should_cancel,
-                    is_final_attempt=is_final_attempt,
-                )
-                if result.get("status") == "done":
+                try:
+                    result = run_engine_setup(
+                        engine=engine,
+                        pull_id=pull_id,
+                        should_cancel=should_cancel,
+                        is_final_attempt=is_final_attempt,
+                    )
+                except Exception:
+                    if is_final_attempt and on_engine_setup_done is not None:
+                        try:
+                            on_engine_setup_done(canonical_ref)
+                        except Exception:
+                            LOG.warning(
+                                "engine_setup_terminal_hook_failed", exc_info=True
+                            )
+                    raise
+                if result.get("status") in {"done", "cancelled"}:
                     try:
                         if on_engine_setup_done is not None:
                             on_engine_setup_done(canonical_ref)
@@ -553,9 +563,7 @@ def register_model_pull_handler(
                         ):
                             on_embedding_setup_done()
                     except Exception:
-                        LOG.warning(
-                            "engine_setup_completion_hook_failed", exc_info=True
-                        )
+                        LOG.warning("engine_setup_terminal_hook_failed", exc_info=True)
                 return result
 
             # Route by ref kind. A qualified local-model ref uses the native

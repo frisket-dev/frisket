@@ -523,6 +523,19 @@ class ImportSessionService:
             if self._search_preparation is not None
             else None
         )
+        if (
+            state in {"completed", "kept"}
+            and preparation_batch_id is None
+            and self._search_preparation is not None
+            and self._search_preparation.automatic_enabled(header.project_id)
+        ):
+            page_job = self._latest_page_job(header.project_id, ref, through, sealed)
+            if page_job is not None and page_job.status in {"queued", "running"}:
+                # The import commit is already durable, but its worker publishes
+                # the preparation intent before finishing. Keep terminal state
+                # hidden during that bounded callback window so a reconnecting
+                # client cannot close before receiving the batch id.
+                state = "running"
         return ImportSessionStatus(
             import_ref=ref,
             state=state,

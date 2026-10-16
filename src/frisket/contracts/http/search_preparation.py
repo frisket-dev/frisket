@@ -38,6 +38,8 @@ class SearchPreparationCreateRequest(WireModel):
 
     @model_validator(mode="after")
     def _canonical_scope(self) -> SearchPreparationCreateRequest:
+        if self.force_ocr and self.row_ids is None:
+            raise ValueError("force_ocr requires an explicit row scope")
         if self.row_ids is not None:
             if not self.row_ids or any(row_id <= 0 for row_id in self.row_ids):
                 raise ValueError("row_ids must contain positive persisted ids")
