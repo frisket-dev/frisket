@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 import struct
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from threading import Barrier
@@ -121,6 +122,7 @@ def test_store_uses_one_16k_contentless_sidecar_without_text_copy(tmp_path):
 @pytest.mark.parametrize(
     "error_code",
     [
+        "blob_integrity_failed",
         "encoding_failed",
         "media_decode_failed",
         "missing_blob",
@@ -186,6 +188,26 @@ def test_concurrent_fresh_store_open_serializes_schema_creation(tmp_path):
         sidecar_ids = tuple(executor.map(lambda _index: open_store(), range(workers)))
 
     assert len(set(sidecar_ids)) == 1
+
+
+def test_current_store_open_does_not_wait_for_existing_writer(tmp_path):
+    with RetrievalStore(tmp_path).open() as store:
+        sidecar_id = store.sidecar_id()
+
+    writer = sqlite3.connect(tmp_path / "project.retrieval.db", isolation_level=None)
+    try:
+        assert writer.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+        writer.execute("BEGIN IMMEDIATE")
+
+        started = time.monotonic()
+        with RetrievalStore(tmp_path).open() as reader:
+            assert reader.sidecar_id() == sidecar_id
+        elapsed = time.monotonic() - started
+
+        assert elapsed < 1
+    finally:
+        writer.rollback()
+        writer.close()
 
 
 def test_relations_use_numeric_keys_while_public_ids_remain_unique(tmp_path):

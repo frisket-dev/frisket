@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 import struct
 import json
+import time
 from array import array
 from contextlib import closing
 
@@ -18,6 +19,8 @@ from frisket.engine.store.evidence import record_source_artifact, record_source_
 from frisket.retrieval.migration import legacy_cell_vector_key
 from frisket.retrieval.sources import input_hash
 from frisket.retrieval.store import (
+    PROJECT_SIDECAR_META_KEY,
+    SCHEMA_VERSION,
     RetrievalStore,
     UnsupportedRetrievalSchema,
     read_sidecar_id,
@@ -252,6 +255,38 @@ def test_upgrade_reopens_when_a_legacy_wal_gains_a_committed_vector(tmp_path) ->
     finally:
         if writer is not None:
             writer.close()
+        project.close()
+
+
+def test_upgrade_reuses_marker_when_reading_creates_an_empty_legacy_wal(
+    tmp_path,
+) -> None:
+    project = Project.create(tmp_path / "empty-wal.frisket")
+    try:
+        path = project.path / "project.search.db"
+        legacy = sqlite3.connect(path)
+        try:
+            assert legacy.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+            legacy.execute("CREATE TABLE cell_vec(key TEXT PRIMARY KEY,vec BLOB)")
+            legacy.commit()
+            legacy.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        finally:
+            legacy.close()
+        wal_path = path.with_name(f"{path.name}-wal")
+        if wal_path.exists():
+            assert wal_path.stat().st_size == 0
+            wal_path.unlink()
+        assert not wal_path.exists()
+
+        first = upgrade_legacy_embedding_caches(project)
+
+        assert not first.reused
+        assert wal_path.is_file()
+        assert wal_path.stat().st_size == 0
+        second = upgrade_legacy_embedding_caches(project)
+        assert second.reused
+        assert second.migration == first.migration
+    finally:
         project.close()
 
 
@@ -526,6 +561,100 @@ def test_open_skips_upgrade_while_another_process_lock_is_held(tmp_path) -> None
         assert project.db.execute(
             "SELECT 1 FROM meta WHERE key=?", (LEGACY_EMBEDDING_UPGRADE_META_KEY,)
         ).fetchone()
+    finally:
+        project.close()
+
+
+def test_open_defers_repair_while_initial_sidecar_creation_is_locked(tmp_path) -> None:
+    project = Project.create(tmp_path / "sidecar-creation-race.frisket")
+    writer: sqlite3.Connection | None = None
+    try:
+        sheet = project.add_sheet("Notes")
+        column = project.add_column(sheet, "body")
+        project.add_rows(sheet, [{"body": "repair later"}], {"body": column})
+        project.db.execute("DELETE FROM search_dirty_scopes")
+        project.db.commit()
+
+        path = project.path / "project.retrieval.db"
+        writer = sqlite3.connect(path, isolation_level=None)
+        assert writer.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+        writer.execute("BEGIN IMMEDIATE")
+        writer.execute(
+            "CREATE TABLE retrieval_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL)"
+        )
+        writer.execute(
+            "INSERT INTO retrieval_meta(key,value) VALUES ('schema_version',?)",
+            (str(SCHEMA_VERSION),),
+        )
+
+        started = time.monotonic()
+        prepare_retrieval_on_open(project)
+        elapsed = time.monotonic() - started
+
+        assert elapsed < 1
+        assert project.db.execute(
+            "SELECT 1 FROM search_dirty_scopes WHERE sheet_id IS NULL "
+            "AND scan_cursor='[0,0]'"
+        ).fetchone()
+
+        writer.rollback()
+        writer.close()
+        writer = None
+        prepare_retrieval_on_open(project)
+        assert read_sidecar_id(project) is not None
+    finally:
+        if writer is not None:
+            writer.rollback()
+            writer.close()
+        project.close()
+
+
+def test_project_open_does_not_wait_for_current_sidecar_writer(tmp_path) -> None:
+    from frisket.search_index import bind_retrieval_sidecar
+
+    path = tmp_path / "sidecar-writer.frisket"
+    with closing(Project.create(path)) as project:
+        sidecar_id = bind_retrieval_sidecar(project)
+
+    writer = sqlite3.connect(path / "project.retrieval.db", isolation_level=None)
+    try:
+        writer.execute("BEGIN IMMEDIATE")
+        started = time.monotonic()
+        with closing(Project(path)) as reopened:
+            assert read_sidecar_id(reopened) == sidecar_id
+        elapsed = time.monotonic() - started
+        assert elapsed < 1
+    finally:
+        writer.rollback()
+        writer.close()
+
+
+def test_project_database_failure_does_not_quarantine_healthy_sidecar(
+    tmp_path, monkeypatch
+) -> None:
+    from frisket import search_index
+
+    project = Project.create(tmp_path / "project-db-failure.frisket")
+    try:
+        with RetrievalStore(project).open():
+            pass
+        project.set_meta(PROJECT_SIDECAR_META_KEY, "stale-sidecar")
+        failure = sqlite3.DatabaseError("project database write failed")
+        failure.sqlite_errorcode = sqlite3.SQLITE_CORRUPT
+
+        def fail_project_binding(_project) -> str:
+            raise failure
+
+        monkeypatch.setattr(
+            search_index, "bind_retrieval_sidecar", fail_project_binding
+        )
+        with pytest.raises(
+            sqlite3.DatabaseError, match="project database write failed"
+        ):
+            prepare_retrieval_on_open(project)
+
+        assert (project.path / "project.retrieval.db").is_file()
+        assert not list(project.path.glob("retrieval-unusable-*"))
     finally:
         project.close()
 

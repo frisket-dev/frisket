@@ -38,7 +38,11 @@ from .migration import (
     legacy_cell_vector_key,
     migrate_legacy_embedding_caches,
 )
-from .store import RetrievalStore, UnsupportedRetrievalSchema
+from .store import (
+    PROJECT_SIDECAR_META_KEY,
+    RetrievalStore,
+    UnsupportedRetrievalSchema,
+)
 
 
 LEGACY_EMBEDDING_UPGRADE_META_KEY = "retrieval_legacy_embedding_upgrade_v1"
@@ -83,31 +87,18 @@ def prepare_retrieval_on_open(project: Any) -> None:
         # Opening a project remains read-only with respect to derived storage.
         # Persist the repair intent in the authoritative database; the bounded
         # maintenance writer creates and binds the sidecar on its first batch.
-        with project.transaction_scope():
-            if not project.db.execute("SELECT 1 FROM current_cells LIMIT 1").fetchone():
-                return
-            global_scope = project.db.execute(
-                "SELECT 1 FROM search_dirty_scopes WHERE sheet_id IS NULL "
-                "AND scan_cursor='[0,0]' LIMIT 1"
-            ).fetchone()
-            if global_scope is None:
-                enqueue_dirty_scope(project.db)
+        _queue_retrieval_repair(project)
         return
     lock = FileLock(str(project_path / _UPGRADE_LOCK_NAME), timeout=0)
     try:
         with lock:
-            try:
-                bind_retrieval_sidecar(project)
-            except UnsupportedRetrievalSchema:
-                _preserve_unusable_sidecar(project_path)
-                bind_retrieval_sidecar(project)
-            except sqlite3.DatabaseError as exc:
-                if getattr(exc, "sqlite_errorcode", None) not in {
-                    sqlite3.SQLITE_CORRUPT,
-                    sqlite3.SQLITE_NOTADB,
-                }:
-                    raise
-                _preserve_unusable_sidecar(project_path)
+            sidecar_id = _open_sidecar_identity(project, project_path)
+            if sidecar_id is None:
+                _queue_retrieval_repair(project)
+                return
+            if project.get_meta(PROJECT_SIDECAR_META_KEY) != sidecar_id:
+                # Project-database failures happen outside sidecar recovery so a
+                # healthy derived database is never quarantined for the wrong file.
                 bind_retrieval_sidecar(project)
             if not legacy_exists:
                 return
@@ -121,6 +112,45 @@ def prepare_retrieval_on_open(project: Any) -> None:
         # Another opener owns the same idempotent attempt. It will persist the
         # report; this opener must not wait on derived-cache recovery.
         return
+
+
+def _queue_retrieval_repair(project: Any) -> None:
+    with project.transaction_scope():
+        if not project.db.execute("SELECT 1 FROM current_cells LIMIT 1").fetchone():
+            return
+        global_scope = project.db.execute(
+            "SELECT 1 FROM search_dirty_scopes WHERE sheet_id IS NULL "
+            "AND scan_cursor='[0,0]' LIMIT 1"
+        ).fetchone()
+        if global_scope is None:
+            enqueue_dirty_scope(project.db)
+
+
+def _open_sidecar_identity(project: Any, project_path: Path) -> str | None:
+    for attempt in range(2):
+        try:
+            with RetrievalStore(project).open(busy_timeout_ms=0) as retrieval:
+                return retrieval.sidecar_id()
+        except UnsupportedRetrievalSchema:
+            if attempt:
+                raise
+            _preserve_unusable_sidecar(project_path)
+        except sqlite3.DatabaseError as exc:
+            primary = _sqlite_primary_error(exc)
+            if primary in {sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED}:
+                return None
+            if attempt or primary not in {
+                sqlite3.SQLITE_CORRUPT,
+                sqlite3.SQLITE_NOTADB,
+            }:
+                raise
+            _preserve_unusable_sidecar(project_path)
+    raise AssertionError("sidecar recovery did not return or raise")
+
+
+def _sqlite_primary_error(exc: sqlite3.DatabaseError) -> int | None:
+    code = getattr(exc, "sqlite_errorcode", None)
+    return None if not isinstance(code, int) else code & 0xFF
 
 
 def _preserve_unusable_sidecar(project_path: Path) -> None:
@@ -491,11 +521,14 @@ def _legacy_fingerprints(project_path: Path) -> dict[str, list[int]]:
         except FileNotFoundError:
             fingerprints[wal_name] = [0, 0, 0]
         else:
-            fingerprints[wal_name] = [
-                1,
-                int(wal_stat.st_size),
-                int(wal_stat.st_mtime_ns),
-            ]
+            if wal_stat.st_size == 0:
+                fingerprints[wal_name] = [0, 0, 0]
+            else:
+                fingerprints[wal_name] = [
+                    1,
+                    int(wal_stat.st_size),
+                    int(wal_stat.st_mtime_ns),
+                ]
     return fingerprints
 
 

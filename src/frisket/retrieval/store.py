@@ -31,6 +31,7 @@ PreparationStatus = Literal["pending", "preparing", "ready", "unavailable", "fai
 # itself, so a broken input cannot create a hot retry loop.
 _EVENT_RETRYABLE_FAILURES = frozenset(
     {
+        "blob_integrity_failed",
         "encoding_failed",
         "media_decode_failed",
         "missing_blob",
@@ -166,19 +167,27 @@ class RetrievalStore:
             raise RuntimeError("retrieval store is not open")
         return self._connection
 
-    def open(self) -> RetrievalStore:
+    def open(self, *, busy_timeout_ms: int = 10_000) -> RetrievalStore:
         if self._connection is not None:
             return self
+        if (
+            isinstance(busy_timeout_ms, bool)
+            or not isinstance(busy_timeout_ms, int)
+            or busy_timeout_ms < 0
+        ):
+            raise ValueError("busy_timeout_ms must be a non-negative integer")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         creating = not self.path.exists()
-        db = sqlite3.connect(self.path, isolation_level=None)
+        db = sqlite3.connect(
+            self.path, isolation_level=None, timeout=busy_timeout_ms / 1000
+        )
         db.row_factory = sqlite3.Row
         try:
+            db.execute(f"PRAGMA busy_timeout={busy_timeout_ms}")
             if creating:
                 db.execute(f"PRAGMA page_size={PAGE_SIZE}")
             db.execute("PRAGMA journal_mode=WAL")
             db.execute("PRAGMA foreign_keys=ON")
-            db.execute("PRAGMA busy_timeout=10000")
             db.execute(f"PRAGMA cache_size=-{CACHE_KIB}")
             db.execute(f"PRAGMA mmap_size={MMAP_SIZE}")
             self._connection = db
@@ -203,32 +212,14 @@ class RetrievalStore:
     def ensure_schema(self) -> None:
         """Create the current sidecar without storing authoritative source text."""
 
+        if not self._schema_needs_write():
+            return
         self.db.execute("BEGIN IMMEDIATE")
         try:
-            tables = {
-                str(row[0])
-                for row in self.db.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table'"
-                )
-            }
-            if "retrieval_meta" in tables:
-                row = self.db.execute(
-                    "SELECT value FROM retrieval_meta WHERE key='schema_version'"
-                ).fetchone()
-                try:
-                    version = None if row is None else int(row[0])
-                except (TypeError, ValueError):
-                    version = None
-                if version != SCHEMA_VERSION:
-                    raise UnsupportedRetrievalSchema(
-                        f"unsupported retrieval schema version "
-                        f"{None if row is None else row[0]!r}; "
-                        f"expected {SCHEMA_VERSION}"
-                    )
-            elif tables:
-                raise UnsupportedRetrievalSchema(
-                    "unsupported retrieval schema: schema version is missing"
-                )
+            # A concurrent creator may have completed while BEGIN IMMEDIATE waited.
+            if not self._schema_needs_write():
+                self.db.commit()
+                return
 
             for statement in _schema_statements(_SCHEMA):
                 self.db.execute(statement)
@@ -275,6 +266,53 @@ class RetrievalStore:
             if self.db.in_transaction:
                 self.db.rollback()
             raise
+
+    def _schema_needs_write(self) -> bool:
+        tables = {
+            str(row[0])
+            for row in self.db.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        if "retrieval_meta" not in tables:
+            if tables:
+                raise UnsupportedRetrievalSchema(
+                    "unsupported retrieval schema: schema version is missing"
+                )
+            return True
+
+        row = self.db.execute(
+            "SELECT value FROM retrieval_meta WHERE key='schema_version'"
+        ).fetchone()
+        try:
+            version = None if row is None else int(row[0])
+        except (TypeError, ValueError):
+            version = None
+        if version != SCHEMA_VERSION:
+            raise UnsupportedRetrievalSchema(
+                f"unsupported retrieval schema version "
+                f"{None if row is None else row[0]!r}; expected {SCHEMA_VERSION}"
+            )
+
+        sidecar = self.db.execute(
+            "SELECT value FROM retrieval_meta WHERE key=?", (SIDECAR_ID_META_KEY,)
+        ).fetchone()
+        try:
+            if sidecar is None:
+                return True
+            uuid.UUID(str(sidecar[0]))
+        except (TypeError, ValueError, AttributeError):
+            return True
+
+        required_indexes = {"preparation_space_counts", "preparation_attention"}
+        present_indexes = {
+            str(index[0])
+            for index in self.db.execute(
+                "SELECT name FROM sqlite_master WHERE type='index' "
+                "AND name IN ('preparation_space_counts','preparation_attention')"
+            )
+        }
+        return present_indexes != required_indexes
 
     def sidecar_id(self) -> str:
         """Return this disposable sidecar incarnation's stable UUID."""
