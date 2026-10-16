@@ -10,6 +10,7 @@ from typing import Any
 from frisket.engine.pdf_text import PdfTextError, extract_pdf_text
 from frisket.engine.sandbox.media_sync import run_media_sync
 from frisket.engine.store.prepared_content import PreparedContentStore
+from frisket.engine.store.prepared_readiness import prepared_source_readiness_ctes
 from frisket.retrieval.source_adapter import resolve_cell_blob_source
 from frisket.server.route_errors import RouteError
 
@@ -25,6 +26,7 @@ def build_plan(
     force_ocr: bool,
     requirements: Sequence[Any],
     requirement_dict: Callable[..., dict[str, Any]],
+    intersect_visible_rows: bool = False,
 ) -> dict[str, Any]:
     columns = [
         column
@@ -35,7 +37,11 @@ def build_plan(
     selected = project.visible_row_ids(
         sheet_id, None if row_ids is None else list(row_ids)
     )
-    if row_ids is not None and set(selected) != set(row_ids):
+    if (
+        row_ids is not None
+        and not intersect_visible_rows
+        and set(selected) != set(row_ids)
+    ):
         raise RouteError(404, "one or more selected rows are not visible in this sheet")
     items: list[dict[str, Any]] = []
     counts: defaultdict[str, int] = defaultdict(int)
@@ -257,40 +263,19 @@ def _current_prepared_result(
     page_number: int | None,
 ) -> Any:
     return project.db.execute(
-        "SELECT current.prepared_ref_id,artifact.page_count "
-        "FROM current_cell_values current "
-        "JOIN prepared_content_refs ref ON ref.id=current.prepared_ref_id "
-        "JOIN prepared_content_sets content ON content.id=ref.set_id "
-        "JOIN source_artifacts artifact ON artifact.id=content.source_artifact_id "
-        "JOIN columns output_column ON output_column.id=current.column_id "
-        "AND output_column.sheet_id=? AND output_column.hidden=0 "
-        "WHERE current.row_id=? AND current.value_kind='text' "
-        "AND length(trim(current.value))>0 AND artifact.blob_hash=? "
-        "AND ref.page_number IS ? AND ((artifact.source_sheet_id=? "
-        "AND artifact.source_row_id=? AND artifact.source_column_id=?) OR EXISTS ("
-        "SELECT 1 FROM evidence_links source_link "
-        "JOIN evidence_link_spans source_linked "
-        "ON source_linked.link_id=source_link.id "
-        "JOIN source_spans source_span ON source_span.id=source_linked.span_id "
-        "WHERE source_link.status='active' "
-        "AND source_link.link_role='primary_support' "
-        "AND source_link.subject_kind='cell_value' "
-        "AND source_link.sheet_id=? AND source_link.row_id=? "
-        "AND source_link.column_id=? AND source_span.artifact_id=artifact.id "
-        "AND source_span.span_kind='page' "
-        "AND source_span.page_start IS ref.page_number "
-        "AND source_span.page_end IS ref.page_number)) LIMIT 1",
+        "WITH prepared_readiness_scope(sheet_id,row_id) AS (VALUES (?,?)), "
+        f"{prepared_source_readiness_ctes(scope_relation='prepared_readiness_scope')} "
+        "SELECT prepared_ref_id,page_count FROM current_prepared_sources "
+        "WHERE source_sheet_id=? AND source_row_id=? AND source_column_id=? "
+        "AND blob_hash=? AND page_number IS ? LIMIT 1",
         (
             sheet_id,
             row_id,
+            sheet_id,
+            row_id,
+            column_id,
             blob_hash,
             page_number,
-            sheet_id,
-            row_id,
-            column_id,
-            sheet_id,
-            row_id,
-            column_id,
         ),
     ).fetchone()
 

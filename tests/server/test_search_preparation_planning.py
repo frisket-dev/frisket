@@ -15,10 +15,163 @@ from frisket.engine.store.prepared_content import (
     PreparedContentStore,
     PreparedPageDraft,
 )
+from frisket.engine.executor import run_action_spec
 from frisket.retrieval.source_adapter import resolve_cell_blob_source
 from frisket.server.route_errors import RouteError
 from frisket.server.services import search_preparation_planning as planning
 from tests.engine.test_transcript_segments_action import _seed_timestamped_transcript
+from tests.engine.test_native_pdf_text_action import (
+    _page,
+    _pdf_bytes,
+    _request,
+    _source,
+)
+
+
+def test_automatic_plan_intersects_rows_that_remain_visible(tmp_path) -> None:
+    project = Project.create(tmp_path / "visible-automatic-scope.frisket")
+    try:
+        sheet = project.add_sheet("Images")
+        image = project.add_column(sheet, "image", type="image")
+        rows = project.add_rows(
+            sheet,
+            [
+                {
+                    "image": {
+                        "blob": project.add_blob(
+                            f"image-{index}".encode(), mime="image/png"
+                        ),
+                        "mime": "image/png",
+                    }
+                }
+                for index in range(3)
+            ],
+            {"image": image},
+        )
+        project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (rows[1],))
+
+        with pytest.raises(RouteError, match="not visible") as error:
+            planning.build_plan(
+                project,
+                sheet_id=sheet,
+                row_ids=rows,
+                force_ocr=False,
+                requirements=(),
+                requirement_dict=lambda *_args, **_kwargs: {},
+            )
+        assert error.value.status_code == 404
+
+        automatic = planning.build_plan(
+            project,
+            sheet_id=sheet,
+            row_ids=rows,
+            force_ocr=False,
+            requirements=(),
+            requirement_dict=lambda *_args, **_kwargs: {},
+            intersect_visible_rows=True,
+        )
+        assert [item["row_id"] for item in automatic["items"]] == [rows[0], rows[2]]
+    finally:
+        project.close()
+
+
+def test_manual_edit_over_prepared_generation_stays_ready_for_same_source(
+    tmp_path, monkeypatch
+) -> None:
+    from frisket.engine import pdf_text
+    from frisket.retrieval.contracts import (
+        RankingPolicy,
+        RetrievalScope,
+        SearchRequest,
+        SheetScope,
+        TextQuery,
+    )
+    from frisket.retrieval.query import search
+    from frisket.search import drain_index
+
+    async def native_text(_source, **_kwargs):
+        return [_page(1, "native searchable text")]
+
+    monkeypatch.setattr(pdf_text, "extract_pdf_text", native_text)
+    project = Project.create(tmp_path / "edited-prepared-generation.frisket")
+    try:
+        sheet, document, row, _digest = _source(
+            project, tmp_path, pdf=_pdf_bytes("native searchable text")
+        )
+        result = run_action_spec(
+            project,
+            _request(sheet, row, key="edited-prepared-generation@1"),
+            project_id="edited-prepared-generation",
+        )
+        assert result.status == "completed", result.errors
+        output = next(item for item in result.outputs if item.name == "prepared text")
+        project.apply_edits(
+            [
+                {
+                    "row_id": row,
+                    "column_id": output.column_id,
+                    "value": "editor corrected text",
+                }
+            ]
+        )
+
+        source = resolve_cell_blob_source(
+            project, sheet_id=sheet, row_id=row, column_id=document
+        )
+        assert source is not None
+        assert planning._has_current_result(project, source, "native_pdf")
+        assert (
+            planning.build_plan(
+                project,
+                sheet_id=sheet,
+                row_ids=[row],
+                force_ocr=False,
+                requirements=(),
+                requirement_dict=lambda *_args, **_kwargs: {},
+            )["items"]
+            == []
+        )
+        drain_index(project)
+
+        def preparation_counts() -> tuple[int, int]:
+            response = search(
+                project,
+                SearchRequest(
+                    scope=RetrievalScope(
+                        sheets=(SheetScope(sheet, column_ids=(document,)),)
+                    ),
+                    query=TextQuery("absent"),
+                    mode="lexical",
+                    ranking=RankingPolicy(rerank="off"),
+                ),
+            )
+            gap = next(
+                item
+                for item in response.coverage.channels
+                if item.channel == "search_preparation"
+            )
+            return int(gap.eligible_count or 0), int(gap.prepared_count or 0)
+
+        assert preparation_counts() == (1, 1)
+
+        replacement = project.add_blob(b"replacement pdf", mime="application/pdf")
+        project.apply_edits(
+            [
+                {
+                    "row_id": row,
+                    "column_id": document,
+                    "value": {"blob": replacement, "mime": "application/pdf"},
+                }
+            ]
+        )
+        changed_source = resolve_cell_blob_source(
+            project, sheet_id=sheet, row_id=row, column_id=document
+        )
+        assert changed_source is not None
+        assert not planning._has_current_result(project, changed_source, "native_pdf")
+        assert preparation_counts() == (1, 0)
+    finally:
+        project.close()
 
 
 def test_prepared_pdf_result_must_match_current_page_selector(

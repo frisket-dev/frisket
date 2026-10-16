@@ -15,6 +15,7 @@ from threading import Event
 from typing import Any, Literal
 
 from frisket.engine.store import cells
+from frisket.engine.store.prepared_readiness import prepared_source_readiness_ctes
 from frisket.search_hydration import MAX_SNIPPET_CANDIDATES, native_snippets
 
 from .contracts import (
@@ -899,49 +900,16 @@ def _material_preparation_coverage(
             ))
           GROUP BY scoped.sheet_id,source_current.row_id,
                    source_current.column_id,blob_hash,page_number
-        )
+        ), {prepared_source_readiness_ctes(scope_relation="eligible_media", schema="main")}
         SELECT count(*) AS eligible_count,
                coalesce(sum(CASE WHEN
                  EXISTS (
-                   SELECT 1
-                   FROM main.source_artifacts AS artifact
-                   JOIN main.prepared_content_sets AS content
-                     ON content.source_artifact_id=artifact.id
-                   JOIN main.prepared_content_refs AS ref
-                     ON ref.set_id=content.id
-                   JOIN main.current_cell_values AS current
-                     ON current.row_id=eligible.row_id
-                    AND current.prepared_ref_id=ref.id
-                   JOIN main.columns AS output_column
-                     ON output_column.id=current.column_id
-                    AND output_column.sheet_id=eligible.sheet_id
-                    AND output_column.hidden=0
-                   WHERE current.value_kind='text'
-                     AND length(trim(current.value))>0
-                     AND artifact.blob_hash=eligible.blob_hash
-                     AND ref.page_number IS eligible.page_number
-                     AND ((artifact.source_sheet_id=eligible.sheet_id
-                           AND artifact.source_row_id=eligible.row_id
-                           AND artifact.source_column_id=eligible.column_id)
-                          OR EXISTS (
-                            SELECT 1
-                            FROM main.evidence_links AS source_link
-                            JOIN main.evidence_link_spans AS source_linked
-                              ON source_linked.link_id=source_link.id
-                            JOIN main.source_spans AS source_span
-                              ON source_span.id=source_linked.span_id
-                            WHERE source_link.status='active'
-                              AND source_link.link_role='primary_support'
-                              AND source_link.subject_kind='cell_value'
-                              AND source_link.sheet_id=eligible.sheet_id
-                              AND source_link.row_id=eligible.row_id
-                              AND source_link.column_id=eligible.column_id
-                              AND source_span.artifact_id=artifact.id
-                              AND source_span.span_kind='page'
-                              AND source_span.page_start IS ref.page_number
-                              AND source_span.page_end IS ref.page_number
-                            LIMIT 1
-                          ))
+                   SELECT 1 FROM current_prepared_sources AS prepared
+                   WHERE prepared.source_sheet_id=eligible.sheet_id
+                     AND prepared.source_row_id=eligible.row_id
+                     AND prepared.source_column_id=eligible.column_id
+                     AND prepared.blob_hash=eligible.blob_hash
+                     AND prepared.page_number IS eligible.page_number
                    LIMIT 1
                  ) OR EXISTS (
                    SELECT 1
