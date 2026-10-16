@@ -157,6 +157,20 @@ class SourceLocator:
 
 
 @dataclass(frozen=True, slots=True)
+class BindingRevision:
+    """Contributing cell head pinned when a search hit was read."""
+
+    row_id: int
+    column_id: int
+    retrieval_revision: int
+
+    def __post_init__(self) -> None:
+        _positive(self.row_id, "row_id")
+        _positive(self.column_id, "column_id")
+        _positive(self.retrieval_revision, "retrieval_revision")
+
+
+@dataclass(frozen=True, slots=True)
 class ScopedBinding:
     """One visible binding selected by the request's compiled scope."""
 
@@ -164,6 +178,7 @@ class ScopedBinding:
     sheet_id: int
     row_id: int
     column_id: int | None = None
+    dependencies: tuple[BindingRevision, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
