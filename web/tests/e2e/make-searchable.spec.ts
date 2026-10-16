@@ -373,7 +373,7 @@ test('turning automatic preparation off leaves an imported PDF untouched until S
   await palette.getByTestId('search-mode-select').selectOption('lexical');
   await palette.getByTestId('command-palette-input').fill('amberquay');
   const gap = palette.getByTestId('search-preparation-gap');
-  await expect(gap).toContainText(/1 file needs search preparation/i);
+  await expect(gap).toContainText(/1 current media item needs search preparation/i);
   const explicitPreparation = page.waitForResponse((response) => (
     response.request().method() === 'POST'
     && new URL(response.url()).pathname === `/api/projects/${pid}/search-preparation`
