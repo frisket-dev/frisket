@@ -657,14 +657,14 @@ test('Check text explicitly requests replacement OCR without changing the origin
     await page.getByTestId('bottom-dock-tab-jobs').click();
     for (const job of completedOcr.jobs) {
       await expect(page.getByTestId(`bottom-dock-job-${job.job_id}`)).toContainText(
-        '(automatic)',
+        '(search preparation)',
       );
     }
     await page.reload();
     await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
     await page.getByTestId('bottom-dock-tab-jobs').click();
     await expect(page.getByTestId(`bottom-dock-job-${completedOcr.jobs[0].job_id}`)).toContainText(
-      '(automatic)',
+      '(search preparation)',
     );
     const palette = await openPalette(page);
     await palette.getByTestId('search-mode-select').selectOption('lexical');
