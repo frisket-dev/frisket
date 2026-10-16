@@ -328,7 +328,10 @@ class Workspace:
             from frisket.engine.jobs.model_pull import register_model_pull_handler
 
             register_model_pull_handler(
-                self.registry, workspace_root=self.root, queue=self.queue
+                self.registry,
+                workspace_root=self.root,
+                queue=self.queue,
+                on_embedding_setup_done=self._embedding_setup_completed,
             )
         # This workspace OWNS the plugin package catalog
         # (<root>/.frisket/plugin_packages.db). Seed shipped bundled packages
@@ -365,6 +368,14 @@ class Workspace:
         """Close the owned local worker; injected runtimes belong to their host."""
         if self._owns_embedding_runtime:
             await self.embedding_runtime.aclose()
+
+    def _embedding_setup_completed(self) -> None:
+        """Resume retryable retrieval work for projects already open here."""
+
+        for project in self._projects.copy().values():
+            retry = getattr(project, "_frisket_retry_retrieval_encoder", None)
+            if callable(retry):
+                retry()
 
     def _derived_project_opener(self) -> ProjectOpener | None:
         """The opener implied by this workspace's own declared configuration.
@@ -1026,6 +1037,30 @@ class Workspace:
 
         setattr(project, "_frisket_schedule_search_index", schedule_search)
 
+        def retry_retrieval_encoder() -> int:
+            from frisket.retrieval.preparation import DEFAULT_TEXT_SPACE
+            from frisket.retrieval.store import RetrievalStore
+
+            store = RetrievalStore(project)
+            # Retrieval state is derived and created lazily. Merely opening a
+            # clean project must not create a sidecar just to discover no work.
+            if not store.path.is_file() or not self.embedding_runtime.available():
+                return 0
+            try:
+                with store:
+                    changed = store.requeue_unavailable(
+                        error_code="encoder_unavailable",
+                        space_id=DEFAULT_TEXT_SPACE.identity,
+                    )
+            except Exception:
+                _log.warning("retrieval_encoder_requeue_failed", exc_info=True)
+                return 0
+            if changed:
+                schedule_search()
+            return changed
+
+        setattr(project, "_frisket_retry_retrieval_encoder", retry_retrieval_encoder)
+
         def schedule_metadata(receipt_id: str = "recovery") -> int | None:
             # Opening a million-blob project must not synchronously inspect
             # every metadata document. The worker filters completed probes.
@@ -1057,6 +1092,10 @@ class Workspace:
         # Recover the commit/enqueue crash window when a project is reopened.
         # Probe namespaces are the durable progress marker; no second state table.
         schedule_metadata()
+        # Recover both ordinary commit/enqueue gaps and preparations paused
+        # before the optional local encoder was installed.
+        retry_retrieval_encoder()
+        schedule_search()
 
     def create(
         self,

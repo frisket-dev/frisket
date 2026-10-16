@@ -293,6 +293,13 @@ def _settings_project(tmp_path):
     return client, pid
 
 
+def _media_settings(body: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "media_allow_private_hosts": body["media_allow_private_hosts"],
+        "media_allow_private_hosts_locked": body["media_allow_private_hosts_locked"],
+    }
+
+
 def test_settings_route_returns_effective_defaults_for_a_fresh_project(
     tmp_path, monkeypatch
 ):
@@ -304,7 +311,7 @@ def test_settings_route_returns_effective_defaults_for_a_fresh_project(
     resp = client.get(f"/api/projects/{pid}/settings")
 
     assert resp.status_code == 200
-    assert resp.json() == {
+    assert _media_settings(resp.json()) == {
         "media_allow_private_hosts": True,
         "media_allow_private_hosts_locked": False,
     }
@@ -365,7 +372,7 @@ def test_server_deny_default_is_overridable_per_project(tmp_path, monkeypatch):
 
     # deny is a default, not a lock: a fresh project inherits it...
     fresh = client.get(f"/api/projects/{pid}/settings").json()
-    assert fresh == {
+    assert _media_settings(fresh) == {
         "media_allow_private_hosts": False,
         "media_allow_private_hosts_locked": False,
     }
@@ -398,7 +405,7 @@ def test_server_deny_locked_hides_and_rejects_the_project_override(
     monkeypatch.setenv(MEDIA_PRIVATE_HOSTS_ENV, "deny-locked")
 
     locked = client.get(f"/api/projects/{pid}/settings").json()
-    assert locked == {
+    assert _media_settings(locked) == {
         "media_allow_private_hosts": False,
         "media_allow_private_hosts_locked": True,
     }

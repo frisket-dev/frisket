@@ -507,6 +507,7 @@ def register_production_handlers(
         queue=queue,
         workspace_root_storage_org_id=workspace_root_storage_org_id,
         project_opener=project_opener,
+        embedding_encoder=embedding_runtime,
     )
     notification_delivery_registration = register_notification_handlers(
         registry,

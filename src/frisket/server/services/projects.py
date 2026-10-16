@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from dataclasses import replace
 from typing import Any
 
 from filelock import FileLock
@@ -19,6 +20,18 @@ from frisket.ops.egress_policy import (
 from frisket.provider_definitions import KeyScope, provider_definition, providers_for
 from frisket.project_identity import validate_project_slug
 from frisket.project_settings import patch_project_settings
+from frisket.retrieval.content import TextChunkRecipe, TranscriptChunkRecipe
+from frisket.retrieval.media import (
+    AudioWindowRecipe,
+    FixedClipRecipe,
+    PeriodicFrameRecipe,
+    ShotClipRecipe,
+)
+from frisket.retrieval.preparation import (
+    PreparationPolicy,
+    read_preparation_policy,
+    write_preparation_policy,
+)
 from frisket.server.route_errors import RouteError
 from frisket.team.security.secrets import encrypt_secret, key_hint
 from frisket.server import provider_config
@@ -109,7 +122,101 @@ def _project_settings_response(project: Any) -> dict[str, Any]:
     return {
         "media_allow_private_hosts": media_egress_policy(project).allow_private_hosts,
         "media_allow_private_hosts_locked": private_hosts_locked(),
+        "retrieval": _retrieval_settings_response(read_preparation_policy(project)),
     }
+
+
+def _retrieval_settings_response(policy: PreparationPolicy) -> dict[str, Any]:
+    recipe = policy.video_recipe
+    video: dict[str, Any] = {
+        "strategy": "off",
+        "interval_seconds": None,
+        "duration_seconds": None,
+        "stride_seconds": None,
+        "sample_fps": None,
+    }
+    if isinstance(recipe, PeriodicFrameRecipe):
+        video.update(strategy="frames", interval_seconds=recipe.interval_seconds)
+    elif isinstance(recipe, FixedClipRecipe):
+        video.update(
+            strategy="fixed_clips",
+            duration_seconds=recipe.duration_seconds,
+            stride_seconds=recipe.stride_seconds,
+            sample_fps=recipe.sample_fps,
+        )
+    elif isinstance(recipe, ShotClipRecipe):
+        video.update(
+            strategy="shot_clips",
+            duration_seconds=recipe.max_duration_seconds,
+            sample_fps=recipe.sample_fps,
+        )
+    return {
+        "text_enabled": policy.text_recipe is not None,
+        "transcript_enabled": policy.transcript_recipe is not None,
+        "image_enabled": policy.image_enabled,
+        "pdf_pages_enabled": policy.pdf_pages_enabled,
+        "video": video,
+        "audio_enabled": policy.audio_recipe is not None,
+    }
+
+
+def _updated_retrieval_policy(
+    policy: PreparationPolicy, patch: dict[str, Any]
+) -> PreparationPolicy:
+    updates: dict[str, Any] = {}
+    if "text_enabled" in patch:
+        updates["text_recipe"] = TextChunkRecipe() if patch["text_enabled"] else None
+    if "transcript_enabled" in patch:
+        updates["transcript_recipe"] = (
+            TranscriptChunkRecipe() if patch["transcript_enabled"] else None
+        )
+    for field in ("image_enabled", "pdf_pages_enabled"):
+        if field in patch:
+            updates[field] = patch[field]
+    if "audio_enabled" in patch:
+        updates["audio_recipe"] = (
+            AudioWindowRecipe() if patch["audio_enabled"] else None
+        )
+    if video := patch.get("video"):
+        strategy = video["strategy"]
+        current = policy.video_recipe
+        if strategy == "off":
+            updates["video_recipe"] = None
+        elif strategy == "frames":
+            baseline = current if isinstance(current, PeriodicFrameRecipe) else None
+            updates["video_recipe"] = PeriodicFrameRecipe(
+                interval_seconds=video.get(
+                    "interval_seconds",
+                    baseline.interval_seconds if baseline else 1.0,
+                )
+            )
+        elif strategy == "fixed_clips":
+            baseline = current if isinstance(current, FixedClipRecipe) else None
+            updates["video_recipe"] = FixedClipRecipe(
+                duration_seconds=video.get(
+                    "duration_seconds",
+                    baseline.duration_seconds if baseline else 8.0,
+                ),
+                stride_seconds=video.get(
+                    "stride_seconds",
+                    baseline.stride_seconds if baseline else 4.0,
+                ),
+                sample_fps=video.get(
+                    "sample_fps", baseline.sample_fps if baseline else 1.0
+                ),
+            )
+        elif strategy == "shot_clips":
+            baseline = current if isinstance(current, ShotClipRecipe) else None
+            updates["video_recipe"] = ShotClipRecipe(
+                max_duration_seconds=video.get(
+                    "duration_seconds",
+                    baseline.max_duration_seconds if baseline else 10.0,
+                ),
+                sample_fps=video.get(
+                    "sample_fps", baseline.sample_fps if baseline else 1.0
+                ),
+            )
+    return replace(policy, **updates)
 
 
 def _provider_catalog(scope: KeyScope) -> list[dict[str, Any]]:
@@ -511,10 +618,25 @@ class ProjectLifecycleService:
                 "media_allow_private_hosts is locked off by the server "
                 f"({MEDIA_PRIVATE_HOSTS_ENV}=deny-locked)"
             )
+        retrieval_patch = patch.pop("retrieval", None)
         try:
-            patch_project_settings(project, patch)
-        except ValidationError as exc:
+            retrieval_policy = (
+                _updated_retrieval_policy(
+                    read_preparation_policy(project), retrieval_patch
+                )
+                if retrieval_patch is not None
+                else None
+            )
+            with project.transaction_scope():
+                patch_project_settings(project, patch)
+                if retrieval_policy is not None:
+                    write_preparation_policy(project, retrieval_policy)
+        except (TypeError, ValueError, ValidationError) as exc:
             raise ProjectSettingsError(str(exc)) from exc
+        if retrieval_policy is not None:
+            schedule = getattr(project, "_frisket_schedule_search_index", None)
+            if callable(schedule):
+                schedule()
         return _project_settings_response(project)
 
     def compact_project(self, project_id: str) -> dict[str, Any]:

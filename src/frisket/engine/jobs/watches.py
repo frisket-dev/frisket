@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from frisket.engine.store import Project
 from frisket.engine.jobs.notifications_delivery import (
@@ -27,6 +27,9 @@ from .queue import JobQueue, claimed_project_location
 from .project_opener import ProjectOpener, claimed_opener_key
 from .ports import JobHandlerContext
 from .worker import HandlerRegistration, HandlerRegistry
+
+if TYPE_CHECKING:
+    from frisket.retrieval.preparation import PreparationEncoder
 
 WATCH_EVALUATE_KIND = "watch.evaluate"
 
@@ -185,6 +188,7 @@ def register_watch_evaluate_handler(
     queue: JobQueue,
     workspace_root_storage_org_id: int | None = None,
     project_opener: ProjectOpener | None = None,
+    embedding_encoder: PreparationEncoder | None = None,
 ) -> HandlerRegistration:
     """Register the worker handler that runs one queued watch evaluation."""
     root = Path(workspace_root)
@@ -256,7 +260,9 @@ def register_watch_evaluate_handler(
             if query_kind in {"fts", "search.fts"}:
                 from .search_index import index_work_marker, process_index_batches
 
-                processed, complete = process_index_batches(project)
+                processed, complete = process_index_batches(
+                    project, embedding_encoder=embedding_encoder
+                )
                 # A source write can enqueue a fresh scope after the indexer
                 # reports its quantum complete. Re-read durable work before
                 # evaluating so that run cannot advance past an unseen row.

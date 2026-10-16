@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 import pytest
@@ -96,6 +98,85 @@ def test_project_config_routes_have_typed_successes_and_preserve_wire_rules(
     assert secret.status_code == 200
     assert "secret-value" not in secret.text
     assert secret.json()["schemaVersion"] == "frisket.project_secrets.v1"
+
+
+def test_project_settings_round_trip_typed_retrieval_policy(tmp_path) -> None:
+    client = TestClient(create_app(tmp_path / "workspace"))
+    pid = client.post("/api/projects", json={"name": "Retrieval settings"}).json()["id"]
+
+    initial = client.get(f"/api/projects/{pid}/settings")
+    assert initial.status_code == 200
+    assert initial.json()["retrieval"] == {
+        "text_enabled": True,
+        "transcript_enabled": True,
+        "image_enabled": True,
+        "pdf_pages_enabled": True,
+        "video": {
+            "strategy": "shot_clips",
+            "interval_seconds": None,
+            "duration_seconds": 10.0,
+            "stride_seconds": None,
+            "sample_fps": 1.0,
+        },
+        "audio_enabled": False,
+    }
+
+    updated = client.patch(
+        f"/api/projects/{pid}/settings",
+        json={
+            "retrieval": {
+                "text_enabled": False,
+                "audio_enabled": True,
+                "video": {
+                    "strategy": "fixed_clips",
+                    "duration_seconds": 6,
+                    "stride_seconds": 3,
+                    "sample_fps": 2,
+                },
+            }
+        },
+    )
+    assert updated.status_code == 200, updated.text
+    retrieval = updated.json()["retrieval"]
+    assert retrieval["text_enabled"] is False
+    assert retrieval["transcript_enabled"] is True
+    assert retrieval["audio_enabled"] is True
+    assert retrieval["video"] == {
+        "strategy": "fixed_clips",
+        "interval_seconds": None,
+        "duration_seconds": 6.0,
+        "stride_seconds": 3.0,
+        "sample_fps": 2.0,
+    }
+
+    project = client.app.state.workspace.get(pid)
+    assert project.get_meta("retrieval_preparation_policy_v1") is not None
+    assert "retrieval" not in json.loads(project.get_meta("project_settings_v1"))
+
+
+def test_project_settings_reject_invalid_video_knobs(tmp_path) -> None:
+    client = TestClient(create_app(tmp_path / "workspace"))
+    pid = client.post("/api/projects", json={"name": "Retrieval settings"}).json()["id"]
+
+    wrong_strategy_field = client.patch(
+        f"/api/projects/{pid}/settings",
+        json={"retrieval": {"video": {"strategy": "frames", "duration_seconds": 5}}},
+    )
+    assert wrong_strategy_field.status_code == 422
+
+    impossible_clip = client.patch(
+        f"/api/projects/{pid}/settings",
+        json={
+            "retrieval": {
+                "video": {
+                    "strategy": "fixed_clips",
+                    "duration_seconds": 4,
+                    "stride_seconds": 5,
+                }
+            }
+        },
+    )
+    assert impossible_clip.status_code == 400
 
 
 def test_network_and_secret_conflict_responses_preserve_existing_wire_bytes(

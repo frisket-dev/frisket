@@ -123,6 +123,40 @@ def test_queued_watch_waits_for_complete_unified_index(tmp_path):
             assert run["matched_rows"] == 9
 
 
+def test_watch_index_drain_uses_the_worker_embedding_encoder(tmp_path, monkeypatch):
+    _project(tmp_path)
+    with closing(Project(tmp_path / "docs.frisket")) as project:
+        watch_id = project.add_watch(
+            "needle",
+            scope="project",
+            query={"kind": "fts", "q": "needle", "limit": 20},
+        )
+    encoder = object()
+    seen = []
+
+    def capture_encoder(_project, **kwargs):
+        seen.append(kwargs.get("embedding_encoder"))
+        return 0, False
+
+    monkeypatch.setattr(search_index, "process_index_batches", capture_encoder)
+    with closing(SqliteJobQueue(tmp_path / "queue.db")) as queue:
+        registry = HandlerRegistry()
+        register_watch_evaluate_handler(
+            registry,
+            workspace_root=tmp_path,
+            queue=queue,
+            embedding_encoder=encoder,  # type: ignore[arg-type]
+        )
+        queue.enqueue(
+            WATCH_EVALUATE_KIND,
+            {"project_id": "docs", "watch_id": watch_id},
+        )
+
+        assert Worker(queue, registry).run_once()
+
+    assert seen == [encoder]
+
+
 def test_edit_after_index_quantum_prevents_a_stale_watch_run(tmp_path, monkeypatch):
     _project(tmp_path)
     with closing(Project(tmp_path / "docs.frisket")) as project:

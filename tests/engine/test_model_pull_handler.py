@@ -14,6 +14,7 @@ import httpx
 import pytest
 
 from frisket.engine.jobs import model_pull_store as store
+from frisket.engine.jobs.engine_setup import EMBEDDINGGEMMA_SETUP_REF
 from frisket.engine.jobs.ports import JobHandlerContext
 from frisket.engine.jobs.model_pull import register_model_pull_handler
 from frisket.engine.jobs.queue import open_queue
@@ -104,6 +105,39 @@ def _run_handler(registry, queue, pull_id: int, job_id: int) -> dict:
         },
         JobHandlerContext.without_job_row(),
     )
+
+
+def test_embedding_setup_success_calls_completion_hook(tmp_path, monkeypatch) -> None:
+    root, queue, registry = _setup(tmp_path)
+    row, created = store.create_or_get_active(
+        queue.engine,
+        workspace_root=str(root),
+        model_ref=EMBEDDINGGEMMA_SETUP_REF,
+        endpoint_id=None,
+        endpoint_origin=None,
+    )
+    assert created
+    job_id = queue.enqueue(
+        "model.pull",
+        {"pull_id": row.id, "workspace_root": str(root)},
+    )
+    store.set_job_id(queue.engine, row.id, job_id=job_id)
+    completed: list[bool] = []
+    monkeypatch.setattr(
+        "frisket.engine.jobs.engine_setup.run_engine_setup",
+        lambda **_kwargs: {"status": "done"},
+    )
+    register_model_pull_handler(
+        registry,
+        workspace_root=root,
+        queue=queue,
+        on_embedding_setup_done=lambda: completed.append(True),
+    )
+    queue.claim("w1")
+
+    assert _run_handler(registry, queue, row.id, job_id) == {"status": "done"}
+    assert completed == [True]
+    queue.close()
 
 
 def test_idempotent_when_already_installed(tmp_path, monkeypatch) -> None:
