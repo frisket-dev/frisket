@@ -9,6 +9,7 @@ from frisket.actions.core import RegisteredAction
 from frisket.engine.executor import ExecutorDeps
 from frisket.engine.runner import MapRunner
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
+from frisket.search import drain_index, index_batch, search_project
 from frisket.server.services.action_runs import ActionRunService
 from frisket.server.workspace import Workspace
 
@@ -63,6 +64,72 @@ def _template_request(sheet_id: int, row_ids: list[int]) -> dict[str, Any]:
         "output_names": {"rendered": "display_name"},
         "idempotency_key": "typed-template@1",
     }
+
+
+def test_direct_derive_schedules_bounded_search_publication(tmp_path: Path) -> None:
+    workspace = Workspace(
+        tmp_path / "workspace",
+        enable_local_model_pull=False,
+    )
+    workspace.create("Derived search", project_id="derived-search")
+    project = workspace.get("derived-search")
+    source_sheet = project.add_sheet("Source")
+    source_column = project.add_column(source_sheet, "people", "json")
+    project.add_rows(
+        source_sheet,
+        [{"people": ["Devon Larratt — veteran"]}],
+        {"people": source_column},
+    )
+    drain_index(project)
+    schedule_search = project._frisket_schedule_search_index
+    scheduled_jobs: list[int | None] = []
+
+    def record_schedule() -> int | None:
+        job_id = schedule_search()
+        scheduled_jobs.append(job_id)
+        return job_id
+
+    project._frisket_schedule_search_index = record_schedule
+    response = ActionRunService(workspace).run_action(
+        "derived-search",
+        {
+            "action_id": "derive.table_from_list",
+            "scope": {"kind": "project"},
+            "sheet_name": "People",
+            "params": {
+                "source": {
+                    "kind": "column",
+                    "sheet_id": source_sheet,
+                    "column_id": source_column,
+                }
+            },
+            "idempotency_key": "derived-search@sha256:v1",
+        },
+    )
+
+    assert response.status_code == 200, response.payload
+    assert response.payload["status"] == "completed"
+    child_sheet = int(
+        next(
+            output["sheet_id"]
+            for output in response.payload["outputs"]
+            if output["kind"] == "sheet"
+        )
+    )
+    assert len(scheduled_jobs) == 1
+    assert scheduled_jobs[0] is not None
+
+    for _ in range(16):
+        progress = index_batch(project, batch_size=2)
+        if progress.complete:
+            break
+    else:
+        pytest.fail("bounded retrieval maintenance did not finish")
+
+    hits = search_project(project, "Devon", rerank="off")
+    hit = next(hit for hit in hits if hit["sheet_id"] == child_sheet)
+    assert hit["column_name"] == "value"
+    assert "Devon" in hit["snip"]
 
 
 def test_typed_action_uses_request_deps_and_root_dispatch(

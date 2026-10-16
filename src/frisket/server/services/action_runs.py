@@ -345,6 +345,9 @@ class ActionRunService:
         project_id: str,
         result: V1ActionResult,
     ) -> ActionRunResponse:
+        schedule_search = getattr(project, "_frisket_schedule_search_index", None)
+        if callable(schedule_search):
+            schedule_search()
         self._settle_direct_terminal_receipt(project, project_id, result)
         self._enqueue_completed_v1_source_poll_enclosures(project, project_id, result)
         self._trigger_completed_v1_source_poll_watches(project, project_id, result)
