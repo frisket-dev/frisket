@@ -702,7 +702,8 @@ test('Check text explicitly requests replacement OCR without changing the origin
     await expect(correctedHit).toBeVisible({ timeout: 20_000 });
     const correctedBody = await correctedResult.json() as SearchResponse;
     const corrected = correctedBody.groups.find((group) => (
-      group.primary.snippet.includes('turquoise lighthouse')
+      group.primary.snippet.replaceAll('<b>', '').replaceAll('</b>', '')
+        .includes('turquoise lighthouse')
     ))?.primary;
     expect(corrected).toBeTruthy();
     await expectSearchHitOpensPage(page, pid, corrected!, correctedHit, {
