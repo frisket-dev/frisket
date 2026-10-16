@@ -178,6 +178,80 @@ def test_preparation_list_projects_durable_indexing_work(tmp_path, monkeypatch) 
     assert queue.find_job_by_refs("search.index", project_id=project_id) is None
 
 
+@pytest.mark.parametrize("mode", ["lexical", "semantic", "hybrid"])
+def test_search_recovers_index_work_without_a_queued_job(tmp_path, monkeypatch, mode):
+    # Exercise the real unavailable-model path without using a developer's cache.
+    monkeypatch.setenv("FRISKET_MODEL_RUNTIME_DIR", str(tmp_path / "model-runtime"))
+    monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "model-cache"))
+    monkeypatch.setattr(preparation_module, "_requirements", lambda: ())
+    client = TestClient(create_app(tmp_path / "workspace"))
+    workspace = client.app.state.workspace
+    project_id = client.post("/api/projects", json={"name": "Recovery"}).json()["id"]
+    project = workspace.get(project_id)
+    sheet_id = project.add_sheet("Notes")
+    column_id = project.add_column(sheet_id, "Note", type="text")
+    project.add_rows(sheet_id, [{"Note": "blue wharf"}], {"Note": column_id})
+    job = workspace.queue.find_job_by_refs("search.index", project_id=project_id)
+    assert job is not None
+    assert workspace.queue.cancel(job.id)
+    status_url = f"/api/projects/{project_id}/search-preparation"
+    assert client.get(status_url).json()["indexing"] == {
+        "status": "pending",
+        "job_id": None,
+        "error": None,
+    }
+    body = {
+        "scope": {"kind": "project"},
+        "query": {"kind": "text", "text": "wharf", "lexical_syntax": "plain"},
+        "mode": mode,
+        "group_by": "source",
+        "limit": 10,
+        "ranking": {"rerank": "off"},
+    }
+    response = client.post(f"/api/projects/{project_id}/search", json=body)
+    assert response.status_code == 200, response.text
+    recovered = workspace.queue.find_job_by_refs("search.index", project_id=project_id)
+    assert recovered is not None
+    assert recovered.status == "queued"
+    assert recovered.id != job.id
+    assert client.get(status_url).json()["indexing"]["job_id"] == recovered.id
+    # Repeated searches share the already queued work.
+    repeated = client.post(f"/api/projects/{project_id}/search", json=body)
+    assert repeated.status_code == 200, repeated.text
+    assert (
+        workspace.queue.find_job_by_refs("search.index", project_id=project_id).id
+        == recovered.id
+    )
+
+    # Use the production worker handler, not a mocked transition to "ready".
+    from frisket.engine.jobs import HandlerRegistry, Worker
+    from frisket.engine.jobs.search_index import register_search_index_handler
+
+    registry = HandlerRegistry()
+    register_search_index_handler(
+        registry,
+        workspace_root=workspace.root,
+        queue=workspace.queue,
+        embedding_encoder=workspace.embedding_runtime,
+    )
+    worker = Worker(workspace.queue, registry)
+    for _ in range(10):
+        if not worker.run_once():
+            break
+    else:
+        pytest.fail("indexing did not finish")
+    assert workspace.queue.get(recovered.id).status == "done"
+    assert client.get(status_url).json()["indexing"]["status"] == "idle"
+    result = client.post(
+        f"/api/projects/{project_id}/search", json={**body, "mode": "lexical"}
+    )
+    assert result.status_code == 200, result.text
+    assert len(result.json()["groups"]) == 1
+    assert (
+        workspace.queue.find_job_by_refs("search.index", project_id=project_id) is None
+    )
+
+
 def test_explicit_preparation_rejects_rows_outside_visible_scope(
     tmp_path, monkeypatch
 ) -> None:
