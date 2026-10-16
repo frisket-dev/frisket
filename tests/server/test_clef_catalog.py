@@ -71,7 +71,7 @@ def test_extract_catalog_does_not_probe_unrelated_classifiers(
     def unexpected_probe(*args, **kwargs):
         pytest.fail("Extract must not probe unrelated local classifiers")
 
-    monkeypatch.setattr("frisket.semantic.local_embedder", unexpected_probe)
+    monkeypatch.setattr("frisket.ai.embeddings.backends.local_embedder", unexpected_probe)
     for function in (
         "classifier_runtime_present",
         "classifier_ready",

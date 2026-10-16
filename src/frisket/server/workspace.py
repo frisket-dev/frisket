@@ -270,6 +270,7 @@ class Workspace:
             workspace_root=self.root,
             queue=self.queue,
             router=self._router,
+            embedding_runtime=self.embedding_runtime,
             control_database_url=control_database_url,
             executor_deps_factory=self.executor_deps_factory,
             notification_delivery_runtime=self.notification_delivery_runtime,

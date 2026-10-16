@@ -27,8 +27,8 @@ from frisket.contracts.classification import (
     LOCAL_CLASSIFIER_ENGINE_IDS,
     ClassifierError,
 )
-from frisket.semantic import PROVIDERLESS_CLASSIFY_MODEL
-from frisket.semantic import (
+from frisket.ai.embeddings.backends import PROVIDERLESS_CLASSIFY_MODEL
+from frisket.ai.embeddings.backends import (
     ProviderlessClassifierProvisionError,
     ensure_providerless_classifier_installed,
 )

@@ -7,7 +7,7 @@ import pytest
 from frisket.ai.embeddings import EmbeddingBackendUnavailable
 from frisket.ai.embeddings.analytics import encode_legacy_texts, legacy_analytical_space
 from frisket.ai.embeddings.capabilities import build_batch_result
-from frisket.semantic import LOCAL_MODEL
+from frisket.ai.embeddings.backends import LOCAL_MODEL
 from frisket.features.topic_segmentation import engines
 from frisket.features.topic_segmentation import (
     BetweenUnits,

@@ -10,6 +10,8 @@ keyless) and :class:`~frisket.mcp.backends.HostedBackend` (HTTP + PAT).
 
 from __future__ import annotations
 
+from frisket.contracts.http.project_search import ProjectSearchRequest
+
 import inspect
 import sys
 from pathlib import Path
@@ -110,20 +112,16 @@ def create_mcp_server(backend: LocalBackend | HostedBackend) -> FastMCP:
         return await _call(backend.read_sheet, project_id, sheet_id, offset, limit)
 
     @server.tool()
-    async def search(project_id: str, query: str, limit: int = 20) -> dict:
-        """Full-text search across every sheet of a project. Returns ranked
-        hits with sheet/row/column coordinates and a snippet; feed a hit's
-        sheet_id into read_sheet to see the full row in context."""
-        from frisket.search import SearchIndexNotReady
+    async def search(project_id: str, request: ProjectSearchRequest) -> dict:
+        """Search project material with lexical, semantic or hybrid retrieval.
 
-        try:
-            results = await _call(backend.search, project_id, query, limit)
-        except SearchIndexNotReady as exc:
-            return {"query": query, "error": {"code": exc.code, "message": str(exc)}}
-        return {
-            "query": query,
-            "results": results,
-        }
+        Scope may select sheets, rows, columns and filters. Results are grouped
+        source locations with bounded excerpts and explicit preparation coverage.
+        Use page/time locations to inspect evidence; no hits is not proof that
+        unprepared sources contain no matches. Similarity accepts a selected cell
+        or an exact located hit as its anchor.
+        """
+        return await _call(backend.search, project_id, request)
 
     @server.tool()
     async def run_action(

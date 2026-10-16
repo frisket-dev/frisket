@@ -2434,6 +2434,7 @@ def _do_refresh(
         publish_named_index(
             retrieval,
             index_id=str(params.index_id),
+            space_id=str(space["id"]),
             recipe=recipe,
             items=planned_items,
             preserve_members=preserved_members,

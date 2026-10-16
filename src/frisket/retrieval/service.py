@@ -14,6 +14,7 @@ from threading import Event
 from typing import TYPE_CHECKING, Any
 
 from .contracts import (
+    CellAnchor,
     ChannelCoverage,
     SearchCoverage,
     SearchRequest,
@@ -81,12 +82,31 @@ def search_with_encoding(
     if request.mode == "lexical":
         return query.search(request, cancel_event=cancel_event)
     space = EmbeddingGemma2Space()
-    if isinstance(request.query, SourceAnchor):
-        # An anchor resolves the exact stored representation; no model call.
-        return query.search(
-            replace(request, space_id=request.space_id or space.identity),
-            cancel_event=cancel_event,
+    anchor_input = None
+    if isinstance(request.query, CellAnchor):
+        from .anchors import resolve_cell_anchor
+
+        selected = resolve_cell_anchor(
+            project,
+            request.query,
+            named_index_id=request.named_index_id,
+            cancelled=cancel_event.is_set if cancel_event is not None else None,
         )
+        request = replace(
+            request,
+            query=selected.anchor,
+            space_id=selected.space_id or request.space_id or space.identity,
+        )
+        anchor_input = selected.input
+    if isinstance(request.query, SourceAnchor):
+        try:
+            return query.search(
+                replace(request, space_id=request.space_id or space.identity),
+                cancel_event=cancel_event,
+            )
+        except RetrievalQueryError as exc:
+            if exc.code != "source_anchor_not_found" or anchor_input is None:
+                raise
     if request.space_id not in (None, space.identity):
         raise RetrievalQueryError(
             "local_embedding_space_unavailable",
@@ -96,7 +116,9 @@ def search_with_encoding(
     from frisket.ai.embeddings.facade import EmbeddingFacade
     from frisket.ai.embeddings.runtime import EmbeddingRuntime
 
-    inputs, term_count = _query_inputs(request)
+    inputs, term_count = (
+        ((anchor_input,), 1) if anchor_input is not None else _query_inputs(request)
+    )
     owned = runtime is None
     encoder = runtime if runtime is not None else EmbeddingRuntime()
     try:
@@ -106,7 +128,11 @@ def search_with_encoding(
             vectors = EmbeddingFacade(cache).encode(
                 inputs,
                 encoder=partial(encoder.encode, cancelled=cancel_event),
-                purpose=EncodingPurpose.QUERY,
+                purpose=(
+                    EncodingPurpose.DOCUMENT
+                    if anchor_input is not None
+                    else EncodingPurpose.QUERY
+                ),
                 space=space,
                 space_id=space.identity,
             )

@@ -574,7 +574,7 @@ class _TypedMapRowsProgram(Recipe):
                     factory = (
                         AdmittedClefClassifier
                         if engine in CLEF_ENGINE_IDS
-                        else AdmittedClassifier
+                        else partial(AdmittedClassifier, project=ctx.project)
                     )
                     reader = factory(
                         engine=engine,

@@ -228,7 +228,7 @@ build-backend = "hatchling.build"
 artifacts = ["src/frisket/web_static/**"]
 
 [tool.hatch.build.targets.sdist]
-only-include = ["src/frisket", "sidecar/src", "sidecar/pyproject.toml", "sidecar/classify-constraints.txt", "sidecar/retrieval-constraints.txt", "sidecar/indra-ocr-constraints.txt", "sidecar/README.md", "README.md", "LICENSE", "hatch_build.py", "scripts/build_vec1.py", "vendor/sqlite-vec1"]
+only-include = ["src/frisket", "sidecar/src", "sidecar/pyproject.toml", "sidecar/classify-constraints.txt", "sidecar/retrieval-constraints.txt", "sidecar/retrieval-runtime/pyproject.toml", "sidecar/retrieval-runtime/uv.lock", "sidecar/indra-ocr-constraints.txt", "sidecar/README.md", "README.md", "LICENSE", "hatch_build.py", "scripts/build_vec1.py", "vendor/sqlite-vec1"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/frisket"]

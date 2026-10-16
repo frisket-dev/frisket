@@ -72,10 +72,24 @@ class EmbeddingRuntime:
         self._request_lock: asyncio.Lock | None = None
         self._active_cancelled: Cancellation | None = None
         self._startup_error: BaseException | None = None
-        self._pending: set[
-            concurrent.futures.Future[list[EmbeddingVector]]
-        ] = set()
+        self._pending: set[concurrent.futures.Future[list[EmbeddingVector]]] = set()
         self._closed = False
+
+    def available(self) -> bool:
+        """Inspect installed artifacts without starting a worker or downloading."""
+        with self._state_lock:
+            if self._closed:
+                return False
+            if self._session_factory is not _installed_session:
+                return True
+        from frisket.engine._workers.embeddinggemma_artifacts import (
+            embeddinggemma_ready,
+        )
+
+        try:
+            return embeddinggemma_ready()
+        except (OSError, RuntimeError):
+            return False
 
     def _cancelled(self) -> bool:
         callback = self._active_cancelled
@@ -254,7 +268,9 @@ class EmbeddingRuntime:
     async def _close_on_owner_loop(self) -> None:
         current = asyncio.current_task()
         requests = [
-            task for task in asyncio.all_tasks() if task is not current and not task.done()
+            task
+            for task in asyncio.all_tasks()
+            if task is not current and not task.done()
         ]
         for task in requests:
             if not task.cancelling():

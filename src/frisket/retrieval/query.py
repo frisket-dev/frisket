@@ -637,11 +637,33 @@ def _scoped_coverage_state(
                AND lexical_source.version_value=retrieval_binding.version_value
                AND lexical_source.version_type=retrieval_binding.version_type
               WHERE {binding_where} LIMIT 1
-            ) AS ready
+            ) AS ready,
+            EXISTS (
+              SELECT 1 {binding_join}
+              JOIN idx.preparation AS preparation
+                ON preparation.source_id=retrieval_binding.source_id
+               AND preparation.target_version_kind=retrieval_binding.version_kind
+               AND preparation.target_version_value=retrieval_binding.version_value
+               AND preparation.target_version_type=retrieval_binding.version_type
+              WHERE {binding_where} AND preparation.channel='lexical'
+                AND preparation.space_id IS NULL
+                AND preparation.status IN ('pending','preparing') LIMIT 1
+            ) AS pending,
+            EXISTS (
+              SELECT 1 {binding_join}
+              JOIN idx.preparation AS preparation
+                ON preparation.source_id=retrieval_binding.source_id
+               AND preparation.target_version_kind=retrieval_binding.version_kind
+               AND preparation.target_version_value=retrieval_binding.version_value
+               AND preparation.target_version_type=retrieval_binding.version_type
+              WHERE {binding_where} AND preparation.channel='lexical'
+                AND preparation.space_id IS NULL
+                AND preparation.status='failed' LIMIT 1
+            ) AS failed
             """,
             scope.params,
         ).fetchone()
-        return bool(row["ready"]), False, False
+        return bool(row["ready"]), bool(row["pending"]), bool(row["failed"])
 
     concrete_channel = channel != "semantic"
     ready_channel_sql = "AND part_representation.channel=?" if concrete_channel else ""
@@ -649,8 +671,10 @@ def _scoped_coverage_state(
     params: list[Any] = [*scope.params, request.space_id]
     if concrete_channel:
         params.append(channel)
+    params.append(request.space_id)
     if concrete_channel:
         params.append(channel)
+    params.append(request.space_id)
     if concrete_channel:
         params.append(channel)
     row = reader.db.execute(
@@ -679,6 +703,7 @@ def _scoped_coverage_state(
            AND preparation.target_version_type=retrieval_binding.version_type
           WHERE {binding_where}
             AND preparation.status IN ('pending','preparing')
+            AND preparation.space_id=?
             {preparation_channel_sql} LIMIT 1
         ) AS pending,
         EXISTS (
@@ -689,6 +714,7 @@ def _scoped_coverage_state(
            AND preparation.target_version_value=retrieval_binding.version_value
            AND preparation.target_version_type=retrieval_binding.version_type
           WHERE {binding_where} AND preparation.status='failed'
+            AND preparation.space_id=?
             {preparation_channel_sql} LIMIT 1
         ) AS failed
         """,
@@ -744,11 +770,12 @@ def _semantic_coverage_channels(
            AND preparation.target_version_type=retrieval_binding.version_type
           WHERE {_visible_column("retrieval_binding")}
             AND {_binding_is_current("retrieval_binding")}
-            AND preparation.status IN ('pending','preparing','failed')
+            AND preparation.status IN ('pending','preparing','failed','unavailable')
+            AND preparation.space_id=?
         )
         SELECT channel FROM scoped_channels ORDER BY channel
         """,
-        (*scope.params, request.space_id, *dataset_params),
+        (*scope.params, request.space_id, *dataset_params, request.space_id),
     ).fetchall()
     return tuple(str(row["channel"]) for row in rows)
 

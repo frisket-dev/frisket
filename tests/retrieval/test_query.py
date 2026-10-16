@@ -772,12 +772,16 @@ def test_coverage_includes_failed_channel_without_a_top_k_hit(tmp_path):
         )
         with RetrievalStore(project).open() as store:
             store.begin_preparation(
-                source, recipe_id="transcript:v1", channel="transcript"
+                source,
+                recipe_id="transcript:v1",
+                channel="transcript",
+                space_id="space:test",
             )
             assert store.fail_preparation(
                 source,
                 recipe_id="transcript:v1",
                 channel="transcript",
+                space_id="space:test",
                 error_code="encoder_failed",
                 error_message="transcript preparation failed",
             )
@@ -802,5 +806,46 @@ def test_coverage_includes_failed_channel_without_a_top_k_hit(tmp_path):
             "text": "ready",
             "transcript": "failed",
         }
+    finally:
+        project.close()
+
+
+@pytest.mark.parametrize(
+    "channel,space_id,expected",
+    [
+        ("lexical", None, "partial"),
+        ("transcript", "other-space", "complete"),
+    ],
+)
+def test_coverage_respects_preparation_channel_and_space(
+    tmp_path, channel, space_id, expected
+):
+    project, sheet, _status, body, rows = _prepare_project(tmp_path)
+    try:
+        revision = read_binding_revision(project.db, row_id=rows[1], column_id=body)
+        source = SourceRevision(
+            f"cell:{rows[1]}:{body}",
+            "text",
+            "retrieval_revision",
+            revision,
+            input_hash("target eligible second"),
+        )
+        with RetrievalStore(project) as store:
+            store.begin_preparation(
+                source, recipe_id="pending:v1", channel=channel, space_id=space_id
+            )
+        response = search(
+            project,
+            SearchRequest(
+                scope=_included_scope(sheet, body),
+                query=TextQuery("target"),
+                mode="lexical" if channel == "lexical" else "semantic",
+                space_id="space:test",
+                ranking=RankingPolicy(rerank="off"),
+            ),
+            semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
+        )
+        assert response.coverage.state == expected
+        assert "transcript" not in {item.channel for item in response.coverage.channels}
     finally:
         project.close()

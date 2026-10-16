@@ -288,7 +288,7 @@ def test_semantic_cluster_preview_cannot_reach_a_remote_embedder(tmp_path) -> No
     and, unlike the compare surfaces, without even a ``cost`` block in the
     response. Reproduced with a spy router before the fix; this pins it shut.
     """
-    import frisket.semantic as semantic
+    import frisket.ai.embeddings.backends as semantic
 
     embed_calls: list[list[str]] = []
 

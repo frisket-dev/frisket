@@ -8,7 +8,6 @@ MODEL_REVISION = "914f7f89142e33e77833254d9c9b90c3cef7303b"
 MODEL_REF = f"hf-snapshot:{MODEL_ID}@{MODEL_REVISION}"
 SETUP_REF = "engine-setup:embeddinggemma-2.local@1"
 RUNTIME_PROFILE = "embeddinggemma-v1"
-RUNTIME_EXTRA = "retrieval-multimodal"
 TRANSFORMERS_VERSION = "5.19.0"
 PILLOW_VERSION = "12.1.1"
 TORCH_VERSION = "2.14.1"
@@ -45,7 +44,6 @@ __all__ = [
     "MODEL_SAFETENSORS_SHA256",
     "PILLOW_VERSION",
     "REQUIRED_SNAPSHOT_FILES",
-    "RUNTIME_EXTRA",
     "RUNTIME_PROFILE",
     "SETUP_REF",
     "TORCH_VERSION",

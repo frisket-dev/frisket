@@ -22,7 +22,7 @@ from frisket.ai.embeddings import (
     EmbeddingBackendUnavailable,
     EmbeddingProviderError,
 )
-from frisket.semantic import LOCAL_MODEL
+from frisket.ai.embeddings.backends import LOCAL_MODEL
 
 from .contracts import (
     BetweenUnits,

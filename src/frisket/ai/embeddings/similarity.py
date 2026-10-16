@@ -10,6 +10,7 @@ from typing import Any
 from frisket.engine.store import Project
 from frisket.retrieval.contracts import (
     BindingRevision,
+    MAX_SEARCH_LIMIT,
     RetrievalScope,
     ScopedBinding,
     SearchRequest,
@@ -247,9 +248,11 @@ def _requested_limit(query: dict[str, Any]) -> int:
         raise SimilarityError(
             "invalid_query_spec", "limit must be a positive integer", field="limit"
         )
-    if value > 100:
+    if value > MAX_SEARCH_LIMIT:
         raise SimilarityError(
-            "invalid_query_spec", "limit must not exceed 100", field="limit"
+            "invalid_query_spec",
+            f"limit must not exceed {MAX_SEARCH_LIMIT}",
+            field="limit",
         )
     return value
 

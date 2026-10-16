@@ -426,6 +426,7 @@ def publish_named_index(
     store: RetrievalStore,
     *,
     index_id: str,
+    space_id: str,
     recipe: NamedIndexRecipe,
     items: Sequence[NamedIndexItem],
     preserve_members: Iterable[NamedDatasetMember] = (),
@@ -438,6 +439,7 @@ def publish_named_index(
             source_revision=item.source,
             recipe_id=recipe.recipe_id,
             channel=ROW_CHANNEL,
+            space_id=space_id,
             parts=(
                 StoredPart(
                     item.part_id,
@@ -452,7 +454,10 @@ def publish_named_index(
             ),
         )
         store.begin_preparation(
-            item.source, recipe_id=recipe.recipe_id, channel=ROW_CHANNEL
+            item.source,
+            recipe_id=recipe.recipe_id,
+            channel=ROW_CHANNEL,
+            space_id=space_id,
         )
         if not store.publish_source(publication):
             raise RuntimeError("named-index source publication was superseded")

@@ -28,7 +28,7 @@ from frisket.features.topic_segmentation import (
     SegmentationSnapshot,
     WithinUnit,
 )
-from frisket.semantic import LOCAL_MODEL
+from frisket.ai.embeddings.backends import LOCAL_MODEL
 
 
 MUTATION_TABLES = (

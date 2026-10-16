@@ -20,6 +20,20 @@ def _unit(dimensions: int, index: int = 0) -> tuple[float, ...]:
     return tuple(1.0 if offset == index else 0.0 for offset in range(dimensions))
 
 
+def test_passive_readiness_tracks_install_without_starting_runtime(monkeypatch):
+    from frisket.engine._workers import embeddinggemma_artifacts
+
+    ready = False
+    monkeypatch.setattr(embeddinggemma_artifacts, "embeddinggemma_ready", lambda: ready)
+    runtime = EmbeddingRuntime()
+    assert not runtime.available()
+    ready = True
+    assert runtime.available()
+    assert runtime._thread is None
+    runtime.close()
+    assert not runtime.available()
+
+
 def test_runtime_reuses_one_session_and_owner_loop_across_sync_and_async_callers():
     instances = []
 

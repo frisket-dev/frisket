@@ -25,6 +25,8 @@ scope happens to exist at retry time.
 
 from __future__ import annotations
 
+from frisket.contracts.http.project_search import ProjectSearchRequest
+
 import asyncio
 import hashlib
 import json
@@ -399,14 +401,14 @@ class LocalBackend:
             "rows": [{"id": rid, "cells": cells[rid]} for rid in row_ids],
         }
 
-    def search(self, project_id: str, query: str, limit: int = 20) -> list[dict]:
-        from frisket.search import drain_index, search_project
+    def search(self, project_id: str, request: ProjectSearchRequest) -> dict:
+        from frisket.search import drain_index
+        from frisket.server.services.project_search import ProjectSearchService
 
-        project = self.ws.get(project_id)
-        # Local stdio owns no persistent worker. Explicit maintenance at this
-        # CLI boundary keeps search usable without first running an action.
-        drain_index(project)
-        return search_project(project, query, limit=limit)
+        # A short-lived local MCP process owns no persistent indexing worker.
+        # Lexical maintenance is explicit; it never downloads or calls providers.
+        drain_index(self.ws.get(project_id))
+        return ProjectSearchService(self.ws).search(project_id, request=request)
 
     async def run_action(
         self,
@@ -596,28 +598,13 @@ class HostedBackend:
             ],
         }
 
-    async def search(self, project_id: str, query: str, limit: int = 20) -> list[dict]:
-        from frisket.search import SearchIndexNotReady
-
-        page = await self._json(
+    async def search(self, project_id: str, request: ProjectSearchRequest) -> dict:
+        return await self._json(
             await self._client.post(
                 f"/api/projects/{project_id}/search",
-                json={
-                    "scope": {"kind": "project"},
-                    "query": {"kind": "text", "text": query, "lexical_syntax": "fts"},
-                    "mode": "lexical",
-                    "group_by": "source",
-                    "limit": limit,
-                    "ranking": {"rerank": "auto"},
-                },
+                json=request.model_dump(mode="json"),
             )
         )
-        coverage = page["coverage"]
-        if coverage["state"] in {"preparing", "unavailable", "failed"} or any(
-            channel["state"] == "pending" for channel in coverage["channels"]
-        ):
-            raise SearchIndexNotReady()
-        return [group["primary"] for group in page["groups"]]
 
     async def run_action(
         self,
