@@ -36,9 +36,7 @@ function normalizeImportSession(status: HttpImportSessionStatus): ImportSessionS
     committed_bytes: status.committed_bytes ?? 0,
     sheet_id: status.sheet_id ?? null,
     error: status.error ?? null,
-    search_preparation_batch_id:
-      (status as HttpImportSessionStatus & { search_preparation_batch_id?: string | null })
-        .search_preparation_batch_id ?? null,
+    search_preparation_batch_id: status.search_preparation_batch_id ?? null,
   };
 }
 
@@ -120,9 +118,7 @@ export type ImportCsvPreviewWire =
   HttpContractSuccessResponse<'tenant.import_csv_preview.post'>;
 export type ImportXlsxWire = HttpContractSuccessResponse<'tenant.import_xlsx.post'>;
 export type ImportPdfWire = HttpContractSuccessResponse<'tenant.import_pdf.post'>;
-export type ImportFilesWire = HttpContractSuccessResponse<'tenant.import_files.post'> & {
-  search_preparation_batch_id?: string | null;
-};
+export type ImportFilesWire = HttpContractSuccessResponse<'tenant.import_files.post'>;
 export type ImportFollowTheMoneyWire =
   HttpContractSuccessResponse<'tenant.import_followthemoney.post'>;
 

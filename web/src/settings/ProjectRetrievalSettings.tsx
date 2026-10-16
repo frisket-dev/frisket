@@ -57,9 +57,7 @@ export function ProjectRetrievalSettings({
   canMutate,
   onPatch,
 }: ProjectRetrievalSettingsProps) {
-  const automaticPreparation = (
-    settings as ProjectRetrievalSettingsValue & { prepare_new_files_automatically?: boolean }
-  ).prepare_new_files_automatically ?? true;
+  const automaticPreparation = settings.prepare_new_files_automatically;
   return (
     <section className="settings-subsection" data-testid="project-retrieval-settings">
       <div className="settings-section-subhead">
@@ -79,7 +77,7 @@ export function ProjectRetrievalSettings({
             retrieval: {
               prepare_new_files_automatically: event.currentTarget.checked,
             },
-          } as ProjectSettingsPatch)}
+          })}
         />
         <span>
           Prepare new files automatically
