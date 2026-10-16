@@ -65,8 +65,8 @@ def test_doctor_function_reports_failures(monkeypatch):
 #
 # An importable engine package only means the code is there; whether its
 # WEIGHTS are already on disk (offline-ready) or still need a Hugging Face
-# fetch on first use is a separate, per-engine fact someone about to run a
-# sensitive source through local ASR deserves to see before it happens.
+# explicit setup or a remaining first-use fetch is a separate, per-engine fact
+# someone about to run a sensitive source locally deserves to see beforehand.
 
 
 _ENGINE_LABEL = (
@@ -74,8 +74,7 @@ _ENGINE_LABEL = (
     r"|provisioned: default det/cls/rec; explicit languages need cached models"
     r"|provisioned: base pinned & pullable; other sizes require pre-populated HF cache"
     r"|fetches on first use"
-    r"|default models fetch on first use; explicit languages need cached models"
-    r"|not provisioned; default bootstrap unavailable"
+    r"|not provisioned; explicit setup required"
     r"|not provisioned; pre-populated HF cache required"
     r"|model not yet downloaded"
     r"|model hash mismatch)\)"
@@ -169,7 +168,11 @@ def test_doctor_local_engines_line_labels_every_engine_state():
         rf"({_ENGINE_LABEL})(, {_ENGINE_LABEL})*",
         body,
     ), body
-    if "fetches on first use)" in body or "not provisioned; offline worker)" in body:
+    if (
+        "fetches on first use)" in body
+        or "not provisioned; explicit setup required)" in body
+        or "not provisioned; offline worker)" in body
+    ):
         assert "to provision ahead of a sensitive run" in proc.stdout, proc.stdout
 
 
@@ -278,7 +281,7 @@ def test_rapidocr_models_accept_complete_shared_set_but_not_split_set(
 def test_rapidocr_default_bootstrap_needs_verified_det_cls_or_shared_pair(
     monkeypatch, tmp_path
 ):
-    """Only the default v5 recognizer downloads; det/cls must already exist."""
+    """Only the default v5 recognizer needs download; det/cls must exist locally."""
     from frisket.ai.models import model_cache
     from frisket.engine._workers.rapidocr_models import (
         RAPIDOCR_DEFAULT_RECOGNIZER_FILENAME,
@@ -368,7 +371,7 @@ def test_hf_snapshot_present_pinned_revision_requires_every_file(tmp_path):
     """Parakeet's artifact resolver pins an exact revision and a fixed file
     allowlist (parakeet_model.py) — the probe must require ALL of them, not
     just a same-named directory (a partial/interrupted download must still
-    read as 'fetches on first use', not 'provisioned')."""
+    read as requiring explicit setup, not 'provisioned')."""
     repo, revision, files = "org/repo", "deadbeef", ("a.bin", "b.json")
     assert (
         diagnostics._hf_snapshot_present(
@@ -452,8 +455,7 @@ def test_engine_provisioned_faster_whisper_reads_hf_hub_cache(monkeypatch, tmp_p
     """faster-whisper's default 'base' size is now pinned (same hf_snapshot
     revision-pin mechanism as Parakeet) — the probe must require the EXACT
     pinned revision + full file list, not just any same-named snapshot dir
-    (a partial/wrong-revision cache must still read as 'fetches on first
-    use')."""
+    (a partial/wrong-revision cache must still read as unavailable offline)."""
     from frisket.engine._workers import parakeet_artifacts as pa
     from frisket.ai.models import artifact_manifest
 
@@ -510,12 +512,18 @@ def test_engines_report_summary_reflects_provisioned_state(monkeypatch):
     report = diagnostics.engines_report()
     if report["installed"]:
         assert report["provisioned"] == []
+        expected_setup = [
+            name for name in report["installed"] if name in ("ocr", "parakeet")
+        ]
         expected_offline = [
             name for name in report["installed"] if name == "faster_whisper"
         ]
         expected_fetches = [
-            name for name in report["installed"] if name != "faster_whisper"
+            name
+            for name in report["installed"]
+            if name not in ("ocr", "parakeet", "faster_whisper")
         ]
+        assert report["setup_required"] == expected_setup
         assert report["offline_unavailable"] == expected_offline
         assert report["fetches_on_first_use"] == expected_fetches
         assert "(provisioned)" not in report["summary"]
@@ -523,12 +531,7 @@ def test_engines_report_summary_reflects_provisioned_state(monkeypatch):
             (
                 "spacy (model not yet downloaded)" in report["summary"]
                 if name == "spacy"
-                else (
-                    "ocr (default models fetch on first use; explicit languages need cached models)"
-                    in report["summary"]
-                    if name == "ocr"
-                    else f"{name} (fetches on first use)" in report["summary"]
-                )
+                else f"{name} (fetches on first use)" in report["summary"]
             )
             for name in expected_fetches
         )
@@ -541,16 +544,12 @@ def test_engines_report_summary_reflects_provisioned_state(monkeypatch):
         # Each installed engine gets the cache/provisioning mechanism it
         # actually uses; there is no one generic Hugging Face remedy.
         if "parakeet" in report["installed"]:
-            assert "/api/providers/models/pull" in report["remediation"]
+            assert "engine-setup:parakeet-tdt.local-onnx@1" in report["remediation"]
         if "faster_whisper" in report["installed"]:
             assert "HF_HUB_CACHE" in report["remediation"]
             assert "no-network worker sandbox" in report["remediation"]
         if "ocr" in report["installed"]:
-            assert "$FRISKET_MODEL_CACHE_DIR/rapidocr" in report["remediation"]
-            assert (
-                "default recognizer downloads before its worker starts"
-                in report["remediation"]
-            )
+            assert "engine-setup:rapidocr.local@1" in report["remediation"]
             assert (
                 "Explicit-language OCR requires its own complete cached"
                 in report["remediation"]
@@ -562,6 +561,7 @@ def test_engines_report_summary_reflects_provisioned_state(monkeypatch):
     report = diagnostics.engines_report()
     if report["installed"]:
         assert report["fetches_on_first_use"] == []
+        assert report["setup_required"] == []
         assert report["offline_unavailable"] == []
         assert report["provisioned"] == report["installed"]
         assert "(fetches on first use)" not in report["summary"]
@@ -608,26 +608,54 @@ def test_engines_report_uses_product_engine_ids_and_caveats_whisper_probe(
         )
 
 
-def test_engines_report_rapidocr_default_bootstraps_before_its_worker(monkeypatch):
+def test_engines_report_rapidocr_requires_explicit_setup(monkeypatch):
     pytest.importorskip("rapidocr")
     monkeypatch.setattr(diagnostics, "_engine_provisioned", lambda name: name != "ocr")
     monkeypatch.setattr(diagnostics, "_rapidocr_default_bootstrap_ready", lambda: True)
 
     report = diagnostics.engines_report()
 
-    assert report["fetches_on_first_use"] == ["ocr"]
+    assert report["fetches_on_first_use"] == []
+    assert report["setup_required"] == ["ocr"]
     assert report["offline_unavailable"] == []
-    assert (
-        "ocr (default models fetch on first use; explicit languages need cached models)"
-        in report["summary"]
-    )
-    assert "$FRISKET_MODEL_CACHE_DIR/rapidocr" in report["remediation"]
+    assert "ocr (not provisioned; explicit setup required)" in report["summary"]
+    assert "engine-setup:rapidocr.local@1" in report["remediation"]
     assert (
         "Explicit-language OCR requires its own complete cached"
         in report["remediation"]
     )
     assert "HF_HUB_CACHE" not in report["remediation"]
     assert "/api/providers/models/pull" not in report["remediation"]
+
+
+def test_engines_report_parakeet_requires_explicit_setup(monkeypatch):
+    import builtins
+
+    real_import = builtins.__import__
+
+    def import_only_parakeet(name, *args, **kwargs):
+        if name == "onnx_asr":
+            return object()
+        if name in {
+            "fastembed",
+            "rapidocr",
+            "markitdown",
+            "faster_whisper",
+            "spacy",
+        }:
+            raise ImportError(name)
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", import_only_parakeet)
+    monkeypatch.setattr(diagnostics, "_engine_provisioned", lambda _name: False)
+
+    report = diagnostics.engines_report()
+
+    assert report["installed"] == ["parakeet"]
+    assert report["setup_required"] == ["parakeet"]
+    assert report["fetches_on_first_use"] == []
+    assert "parakeet (not provisioned; explicit setup required)" in report["summary"]
+    assert "engine-setup:parakeet-tdt.local-onnx@1" in report["remediation"]
 
 
 def test_engines_report_rapidocr_requires_a_complete_cache_without_bundled_aliases(
@@ -640,9 +668,10 @@ def test_engines_report_rapidocr_requires_a_complete_cache_without_bundled_alias
     report = diagnostics.engines_report()
 
     assert report["fetches_on_first_use"] == []
-    assert report["offline_unavailable"] == ["ocr"]
-    assert "ocr (not provisioned; default bootstrap unavailable)" in report["summary"]
-    assert "bundled detector/classifier files" in report["remediation"]
+    assert report["setup_required"] == ["ocr"]
+    assert report["offline_unavailable"] == []
+    assert "ocr (not provisioned; explicit setup required)" in report["summary"]
+    assert "repair the base install" in report["remediation"]
 
 
 def test_engines_report_never_raises_when_provisioned_probe_breaks(monkeypatch):
@@ -657,11 +686,16 @@ def test_engines_report_never_raises_when_provisioned_probe_breaks(monkeypatch):
     monkeypatch.setattr(diagnostics, "_rapidocr_default_bootstrap_ready", lambda: True)
     report = diagnostics.engines_report()
     assert report["provisioned"] == []
+    assert set(report["setup_required"]) == {
+        name for name in report["installed"] if name in ("ocr", "parakeet")
+    }
     assert report["offline_unavailable"] == [
         name for name in report["installed"] if name == "faster_whisper"
     ]
     assert set(report["fetches_on_first_use"]) == {
-        name for name in report["installed"] if name != "faster_whisper"
+        name
+        for name in report["installed"]
+        if name not in ("ocr", "parakeet", "faster_whisper")
     }
 
     full = diagnostics.run_diagnostics()

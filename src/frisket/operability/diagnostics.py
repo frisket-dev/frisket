@@ -485,7 +485,7 @@ def _rapidocr_models_present() -> bool:
 
 
 def _rapidocr_default_bootstrap_ready() -> bool:
-    """Whether a missing default recognizer can be prepared before the fence.
+    """Whether explicit setup can prepare a missing recognizer before the fence.
 
     This only reads the bundled detector/classifier aliases or the shared cache.
     It never starts RapidOCR or contacts ModelScope. Explicit language choices
@@ -562,8 +562,8 @@ def _engine_provisioned(name: str) -> bool:
     """Whether ``name``'s required default weights are already on disk.
 
     Presence only -- never triggers a download. ``engines_report`` separately
-    classifies what an absent set means for each runtime; RapidOCR's default
-    recognizer can be fetched before its network-walled worker starts.
+    classifies what an absent set means for each runtime; RapidOCR and
+    Parakeet require explicit setup before their network-walled workers start.
     """
     if name == "embeddings":
         return _fastembed_cache_present()
@@ -681,15 +681,14 @@ def engines_report() -> dict[str, Any]:
     """Local engine availability, split by what an operator actually needs
     to know before relying on one: an importable package only means the code
     is there. Whether its WEIGHTS are already on disk (fully offline,
-    ``provisioned``), can be resolved on first use
-    (``fetches_on_first_use``), or leaves an offline-only worker unavailable
-    (``offline_unavailable``) is a separate, per-engine fact: offline
-    capability belongs to each engine, not to the tier. RapidOCR can prepare
-    its default recognizer before its trusted worker starts when bundled
-    detector/classifier aliases are intact; explicit-language models and
-    Faster Whisper remain cache-only once their workers are fenced. Never
-    fails the health check either way: optional-engine provisioning is
-    information, not core application health. The content-free RapidOCR
+    ``provisioned``), requires an explicit setup action (``setup_required``),
+    can still resolve on first use (``fetches_on_first_use``), or leaves an
+    offline-only worker unavailable (``offline_unavailable``) is a separate,
+    per-engine fact: offline capability belongs to each engine, not to the
+    tier. RapidOCR and Parakeet inference are cache-only; explicit-language
+    RapidOCR models and Faster Whisper likewise require their caches before a
+    worker starts. Never fails the health check either way: optional
+    provisioning is information, not core application health. The content-free RapidOCR
     capacity/configuration object likewise belongs here (and therefore in
     ``/api/diagnose``), never in ``/api/health``: tuning an optional engine is
     not server liveness.
@@ -713,6 +712,7 @@ def engines_report() -> dict[str, Any]:
             pass
 
     provisioned = []
+    setup_required = []
     fetches_on_first_use = []
     offline_unavailable = []
     for name in installed:
@@ -722,26 +722,22 @@ def engines_report() -> dict[str, Any]:
             ready = False
         if ready:
             provisioned.append(name)
-        elif name == "ocr" and _rapidocr_default_bootstrap_ready():
-            fetches_on_first_use.append(name)
-        elif name in ("ocr", "faster_whisper"):
+        elif name in ("ocr", "parakeet"):
+            setup_required.append(name)
+        elif name == "faster_whisper":
             offline_unavailable.append(name)
         else:
             fetches_on_first_use.append(name)
 
     def _label(name: str) -> str:
+        if name in setup_required:
+            return f"{name} (not provisioned; explicit setup required)"
         if name in offline_unavailable:
             if name == "faster_whisper":
                 return (
                     "faster_whisper (not provisioned; pre-populated HF cache required)"
                 )
-            return "ocr (not provisioned; default bootstrap unavailable)"
         if name not in provisioned:
-            if name == "ocr":
-                return (
-                    "ocr (default models fetch on first use; explicit languages "
-                    "need cached models)"
-                )
             if name == "spacy":
                 state = spacy_model_report()["status"]
                 if state == "hash_mismatch":
@@ -770,14 +766,20 @@ def engines_report() -> dict[str, Any]:
         else "none installed (repair base install; ASR needs frisket-data[standard])"
     )
     remediation: str | None = None
-    needs_provisioning = [*fetches_on_first_use, *offline_unavailable]
+    needs_provisioning = [
+        *setup_required,
+        *fetches_on_first_use,
+        *offline_unavailable,
+    ]
     if needs_provisioning:
         steps = ["to provision ahead of a sensitive run:"]
-        if "parakeet" in fetches_on_first_use:
+        if "parakeet" in setup_required:
+            from frisket.engine.jobs.engine_setup import PARAKEET_TDT_SETUP_REF
+
             steps.append(
-                "pull Parakeet's pinned artifacts with POST "
-                "/api/providers/models/pull (the transcribe catalog lists the "
-                "pullable refs);"
+                "run explicit local model setup with POST "
+                "/api/providers/models/setup and setup_ref "
+                f"{PARAKEET_TDT_SETUP_REF};"
             )
         if "faster_whisper" in offline_unavailable:
             steps.append(
@@ -786,18 +788,19 @@ def engines_report() -> dict[str, Any]:
                 "for every needed non-Base size before the no-network worker "
                 "sandbox starts;"
             )
-        if "ocr" in fetches_on_first_use:
+        if "ocr" in setup_required:
+            from frisket.engine.jobs.engine_setup import RAPIDOCR_SETUP_REF
+
             steps.append(
-                "for offline or sensitive default OCR, pre-populate "
-                "$FRISKET_MODEL_CACHE_DIR/rapidocr; otherwise the pinned default "
-                "recognizer downloads before its worker starts. Explicit-language "
-                "OCR requires its own complete cached det/cls/rec set;"
+                "run explicit local model setup with POST "
+                "/api/providers/models/setup and setup_ref "
+                f"{RAPIDOCR_SETUP_REF}. Explicit-language OCR requires "
+                "its own complete cached det/cls/rec set;"
             )
-        if "ocr" in offline_unavailable:
+        if "ocr" in setup_required and not _rapidocr_default_bootstrap_ready():
             steps.append(
-                "repair RapidOCR's bundled detector/classifier files or seed a "
-                "complete default det/cls/rec set under "
-                "$FRISKET_MODEL_CACHE_DIR/rapidocr;"
+                "if RapidOCR setup cannot seed its bundled detector/classifier "
+                "files, repair the base install and retry;"
             )
         if "embeddings" in fetches_on_first_use:
             steps.append(
@@ -820,6 +823,7 @@ def engines_report() -> dict[str, Any]:
     report: dict[str, Any] = {
         "installed": installed,
         "provisioned": provisioned,
+        "setup_required": setup_required,
         "fetches_on_first_use": fetches_on_first_use,
         "offline_unavailable": offline_unavailable,
         "summary": summary,
