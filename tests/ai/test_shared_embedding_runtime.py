@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import threading
-import time
 
 import pytest
 
@@ -244,17 +243,30 @@ def test_runtime_leaves_session_owned_cleanup_tasks_alive_until_session_close():
     assert sessions[0].closed_cleanly is True
 
 
-def _wait_for_pending(runtime: EmbeddingRuntime, count: int) -> None:
-    deadline = time.monotonic() + 1
-    while time.monotonic() < deadline:
-        with runtime._state_lock:  # noqa: SLF001 - lifecycle boundary test
-            if len(runtime._pending) == count:  # noqa: SLF001
-                return
-        time.sleep(0.001)
-    pytest.fail(f"runtime did not register {count} pending requests")
+def _signal_pending_requests(monkeypatch, runtime: EmbeddingRuntime, count: int):
+    """Signal after real submissions enter the runtime's pending set."""
+
+    original_submit = runtime._submit  # noqa: SLF001 - lifecycle boundary test
+    lock = threading.Lock()
+    ready = threading.Event()
+    submitted = 0
+
+    def observed_submit(*args, **kwargs):
+        nonlocal submitted
+        future = original_submit(*args, **kwargs)
+        with lock:
+            submitted += 1
+            if submitted == count:
+                ready.set()
+        return future
+
+    monkeypatch.setattr(runtime, "_submit", observed_submit)
+    return ready
 
 
-def test_close_cancels_active_and_queued_sync_callers_before_stopping_loop():
+def test_close_cancels_active_and_queued_sync_callers_before_stopping_loop(
+    monkeypatch,
+):
     started = threading.Event()
     sessions = []
 
@@ -264,7 +276,7 @@ def test_close_cancels_active_and_queued_sync_callers_before_stopping_loop():
 
         async def encode(self, inputs, *, purpose, space):
             started.set()
-            await asyncio.sleep(60)
+            await asyncio.Event().wait()
 
         async def aclose(self):
             self.close_count += 1
@@ -275,6 +287,7 @@ def test_close_cancels_active_and_queued_sync_callers_before_stopping_loop():
         return session
 
     runtime = EmbeddingRuntime(factory)
+    submitted = _signal_pending_requests(monkeypatch, runtime, 2)
     outcomes = []
 
     def call(value):
@@ -287,20 +300,17 @@ def test_close_cancels_active_and_queued_sync_callers_before_stopping_loop():
         except BaseException as exc:
             outcomes.append(exc)
 
-    callers = [
-        threading.Thread(target=call, args=(value,), daemon=True)
-        for value in ("active", "queued")
-    ]
-    for caller in callers:
-        caller.start()
-    assert started.wait(1)
-    _wait_for_pending(runtime, 2)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as callers:
+        caller_results = [callers.submit(call, value) for value in ("active", "queued")]
+        try:
+            assert submitted.wait(1)
+            assert started.wait(1)
+            runtime.close(timeout=1)
+            for result in caller_results:
+                result.result(timeout=1)
+        finally:
+            runtime.close(timeout=1)
 
-    runtime.close(timeout=1)
-    for caller in callers:
-        caller.join(1)
-
-    assert all(not caller.is_alive() for caller in callers)
     assert len(outcomes) == 2
     assert all(
         isinstance(error, concurrent.futures.CancelledError) for error in outcomes
@@ -308,7 +318,9 @@ def test_close_cancels_active_and_queued_sync_callers_before_stopping_loop():
     assert sessions[0].close_count == 1
 
 
-def test_aclose_cancels_active_and_queued_async_callers_before_stopping_loop():
+def test_aclose_cancels_active_and_queued_async_callers_before_stopping_loop(
+    monkeypatch,
+):
     started = threading.Event()
     sessions = []
 
@@ -318,7 +330,7 @@ def test_aclose_cancels_active_and_queued_async_callers_before_stopping_loop():
 
         async def encode(self, inputs, *, purpose, space):
             started.set()
-            await asyncio.sleep(60)
+            await asyncio.Event().wait()
 
         async def aclose(self):
             self.close_count += 1
@@ -330,6 +342,7 @@ def test_aclose_cancels_active_and_queued_async_callers_before_stopping_loop():
 
     async def scenario():
         runtime = EmbeddingRuntime(factory)
+        submitted = _signal_pending_requests(monkeypatch, runtime, 2)
         callers = [
             asyncio.create_task(
                 runtime.encode_async(
@@ -340,8 +353,8 @@ def test_aclose_cancels_active_and_queued_async_callers_before_stopping_loop():
             )
             for value in ("active", "queued")
         ]
+        assert await asyncio.to_thread(submitted.wait, 1)
         assert await asyncio.to_thread(started.wait, 1)
-        await asyncio.to_thread(_wait_for_pending, runtime, 2)
         await runtime.aclose(timeout=1)
         return await asyncio.gather(*callers, return_exceptions=True)
 
