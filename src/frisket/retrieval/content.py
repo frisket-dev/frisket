@@ -305,7 +305,12 @@ class ImageSurface:
             "_identity",
             _source_identity(source, content_hash, spans)
             if self.pages is None
-            else _source_identity(source, content_hash, spans, self.pages),
+            else _source_identity(
+                source,
+                content_hash,
+                spans,
+                (self.pages.start, self.pages.end),
+            ),
         )
 
 

@@ -100,7 +100,10 @@ class ResolvedCellBlobSource:
     page_number: int | None = None
 
     def __post_init__(self) -> None:
-        from frisket.retrieval.sources import blob_source_revision
+        from frisket.retrieval.sources import (
+            blob_page_source_revision,
+            blob_source_revision,
+        )
 
         _positive_id(self.sheet_id, "sheet_id")
         if not isinstance(self.binding, BindingRevision):
@@ -109,7 +112,14 @@ class ResolvedCellBlobSource:
             raise TypeError("source must be a SourceRevision")
         if not isinstance(self.blob_hash, str) or not self.blob_hash:
             raise ValueError("blob_hash must not be empty")
-        if self.source != blob_source_revision(blob_hash=self.blob_hash):
+        expected_source = (
+            blob_source_revision(blob_hash=self.blob_hash)
+            if self.page_number is None
+            else blob_page_source_revision(
+                blob_hash=self.blob_hash, page_number=self.page_number
+            )
+        )
+        if self.source != expected_source:
             raise ValueError("source must identify blob_hash bytes")
         if not isinstance(self.mime_type, str) or not self.mime_type.strip():
             raise ValueError("mime_type must not be empty")
@@ -130,7 +140,10 @@ def resolve_cell_blob_source(
     bytes for their own call lifetime before decoding or encoding them.
     """
 
-    from frisket.retrieval.sources import blob_source_revision
+    from frisket.retrieval.sources import (
+        blob_page_source_revision,
+        blob_source_revision,
+    )
 
     selected_sheet = _positive_id(sheet_id, "sheet_id")
     selected_row = _positive_id(row_id, "row_id")
@@ -173,7 +186,11 @@ def resolve_cell_blob_source(
         ):
             return None
         page_number = selected_page
-    source = blob_source_revision(blob_hash=blob_hash)
+    source = (
+        blob_source_revision(blob_hash=blob_hash)
+        if page_number is None
+        else blob_page_source_revision(blob_hash=blob_hash, page_number=page_number)
+    )
     return ResolvedCellBlobSource(
         sheet_id=selected_sheet,
         binding=BindingRevision(

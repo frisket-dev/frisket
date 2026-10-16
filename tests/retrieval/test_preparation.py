@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import hashlib
+import io
+import json
+
+from pypdf import PdfWriter
 
 from frisket.engine.store import Project
 from frisket.retrieval.content import (
@@ -20,6 +24,7 @@ from frisket.retrieval.preparation import (
     DEFAULT_TRANSCRIPT_RECIPE,
     DEFAULT_PREPARATION_POLICY,
     OCR_TEXT_CHANNEL,
+    PDF_PAGE_CHANNEL,
     PreparationPolicy,
     TRANSCRIPT_CHANNEL,
     UNSUPPORTED_MEDIA_CHANNEL,
@@ -28,6 +33,7 @@ from frisket.retrieval.preparation import (
     dispatch_resolved_evidence_source,
     dispatch_resolved_text_source,
     preparation_work_marker,
+    process_blob_image_preparation_batch,
     process_text_preparation_batch,
     process_evidence_preparation_batch,
     read_preparation_policy,
@@ -75,6 +81,24 @@ def _source(project, sheet_id, column_id, row_id):
 
 def _text_hash(value: str) -> str:
     return "sha256:" + hashlib.sha256(value.encode()).hexdigest()
+
+
+def _two_page_pdf() -> bytes:
+    output = io.BytesIO()
+    writer = PdfWriter()
+    writer.add_blank_page(width=72, height=72)
+    writer.add_blank_page(width=144, height=72)
+    writer.write(output)
+    return output.getvalue()
+
+
+def _drain_dirty(project, *, semantic_available: bool = True) -> None:
+    while not index_batch(
+        project,
+        batch_size=10,
+        semantic_available=semantic_available,
+    ).complete:
+        pass
 
 
 def test_lexical_dispatch_and_text_cursor_resume_across_store_opens(tmp_path) -> None:
@@ -210,6 +234,165 @@ def test_unsupported_media_is_scoped_unavailable_without_encoder(
             assert state.status == "unavailable"
             assert state.space_id is not None
             assert "application/zip" in (state.error_message or "")
+    finally:
+        project.close()
+
+
+def test_pdf_page_views_prepare_independently_and_follow_selector_edits(
+    tmp_path,
+) -> None:
+    project = Project.create(tmp_path / "pdf-page-views.frisket")
+    encoder = _Encoder()
+    try:
+        sheet_id = project.add_sheet("Documents")
+        column_id = project.add_column(sheet_id, "document", type="file")
+        digest = project.add_blob(
+            _two_page_pdf(), filename="two-pages.pdf", mime="application/pdf"
+        )
+        whole_row, page_one_row, page_two_row = project.add_rows(
+            sheet_id,
+            [
+                {"document": {"blob": digest, "mime": "application/pdf"}},
+                {
+                    "document": {
+                        "blob": digest,
+                        "mime": "application/pdf",
+                        "page": 1,
+                    }
+                },
+                {
+                    "document": {
+                        "blob": digest,
+                        "mime": "application/pdf",
+                        "page": 2,
+                    }
+                },
+            ],
+            {"document": column_id},
+        )
+        with project.read_snapshot() as snapshot:
+            whole = resolve_cell_blob_source(
+                snapshot,
+                sheet_id=sheet_id,
+                row_id=whole_row,
+                column_id=column_id,
+            )
+            page_one = resolve_cell_blob_source(
+                snapshot,
+                sheet_id=sheet_id,
+                row_id=page_one_row,
+                column_id=column_id,
+            )
+            page_two = resolve_cell_blob_source(
+                snapshot,
+                sheet_id=sheet_id,
+                row_id=page_two_row,
+                column_id=column_id,
+            )
+        assert whole is not None and page_one is not None and page_two is not None
+        assert (
+            len(
+                {
+                    whole.source.source_id,
+                    page_one.source.source_id,
+                    page_two.source.source_id,
+                }
+            )
+            == 3
+        )
+        assert {
+            whole.source.content_hash,
+            page_one.source.content_hash,
+            page_two.source.content_hash,
+        } == {f"sha256:{digest}"}
+
+        _drain_dirty(project)
+        for _ in range(3):
+            progress = process_blob_image_preparation_batch(
+                project,
+                channel=PDF_PAGE_CHANNEL,
+                encoder=encoder,
+                max_parts=8,
+            )
+            assert progress.processed_parts in {1, 2}
+        assert progress.complete
+
+        with RetrievalStore(project).open() as store:
+            active = store.db.execute(
+                "SELECT binding.row_id,source.source_id,part.locator_json "
+                "FROM bindings binding JOIN sources source "
+                "ON source.source_id=binding.source_id "
+                "AND source.version_kind=binding.version_kind "
+                "AND source.version_value=binding.version_value "
+                "AND source.version_type=binding.version_type "
+                "JOIN parts part ON part.source_id=source.source_id "
+                "AND part.version_kind=source.version_kind "
+                "AND part.version_value=source.version_value "
+                "AND part.version_type=source.version_type "
+                "WHERE binding.column_id=? ORDER BY binding.row_id,part.part_id",
+                (column_id,),
+            ).fetchall()
+        pages_by_row: dict[int, set[tuple[int, int]]] = {}
+        for row in active:
+            locator = json.loads(row["locator_json"])
+            pages_by_row.setdefault(int(row["row_id"]), set()).add(
+                (locator["pages"]["start"], locator["pages"]["end"])
+            )
+        assert pages_by_row == {
+            whole_row: {(1, 1), (2, 2)},
+            page_one_row: {(1, 1)},
+            page_two_row: {(2, 2)},
+        }
+
+        old_source = page_one.source
+        old_revision = page_one.binding.retrieval_revision
+        project.apply_edits(
+            [
+                {
+                    "row_id": page_one_row,
+                    "column_id": column_id,
+                    "value": {
+                        "blob": digest,
+                        "mime": "application/pdf",
+                        "page": 2,
+                    },
+                }
+            ]
+        )
+        with project.read_snapshot() as snapshot:
+            edited = resolve_cell_blob_source(
+                snapshot,
+                sheet_id=sheet_id,
+                row_id=page_one_row,
+                column_id=column_id,
+            )
+        assert edited is not None
+        assert edited.source.content_hash == old_source.content_hash
+        assert edited.source.version_value == old_source.version_value == digest
+        assert edited.source.source_id == page_two.source.source_id
+        assert edited.source.source_id != old_source.source_id
+        assert edited.binding.retrieval_revision > old_revision
+
+        _drain_dirty(project)
+        with RetrievalStore(project).open() as store:
+            active = store.db.execute(
+                "SELECT binding.row_id,source.source_id,part.locator_json "
+                "FROM bindings binding JOIN sources source "
+                "ON source.source_id=binding.source_id "
+                "AND source.version_kind=binding.version_kind "
+                "AND source.version_value=binding.version_value "
+                "AND source.version_type=binding.version_type "
+                "JOIN parts part ON part.source_id=source.source_id "
+                "AND part.version_kind=source.version_kind "
+                "AND part.version_value=source.version_value "
+                "AND part.version_type=source.version_type "
+                "WHERE binding.column_id=? AND binding.row_id=?",
+                (column_id, page_one_row),
+            ).fetchall()
+        assert len(active) == 1
+        assert active[0]["source_id"] == page_two.source.source_id
+        locator = json.loads(active[0]["locator_json"])
+        assert locator["pages"] == {"end": 2, "start": 2}
     finally:
         project.close()
 

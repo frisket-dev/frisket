@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import pytest
 
 from frisket.retrieval.sources import (
+    blob_page_source_revision,
     blob_source_revision,
     canonical_json,
     input_hash,
@@ -99,6 +100,25 @@ def test_blob_source_revision_uses_canonical_content_digest():
 
     with pytest.raises(ValueError, match="64 lowercase hexadecimal"):
         blob_source_revision(blob_hash=digest.upper())
+
+
+def test_blob_page_source_revision_preserves_blob_digest_and_selects_page():
+    digest = "cd" * 32
+    blob = blob_source_revision(blob_hash=digest)
+    first = blob_page_source_revision(blob_hash=digest, page_number=1)
+    second = blob_page_source_revision(blob_hash=digest, page_number=2)
+
+    assert len({blob.source_id, first.source_id, second.source_id}) == 3
+    assert first.source_id == f"blob:{digest}:page:1"
+    assert (first.source_kind, first.version_kind, first.version_value) == (
+        blob.source_kind,
+        blob.version_kind,
+        blob.version_value,
+    )
+    assert first.content_hash == second.content_hash == blob.content_hash
+
+    with pytest.raises(ValueError, match="positive integer"):
+        blob_page_source_revision(blob_hash=digest, page_number=0)
 
 
 def test_representation_identity_uses_complete_space():

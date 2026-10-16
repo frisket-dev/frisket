@@ -73,7 +73,7 @@ def test_resolves_current_blob_metadata_and_authored_page(tmp_path) -> None:
         assert resolved.blob_hash == digest
         assert resolved.mime_type == "application/pdf"
         assert resolved.page_number == 3
-        assert resolved.source.source_id == f"blob:{digest}"
+        assert resolved.source.source_id == f"blob:{digest}:page:3"
         assert resolved.source.source_kind == "blob"
         assert resolved.source.version_kind == "blob_digest"
         assert resolved.source.version_value == digest

@@ -104,6 +104,30 @@ def blob_source_revision(*, blob_hash: str) -> SourceRevision:
     )
 
 
+def blob_page_source_revision(*, blob_hash: str, page_number: int) -> SourceRevision:
+    """Construct one authored page view over immutable PDF blob bytes.
+
+    The blob digest remains the version and content identity.  The page in the
+    logical source id prevents a ready publication for one authored selector
+    from being reused by a different selector over the same PDF.
+    """
+
+    blob = blob_source_revision(blob_hash=blob_hash)
+    if (
+        isinstance(page_number, bool)
+        or not isinstance(page_number, int)
+        or page_number <= 0
+    ):
+        raise ValueError("page_number must be a positive integer")
+    return SourceRevision(
+        source_id=f"blob:{blob_hash}:page:{page_number}",
+        source_kind=blob.source_kind,
+        version_kind=blob.version_kind,
+        version_value=blob.version_value,
+        content_hash=blob.content_hash,
+    )
+
+
 def cell_source_binding_id(
     *, sheet_id: int, row_id: int, column_id: int, source_id: str
 ) -> str:
