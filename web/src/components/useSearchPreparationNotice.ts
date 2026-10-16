@@ -103,12 +103,6 @@ function preparationDetail(batch: SearchPreparationBatch): string {
   }
 }
 
-function preparationProgress(batch: SearchPreparationBatch): number | null {
-  if (batch.jobs.length === 0) return null;
-  const complete = batch.jobs.filter((job) => job.status === 'done').length;
-  return Math.round((complete / batch.jobs.length) * 100);
-}
-
 function indexingDetail(indexing: SearchIndexingProjection): string {
   switch (indexing.status) {
     case 'pending':
@@ -216,7 +210,7 @@ export function deriveSearchPreparationNotice(
       batch: activeBatch,
       indexing: null,
       pull: null,
-      progress: preparationProgress(activeBatch),
+      progress: null,
       details: activeBatch.jobs.map((job) => `Job ${job.job_id.toLocaleString()} · ${job.status}`),
     };
   }
@@ -291,20 +285,13 @@ type PreparationListResult = SearchPreparationListResult & {
 };
 
 async function loadPulls(team: boolean, previous: ScopedPull[]): Promise<ScopedPull[]> {
-  const requests: Promise<{ scope: ScopedPull['scope']; pulls: ModelPullDto[] }>[] = [
-    listModelPulls().then(({ pulls }) => ({ scope: 'workspace', pulls })),
-  ];
-  if (team) {
-    requests.push(orgListModelPulls().then(({ pulls }) => ({ scope: 'organization', pulls })));
-  }
-  const settled = await Promise.allSettled(requests);
-  return settled.flatMap((result, index) => {
-    if (result.status === 'fulfilled') {
-      return result.value.pulls.map((pull) => ({ pull, scope: result.value.scope }));
-    }
-    const scope: ScopedPull['scope'] = index === 0 ? 'workspace' : 'organization';
+  const scope: ScopedPull['scope'] = team ? 'organization' : 'workspace';
+  try {
+    const { pulls } = team ? await orgListModelPulls() : await listModelPulls();
+    return pulls.map((pull) => ({ pull, scope }));
+  } catch {
     return previous.filter((item) => item.scope === scope);
-  });
+  }
 }
 
 function relevantPulls(

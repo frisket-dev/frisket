@@ -143,7 +143,7 @@ describe('search preparation notice projection', () => {
     expect(banner).toHaveTextContent('Search index retries were exhausted.');
   });
 
-  it('reports the actual media preparation stage and job progress', () => {
+  it('reports the media preparation stage without inventing file progress from job counts', () => {
     const notice = deriveSearchPreparationNotice(snapshot({
       batches: [batch({
         groups: [{ kind: 'transcribe', count: 3, status: 'running' }],
@@ -156,7 +156,7 @@ describe('search preparation notice projection', () => {
     render(<SearchPreparationNotice notice={notice!} />);
 
     expect(screen.getByTestId('search-preparation-banner')).toHaveTextContent('Transcribing media · 3 files');
-    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '50');
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
   });
 
   it('labels completion as prepared content becoming searchable', () => {
