@@ -1260,9 +1260,11 @@ def _validate_bindings(bindings: Sequence[StoredBinding]) -> None:
                 or isinstance(dependency.column_id, bool)
                 or dependency.column_id <= 0
                 or isinstance(dependency.retrieval_revision, bool)
-                or dependency.retrieval_revision <= 0
+                or dependency.retrieval_revision < 0
             ):
-                raise ValueError("binding dependency IDs and revision must be positive")
+                raise ValueError(
+                    "binding dependency IDs must be positive and revision non-negative"
+                )
 
 
 _SCHEMA = """
@@ -1320,7 +1322,7 @@ CREATE TABLE IF NOT EXISTS binding_dependencies (
   binding_id TEXT NOT NULL REFERENCES bindings(binding_id) ON DELETE CASCADE,
   row_id INTEGER NOT NULL,
   column_id INTEGER NOT NULL,
-  retrieval_revision INTEGER NOT NULL CHECK(retrieval_revision>0),
+  retrieval_revision INTEGER NOT NULL CHECK(retrieval_revision>=0),
   PRIMARY KEY(binding_id,column_id,row_id)
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS binding_dependencies_cell

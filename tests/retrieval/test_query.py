@@ -478,7 +478,8 @@ def test_hybrid_fuses_source_ranks_and_retains_both_contributions(tmp_path):
         project.close()
 
 
-def test_composite_binding_is_invalidated_when_any_dependency_changes(tmp_path):
+@pytest.mark.parametrize("sparse", [False, True])
+def test_composite_binding_is_invalidated_when_any_dependency_changes(tmp_path, sparse):
     project = Project.create(tmp_path / "composite.frisket", name="composite")
     try:
         sheet = project.add_sheet("Rows")
@@ -489,9 +490,15 @@ def test_composite_binding_is_invalidated_when_any_dependency_changes(tmp_path):
             [{"title": "alpha", "body": "bravo"}],
             {"title": title, "body": body},
         )
+        if sparse:
+            project.db.execute(
+                "DELETE FROM current_cells WHERE row_id=? AND column_id=?", (row, body)
+            )
+            project.db.commit()
         title_revision = read_binding_revision(project.db, row_id=row, column_id=title)
         body_revision = read_binding_revision(project.db, row_id=row, column_id=body)
-        assert title_revision is not None and body_revision is not None
+        assert title_revision is not None
+        body_revision = body_revision or 0
         revision = SourceRevision(
             "composite:row:1",
             "row_composite",
@@ -544,6 +551,12 @@ def test_composite_binding_is_invalidated_when_any_dependency_changes(tmp_path):
         )
         vectors = SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),))
         assert len(search(project, request, semantic_vectors=vectors).results) == 1
+        if sparse:
+            project.apply_edits(
+                [{"row_id": row, "column_id": body, "value": "new body"}]
+            )
+            assert search(project, request, semantic_vectors=vectors).results == ()
+            return
 
         project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (title,))
         project.db.commit()

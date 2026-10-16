@@ -93,7 +93,7 @@ class ProjectSearchLocation(WireModel):
 class ProjectSearchBindingRevision(WireModel):
     row_id: int = Field(gt=0)
     column_id: int = Field(gt=0)
-    retrieval_revision: int = Field(gt=0)
+    retrieval_revision: int = Field(ge=0)
 
 
 class ProjectSearchBinding(WireModel):

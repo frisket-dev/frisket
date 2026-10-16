@@ -1241,11 +1241,10 @@ def _binding_is_current(binding: str) -> str:
         f"WHERE required_dependency.binding_id={binding}.binding_id) AND NOT EXISTS ("
         "SELECT 1 FROM idx.binding_dependencies AS dependency "
         "WHERE dependency.binding_id="
-        f"{binding}.binding_id AND NOT EXISTS ("
-        "SELECT 1 FROM main.current_cells AS current_head "
+        f"{binding}.binding_id AND dependency.retrieval_revision != COALESCE(("
+        "SELECT current_head.retrieval_revision FROM main.current_cells AS current_head "
         "WHERE current_head.column_id=dependency.column_id "
-        "AND current_head.row_id=dependency.row_id "
-        "AND current_head.retrieval_revision=dependency.retrieval_revision))"
+        "AND current_head.row_id=dependency.row_id),0))"
     )
 
 

@@ -190,11 +190,9 @@ def plan_named_index_items(
         dependencies: list[BindingDependency] = []
         member_revisions: list[dict[str, int]] = []
         for _name, column_id in columns:
-            revision = revisions.get((row_id, column_id))
-            if revision is None:
-                raise ValueError(
-                    f"row {row_id} has no current retrieval revision for column {column_id}"
-                )
+            # A missing sparse cell is part of the input too. Filling it later
+            # must invalidate the composite, just like changing a present cell.
+            revision = revisions.get((row_id, column_id), 0)
             dependencies.append(BindingDependency(row_id, column_id, revision))
             member_revisions.append(
                 {

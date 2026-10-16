@@ -417,10 +417,7 @@ def _migrate_named_batch(
         dependencies: list[BindingDependency] = []
         member_revisions: list[dict[str, int]] = []
         for _name, column_id in plan.columns:
-            revision = revisions.get((row_id, column_id))
-            if revision is None:
-                dependencies = []
-                break
+            revision = revisions.get((row_id, column_id), 0)
             dependencies.append(BindingDependency(row_id, column_id, revision))
             member_revisions.append(
                 {

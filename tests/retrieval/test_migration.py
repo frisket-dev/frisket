@@ -75,14 +75,18 @@ def _row_space(model: str, *, dimension: int = 2) -> dict:
     )
 
 
-def _legacy_project(tmp_path):
+def _legacy_project(tmp_path, *, sparse=False):
     project = Project.create(tmp_path / "legacy.frisket", name="legacy")
     sheet_id = project.add_sheet("Stories")
     title_id = project.add_column(sheet_id, "Title")
     body_id = project.add_column(sheet_id, "Body")
     row_id = project.add_rows(
         sheet_id,
-        [{"Title": "A headline", "Body": "The complete body"}],
+        [
+            {"Title": "A headline"}
+            if sparse
+            else {"Title": "A headline", "Body": "The complete body"}
+        ],
         {"Title": title_id, "Body": body_id},
     )[0]
 
@@ -334,3 +338,51 @@ def test_malformed_legacy_sidecars_fail_closed_without_removal(tmp_path):
     assert (project.path / "project.embeddings.db").is_file()
     assert (project.path / "project.search.db").is_file()
     project.close()
+
+
+def test_sparse_named_row_preserves_vector_and_absent_member_revision(tmp_path):
+    from frisket.ai.embeddings.unified_index import plan_named_index_items
+
+    project, index_id, space_id, _model, row, title, body, payload = _legacy_project(
+        tmp_path, sparse=True
+    )
+    try:
+        # Sparse imports have no current cell for a missing member.
+        project.db.execute(
+            "DELETE FROM current_cells WHERE row_id=? AND column_id=?", (row, body)
+        )
+        project.db.commit()
+        metadata = EmbeddingStore(project)
+        _recipe, items = plan_named_index_items(
+            project,
+            index=metadata.get_index(index_id),
+            space=metadata.get_space(space_id),
+            payloads=[payload],
+        )
+        assert [
+            (d.column_id, d.retrieval_revision) for d in items[0].binding.dependencies
+        ][-1] == (body, 0)
+        with RetrievalStore(project).open() as target:
+            report = migrate_legacy_embedding_caches(project, target)
+            assert report.named_imported == 1
+            assert (
+                target.db.execute(
+                    "SELECT retrieval_revision FROM binding_dependencies WHERE row_id=? AND column_id=?",
+                    (row, body),
+                ).fetchone()[0]
+                == 0
+            )
+        project.apply_edits([{"row_id": row, "column_id": body, "value": "new body"}])
+        updated = build_source_payloads(
+            project, metadata.get_index(index_id), ["Title", "Body"], [row]
+        )
+        _recipe, fresh = plan_named_index_items(
+            project,
+            index=metadata.get_index(index_id),
+            space=metadata.get_space(space_id),
+            payloads=updated,
+        )
+        assert fresh[0].binding.dependencies[-1].retrieval_revision > 0
+        assert fresh[0].source != items[0].source
+    finally:
+        project.close()

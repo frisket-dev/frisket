@@ -158,7 +158,7 @@ class SourceLocator:
 
 @dataclass(frozen=True, slots=True)
 class BindingRevision:
-    """Contributing cell head pinned when a search hit was read."""
+    """Contributing cell head; revision zero pins an absent sparse cell."""
 
     row_id: int
     column_id: int
@@ -167,7 +167,12 @@ class BindingRevision:
     def __post_init__(self) -> None:
         _positive(self.row_id, "row_id")
         _positive(self.column_id, "column_id")
-        _positive(self.retrieval_revision, "retrieval_revision")
+        if (
+            isinstance(self.retrieval_revision, bool)
+            or not isinstance(self.retrieval_revision, int)
+            or self.retrieval_revision < 0
+        ):
+            raise ValueError("retrieval_revision must be a non-negative integer")
 
 
 @dataclass(frozen=True, slots=True)
