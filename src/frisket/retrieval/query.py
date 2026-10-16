@@ -1264,28 +1264,46 @@ def _unique_lexical_range(
 ) -> tuple[int, int] | None:
     """Locate one SQLite-selected lexical anchor without interpreting FTS syntax."""
 
-    literal = literal_query.strip()
-    snippet_text = snippet.replace(start_marker, "").replace(end_marker, "")
-    anchors = (
-        [literal]
-        if literal and re.search(re.escape(literal), snippet_text, re.IGNORECASE)
-        else []
-    )
+    anchors: list[str] = []
     marker_start = 0
     while (start := snippet.find(start_marker, marker_start)) >= 0:
         anchor_start = start + len(start_marker)
         end = snippet.find(end_marker, anchor_start)
         if end < 0:
-            break
+            return None
         anchors.append(snippet[anchor_start:end])
         marker_start = end + len(end_marker)
-    for anchor in dict.fromkeys(anchor for anchor in anchors if anchor):
+    if not anchors or any(not anchor for anchor in anchors):
+        return None
+
+    marked_ranges: list[tuple[int, int]] = []
+    for anchor in anchors:
         pattern = re.compile(re.escape(anchor), re.IGNORECASE)
         first = pattern.search(text)
-        if first is None:
-            continue
-        if pattern.search(text, first.start() + 1) is None:
-            return first.span()
+        if first is None or pattern.search(text, first.start() + 1) is not None:
+            return None
+        marked_ranges.append(first.span())
+
+    literal = literal_query.strip()
+    if literal:
+        pattern = re.compile(re.escape(literal), re.IGNORECASE)
+        literal_ranges = [match.span() for match in pattern.finditer(text)]
+        marked_start = min(start for start, _end in marked_ranges)
+        marked_end = max(end for _start, end in marked_ranges)
+        aligned = [
+            span
+            for span in literal_ranges
+            if (
+                len(marked_ranges) == 1
+                and marked_ranges[0][0] <= span[0]
+                and span[1] <= marked_ranges[0][1]
+            )
+            or span == (marked_start, marked_end)
+        ]
+        if len(aligned) == 1:
+            return aligned[0]
+    if len(marked_ranges) == 1:
+        return marked_ranges[0]
     return None
 
 

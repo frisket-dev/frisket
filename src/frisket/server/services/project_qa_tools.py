@@ -37,6 +37,7 @@ from frisket.server.services.project_qa_actions import (
 )
 from frisket.server.services.project_qa_web import safe_web_text, safe_web_url
 from frisket.server.services.project_qa_sources import (
+    SourceUnavailableError,
     read_source_text,
     find_source_text,
     read_prepared_passages,
@@ -720,14 +721,18 @@ class ProjectQATools:
             if allowed_rows is None
             else {cell for cell in file_cells if cell[0] not in allowed_rows}
         )
-        prepared_targets = self._prepared_file_targets(sheet_id, file_only_cells)
+        prepared_targets, unavailable_file_cells = self._prepared_file_targets(
+            sheet_id, file_only_cells
+        )
+        readable_file_cells = file_cells - unavailable_file_cells
         response = search_with_encoding(
             self.project,
             SearchRequest(
                 scope=_retrieval_scope(
                     sheet_id,
                     allowed_rows,
-                    file_cells | {(cell[1], cell[2]) for cell in prepared_targets},
+                    readable_file_cells
+                    | {(cell[1], cell[2]) for cell in prepared_targets},
                     sheet_grants,
                 ),
                 query=TextQuery(query),
@@ -742,7 +747,7 @@ class ProjectQATools:
             int(column["id"]): column for column in self.project.columns(sheet_id)
         }
         out: list[dict[str, Any]] = []
-        source_changed = False
+        source_changed = bool(unavailable_file_cells)
         for group in response.results:
             hit = group.primary
             column = (
@@ -788,20 +793,25 @@ class ProjectQATools:
 
     def _prepared_file_targets(
         self, sheet_id: int, file_cells: set[tuple[int, int]]
-    ) -> dict[tuple[int, int, int], dict[str, Any]]:
+    ) -> tuple[dict[tuple[int, int, int], dict[str, Any]], set[tuple[int, int]]]:
         """Resolve exact current prepared cells without widening file grants."""
 
         targets: dict[tuple[int, int, int], dict[str, Any]] = {}
+        unavailable: set[tuple[int, int]] = set()
         for row_id, column_id in sorted(file_cells):
             source_cell = (sheet_id, row_id, column_id)
-            _target, _source, prepared = read_source_with_prepared(
-                self.project, source_cell, cancel=self.cancel_event
-            )
+            try:
+                _target, _source, prepared = read_source_with_prepared(
+                    self.project, source_cell, cancel=self.cancel_event
+                )
+            except SourceUnavailableError:
+                unavailable.add((row_id, column_id))
+                continue
             if prepared is not None:
                 targets.setdefault(
                     prepared["cell"], {"source_cell": source_cell, **prepared}
                 )
-        return targets
+        return targets, unavailable
 
     def record_web_search(self, search: Mapping[str, Any]) -> dict[str, Any]:
         """Persist safe public-search snippets as answer-citable receipts."""

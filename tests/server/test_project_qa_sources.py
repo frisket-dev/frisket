@@ -75,6 +75,44 @@ def test_exact_cell_scope_still_searches_its_original_text(source):
     assert "NEEDLE" in tools.open_source(hit["citation_id"])["passages"][0]["text"]
 
 
+def test_search_skips_a_file_target_hidden_after_scope_admission(source):
+    project, store, _, turn, sheet, column, row = source
+    [hidden_row] = project.add_rows(
+        sheet, [{"Text": "unrelated file target"}], {"Text": column}
+    )
+    scoped_turn = {
+        **turn,
+        "scope": {
+            "kind": "sources",
+            "sources": [
+                {
+                    "kind": "file",
+                    "sheet_id": sheet,
+                    "row_id": row,
+                    "column_id": column,
+                },
+                {
+                    "kind": "file",
+                    "sheet_id": sheet,
+                    "row_id": hidden_row,
+                    "column_id": column,
+                },
+            ],
+        },
+    }
+    tools = ProjectQATools(project, scoped_turn, store)
+    project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (hidden_row,))
+    project.db.commit()
+
+    result = tools.search_cells("NEEDLE", sheet)
+
+    assert [hit["row_id"] for hit in result["hits"]] == [row]
+    assert result["partial"] is True
+    assert result["coverage"]["reason"] == "source_changed"
+    with pytest.raises(ProjectQAScopeError, match="hidden or missing"):
+        ProjectQATools(project, scoped_turn, store)
+
+
 def test_prior_sources_reopen_only_in_current_scope_and_metadata_is_filtered(source):
     project, store, thread, turn, sheet, column, row = source
     first = ProjectQATools(project, turn, store)

@@ -303,6 +303,49 @@ def test_repeated_lexical_anchor_keeps_whole_source_location(tmp_path):
         project.close()
 
 
+@pytest.mark.parametrize(
+    ("query", "text", "expected"),
+    [
+        ("cafe", "Le café was busy; the cafeteria was not.", "café"),
+        ("red car", "the scarred carpet; a car painted red", None),
+        ("red car", "the red car stopped", "red car"),
+    ],
+)
+def test_lexical_location_follows_fts_marked_tokens_not_raw_substrings(
+    tmp_path, query, text, expected
+):
+    from frisket.search import drain_index
+
+    project = Project.create(tmp_path / "fts-marked-lexical-range.frisket")
+    try:
+        sheet = project.add_sheet("Notes")
+        column = project.add_column(sheet, "body")
+        project.add_rows(sheet, [{"body": text}], {"body": column})
+        drain_index(project)
+
+        response = search(
+            project,
+            SearchRequest(
+                scope=RetrievalScope(sheets=(SheetScope(sheet),)),
+                query=TextQuery(query),
+                mode="lexical",
+                ranking=RankingPolicy(rerank="off"),
+            ),
+        )
+
+        [result] = response.results
+        location = result.primary.part.locator
+        assert location.text is not None
+        if expected is None:
+            assert result.primary.precision == "source_unit"
+            assert (location.text.start, location.text.end) == (0, len(text))
+        else:
+            assert result.primary.precision == "exact"
+            assert text[location.text.start : location.text.end] == expected
+    finally:
+        project.close()
+
+
 def test_quoted_lexical_match_ignores_literal_snippet_markup(tmp_path):
     from frisket.search import drain_index
 

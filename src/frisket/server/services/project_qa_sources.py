@@ -28,6 +28,10 @@ _FROM = (
 )
 
 
+class SourceUnavailableError(ValueError):
+    """The requested cell is no longer on the visible source surface."""
+
+
 @contextmanager
 def _read(project: Project, cancel: threading.Event | None):
     deadline = time.monotonic() + SCAN_SECONDS
@@ -60,7 +64,7 @@ def _metadata(db: sqlite3.Connection, cell: tuple[int, int, int]) -> dict[str, A
         cell,
     ).fetchone()
     if row is None:
-        raise ValueError("source is hidden or no longer available")
+        raise SourceUnavailableError("source is hidden or no longer available")
     ref = {
         "kind": row["origin_kind"],
         "op_id": row["origin_op_id"],
