@@ -61,3 +61,41 @@ def test_job_backed_run_status_and_timing_expose_action_metadata(tmp_path) -> No
             "timing": timing["active_runs"][0]["timing"],
         }
     ]
+
+
+def test_search_preparation_jobs_have_a_cosmetic_origin_label(tmp_path) -> None:
+    client = TestClient(create_app(tmp_path / "ws", run_status_grace_seconds=3600.0))
+    pid = client.post("/api/projects", json={"name": "Prepared jobs"}).json()["id"]
+    imported = client.post(
+        f"/api/projects/{pid}/import/csv",
+        files={"file": ("calls.csv", CSV, "text/csv")},
+    )
+    assert imported.status_code == 200, imported.text
+    sheet_id = imported.json()["sheet_id"]
+    spec = queued_python_run_spec(sheet_id, "text", "phone")
+
+    normal = post_canonical_run_spec_as_v1_action(
+        client,
+        pid,
+        spec,
+        confirmed=True,
+        idempotency_key="user-action@sha256:stable",
+    )
+    assert normal.status_code == 200, normal.text
+    prepared = post_canonical_run_spec_as_v1_action(
+        client,
+        pid,
+        {**spec, "output_name": "prepared_phone"},
+        confirmed=True,
+        idempotency_key="search-preparation:batch-1:ocr:stable",
+    )
+    assert prepared.status_code == 200, prepared.text
+
+    response = client.get(f"/api/projects/{pid}/actions/jobs")
+    assert response.status_code == 200, response.text
+    names_by_run = {
+        job["run_id"]: job["action_name"] for job in response.json()["jobs"]
+    }
+    title = _catalog_title("map.python")
+    assert names_by_run[normal.json()["run_id"]] == title
+    assert names_by_run[prepared.json()["run_id"]] == f"{title} (search preparation)"

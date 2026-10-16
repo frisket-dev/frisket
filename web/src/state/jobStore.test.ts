@@ -443,7 +443,7 @@ describe('createJobStore — complete WEB-03-4B scheduler/resource red contract'
     expect(listActionJobs).toHaveBeenCalledTimes(1);
   });
 
-  it('uses progress from the jobs snapshot and never fans out per run', async () => {
+  it('keeps discovering jobs created after a terminal snapshot without per-run fanout', async () => {
     vi.useFakeTimers();
     setDocumentHidden(false);
     const terminal = actionJob({
@@ -452,7 +452,11 @@ describe('createJobStore — complete WEB-03-4B scheduler/resource red contract'
       status: 'completed',
       progress: runProgress({ runId: 'terminal-run', actionName: 'From snapshot', status: 'complete' }),
     });
-    const listActionJobs = vi.fn().mockResolvedValue({ jobs: [terminal] });
+    const later = actionJob({ jobId: 2, actionName: 'Search preparation' });
+    const listActionJobs = vi.fn()
+      .mockResolvedValueOnce({ jobs: [terminal] })
+      .mockResolvedValueOnce({ jobs: [terminal] })
+      .mockResolvedValue({ jobs: [later, terminal] });
     const getRunProgress = vi.fn();
     const jobs = createJobStore('project-a', projectPort({
       listActionJobs,
@@ -464,9 +468,9 @@ describe('createJobStore — complete WEB-03-4B scheduler/resource red contract'
     await flushMicrotasks();
     expect(jobs.store.get().actionJobs.jobs[0]?.progress?.actionName).toBe('From snapshot');
     expect(getRunProgress).not.toHaveBeenCalled();
-    const settledCalls = listActionJobs.mock.calls.length;
-    await vi.advanceTimersByTimeAsync(10_000);
-    expect(listActionJobs).toHaveBeenCalledTimes(settledCalls);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(jobs.store.get().actionJobs.jobs.map((job) => job.jobId)).toContain(2);
+    expect(getRunProgress).not.toHaveBeenCalled();
   });
 
   it('fences stale ordinary-list settlement across dispose/restart without clearing successor loading', async () => {
@@ -581,7 +585,7 @@ describe('createJobStore — complete WEB-03-4B scheduler/resource red contract'
 });
 
 describe('createJobStore — complete 4B cadence, fencing, and transport pins', () => {
-  it('polls two seconds after an active snapshot settles', async () => {
+  it('polls after two seconds while active and five seconds while idle', async () => {
     vi.useFakeTimers();
     setDocumentHidden(false);
     const firstDock = deferred<{ jobs: ActionJob[] }>();
@@ -606,8 +610,10 @@ describe('createJobStore — complete 4B cadence, fencing, and transport pins', 
     expect(listActionJobs).toHaveBeenCalledTimes(2);
     await vi.advanceTimersByTimeAsync(1);
     expect(listActionJobs).toHaveBeenCalledTimes(3);
-    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(4_999);
     expect(listActionJobs).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(listActionJobs).toHaveBeenCalledTimes(4);
   });
 
   it('does not overlap a live-dock request during repeated visible catch-ups', async () => {
