@@ -308,6 +308,34 @@ describe('located palette search', () => {
     expect(startEngineSetup).not.toHaveBeenCalled();
   });
 
+  it('offers preparation from exact current-media coverage without calling it searched', async () => {
+    searchProject.mockResolvedValue({
+      groups: [],
+      coverage: {
+        requested_mode: 'lexical',
+        effective_modes: ['lexical'],
+        state: 'partial',
+        searched_channels: ['lexical'],
+        channels: [{
+          channel: 'lexical', state: 'ready', recipe_id: null, reason: null,
+          eligible_count: null, prepared_count: null, failed_count: null, setup: null,
+        }, {
+          channel: 'search_preparation', state: 'unavailable', recipe_id: null,
+          reason: 'Current media needs search preparation.',
+          eligible_count: 1, prepared_count: 0, failed_count: null, setup: null,
+        }],
+        is_top_k: true,
+        truncated: false,
+      },
+    });
+    render(<PaletteHarness />);
+
+    const gap = await screen.findByTestId('search-preparation-gap');
+    expect(gap).toHaveTextContent('1 current media item needs search preparation.');
+    expect(screen.getByRole('status')).toHaveTextContent('Showing available search results.');
+    expect(screen.queryByText(/while more material is prepared/i)).not.toBeInTheDocument();
+  });
+
   it('selects a named index for free-text search and saves its semantic view', async () => {
     searchProject.mockResolvedValue(completeResponse);
     render(<PaletteHarness />);

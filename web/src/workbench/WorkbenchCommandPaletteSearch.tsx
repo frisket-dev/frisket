@@ -53,6 +53,13 @@ function Snip({ text, decodeEscapes }: { text: string; decodeEscapes?: boolean }
 
 function coverageMessage(coverage: ProjectSearchResponseWire['coverage'] | null): string | null {
   if (!coverage || coverage.state === 'complete') return null;
+  const mediaGap = coverage.channels.find((channel) => (
+    channel.channel === 'search_preparation'
+    && channel.eligible_count != null
+    && channel.prepared_count != null
+    && channel.eligible_count > channel.prepared_count
+  ));
+  if (mediaGap && mediaGap.state !== 'pending') return 'Showing available search results.';
   if (coverage.state === 'preparing') return 'Preparing project search material…';
   if (coverage.state === 'partial') return 'Showing available results while more material is prepared.';
   if (coverage.state === 'failed') return 'Some project material could not be searched.';
@@ -364,7 +371,9 @@ export function PaletteSearchSection({
       {materialGap && (
         <div className="search-preparation-gap" data-testid="search-preparation-gap">
           <span>
-            {materialGapCount == null
+            {materialGap.channel === 'search_preparation' && materialGapCount != null
+              ? `${materialGapCount.toLocaleString()} current media ${materialGapCount === 1 ? 'item needs' : 'items need'} search preparation.`
+              : materialGapCount == null
               ? 'Some files need search preparation.'
               : `${materialGapCount.toLocaleString()} ${materialGapCount === 1 ? 'file needs' : 'files need'} search preparation.`}
           </span>
