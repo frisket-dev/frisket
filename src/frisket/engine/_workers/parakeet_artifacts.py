@@ -53,6 +53,7 @@ from .parakeet_model import (
 PARAKEET_VAD_MODEL = "silero"
 
 ARTIFACT_WALL_SECONDS = 1_800
+_ARTIFACT_DOWNLOAD_ENV = {"HF_HUB_DISABLE_XET": "1"}
 
 
 class ParakeetArtifactUnavailable(RuntimeError):
@@ -407,8 +408,10 @@ async def resolve_parakeet_artifacts(
                 memory_mb=1024,
                 allow_network=True,
                 env_passthrough=["VIRTUAL_ENV", "PYTHONPATH"],
+                allowed_extra_env=list(_ARTIFACT_DOWNLOAD_ENV),
             ),
             stdin_data=json.dumps(payload, separators=(",", ":")).encode(),
+            extra_env=_ARTIFACT_DOWNLOAD_ENV,
             should_cancel=should_cancel,
         )
     except (asyncio.CancelledError, SandboxTeardownError):

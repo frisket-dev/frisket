@@ -97,11 +97,12 @@ def test_resolver_uses_exact_public_pins_and_revalidates_parent_side(
     monkeypatch.setenv("HF_HUB_CACHE", str(cache))
     seen: dict[str, Any] = {}
 
-    async def fake_run(argv, *, policy, stdin_data, should_cancel=None):
+    async def fake_run(argv, *, policy, stdin_data, extra_env=None, should_cancel=None):
         seen.update(
             argv=argv,
             policy=policy,
             payload=json.loads(stdin_data),
+            extra_env=extra_env,
             should_cancel=should_cancel,
         )
         vad = _snapshot(
@@ -133,6 +134,8 @@ def test_resolver_uses_exact_public_pins_and_revalidates_parent_side(
     assert seen["should_cancel"] is cancel
     assert seen["policy"].allow_network is True
     assert seen["policy"].env_passthrough == ["VIRTUAL_ENV", "PYTHONPATH"]
+    assert seen["policy"].allowed_extra_env == ["HF_HUB_DISABLE_XET"]
+    assert seen["extra_env"] == {"HF_HUB_DISABLE_XET": "1"}
     payload = seen["payload"]
     assert "model" not in payload
     assert payload["vad"]["repo_id"] == artifacts.PARAKEET_VAD_REPO
@@ -334,7 +337,7 @@ def test_resolution_identity_comes_from_the_manifest(
     monkeypatch.setenv("HF_HUB_CACHE", str(cache))
     seen: dict[str, Any] = {}
 
-    async def fake_run(argv, *, policy, stdin_data, should_cancel=None):
+    async def fake_run(argv, *, policy, stdin_data, extra_env=None, should_cancel=None):
         seen["payload"] = json.loads(stdin_data)
         model = _snapshot(
             cache,
