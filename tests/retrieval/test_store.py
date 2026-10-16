@@ -165,8 +165,128 @@ def test_failed_preparation_is_conditional_and_counts_are_maintained(tmp_path):
             "pending": 0,
             "preparing": 0,
             "ready": 0,
+            "unavailable": 0,
             "failed": 1,
         }
+
+
+def test_preparation_cursor_resumes_and_retargets_conditionally(tmp_path):
+    revision = SourceRevision("cell:2:3", "text", "cell_revision", 11)
+    newer = SourceRevision("cell:2:3", "text", "cell_revision", 12)
+    with RetrievalStore(tmp_path).open() as store:
+        store.begin_preparation(revision, recipe_id="passages:v1", channel="text")
+        assert store.publish_source(_publication(revision, token="seed"))
+        store.queue_preparation(revision, recipe_id="passages:v2", channel="text")
+        state = store.next_preparation(channel="text")
+        assert state is not None and state.status == "pending"
+        assert state.source_revision == revision
+
+        store.begin_preparation(revision, recipe_id="passages:v2", channel="text")
+        assert store.advance_preparation(
+            revision,
+            recipe_id="passages:v2",
+            channel="text",
+            cursor_json='{"next_offset":128}',
+        )
+        store.queue_preparation(revision, recipe_id="passages:v2", channel="text")
+        resumed = store.preparation_state(
+            revision.source_id, recipe_id="passages:v2", channel="text"
+        )
+        assert resumed is not None
+        assert (resumed.status, resumed.cursor_json) == (
+            "pending",
+            '{"next_offset":128}',
+        )
+
+        store.queue_preparation(newer, recipe_id="passages:v2", channel="text")
+        retargeted = store.preparation_state(
+            revision.source_id, recipe_id="passages:v2", channel="text"
+        )
+        assert retargeted is not None
+        assert (retargeted.target_version_value, retargeted.cursor_json) == (12, None)
+        assert not store.advance_preparation(
+            revision,
+            recipe_id="passages:v2",
+            channel="text",
+            cursor_json='{"next_offset":256}',
+        )
+
+
+def test_unavailable_preparation_requires_explicit_requeue(tmp_path):
+    revision = SourceRevision("cell:2:3", "text", "cell_revision", 11)
+    with RetrievalStore(tmp_path).open() as store:
+        store.begin_preparation(revision, recipe_id="passages:v1", channel="text")
+        assert store.publish_source(_publication(revision, token="seed"))
+        store.queue_preparation(revision, recipe_id="passages:v2", channel="text")
+        assert store.mark_preparation_unavailable(
+            revision,
+            recipe_id="passages:v2",
+            channel="text",
+            reason="install the local encoder",
+        )
+        store.queue_preparation(revision, recipe_id="passages:v2", channel="text")
+
+        state = store.preparation_state(
+            revision.source_id, recipe_id="passages:v2", channel="text"
+        )
+        assert state is not None and state.status == "unavailable"
+        assert store.next_preparation(channel="text") is None
+        assert store.requeue_unavailable(channel="text") == 1
+        assert store.next_preparation(channel="text").status == "pending"
+
+
+def test_registration_atomically_exposes_bound_pending_source(tmp_path):
+    revision = SourceRevision("cell:2:3", "text", "cell_revision", 11)
+    binding = StoredBinding(
+        "binding:1",
+        sheet_id=1,
+        row_id=2,
+        column_id=3,
+        dependencies=(BindingDependency(2, 3, 11),),
+    )
+    with RetrievalStore(tmp_path).open() as store:
+        store.register_preparation(
+            revision,
+            (binding,),
+            recipe_id="passages:v1",
+            channel="text",
+        )
+
+        work = store.next_preparation(channel="text")
+        assert work is not None and work.source_revision == revision
+        assert store.db.execute("SELECT count(*) FROM sources").fetchone()[0] == 1
+        assert store.db.execute("SELECT count(*) FROM bindings").fetchone()[0] == 1
+        assert (
+            store.db.execute("SELECT count(*) FROM binding_dependencies").fetchone()[0]
+            == 1
+        )
+
+
+def test_failed_registration_rolls_back_source_binding_and_work(tmp_path):
+    revision = SourceRevision("cell:2:3", "text", "cell_revision", 11)
+    binding = StoredBinding(
+        "binding:1",
+        sheet_id=1,
+        row_id=2,
+        column_id=3,
+        dependencies=(BindingDependency(2, 3, 11),),
+    )
+    with RetrievalStore(tmp_path).open() as store:
+        store.db.executescript(
+            "CREATE TRIGGER reject_preparation BEFORE INSERT ON preparation "
+            "BEGIN SELECT RAISE(ABORT, 'injected preparation failure'); END;"
+        )
+        with pytest.raises(sqlite3.IntegrityError, match="injected"):
+            store.register_preparation(
+                revision,
+                (binding,),
+                recipe_id="passages:v1",
+                channel="text",
+            )
+
+        assert store.db.execute("SELECT count(*) FROM sources").fetchone()[0] == 0
+        assert store.db.execute("SELECT count(*) FROM bindings").fetchone()[0] == 0
+        assert store.db.execute("SELECT count(*) FROM preparation").fetchone()[0] == 0
 
 
 def test_opened_sidecar_has_no_authoritative_text_table(tmp_path):

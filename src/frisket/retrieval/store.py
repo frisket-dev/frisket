@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections.abc import Iterable, Sequence
 from contextlib import contextmanager
@@ -20,7 +21,7 @@ PAGE_SIZE = 16 * 1024
 CACHE_KIB = 32 * 1024
 MMAP_SIZE = 1024 * 1024 * 1024
 
-PreparationStatus = Literal["pending", "preparing", "ready", "failed"]
+PreparationStatus = Literal["pending", "preparing", "ready", "unavailable", "failed"]
 
 
 @dataclass(frozen=True)
@@ -109,6 +110,17 @@ class PreparationState:
     prepared_parts: int
     error_code: str | None
     error_message: str | None
+    cursor_json: str | None = None
+
+
+@dataclass(frozen=True)
+class PreparationWork:
+    source_revision: SourceRevision
+    recipe_id: str
+    channel: str
+    status: Literal["pending", "preparing"]
+    prepared_parts: int
+    cursor_json: str | None
 
 
 class StalePublicationError(RuntimeError):
@@ -199,13 +211,21 @@ class RetrievalStore:
         self.db.execute(
             "INSERT INTO preparation("
             "source_id,recipe_id,channel,target_version_kind,target_version_value,"
-            "target_version_type,status,prepared_parts,error_code,error_message"
-            ") VALUES (?,?,?,?,?,?,'preparing',0,NULL,NULL) "
+            "target_version_type,status,prepared_parts,error_code,error_message,"
+            "cursor_json) VALUES (?,?,?,?,?,?,'preparing',0,NULL,NULL,NULL) "
             "ON CONFLICT(source_id,recipe_id,channel) DO UPDATE SET "
+            "prepared_parts=CASE WHEN preparation.target_version_kind="
+            "excluded.target_version_kind AND preparation.target_version_value="
+            "excluded.target_version_value AND preparation.target_version_type="
+            "excluded.target_version_type THEN preparation.prepared_parts ELSE 0 END,"
+            "cursor_json=CASE WHEN preparation.target_version_kind="
+            "excluded.target_version_kind AND preparation.target_version_value="
+            "excluded.target_version_value AND preparation.target_version_type="
+            "excluded.target_version_type THEN preparation.cursor_json ELSE NULL END,"
             "target_version_kind=excluded.target_version_kind,"
             "target_version_value=excluded.target_version_value,"
             "target_version_type=excluded.target_version_type,status='preparing',"
-            "prepared_parts=0,error_code=NULL,error_message=NULL",
+            "error_code=NULL,error_message=NULL",
             (
                 source_id,
                 recipe_id,
@@ -215,6 +235,210 @@ class RetrievalStore:
                 value_type,
             ),
         )
+
+    def queue_preparation(
+        self,
+        source_revision: SourceRevision,
+        *,
+        recipe_id: str,
+        channel: str,
+    ) -> None:
+        """Queue a target, preserving same-revision progress and terminal state."""
+
+        source_id, _kind, version_kind, version_value, _hash = _revision_fields(
+            source_revision
+        )
+        _require_nonempty(recipe_id, "recipe_id")
+        _require_nonempty(channel, "channel")
+        encoded, value_type = _encode_version(version_value)
+        self.db.execute(
+            "INSERT INTO preparation("
+            "source_id,recipe_id,channel,target_version_kind,target_version_value,"
+            "target_version_type,status,prepared_parts,error_code,error_message,"
+            "cursor_json) VALUES (?,?,?,?,?,?,'pending',0,NULL,NULL,NULL) "
+            "ON CONFLICT(source_id,recipe_id,channel) DO UPDATE SET "
+            "status=CASE WHEN preparation.target_version_kind="
+            "excluded.target_version_kind AND preparation.target_version_value="
+            "excluded.target_version_value AND preparation.target_version_type="
+            "excluded.target_version_type AND preparation.status IN "
+            "('ready','unavailable','failed') THEN preparation.status ELSE 'pending' END,"
+            "prepared_parts=CASE WHEN preparation.target_version_kind="
+            "excluded.target_version_kind AND preparation.target_version_value="
+            "excluded.target_version_value AND preparation.target_version_type="
+            "excluded.target_version_type THEN preparation.prepared_parts ELSE 0 END,"
+            "cursor_json=CASE WHEN preparation.target_version_kind="
+            "excluded.target_version_kind AND preparation.target_version_value="
+            "excluded.target_version_value AND preparation.target_version_type="
+            "excluded.target_version_type THEN preparation.cursor_json ELSE NULL END,"
+            "target_version_kind=excluded.target_version_kind,"
+            "target_version_value=excluded.target_version_value,"
+            "target_version_type=excluded.target_version_type,"
+            "error_code=CASE WHEN preparation.target_version_kind="
+            "excluded.target_version_kind AND preparation.target_version_value="
+            "excluded.target_version_value AND preparation.target_version_type="
+            "excluded.target_version_type THEN preparation.error_code ELSE NULL END,"
+            "error_message=CASE WHEN preparation.target_version_kind="
+            "excluded.target_version_kind AND preparation.target_version_value="
+            "excluded.target_version_value AND preparation.target_version_type="
+            "excluded.target_version_type THEN preparation.error_message ELSE NULL END",
+            (source_id, recipe_id, channel, version_kind, encoded, value_type),
+        )
+
+    def register_preparation(
+        self,
+        source_revision: SourceRevision,
+        bindings: Sequence[StoredBinding],
+        *,
+        recipe_id: str,
+        channel: str,
+    ) -> None:
+        """Atomically make a queued source visible to scoped coverage.
+
+        Registration precedes optional encoding and lexical publication.  This
+        keeps pending, unavailable, and failed work attached to an authoritative
+        binding even when a worker stops before publishing its first part.
+        """
+
+        source_id, source_kind, version_kind, version_value, content_hash = (
+            _revision_fields(source_revision)
+        )
+        if not bindings:
+            raise ValueError("registered preparation requires at least one binding")
+        _validate_bindings(bindings)
+        _require_nonempty(recipe_id, "recipe_id")
+        _require_nonempty(channel, "channel")
+        encoded_version, version_type = _encode_version(version_value)
+        source_key = (source_id, version_kind, encoded_version, version_type)
+        with self._write_transaction():
+            self.db.execute(
+                "INSERT INTO sources("
+                "source_id,source_kind,version_kind,version_value,version_type,"
+                "content_hash) VALUES (?,?,?,?,?,?) "
+                "ON CONFLICT(source_id,version_kind,version_value,version_type) "
+                "DO UPDATE SET source_kind=excluded.source_kind,"
+                "content_hash=excluded.content_hash",
+                (
+                    source_id,
+                    source_kind,
+                    version_kind,
+                    encoded_version,
+                    version_type,
+                    content_hash,
+                ),
+            )
+            self._upsert_binding_records(bindings, source_key)
+            self.queue_preparation(
+                source_revision,
+                recipe_id=recipe_id,
+                channel=channel,
+            )
+
+    def next_preparation(self, *, channel: str | None = None) -> PreparationWork | None:
+        """Read the next resumable target without claiming a second work queue."""
+
+        params: tuple[str, ...] = () if channel is None else (channel,)
+        channel_sql = "" if channel is None else "AND work.channel=? "
+        row = self.db.execute(
+            "SELECT work.*,source.source_kind,source.content_hash "
+            "FROM preparation work JOIN sources source "
+            "ON source.source_id=work.source_id "
+            "AND source.version_kind=work.target_version_kind "
+            "AND source.version_value=work.target_version_value "
+            "AND source.version_type=work.target_version_type "
+            "WHERE work.status IN ('pending','preparing') "
+            + channel_sql
+            + "ORDER BY CASE work.status WHEN 'preparing' THEN 0 ELSE 1 END,"
+            "work.source_id,work.recipe_id,work.channel LIMIT 1",
+            params,
+        ).fetchone()
+        return None if row is None else _preparation_work(row)
+
+    def advance_preparation(
+        self,
+        source_revision: SourceRevision,
+        *,
+        recipe_id: str,
+        channel: str,
+        cursor_json: str,
+    ) -> bool:
+        """Persist one producer cursor only for the exact active target."""
+
+        if not isinstance(cursor_json, str) or not cursor_json.strip():
+            raise ValueError("cursor_json must be non-empty")
+        try:
+            json.loads(cursor_json)
+        except json.JSONDecodeError as exc:
+            raise ValueError("cursor_json must be valid JSON") from exc
+        source_id, _kind, version_kind, version_value, _hash = _revision_fields(
+            source_revision
+        )
+        encoded, value_type = _encode_version(version_value)
+        changed = self.db.execute(
+            "UPDATE preparation SET cursor_json=?,status='preparing',"
+            "error_code=NULL,error_message=NULL WHERE source_id=? AND recipe_id=? "
+            "AND channel=? AND target_version_kind=? AND target_version_value=? "
+            "AND target_version_type=? AND status IN ('pending','preparing')",
+            (
+                cursor_json,
+                source_id,
+                recipe_id,
+                channel,
+                version_kind,
+                encoded,
+                value_type,
+            ),
+        )
+        return changed.rowcount == 1
+
+    def mark_preparation_unavailable(
+        self,
+        source_revision: SourceRevision,
+        *,
+        recipe_id: str,
+        channel: str,
+        reason: str,
+    ) -> bool:
+        """Pause an exact target until an explicit installed-runtime requeue."""
+
+        _require_nonempty(reason, "reason")
+        source_id, _kind, version_kind, version_value, _hash = _revision_fields(
+            source_revision
+        )
+        encoded, value_type = _encode_version(version_value)
+        changed = self.db.execute(
+            "UPDATE preparation SET status='unavailable',"
+            "error_code='encoder_unavailable',error_message=? "
+            "WHERE source_id=? AND recipe_id=? AND channel=? "
+            "AND target_version_kind=? AND target_version_value=? "
+            "AND target_version_type=? AND status IN ('pending','preparing')",
+            (
+                reason,
+                source_id,
+                recipe_id,
+                channel,
+                version_kind,
+                encoded,
+                value_type,
+            ),
+        )
+        return changed.rowcount == 1
+
+    def requeue_unavailable(self, *, channel: str | None = None) -> int:
+        """Explicitly retry unavailable work after a local runtime is installed."""
+
+        if channel is None:
+            changed = self.db.execute(
+                "UPDATE preparation SET status='pending',error_code=NULL,"
+                "error_message=NULL WHERE status='unavailable'"
+            )
+        else:
+            _require_nonempty(channel, "channel")
+            changed = self.db.execute(
+                "UPDATE preparation SET status='pending',error_code=NULL,"
+                "error_message=NULL WHERE status='unavailable' AND channel=?",
+                (channel,),
+            )
+        return changed.rowcount
 
     def fail_preparation(
         self,
@@ -399,19 +623,7 @@ class RetrievalStore:
         ).fetchone()
         if row is None:
             return None
-        return PreparationState(
-            source_id=str(row["source_id"]),
-            recipe_id=str(row["recipe_id"]),
-            channel=str(row["channel"]),
-            target_version_kind=str(row["target_version_kind"]),
-            target_version_value=_decode_version(
-                str(row["target_version_value"]), str(row["target_version_type"])
-            ),
-            status=row["status"],
-            prepared_parts=int(row["prepared_parts"]),
-            error_code=row["error_code"],
-            error_message=row["error_message"],
-        )
+        return _preparation_state(row)
 
     def readiness_counts(
         self, *, recipe_id: str, channel: str
@@ -422,6 +634,7 @@ class RetrievalStore:
             "pending": 0,
             "preparing": 0,
             "ready": 0,
+            "unavailable": 0,
             "failed": 0,
         }
         for row in self.db.execute(
@@ -742,6 +955,41 @@ def _decode_version(value: str, value_type: str) -> int | str:
     return int(value) if value_type == "integer" else value
 
 
+def _preparation_state(row: sqlite3.Row) -> PreparationState:
+    return PreparationState(
+        source_id=str(row["source_id"]),
+        recipe_id=str(row["recipe_id"]),
+        channel=str(row["channel"]),
+        target_version_kind=str(row["target_version_kind"]),
+        target_version_value=_decode_version(
+            str(row["target_version_value"]), str(row["target_version_type"])
+        ),
+        status=row["status"],
+        prepared_parts=int(row["prepared_parts"]),
+        error_code=row["error_code"],
+        error_message=row["error_message"],
+        cursor_json=row["cursor_json"],
+    )
+
+
+def _preparation_work(row: sqlite3.Row) -> PreparationWork:
+    state = _preparation_state(row)
+    return PreparationWork(
+        source_revision=SourceRevision(
+            source_id=state.source_id,
+            source_kind=str(row["source_kind"]),
+            version_kind=state.target_version_kind,
+            version_value=state.target_version_value,
+            content_hash=row["content_hash"],
+        ),
+        recipe_id=state.recipe_id,
+        channel=state.channel,
+        status=state.status,
+        prepared_parts=state.prepared_parts,
+        cursor_json=state.cursor_json,
+    )
+
+
 def _require_nonempty(value: str, field: str) -> None:
     if not value.strip():
         raise ValueError(f"{field} must not be empty")
@@ -949,10 +1197,13 @@ CREATE TABLE IF NOT EXISTS preparation (
   target_version_kind TEXT NOT NULL,
   target_version_value TEXT NOT NULL,
   target_version_type TEXT NOT NULL CHECK(target_version_type IN ('integer','text')),
-  status TEXT NOT NULL CHECK(status IN ('pending','preparing','ready','failed')),
+  status TEXT NOT NULL CHECK(status IN (
+    'pending','preparing','ready','unavailable','failed'
+  )),
   prepared_parts INTEGER NOT NULL DEFAULT 0 CHECK(prepared_parts>=0),
   error_code TEXT,
   error_message TEXT,
+  cursor_json TEXT CHECK(cursor_json IS NULL OR json_valid(cursor_json)),
   PRIMARY KEY(source_id,recipe_id,channel)
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS preparation_counts

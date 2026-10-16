@@ -19,6 +19,11 @@ from frisket.retrieval.source_adapter import (
     ResolvedCellTextSource,
     resolve_cell_text_sources,
 )
+from frisket.retrieval.preparation import (
+    dispatch_resolved_text_source,
+    retire_cell_binding,
+)
+from frisket.retrieval.store import RetrievalStore
 from frisket.search_hydration import source_hash
 from frisket.search_storage import (
     keyword_schema_is_current,
@@ -193,9 +198,30 @@ def _replace_cell(
     resolved: ResolvedCellTextSource | None,
     descriptor,
     old,
+    retrieval: RetrievalStore,
+    semantic_available: bool,
 ) -> None:
     text = resolved.lexical_text if descriptor is not None and resolved else None
     digest = source_hash(text) if text is not None else None
+    if resolved is not None:
+        dispatch_resolved_text_source(
+            retrieval,
+            resolved,
+            semantic_available=semantic_available,
+        )
+    else:
+        sheet_id = (
+            int(descriptor["sheet_id"])
+            if descriptor is not None
+            else (int(old["sheet_id"]) if old is not None else None)
+        )
+        if sheet_id is not None:
+            retire_cell_binding(
+                retrieval,
+                sheet_id=sheet_id,
+                row_id=row_id,
+                column_id=column,
+            )
     if (
         old is not None
         and descriptor is not None
@@ -234,6 +260,7 @@ def index_batch(
     batch_size: int = 500,
     max_bytes: int = 4 * 1024 * 1024,
     cancel_event: threading.Event | None = None,
+    semantic_available: bool = False,
 ) -> IndexProgress:
     """Reconcile a bounded page; acknowledge only after durable index commit."""
     from frisket.search import FTS_INDEX_CONTENT_VERSION, _raise_if_cancelled, _sidecar
@@ -244,6 +271,7 @@ def index_batch(
         raise RuntimeError("index maintenance requires its own source transaction")
     index = _sidecar(project)
     snapshot = None
+    retrieval = None
     try:
         index.execute("BEGIN IMMEDIATE")
         _raise_if_cancelled(cancel_event)
@@ -276,6 +304,7 @@ def index_batch(
         checkpoints = []
         if scopes:
             index.execute("DELETE FROM fts_state WHERE key='complete_revision'")
+            retrieval = RetrievalStore(project).open()
         for scope in scopes:
             if processed >= batch_size or processed_bytes >= max_bytes:
                 break
@@ -332,6 +361,8 @@ def index_batch(
                         (resolved_sources.get(row_id) if row_id in live_ids else None),
                         descriptor,
                         old_by_row.get(row_id),
+                        retrieval,
+                        semantic_available,
                     )
                     processed += 1
                     row = row_id
@@ -391,6 +422,8 @@ def index_batch(
     finally:
         if snapshot is not None:
             snapshot.close()
+        if retrieval is not None:
+            retrieval.close()
         index.close()
 
 

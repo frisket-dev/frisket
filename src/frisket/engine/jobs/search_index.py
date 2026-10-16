@@ -7,6 +7,11 @@ from pathlib import Path
 from frisket.engine.store import Project
 from frisket.engine.store.search_index_work import latest_revision, read_dirty_scopes
 from frisket.project_identity import ProjectStorageKey
+from frisket.retrieval.preparation import (
+    PreparationEncoder,
+    preparation_work_marker,
+    process_text_preparation_batch,
+)
 from frisket.search import index_batch, index_needs_work
 from frisket.search_storage import reclaim_is_pending, reclaim_search_storage
 
@@ -27,9 +32,12 @@ INDEX_BYTES_PER_CLAIM = INDEX_BATCH_MAX_BYTES * BATCHES_PER_CLAIM
 
 
 def process_index_batches(
-    project: Project, *, stopped=lambda: False
+    project: Project,
+    *,
+    stopped=lambda: False,
+    embedding_encoder: PreparationEncoder | None = None,
 ) -> tuple[int, bool]:
-    """Process one fair worker quantum of durable keyword-index work."""
+    """Process one fair worker quantum of lexical and local preparation work."""
     processed = processed_bytes = 0
     complete = False
     for _ in range(BATCHES_PER_CLAIM):
@@ -39,10 +47,21 @@ def process_index_batches(
             project,
             batch_size=INDEX_BATCH_SIZE,
             max_bytes=INDEX_BATCH_MAX_BYTES,
+            semantic_available=(
+                embedding_encoder is not None and embedding_encoder.available()
+            ),
         )
         processed += progress.processed
         processed_bytes += progress.processed_bytes
         complete = progress.complete
+        if complete and not stopped():
+            prepared = process_text_preparation_batch(
+                project,
+                encoder=embedding_encoder,
+                cancelled=stopped,
+            )
+            processed += prepared.processed_parts
+            complete = prepared.complete
         if complete or processed_bytes >= INDEX_BYTES_PER_CLAIM:
             break
     return processed, complete
@@ -71,6 +90,8 @@ def index_work_marker(project: Project) -> str | None:
         return f"repair:{latest_revision(project.db)}"
     if reclaim_is_pending(project.path / "project.search.db"):
         return "reclaim"
+    if marker := preparation_work_marker(project.path):
+        return f"prepare:{marker}"
     return None
 
 
@@ -81,6 +102,7 @@ def register_search_index_handler(
     queue: JobQueue,
     workspace_root_storage_org_id: int | None = None,
     project_opener: ProjectOpener | None = None,
+    embedding_encoder: PreparationEncoder | None = None,
 ) -> HandlerRegistration:
     def handle(payload: dict, context: JobHandlerContext) -> dict:
         def stopped() -> bool:
@@ -103,7 +125,11 @@ def register_search_index_handler(
         processed = 0
         complete = False
         try:
-            processed, complete = process_index_batches(project, stopped=stopped)
+            processed, complete = process_index_batches(
+                project,
+                stopped=stopped,
+                embedding_encoder=embedding_encoder,
+            )
             if complete and not stopped():
                 if not reclaim_search_storage(project.path / "project.search.db"):
                     raise RuntimeError("search index reclaim deferred")
