@@ -577,6 +577,7 @@ async def _decode_video_frames(
     cancelled: CancelCheck | None,
     cuts: Sequence[float] = (),
     output_start_seconds: float | None = None,
+    input_start_seconds: float | None = None,
 ) -> tuple[LocatedFrame, ...]:
     ffmpeg = _binary("ffmpeg")
     output.mkdir()
@@ -585,12 +586,16 @@ async def _decode_video_frames(
         filters.append(f"select='gte(t\\,{output_start_seconds:.12g})'")
     filters.extend((_scale_filter(max_dimension), "showinfo"))
     filter_chain = ",".join(filters)
+    input_args = []
+    if input_start_seconds is not None and input_start_seconds > 0:
+        input_args = ["-ss", f"{input_start_seconds:.12g}"]
     result = await _run_tool(
         [
             ffmpeg,
             "-hide_banner",
             "-nostdin",
             "-copyts",
+            *input_args,
             "-i",
             str(path),
             "-map",
@@ -648,6 +653,7 @@ async def _decode_video_frame_at(
     output: Path,
     *,
     at_seconds: float,
+    input_seek_seconds: float,
     max_dimension: int,
     fallback_time_base: tuple[int, int],
     cancelled: CancelCheck | None,
@@ -669,6 +675,8 @@ async def _decode_video_frame_at(
             "-hide_banner",
             "-nostdin",
             "-copyts",
+            "-ss",
+            f"{input_seek_seconds:.12g}",
             "-i",
             str(path),
             "-map",
@@ -818,6 +826,7 @@ async def _detect_shot_cuts(
     min_scene_len_frames: int,
     start_seconds: float,
     end_seconds: float,
+    input_seek_seconds: float,
     cancelled: CancelCheck | None,
 ) -> tuple[float, ...]:
     """Detect cuts inside the same confined, cancellable ffmpeg boundary."""
@@ -835,7 +844,7 @@ async def _detect_shot_cuts(
             "-nostdin",
             "-copyts",
             "-ss",
-            f"{start_seconds:.12g}",
+            f"{input_seek_seconds:.12g}",
             "-i",
             str(path),
             "-t",
@@ -920,18 +929,32 @@ async def _produce_frames(
     requested = min(planned - start_index, recipe.max_frames)
     complete = start_index + requested >= planned
     output_start = probe.start_seconds + start_index * recipe.interval_seconds
-    frames = await _decode_video_frames(
+    include_predecessor = (
+        start_index > 0 and recipe.adjacent_dedup_threshold is not None
+    )
+    decode_start = (
+        output_start - recipe.interval_seconds if include_predecessor else output_start
+    )
+    decoded = await _decode_video_frames(
         path,
         scratch / "frames",
         interval_seconds=recipe.interval_seconds,
-        max_frames=requested,
+        max_frames=requested + int(include_predecessor),
         max_dimension=recipe.max_dimension,
         fallback_time_base=(probe.time_base_num, probe.time_base_den),
         cancelled=cancelled,
-        output_start_seconds=output_start,
+        output_start_seconds=decode_start,
+        input_start_seconds=decode_start - probe.start_seconds,
     )
-    missing_samples = len(frames) < requested
-    frames = _deduplicate(frames, recipe.adjacent_dedup_threshold)
+    current = tuple(
+        frame for frame in decoded if frame.point.seconds + 1e-9 >= output_start
+    )
+    missing_samples = len(current) < requested
+    frames = tuple(
+        frame
+        for frame in _deduplicate(decoded, recipe.adjacent_dedup_threshold)
+        if frame.point.seconds + 1e-9 >= output_start
+    )
     spans = tuple((frame.point.seconds, frame.point.seconds) for frame in frames)
     return ProducedMedia(
         items=frames,
@@ -970,7 +993,7 @@ async def _produce_fixed_clips(
     coverage_end = spans[-1][1]
     decoded_limit = min(
         recipe.max_clips * EMBEDDINGGEMMA2_MAX_VIDEO_FRAMES,
-        max(1, math.ceil((coverage_end - probe.start_seconds) * recipe.sample_fps) + 1),
+        max(1, math.ceil((coverage_end - spans[0][0]) * recipe.sample_fps) + 1),
     )
     frames = await _decode_video_frames(
         path,
@@ -981,6 +1004,7 @@ async def _produce_fixed_clips(
         fallback_time_base=(probe.time_base_num, probe.time_base_den),
         cancelled=cancelled,
         output_start_seconds=spans[0][0],
+        input_start_seconds=spans[0][0] - probe.start_seconds,
     )
     clips = _clip_items(spans, frames)
     reason = (
@@ -1022,6 +1046,7 @@ async def _produce_shot_clips(
         min_scene_len_frames=recipe.min_scene_len_frames,
         start_seconds=quantum_start,
         end_seconds=quantum_end,
+        input_seek_seconds=quantum_start - probe.start_seconds,
         cancelled=cancelled,
     )
     _check_cancelled(cancelled)
@@ -1053,6 +1078,7 @@ async def _produce_shot_clips(
         cancelled=cancelled,
         cuts=tuple(start for start, _end in spans[1:]),
         output_start_seconds=quantum_start,
+        input_start_seconds=quantum_start - probe.start_seconds,
     )
     clips = _clip_items(spans, frames)
     reason = (
@@ -1101,10 +1127,10 @@ async def _produce_audio(
             ffmpeg,
             "-hide_banner",
             "-nostdin",
-            "-i",
-            str(path),
             "-ss",
             f"{coverage_start - probe.start_seconds:.12g}",
+            "-i",
+            str(path),
             "-map",
             "0:a:0",
             "-af",
@@ -1230,6 +1256,7 @@ async def decode_video_frame(
             staged,
             scratch / "frame",
             at_seconds=selected,
+            input_seek_seconds=selected - probe.start_seconds,
             max_dimension=dimension,
             fallback_time_base=(probe.time_base_num, probe.time_base_den),
             cancelled=cancelled,
@@ -1271,10 +1298,10 @@ async def decode_audio_interval(
                 _binary("ffmpeg"),
                 "-hide_banner",
                 "-nostdin",
-                "-i",
-                str(staged),
                 "-ss",
                 f"{start - probe.start_seconds:.12g}",
+                "-i",
+                str(staged),
                 "-t",
                 f"{selected_end - start:.12g}",
                 "-map",

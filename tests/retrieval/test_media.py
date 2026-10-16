@@ -259,6 +259,26 @@ def test_periodic_adjacent_dedup_suppresses_repeated_frames(tmp_path: Path) -> N
     assert with_dedup.coverage.complete
 
 
+def test_periodic_adjacent_dedup_preserves_context_across_batches(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "repeat-batches.mkv"
+    _cfr_fixture(source)
+    recipe = PeriodicFrameRecipe(
+        interval_seconds=0.25,
+        adjacent_dedup_threshold=0.01,
+        max_frames=2,
+    )
+
+    first = _produce(source, recipe)
+    second = _produce(source, recipe, start_index=2)
+
+    assert [frame.point.seconds for frame in first.items] == pytest.approx([0.0])
+    assert second.items == ()
+    assert first.coverage.truncation_reason == "max_frames"
+    assert second.coverage.truncation_reason == "max_frames"
+
+
 def test_fixed_clips_overlap_cover_boundary_and_anchor_tail(tmp_path: Path) -> None:
     source = tmp_path / "fixed.mkv"
     _cfr_fixture(source)
