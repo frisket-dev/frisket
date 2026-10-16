@@ -34,6 +34,15 @@ type ImportFilesResult = {
   search_preparation_batch_id: string | null;
 };
 
+type ImportSessionStatus = {
+  import_ref: string;
+  state: 'admitting' | 'running' | 'paused' | 'cancelling' | 'cancelled' | 'completed' | 'kept' | 'removed';
+  sealed: boolean;
+  sheet_id: number | null;
+  committed_rows: number;
+  search_preparation_batch_id: string | null;
+};
+
 type PreparationBatch = {
   id: string;
   sheet_id: number;
@@ -154,6 +163,16 @@ async function preparationBatch(
   return response.json();
 }
 
+async function preparationBatches(
+  request: APIRequestContext,
+  projectId: string,
+): Promise<PreparationBatch[]> {
+  const response = await request.get(`/api/projects/${projectId}/search-preparation`);
+  expect(response.ok()).toBeTruthy();
+  const body = await response.json() as { batches: PreparationBatch[] };
+  return body.batches;
+}
+
 async function waitForPreparation(
   request: APIRequestContext,
   projectId: string,
@@ -186,6 +205,23 @@ async function importFilesFromWorkspace(
   ));
   await page.getByTestId('import-file-input').setInputFiles(files);
   const response = await imported;
+  expect(response.ok()).toBeTruthy();
+  return response.json();
+}
+
+async function importFilesThroughSession(
+  page: Page,
+  projectId: string,
+  files: Array<{ name: string; mimeType: string; buffer: Buffer }>,
+): Promise<ImportSessionStatus> {
+  await openImportWorkspace(page);
+  await page.getByTestId('import-mode-files').click();
+  const created = page.waitForResponse((response) => (
+    response.request().method() === 'POST'
+    && new URL(response.url()).pathname === `/api/projects/${projectId}/import/files/sessions`
+  ));
+  await page.getByTestId('import-file-input').setInputFiles(files);
+  const response = await created;
   expect(response.ok()).toBeTruthy();
   return response.json();
 }
@@ -291,6 +327,125 @@ test('declining missing transcription setup starts no pull and remains recoverab
   await expect(page.getByTestId('search-preparation-receipt')).toBeVisible();
   expect(setupRequests).toEqual([]);
   expect(await modelPullInventory(page.request)).toEqual(pullsBefore);
+});
+
+test('turning automatic preparation off leaves an imported PDF untouched until Search prepares it', async ({
+  page,
+}) => {
+  const pid = await createProject(page.request, uniqueName('make-searchable-setting-off'));
+  await importCsv(page.request, pid, 'seed.csv', 'name\nseed\n');
+  const settings = await page.request.patch(`/api/projects/${pid}/settings`, {
+    data: {
+      retrieval: { prepare_new_files_automatically: false },
+    },
+  });
+  expect(settings.ok()).toBeTruthy();
+  expect(await settings.json()).toMatchObject({
+    retrieval: { prepare_new_files_automatically: false },
+  });
+  const batchesBefore = await preparationBatches(page.request, pid);
+  const originalPdf = textPdf([
+    ['Deferred search preparation', 'The amberquay permit remains available in the original PDF.'],
+  ], { fontSize: 20, startX: 54, startY: 720, leading: 28 });
+
+  await page.goto(`/p/${pid}`);
+  await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
+  const imported = await importFilesFromWorkspace(page, pid, [{
+    name: 'deferred-permit.pdf',
+    mimeType: 'application/pdf',
+    buffer: originalPdf,
+  }]);
+
+  expect(imported.search_preparation_batch_id ?? null).toBeNull();
+  await expect(page.getByTestId('import-workspace')).toHaveCount(0);
+  await expect(page.getByTestId('search-preparation-receipt')).toHaveCount(0);
+  expect(await preparationBatches(page.request, pid)).toEqual(batchesBefore);
+
+  const importedSheet = await sheetData(page.request, pid, imported.sheet_id);
+  const mediaColumn = importedSheet.columns.find((column) => column.name === 'media');
+  expect(mediaColumn).toBeTruthy();
+  const media = importedSheet.rows[0].cells[String(mediaColumn!.id)] as { blob: string };
+  const storedPdf = await page.request.get(`/api/projects/${pid}/blobs/${media.blob}`);
+  expect(storedPdf.ok()).toBeTruthy();
+  expect(await storedPdf.body()).toEqual(originalPdf);
+
+  const palette = await openPalette(page);
+  await palette.getByTestId('search-mode-select').selectOption('lexical');
+  await palette.getByTestId('command-palette-input').fill('amberquay');
+  const gap = palette.getByTestId('search-preparation-gap');
+  await expect(gap).toContainText(/1 file needs search preparation/i);
+  const explicitPreparation = page.waitForResponse((response) => (
+    response.request().method() === 'POST'
+    && new URL(response.url()).pathname === `/api/projects/${pid}/search-preparation`
+  ));
+  await gap.getByTestId('search-preparation-gap-action').click();
+  const explicitResponse = await explicitPreparation;
+  expect(explicitResponse.ok()).toBeTruthy();
+  expect(explicitResponse.request().postDataJSON()).toEqual({
+    sheet_id: imported.sheet_id,
+  });
+  const explicitBatch = await explicitResponse.json() as PreparationBatch;
+  expect(explicitBatch.sheet_id).toBe(imported.sheet_id);
+  expect((await preparationBatches(page.request, pid)).map((batch) => batch.id)).toContain(
+    explicitBatch.id,
+  );
+  await expect(page.getByTestId('search-preparation-receipt')).toBeVisible();
+});
+
+test('a resumable file import publishes its terminal preparation receipt and reopens it after reload', async ({
+  page,
+}) => {
+  const pid = await createProject(page.request, uniqueName('make-searchable-resumable'));
+  await importCsv(page.request, pid, 'seed.csv', 'name\nseed\n');
+  await page.goto(`/p/${pid}`);
+  await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
+
+  const created = await importFilesThroughSession(page, pid, [
+    {
+      name: 'resumable-one.pdf',
+      mimeType: 'application/pdf',
+      buffer: textPdf([['First resumable PDF', 'The north annex note.']]),
+    },
+    {
+      name: 'resumable-two.pdf',
+      mimeType: 'application/pdf',
+      buffer: textPdf([['Second resumable PDF', 'The south annex note.']]),
+    },
+  ]);
+
+  let terminal: ImportSessionStatus | null = null;
+  await expect.poll(async () => {
+    const response = await page.request.get(
+      `/api/projects/${pid}/import/files/sessions/${created.import_ref}`,
+    );
+    expect(response.ok()).toBeTruthy();
+    terminal = await response.json() as ImportSessionStatus;
+    if (terminal.state === 'completed') {
+      expect(terminal.search_preparation_batch_id).toBeTruthy();
+    }
+    return terminal.state;
+  }, {
+    message: 'resumable import did not reach a terminal state with its preparation receipt',
+    timeout: 30_000,
+    intervals: [100, 250, 500, 1_000],
+  }).toBe('completed');
+  expect(terminal!.sealed).toBeTruthy();
+  expect(terminal!.committed_rows).toBe(2);
+  expect(terminal!.sheet_id).toBeGreaterThan(0);
+  expect(terminal!.search_preparation_batch_id).toBeTruthy();
+
+  const receipt = page.getByTestId('search-preparation-receipt');
+  await expect(receipt).toBeVisible({ timeout: 15_000 });
+  await receipt.getByTestId('search-preparation-done').click();
+  await page.reload();
+  await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
+  const completedImport = page.getByTestId('import-progress-completed').filter({
+    hasText: '2 rows added',
+  });
+  const reopen = completedImport.getByTestId('import-progress-open-preparation');
+  await expect(reopen).toBeVisible({ timeout: 15_000 });
+  await reopen.click();
+  await expect(page.getByTestId('search-preparation-receipt')).toBeVisible();
 });
 
 test('native PDF import becomes searchable without starting a model setup', async ({
