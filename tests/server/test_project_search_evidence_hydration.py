@@ -1,0 +1,147 @@
+from __future__ import annotations
+
+import io
+from dataclasses import dataclass
+
+from fastapi import FastAPI
+from PIL import Image
+from starlette.testclient import TestClient
+
+from frisket.engine.store import Project
+from frisket.engine.store.evidence import (
+    record_evidence_link,
+    record_source_artifact,
+    record_source_span,
+)
+from frisket.search_index import drain_index
+from frisket.server.routes.project_research import register_project_search_routes
+from frisket.server.services.project_search import ProjectSearchService
+from frisket.server.services.selector_choices_capabilities import SelectorCapabilities
+from tests.engine.test_temporal_transcript_inheritance import _seed_source
+
+
+@dataclass
+class _Workspace:
+    project: Project
+    embedding_runtime: None = None
+    edition: str = "local"
+
+    def get(self, project_id: str) -> Project:
+        assert project_id == "project"
+        return self.project
+
+
+def _client(project: Project) -> TestClient:
+    app = FastAPI()
+    register_project_search_routes(
+        app,
+        service=ProjectSearchService(_Workspace(project)),  # type: ignore[arg-type]
+        capabilities_for=lambda _request, _pid: SelectorCapabilities(),
+    )
+    return TestClient(app)
+
+
+def _seed_ocr(project: Project) -> None:
+    sheet_id = project.add_sheet("Scans")
+    file_column_id = project.add_column(sheet_id, "scan", "file")
+    text_column_id = project.add_column(sheet_id, "ocr_text", "text", ai_generated=True)
+    output = io.BytesIO()
+    Image.new("RGB", (100, 60), color="white").save(output, format="PNG")
+    blob_hash = project.add_blob(
+        output.getvalue(), filename="scan.png", mime="image/png"
+    )
+    row_id = project.add_rows(
+        sheet_id,
+        [
+            {
+                "scan": {
+                    "blob": blob_hash,
+                    "filename": "scan.png",
+                    "mime": "image/png",
+                },
+                "ocr_text": "China trade policy",
+            }
+        ],
+        {"scan": file_column_id, "ocr_text": text_column_id},
+    )[0]
+    artifact = record_source_artifact(
+        project,
+        artifact_kind="file",
+        media_type="image/png",
+        blob_hash=blob_hash,
+        filename="scan.png",
+        source_sheet_id=sheet_id,
+        source_row_id=row_id,
+        source_column_id=file_column_id,
+        metadata={"engine": "fixture", "page_images": {}},
+    )
+    region = record_source_span(
+        project,
+        artifact_id=int(artifact["id"]),
+        span_kind="region",
+        page_start=1,
+        page_end=1,
+        quote="China trade policy",
+        bbox=[{"x0": 0.1, "y0": 0.2, "x1": 0.8, "y1": 0.3}],
+    )
+    _values, refs = project.get_values_with_refs(
+        sheet_id, text_column_id, row_ids=[row_id]
+    )
+    record_evidence_link(
+        project,
+        subject_kind="cell",
+        subject_ref=refs[row_id],
+        spans=[{"span_id": int(region["id"])}],
+        sheet_id=sheet_id,
+        row_id=row_id,
+        column_id=text_column_id,
+        link_role="media_ocr_grounding",
+        producer={"action_kind": "media.ocr"},
+    )
+
+
+def _search(client: TestClient, text: str) -> dict[str, object]:
+    response = client.post(
+        "/api/projects/project/search",
+        json={
+            "scope": {"kind": "project"},
+            "query": {"kind": "text", "text": text, "lexical_syntax": "plain"},
+            "mode": "lexical",
+            "group_by": "source",
+            "limit": 10,
+            "ranking": {"rerank": "off"},
+        },
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_search_route_hydrates_transcript_and_ocr_from_its_pinned_snapshot(
+    tmp_path,
+) -> None:
+    project = Project.create(tmp_path / "located-evidence.frisket")
+    try:
+        _seed_source(project)
+        _seed_ocr(project)
+        assert drain_index(project) >= 2
+
+        client = _client(project)
+        transcript = _search(client, "sentence")
+        ocr = _search(client, "China")
+
+        transcript_hits = [
+            group["primary"]
+            for group in transcript["groups"]
+            if group["primary"]["source"]["source_kind"] == "transcript"
+        ]
+        ocr_hits = [
+            group["primary"]
+            for group in ocr["groups"]
+            if group["primary"]["source"]["source_kind"] == "ocr_text"
+        ]
+        assert len(transcript_hits) == 1
+        assert "sentence" in transcript_hits[0]["snippet"].lower()
+        assert len(ocr_hits) == 1
+        assert "china" in ocr_hits[0]["snippet"].lower()
+    finally:
+        project.close()
