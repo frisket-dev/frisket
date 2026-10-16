@@ -18,6 +18,7 @@ from frisket.search_index import bind_retrieval_sidecar
 from frisket.retrieval import native
 from frisket.retrieval.contracts import (
     BindingRevision,
+    ChannelCoverage,
     PageRange,
     RetrievalScope,
     RankingPolicy,
@@ -1376,6 +1377,158 @@ def test_coverage_is_scoped_and_unavailable_without_eligible_records(tmp_path):
         assert response.coverage.channels[0].state == "unavailable"
         assert response.coverage.channels[0].prepared_count is None
         assert response.coverage.channels[0].failed_count is None
+    finally:
+        project.close()
+
+
+@pytest.mark.parametrize(
+    ("column_type", "mime_type"),
+    (("file", "application/pdf"), ("audio", "audio/wav")),
+)
+def test_lexical_coverage_reports_scoped_unprepared_media_without_intent(
+    tmp_path, column_type, mime_type
+):
+    from frisket.search import drain_index
+
+    project = Project.create(tmp_path / f"unprepared-{column_type}.frisket")
+    try:
+        sheet = project.add_sheet("Media")
+        status = project.add_column(sheet, "status", type="category")
+        media = project.add_column(sheet, "media", type=column_type)
+        digest = project.add_blob(b"media", mime=mime_type)
+        project.add_rows(
+            sheet,
+            [
+                {
+                    "status": "included",
+                    "media": {"blob": digest, "mime": mime_type},
+                },
+                {
+                    "status": "excluded",
+                    "media": {"blob": digest, "mime": mime_type},
+                },
+            ],
+            {"status": status, "media": media},
+        )
+        drain_index(project)
+
+        response = search(
+            project,
+            SearchRequest(
+                scope=RetrievalScope(
+                    sheets=(
+                        SheetScope(
+                            sheet,
+                            column_ids=(media,),
+                            filter_json='{"status":{"eq":"included"}}',
+                        ),
+                    )
+                ),
+                query=TextQuery("needle"),
+                mode="lexical",
+                ranking=RankingPolicy(rerank="off"),
+            ),
+        )
+
+        assert response.coverage.state == "partial"
+        assert response.coverage.searched_channels == ("lexical",)
+        gap = next(
+            item
+            for item in response.coverage.channels
+            if item.channel == "search_preparation"
+        )
+        assert gap == ChannelCoverage(
+            channel="search_preparation",
+            state="unavailable",
+            eligible_count=1,
+            prepared_count=0,
+            failed_count=0,
+            reason="media_needs_preparation",
+        )
+    finally:
+        project.close()
+
+
+def test_material_coverage_counts_exact_current_prepared_binding_appearances(tmp_path):
+    from frisket.search import drain_index
+
+    project = Project.create(tmp_path / "prepared-media-coverage.frisket")
+    try:
+        sheet = project.add_sheet("Documents")
+        document = project.add_column(sheet, "document", type="file")
+        prepared_text = project.add_column(sheet, "prepared text")
+        digest = project.add_blob(b"pdf", mime="application/pdf")
+        rows = project.add_rows(
+            sheet,
+            [
+                {
+                    "document": {
+                        "blob": digest,
+                        "mime": "application/pdf",
+                        "page": 1,
+                    }
+                },
+                {
+                    "document": {
+                        "blob": digest,
+                        "mime": "application/pdf",
+                        "page": 2,
+                    }
+                },
+            ],
+            {"document": document},
+        )
+        # Pin the source media in the retrieval inventory before its ordinary
+        # prepared text result exists.
+        drain_index(project)
+        project.db.execute("BEGIN IMMEDIATE")
+        op_id = project.append_op("media.read_pdf_text", commit=False)
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="document",
+            media_type="application/pdf",
+            blob_hash=digest,
+            page_count=2,
+            source_sheet_id=sheet,
+            source_row_id=rows[0],
+            source_column_id=document,
+        )
+        prepared = PreparedContentStore(project).stage_reference(
+            source_artifact_id=int(artifact["id"]),
+            producing_op_id=op_id,
+            pages=(
+                PreparedPageDraft(1, "searchable prepared text"),
+                PreparedPageDraft(2, "different page text"),
+            ),
+        )
+        prepared = PreparedContentStore(project).stage_selector(
+            set_id=PreparedContentStore(project).resolve(prepared.ref_id).set_id,
+            page_number=1,
+        )
+        project.db.commit()
+        project.apply_edits(
+            [{"row_id": rows[0], "column_id": prepared_text, "value": prepared}]
+        )
+
+        response = search(
+            project,
+            SearchRequest(
+                scope=RetrievalScope(
+                    sheets=(SheetScope(sheet, column_ids=(document,)),)
+                ),
+                query=TextQuery("needle"),
+                mode="lexical",
+                ranking=RankingPolicy(rerank="off"),
+            ),
+        )
+
+        gap = next(
+            item
+            for item in response.coverage.channels
+            if item.channel == "search_preparation"
+        )
+        assert (gap.eligible_count, gap.prepared_count) == (2, 1)
+        assert gap.state == "unavailable"
     finally:
         project.close()
 

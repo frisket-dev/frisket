@@ -130,7 +130,7 @@ def test_semantic_search_uses_workspace_runtime_and_reports_local_fallback(
     } == {"lexical"}
 
 
-def test_search_reports_unprepared_media_in_project_scope(
+def test_search_serializes_retrieval_media_preparation_coverage(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     workspace = Workspace(tmp_path / "ws")
@@ -152,11 +152,21 @@ def test_search_reports_unprepared_media_in_project_scope(
             coverage=SearchCoverage(
                 requested_mode="lexical",
                 effective_modes=("lexical",),
-                state="complete",
+                state="partial",
                 searched_channels=("text",),
                 is_top_k=True,
                 truncated=False,
-                channels=(ChannelCoverage(channel="text", state="ready"),),
+                channels=(
+                    ChannelCoverage(channel="text", state="ready"),
+                    ChannelCoverage(
+                        channel="search_preparation",
+                        state="unavailable",
+                        eligible_count=1,
+                        prepared_count=0,
+                        failed_count=0,
+                        reason="media_needs_preparation",
+                    ),
+                ),
             ),
         ),
     )

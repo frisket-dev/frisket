@@ -6,7 +6,6 @@ import asyncio
 from collections import defaultdict
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 from frisket.engine.pdf_text import PdfTextError, extract_pdf_text
@@ -138,37 +137,57 @@ def _has_current_result(project: Any, source: Any, kind: str) -> bool:
         "JOIN prepared_content_refs ref ON ref.id=current.prepared_ref_id "
         "JOIN prepared_content_sets content ON content.id=ref.set_id "
         "JOIN source_artifacts artifact ON artifact.id=content.source_artifact_id "
-        "WHERE current.row_id=? AND artifact.blob_hash=? "
+        "JOIN columns output_column ON output_column.id=current.column_id "
+        "AND output_column.sheet_id=? AND output_column.hidden=0 "
+        "WHERE current.row_id=? AND current.value_kind='text' "
+        "AND length(trim(current.value))>0 AND artifact.blob_hash=? "
         "AND artifact.source_sheet_id=? AND artifact.source_row_id=? "
-        "AND artifact.source_column_id=? LIMIT 1",
+        "AND artifact.source_column_id=? AND ref.page_number IS ? LIMIT 1",
         (
+            source.sheet_id,
             source.binding.row_id,
             source.blob_hash,
             source.sheet_id,
             source.binding.row_id,
             source.binding.column_id,
+            source.page_number,
         ),
     ).fetchone()
     if prepared is not None:
         return True
-    if kind == "native_pdf":
+    if kind != "transcribe":
         return False
-    role = "media_ocr_grounding" if kind == "ocr" else "media_transcribe_temporal"
-    row = project.db.execute(
-        "SELECT 1 FROM source_artifacts a JOIN source_spans s ON s.artifact_id=a.id "
+    candidates = project.db.execute(
+        "SELECT DISTINCT l.column_id,a.id AS artifact_id "
+        "FROM source_artifacts a JOIN source_spans s ON s.artifact_id=a.id "
         "JOIN evidence_link_spans ls ON ls.span_id=s.id "
         "JOIN evidence_links l ON l.id=ls.link_id "
         "WHERE a.blob_hash=? AND a.source_sheet_id=? AND a.source_row_id=? "
-        "AND a.source_column_id=? AND l.status='active' AND l.link_role=? LIMIT 1",
+        "AND a.source_column_id=? AND l.status='active' "
+        "AND l.link_role='media_transcribe_temporal'",
         (
             source.blob_hash,
             source.sheet_id,
             source.binding.row_id,
             source.binding.column_id,
-            role,
         ),
-    ).fetchone()
-    return row is not None
+    ).fetchall()
+    from frisket.engine.executor.temporal_transcripts import (
+        resolve_timestamped_transcript,
+    )
+
+    return any(
+        resolve_timestamped_transcript(
+            project,
+            sheet_id=source.sheet_id,
+            row_id=source.binding.row_id,
+            column_id=int(row["column_id"]),
+            artifact_id=int(row["artifact_id"]),
+        )
+        is not None
+        for row in candidates
+        if row["column_id"] is not None
+    )
 
 
 def sample_pdf(
@@ -179,15 +198,20 @@ def sample_pdf(
         "JOIN prepared_content_refs ref ON ref.id=current.prepared_ref_id "
         "JOIN prepared_content_sets content ON content.id=ref.set_id "
         "JOIN source_artifacts artifact ON artifact.id=content.source_artifact_id "
-        "WHERE current.row_id=? AND artifact.blob_hash=? "
+        "JOIN columns output_column ON output_column.id=current.column_id "
+        "AND output_column.sheet_id=? AND output_column.hidden=0 "
+        "WHERE current.row_id=? AND current.value_kind='text' "
+        "AND length(trim(current.value))>0 AND artifact.blob_hash=? "
         "AND artifact.source_sheet_id=? AND artifact.source_row_id=? "
-        "AND artifact.source_column_id=? LIMIT 1",
+        "AND artifact.source_column_id=? AND ref.page_number IS ? LIMIT 1",
         (
+            sheet_id,
             item["row_id"],
             item["blob_hash"],
             sheet_id,
             item["row_id"],
             item["column_id"],
+            item.get("page_number"),
         ),
     ).fetchone()
     if row is not None:
@@ -203,83 +227,4 @@ def sample_pdf(
     return " ".join(token.text for token in selected.tokens), len(pages), "native"
 
 
-def preparation_counts(project: Any, scope: Any) -> tuple[int, int]:
-    """Count raw media cells and those with exact current prepared content."""
-
-    if not callable(getattr(project, "visible_row_ids", None)) or not callable(
-        getattr(project, "get_values", None)
-    ):
-        return 0, 0
-    scopes = (
-        [
-            SimpleNamespace(
-                sheet_id=int(sheet["id"]),
-                row_ids=None,
-                column_ids=None,
-                filter_json=None,
-                parent_row_id=None,
-            )
-            for sheet in project.sheets()
-        ]
-        if scope.sheets is None
-        else list(scope.sheets)
-    )
-    eligible = 0
-    prepared = 0
-    seen: set[tuple[int, int, int]] = set()
-    for sheet_scope in scopes:
-        if sheet_scope.filter_json is not None or sheet_scope.parent_row_id is not None:
-            continue
-        sheet_id = int(sheet_scope.sheet_id)
-        rows = project.visible_row_ids(
-            sheet_id,
-            None if sheet_scope.row_ids is None else list(sheet_scope.row_ids),
-        )
-        allowed_columns = (
-            None
-            if sheet_scope.column_ids is None
-            else {int(value) for value in sheet_scope.column_ids}
-        )
-        columns = [
-            column
-            for column in project.columns(sheet_id)
-            if column["type"] in {"file", "image", "audio", "video"}
-            and not dict(column).get("hidden", False)
-            and (allowed_columns is None or int(column["id"]) in allowed_columns)
-        ]
-        for column in columns:
-            column_id = int(column["id"])
-            for row_id, value in project.get_values(
-                sheet_id, column_id, row_ids=rows
-            ).items():
-                key = (sheet_id, int(row_id), column_id)
-                if key in seen or not isinstance(value, dict):
-                    continue
-                source = resolve_cell_blob_source(
-                    project,
-                    sheet_id=sheet_id,
-                    row_id=int(row_id),
-                    column_id=column_id,
-                )
-                if source is None:
-                    continue
-                mime = source.mime_type.lower()
-                kind = (
-                    "native_pdf"
-                    if mime == "application/pdf"
-                    else "ocr"
-                    if mime.startswith("image/")
-                    else "transcribe"
-                    if mime.startswith("audio/") or mime.startswith("video/")
-                    else None
-                )
-                if kind is None:
-                    continue
-                seen.add(key)
-                eligible += 1
-                if _has_current_result(project, source, kind):
-                    prepared += 1
-    return eligible, prepared
-
-
-__all__ = ["build_plan", "preparation_counts", "sample_pdf"]
+__all__ = ["build_plan", "sample_pdf"]

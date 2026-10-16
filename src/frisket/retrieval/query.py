@@ -782,6 +782,11 @@ class RetrievalQueryService:
             else:
                 state = "unavailable"
             channel_coverage.append(ChannelCoverage(channel=channel, state=state))
+        material = _material_preparation_coverage(reader, request, scope)
+        if material is not None:
+            channel_coverage.append(material)
+            if material.state != "ready":
+                any_unavailable = True
         if any_ready and not (any_pending or any_failed or any_unavailable):
             coverage_state = "complete"
         elif any_ready:
@@ -804,12 +809,144 @@ class RetrievalQueryService:
             searched_channels=tuple(
                 channel.channel
                 for channel in channel_coverage
-                if channel.state == "ready"
+                if channel.channel in requested_channels and channel.state == "ready"
             ),
             is_top_k=True,
             truncated=False,
             channels=tuple(channel_coverage),
         )
+
+
+def _material_preparation_coverage(
+    reader: PinnedRetrievalReader,
+    request: SearchRequest,
+    scope: CompiledRetrievalScope,
+) -> ChannelCoverage | None:
+    """Count scoped media appearances with an exact current text derivative."""
+
+    # Raw media has no reliable membership in a named part dataset until it has
+    # been prepared.  Do not claim coverage for a narrower relation we cannot
+    # prove from the maintained inventory.
+    if request.named_index_id is not None:
+        return None
+
+    row = reader.db.execute(
+        f"""WITH {scope.cte_sql}, eligible_media AS MATERIALIZED (
+          SELECT retrieval_binding.sheet_id,retrieval_binding.row_id,
+                 retrieval_binding.column_id,retrieval_source.version_value AS blob_hash,
+                 CASE WHEN json_valid(source_current.value)
+                       AND json_type(source_current.value,'$.page')='integer'
+                      THEN json_extract(source_current.value,'$.page') END AS page_number
+          FROM scoped_bindings AS scoped
+          JOIN idx.bindings AS retrieval_binding
+            ON retrieval_binding.sheet_id=scoped.sheet_id
+           AND retrieval_binding.row_id=scoped.row_id
+           AND (scoped.column_id IS NULL
+                OR scoped.column_id=retrieval_binding.column_id)
+          JOIN idx.sources AS retrieval_source
+            ON retrieval_source.source_key=retrieval_binding.source_key
+          JOIN main.blobs AS blob
+            ON blob.hash=retrieval_source.version_value
+          JOIN main.current_cell_values AS source_current
+            ON source_current.row_id=retrieval_binding.row_id
+           AND source_current.column_id=retrieval_binding.column_id
+          WHERE retrieval_source.source_kind='blob'
+            AND retrieval_source.version_kind='blob_digest'
+            AND {_visible_column("retrieval_binding")}
+            AND {_binding_is_current("retrieval_binding")}
+            AND (lower(blob.mime)='application/pdf'
+                 OR lower(blob.mime) LIKE 'application/pdf;%'
+                 OR lower(blob.mime) LIKE 'image/%'
+                 OR lower(blob.mime) LIKE 'audio/%'
+                 OR lower(blob.mime) LIKE 'video/%')
+          GROUP BY retrieval_binding.sheet_id,retrieval_binding.row_id,
+                   retrieval_binding.column_id,retrieval_source.version_value,
+                   page_number
+        )
+        SELECT count(*) AS eligible_count,
+               coalesce(sum(CASE WHEN
+                 EXISTS (
+                   SELECT 1
+                   FROM main.source_artifacts AS artifact
+                   JOIN main.prepared_content_sets AS content
+                     ON content.source_artifact_id=artifact.id
+                   JOIN main.prepared_content_refs AS ref
+                     ON ref.set_id=content.id
+                   JOIN main.current_cell_values AS current
+                     ON current.row_id=eligible.row_id
+                    AND current.prepared_ref_id=ref.id
+                   JOIN main.columns AS output_column
+                     ON output_column.id=current.column_id
+                    AND output_column.sheet_id=eligible.sheet_id
+                    AND output_column.hidden=0
+                   WHERE artifact.source_sheet_id=eligible.sheet_id
+                     AND current.value_kind='text'
+                     AND length(trim(current.value))>0
+                     AND artifact.source_row_id=eligible.row_id
+                     AND artifact.source_column_id=eligible.column_id
+                     AND artifact.blob_hash=eligible.blob_hash
+                     AND ref.page_number IS eligible.page_number
+                   LIMIT 1
+                 ) OR EXISTS (
+                   SELECT 1
+                   FROM main.evidence_links AS link
+                   JOIN main.current_cell_values AS current
+                     ON current.row_id=link.row_id
+                    AND current.column_id=link.column_id
+                   JOIN main.columns AS output_column
+                     ON output_column.id=current.column_id
+                    AND output_column.sheet_id=eligible.sheet_id
+                    AND output_column.hidden=0
+                   WHERE link.sheet_id=eligible.sheet_id
+                     AND link.row_id=eligible.row_id
+                     AND link.status='active'
+                     AND link.subject_kind='cell'
+                     AND link.link_role='media_transcribe_temporal'
+                     AND output_column.type='timestamped_transcript'
+                     AND current.value_kind='text'
+                     AND length(trim(current.value))>0
+                     AND json_extract(link.subject_ref_json,'$.kind')=
+                         current.origin_kind
+                     AND json_extract(link.subject_ref_json,'$.row_id')=
+                         current.row_id
+                     AND json_extract(link.subject_ref_json,'$.column_id')=
+                         current.column_id
+                     AND json_extract(link.subject_ref_json,'$.op_id') IS
+                         current.origin_op_id
+                     AND json_extract(link.subject_ref_json,'$.run_id') IS
+                         current.origin_run_id
+                     AND EXISTS (
+                       SELECT 1
+                       FROM main.evidence_link_spans AS linked_span
+                       JOIN main.source_spans AS span
+                         ON span.id=linked_span.span_id
+                       JOIN main.source_artifacts AS artifact
+                         ON artifact.id=span.artifact_id
+                       WHERE linked_span.link_id=link.id
+                         AND artifact.source_sheet_id=eligible.sheet_id
+                         AND artifact.source_row_id=eligible.row_id
+                         AND artifact.source_column_id=eligible.column_id
+                         AND artifact.blob_hash=eligible.blob_hash
+                       LIMIT 1
+                     )
+                   LIMIT 1
+                 ) THEN 1 ELSE 0 END),0) AS prepared_count
+        FROM eligible_media AS eligible""",
+        scope.params,
+    ).fetchone()
+    eligible_count = int(row["eligible_count"])
+    if not eligible_count:
+        return None
+    prepared_count = int(row["prepared_count"])
+    has_gap = prepared_count < eligible_count
+    return ChannelCoverage(
+        channel="search_preparation",
+        state="unavailable" if has_gap else "ready",
+        eligible_count=eligible_count,
+        prepared_count=prepared_count,
+        failed_count=0,
+        reason="media_needs_preparation" if has_gap else None,
+    )
 
 
 def _scoped_dirty_work(

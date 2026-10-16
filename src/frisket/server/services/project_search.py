@@ -38,7 +38,6 @@ from frisket.retrieval.contracts import (
 )
 from frisket.retrieval.service import search_with_encoding
 from frisket.server.workspace import Workspace
-from frisket.server.services.search_preparation_planning import preparation_counts
 
 
 _DOCUMENT_COLUMN_TYPES = frozenset({"file", "media", "image", "video", "audio", "link"})
@@ -108,6 +107,27 @@ def _binding_payload(binding: ScopedBinding) -> dict[str, Any]:
     }
 
 
+def _contains_search_anchor(span_text: object, anchor: str) -> bool:
+    """Match highlighted search text without accepting partial word substrings."""
+
+    text = " ".join(str(span_text or "").split()).casefold()
+    if not text or not anchor:
+        return False
+    offset = 0
+    while (start := text.find(anchor, offset)) >= 0:
+        end = start + len(anchor)
+        left_ok = not (anchor[0].isalnum() or anchor[0] == "_") or (
+            start == 0 or not (text[start - 1].isalnum() or text[start - 1] == "_")
+        )
+        right_ok = not (anchor[-1].isalnum() or anchor[-1] == "_") or (
+            end == len(text) or not (text[end].isalnum() or text[end] == "_")
+        )
+        if left_ok and right_ok:
+            return True
+        offset = start + 1
+    return False
+
+
 def _evidence_navigation(project: Any, hit: LocatedHit) -> dict[str, Any] | None:
     binding = hit.binding
     if binding.column_id is None:
@@ -169,13 +189,19 @@ def _evidence_navigation(project: Any, hit: LocatedHit) -> dict[str, Any] | None
         if value.strip()
     }
     if anchors:
-        matched = [
-            row
+        scored = [
+            (
+                sum(
+                    _contains_search_anchor(row["span_text"], anchor)
+                    for anchor in anchors
+                ),
+                row,
+            )
             for row in candidates
-            if " ".join(str(row["span_text"] or "").split()).casefold() in anchors
         ]
-        if matched:
-            candidates = matched
+        best = max((score for score, _row in scored), default=0)
+        if best:
+            candidates = [row for score, row in scored if score == best]
 
     row = candidates[0]
     return {
@@ -473,26 +499,6 @@ class ProjectSearchService:
             response.coverage,
             setup_scope=setup_scope,
         )
-        eligible_media, prepared_media = preparation_counts(
-            project, search_request.scope
-        )
-        if eligible_media:
-            has_gap = prepared_media < eligible_media
-            coverage["channels"].append(
-                {
-                    "channel": "search_preparation",
-                    "state": "unavailable" if has_gap else "ready",
-                    "recipe_id": None,
-                    "eligible_count": eligible_media,
-                    "prepared_count": prepared_media,
-                    "failed_count": 0,
-                    "reason": "media_needs_preparation" if has_gap else None,
-                    "setup": None,
-                }
-            )
-            if has_gap and coverage["state"] == "complete":
-                coverage["state"] = "partial"
-
         return {
             "response_anchor": (
                 {
