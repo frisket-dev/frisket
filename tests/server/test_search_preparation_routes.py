@@ -74,8 +74,13 @@ def test_explicit_preparation_is_reconnectable_and_double_click_safe(
     project_id = client.post("/api/projects", json={"name": "Preparation"}).json()["id"]
     project = client.app.state.workspace.get(project_id)
     sheet_id = project.add_sheet("Files")
-    name_column = project.add_column(sheet_id, "Name", type="text")
-    project.add_rows(sheet_id, [{"Name": "ordinary text"}], {"Name": name_column})
+    image_column = project.add_column(sheet_id, "Image", type="image")
+    digest = project.add_blob(b"image", filename="scan.png", mime="image/png")
+    project.add_rows(
+        sheet_id,
+        [{"Image": {"blob": digest, "filename": "scan.png", "mime": "image/png"}}],
+        {"Image": image_column},
+    )
 
     body = {"sheet_id": sheet_id, "row_ids": project.visible_row_ids(sheet_id)}
     first = client.post(f"/api/projects/{project_id}/search-preparation", json=body)
@@ -95,6 +100,79 @@ def test_explicit_preparation_is_reconnectable_and_double_click_safe(
     )
     assert fetched.status_code == 200
     assert fetched.json() == first.json()
+
+
+def test_explicit_preparation_rejects_a_sheet_with_no_actionable_media(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setattr(preparation_module, "_requirements", lambda: ())
+    client = TestClient(create_app(tmp_path / "workspace"))
+    project_id = client.post("/api/projects", json={"name": "Preparation"}).json()["id"]
+    project = client.app.state.workspace.get(project_id)
+    sheet_id = project.add_sheet("Notes")
+    text_column = project.add_column(sheet_id, "Note", type="text")
+    project.add_rows(sheet_id, [{"Note": "already searchable"}], {"Note": text_column})
+
+    response = client.post(
+        f"/api/projects/{project_id}/search-preparation",
+        json={"sheet_id": sheet_id},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "this sheet has no current media that needs search preparation"
+    )
+    listed = client.get(f"/api/projects/{project_id}/search-preparation").json()
+    assert listed["batches"] == []
+    assert listed["indexing"]["status"] in {"pending", "queued", "running"}
+
+
+def test_preparation_list_projects_durable_indexing_work(tmp_path, monkeypatch) -> None:
+    from frisket.search import drain_index
+
+    monkeypatch.setattr(preparation_module, "_requirements", lambda: ())
+    client = TestClient(create_app(tmp_path / "workspace"))
+    project_id = client.post("/api/projects", json={"name": "Indexing"}).json()["id"]
+    project = client.app.state.workspace.get(project_id)
+    sheet_id = project.add_sheet("Notes")
+    text_column = project.add_column(sheet_id, "Note", type="text")
+    project.add_rows(sheet_id, [{"Note": "new text"}], {"Note": text_column})
+
+    active = client.get(f"/api/projects/{project_id}/search-preparation").json()[
+        "indexing"
+    ]
+    assert active["status"] == "queued"
+    assert active["job_id"] is not None
+
+    drain_index(project)
+    assert client.app.state.workspace.queue.cancel(active["job_id"])
+    semantic = client.get(f"/api/projects/{project_id}/search-preparation").json()[
+        "indexing"
+    ]
+    assert semantic == {"status": "pending", "job_id": None, "error": None}
+    repeated = client.get(f"/api/projects/{project_id}/search-preparation").json()[
+        "indexing"
+    ]
+    assert repeated == semantic
+    assert client.app.state.workspace.queue.find_job_by_refs(
+        "search.index", project_id=project_id
+    ) is None
+
+    queue = client.app.state.workspace.queue
+    semantic_job_id = project._frisket_schedule_search_index()
+    assert semantic_job_id is not None
+    claimed = queue.claim("index-test")
+    assert claimed is not None and claimed.id == semantic_job_id
+    assert queue.fail(claimed.id, "index-test", "index failed", retry=False)
+    failed = client.get(f"/api/projects/{project_id}/search-preparation").json()[
+        "indexing"
+    ]
+    assert failed == {
+        "status": "failed",
+        "job_id": claimed.id,
+        "error": "queue_job_failed: index failed",
+    }
+    assert queue.find_job_by_refs("search.index", project_id=project_id) is None
 
 
 def test_explicit_preparation_rejects_rows_outside_visible_scope(

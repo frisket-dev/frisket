@@ -14,6 +14,7 @@ from frisket.contracts.http.search_preparation import (
     SearchPreparationBatch,
     SearchPreparationBatchList,
     SearchPreparationGroup,
+    SearchPreparationIndexing,
     SearchPreparationJob,
     SearchPreparationModel,
     SearchPreparationTextSample,
@@ -26,7 +27,7 @@ from frisket.engine.jobs.search_preparation_store import (
     SearchPreparationStore,
 )
 from frisket.engine.jobs.model_pull import ModelPullEnqueueError, schedule_model_pull
-from frisket.engine.jobs.queue import SERVER_SCOPED_JOB_PAYLOAD_KEY
+from frisket.engine.jobs.queue import SEARCH_INDEX_KIND, SERVER_SCOPED_JOB_PAYLOAD_KEY
 from frisket.execution.provider import ExactExecutionMatch
 from frisket.execution.targets import CAPABILITY_TRANSCRIBE
 from frisket.engine.store.import_sessions import ImportSessionStore
@@ -222,6 +223,11 @@ class SearchPreparationService:
         plan = self._plan(
             project, sheet_id=sheet_id, row_ids=row_ids, force_ocr=force_ocr
         )
+        if not plan["items"]:
+            raise RouteError(
+                409,
+                "this sheet has no current media that needs search preparation",
+            )
         batch = self.store.create(
             storage_org_id=self.workspace.queue_storage_org_id,
             project_id=project_id,
@@ -403,7 +409,9 @@ class SearchPreparationService:
     def list(
         self, project_id: str, *, may_setup_models: bool = True
     ) -> SearchPreparationBatchList:
+        project = self.workspace.get(project_id)
         setup = self._setup_snapshot()
+        indexing = self._indexing_status(project_id, project)
         return SearchPreparationBatchList(
             batches=[
                 self._project(
@@ -415,7 +423,49 @@ class SearchPreparationService:
                     project_id=project_id,
                     storage_org_id=self.workspace.queue_storage_org_id,
                 )
-            ]
+            ],
+            indexing=indexing,
+        )
+
+    def _indexing_status(
+        self, project_id: str, project: Any
+    ) -> SearchPreparationIndexing:
+        # A completed encoder install can happen in an external worker. This
+        # reconciliation only requeues preparations already recorded as
+        # encoder-unavailable; ordinary dirty-work enqueue recovery remains a
+        # search-boundary responsibility.
+        retry_encoder = getattr(project, "_frisket_retry_retrieval_encoder", None)
+        if callable(retry_encoder):
+            retry_encoder()
+        marker = index_work_marker(project)
+        index_job = self.workspace.queue.find_job_by_refs(
+            SEARCH_INDEX_KIND,
+            project_id=project_id,
+            storage_org_id=self.workspace.queue_storage_org_id,
+            workspace_root=str(self.workspace.root),
+        )
+        failed_job = None
+        if marker is not None and index_job is None:
+            failed_job = self.workspace.queue.find_job_by_refs(
+                SEARCH_INDEX_KIND,
+                statuses=("failed",),
+                project_id=project_id,
+                storage_org_id=self.workspace.queue_storage_org_id,
+                workspace_root=str(self.workspace.root),
+                dedupe_key=f"search-index:{marker}",
+            )
+        projected_job = index_job or failed_job
+        indexing_status = (
+            projected_job.status
+            if projected_job is not None
+            else "pending"
+            if marker is not None
+            else "idle"
+        )
+        return SearchPreparationIndexing(
+            status=indexing_status,
+            job_id=projected_job.id if projected_job is not None else None,
+            error=failed_job.error if failed_job is not None else None,
         )
 
     def get(

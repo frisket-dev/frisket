@@ -7,6 +7,8 @@ from frisket.engine.store import Project
 from frisket.retrieval.contracts import SourceRevision
 from frisket.retrieval.preparation import DEFAULT_TEXT_SPACE
 from frisket.retrieval.store import RetrievalStore
+from frisket.server.services import search_preparation as preparation_module
+from frisket.server.services.search_preparation import SearchPreparationService
 from frisket.server.workspace import Workspace
 
 
@@ -18,6 +20,13 @@ class _AvailableEncoder:
 class _UnavailableEncoder:
     def available(self) -> bool:
         return False
+
+
+class _MutableEncoder:
+    available_now = False
+
+    def available(self) -> bool:
+        return self.available_now
 
 
 def test_open_schedules_existing_durable_search_work(tmp_path) -> None:
@@ -99,6 +108,47 @@ def test_open_and_model_setup_retry_only_exact_encoder_unavailability(tmp_path) 
                 encoder_source.source_id, recipe_id="text-v1", channel="text"
             )
             assert state is not None and state.status == "pending"
+    finally:
+        project.close()
+        workspace.queue.close()
+
+
+def test_preparation_status_poll_observes_external_encoder_setup(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setattr(preparation_module, "_requirements", lambda: ())
+    encoder = _MutableEncoder()
+    workspace = Workspace(tmp_path / "workspace", embedding_runtime=encoder)
+    project_id = workspace.create("Docs")["id"]
+    project = workspace.get(project_id)
+    source = SourceRevision("cell:1:1", "text", "retrieval_revision", 1)
+    try:
+        with RetrievalStore(project) as store:
+            store.begin_preparation(
+                source,
+                recipe_id="text-v1",
+                channel="text",
+                space_id=DEFAULT_TEXT_SPACE.identity,
+            )
+            assert store.mark_preparation_unavailable(
+                source,
+                recipe_id="text-v1",
+                channel="text",
+                space_id=DEFAULT_TEXT_SPACE.identity,
+                error_code="encoder_unavailable",
+                reason="install the encoder",
+            )
+
+        encoder.available_now = True
+        status = SearchPreparationService(workspace).list(project_id)
+
+        with RetrievalStore(project) as store:
+            resumed = store.preparation_state(
+                source.source_id, recipe_id="text-v1", channel="text"
+            )
+        assert resumed is not None and resumed.status == "pending"
+        assert status.indexing.status == "queued"
+        assert status.indexing.job_id is not None
     finally:
         project.close()
         workspace.queue.close()

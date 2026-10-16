@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from helpers import make_client as _client
+from frisket.search import drain_index
+from frisket.server.services import search_preparation as preparation_module
 from frisket.server.services.sample_project import (
     SAMPLE_AGENCY_PAYMENT_ROWS,
     SAMPLE_AGENCY_PAYMENTS_SHEET_NAME,
@@ -49,6 +51,63 @@ def test_seeded_sample_project_deletes_with_unstarted_queued_work(
     assert deleted.json() == {"ok": True, "deleted": pid}
     assert queue.get(job_id).status == "cancelled"
     assert client.get("/api/projects").json() == []
+
+
+def test_sample_search_reports_the_sheets_that_can_be_prepared(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(preparation_module, "_requirements", lambda: ())
+    client = _client(tmp_path)
+    pid = client.post("/api/projects", json={"name": "Sample project"}).json()["id"]
+    seeded = client.post(f"/api/projects/{pid}/seed-sample")
+    assert seeded.status_code == 200, seeded.text
+
+    sheets = client.get(f"/api/projects/{pid}/sheets").json()
+    by_name = {sheet["name"]: sheet for sheet in sheets}
+    project = client.app.state.workspace.get(pid)
+    drain_index(project)
+
+    searched = client.post(
+        f"/api/projects/{pid}/search",
+        json={
+            "scope": {"kind": "project"},
+            "query": {"kind": "text", "text": "contract", "lexical_syntax": "plain"},
+            "mode": "lexical",
+            "group_by": "source",
+            "limit": 10,
+            "ranking": {"rerank": "off"},
+        },
+    )
+    assert searched.status_code == 200, searched.text
+    gap = next(
+        channel
+        for channel in searched.json()["coverage"]["channels"]
+        if channel["channel"] == "search_preparation"
+    )
+    assert gap["gap_sheet_ids"] == sorted(
+        [
+            by_name[SAMPLE_FILINGS_SHEET_NAME]["id"],
+            by_name[SAMPLE_COUNCIL_AUDIO_SHEET_NAME]["id"],
+        ]
+    )
+
+    no_op = client.post(
+        f"/api/projects/{pid}/search-preparation",
+        json={"sheet_id": by_name[SAMPLE_SHEET_NAME]["id"]},
+    )
+    assert no_op.status_code == 409, no_op.text
+    assert client.get(f"/api/projects/{pid}/search-preparation").json()[
+        "batches"
+    ] == []
+
+    actionable = client.post(
+        f"/api/projects/{pid}/search-preparation",
+        json={"sheet_id": by_name[SAMPLE_FILINGS_SHEET_NAME]["id"]},
+    )
+    assert actionable.status_code == 200, actionable.text
+    assert actionable.json()["groups"] == [
+        {"kind": "native_pdf", "count": SAMPLE_LAWSUIT_ROWS, "status": "queued"}
+    ]
 
 
 def test_seed_sample_second_call_reuses_existing_sheet_no_duplicate(

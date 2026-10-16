@@ -274,8 +274,12 @@ def test_coverage_accepts_only_cheap_optional_maintenance_counts() -> None:
         prepared_count=4,
         failed_count=1,
         reason="six sources still need preparation",
+        gap_sheet_ids=(2, 5),
     )
 
     assert coverage.prepared_count == 4
+    assert coverage.gap_sheet_ids == (2, 5)
     with pytest.raises(ValueError, match="nonnegative"):
         ChannelCoverage(channel="video_frames", state="pending", prepared_count=-1)
+    with pytest.raises(ValueError, match="positive sheet ids"):
+        ChannelCoverage(channel="video_frames", state="pending", gap_sheet_ids=(0,))

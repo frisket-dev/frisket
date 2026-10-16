@@ -312,6 +312,11 @@ def _coverage_payload(
                 "prepared_count": channel.prepared_count,
                 "failed_count": channel.failed_count,
                 "reason": channel.reason,
+                **(
+                    {"gap_sheet_ids": list(channel.gap_sheet_ids)}
+                    if channel.gap_sheet_ids is not None
+                    else {}
+                ),
                 "setup": (
                     {
                         "setup_ref": SETUP_REF,
@@ -464,6 +469,12 @@ class ProjectSearchService:
         offer_setup: bool | None = None,
     ) -> dict[str, Any]:
         project = self._workspace.get(project_id)
+        if request.mode in {"semantic", "hybrid"}:
+            retry_encoder = getattr(
+                project, "_frisket_retry_retrieval_encoder", None
+            )
+            if callable(retry_encoder):
+                retry_encoder()
         search_request = _request_from_wire(request)
         response = search_with_encoding(
             project,

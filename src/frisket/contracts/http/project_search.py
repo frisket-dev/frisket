@@ -194,6 +194,7 @@ class ProjectSearchChannelCoverage(WireModel):
     prepared_count: int | None = Field(default=None, ge=0)
     failed_count: int | None = Field(default=None, ge=0)
     reason: str | None
+    gap_sheet_ids: list[int] | None = None
     setup: ProjectSearchSetup | None = None
 
 

@@ -26,6 +26,8 @@ from frisket.retrieval.contracts import (
     SourceRevision,
     TextQuery,
 )
+from frisket.retrieval.preparation import DEFAULT_TEXT_SPACE
+from frisket.retrieval.store import RetrievalStore
 from frisket.server.services.project_search import ProjectSearchService
 from frisket.server.workspace import Workspace
 
@@ -130,6 +132,71 @@ def test_semantic_search_uses_workspace_runtime_and_reports_local_fallback(
     } == {"lexical"}
 
 
+def test_semantic_search_retries_encoder_work_completed_by_an_external_worker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Encoder:
+        ready = False
+
+        def available(self) -> bool:
+            return self.ready
+
+    encoder = Encoder()
+    workspace = Workspace(tmp_path / "ws", embedding_runtime=encoder)
+    project_id = workspace.create("external setup")["id"]
+    project = workspace.get(project_id)
+    sheet_id = project.add_sheet("notes")
+    column_id = project.add_column(sheet_id, "body", type="text")
+    [row_id] = project.add_rows(
+        sheet_id, [{"body": "search me"}], {"body": column_id}
+    )
+    source = SourceRevision("cell:source", "text", "retrieval_revision", 1)
+    try:
+        with RetrievalStore(project) as store:
+            store.begin_preparation(
+                source,
+                recipe_id="text-v1",
+                channel="text",
+                space_id=DEFAULT_TEXT_SPACE.identity,
+            )
+            assert store.mark_preparation_unavailable(
+                source,
+                recipe_id="text-v1",
+                channel="text",
+                space_id=DEFAULT_TEXT_SPACE.identity,
+                error_code="encoder_unavailable",
+                reason="install the encoder",
+            )
+
+        encoder.ready = True
+        monkeypatch.setattr(
+            search_service,
+            "search_with_encoding",
+            lambda *_args, **_kwargs: _lexical_fallback(
+                sheet_id, row_id, column_id
+            ),
+        )
+        ProjectSearchService(workspace).search(
+            project_id,
+            request=ProjectSearchRequest(
+                scope=ProjectSearchProjectScope(kind="project"),
+                query=ProjectSearchTextQuery(kind="text", text="search me"),
+                limit=10,
+                mode="semantic",
+                ranking=ProjectSearchRanking(rerank="auto"),
+            ),
+        )
+
+        with RetrievalStore(project) as store:
+            state = store.preparation_state(
+                source.source_id, recipe_id="text-v1", channel="text"
+            )
+        assert state is not None and state.status == "pending"
+    finally:
+        project.close()
+        workspace.queue.close()
+
+
 def test_search_serializes_retrieval_media_preparation_coverage(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -165,6 +232,7 @@ def test_search_serializes_retrieval_media_preparation_coverage(
                         prepared_count=0,
                         failed_count=0,
                         reason="media_needs_preparation",
+                        gap_sheet_ids=(sheet_id,),
                     ),
                 ),
             ),
@@ -196,5 +264,6 @@ def test_search_serializes_retrieval_media_preparation_coverage(
         "prepared_count": 0,
         "failed_count": 0,
         "reason": "media_needs_preparation",
+        "gap_sheet_ids": [sheet_id],
         "setup": None,
     }
