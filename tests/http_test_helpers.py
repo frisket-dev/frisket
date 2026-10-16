@@ -19,6 +19,35 @@ def drain_queue(client: TestClient, *, worker_id: str = "v1-http-test-worker") -
         pass
 
 
+def run_worker_until_job_terminal(
+    worker: Worker,
+    queue: Any,
+    job_id: int,
+    *,
+    max_steps: int = 16,
+) -> Any:
+    """Run bounded queue quanta until one exact job reaches a terminal state."""
+
+    observed: list[str] = []
+    for _ in range(max_steps):
+        target = queue.get(job_id)
+        if target is None:
+            raise AssertionError(f"target job {job_id} disappeared")
+        observed.append(str(target.status))
+        if target.status in {"done", "failed", "cancelled"}:
+            return target
+        if not worker.run_once():
+            raise AssertionError(
+                f"worker became idle before target job {job_id} terminalized; "
+                f"observed={observed}"
+            )
+    target = queue.get(job_id)
+    raise AssertionError(
+        f"target job {job_id} did not terminalize in {max_steps} worker steps; "
+        f"status={None if target is None else target.status!r}; observed={observed}"
+    )
+
+
 def _copy_fields(source: dict[str, Any], fields: tuple[str, ...]) -> dict[str, Any]:
     return {field: source[field] for field in fields if field in source}
 
