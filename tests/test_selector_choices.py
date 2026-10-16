@@ -1372,6 +1372,15 @@ def test_viewer_setup_read_projects_terminal_operation_without_store_writes(
         "frisket.server.services.selector_choices.parakeet_setup_ready", lambda: False
     )
     client, workspace, project_id = _app(tmp_path / failure)
+    # Project creation leaves derived search maintenance queued. Open the project
+    # once, then retire that unrelated recovery work so the generic queue claim
+    # below belongs to this test's model pull and the measured request isolates
+    # the selector's passive setup projection.
+    workspace.get(project_id)
+    for job in workspace.queue.list_project_jobs(
+        project_id, kind="search.index", status="queued"
+    ):
+        assert workspace.queue.cancel_queued(job.id)
     engine = workspace.queue.engine
     row, _ = model_pull_store.create_or_get_active(
         engine,

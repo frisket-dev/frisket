@@ -146,7 +146,11 @@ def test_partial_generation_undo_redo_refreshes_only_its_result_coordinates(
 
         project.db.execute("CREATE TEMP TABLE projection_audit(kind,row_id,column_id)")
         for table in ("cell_result_heads", "current_cells"):
-            for event, ref in (("DELETE", "OLD"), ("INSERT", "NEW")):
+            for event, ref in (
+                ("DELETE", "OLD"),
+                ("INSERT", "NEW"),
+                ("UPDATE", "NEW"),
+            ):
                 project.db.execute(
                     f"CREATE TEMP TRIGGER audit_{table}_{event.lower()} "
                     f"AFTER {event} ON {table} BEGIN "
@@ -323,6 +327,10 @@ def test_edit_undo_redo_refreshes_only_the_changed_search_cell(tmp_path: Path) -
         project.db.execute(
             "CREATE TEMP TRIGGER audit_current_cell_insert AFTER INSERT ON current_cells "
             "BEGIN INSERT INTO current_cell_audit VALUES ('insert',NEW.row_id,NEW.column_id); END"
+        )
+        project.db.execute(
+            "CREATE TEMP TRIGGER audit_current_cell_update AFTER UPDATE ON current_cells "
+            "BEGIN INSERT INTO current_cell_audit VALUES ('update',NEW.row_id,NEW.column_id); END"
         )
         project.db.commit()
 
