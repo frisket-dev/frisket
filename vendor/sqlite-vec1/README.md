@@ -23,3 +23,13 @@ Silicon macOS, and 64-bit x86 Windows. Musl Linux, Intel macOS, Windows on Arm,
 and other architectures are unsupported. A source-distribution install on a
 supported target runs the same pinned build hook and therefore requires the
 platform's normal C compiler; installed Frisket never invokes that compiler.
+
+Editable installs intentionally do not run the wheel hook. After creating or
+updating a source checkout, developers build its native library explicitly:
+
+```console
+python scripts/build_vec1.py
+```
+
+That command writes only the current platform library under
+`src/frisket/retrieval/_native/`. Frisket has no runtime compiler fallback.

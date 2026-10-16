@@ -3,14 +3,46 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
+import sysconfig
 import tempfile
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
-from packaging.tags import parse_tag, platform_tags
+from packaging.tags import parse_tag
+
+
+_MANYLINUX_TAG = re.compile(r"manylinux_[0-9]+_[0-9]+_(?:x86_64|aarch64)")
+
+
+def _host_platform_tag() -> str:
+    """Return the build host platform without claiming portable Linux ABI."""
+
+    return sysconfig.get_platform().replace("-", "_").replace(".", "_")
+
+
+def _wheel_platform_tag() -> str:
+    """Select a conservative host tag or a CI-verified manylinux override."""
+
+    platform_tag = os.environ.get("FRISKET_WHEEL_PLATFORM_TAG")
+    if platform_tag is None:
+        return _host_platform_tag()
+    if _MANYLINUX_TAG.fullmatch(platform_tag) is None:
+        raise RuntimeError(
+            "FRISKET_WHEEL_PLATFORM_TAG is reserved for verified manylinux builds"
+        )
+    parsed = parse_tag(f"py3-none-{platform_tag}")
+    if len(parsed) != 1:
+        raise RuntimeError(f"invalid Frisket wheel platform override: {platform_tag}")
+    host = _host_platform_tag()
+    if not host.startswith("linux_") or not platform_tag.endswith(host[5:]):
+        raise RuntimeError(
+            f"manylinux override {platform_tag} does not match build host {host}"
+        )
+    return platform_tag
 
 
 class CustomBuildHook(BuildHookInterface):
@@ -50,18 +82,8 @@ class CustomBuildHook(BuildHookInterface):
             build_data["pure_python"] = False
             # Release Linux wheels set this only inside a pinned manylinux
             # image and verify the result with auditwheel. Ordinary builds use
-            # Packaging's host-platform tag and never relabel generic Linux.
-            platform_tag = os.environ.get("FRISKET_WHEEL_PLATFORM_TAG")
-            if platform_tag:
-                parsed = parse_tag(f"py3-none-{platform_tag}")
-                if len(parsed) != 1:
-                    raise RuntimeError(
-                        f"invalid Frisket wheel platform override: {platform_tag}"
-                    )
-            else:
-                platform_tag = next(platform_tags(), None)
-            if platform_tag is None:
-                raise RuntimeError("could not determine the wheel platform tag")
+            # a generic host tag and never infer manylinux from host glibc.
+            platform_tag = _wheel_platform_tag()
             build_data["tag"] = f"py3-none-{platform_tag}"
             print(f"Vec1 wheel platform: {platform_tag}")
         except BaseException:

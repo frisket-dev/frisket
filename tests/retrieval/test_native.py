@@ -5,7 +5,10 @@ import math
 import sqlite3
 import subprocess
 import sys
+import sysconfig
 from pathlib import Path
+from runpy import run_path
+from types import ModuleType
 
 import pytest
 
@@ -63,6 +66,49 @@ def test_vendored_source_matches_reviewed_sqlite_release() -> None:
         source = source_root / filename
         assert source.stat().st_size == size
         assert hashlib.sha256(source.read_bytes()).hexdigest() == digest
+
+
+def _load_wheel_platform_tag(monkeypatch: pytest.MonkeyPatch):
+    interface = ModuleType("hatchling.builders.hooks.plugin.interface")
+    interface.BuildHookInterface = type("BuildHookInterface", (), {})
+    for name in (
+        "hatchling",
+        "hatchling.builders",
+        "hatchling.builders.hooks",
+        "hatchling.builders.hooks.plugin",
+    ):
+        monkeypatch.setitem(sys.modules, name, ModuleType(name))
+    monkeypatch.setitem(sys.modules, interface.__name__, interface)
+    return run_path(str(ROOT / "hatch_build.py"))["_wheel_platform_tag"]
+
+
+def test_wheel_platform_defaults_to_generic_host_tag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("FRISKET_WHEEL_PLATFORM_TAG", raising=False)
+    wheel_platform_tag = _load_wheel_platform_tag(monkeypatch)
+    expected = sysconfig.get_platform().replace("-", "_").replace(".", "_")
+    assert wheel_platform_tag() == expected
+    if sys.platform.startswith("linux"):
+        assert not wheel_platform_tag().startswith("manylinux_")
+
+
+def test_wheel_platform_reserves_override_for_matching_manylinux(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    wheel_platform_tag = _load_wheel_platform_tag(monkeypatch)
+    host = sysconfig.get_platform().replace("-", "_").replace(".", "_")
+    machine = "x86_64" if host.endswith(("x86_64", "amd64")) else "aarch64"
+    override = f"manylinux_2_34_{machine}"
+    monkeypatch.setenv("FRISKET_WHEEL_PLATFORM_TAG", override)
+    if sys.platform.startswith("linux"):
+        assert wheel_platform_tag() == override
+    else:
+        with pytest.raises(RuntimeError, match="does not match build host"):
+            wheel_platform_tag()
+    monkeypatch.setenv("FRISKET_WHEEL_PLATFORM_TAG", f"linux_{machine}")
+    with pytest.raises(RuntimeError, match="reserved for verified manylinux"):
+        wheel_platform_tag()
 
 
 @pytest.mark.usefixtures("packaged_native")
