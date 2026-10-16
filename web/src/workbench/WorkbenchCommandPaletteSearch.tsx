@@ -1,4 +1,5 @@
 import { Bell, Bookmark, SearchCheck, X } from 'lucide-react';
+import { useState } from 'react';
 import type { EmbeddingIndexSummary } from '../api/open';
 import type {
   ProjectSearchGroupWire,
@@ -58,6 +59,19 @@ function coverageMessage(coverage: ProjectSearchResponseWire['coverage'] | null)
   return coverage.channels.some((channel) => channel.setup)
     ? 'Set up semantic search to include similar material.'
     : 'No indexed results are available for this search.';
+}
+
+function formatDownloadBytes(value: number | null | undefined): string {
+  if (value == null) return 'Size not measured';
+  if (value < 1_000) return `${value} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let amount = value / 1_000;
+  let unit = units[0];
+  for (let index = 1; index < units.length && amount >= 1_000; index += 1) {
+    amount /= 1_000;
+    unit = units[index];
+  }
+  return `${amount >= 10 ? amount.toFixed(0) : amount.toFixed(1)} ${unit}`;
 }
 
 function hitKey(hit: ProjectSearchHitWire): string {
@@ -188,8 +202,10 @@ export function PaletteSearchSection({
   onPrepareGap(): void;
   onViewJobs(): void;
 }) {
+  const [setupConsentRef, setSetupConsentRef] = useState<string | null>(null);
   const status = coverageMessage(coverage);
   const setup = coverage?.channels.find((channel) => channel.setup)?.setup;
+  const consentSetup = setup?.setup_ref === setupConsentRef ? setup : null;
   const resultCount = groups?.length ?? 0;
   const materialGap = coverage?.channels.find((channel) => (
     channel.setup == null
@@ -299,12 +315,50 @@ export function PaletteSearchSection({
               className="mini-btn"
               data-testid="search-setup"
               disabled={setupBusy}
-              onClick={() => onStartSetup(setup.setup_ref, setup.scope)}
+              onClick={() => setSetupConsentRef(setup.setup_ref)}
             >
-              {setupBusy ? 'Starting…' : 'Set up semantic search'}
+              Set up semantic search
             </button>
           )}
         </div>
+      )}
+      {consentSetup && (
+        <section className="search-setup-consent" data-testid="search-setup-consent">
+          <div>
+            <strong>Download {consentSetup.display_name}?</strong>
+            <span>Model download: {formatDownloadBytes(consentSetup.download_bytes)}</span>
+          </div>
+          <p>This model runs on the Frisket server. Nothing downloads until you choose Download and set up.</p>
+          {(consentSetup.license || consentSetup.source_url) && (
+            <p>
+              {consentSetup.license}
+              {consentSetup.source_url && <> · <a href={consentSetup.source_url} target="_blank" rel="noreferrer">Source</a></>}
+            </p>
+          )}
+          {consentSetup.additional_runtime_download && (
+            <p>Additional runtime files may also be downloaded; their size is not included above.</p>
+          )}
+          <div className="search-preparation-actions">
+            <button
+              type="button"
+              className="btn btn-primary"
+              data-testid="search-setup-confirm"
+              disabled={setupBusy}
+              onClick={() => onStartSetup(consentSetup.setup_ref, consentSetup.scope)}
+            >
+              {setupBusy ? 'Starting…' : 'Download and set up'}
+            </button>
+            <button
+              type="button"
+              className="btn"
+              data-testid="search-setup-not-now"
+              disabled={setupBusy}
+              onClick={() => setSetupConsentRef(null)}
+            >
+              Not now
+            </button>
+          </div>
+        </section>
       )}
       {setupError && <div className="picker-error">{setupError}</div>}
       {materialGap && (

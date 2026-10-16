@@ -107,6 +107,20 @@ describe('ModelPullProgress', () => {
     expect(screen.getByTestId('model-pull-cancel')).toBeDisabled();
   });
 
+  it('keeps read-only progress informational without mutation controls', () => {
+    const { rerender } = render(<ModelPullProgress pull={pull({})} readOnly />);
+    expect(screen.getByRole('progressbar')).toBeInTheDocument();
+    expect(screen.queryByTestId('model-pull-cancel')).not.toBeInTheDocument();
+
+    rerender(<ModelPullProgress pull={pull({
+      id: 2,
+      status: 'done',
+      capabilities: { cancel: false, retry: false, remove: true },
+    })} readOnly />);
+    expect(screen.getByTestId('model-pull-done')).toBeInTheDocument();
+    expect(screen.queryByTestId('model-pull-uninstall')).not.toBeInTheDocument();
+  });
+
   it('renders the error state with code + message, no Cancel button', () => {
     render(
       <ModelPullProgress

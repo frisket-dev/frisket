@@ -10274,6 +10274,25 @@ dialog.modal-card::backdrop {
 .palette-search-anchor { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border-radius: var(--radius-6); background: var(--focus-bg); color: var(--text-mid); font-size: 12px; }
 .search-group-more { margin-left: 24px; padding: 3px 8px 7px; color: var(--text-light); font-size: 11px; }
 .palette-search-section .picker-error { margin: 10px 4px; }
+.search-setup-consent {
+  display: grid;
+  gap: 7px;
+  margin: 8px 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-6);
+  background: var(--bg-panel);
+  color: var(--text-mid);
+  font-size: 12px;
+}
+.search-setup-consent > div:first-child {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text);
+}
+.search-setup-consent p { margin: 0; }
 
 /* ---- grid toolbar controls (row height / wrap) -------------------------------- */
 
