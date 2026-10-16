@@ -9,7 +9,7 @@ from typing import Any, Protocol
 
 from frisket.querysets import sheet_row_scope_plan
 
-from .contracts import RetrievalScope
+from .contracts import RetrievalScope, SheetScope
 
 
 class ScopeReader(Protocol):
@@ -31,9 +31,10 @@ class CompiledRetrievalScope:
 def compile_scope(reader: ScopeReader, scope: RetrievalScope) -> CompiledRetrievalScope:
     """Compile scope against the query-owned pinned project connection.
 
-    Each input sheet scope remains an independent union branch. This preserves a
-    union such as "all columns in row A plus column X in row B" without turning
-    the branch-specific row and column rules into a cross-product.
+    Scopes sharing a sheet/filter plan use one JSON relation. Each JSON item
+    retains its own row and column restrictions, preserving a union such as
+    "all columns in row A plus column X in row B" without turning independent
+    rules into a cross-product or one compound-SELECT branch per selected cell.
     """
 
     if scope.is_empty:
@@ -49,39 +50,62 @@ def compile_scope(reader: ScopeReader, scope: RetrievalScope) -> CompiledRetriev
 
     selects: list[str] = []
     params: list[Any] = []
+    grouped_scopes: dict[tuple[int, int | None, str | None], list[SheetScope]] = {}
     for sheet_scope in scope.sheets:
-        if sheet_scope.is_empty:
-            continue
+        if not sheet_scope.is_empty:
+            key = (
+                sheet_scope.sheet_id,
+                sheet_scope.parent_row_id,
+                sheet_scope.filter_json,
+            )
+            grouped_scopes.setdefault(key, []).append(sheet_scope)
+
+    for (sheet_id, parent_row_id, filter_json), plan_scopes in grouped_scopes.items():
         plan = sheet_row_scope_plan(
             reader,
-            sheet_scope.sheet_id,
-            parent_row_id=sheet_scope.parent_row_id,
-            filter_=sheet_scope.filter_json,
+            sheet_id,
+            parent_row_id=parent_row_id,
+            filter_=filter_json,
         )
-        joins = [
-            "JOIN sheets AS retrieval_sheet "
-            "ON retrieval_sheet.id=r.sheet_id AND retrieval_sheet.hidden=0"
-        ]
-        select_params: list[Any] = [*plan.filter_join_params]
-        if sheet_scope.row_ids is not None:
-            joins.append(
-                "JOIN json_each(?) AS selected "
-                "ON selected.type='integer' AND selected.value=r.id"
+        explicit_rows = [item for item in plan_scopes if item.row_ids is not None]
+        all_rows = [item for item in plan_scopes if item.row_ids is None]
+        for scoped_items, rows_join, row_predicate in (
+            (
+                explicit_rows,
+                "JOIN json_each(requested_scope.value,'$.row_ids') AS selected "
+                "ON selected.type='integer' CROSS JOIN rows AS r",
+                " AND r.id=selected.value",
+            ),
+            (all_rows, "CROSS JOIN rows AS r", ""),
+        ):
+            if not scoped_items:
+                continue
+            restrictions = []
+            for plan_scope in scoped_items:
+                restriction: dict[str, tuple[int, ...]] = {}
+                if plan_scope.row_ids is not None:
+                    restriction["row_ids"] = plan_scope.row_ids
+                if plan_scope.column_ids is not None:
+                    restriction["column_ids"] = plan_scope.column_ids
+                restrictions.append(restriction)
+            select_params: list[Any] = [
+                json.dumps(restrictions, separators=(",", ":")),
+                *plan.filter_join_params,
+            ]
+            select_params.extend(plan.where_params)
+            selects.append(
+                "SELECT r.sheet_id,r.id,"
+                "CASE WHEN json_type(requested_scope.value,'$.column_ids') IS NULL "
+                "THEN NULL ELSE allowed_column.value END FROM json_each(?) "
+                "AS requested_scope "
+                "LEFT JOIN json_each(requested_scope.value,'$.column_ids') "
+                "AS allowed_column ON allowed_column.type='integer' "
+                f"{rows_join} {' '.join(plan.filter_joins)} "
+                "JOIN sheets AS retrieval_sheet "
+                "ON retrieval_sheet.id=r.sheet_id AND retrieval_sheet.hidden=0 "
+                f"WHERE {plan.where_sql}{row_predicate}"
             )
-            select_params.append(json.dumps(sheet_scope.row_ids))
-        selected_column = "NULL"
-        if sheet_scope.column_ids is not None:
-            joins.append(
-                "JOIN json_each(?) AS allowed_column ON allowed_column.type='integer'"
-            )
-            select_params.append(json.dumps(sheet_scope.column_ids))
-            selected_column = "allowed_column.value"
-        select_params.extend(plan.where_params)
-        selects.append(
-            f"SELECT r.sheet_id,r.id,{selected_column} FROM "
-            f"{plan.filter_from_sql} {' '.join(joins)} WHERE {plan.where_sql}"
-        )
-        params.extend(select_params)
+            params.extend(select_params)
 
     if not selects:
         return _empty_scope()

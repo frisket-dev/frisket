@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
+
+import pytest
 
 from frisket.engine.store import Project
 from frisket.retrieval.contracts import RetrievalScope, SheetScope
@@ -134,5 +137,97 @@ def test_repeated_sheet_scopes_keep_row_and_column_rules_correlated(tmp_path):
             (sheet, rows[1], body),
         ]
         assert (sheet, rows[1], category) not in {tuple(row) for row in found}
+    finally:
+        project.close()
+
+
+def test_all_row_and_explicit_row_scopes_remain_independent(tmp_path):
+    project, sheet, category, body, rows = _project(tmp_path)
+    try:
+        scope = compile_scope(
+            project,
+            RetrievalScope(
+                sheets=(
+                    SheetScope(sheet, column_ids=(category,)),
+                    SheetScope(sheet, row_ids=(rows[0],), column_ids=(body,)),
+                )
+            ),
+        )
+        found = project.db.execute(
+            f"WITH {scope.cte_sql} SELECT * FROM scoped_bindings "
+            "ORDER BY row_id,column_id",
+            scope.params,
+        ).fetchall()
+
+        assert [tuple(row) for row in found] == [
+            (sheet, rows[0], category),
+            (sheet, rows[0], body),
+            (sheet, rows[1], category),
+            (sheet, rows[2], category),
+        ]
+    finally:
+        project.close()
+
+
+@pytest.mark.parametrize("scope_count", [600, 2_000])
+def test_large_cell_selection_uses_one_correlated_json_relation(tmp_path, scope_count):
+    project, sheet, category, body, rows = _project(tmp_path)
+    try:
+        rows.extend(
+            project.add_rows(
+                sheet,
+                [
+                    {"kind": "included", "body": f"extra {index}"}
+                    for index in range(scope_count - 2)
+                ],
+                {"kind": category, "body": body},
+            )
+        )
+        assert len(rows) == scope_count + 1
+        requested = tuple(
+            SheetScope(
+                sheet,
+                row_ids=(rows[index],),
+                column_ids=((category if index % 2 == 0 else body),),
+            )
+            for index in range(scope_count)
+        )
+        scope = compile_scope(project, RetrievalScope(sheets=requested))
+        found = project.db.execute(
+            f"WITH {scope.cte_sql} SELECT * FROM scoped_bindings", scope.params
+        ).fetchall()
+
+        assert Counter(tuple(row) for row in found) == Counter(
+            (sheet, rows[index], category if index % 2 == 0 else body)
+            for index in range(scope_count)
+        )
+        assert "UNION ALL" not in scope.cte_sql
+        assert len(scope.params) == 2
+    finally:
+        project.close()
+
+
+def test_scope_accepts_forty_thousand_row_ids_as_one_json_parameter(tmp_path):
+    project, sheet, _category, body, rows = _project(tmp_path)
+    try:
+        row_ids = (*rows, *range(max(rows) + 1, max(rows) + 39_998))
+        assert len(row_ids) == 40_000
+        scope = compile_scope(
+            project,
+            RetrievalScope(
+                sheets=(SheetScope(sheet, row_ids=row_ids, column_ids=(body,)),)
+            ),
+        )
+        found = project.db.execute(
+            f"WITH {scope.cte_sql} SELECT * FROM scoped_bindings ORDER BY row_id",
+            scope.params,
+        ).fetchall()
+
+        assert [tuple(row) for row in found] == [
+            (sheet, rows[0], body),
+            (sheet, rows[1], body),
+            (sheet, rows[2], body),
+        ]
+        assert len(scope.params) == 2
     finally:
         project.close()
