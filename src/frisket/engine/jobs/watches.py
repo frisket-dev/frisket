@@ -260,16 +260,15 @@ def register_watch_evaluate_handler(
             if query_kind in {"fts", "search.fts"}:
                 from .search_index import index_work_marker, process_index_batches
 
-                processed, complete = process_index_batches(
+                processed, _complete = process_index_batches(
                     project, embedding_encoder=embedding_encoder
                 )
                 # A source write can enqueue a fresh scope after the indexer
                 # reports its quantum complete. Re-read durable work before
                 # evaluating so that run cannot advance past an unseen row.
-                if (
-                    not complete
-                    or index_work_marker(project, include_preparation=False) is not None
-                ):
+                # Semantic preparation may remain after the lexical dependency
+                # is ready and must not delay a keyword-only watch.
+                if index_work_marker(project, include_preparation=False) is not None:
                     return continue_after_indexing(processed)
             try:
                 evaluation = run_watch_evaluation(project, row)
