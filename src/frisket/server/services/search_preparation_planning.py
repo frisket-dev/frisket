@@ -7,7 +7,11 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from frisket.engine.pdf_text import PdfTextError, extract_pdf_text
+from frisket.engine.pdf_text import (
+    PdfTextError,
+    extract_pdf_text,
+    positioned_tokens_text,
+)
 from frisket.engine.sandbox.media_sync import run_media_sync
 from frisket.engine.store.prepared_content import PreparedContentStore
 from frisket.engine.store.prepared_readiness import prepared_source_readiness_ctes
@@ -311,7 +315,7 @@ def sample_pdf(
         raise RouteError(422, "PDF page is outside the document")
     page_count = item.get("page_count")
     return (
-        " ".join(token.text for token in selected.tokens),
+        positioned_tokens_text(selected.tokens),
         int(page_count) if page_count else len(pages),
         "native",
     )

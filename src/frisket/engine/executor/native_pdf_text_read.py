@@ -12,30 +12,10 @@ from pypdf import PdfReader
 from frisket.actions.media_types import OcrText
 from frisket.actions.types import ColumnRef, Row, RowError
 from frisket.engine.pdf_page_source import PdfPageSourceError, materialize_pdf_page
+from frisket.engine.pdf_text import positioned_tokens_text
 from frisket.engine.store.artifact_timeline import canonical_json_hash
 from frisket.engine.store.media_blobs import MediaBlobStore
 from frisket.execution.provider import enforce_pdf_page_limit
-
-
-def _page_text(page) -> str:
-    parts: list[str] = []
-    previous = None
-    for token in page.tokens:
-        if not token.text.strip():
-            continue
-        if previous is not None:
-            same_line = (
-                abs(token.box.y0 - previous.box.y0)
-                < max(
-                    token.box.y1 - token.box.y0,
-                    previous.box.y1 - previous.box.y0,
-                )
-                * 0.6
-            )
-            parts.append(" " if same_line else "\n")
-        parts.append(token.text)
-        previous = token
-    return "".join(parts).strip()
 
 
 class AdmittedNativePdfTextReader:
@@ -201,7 +181,7 @@ class _BoundNativePdfTextReader:
         blocks = []
         page_images = {}
         for page in pages:
-            text = _page_text(page)
+            text = positioned_tokens_text(page.tokens)
             if not text:
                 raise RowError("needs_ocr", f"PDF page {page.page} has no native text")
             page_blocks = [

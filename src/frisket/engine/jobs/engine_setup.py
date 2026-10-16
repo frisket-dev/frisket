@@ -220,6 +220,8 @@ def run_engine_setup(
             should_cancel=should_cancel,
             is_final_attempt=is_final_attempt,
         )
+    if row.model_ref != PARAKEET_TDT_SETUP_REF:
+        raise LookupError(f"unsupported engine setup ref {row.model_ref!r}")
 
     from frisket.engine._workers.parakeet_artifacts import (
         ParakeetArtifactCancelled,

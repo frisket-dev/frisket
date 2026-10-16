@@ -63,6 +63,55 @@ def test_exact_restriction_cannot_select_another_target_for_same_engine():
     )
 
 
+def test_exact_restriction_materializes_matching_wildcard_support():
+    provider = _RoutesProvider()
+    provider.own = replace(
+        provider.own,
+        engines=(replace(provider.own.engines[0], engine="openai/*"),),
+    )
+    provider._targets = (provider.own, provider.cloud)
+    composition = _composition(provider).restricted_to(
+        ExactExecutionMatch(
+            target_id="own",
+            capability=CAPABILITY_LLM,
+            engine=MODEL,
+        )
+    )
+
+    targets = composition.resolution_targets()
+    assert [(target.id, target.engines[0].engine) for target in targets] == [
+        ("own", MODEL)
+    ]
+    outcome = resolve(
+        composition.resolution_request(MODEL, capability=CAPABILITY_LLM, options={}),
+        composition.provider_for_resolution(),
+        composition.facts,
+    )
+    assert isinstance(outcome, Resolution)
+    assert outcome.target.id == "own"
+
+
+def test_exact_restriction_with_missing_target_refuses_without_fallback():
+    provider = _RoutesProvider()
+    composition = _composition(provider).restricted_to(
+        ExactExecutionMatch(
+            target_id="missing",
+            capability=CAPABILITY_LLM,
+            engine=MODEL,
+        )
+    )
+
+    assert composition.resolution_targets() == ()
+    outcome = resolve(
+        composition.resolution_request(MODEL, capability=CAPABILITY_LLM, options={}),
+        composition.provider_for_resolution(),
+        composition.facts,
+    )
+    assert isinstance(outcome, Refusal)
+    assert outcome.family == "no_capable_target"
+    assert provider.connection_calls == []
+
+
 def _llm_target(target_id: str, *, cloud: bool) -> ExecutionTarget:
     return ExecutionTarget(
         id=target_id,

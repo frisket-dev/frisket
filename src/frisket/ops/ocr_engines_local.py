@@ -121,11 +121,12 @@ def rapidocr_shared_model_cache_dir() -> Path:
     of frisket's existing model-weights cache (``ai.models.model_cache``,
     ``FRISKET_MODEL_CACHE_DIR`` -> ``~/.cache/frisket/models`` by default) —
     same env var, same root, one dev-cache story — under its own
-    ``rapidocr/`` subdirectory since these are unpinned pip-extra assets, not
-    manifest-tracked artifact-pull ones. ``scripts/dev/link_rapidocr_models.py``
-    seeds it from any venv that already has real models; the runtime resolver
-    passes a complete set through RapidOCR's ``Global.model_root_dir`` config
-    key so a populated cache is used without needing that script run first."""
+    ``rapidocr/`` subdirectory for the manifest-tracked default recognizer and
+    hash-verified detector/classifier copies from the installed package.
+    ``scripts/dev/link_rapidocr_models.py`` seeds it from any venv that already
+    has real models; the runtime resolver passes a complete set through
+    RapidOCR's ``Global.model_root_dir`` config key so a populated cache is
+    used without needing that script run first."""
     from frisket.ai.models.model_cache import default_cache_root
 
     return default_cache_root() / "rapidocr"

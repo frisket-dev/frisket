@@ -146,3 +146,36 @@ def test_direct_action_receives_same_required_target_composition(
 
     assert response.status_code == 200, response.payload
     assert observed == [(("local-onnx", ("parakeet-tdt",)),)]
+
+
+def test_missing_required_target_refuses_without_gateway_fallback(
+    tmp_path: Path, monkeypatch
+) -> None:
+    workspace, sheet_id, row_ids = _workspace_with_audio(tmp_path / "workspace")
+    original_targets = StaticExecutionTargetProvider.targets
+    original_connection = StaticExecutionTargetProvider.connection
+    connection_calls: list[str] = []
+
+    def targets_without_local_onnx(self):
+        return tuple(
+            target for target in original_targets(self) if target.id != "local-onnx"
+        )
+
+    def record_connection(self, target_id: str):
+        connection_calls.append(target_id)
+        return original_connection(self, target_id)
+
+    monkeypatch.setattr(
+        StaticExecutionTargetProvider, "targets", targets_without_local_onnx
+    )
+    monkeypatch.setattr(StaticExecutionTargetProvider, "connection", record_connection)
+
+    response = ActionRunService(workspace).run_action(
+        "audio",
+        _transcribe_body(sheet_id, row_ids),
+        required_execution_target=LOCAL_PARAKEET,
+    )
+
+    assert response.status_code == 400, response.payload
+    assert response.payload["status"] == "failed"
+    assert connection_calls == []

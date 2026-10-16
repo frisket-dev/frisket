@@ -8,6 +8,27 @@ from frisket.engine.jobs import engine_setup, model_pull_store as store
 from frisket.engine.jobs.queue import open_queue
 
 
+def test_engine_setup_rejects_an_unhandled_setup_ref(tmp_path) -> None:
+    queue = open_queue(workspace=tmp_path)
+    try:
+        row, _ = store.create_or_get_active(
+            queue.engine,
+            workspace_root=str(tmp_path),
+            model_ref="engine-setup:future.local@1",
+        )
+        store.mark_running(queue.engine, row.id, job_id=1)
+
+        with pytest.raises(LookupError, match="unsupported engine setup ref"):
+            engine_setup.run_engine_setup(
+                engine=queue.engine,
+                pull_id=row.id,
+                should_cancel=lambda: False,
+                is_final_attempt=True,
+            )
+    finally:
+        queue.close()
+
+
 @pytest.mark.parametrize("outcome", ["ready", "cancelled", "incomplete", "offline"])
 def test_multimodal_setup_publishes_only_a_complete_snapshot(
     tmp_path, monkeypatch, outcome

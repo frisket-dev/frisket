@@ -13,6 +13,7 @@ from frisket.actions.document_extraction_types import (
 from frisket.actions.registry import ACTION_REGISTRY
 from frisket.actions.system import validate_root_action
 from frisket.engine.executor import run_action_spec
+from frisket.engine.pdf_text import positioned_tokens_text
 from frisket.engine.store import Project
 from frisket.engine.store.prepared_content import PreparedContentStore
 from frisket.engine.store.runs import RunResultStore
@@ -38,6 +39,17 @@ def _page(number: int, text: str) -> PositionedPage:
             else []
         ),
     )
+
+
+def test_positioned_tokens_text_preserves_lines_and_ignores_blank_tokens() -> None:
+    tokens = [
+        PositionedToken(text="alpha", box=Box(x0=0.1, y0=0.1, x1=0.2, y1=0.2)),
+        PositionedToken(text="  ", box=Box(x0=0.1, y0=0.3, x1=0.2, y1=0.4)),
+        PositionedToken(text="beta", box=Box(x0=0.3, y0=0.1, x1=0.4, y1=0.2)),
+        PositionedToken(text="gamma", box=Box(x0=0.1, y0=0.4, x1=0.3, y1=0.5)),
+    ]
+
+    assert positioned_tokens_text(tokens) == "alpha beta\ngamma"
 
 
 def _pdf_bytes(*texts: str) -> bytes:

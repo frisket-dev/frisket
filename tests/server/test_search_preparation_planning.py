@@ -260,7 +260,17 @@ def test_prepared_pdf_result_must_match_current_page_selector(
             return [
                 SimpleNamespace(
                     page=2,
-                    tokens=(SimpleNamespace(text="native second page"),),
+                    tokens=(
+                        SimpleNamespace(
+                            text="native", box=SimpleNamespace(y0=0.1, y1=0.2)
+                        ),
+                        SimpleNamespace(
+                            text="second page", box=SimpleNamespace(y0=0.1, y1=0.2)
+                        ),
+                        SimpleNamespace(
+                            text="continued", box=SimpleNamespace(y0=0.4, y1=0.5)
+                        ),
+                    ),
                 )
             ]
 
@@ -277,7 +287,11 @@ def test_prepared_pdf_result_must_match_current_page_selector(
             },
             2,
         )
-        assert (text, count, origin) == ("native second page", 2, "native")
+        assert (text, count, origin) == (
+            "native second page\ncontinued",
+            2,
+            "native",
+        )
     finally:
         project.close()
 
