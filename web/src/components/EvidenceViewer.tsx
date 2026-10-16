@@ -611,7 +611,7 @@ export function ArtifactSource({
             emphasized={emphasizedSpanIds.includes(span.stable_id)} />)}
         </div>
       ) : (
-        <MediaOrFallback key={artifact.stable_id} artifact={artifact} emphasizedSpanIds={emphasizedSpanIds} />
+        <MediaOrFallback key={`${artifact.stable_id}:${scopeSpanId ?? ''}`} artifact={artifact} scopeSpanId={scopeSpanId} emphasizedSpanIds={emphasizedSpanIds} />
       )}
     </section>
   );
@@ -881,12 +881,18 @@ function buildTemporalDisplayRuns(
   return runs;
 }
 
-function MediaOrFallback({ artifact, emphasizedSpanIds }: { artifact: EvidenceArtifact; emphasizedSpanIds: readonly string[] }) {
+function MediaOrFallback({ artifact, scopeSpanId, emphasizedSpanIds }: {
+  artifact: EvidenceArtifact;
+  scopeSpanId?: string;
+  emphasizedSpanIds: readonly string[];
+}) {
   const blob = artifact.artifact_ref.blob;
   const captionsUrl = mediaCaptionsDataUrl(artifact);
   const label = artifact.title || artifact.filename || artifact.media_type;
   const mediaRef = useRef<HTMLMediaElement | null>(null);
   const temporalSpans = temporalSpansSorted(artifact);
+  const initialSpan = temporalSpans.find((span) => span.stable_id === scopeSpanId) ?? temporalSpans[0];
+  const initialMs = selectorNumber(initialSpan, 'start_ms') ?? 0;
 
   // Persistently highlight required support spans.
 
@@ -897,7 +903,9 @@ function MediaOrFallback({ artifact, emphasizedSpanIds }: { artifact: EvidenceAr
       ),
     [temporalSpans],
   );
-  const firstCitedId = temporalSpans.find((span) => citedSpanIds.has(span.stable_id))?.stable_id ?? null;
+  const scrollSpanId = temporalSpans.find((span) => span.stable_id === scopeSpanId)?.stable_id
+    ?? temporalSpans.find((span) => citedSpanIds.has(span.stable_id))?.stable_id
+    ?? null;
 
   const displayRuns = useMemo(
     () => buildTemporalDisplayRuns(temporalSpans, artifact.runs),
@@ -905,16 +913,16 @@ function MediaOrFallback({ artifact, emphasizedSpanIds }: { artifact: EvidenceAr
   );
   const citedRef = useRef<HTMLButtonElement | null>(null);
   useEffect(() => {
-    if (firstCitedId) citedRef.current?.scrollIntoView({ block: 'nearest' });
-  }, [firstCitedId]);
+    if (scrollSpanId) citedRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [scrollSpanId]);
 
   const [seekRequest, setSeekRequest] = useState<{ seconds: number } | null>(() =>
-    temporalSpans.length === 0 ? null : { seconds: (selectorNumber(temporalSpans[0], 'start_ms') ?? 0) / 1000 },
+    initialSpan ? { seconds: initialMs / 1000 } : null,
   );
   const seekSeconds = seekRequest?.seconds ?? null;
-  const [playbackMs, setPlaybackMs] = useState(0);
+  const [playbackMs, setPlaybackMs] = useState(initialMs);
   const [activeSpanId, setActiveSpanId] = useState<string | null>(() =>
-    temporalSpans.length === 0 ? null : temporalSpans[0].stable_id,
+    initialSpan?.stable_id ?? null,
   );
 
   useEffect(() => {
@@ -1068,7 +1076,7 @@ function MediaOrFallback({ artifact, emphasizedSpanIds }: { artifact: EvidenceAr
                   <span key={span.stable_id} className="evidence-transcript-line" data-testid="evidence-transcript-line">
                     <button
                       type="button"
-                      ref={span.stable_id === firstCitedId ? citedRef : undefined}
+                      ref={span.stable_id === scrollSpanId ? citedRef : undefined}
                       className={`evidence-temporal-segment${isActive ? ' evidence-temporal-segment-active' : ''}${isCited ? ' evidence-temporal-segment-cited' : ''}${emphasizedSpanIds.includes(span.stable_id) ? ' evidence-temporal-segment-emphasized' : ''}`}
                       data-testid="evidence-temporal-segment"
                       data-active={isActive ? 'true' : undefined}

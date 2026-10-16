@@ -94,6 +94,30 @@ describe('ArtifactSource media coverage', () => {
     expect(container.querySelector('audio')!.currentTime).toBe(0);
   });
 
+  it.each(['audio/mpeg', 'video/mp4'])('focuses the primary %s match while retaining an earlier companion', (mediaType) => {
+    const artifact = mediaArtifact(mediaType);
+    artifact.spans = [4, 20].map((seconds, index) => evidenceSpan({
+      stable_id: index === 0 ? 'companion' : 'primary', span_kind: 'temporal',
+      selector: { start_ms: seconds * 1000, end_ms: seconds * 1000 + 3000 },
+      quote: index === 0 ? 'Earlier companion' : 'Later primary',
+    }));
+    const { container, rerender } = render(<ArtifactSource artifact={artifact} scopeSpanId="primary" scopeSpanIds={['companion', 'primary']} />);
+    const segments = screen.getAllByTestId('evidence-temporal-segment');
+    expect(segments).toHaveLength(2);
+    expect(segments[0]).toHaveAttribute('data-cited', 'true');
+    expect(segments[1]).toHaveAttribute('data-active', 'true');
+    expect(vi.mocked(Element.prototype.scrollIntoView).mock.instances.at(-1)).toBe(segments[1]);
+    const media = container.querySelector('audio,video') as HTMLMediaElement;
+    fireEvent.loadedMetadata(media);
+    expect(media.currentTime).toBe(20);
+
+    rerender(<ArtifactSource artifact={artifact} scopeSpanId="companion" scopeSpanIds={['companion', 'primary']} />);
+    const refocusedMedia = container.querySelector('audio,video') as HTMLMediaElement;
+    fireEvent.loadedMetadata(refocusedMedia);
+    expect(refocusedMedia.currentTime).toBe(4);
+    expect(screen.getAllByTestId('evidence-temporal-segment')[0]).toHaveAttribute('data-active', 'true');
+  });
+
   it.each(['audio/mpeg', 'video/mp4'])('renders %s with separate timestamped segments and working seek', (mediaType) => {
     const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
     const artifact = mediaArtifact(mediaType);
