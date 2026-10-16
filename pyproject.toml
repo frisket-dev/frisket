@@ -228,7 +228,7 @@ build-backend = "hatchling.build"
 artifacts = ["src/frisket/web_static/**"]
 
 [tool.hatch.build.targets.sdist]
-only-include = ["src/frisket", "sidecar/src", "sidecar/pyproject.toml", "sidecar/classify-constraints.txt", "sidecar/indra-ocr-constraints.txt", "sidecar/README.md", "README.md", "LICENSE"]
+only-include = ["src/frisket", "sidecar/src", "sidecar/pyproject.toml", "sidecar/classify-constraints.txt", "sidecar/retrieval-constraints.txt", "sidecar/indra-ocr-constraints.txt", "sidecar/README.md", "README.md", "LICENSE"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/frisket"]
@@ -239,6 +239,7 @@ packages = ["src/frisket"]
 "sidecar/src" = "frisket/data/model-server/src"
 "sidecar/pyproject.toml" = "frisket/data/model-server/pyproject.toml"
 "sidecar/classify-constraints.txt" = "frisket/data/model-server/classify-constraints.txt"
+"sidecar/retrieval-constraints.txt" = "frisket/data/model-server/retrieval-constraints.txt"
 "sidecar/indra-ocr-constraints.txt" = "frisket/data/model-server/indra-ocr-constraints.txt"
 "sidecar/README.md" = "frisket/data/model-server/README.md"
 

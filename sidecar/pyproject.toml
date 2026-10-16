@@ -21,6 +21,16 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Optional, isolated local retrieval worker; weights are downloaded separately.
+retrieval-multimodal = [
+    "torch==2.14.1",
+    "torchvision==0.29.1",
+    "transformers==5.19.0",
+    "pillow==12.1.1",
+    "safetensors==0.8.0",
+    "numpy==2.4.3",
+    "tokenizers==0.23.3",
+]
 # Clef is a GPU-oriented decision model, separate from the managed CPU
 # classifiers. Its audited joint head is vendored; weights download on first
 # use and inference is local-only. Kept out of the hosted `all` extra.
@@ -147,11 +157,14 @@ exclude-newer = "1 week"
 # The user-requested Indra release landed inside the normal one-week
 # quarantine. Keep the exception to this one exact package and release day;
 # the package version and uv.lock hashes remain pinned.
-exclude-newer-package = { indra-ocr = "2026-10-13" }
+exclude-newer-package = { indra-ocr = "2026-10-13", tokenizers = "2026-10-10" }
 # Surya 2 and Chandra can coexist, but neither resolves with FastEmbed's
 # dependency bounds. ``all`` includes FastEmbed, so keep those combinations
 # explicitly separate while allowing operators to install both OCR engines.
 conflicts = [
+    [{ extra = "retrieval-multimodal" }, { extra = "classify" }],
+    [{ extra = "retrieval-multimodal" }, { extra = "ocr" }],
+    [{ extra = "retrieval-multimodal" }, { extra = "ocr-paddle" }],
     [
         # Classifiers are installed into their own versioned environment, not
         # combined with any resident sidecar engine extra. Besides preserving

@@ -8,6 +8,83 @@ from frisket.engine.jobs import engine_setup, model_pull_store as store
 from frisket.engine.jobs.queue import open_queue
 
 
+@pytest.mark.parametrize("outcome", ["ready", "cancelled", "incomplete", "offline"])
+def test_multimodal_setup_publishes_only_a_complete_snapshot(
+    tmp_path, monkeypatch, outcome
+):
+    from frisket.engine._workers import embeddinggemma_artifacts
+    from frisket.engine.jobs import artifact_pull
+    from frisket.runtime import embeddinggemma_install
+
+    steps = []
+    cancelled = False
+
+    def install(**kwargs):
+        steps.append("runtime")
+
+    def download(engine, pull_id, pinned, **kwargs):
+        nonlocal cancelled
+        assert kwargs["mark_done"] is False
+        assert store.get(engine, pull_id).status != store.STATUS_DONE
+        steps.append(pinned.hf_snapshot.repo_id)
+        if outcome == "offline":
+            from frisket.engine.jobs.model_pull import _fail
+
+            raise _fail(
+                engine,
+                pull_id,
+                error_code="artifact_source_unreachable",
+                message="Could not download the model.",
+                terminal=False,
+                is_final_attempt=True,
+            )
+        cancelled = outcome == "cancelled"
+        return {"status": "done"}
+
+    monkeypatch.setattr(embeddinggemma_install, "install_embeddinggemma", install)
+    monkeypatch.setattr(artifact_pull, "_run_hf_snapshot_pull", download)
+    monkeypatch.setattr(
+        embeddinggemma_artifacts,
+        "cached_embeddinggemma_path",
+        lambda: None if outcome == "incomplete" else tmp_path,
+    )
+    queue = open_queue(workspace=tmp_path)
+    try:
+        row, _ = store.create_or_get_active(
+            queue.engine,
+            workspace_root=str(tmp_path),
+            model_ref=engine_setup.EMBEDDINGGEMMA_SETUP_REF,
+        )
+        store.mark_running(queue.engine, row.id, job_id=1)
+        assert store.to_dto(store.get(queue.engine, row.id))["display_name"] == (
+            "EmbeddingGemma 2"
+        )
+        args = dict(
+            engine=queue.engine,
+            pull_id=row.id,
+            should_cancel=lambda: cancelled,
+            is_final_attempt=True,
+        )
+        if outcome in {"incomplete", "offline"}:
+            code = (
+                "artifact_source_unreachable"
+                if outcome == "offline"
+                else "engine_setup_unavailable"
+            )
+            with pytest.raises(RuntimeError, match=code):
+                engine_setup.run_engine_setup(**args)
+            assert store.get(queue.engine, row.id).status == store.STATUS_FAILED
+            assert store.get(queue.engine, row.id).error_code == code
+        else:
+            result = engine_setup.run_engine_setup(**args)
+            expected = "cancelled" if outcome == "cancelled" else "done"
+            assert result == {"status": expected}
+            assert store.get(queue.engine, row.id).status == expected
+        assert steps == ["runtime", "google/embeddinggemma-2"]
+    finally:
+        queue.close()
+
+
 @pytest.mark.parametrize("cancel_after_download", [False, True])
 def test_indra_setup_installs_runtime_then_pinned_weights(
     tmp_path, monkeypatch, cancel_after_download

@@ -8,19 +8,33 @@ import subprocess
 from collections.abc import Callable
 
 from frisket.contracts.classification import LOCAL_CLASSIFIERS
+from frisket.engine._workers.embeddinggemma_model import (
+    SETUP_REF as EMBEDDINGGEMMA_SETUP_REF,
+)
 from frisket.engine._workers.indra_ocr_model import SETUP_REF as INDRA_OCR_SETUP_REF
 from frisket.engine.jobs import model_pull_store
 
 PARAKEET_TDT_SETUP_REF = "engine-setup:parakeet-tdt.local-onnx@1"
 DOCLING_SETUP_REF = "engine-setup:docling.local@1"
 
+_SETUP_NAMES = {
+    PARAKEET_TDT_SETUP_REF: "Parakeet TDT (local ONNX)",
+    DOCLING_SETUP_REF: "Docling",
+    INDRA_OCR_SETUP_REF: "Indra OCR",
+    EMBEDDINGGEMMA_SETUP_REF: "EmbeddingGemma 2",
+    **{
+        spec.setup_ref: {"gliclass": "GLiClass", "jeff": "Jeff"}[engine_id]
+        for engine_id, spec in LOCAL_CLASSIFIERS.items()
+    },
+}
+
+
+def engine_setup_display_name(ref: str) -> str | None:
+    return _SETUP_NAMES.get(ref)
+
 
 def is_engine_setup_ref(ref: str) -> bool:
-    return ref in {
-        PARAKEET_TDT_SETUP_REF,
-        DOCLING_SETUP_REF,
-        INDRA_OCR_SETUP_REF,
-    } or any(ref == spec.setup_ref for spec in LOCAL_CLASSIFIERS.values())
+    return ref in _SETUP_NAMES
 
 
 def run_engine_setup(
@@ -50,6 +64,13 @@ def run_engine_setup(
             )
     if row.model_ref == DOCLING_SETUP_REF:
         return _run_docling_setup(
+            engine=engine,
+            pull_id=pull_id,
+            should_cancel=should_cancel,
+            is_final_attempt=is_final_attempt,
+        )
+    if row.model_ref == EMBEDDINGGEMMA_SETUP_REF:
+        return _run_embeddinggemma_setup(
             engine=engine,
             pull_id=pull_id,
             should_cancel=should_cancel,
@@ -117,49 +138,18 @@ def _run_classifier_setup(
         cached_classifier_path,
         classifier_artifact,
     )
-    from frisket.engine.jobs.artifact_pull import _run_hf_snapshot_pull
-    from frisket.engine.jobs.model_pull import _fail
     from frisket.runtime.classifier_install import install_classifiers
-    from frisket.runtime.model_install import ModelInstallCancelled
 
-    try:
-        model_pull_store.update_progress(
-            engine,
-            pull_id,
-            phase="provisioning",
-            total_bytes=None,
-            completed_bytes=None,
-        )
-        install_classifiers(should_cancel=should_cancel, progress=lambda _: None)
-        artifact = classifier_artifact(engine_id)
-        result = _run_hf_snapshot_pull(
-            engine,
-            pull_id,
-            artifact,
-            should_cancel=should_cancel,
-            is_final_attempt=is_final_attempt,
-            mark_done=False,
-        )
-        if result.get("status") == "cancelled" or should_cancel():
-            raise ModelInstallCancelled
-        if cached_classifier_path(engine_id) is None:
-            raise RuntimeError("the classifier snapshot is incomplete")
-    except ModelInstallCancelled:
-        model_pull_store.mark_cancelled(engine, pull_id)
-        return {"status": "cancelled"}
-    except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
-        raise _fail(
-            engine,
-            pull_id,
-            error_code="engine_setup_unavailable",
-            message="Could not set up the local classifier. Check your connection and available disk space, then retry.",
-            terminal=False,
-            is_final_attempt=is_final_attempt,
-        ) from exc
-    model_pull_store.mark_done(
-        engine, pull_id, resolved_digest=artifact.composite_digest
+    return _run_pinned_setup(
+        engine=engine,
+        pull_id=pull_id,
+        should_cancel=should_cancel,
+        is_final_attempt=is_final_attempt,
+        label="local classifier",
+        install=install_classifiers,
+        artifact=lambda: classifier_artifact(engine_id),
+        cached_path=lambda: cached_classifier_path(engine_id),
     )
-    return {"status": "done"}
 
 
 def _run_indra_ocr_setup(
@@ -169,12 +159,60 @@ def _run_indra_ocr_setup(
         cached_indra_ocr_path,
         indra_ocr_artifact,
     )
+    from frisket.runtime.indra_ocr_install import install_indra_ocr
+
+    return _run_pinned_setup(
+        engine=engine,
+        pull_id=pull_id,
+        should_cancel=should_cancel,
+        is_final_attempt=is_final_attempt,
+        label="Indra OCR",
+        install=install_indra_ocr,
+        artifact=indra_ocr_artifact,
+        cached_path=cached_indra_ocr_path,
+    )
+
+
+def _run_embeddinggemma_setup(
+    *, engine, pull_id: int, should_cancel: Callable[[], bool], is_final_attempt: bool
+) -> dict[str, object]:
+    from frisket.engine._workers.embeddinggemma_artifacts import (
+        cached_embeddinggemma_path,
+        embeddinggemma_artifact,
+    )
+    from frisket.runtime.embeddinggemma_install import install_embeddinggemma
+
+    return _run_pinned_setup(
+        engine=engine,
+        pull_id=pull_id,
+        should_cancel=should_cancel,
+        is_final_attempt=is_final_attempt,
+        label="multimodal search",
+        install=install_embeddinggemma,
+        artifact=embeddinggemma_artifact,
+        cached_path=cached_embeddinggemma_path,
+    )
+
+
+def _run_pinned_setup(
+    *,
+    engine,
+    pull_id: int,
+    should_cancel: Callable[[], bool],
+    is_final_attempt: bool,
+    label: str,
+    install: Callable,
+    artifact: Callable,
+    cached_path: Callable,
+) -> dict[str, object]:
+    """Complete one private runtime and its pinned snapshot before publishing ready."""
     from frisket.engine.jobs.artifact_pull import _run_hf_snapshot_pull
     from frisket.engine.jobs.model_pull import _fail
-    from frisket.runtime.indra_ocr_install import install_indra_ocr
     from frisket.runtime.model_install import ModelInstallCancelled
 
     try:
+        if should_cancel():
+            raise ModelInstallCancelled
         model_pull_store.update_progress(
             engine,
             pull_id,
@@ -182,20 +220,8 @@ def _run_indra_ocr_setup(
             total_bytes=None,
             completed_bytes=None,
         )
-        install_indra_ocr(should_cancel=should_cancel, progress=lambda _: None)
-        artifact = indra_ocr_artifact()
-        result = _run_hf_snapshot_pull(
-            engine,
-            pull_id,
-            artifact,
-            should_cancel=should_cancel,
-            is_final_attempt=is_final_attempt,
-            mark_done=False,
-        )
-        if result.get("status") == "cancelled" or should_cancel():
-            raise ModelInstallCancelled
-        if cached_indra_ocr_path() is None:
-            raise RuntimeError("the Indra OCR snapshot is incomplete")
+        install(should_cancel=should_cancel, progress=lambda _: None)
+        pinned = artifact()
     except ModelInstallCancelled:
         model_pull_store.mark_cancelled(engine, pull_id)
         return {"status": "cancelled"}
@@ -204,16 +230,33 @@ def _run_indra_ocr_setup(
             engine,
             pull_id,
             error_code="engine_setup_unavailable",
-            message=(
-                "Could not set up Indra OCR. Check your connection and available "
-                "disk space, then retry."
-            ),
+            message=f"Could not set up {label}. Check your connection and available disk space, then retry.",
             terminal=False,
             is_final_attempt=is_final_attempt,
         ) from exc
-    model_pull_store.mark_done(
-        engine, pull_id, resolved_digest=artifact.composite_digest
+    # The downloader owns its persisted failure code and retry state. Do not
+    # relabel a network failure as a runtime installation failure.
+    result = _run_hf_snapshot_pull(
+        engine,
+        pull_id,
+        pinned,
+        should_cancel=should_cancel,
+        is_final_attempt=is_final_attempt,
+        mark_done=False,
     )
+    if result.get("status") == "cancelled" or should_cancel():
+        model_pull_store.mark_cancelled(engine, pull_id)
+        return {"status": "cancelled"}
+    if cached_path() is None:
+        raise _fail(
+            engine,
+            pull_id,
+            error_code="engine_setup_unavailable",
+            message=f"The {label} download is incomplete. Please retry setup.",
+            terminal=False,
+            is_final_attempt=is_final_attempt,
+        )
+    model_pull_store.mark_done(engine, pull_id, resolved_digest=pinned.composite_digest)
     return {"status": "done"}
 
 

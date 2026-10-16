@@ -65,6 +65,10 @@ def is_worker_argv(argv: list[str]) -> bool:
         from frisket.runtime.indra_ocr_install import runtime_python
 
         interpreter = runtime_python()
+    elif argv[3] == "embeddinggemma-session":
+        from frisket.runtime.embeddinggemma_install import runtime_python
+
+        interpreter = runtime_python()
     return (
         Path(argv[0]) == interpreter
         and argv[1] == "-I"

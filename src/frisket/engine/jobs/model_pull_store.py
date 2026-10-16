@@ -911,11 +911,14 @@ def to_dto(row: ModelPullRow, *, allow_remove: bool = True) -> dict[str, Any]:
             "license": row.artifact_license,
             "manifest_version": row.artifact_manifest_version,
         }
-    from frisket.engine.jobs.engine_setup import is_engine_setup_ref
+    from frisket.engine.jobs.engine_setup import (
+        engine_setup_display_name,
+        is_engine_setup_ref,
+    )
 
     if row.artifact_kind == "engine_setup" or is_engine_setup_ref(row.model_ref):
         operation_kind = "engine_setup"
-        display_name = "Parakeet TDT (local ONNX)"
+        display_name = engine_setup_display_name(row.model_ref) or row.model_ref
     elif row.endpoint_id is not None:
         operation_kind = "local_model"
         display_name = row.model_ref
