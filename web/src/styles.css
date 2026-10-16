@@ -9805,6 +9805,11 @@ dialog.modal-card::backdrop {
   font-size: 12px;
   font-weight: 650;
 }
+.settings-check .settings-field-help {
+  display: block;
+  margin-top: 2px;
+  font-weight: 400;
+}
 .settings-table-wrap {
   overflow-x: auto;
   border: 1px solid var(--border);
