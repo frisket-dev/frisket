@@ -45,6 +45,7 @@ search_preparation_batches_table = sa.Table(
     sa.Column("decision", sa.String),
     sa.Column("selected_setup_refs_json", sa.Text),
     sa.Column("stop_requested_at", sa.DateTime(timezone=True)),
+    sa.Column("settled_at", sa.DateTime(timezone=True)),
     sa.Column("cursor", sa.Integer, nullable=False, server_default="0"),
     sa.Column("error_json", sa.Text, nullable=False, server_default="[]"),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
@@ -53,6 +54,13 @@ search_preparation_batches_table = sa.Table(
         "idx_search_preparation_project_created",
         "storage_org_id",
         "project_id",
+        "created_at",
+    ),
+    sa.Index(
+        "idx_search_preparation_active",
+        "workspace_root",
+        "storage_org_id",
+        "settled_at",
         "created_at",
     ),
 )
@@ -119,6 +127,7 @@ class SearchPreparationBatchRow:
     decision: str | None
     selected_setup_refs: tuple[str, ...]
     stop_requested_at: datetime | None
+    settled_at: datetime | None
     cursor: int
     errors: tuple[str, ...]
     created_at: datetime
@@ -179,6 +188,7 @@ class SearchPreparationStore:
             decision=row.decision,
             selected_setup_refs=tuple(str(value) for value in selected),
             stop_requested_at=_parse(row.stop_requested_at),
+            settled_at=_parse(row.settled_at),
             cursor=int(row.cursor),
             errors=tuple(str(value) for value in errors),
             created_at=_parse(row.created_at),
@@ -232,6 +242,7 @@ class SearchPreparationStore:
             plan_json=json.dumps(plan_body, sort_keys=True, separators=(",", ":")),
             cursor=0,
             error_json="[]",
+            settled_at=None,
             created_at=now,
             updated_at=now,
         )
@@ -334,17 +345,17 @@ class SearchPreparationStore:
             ).fetchall()
         return [self._batch(row) for row in rows]
 
-    def list_decided_page(
+    def list_active_page(
         self,
         *,
-        project_id: str,
         storage_org_id: int | None,
         limit: int = 100,
-        offset: int = 0,
+        after_created_at: datetime | None = None,
+        after_id: str | None = None,
     ) -> list[SearchPreparationBatchRow]:
-        """Bounded stable page of consented intents eligible for reconciliation."""
+        """Bounded stable page of coordinator work across this workspace."""
 
-        if limit < 1 or limit > 500 or offset < 0:
+        if limit < 1 or limit > 500 or (after_created_at is None) != (after_id is None):
             raise ValueError("invalid search preparation reconciliation page")
         c = search_preparation_batches_table.c
         predicate = (
@@ -352,20 +363,21 @@ class SearchPreparationStore:
             if storage_org_id is None
             else c.storage_org_id == storage_org_id
         )
+        query = sa.select(search_preparation_batches_table).where(
+            c.workspace_root == self.workspace_root,
+            predicate,
+            c.settled_at.is_(None),
+        )
+        if after_created_at is not None and after_id is not None:
+            query = query.where(
+                sa.or_(
+                    c.created_at > after_created_at,
+                    sa.and_(c.created_at == after_created_at, c.id > after_id),
+                )
+            )
         with self.engine.connect() as cx:
             rows = cx.execute(
-                sa.select(search_preparation_batches_table)
-                .where(
-                    c.workspace_root == self.workspace_root,
-                    c.project_id == project_id,
-                    predicate,
-                    c.decision == "prepare",
-                    c.stop_requested_at.is_(None),
-                    c.error_json == "[]",
-                )
-                .order_by(c.created_at, c.id)
-                .limit(limit)
-                .offset(offset)
+                query.order_by(c.created_at, c.id).limit(limit)
             ).fetchall()
         return [self._batch(row) for row in rows]
 
@@ -412,6 +424,7 @@ class SearchPreparationStore:
                 .values(
                     decision=decision,
                     selected_setup_refs_json=refs,
+                    settled_at=_now() if decision == "not_now" else None,
                     updated_at=_now(),
                 )
             )
@@ -449,6 +462,7 @@ class SearchPreparationStore:
                     source_cutoff=source_cutoff,
                     plan_hash=canonical_plan_hash(body),
                     plan_json=json.dumps(body, sort_keys=True, separators=(",", ":")),
+                    settled_at=None,
                     updated_at=_now(),
                 )
             )
@@ -470,7 +484,7 @@ class SearchPreparationStore:
                 search_preparation_batches_table.update()
                 .where(c.id == batch_id, c.project_id == project_id, predicate)
                 .where(c.workspace_root == self.workspace_root)
-                .values(stop_requested_at=_now(), updated_at=_now())
+                .values(stop_requested_at=_now(), settled_at=_now(), updated_at=_now())
             )
             if result.rowcount != 1:
                 raise KeyError(batch_id)
@@ -505,12 +519,43 @@ class SearchPreparationStore:
                 )
                 .values(
                     error_json=json.dumps(errors, separators=(",", ":")),
+                    settled_at=_now(),
                     updated_at=_now(),
                 )
             )
             if result.rowcount != 1:
                 raise KeyError(batch_id)
         return self.get(batch_id, project_id=project_id, storage_org_id=storage_org_id)
+
+    def mark_settled(
+        self,
+        batch_id: str,
+        *,
+        project_id: str,
+        storage_org_id: int | None,
+    ) -> None:
+        c = search_preparation_batches_table.c
+        predicate = (
+            c.storage_org_id.is_(None)
+            if storage_org_id is None
+            else c.storage_org_id == storage_org_id
+        )
+        with self._write() as cx:
+            result = cx.execute(
+                search_preparation_batches_table.update()
+                .where(
+                    c.id == batch_id,
+                    c.workspace_root == self.workspace_root,
+                    c.project_id == project_id,
+                    predicate,
+                    c.settled_at.is_(None),
+                )
+                .values(settled_at=_now(), updated_at=_now())
+            )
+            if result.rowcount not in {0, 1}:
+                raise RuntimeError(
+                    "search preparation settlement updated multiple rows"
+                )
 
     def reserve_child_and_advance(
         self,

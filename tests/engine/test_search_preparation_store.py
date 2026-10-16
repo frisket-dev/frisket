@@ -99,6 +99,34 @@ def test_stop_is_durable_without_changing_completed_children(tmp_path) -> None:
             batch.id, project_id="project", storage_org_id=None
         )
         assert stopped.stop_requested_at is not None
+        assert stopped.settled_at is not None
         assert store.children(batch.id)[0].receipt_id == "native-receipt"
+    finally:
+        queue.close()
+
+
+def test_active_scan_retires_settled_intent_and_decision_reopens_it(tmp_path) -> None:
+    queue = open_queue(workspace=tmp_path)
+    try:
+        store = SearchPreparationStore(queue, workspace_root="/workspace")
+        batch = _create(store, receipt=None)
+        assert [row.id for row in store.list_active_page(storage_org_id=None)] == [
+            batch.id
+        ]
+        store.mark_settled(batch.id, project_id="project", storage_org_id=None)
+        assert store.list_active_page(storage_org_id=None) == []
+
+        reopened = store.decide(
+            batch.id,
+            project_id="project",
+            storage_org_id=None,
+            plan_hash=batch.plan_hash,
+            decision="prepare",
+            selected_setup_refs=[],
+        )
+        assert reopened.settled_at is None
+        assert [row.id for row in store.list_active_page(storage_org_id=None)] == [
+            batch.id
+        ]
     finally:
         queue.close()

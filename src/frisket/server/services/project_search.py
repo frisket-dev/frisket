@@ -38,6 +38,7 @@ from frisket.retrieval.contracts import (
 )
 from frisket.retrieval.service import search_with_encoding
 from frisket.server.workspace import Workspace
+from frisket.server.services.search_preparation_planning import preparation_counts
 
 
 _DOCUMENT_COLUMN_TYPES = frozenset({"file", "media", "image", "video", "audio", "link"})
@@ -468,6 +469,30 @@ class ProjectSearchService:
             elif edition == "team":
                 setup_scope = "organization"
 
+        coverage = _coverage_payload(
+            response.coverage,
+            setup_scope=setup_scope,
+        )
+        eligible_media, prepared_media = preparation_counts(
+            project, search_request.scope
+        )
+        if eligible_media:
+            has_gap = prepared_media < eligible_media
+            coverage["channels"].append(
+                {
+                    "channel": "search_preparation",
+                    "state": "unavailable" if has_gap else "ready",
+                    "recipe_id": None,
+                    "eligible_count": eligible_media,
+                    "prepared_count": prepared_media,
+                    "failed_count": 0,
+                    "reason": "media_needs_preparation" if has_gap else None,
+                    "setup": None,
+                }
+            )
+            if has_gap and coverage["state"] == "complete":
+                coverage["state"] = "partial"
+
         return {
             "response_anchor": (
                 {
@@ -491,10 +516,7 @@ class ProjectSearchService:
                 }
                 for group in response.results
             ],
-            "coverage": _coverage_payload(
-                response.coverage,
-                setup_scope=setup_scope,
-            ),
+            "coverage": coverage,
         }
 
 

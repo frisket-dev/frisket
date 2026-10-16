@@ -804,7 +804,7 @@ def create_app(
 
     async def _reconcile_search_preparation() -> None:
         while True:
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(2.0)
             try:
                 await asyncio.to_thread(search_preparation_service.recover)
             except asyncio.CancelledError:
