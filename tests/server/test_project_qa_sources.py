@@ -313,7 +313,8 @@ def test_reopening_an_old_offset_after_a_shorter_edit_returns_current_source(sou
     reopened = tools.open_source(citation["id"])
 
     assert reopened["source_changed"] is True
-    assert reopened["passages"][0]["text"] == ""
+    assert reopened["range"]["start"] == 0
+    assert reopened["passages"][0]["text"] == "replacement text"
     assert reopened["reached_end"] is True
 
 
@@ -633,7 +634,10 @@ def test_file_scope_reads_current_prepared_text_and_finds_it(tmp_path):
             "row_id": row,
             "column_id": text_column,
         }
-        assert resolved["target"]["text_range"]["start"] == 0
+        resolved_range = resolved["target"]["text_range"]
+        assert prepared_text[resolved_range["start"] : resolved_range["end"]] == (
+            "NEEDLE"
+        )
         with pytest.raises(ProjectQAScopeError, match="file scope"):
             tools.read_rows(sheet, [row], [text_column])
 

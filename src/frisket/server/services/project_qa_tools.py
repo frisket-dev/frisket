@@ -1039,10 +1039,34 @@ class ProjectQATools:
                 "passages": [{"kind": "web", "text": text}],
             }
         cell, source, prepared_source = self._prepared_text_target(citation)
+        current_version = (
+            prepared_source["prepared_version"]
+            if prepared_source is not None
+            else source["version"]
+        )
+        source_changed = (
+            locator.get("source_version") is not None
+            and locator["source_version"] != current_version
+        ) or (
+            locator.get("source_version") is None
+            and locator.get("value_ref") != source["value_ref"]
+        )
+        if locator.get("prepared_value_ref") is not None:
+            source_changed = source_changed or (
+                prepared_source is None
+                or locator["prepared_value_ref"]
+                != prepared_source["prepared_value_ref"]
+            )
         anchor = citation.get("metadata", {}).get("fts_anchor")
         if not isinstance(anchor, str):
             anchor = None
         start = int(locator.get("char_start", 0))
+        if cursor is None and source_changed:
+            # Exact offsets belong to the version that produced the citation.
+            # A fresh reopen reads the changed source honestly from its start;
+            # version-pinned continuation cursors still fail in read_source_text.
+            start = 0
+            anchor = None
         # Reserve room for grounded page/time evidence instead of always exhausting
         # the complete read allowance on a cell prefix.
         observed = read_source_text(
@@ -1143,21 +1167,7 @@ class ProjectQATools:
             "next_cursor": observed["next_cursor"],
             "truncated": not observed["reached_end"],
             "reached_end": observed["reached_end"],
-            "source_changed": (
-                locator.get("source_version") is not None
-                and locator["source_version"] != observed["version"]
-            )
-            or (
-                locator.get("source_version") is None
-                and locator.get("value_ref") != source["value_ref"]
-            )
-            or (
-                locator.get("prepared_value_ref") is not None
-                and (
-                    prepared_source is None
-                    or locator["prepared_value_ref"] != observed["value_ref"]
-                )
-            ),
+            "source_changed": source_changed,
             "remaining_read_chars": (
                 None if self._research else 64_000 - self._source_chars
             ),
