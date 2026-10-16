@@ -258,12 +258,14 @@ export function SearchPreparationReceipt({
   onBatchChange,
   onDone,
   onError,
+  onViewJobs,
 }: {
   projectId: string;
   batchId: string;
   onBatchChange?(batch: SearchPreparationBatch): void;
   onDone(): void;
   onError(message: string): void;
+  onViewJobs?(): void;
 }) {
   const [batch, setBatch] = useState<SearchPreparationBatch | null>(null);
   const [loadingError, setLoadingError] = useState<string | null>(null);
@@ -372,7 +374,10 @@ export function SearchPreparationReceipt({
   }
 
   const nativeGroup = batch.groups.find((group) => group.kind === 'native_pdf' && group.count > 0);
-  const fullyPrepared = batch.groups.every((group) => group.status === 'complete');
+  const fullyPrepared = batch.status === 'complete'
+    && batch.groups.length > 0
+    && batch.groups.every((group) => group.status === 'complete');
+  const active = !TERMINAL.has(batch.status);
   const missingModels = batch.models.filter((model) => !model.ready);
   return (
     <section className="search-preparation-receipt" data-testid="search-preparation-receipt">
@@ -380,6 +385,8 @@ export function SearchPreparationReceipt({
         <div>
           <h2>{fullyPrepared
             ? 'Ready to search'
+            : batch.status === 'planning'
+              ? 'Planning search preparation'
             : batch.status === 'complete' || batch.status === 'stopped'
               ? 'Files imported'
               : 'Make these files searchable'}</h2>
@@ -402,6 +409,12 @@ export function SearchPreparationReceipt({
           );
         })}
       </div>
+
+      {active && batch.groups.length === 0 && (
+        <div className="search-preparation-status" role="status">
+          <LoaderCircle className="spin" size={16} /> Checking files and planning preparation…
+        </div>
+      )}
 
       {nativeGroup && (
         <TextReview
@@ -491,6 +504,16 @@ export function SearchPreparationReceipt({
         </footer>
       ) : (
         <footer className="search-preparation-actions">
+          {active && onViewJobs && batch.jobs.length > 0 && (
+            <button
+              type="button"
+              className="btn"
+              data-testid="search-preparation-view-jobs"
+              onClick={onViewJobs}
+            >
+              View Jobs
+            </button>
+          )}
           {batch.can_stop && (
             <button
               type="button"
@@ -508,7 +531,7 @@ export function SearchPreparationReceipt({
             data-testid="search-preparation-done"
             onClick={onDone}
           >
-            Done
+            {active ? 'Close' : 'Done'}
           </button>
         </footer>
       )}

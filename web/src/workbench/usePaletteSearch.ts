@@ -1,11 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   MAX_LENS_VIEW_ROWS,
+  getModelPull,
+  listModelPulls,
+  orgGetModelPull,
+  orgListModelPulls,
   searchProject,
   type EmbeddingIndexSummary,
+  type ModelPullDto,
   type SheetMeta,
 } from '../api/open';
-import { startEngineSetup } from '../api/engineSetup';
+import { ModelSetupRequestError, startEngineSetup } from '../api/engineSetup';
 import type {
   ProjectSearchAnchorWire,
   ProjectSearchGroupWire,
@@ -50,7 +55,15 @@ export interface PaletteSearch {
   clearAnchor(): void;
   setupBusy: boolean;
   setupError: string | null;
+  setupOperation: PaletteSearchSetupOperation | null;
   startSetup(setupRef: string, scope: 'workspace' | 'organization'): void;
+  finishSetup(pull: ModelPullDto): void;
+}
+
+export interface PaletteSearchSetupOperation {
+  setupRef: string;
+  scope: 'workspace' | 'organization';
+  pull: ModelPullDto;
 }
 
 type ResponseAnchor = NonNullable<ProjectSearchResponseWire['response_anchor']>;
@@ -339,17 +352,81 @@ export function usePaletteSearch(
 
   const [setupBusy, setSetupBusy] = useState(false);
   const [setupError, setSetupError] = useState<string | null>(null);
+  const [setupOperation, setSetupOperation] = useState<PaletteSearchSetupOperation | null>(null);
+  const advertisedSetup = coverage?.channels.find((channel) => channel.setup)?.setup ?? null;
+
+  usePoll(async () => {
+    if (!advertisedSetup) return 'stop' as const;
+    try {
+      const result = advertisedSetup.scope === 'organization'
+        ? await orgListModelPulls()
+        : await listModelPulls();
+      const pull = result.pulls
+        .filter((candidate) => (
+          candidate.operation_kind === 'engine_setup'
+          && candidate.model === advertisedSetup.setup_ref
+        ))
+        .sort((left, right) => right.id - left.id)[0];
+      if (pull) {
+        setSetupOperation({
+          setupRef: advertisedSetup.setup_ref,
+          scope: advertisedSetup.scope,
+          pull,
+        });
+        if (pull.status === 'done') {
+          setSearchResult(null);
+          setSearchRevision((revision) => revision + 1);
+        }
+      }
+    } catch {
+      // Recovery is best effort. The setup action remains available when no
+      // durable operation can be restored.
+    }
+    return 'stop' as const;
+  }, {
+    active: Boolean(advertisedSetup)
+      && setupOperation?.setupRef !== advertisedSetup?.setup_ref,
+    intervalMs: 1_000,
+    immediate: true,
+    maxAttempts: 1,
+    guardOverlap: true,
+  });
+
   const startSetup = (setupRef: string, scope: 'workspace' | 'organization') => {
     if (setupBusy) return;
     setSetupBusy(true);
     setSetupError(null);
     void startEngineSetup(scope, setupRef)
-      .then(() => {
-        setSearchResult(null);
-        setSearchRevision((revision) => revision + 1);
+      .then(({ pull }) => {
+        setSetupOperation({ setupRef, scope, pull });
       })
-      .catch((error: Error) => setSetupError(error.message))
+      .catch(async (error: Error) => {
+        if (error instanceof ModelSetupRequestError && error.activePullId != null) {
+          try {
+            const pull = scope === 'organization'
+              ? await orgGetModelPull(error.activePullId)
+              : await getModelPull(error.activePullId);
+            setSetupOperation({ setupRef, scope, pull });
+            return;
+          } catch (recoveryError) {
+            setSetupError(recoveryError instanceof Error
+              ? recoveryError.message
+              : String(recoveryError));
+            return;
+          }
+        }
+        setSetupError(error.message);
+      })
       .finally(() => setSetupBusy(false));
+  };
+  const finishSetup = (pull: ModelPullDto) => {
+    setSetupOperation((currentOperation) => currentOperation?.pull.id === pull.id
+      ? { ...currentOperation, pull }
+      : currentOperation);
+    if (pull.status === 'done') {
+      setSearchResult(null);
+      setSearchRevision((revision) => revision + 1);
+    }
   };
 
   const sheetsById = useMemo(
@@ -398,6 +475,8 @@ export function usePaletteSearch(
     },
     setupBusy,
     setupError,
+    setupOperation,
     startSetup,
+    finishSetup,
   };
 }

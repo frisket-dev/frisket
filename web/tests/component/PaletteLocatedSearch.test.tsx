@@ -9,6 +9,11 @@ import { WorkbenchCommandPalette } from '../../src/workbench/WorkbenchCommandPal
 
 const searchProject = vi.fn();
 const startEngineSetup = vi.fn();
+const listModelPulls = vi.fn();
+const getModelPull = vi.fn();
+const orgListModelPulls = vi.fn();
+const orgGetModelPull = vi.fn();
+const createSearchPreparation = vi.fn();
 const embeddingIndexes = vi.fn();
 const saveLens = vi.fn();
 const createWatch = vi.fn();
@@ -17,11 +22,20 @@ const projectApi = { embeddingIndexes, saveLens, createWatch };
 vi.mock('../../src/api/open', async (importOriginal) => ({
   ...await importOriginal<typeof import('../../src/api/open')>(),
   searchProject: (...args: unknown[]) => searchProject(...args),
+  listModelPulls: (...args: unknown[]) => listModelPulls(...args),
+  getModelPull: (...args: unknown[]) => getModelPull(...args),
+  orgListModelPulls: (...args: unknown[]) => orgListModelPulls(...args),
+  orgGetModelPull: (...args: unknown[]) => orgGetModelPull(...args),
 }));
 
 vi.mock('../../src/api/engineSetup', async (importOriginal) => ({
   ...await importOriginal<typeof import('../../src/api/engineSetup')>(),
   startEngineSetup: (...args: unknown[]) => startEngineSetup(...args),
+}));
+
+vi.mock('../../src/api/searchPreparation', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../src/api/searchPreparation')>(),
+  createSearchPreparation: (...args: unknown[]) => createSearchPreparation(...args),
 }));
 
 vi.mock('../../src/bind/useWorkspaceStores', () => ({
@@ -94,7 +108,40 @@ const completeResponse = {
   },
 } as const;
 
-function PaletteHarness() {
+function setupPull(overrides: Record<string, unknown> = {}) {
+  return {
+    schemaVersion: 'frisket.model_pull.v4',
+    id: 71,
+    operation_kind: 'engine_setup',
+    display_name: 'EmbeddingGemma 2',
+    model: 'engine-setup:embeddinggemma-2.local@1',
+    status: 'running',
+    capabilities: { cancel: true, retry: false, remove: false },
+    endpoint_id: null,
+    endpoint_origin: null,
+    cancel_requested: false,
+    error: null,
+    created_at: '2026-10-16T00:00:00Z',
+    started_at: '2026-10-16T00:00:01Z',
+    finished_at: null,
+    initiated_by: null,
+    phase: 'Downloading model',
+    completed_bytes: 100,
+    total_bytes: 1_000,
+    resolved_digest: null,
+    resolved_size: null,
+    artifact: null,
+    ...overrides,
+  };
+}
+
+function PaletteHarness({
+  searchSheets = [{ id: '1', name: 'Documents' } as never],
+  activeSearchSheetId = '1',
+}: {
+  searchSheets?: never[];
+  activeSearchSheetId?: string;
+} = {}) {
   const [query, setQuery] = useState('budget');
   return (
     <WorkbenchCommandPalette
@@ -103,6 +150,7 @@ function PaletteHarness() {
       onHideContribution={vi.fn()}
       onRevealContribution={vi.fn()}
       lastAction=""
+      projectId="project-1"
       visibilityTargets={[]}
       query={query}
       onQueryChange={setQuery}
@@ -111,8 +159,8 @@ function PaletteHarness() {
       gotoItems={[]}
       onLaunchAction={vi.fn()}
       onNavigateSheet={vi.fn()}
-      searchSheets={[{ id: '1', name: 'Documents' } as never]}
-      activeSearchSheetId="1"
+      searchSheets={searchSheets}
+      activeSearchSheetId={activeSearchSheetId}
       onNavigateSearchHit={vi.fn()}
     />
   );
@@ -164,6 +212,11 @@ function AnchoredPaletteHarness() {
 beforeEach(() => {
   searchProject.mockReset();
   startEngineSetup.mockReset();
+  listModelPulls.mockReset();
+  getModelPull.mockReset();
+  orgListModelPulls.mockReset();
+  orgGetModelPull.mockReset();
+  createSearchPreparation.mockReset();
   embeddingIndexes.mockReset();
   saveLens.mockReset();
   createWatch.mockReset();
@@ -174,6 +227,8 @@ beforeEach(() => {
   }]);
   saveLens.mockResolvedValue({});
   createWatch.mockResolvedValue({});
+  listModelPulls.mockResolvedValue({ pulls: [] });
+  orgListModelPulls.mockResolvedValue({ pulls: [] });
 });
 
 afterEach(cleanup);
@@ -261,7 +316,14 @@ describe('located palette search', () => {
         truncated: false,
       },
     });
-    startEngineSetup.mockResolvedValue({});
+    startEngineSetup.mockResolvedValue({ pull: setupPull(), deduplicated: false });
+    getModelPull.mockResolvedValue(setupPull({
+      status: 'done',
+      phase: null,
+      completed_bytes: 1_000,
+      resolved_size: 1_000,
+      finished_at: '2026-10-16T00:01:00Z',
+    }));
     render(<PaletteHarness />);
 
     fireEvent.click(await screen.findByTestId('search-setup'));
@@ -274,7 +336,75 @@ describe('located palette search', () => {
       'workspace',
       'engine-setup:embeddinggemma-2.local@1',
     ));
+    expect(await screen.findByTestId('search-setup-progress')).toBeVisible();
+    expect(screen.getByTestId('model-pull-progress')).toHaveAttribute('data-status', 'running');
+    expect(searchProject).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.getByTestId('model-pull-done')).toBeVisible(), {
+      timeout: 2_500,
+    });
     await waitFor(() => expect(searchProject).toHaveBeenCalledTimes(2));
+  });
+
+  it('restores a matching durable semantic setup pull when Search reopens', async () => {
+    searchProject.mockResolvedValue({
+      groups: [],
+      coverage: {
+        requested_mode: 'semantic', effective_modes: ['lexical'], state: 'unavailable',
+        searched_channels: ['text'], is_top_k: true, truncated: false,
+        channels: [{
+          channel: 'semantic', state: 'unavailable', reason: 'model unavailable', recipe_id: null,
+          setup: {
+            setup_ref: 'engine-setup:embeddinggemma-2.local@1', scope: 'workspace',
+            display_name: 'EmbeddingGemma 2', download_bytes: 1_525_784_180,
+            additional_runtime_download: true, license: 'Apache-2.0',
+            source_url: 'https://example.test/embeddinggemma',
+          },
+        }],
+      },
+    });
+    listModelPulls.mockResolvedValue({ pulls: [setupPull()] });
+    getModelPull.mockReturnValue(new Promise(() => {}));
+
+    render(<PaletteHarness />);
+
+    expect(await screen.findByTestId('search-setup-progress')).toBeVisible();
+    expect(screen.getByTestId('model-pull-progress')).toHaveAttribute('data-status', 'running');
+    expect(startEngineSetup).not.toHaveBeenCalled();
+  });
+
+  it('keeps semantic setup failures visible without treating them as readiness', async () => {
+    searchProject.mockResolvedValue({
+      groups: [],
+      coverage: {
+        requested_mode: 'semantic', effective_modes: ['lexical'], state: 'unavailable',
+        searched_channels: ['text'], is_top_k: true, truncated: false,
+        channels: [{
+          channel: 'semantic', state: 'unavailable', reason: 'model unavailable', recipe_id: null,
+          setup: {
+            setup_ref: 'engine-setup:embeddinggemma-2.local@1', scope: 'workspace',
+            display_name: 'EmbeddingGemma 2', download_bytes: 1_525_784_180,
+            additional_runtime_download: true, license: 'Apache-2.0',
+            source_url: 'https://example.test/embeddinggemma',
+          },
+        }],
+      },
+    });
+    startEngineSetup.mockResolvedValue({ pull: setupPull(), deduplicated: false });
+    getModelPull.mockResolvedValue(setupPull({
+      status: 'failed',
+      error: { code: 'download_failed', message: 'Could not download model' },
+      finished_at: '2026-10-16T00:01:00Z',
+    }));
+
+    render(<PaletteHarness />);
+    fireEvent.click(await screen.findByTestId('search-setup'));
+    fireEvent.click(screen.getByTestId('search-setup-confirm'));
+
+    expect(await screen.findByTestId('search-setup-progress')).toBeVisible();
+    await waitFor(() => expect(screen.getByTestId('model-pull-error')).toHaveTextContent(
+      'Could not download model',
+    ), { timeout: 2_500 });
+    expect(searchProject).toHaveBeenCalledTimes(1);
   });
 
   it('dismisses semantic setup without starting a download', async () => {
@@ -322,6 +452,7 @@ describe('located palette search', () => {
           channel: 'search_preparation', state: 'unavailable', recipe_id: null,
           reason: 'Current media needs search preparation.',
           eligible_count: 1, prepared_count: 0, failed_count: null, setup: null,
+          gap_sheet_ids: [1],
         }],
         is_top_k: true,
         truncated: false,
@@ -333,6 +464,35 @@ describe('located palette search', () => {
     expect(gap).toHaveTextContent('1 current media item needs search preparation.');
     expect(screen.getByRole('status')).toHaveTextContent('Showing available search results.');
     expect(screen.queryByText(/while more material is prepared/i)).not.toBeInTheDocument();
+  });
+
+  it('prepares the sheet named by project coverage instead of the unrelated active sheet', async () => {
+    searchProject.mockResolvedValue({
+      groups: [],
+      coverage: {
+        requested_mode: 'lexical', effective_modes: ['lexical'], state: 'partial',
+        searched_channels: ['lexical'], is_top_k: true, truncated: false,
+        channels: [{
+          channel: 'search_preparation', state: 'unavailable', recipe_id: null,
+          reason: 'Current media needs search preparation.', eligible_count: 1,
+          prepared_count: 0, failed_count: null, setup: null, gap_sheet_ids: [2],
+        }],
+      },
+    });
+    createSearchPreparation.mockReturnValue(new Promise(() => {}));
+    render(<PaletteHarness
+      searchSheets={[
+        { id: '1', name: 'Dispatches' } as never,
+        { id: '2', name: 'Court filings' } as never,
+      ]}
+      activeSearchSheetId="1"
+    />);
+
+    const action = await screen.findByTestId('search-preparation-gap-action');
+    expect(action).toHaveTextContent('Prepare Court filings');
+    fireEvent.click(action);
+
+    expect(createSearchPreparation).toHaveBeenCalledWith('project-1', { sheet_id: 2 });
   });
 
   it('selects a named index for free-text search and saves its semantic view', async () => {

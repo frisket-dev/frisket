@@ -211,7 +211,9 @@ export function WorkbenchCommandPalette({
     findSimilar,
     setupBusy,
     setupError,
+    setupOperation,
     startSetup,
+    finishSetup,
   } = usePaletteSearch(
     query,
     searchSheets,
@@ -223,8 +225,7 @@ export function WorkbenchCommandPalette({
   const [preparationBatchId, setPreparationBatchId] = useState<string | null>(null);
   const [preparationBusy, setPreparationBusy] = useState(false);
   const [preparationError, setPreparationError] = useState<string | null>(null);
-  const prepareSearchGap = () => {
-    const sheetId = Number(activeSearchSheetId);
+  const prepareSearchGap = (sheetId: number) => {
     if (!projectId || !Number.isInteger(sheetId) || sheetId <= 0 || preparationBusy) return;
     setPreparationBusy(true);
     setPreparationError(null);
@@ -492,10 +493,13 @@ export function WorkbenchCommandPalette({
             onFindSimilar={findSimilar}
             setupBusy={setupBusy}
             setupError={setupError}
+            setupOperation={setupOperation}
             onStartSetup={startSetup}
+            onFinishSetup={finishSetup}
             preparationBusy={preparationBusy}
             preparationError={preparationError}
-            canPrepareGap={Boolean(projectId) && Number.isInteger(Number(activeSearchSheetId)) && Number(activeSearchSheetId) > 0}
+            canPrepareGap={Boolean(projectId)}
+            activeSheetId={activeSearchSheetId}
             onPrepareGap={prepareSearchGap}
             onViewJobs={() => {
               onOpenJobs?.();
@@ -510,6 +514,10 @@ export function WorkbenchCommandPalette({
               onBatchChange={(batch) => setPreparationBatchId(batch.id)}
               onDone={() => setPreparationBatchId(null)}
               onError={setPreparationError}
+              onViewJobs={onOpenJobs == null ? undefined : () => {
+                onOpenJobs();
+                onClose();
+              }}
             />
           )}
         </div>

@@ -105,6 +105,30 @@ afterEach(() => {
 });
 
 describe('SearchPreparationReceipt', () => {
+  it('keeps an empty planning response visibly active instead of calling it ready', async () => {
+    getSearchPreparation.mockResolvedValue({
+      ...consentBatch,
+      status: 'planning',
+      groups: [],
+      models: [],
+      jobs: [],
+    });
+
+    render(
+      <SearchPreparationReceipt
+        projectId="project-1"
+        batchId="prep-1"
+        onDone={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Planning search preparation' })).not.toBeNull();
+    expect(screen.getByRole('status').textContent).toContain('Checking files and planning preparation');
+    expect(screen.getByTestId('search-preparation-done').textContent).toContain('Close');
+    expect(screen.queryByText('Ready to search')).toBeNull();
+  });
+
   it('checks semantic search by default without authorizing downloads and allows opting out', async () => {
     getSearchPreparation.mockResolvedValue(consentBatch);
     decideSearchPreparation.mockResolvedValue({ ...consentBatch, status: 'preparing' });
