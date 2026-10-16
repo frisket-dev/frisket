@@ -151,11 +151,12 @@ def local_embedder(
         cache_key = (resolved, threads, capability)
         model = _local_models.get(cache_key)
         if model is None:
-            options: dict[str, Any] = {"threads": threads} if threads else {}
+            options: dict[str, Any] = {"local_files_only": True}
+            if threads:
+                options["threads"] = threads
             if providerless:
                 options.update(
                     specific_model_path=str(_providerless_classify_snapshot()),
-                    local_files_only=True,
                 )
             model = TextEmbedding(resolved, **options)
             _local_models[cache_key] = model
@@ -184,7 +185,7 @@ def local_image_embedder(
     def embed(images: list[Any]) -> list[list[float]]:
         model = _local_image_models.get(resolved)
         if model is None:
-            model = ImageEmbedding(resolved)
+            model = ImageEmbedding(resolved, local_files_only=True)
             _local_image_models[resolved] = model
         return [vector.tolist() for vector in model.embed(images)]
 

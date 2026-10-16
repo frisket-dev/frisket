@@ -4,7 +4,7 @@ Layout:
     myproject.frisket/
       manifest.json
       project.db          (irreplaceable data only)
-      project.search.db   (sidecar: FTS + vectors, rebuildable)
+      project.retrieval.db (sidecar: lexical + vector retrieval, rebuildable)
       project.cache.db    (sidecar: response cache, rebuildable)
       blobs/ab/abcd1234...
 

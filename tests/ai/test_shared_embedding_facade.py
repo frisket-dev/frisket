@@ -217,7 +217,8 @@ def test_descriptor_space_reports_l2_normalization():
 
 
 def test_sync_facade_rejects_use_from_an_event_loop():
-    facade = EmbeddingFacade(Cache())
+    cache = Cache()
+    facade = EmbeddingFacade(cache)
 
     async def call() -> None:
         with pytest.raises(RuntimeError, match="await encode_async"):
@@ -230,3 +231,4 @@ def test_sync_facade_rejects_use_from_an_event_loop():
             )
 
     asyncio.run(call())
+    assert cache.gets == []

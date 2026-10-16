@@ -218,56 +218,6 @@ class EmbeddingFacade:
     def __init__(self, cache: RepresentationCache) -> None:
         self._cache = cache
 
-    def _cached_only(
-        self,
-        inputs: Sequence[EncodingInput],
-        *,
-        purpose: EncodingPurpose,
-        space: EmbeddingSpace,
-        space_id: str | None,
-        cache_payloads: Sequence[bytes | str] | None,
-    ) -> list[EmbeddingVector] | None:
-        """Return a complete cached batch without starting asynchronous work."""
-
-        values = list(inputs)
-        if not values:
-            return []
-        if len(values) > MAX_CACHED_BATCH:
-            raise ValueError(f"embedding batches are bounded to {MAX_CACHED_BATCH} inputs")
-        if not isinstance(purpose, EncodingPurpose):
-            raise TypeError("purpose must be EncodingPurpose.QUERY or DOCUMENT")
-        _validate_space(space)
-        resolved_space_id = space.identity if space_id is None else space_id
-        if not isinstance(resolved_space_id, str) or not resolved_space_id.strip():
-            raise ValueError("space_id must be non-empty")
-        payloads: Sequence[EncodingInput | bytes | str]
-        if cache_payloads is None:
-            payloads = values
-        else:
-            if len(cache_payloads) != len(values):
-                raise ValueError("cache payloads must align with embedding inputs")
-            for value, payload in zip(values, cache_payloads, strict=True):
-                exact = payload.encode("utf-8") if isinstance(payload, str) else payload
-                if not isinstance(value, TextEncodingInput) or exact != value.text.encode(
-                    "utf-8"
-                ):
-                    raise ValueError(
-                        "cache payloads are only for exact legacy text encoder inputs"
-                    )
-            payloads = cache_payloads
-        hashes = [
-            embedding_input_hash(payload)
-            if cache_payloads is not None
-            else embedding_input_hash(value, purpose=purpose)
-            for value, payload in zip(values, payloads, strict=True)
-        ]
-        rows = self._cache.get_representations(
-            resolved_space_id, list(dict.fromkeys(hashes))
-        )
-        if any(key not in rows for key in hashes):
-            return None
-        return [_unpack_cached(rows[key], space=space) for key in hashes]
-
     async def encode_async(
         self,
         inputs: Sequence[EncodingInput],
@@ -389,15 +339,6 @@ class EmbeddingFacade:
                     on_fresh_batch=on_fresh_batch,
                 )
             )
-        cached = self._cached_only(
-            inputs,
-            purpose=purpose,
-            space=space,
-            space_id=space_id,
-            cache_payloads=cache_payloads,
-        )
-        if cached is not None:
-            return cached
         raise RuntimeError("EmbeddingFacade.encode cannot run on an event loop; await encode_async")
 
 
