@@ -21,6 +21,33 @@ _MAX_SEARCH_ROW_RANGES = 128
 INLINE_TEXT_BYTE_LIMIT = 128
 
 
+def stamp_retrieval_revision(
+    db: sqlite3.Connection,
+    revision: int,
+    *,
+    pairs: Collection[tuple[int, int]] | None = None,
+) -> None:
+    """Stamp source changes on exact live cells, or all cells during migration."""
+
+    _require_transaction(db)
+    if pairs is None:
+        db.execute("UPDATE current_cells SET retrieval_revision=?", (revision,))
+        return
+    targets = list(pairs)
+    chunk_size = (_SQLITE_BIND_LIMIT - 1) // 2
+    for start in range(0, len(targets), chunk_size):
+        chunk = targets[start : start + chunk_size]
+        values = ",".join("(?,?)" for _ in chunk)
+        params = [value for pair in chunk for value in pair]
+        db.execute(
+            f"WITH requested(row_id,column_id) AS (VALUES {values}) "
+            "UPDATE current_cells AS head SET retrieval_revision=? "
+            "FROM requested target WHERE head.column_id=target.column_id "
+            "AND head.row_id=target.row_id",
+            [*params, revision],
+        )
+
+
 def inline_scalar_eligibility_sql(
     *, descriptor_alias: str, value_kind_sql: str, value_sql: str
 ) -> str:

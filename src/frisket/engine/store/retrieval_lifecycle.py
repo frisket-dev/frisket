@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Collection
 
+from .current_cells import stamp_retrieval_revision
 from .search_index_work import enqueue_dirty_scope, latest_revision
 
 RETRIEVAL_EVIDENCE_LINK_ROLES = frozenset(
@@ -141,15 +142,7 @@ def touch_binding_revisions(
                 row_id_end=end,
             )
     revision = latest_revision(db)
-    existing_pairs = list(existing)
-    for chunk in _chunks(existing_pairs):
-        cte, params = _requested_sql(chunk)
-        db.execute(
-            f"WITH {cte} UPDATE current_cells AS head "
-            "SET retrieval_revision=? FROM requested target "
-            "WHERE head.column_id=target.column_id AND head.row_id=target.row_id",
-            [*params, revision],
-        )
+    stamp_retrieval_revision(db, revision, pairs=existing)
     return len(existing)
 
 

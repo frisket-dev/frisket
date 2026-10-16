@@ -101,26 +101,29 @@ def test_embeddinggemma_installs_the_frozen_requirements_directly(
         / "venv"
         / ("Scripts/python.exe" if platform == "win32" else "bin/python")
     )
-    assert calls == [
-        [
-            "/bundled/uv",
-            "venv",
-            "--python",
-            model_install.sys.executable,
-            str(profile / "venv"),
-        ],
-        [
-            "/bundled/uv",
-            "--no-config",
-            "pip",
-            "install",
-            "--python",
-            str(expected_python),
-            *(["--torch-backend", "cpu"] if platform != "darwin" else []),
-            "--requirement",
-            str(requirements),
-        ],
-    ]
+    assert (
+        calls
+        == [
+            [
+                "/bundled/uv",
+                "venv",
+                "--python",
+                model_install.sys.executable,  # subprocess-boundary: expected installer argv; process mocked
+                str(profile / "venv"),
+            ],
+            [
+                "/bundled/uv",
+                "--no-config",
+                "pip",
+                "install",
+                "--python",
+                str(expected_python),
+                *(["--torch-backend", "cpu"] if platform != "darwin" else []),
+                "--requirement",
+                str(requirements),
+            ],
+        ]
+    )
     assert (profile / ".ready").is_file()
 
 

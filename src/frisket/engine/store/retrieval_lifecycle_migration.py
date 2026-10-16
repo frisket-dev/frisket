@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+from .current_cells import stamp_retrieval_revision
 from .prepared_content_migration import PREPARED_CONTENT_TO_DIGEST
 from .schema import BundleSchemaMismatch, SCHEMA_DIGEST_META_KEY
 from .search_index_work import enqueue_dirty_scope
@@ -41,7 +42,7 @@ def migrate_retrieval_lifecycle(
                     "NOT NULL DEFAULT 1 CHECK (retrieval_revision > 0)"
                 )
             revision = enqueue_dirty_scope(db)
-            db.execute("UPDATE current_cells SET retrieval_revision=?", (revision,))
+            stamp_retrieval_revision(db, revision)
             after = int(db.execute("SELECT COUNT(*) FROM current_cells").fetchone()[0])
             if after != before:
                 raise BundleSchemaMismatch(

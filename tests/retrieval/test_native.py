@@ -44,7 +44,7 @@ def built_native_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
     output = tmp_path_factory.mktemp("vec1-native")
     subprocess.run(
         [
-            sys.executable,
+            sys.executable,  # subprocess-boundary: build the actual SQLite extension for integration
             str(ROOT / "scripts" / "build_vec1.py"),
             "--output-root",
             str(output),

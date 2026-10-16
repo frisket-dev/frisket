@@ -61,7 +61,11 @@ async def test_session_json_uses_sandbox_length_framing_with_actual_child(tmp_pa
         tmp_path / EMBEDDINGGEMMA2_MODEL_REVISION, _runtime(tmp_path)
     )
     session._handle = await open_sandboxed_process(
-        [sys.executable, "-c", _CODEC_CHILD],
+        [
+            sys.executable,
+            "-c",
+            _CODEC_CHILD,
+        ],  # subprocess-boundary: actual framed worker transport
         policy=SandboxPolicy(allowed_extra_env=["PYTHONPATH"]),
         extra_env={"PYTHONPATH": str(Path(__file__).parents[2] / "src")},
         should_cancel=session._cancelled,
@@ -119,6 +123,7 @@ async def test_installed_factory_resolves_host_owned_runtime_paths(
     monkeypatch.setattr(
         PythonRuntime,
         "current",
+        # subprocess-boundary: interpreter identity only; the factory never spawns it
         classmethod(lambda _cls: PythonRuntime(Path(sys.executable), tmp_path)),
     )
 
