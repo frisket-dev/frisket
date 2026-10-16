@@ -106,8 +106,18 @@ def search_with_encoding(
             )
             return replace(response, response_anchor=request.query)
         except RetrievalQueryError as exc:
-            if exc.code != "source_anchor_not_found" or anchor_input is None:
+            if exc.code != "source_anchor_not_found":
                 raise
+            if anchor_input is None:
+                from .located_anchor import resolve_located_anchor
+
+                selected = resolve_located_anchor(
+                    project,
+                    request.query,
+                    cancelled=cancel_event.is_set if cancel_event is not None else None,
+                )
+                request = replace(request, query=selected.anchor)
+                anchor_input = selected.input
     if request.space_id not in (None, space.identity):
         raise RetrievalQueryError(
             "local_embedding_space_unavailable",

@@ -206,3 +206,38 @@ def test_find_similar_echoes_exact_resolved_source(indexed_project):
     assert response.response_anchor == anchor
     assert encoder.calls == 1  # Reuse the exact indexed document vector.
     assert not response.results
+
+
+def test_find_similar_encodes_exact_unprepared_text_location(indexed_project):
+    project, _ = indexed_project
+    encoder = Encoder()
+    hit = search_with_encoding(project, request(), runtime=encoder).results[0].primary
+    selected_text = replace(hit.part.locator.text, start=4, end=11)
+    anchor = SourceAnchor(
+        hit.part.source, replace(hit.part.locator, text=selected_text), hit.binding
+    )
+    response = search_with_encoding(
+        project, replace(request(), query=anchor), runtime=encoder
+    )
+    assert response.response_anchor == anchor
+    assert encoder.calls == 2
+    assert response.results[0].primary.part.part_id == hit.part.part_id
+
+
+def test_unprepared_anchor_refuses_stale_binding_before_encoding(indexed_project):
+    project, _ = indexed_project
+    encoder = Encoder()
+    hit = search_with_encoding(project, request(), runtime=encoder).results[0].primary
+    anchor = SourceAnchor(
+        hit.part.source,
+        replace(hit.part.locator, text=replace(hit.part.locator.text, start=4, end=11)),
+        replace(
+            hit.binding,
+            dependencies=(
+                replace(hit.binding.dependencies[0], retrieval_revision=999),
+            ),
+        ),
+    )
+    with pytest.raises(RetrievalQueryError, match="changed"):
+        search_with_encoding(project, replace(request(), query=anchor), runtime=encoder)
+    assert encoder.calls == 1
