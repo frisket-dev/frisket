@@ -1,6 +1,7 @@
 import { test, expect, _electron } from '@playwright/test';
 import { readFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
+import { handleFirstLaunchPrompts } from './onboarding.mjs';
 import {
   aliveProcesses, assertInstalledPlatform, descendants, installedExecutable, listeningPorts, windowsProcessDetails,
 } from './installed-platform.mjs';
@@ -59,11 +60,7 @@ async function launch(testInfo, automaticChoice = 'Only when I ask') {
   try {
     await page.waitForURL('frisket://app/**', { timeout: 300_000 });
     await expect(page.getByTestId('home-screen')).toBeVisible();
-    const disclosure = page.getByTestId('product-telemetry-disclosure');
-    if (await disclosure.isVisible()) {
-      await disclosure.getByRole('checkbox').uncheck();
-      await disclosure.getByRole('button', { name: 'Continue' }).click();
-    }
+    await handleFirstLaunchPrompts(page);
     return { electron, page, rendererErrors, stderr: () => stderr };
   } catch (error) {
     await testInfo.attach('startup-stderr', { body: stderr, contentType: 'text/plain' });
