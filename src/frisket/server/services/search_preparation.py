@@ -19,7 +19,6 @@ from frisket.contracts.http.search_preparation import (
     SearchPreparationTextSample,
     SearchPreparationTextSamples,
 )
-from frisket.engine.jobs.queue import ACTION_RUN_KIND
 from frisket.engine.jobs.search_index import index_work_marker
 from frisket.engine.jobs.search_preparation_store import (
     SearchPreparationBatchRow,
@@ -27,6 +26,7 @@ from frisket.engine.jobs.search_preparation_store import (
 )
 from frisket.engine.pdf_text import PdfTextError, extract_pdf_text
 from frisket.engine.store.prepared_content import PreparedContentStore
+from frisket.engine.store.receipts import ReceiptStore
 from frisket.project_settings import read_project_settings
 from frisket.retrieval.source_adapter import resolve_cell_blob_source
 from frisket.server.route_errors import RouteError
@@ -53,9 +53,9 @@ def _requirement_dict(item: Any, *, required: bool) -> dict[str, Any]:
         "capability": str(item.capability),
         "display_name": str(item.display_name),
         "purpose": {
-            "ocr": "Read text in scans and images",
-            "transcription": "Transcribe recordings and video",
-            "semantic_search": "Search by meaning",
+            "ocr": "read_text",
+            "transcription": "transcribe",
+            "semantic_search": "search_by_meaning",
         }[str(item.capability)],
         "required": required,
         "runtime_ready": bool(item.runtime_ready),
@@ -142,13 +142,23 @@ class SearchPreparationService:
     ) -> str | None:
         if not self.automatic_enabled(project_id):
             return None
-        return self.create(
-            project_id,
+        project = self.workspace.get(project_id)
+        plan = self._plan(project, sheet_id=sheet_id, row_ids=row_ids, force_ocr=False)
+        if not plan["items"]:
+            return None
+        batch = self.store.create(
+            workspace_root=str(self.workspace.root),
+            storage_org_id=self.workspace.queue_storage_org_id,
+            project_id=project_id,
+            trigger_receipt_id=receipt_id,
             sheet_id=sheet_id,
             row_ids=row_ids,
+            source_cutoff=int(project.op_cursor),
             force_ocr=False,
-            trigger_receipt_id=receipt_id,
-        ).id
+            plan=plan,
+        )
+        self._advance(batch)
+        return batch.id
 
     def batch_for_receipt(self, project_id: str, receipt_id: str) -> str | None:
         row = self.store.for_receipt(
@@ -159,10 +169,35 @@ class SearchPreparationService:
         )
         return None if row is None else row.id
 
-    def list(self, project_id: str) -> SearchPreparationBatchList:
+    def create_after_materialization(
+        self, project_id: str, *, sheet_id: int, row_ids: Sequence[int]
+    ) -> str | None:
+        if not self.automatic_enabled(project_id):
+            return None
+        project = self.workspace.get(project_id)
+        plan = self._plan(project, sheet_id=sheet_id, row_ids=row_ids, force_ocr=False)
+        if not plan["items"]:
+            return None
+        batch = self.store.create(
+            workspace_root=str(self.workspace.root),
+            storage_org_id=self.workspace.queue_storage_org_id,
+            project_id=project_id,
+            trigger_receipt_id=None,
+            sheet_id=sheet_id,
+            row_ids=row_ids,
+            source_cutoff=int(project.op_cursor),
+            force_ocr=False,
+            plan=plan,
+        )
+        self._advance(batch)
+        return batch.id
+
+    def list(
+        self, project_id: str, *, may_setup_models: bool = True
+    ) -> SearchPreparationBatchList:
         return SearchPreparationBatchList(
             batches=[
-                self._project(row)
+                self._project(row, may_setup_models=may_setup_models)
                 for row in self.store.list_recent(
                     project_id=project_id,
                     storage_org_id=self.workspace.queue_storage_org_id,
@@ -170,7 +205,9 @@ class SearchPreparationService:
             ]
         )
 
-    def get(self, project_id: str, batch_id: str) -> SearchPreparationBatch:
+    def get(
+        self, project_id: str, batch_id: str, *, may_setup_models: bool = True
+    ) -> SearchPreparationBatch:
         try:
             row = self.store.get(
                 batch_id,
@@ -179,7 +216,7 @@ class SearchPreparationService:
             )
         except KeyError as exc:
             raise RouteError(404, "search preparation batch was not found") from exc
-        return self._project(row)
+        return self._project(row, may_setup_models=may_setup_models)
 
     def decide(
         self,
@@ -198,20 +235,29 @@ class SearchPreparationService:
             storage_org_id=self.workspace.queue_storage_org_id,
         )
         project = self.workspace.get(project_id)
-        current = self._plan(
-            project,
-            sheet_id=row.sheet_id,
-            row_ids=row.row_ids,
-            force_ocr=row.force_ocr,
-        )
-        from frisket.engine.jobs.search_preparation_store import canonical_plan_hash
-
-        if (
-            int(project.op_cursor) != row.source_cutoff
-            or canonical_plan_hash(current) != row.plan_hash
-        ):
+        if plan_hash != row.plan_hash or not self._consent_facts_current(project, row):
+            current = self._plan(
+                project,
+                sheet_id=row.sheet_id,
+                row_ids=row.row_ids,
+                force_ocr=row.force_ocr,
+            )
+            refreshed = self.store.replan(
+                row.id,
+                project_id=project_id,
+                storage_org_id=self.workspace.queue_storage_org_id,
+                source_cutoff=int(project.op_cursor),
+                plan=current,
+            )
             raise RouteError(
-                409, "search preparation plan changed; review the refreshed plan"
+                409,
+                {
+                    "code": "plan_changed",
+                    "message": "Search preparation changed; review the refreshed plan.",
+                    "batch": self._project(refreshed).model_dump(
+                        mode="json", by_alias=True
+                    ),
+                },
             )
         missing = {
             model["setup_ref"]: model
@@ -261,6 +307,33 @@ class SearchPreparationService:
             self.setup_start(first, initiated_by)
         self._advance(row)
         return self.get(project_id, batch_id)
+
+    @staticmethod
+    def _consent_facts_current(project: Any, row: SearchPreparationBatchRow) -> bool:
+        live_requirements = {item.setup_ref: item for item in _requirements()}
+        for planned in row.plan["models"]:
+            live = live_requirements.get(planned["setup_ref"])
+            if live is None:
+                return False
+            current = _requirement_dict(live, required=bool(planned["required"]))
+            if current != planned:
+                return False
+        for item in row.plan["items"]:
+            if item["kind"] == "native_pdf":
+                continue
+            source = resolve_cell_blob_source(
+                project,
+                sheet_id=row.sheet_id,
+                row_id=int(item["row_id"]),
+                column_id=int(item["column_id"]),
+            )
+            if source is None or (
+                source.blob_hash != item["blob_hash"]
+                or source.page_number != item["page_number"]
+                or source.binding.retrieval_revision != item["retrieval_revision"]
+            ):
+                return False
+        return True
 
     def stop(self, project_id: str, batch_id: str) -> SearchPreparationBatch:
         row = self.store.request_stop(
@@ -500,6 +573,24 @@ class SearchPreparationService:
 
     @staticmethod
     def _has_current_result(project: Any, source: Any, kind: str) -> bool:
+        prepared = project.db.execute(
+            "SELECT 1 FROM current_cell_values current "
+            "JOIN prepared_content_refs ref ON ref.id=current.prepared_ref_id "
+            "JOIN prepared_content_sets content ON content.id=ref.set_id "
+            "JOIN source_artifacts artifact ON artifact.id=content.source_artifact_id "
+            "WHERE current.row_id=? AND artifact.blob_hash=? "
+            "AND artifact.source_sheet_id=? AND artifact.source_row_id=? "
+            "AND artifact.source_column_id=? LIMIT 1",
+            (
+                source.binding.row_id,
+                source.blob_hash,
+                source.sheet_id,
+                source.binding.row_id,
+                source.binding.column_id,
+            ),
+        ).fetchone()
+        if prepared is not None:
+            return True
         if kind == "native_pdf":
             return False
         role = "media_ocr_grounding" if kind == "ocr" else "media_transcribe_temporal"
@@ -520,7 +611,7 @@ class SearchPreparationService:
         return row is not None
 
     def _advance(self, row: SearchPreparationBatchRow) -> None:
-        if row.stop_requested_at is not None or row.decision == "not_now":
+        if row.stop_requested_at is not None or row.errors:
             return
         planned_by_ref = {m["setup_ref"]: m for m in row.plan["models"]}
         readiness = {}
@@ -530,7 +621,6 @@ class SearchPreparationService:
                 readiness[live.capability] = _requirement_dict(
                     live, required=bool(planned["required"])
                 )
-        allowed = row.decision == "prepare"
         grouped: defaultdict[tuple[str, int, str], list[dict[str, Any]]] = defaultdict(
             list
         )
@@ -547,37 +637,78 @@ class SearchPreparationService:
                 else None
             )
             requirement = readiness.get(capability) if capability is not None else None
+            if row.decision == "not_now" and capability is not None:
+                continue
             if requirement is not None and not (
                 requirement["weights_ready"] and requirement["runtime_ready"]
             ):
-                if not allowed:
-                    continue
-                return
-            key = f"{kind}:{column_id}:{_sha([(i['row_id'], i['blob_hash'], i['retrieval_revision']) for i in items])}"
-            if key in children:
                 continue
-            child = self.store.reserve_child_and_advance(
-                row.id, expected_cursor=cursor, child_key=key, kind=kind
-            )
-            cursor += 1
+            key = f"{kind}:{column_id}:{_sha([(i['row_id'], i['blob_hash'], i['retrieval_revision']) for i in items])}"
+            child = children.get(key)
+            if child is not None and child.receipt_id is not None:
+                continue
+            if child is None:
+                child = self.store.reserve_child_and_advance(
+                    row.id, expected_cursor=cursor, child_key=key, kind=kind
+                )
+                cursor += 1
+            project = self.workspace.get(row.project_id)
+            if any(
+                not self._source_item_current(project, row.sheet_id, item)
+                for item in items
+            ):
+                self.store.append_error(
+                    row.id,
+                    project_id=row.project_id,
+                    storage_org_id=row.storage_org_id,
+                    message="A source file changed before search preparation started.",
+                )
+                return
             body = self._action_body(row, kind, column_name, items, key)
             response = self.action_runs.run_action(row.project_id, body)
             receipt_id = response.payload.get("receipt_id")
-            job_id = None
-            if isinstance(receipt_id, str):
-                job = self.workspace.queue.find_job_by_refs(
-                    ACTION_RUN_KIND,
-                    statuses=("queued", "running", "done", "failed", "cancelled"),
+            if not isinstance(receipt_id, str):
+                errors = response.payload.get("errors")
+                message = "Search preparation could not start."
+                if isinstance(errors, list) and errors and isinstance(errors[0], dict):
+                    message = str(errors[0].get("message") or message)
+                self.store.append_error(
+                    row.id,
                     project_id=row.project_id,
                     storage_org_id=row.storage_org_id,
-                    receipt_id=receipt_id,
+                    message=message,
                 )
-                job_id = None if job is None else job.id
+                return
+            raw_job_id = response.payload.get("job_id")
+            if isinstance(raw_job_id, bool) or not isinstance(raw_job_id, int):
+                self.store.append_error(
+                    row.id,
+                    project_id=row.project_id,
+                    storage_org_id=row.storage_org_id,
+                    message="Search preparation did not return a queued job.",
+                )
+                return
             self.store.bind_child(
                 child.id,
-                job_id=job_id,
-                receipt_id=receipt_id if isinstance(receipt_id, str) else None,
+                job_id=raw_job_id,
+                receipt_id=receipt_id,
             )
+
+    @staticmethod
+    def _source_item_current(
+        project: Any, sheet_id: int, item: Mapping[str, Any]
+    ) -> bool:
+        source = resolve_cell_blob_source(
+            project,
+            sheet_id=sheet_id,
+            row_id=int(item["row_id"]),
+            column_id=int(item["column_id"]),
+        )
+        return source is not None and (
+            source.blob_hash == item["blob_hash"]
+            and source.page_number == item["page_number"]
+            and source.binding.retrieval_revision == item["retrieval_revision"]
+        )
 
     @staticmethod
     def _action_body(
@@ -636,24 +767,60 @@ class SearchPreparationService:
                 self.setup_start(ref, None)
                 return
 
-    def _project(self, row: SearchPreparationBatchRow) -> SearchPreparationBatch:
+    def _project(
+        self, row: SearchPreparationBatchRow, *, may_setup_models: bool = True
+    ) -> SearchPreparationBatch:
+        from frisket.engine.jobs import model_pull_store
+
         children = self.store.children(row.id)
-        jobs = []
+        project = self.workspace.get(row.project_id)
+        receipts = ReceiptStore(project)
+        jobs: list[SearchPreparationJob] = []
+        child_states: dict[int, str] = {}
         for child in children:
-            if child.job_id is None:
-                continue
-            job = self.workspace.queue.get(child.job_id)
-            if job is not None:
+            stored = (
+                receipts.find_by_id(child.receipt_id)
+                if child.receipt_id is not None
+                else None
+            )
+            state = (
+                "planning"
+                if child.receipt_id is None
+                else "failed"
+                if stored is None
+                else {
+                    "queued": "queued",
+                    "running": "running",
+                    "completed": "done",
+                    "partial": "failed",
+                    "failed": "failed",
+                    "cancelled": "cancelled",
+                }.get(stored.status, "failed")
+            )
+            child_states[child.id] = state
+            if child.job_id is not None and state != "planning":
                 jobs.append(
                     SearchPreparationJob(
-                        job_id=job.id,
-                        status=job.status,
+                        job_id=child.job_id,
+                        status=state,
                         action_kind=child.kind,
                     )
                 )
         current = {item.setup_ref: item for item in _requirements()}
-        models = []
+        pulls = {
+            pull.model_ref: pull
+            for pull in model_pull_store.list_recent(
+                self.workspace.queue.engine,
+                str(self.workspace.root),
+                limit=100,
+                persist=False,
+            )
+        }
+        models: list[SearchPreparationModel] = []
         missing_required = False
+        setup_failed = False
+        setup_active = False
+        projection_errors = list(row.errors)
         for planned in row.plan["models"]:
             live = current.get(planned["setup_ref"])
             weights_ready = (
@@ -666,50 +833,60 @@ class SearchPreparationService:
                 if live is not None
                 else planned["runtime_ready"]
             )
-            missing_required = missing_required or (
-                planned["required"] and not weights_ready
-            )
+            ready = weights_ready and runtime_ready
+            missing_required = missing_required or (planned["required"] and not ready)
+            pull = pulls.get(planned["setup_ref"])
+            if pull is not None and planned["setup_ref"] in row.selected_setup_refs:
+                setup_active = setup_active or pull.status in {"pending", "running"}
+                if pull.status in {"failed", "cancelled"} and not ready:
+                    setup_failed = True
+                    if pull.error_message:
+                        projection_errors.append(pull.error_message)
             models.append(
                 SearchPreparationModel(
                     setup_ref=planned["setup_ref"],
                     display_name=planned["display_name"],
                     purpose=planned["purpose"],
                     required=planned["required"],
-                    ready=weights_ready and runtime_ready,
+                    ready=ready,
                     runtime_ready=runtime_ready,
                     download_bytes=None if weights_ready else planned["download_bytes"],
                     additional_runtime_download=planned["additional_runtime_download"],
                     remediation=planned["remediation"],
                     license=planned["license"],
                     source_url=planned["source_url"],
-                    pull_id=None,
+                    pull_id=None if pull is None else pull.id,
                 )
             )
-        job_statuses = {job.status for job in jobs}
+        job_statuses = set(child_states.values())
         all_children = len(children) == len(
             {(item["kind"], item["column_id"]) for item in row.plan["items"]}
         )
-        project = self.workspace.get(row.project_id)
         indexing = index_work_marker(project, include_preparation=False) is not None
         if row.stop_requested_at is not None:
             status = "stopped"
-        elif "failed" in job_statuses:
+        elif row.errors or setup_failed or job_statuses & {"failed", "cancelled"}:
             status = "failed"
         elif row.decision == "not_now":
             status = "complete"
         elif missing_required and row.decision is None:
             status = "needs_consent"
-        elif missing_required:
+        elif missing_required or setup_active:
             status = "preparing"
-        elif not all_children or job_statuses & {"queued", "running"} or indexing:
+        elif (
+            not all_children
+            or job_statuses & {"planning", "queued", "running"}
+            or indexing
+        ):
             status = "preparing"
-        elif job_statuses <= {"done"}:
+        elif all_children and job_statuses <= {"done"}:
             status = "complete"
         else:
             status = "planning"
         groups = []
         for group in row.plan["groups"]:
             kind_children = [c for c in children if c.kind == group["kind"]]
+            kind_states = {child_states[c.id] for c in kind_children}
             if row.stop_requested_at is not None:
                 group_status = "stopped"
             elif row.decision == "not_now" and (
@@ -717,16 +894,20 @@ class SearchPreparationService:
                 and any(m.required and not m.ready for m in models)
             ):
                 group_status = "not_prepared"
+            elif kind_states & {"failed", "cancelled"}:
+                group_status = "failed"
             elif not kind_children and status == "needs_consent":
                 group_status = "needs_consent"
-            elif kind_children and all(
-                self.workspace.queue.get(c.job_id).status == "done"
-                for c in kind_children
-                if c.job_id is not None
-            ):
+            elif not kind_children and setup_active:
+                group_status = "waiting_for_download"
+            elif kind_children and kind_states == {"done"}:
                 group_status = "complete"
-            elif kind_children:
+            elif kind_states & {"running"}:
                 group_status = "running"
+            elif kind_states & {"queued"}:
+                group_status = "queued"
+            elif kind_children:
+                group_status = "planning"
             else:
                 group_status = "planning"
             groups.append(SearchPreparationGroup(**group, status=group_status))
@@ -739,9 +920,15 @@ class SearchPreparationService:
             models=models,
             jobs=jobs,
             can_stop=status in {"preparing", "needs_consent"},
-            can_setup=status == "needs_consent"
-            and any(m.required and not m.ready for m in models),
-            errors=list(row.errors),
+            can_setup=may_setup_models
+            and status == "needs_consent"
+            and any(
+                m.required
+                and not m.ready
+                and (m.runtime_ready or planned["runtime_installable"])
+                for m, planned in zip(models, row.plan["models"], strict=True)
+            ),
+            errors=projection_errors,
         )
 
     @staticmethod

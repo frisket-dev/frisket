@@ -382,6 +382,45 @@ class SearchPreparationStore:
             )
         return self.get(batch_id, project_id=project_id, storage_org_id=storage_org_id)
 
+    def replan(
+        self,
+        batch_id: str,
+        *,
+        project_id: str,
+        storage_org_id: int | None,
+        source_cutoff: int,
+        plan: Mapping[str, Any],
+    ) -> SearchPreparationBatchRow:
+        """Replace an undecided stale plan while retaining completed children."""
+
+        c = search_preparation_batches_table.c
+        predicate = (
+            c.storage_org_id.is_(None)
+            if storage_org_id is None
+            else c.storage_org_id == storage_org_id
+        )
+        body = dict(plan)
+        with self._write() as cx:
+            result = cx.execute(
+                search_preparation_batches_table.update()
+                .where(
+                    c.id == batch_id,
+                    c.workspace_root == self.workspace_root,
+                    c.project_id == project_id,
+                    predicate,
+                    c.decision.is_(None),
+                )
+                .values(
+                    source_cutoff=source_cutoff,
+                    plan_hash=canonical_plan_hash(body),
+                    plan_json=json.dumps(body, sort_keys=True, separators=(",", ":")),
+                    updated_at=_now(),
+                )
+            )
+            if result.rowcount != 1:
+                raise ValueError("search preparation plan can no longer be refreshed")
+        return self.get(batch_id, project_id=project_id, storage_org_id=storage_org_id)
+
     def request_stop(
         self, batch_id: str, *, project_id: str, storage_org_id: int | None
     ) -> SearchPreparationBatchRow:
@@ -397,6 +436,42 @@ class SearchPreparationStore:
                 .where(c.id == batch_id, c.project_id == project_id, predicate)
                 .where(c.workspace_root == self.workspace_root)
                 .values(stop_requested_at=_now(), updated_at=_now())
+            )
+            if result.rowcount != 1:
+                raise KeyError(batch_id)
+        return self.get(batch_id, project_id=project_id, storage_org_id=storage_org_id)
+
+    def append_error(
+        self,
+        batch_id: str,
+        *,
+        project_id: str,
+        storage_org_id: int | None,
+        message: str,
+    ) -> SearchPreparationBatchRow:
+        """Record a bounded terminal coordinator error for a scoped intent."""
+
+        row = self.get(batch_id, project_id=project_id, storage_org_id=storage_org_id)
+        errors = [*row.errors, str(message).strip()[:500]]
+        c = search_preparation_batches_table.c
+        predicate = (
+            c.storage_org_id.is_(None)
+            if storage_org_id is None
+            else c.storage_org_id == storage_org_id
+        )
+        with self._write() as cx:
+            result = cx.execute(
+                search_preparation_batches_table.update()
+                .where(
+                    c.id == batch_id,
+                    c.workspace_root == self.workspace_root,
+                    c.project_id == project_id,
+                    predicate,
+                )
+                .values(
+                    error_json=json.dumps(errors, separators=(",", ":")),
+                    updated_at=_now(),
+                )
             )
             if result.rowcount != 1:
                 raise KeyError(batch_id)

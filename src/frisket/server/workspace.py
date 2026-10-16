@@ -247,6 +247,7 @@ class Workspace:
         self.queue_payload_extra = dict(queue_payload_extra or {})
         self.executor_deps_factory = executor_deps_factory
         self.search_preparation_import_completed = None
+        self.search_preparation_enclosure_downloaded = None
         if direct_action_receipt_settlement_port is not None and not isinstance(
             direct_action_receipt_settlement_port,
             DirectActionReceiptSettlementPort,
@@ -322,6 +323,13 @@ class Workspace:
                     project_id, receipt_id, sheet_id
                 )
                 if callable(self.search_preparation_import_completed)
+                else None
+            ),
+            on_enclosure_downloaded=lambda project_id, sheet_id, row_id: (
+                self.search_preparation_enclosure_downloaded(
+                    project_id, sheet_id, row_id
+                )
+                if callable(self.search_preparation_enclosure_downloaded)
                 else None
             ),
         )

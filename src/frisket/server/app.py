@@ -788,6 +788,13 @@ def create_app(
             project_id, receipt_id=receipt_id, sheet_id=sheet_id
         )
     )
+    ws.search_preparation_enclosure_downloaded = (
+        lambda project_id, sheet_id, row_id: (
+            search_preparation_service.create_after_materialization(
+                project_id, sheet_id=sheet_id, row_ids=[row_id]
+            )
+        )
+    )
     register_search_preparation_routes(
         app,
         service=search_preparation_service,
@@ -860,7 +867,9 @@ def create_app(
 
     register_import_pdf_routes(
         app,
-        service=ImportPdfUploadService(ws),
+        service=ImportPdfUploadService(
+            ws, search_preparation=search_preparation_service
+        ),
         limits=bulk_limits,
     )
 
@@ -884,7 +893,9 @@ def create_app(
 
     register_import_urls_routes(
         app,
-        service=ImportUrlsService(ws),
+        service=ImportUrlsService(
+            ws, search_preparation=search_preparation_service
+        ),
     )
 
     # ---------- recipes / runs ----------

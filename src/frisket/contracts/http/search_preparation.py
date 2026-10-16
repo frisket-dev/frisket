@@ -69,7 +69,7 @@ class SearchPreparationGroup(WireModel):
 class SearchPreparationModel(WireModel):
     setup_ref: str
     display_name: str
-    purpose: str
+    purpose: Literal["read_text", "transcribe", "search_by_meaning"]
     required: bool
     ready: bool
     runtime_ready: bool

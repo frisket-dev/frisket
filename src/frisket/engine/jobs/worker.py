@@ -322,6 +322,7 @@ def register_production_handlers(
     execution_composition_overlay: ExecutionCompositionOverlay | None = None,
     embedding_runtime: EmbeddingRuntime | None = None,
     on_terminal_file_import: Callable[[str, str, int], None] | None = None,
+    on_enclosure_downloaded: Callable[[str, int, int], None] | None = None,
 ) -> ProjectOpener | None:
     """Register the product handlers on the OPEN worker.
 
@@ -465,6 +466,7 @@ def register_production_handlers(
         workspace_root=root,
         workspace_root_storage_org_id=workspace_root_storage_org_id,
         project_opener=project_opener,
+        on_downloaded=on_enclosure_downloaded,
     )
     blob_metadata_registration = register_blob_metadata_handler(
         registry,

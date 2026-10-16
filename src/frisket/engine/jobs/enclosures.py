@@ -20,6 +20,7 @@ def register_enclosure_download_handler(
     fetch: Callable[[str], tuple[bytes, str, str, str | None]] | None = None,
     workspace_root_storage_org_id: int | None = None,
     project_opener: ProjectOpener | None = None,
+    on_downloaded: Callable[[str, int, int], None] | None = None,
 ) -> HandlerRegistration:
     root = Path(workspace_root)
 
@@ -48,6 +49,8 @@ def register_enclosure_download_handler(
                 )
             except ValueError as exc:
                 result = {"status": "error", "row_id": row_id, "error": str(exc)}
+            if result.get("status") == "downloaded" and on_downloaded is not None:
+                on_downloaded(project_id, sheet_id, row_id)
             return {"project_id": project_id, "sheet_id": sheet_id, **result}
         finally:
             project.close()

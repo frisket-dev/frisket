@@ -51,8 +51,14 @@ def register_search_preparation_routes(
         response_model=SearchPreparationBatchList,
         responses=responses,
     )
-    async def list_search_preparations(pid: str) -> SearchPreparationBatchList:
-        return await await_thread_worker(service.list, pid)
+    async def list_search_preparations(
+        request: Request, pid: str
+    ) -> SearchPreparationBatchList:
+        return await await_thread_worker(
+            service.list,
+            pid,
+            may_setup_models=capabilities_for(request, pid).manage_model_downloads,
+        )
 
     @app.get(
         f"{base}/{{batch_id}}",
@@ -60,8 +66,15 @@ def register_search_preparation_routes(
         response_model=SearchPreparationBatch,
         responses=responses,
     )
-    async def get_search_preparation(pid: str, batch_id: str) -> SearchPreparationBatch:
-        return await await_thread_worker(service.get, pid, batch_id)
+    async def get_search_preparation(
+        request: Request, pid: str, batch_id: str
+    ) -> SearchPreparationBatch:
+        return await await_thread_worker(
+            service.get,
+            pid,
+            batch_id,
+            may_setup_models=capabilities_for(request, pid).manage_model_downloads,
+        )
 
     @app.post(
         f"{base}/{{batch_id}}/decision",
