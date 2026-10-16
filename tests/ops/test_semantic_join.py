@@ -766,7 +766,8 @@ def test_semantic_join_endpoint_maps_user_errors_to_400(tmp_path):
 
 def test_semantic_join_endpoint_maps_embedding_failure_clearly(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        "frisket.ai.embeddings.backends.resolve_embedder", lambda router=None, **_kw: None
+        "frisket.ai.embeddings.backends.resolve_embedder",
+        lambda router=None, **_kw: None,
     )
     client = _client(tmp_path)
     pid, donors, registry = _api_project(client)
@@ -805,7 +806,9 @@ def test_semantic_join_remote_embedder_gates_before_any_embed_call(
 
     # undo this module's autouse resolve_embedder stub: the fence needs the
     # real resolution (local disabled -> remote fallback), not a fake backend
-    monkeypatch.setattr("frisket.ai.embeddings.backends.resolve_embedder", _REAL_RESOLVE_EMBEDDER)
+    monkeypatch.setattr(
+        "frisket.ai.embeddings.backends.resolve_embedder", _REAL_RESOLVE_EMBEDDER
+    )
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
     monkeypatch.setenv("FRISKET_ENABLE_PROVIDERLESS_CLASSIFY", "1")
     monkeypatch.setenv("FRISKET_PROVIDERLESS_CLASSIFY_THREADS", "2")
@@ -853,7 +856,9 @@ def test_semantic_join_tiny_known_zero_quote_is_preapproved(tmp_path, monkeypatc
     from frisket.ai.embeddings import backends as embedding_backends
     from frisket.server.app import create_app
 
-    monkeypatch.setattr("frisket.ai.embeddings.backends.resolve_embedder", _REAL_RESOLVE_EMBEDDER)
+    monkeypatch.setattr(
+        "frisket.ai.embeddings.backends.resolve_embedder", _REAL_RESOLVE_EMBEDDER
+    )
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
     assert embedding_backends.local_embedder() is None
     # Price the remote embed model so cheap the 6-decimal rounding lands on
@@ -963,7 +968,9 @@ def _patch_paid_remote_result(monkeypatch):
 
         return embed, REMOTE_EMBED_MODEL
 
-    monkeypatch.setattr("frisket.ai.embeddings.backends.resolve_embedder", resolve_paid_remote)
+    monkeypatch.setattr(
+        "frisket.ai.embeddings.backends.resolve_embedder", resolve_paid_remote
+    )
     return paid_results
 
 
@@ -1021,7 +1028,9 @@ def test_remote_semantic_join_refuses_exhausted_project_key_before_queue_or_embe
     from frisket.server.app import create_app
     from frisket.team.security.secrets import encrypt_secret, key_hint
 
-    monkeypatch.setattr("frisket.ai.embeddings.backends.resolve_embedder", _REAL_RESOLVE_EMBEDDER)
+    monkeypatch.setattr(
+        "frisket.ai.embeddings.backends.resolve_embedder", _REAL_RESOLVE_EMBEDDER
+    )
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
     embed_calls = _patch_async_remote_embedding(monkeypatch)
     client = TestClient(
@@ -1100,7 +1109,9 @@ def test_remote_semantic_join_completes_through_the_async_router_bridge(
     from frisket.server.app import create_app
     from frisket.team.security.secrets import encrypt_secret, key_hint
 
-    monkeypatch.setattr("frisket.ai.embeddings.backends.resolve_embedder", _REAL_RESOLVE_EMBEDDER)
+    monkeypatch.setattr(
+        "frisket.ai.embeddings.backends.resolve_embedder", _REAL_RESOLVE_EMBEDDER
+    )
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
     embed_calls = _patch_async_remote_embedding(monkeypatch)
     client = TestClient(

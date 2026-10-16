@@ -13,6 +13,7 @@ def test_semantic_join_publishes_source_and_child_with_feedable_receipt(
     tmp_path, monkeypatch
 ):
     vectors = {"ACME": [1.0, 0.0], "Acme": [1.0, 0.0], "Globex": [0.0, 1.0]}
+
     def embed(texts):
         return [vectors[text] for text in texts]
 

@@ -108,6 +108,7 @@ def test_remote_cluster_exact_consent_accounting_and_cache(
 def test_network_off_keeps_local_clustering(cluster_project, monkeypatch, method):
     project, sheet, source, execute = cluster_project
     monkeypatch.setattr(project, "effective_network_policy", lambda: "off")
+
     def embed(texts):
         return [[1.0, 0.0] for _ in texts]
 

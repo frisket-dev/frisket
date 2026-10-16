@@ -23,6 +23,7 @@ def completed_custom_join(tmp_path, monkeypatch):
             "custom.match": RegisteredAction("custom.match", definition),
         },
     )
+
     def embed(texts):
         return [[1.0, 0.0] for _ in texts]
 

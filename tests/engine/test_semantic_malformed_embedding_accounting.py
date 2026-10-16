@@ -51,9 +51,10 @@ def test_malformed_paid_batch_is_durable_without_caching_vectors(
     receipt = ReceiptStore(case.project).parsed_by_id(result.receipt_id)
     assert receipt.provider_use[0]["cost_actual"] == cost
     with RetrievalStore(case.project) as retrieval:
-        assert retrieval.db.execute(
-            "SELECT COUNT(*) FROM representations"
-        ).fetchone()[0] == 0
+        assert (
+            retrieval.db.execute("SELECT COUNT(*) FROM representations").fetchone()[0]
+            == 0
+        )
 
     replay = case.run(confirmation=confirmation)
     assert replay.receipt_id == result.receipt_id

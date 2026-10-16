@@ -70,13 +70,16 @@ def test_input_hash_preserves_legacy_payload_and_domains_embeddinggemma_inputs()
     image = ImageEncodingInput(b"same bytes")
     audio = AudioEncodingInput(b"same bytes")
     video = VideoClipEncodingInput((image,))
-    assert len(
-        {
-            embedding_input_hash(image),
-            embedding_input_hash(audio),
-            embedding_input_hash(video),
-        }
-    ) == 3
+    assert (
+        len(
+            {
+                embedding_input_hash(image),
+                embedding_input_hash(audio),
+                embedding_input_hash(video),
+            }
+        )
+        == 3
+    )
 
 
 @pytest.mark.asyncio

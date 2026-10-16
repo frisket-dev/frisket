@@ -33,9 +33,7 @@ FreshEncoder: TypeAlias = Callable[
     RawEmbeddingResult | Awaitable[RawEmbeddingResult],
 ]
 BeforeFreshBatch: TypeAlias = Callable[[list[EncodingInput]], None]
-OnFreshBatch: TypeAlias = Callable[
-    [RawEmbeddingResult, list[EncodingInput]], None
-]
+OnFreshBatch: TypeAlias = Callable[[RawEmbeddingResult, list[EncodingInput]], None]
 
 
 class RepresentationCache(Protocol):
@@ -85,8 +83,7 @@ def embedding_input_hash(
         return input_hash(b"frisket-embedding-input-v1\0image\0" + value.image_bytes)
     if isinstance(value, AudioEncodingInput):
         header = (
-            f"frisket-embedding-input-v1\0audio\0pcm16le-mono\0"
-            f"{value.sample_rate}\0"
+            f"frisket-embedding-input-v1\0audio\0pcm16le-mono\0{value.sample_rate}\0"
         ).encode("ascii")
         return input_hash(header + value.pcm16le_bytes)
     if isinstance(value, VideoClipEncodingInput):
@@ -240,7 +237,9 @@ class EmbeddingFacade:
         if not values:
             return []
         if len(values) > MAX_CACHED_BATCH:
-            raise ValueError(f"embedding batches are bounded to {MAX_CACHED_BATCH} inputs")
+            raise ValueError(
+                f"embedding batches are bounded to {MAX_CACHED_BATCH} inputs"
+            )
         if not isinstance(purpose, EncodingPurpose):
             raise TypeError("purpose must be EncodingPurpose.QUERY or DOCUMENT")
         _validate_space(space)
@@ -251,12 +250,10 @@ class EmbeddingFacade:
             raise ValueError("cache payloads must align with embedding inputs")
         if cache_payloads is not None:
             for value, payload in zip(values, cache_payloads, strict=True):
-                exact = (
-                    payload.encode("utf-8") if isinstance(payload, str) else payload
-                )
-                if not isinstance(value, TextEncodingInput) or exact != value.text.encode(
-                    "utf-8"
-                ):
+                exact = payload.encode("utf-8") if isinstance(payload, str) else payload
+                if not isinstance(
+                    value, TextEncodingInput
+                ) or exact != value.text.encode("utf-8"):
                     raise ValueError(
                         "cache payloads are only for exact legacy text encoder inputs"
                     )
@@ -274,8 +271,7 @@ class EmbeddingFacade:
         unique_hashes = list(dict.fromkeys(hashes))
         cached_rows = self._cache.get_representations(resolved_space_id, unique_hashes)
         cached: dict[str, EmbeddingVector] = {
-            key: _unpack_cached(row, space=space)
-            for key, row in cached_rows.items()
+            key: _unpack_cached(row, space=space) for key, row in cached_rows.items()
         }
         missing_hashes = [key for key in unique_hashes if key not in cached]
         if missing_hashes:
@@ -339,7 +335,9 @@ class EmbeddingFacade:
                     on_fresh_batch=on_fresh_batch,
                 )
             )
-        raise RuntimeError("EmbeddingFacade.encode cannot run on an event loop; await encode_async")
+        raise RuntimeError(
+            "EmbeddingFacade.encode cannot run on an event loop; await encode_async"
+        )
 
 
 __all__ = [

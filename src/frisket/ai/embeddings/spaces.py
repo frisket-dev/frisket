@@ -70,9 +70,7 @@ class DescriptorEmbeddingSpace:
     normalized: bool
 
     @classmethod
-    def from_descriptor(
-        cls, descriptor: dict[str, Any]
-    ) -> DescriptorEmbeddingSpace:
+    def from_descriptor(cls, descriptor: dict[str, Any]) -> DescriptorEmbeddingSpace:
         validate_descriptor(descriptor)
         return cls(
             dimensions=descriptor["dimension"],

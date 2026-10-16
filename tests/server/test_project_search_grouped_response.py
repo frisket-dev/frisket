@@ -294,8 +294,7 @@ def test_navigation_normalizes_sqlite_column_rows(monkeypatch) -> None:
             assert sheet_id == 1
             return list(
                 self.db.execute(
-                    "SELECT 3 AS id,'source' AS name,'video' AS type,"
-                    "0 AS ai_generated"
+                    "SELECT 3 AS id,'source' AS name,'video' AS type,0 AS ai_generated"
                 )
             )
 

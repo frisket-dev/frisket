@@ -319,9 +319,7 @@ def test_lexical_search_hydrates_noncell_source_through_authority_adapter(
             assert binding.dependencies == (BindingRevision(row, column, revision),)
             return text
 
-        monkeypatch.setattr(
-            "frisket.retrieval.query.resolve_source_text", resolve
-        )
+        monkeypatch.setattr("frisket.retrieval.query.resolve_source_text", resolve)
         response = search(
             project,
             SearchRequest(

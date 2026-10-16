@@ -109,9 +109,12 @@ def test_runtime_is_lazy_and_closed_runtime_refuses_new_work():
         raise AssertionError("empty request started session")
 
     runtime = EmbeddingRuntime(factory)
-    assert runtime.encode(
-        [], purpose=EncodingPurpose.QUERY, space=EmbeddingGemma2Space(128)
-    ) == []
+    assert (
+        runtime.encode(
+            [], purpose=EncodingPurpose.QUERY, space=EmbeddingGemma2Space(128)
+        )
+        == []
+    )
     assert called is False
     runtime.close()
     with pytest.raises(EncodingError) as caught:
@@ -263,7 +266,9 @@ def test_close_cancels_active_and_queued_sync_callers_before_stopping_loop():
 
     assert all(not caller.is_alive() for caller in callers)
     assert len(outcomes) == 2
-    assert all(isinstance(error, concurrent.futures.CancelledError) for error in outcomes)
+    assert all(
+        isinstance(error, concurrent.futures.CancelledError) for error in outcomes
+    )
     assert sessions[0].close_count == 1
 
 

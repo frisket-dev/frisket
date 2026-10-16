@@ -108,15 +108,13 @@ def local_embedder(
     runtime_env = os.environ if env is None else env
     providerless = capability == PROVIDERLESS_CLASSIFY_CAPABILITY
     providerless_opt_in = (
-        providerless
-        and runtime_env.get(PROVIDERLESS_CLASSIFY_ENABLE_ENV) == "1"
+        providerless and runtime_env.get(PROVIDERLESS_CLASSIFY_ENABLE_ENV) == "1"
     )
     if capability is not None and capability != PROVIDERLESS_CLASSIFY_CAPABILITY:
         raise ValueError(f"unknown local embedding capability: {capability!r}")
     if providerless and model_id != PROVIDERLESS_CLASSIFY_MODEL:
         raise ValueError(
-            f"{PROVIDERLESS_CLASSIFY_CAPABILITY} requires "
-            f"{PROVIDERLESS_CLASSIFY_MODEL}"
+            f"{PROVIDERLESS_CLASSIFY_CAPABILITY} requires {PROVIDERLESS_CLASSIFY_MODEL}"
         )
     if (
         runtime_env.get("FRISKET_DISABLE_LOCAL_EMBED") == "1"
@@ -217,13 +215,8 @@ def local_reranker(
     def score(query: str, documents: list[str]) -> list[float]:
         global _local_rerank_model
         if _local_rerank_model is None:
-            _local_rerank_model = TextCrossEncoder(
-                RERANK_MODEL, local_files_only=True
-            )
-        return [
-            float(value)
-            for value in _local_rerank_model.rerank(query, documents)
-        ]
+            _local_rerank_model = TextCrossEncoder(RERANK_MODEL, local_files_only=True)
+        return [float(value) for value in _local_rerank_model.rerank(query, documents)]
 
     return score
 

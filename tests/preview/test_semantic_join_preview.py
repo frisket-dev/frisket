@@ -22,7 +22,8 @@ def test_public_semantic_preview_samples_source_but_searches_whole_target(
     embed.embedding_dimension = 2
 
     monkeypatch.setattr(
-        "frisket.ai.embeddings.backends.resolve_embedder", lambda *a, **kw: (embed, "fastembed/test")
+        "frisket.ai.embeddings.backends.resolve_embedder",
+        lambda *a, **kw: (embed, "fastembed/test"),
     )
 
     def forbid_durable_match_evidence(*args, **kwargs):

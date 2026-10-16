@@ -41,7 +41,8 @@ def test_stale_abort_releases_fresh_names_for_new_key(
     model = "openai/text-embedding-3-small" if remote else "fastembed/test"
     embed.embedding_dimension = 1536 if remote else 2
     monkeypatch.setattr(
-        "frisket.ai.embeddings.backends.resolve_embedder", lambda *a, **kw: (embed, model)
+        "frisket.ai.embeddings.backends.resolve_embedder",
+        lambda *a, **kw: (embed, model),
     )
 
     def run(**changes):
