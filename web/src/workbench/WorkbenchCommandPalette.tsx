@@ -197,36 +197,41 @@ export function WorkbenchCommandPalette({
     setupError,
     startSetup,
   } = usePaletteSearch(query, searchSheets, onClose, searchSeed);
+  const anchored = anchor !== null;
   const hasAnyFilteredResults =
-    filteredBestMatch.length > 0 ||
-    filteredActions.length > 0 ||
-    filteredGoto.length > 0 ||
-    hasCommandsSectionResults ||
-    (groups?.length ?? 0) > 0;
+    anchored
+      ? (groups?.length ?? 0) > 0
+      : filteredBestMatch.length > 0 ||
+        filteredActions.length > 0 ||
+        filteredGoto.length > 0 ||
+        hasCommandsSectionResults ||
+        (groups?.length ?? 0) > 0;
 
   // The flat keyboard-navigable list, in visual order (production sections,
   // then COMMANDS, then SEARCH — matching the section order rendered below).
   const navRows = useMemo<NavRow[]>(() => {
     const rows: NavRow[] = [];
-    filteredBestMatch.forEach((item, i) =>
-      rows.push({ key: `best:${item.actionKind}:${i}`, kind: 'action', item }),
-    );
-    filteredActions.forEach((item, i) =>
-      rows.push({ key: `act:${item.actionKind}:${i}`, kind: 'action', item }),
-    );
-    filteredGoto.forEach((item) => rows.push({ key: `goto:${item.sheetId}`, kind: 'goto', item }));
-    filteredCommands.forEach((entry) =>
-      rows.push({ key: `cmd:${entry.descriptor.id}`, kind: 'command', entry }),
-    );
-    filteredLauncherCommands.forEach((item) =>
-      rows.push({ key: `launcher:${item.contributionId}`, kind: 'launcher', item }),
-    );
-    filteredHideTargets.forEach((target) =>
-      rows.push({ key: `hide:${target.contributionId}`, kind: 'visibility', action: 'hide', target }),
-    );
-    filteredRevealTargets.forEach((target) =>
-      rows.push({ key: `reveal:${target.contributionId}`, kind: 'visibility', action: 'reveal', target }),
-    );
+    if (!anchored) {
+      filteredBestMatch.forEach((item, i) =>
+        rows.push({ key: `best:${item.actionKind}:${i}`, kind: 'action', item }),
+      );
+      filteredActions.forEach((item, i) =>
+        rows.push({ key: `act:${item.actionKind}:${i}`, kind: 'action', item }),
+      );
+      filteredGoto.forEach((item) => rows.push({ key: `goto:${item.sheetId}`, kind: 'goto', item }));
+      filteredCommands.forEach((entry) =>
+        rows.push({ key: `cmd:${entry.descriptor.id}`, kind: 'command', entry }),
+      );
+      filteredLauncherCommands.forEach((item) =>
+        rows.push({ key: `launcher:${item.contributionId}`, kind: 'launcher', item }),
+      );
+      filteredHideTargets.forEach((target) =>
+        rows.push({ key: `hide:${target.contributionId}`, kind: 'visibility', action: 'hide', target }),
+      );
+      filteredRevealTargets.forEach((target) =>
+        rows.push({ key: `reveal:${target.contributionId}`, kind: 'visibility', action: 'reveal', target }),
+      );
+    }
     (groups ?? []).forEach((group) => {
       for (const hit of [group.primary, ...group.supporting]) {
         rows.push({ key: `hit:${hit.part.part_id}:${hit.binding.binding_id}`, kind: 'search', hit });
@@ -242,6 +247,7 @@ export function WorkbenchCommandPalette({
     filteredHideTargets,
     filteredRevealTargets,
     groups,
+    anchored,
   ]);
 
   // The highlighted row. Clamp on read (rather than a setState-in-effect) so a
@@ -368,45 +374,49 @@ export function WorkbenchCommandPalette({
         </div>
 
         <div className="workbench-command-palette-body">
-          <PaletteProductionSections
-            filteredBestMatch={filteredBestMatch}
-            filteredActions={filteredActions}
-            filteredGoto={filteredGoto}
-            activeIndex={activeIndex}
-            actionRowIndex={(item) =>
-              rowIndex((row) => row.kind === 'action' && row.item === item)
-            }
-            gotoRowIndex={(item) => rowIndex((row) => row.kind === 'goto' && row.item === item)}
-            onHover={setActiveIndex}
-            onLaunchAction={launchAction}
-            onNavigateSheet={navigateSheet}
-          />
+          {!anchored && (
+            <>
+              <PaletteProductionSections
+                filteredBestMatch={filteredBestMatch}
+                filteredActions={filteredActions}
+                filteredGoto={filteredGoto}
+                activeIndex={activeIndex}
+                actionRowIndex={(item) =>
+                  rowIndex((row) => row.kind === 'action' && row.item === item)
+                }
+                gotoRowIndex={(item) => rowIndex((row) => row.kind === 'goto' && row.item === item)}
+                onHover={setActiveIndex}
+                onLaunchAction={launchAction}
+                onNavigateSheet={navigateSheet}
+              />
 
-          <PaletteCommandsSection
-            commands={filteredCommands}
-            launcherCommands={filteredLauncherCommands}
-            hideTargets={filteredHideTargets}
-            revealTargets={filteredRevealTargets}
-            activeIndex={activeIndex}
-            commandRowIndex={(entry) =>
-              rowIndex((row) => row.kind === 'command' && row.entry === entry)
-            }
-            launcherRowIndex={(item) =>
-              rowIndex((row) => row.kind === 'launcher' && row.item === item)
-            }
-            visibilityRowIndex={(action, target) =>
-              rowIndex(
-                (row) => row.kind === 'visibility' && row.action === action && row.target === target,
-              )
-            }
-            onHover={setActiveIndex}
-            onLaunchCommand={runCommand}
-            onLaunchLauncher={runLauncher}
-            onHideContribution={onHideContribution}
-            onRevealContribution={onRevealContribution}
-          />
+              <PaletteCommandsSection
+                commands={filteredCommands}
+                launcherCommands={filteredLauncherCommands}
+                hideTargets={filteredHideTargets}
+                revealTargets={filteredRevealTargets}
+                activeIndex={activeIndex}
+                commandRowIndex={(entry) =>
+                  rowIndex((row) => row.kind === 'command' && row.entry === entry)
+                }
+                launcherRowIndex={(item) =>
+                  rowIndex((row) => row.kind === 'launcher' && row.item === item)
+                }
+                visibilityRowIndex={(action, target) =>
+                  rowIndex(
+                    (row) => row.kind === 'visibility' && row.action === action && row.target === target,
+                  )
+                }
+                onHover={setActiveIndex}
+                onLaunchCommand={runCommand}
+                onLaunchLauncher={runLauncher}
+                onHideContribution={onHideContribution}
+                onRevealContribution={onRevealContribution}
+              />
+            </>
+          )}
 
-          {query.trim() !== '' && !hasAnyFilteredResults && (
+          {!anchored && query.trim() !== '' && !hasAnyFilteredResults && (
             <div className="palette-empty-state" data-testid="palette-empty-state">
               No commands or actions match “{query.trim()}”.
             </div>
@@ -430,7 +440,7 @@ export function WorkbenchCommandPalette({
             query={query}
             sheetName={sheetName}
             anchorLabel={anchorLabel}
-            anchored={anchor !== null}
+            anchored={anchored}
             onClearAnchor={clearAnchor}
             activeIndex={activeIndex}
             rowIndexOfHit={(hit) => rowIndex((row) => row.kind === 'search' && row.hit === hit)}

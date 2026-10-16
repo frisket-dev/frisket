@@ -113,6 +113,47 @@ function PaletteHarness() {
   );
 }
 
+function AnchoredPaletteHarness() {
+  const [query, setQuery] = useState('');
+  return (
+    <WorkbenchCommandPalette
+      onClose={vi.fn()}
+      commands={[]}
+      onHideContribution={vi.fn()}
+      onRevealContribution={vi.fn()}
+      lastAction=""
+      visibilityTargets={[]}
+      query={query}
+      onQueryChange={setQuery}
+      bestMatchItems={[{ actionKind: 'map.extract', name: 'Extract fields' }]}
+      actionItems={[]}
+      gotoItems={[]}
+      onLaunchAction={vi.fn()}
+      onNavigateSheet={vi.fn()}
+      searchSheets={[{ id: '1', name: 'Documents' } as never]}
+      searchSeed={{
+        label: 'page 2',
+        anchor: {
+          kind: 'cell',
+          sheet_id: 1,
+          row_id: 2,
+          column_id: 3,
+          exclude_exact: true,
+          location: {
+            kind: 'document_page',
+            precision: 'exact',
+            text: null,
+            pages: { start: 2, end: 2 },
+            time: null,
+            source_span_ids: [],
+          },
+        },
+      }}
+      onNavigateSearchHit={vi.fn()}
+    />
+  );
+}
+
 beforeEach(() => {
   searchProject.mockReset();
   startEngineSetup.mockReset();
@@ -121,6 +162,17 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('located palette search', () => {
+  it('puts an explicit similarity anchor ahead of unrelated palette commands', async () => {
+    searchProject.mockResolvedValue(completeResponse);
+    render(<AnchoredPaletteHarness />);
+
+    expect(await screen.findByTestId('search-anchor')).toHaveTextContent('Similar to page 2');
+    expect(screen.queryByText('Extract fields')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear similarity anchor' }));
+    expect(screen.getByText('Extract fields')).toBeVisible();
+  });
+
   it('renders grouped supporting hits and searches from the selected exact hit', async () => {
     searchProject.mockResolvedValue(completeResponse);
     render(<PaletteHarness />);
