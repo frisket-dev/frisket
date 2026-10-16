@@ -93,13 +93,15 @@ python experiments/video_retrieval/evaluate.py \
 
 ## Bounded experiment decision
 
-On the labelled 40-second corpus, use shot-aware native video clips with a
-10-second maximum as the visual default. It matched fixed 10-second clips at
-6/6 Recall@1 and 5/6 useful-seek@1, reduced median seek error from 3.5 to 1.1
+On the labelled 40-second corpus, use the confined ffmpeg scene-score v1
+strategy with a 10-second maximum as the provisional visual default. It matched
+fixed 10-second clips at 6/6 Recall@1, reduced median seek error from 3.5 to 1.0
 seconds, removed overlapping top-three results (0.00 versus 0.83 mean duplicate
-rate), and encoded documents 23% faster (160.0 versus 208.7 seconds). Keep
-5-second periodic frames as a low-cost fallback: they encoded in 14.2 seconds,
-but reached only 4/6 Recall@1 and 3/6 useful-seek@1.
+rate), and encoded documents 23% faster (160.4 versus 208.7 seconds). It reached
+4/6 useful-seek@1 versus fixed windows at 5/6, so fixed 10-second windows remain
+a selectable precision alternative. Keep 5-second periodic frames as the
+low-cost fallback: they encoded in 14.2 seconds, but reached only 4/6 Recall@1
+and 3/6 useful-seek@1.
 
 Use an existing timed transcript for speech whenever one is available. Its one
 document encoded in 0.13 seconds with exact seek placement and a 0.951 query
