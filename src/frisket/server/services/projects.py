@@ -30,8 +30,8 @@ from frisket.retrieval.media import (
 from frisket.retrieval.preparation import (
     PreparationPolicy,
     read_preparation_policy,
-    write_preparation_policy,
 )
+from frisket.retrieval.preparation_policy import write_preparation_policy_patch
 from frisket.server.route_errors import RouteError
 from frisket.team.security.secrets import encrypt_secret, key_hint
 from frisket.server import provider_config
@@ -217,6 +217,16 @@ def _updated_retrieval_policy(
                 ),
             )
     return replace(policy, **updates)
+
+
+_RETRIEVAL_SETTING_POLICY_FIELDS = {
+    "text_enabled": "text_recipe",
+    "transcript_enabled": "transcript_recipe",
+    "image_enabled": "image_enabled",
+    "pdf_pages_enabled": "pdf_pages_enabled",
+    "video": "video_recipe",
+    "audio_enabled": "audio_recipe",
+}
 
 
 def _provider_catalog(scope: KeyScope) -> list[dict[str, Any]]:
@@ -630,7 +640,14 @@ class ProjectLifecycleService:
                     retrieval_policy = _updated_retrieval_policy(
                         read_preparation_policy(project), retrieval_patch
                     )
-                    write_preparation_policy(project, retrieval_policy)
+                    write_preparation_policy_patch(
+                        project,
+                        retrieval_policy,
+                        replace_fields={
+                            _RETRIEVAL_SETTING_POLICY_FIELDS[name]
+                            for name in retrieval_patch
+                        },
+                    )
         except (TypeError, ValueError, ValidationError) as exc:
             raise ProjectSettingsError(str(exc)) from exc
         if retrieval_policy is not None:

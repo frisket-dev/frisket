@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
+from collections.abc import Collection
 from dataclasses import dataclass
 from typing import Any
 
@@ -64,6 +65,16 @@ class PreparationPolicy:
 DEFAULT_PREPARATION_POLICY = PreparationPolicy()
 _MISSING = object()
 _POLICY_KEYS = frozenset(field.name for field in dataclasses.fields(PreparationPolicy))
+_RECIPE_TYPES: dict[str, dict[str, type[Any]]] = {
+    "text_recipe": {"text_codepoint_windows": TextChunkRecipe},
+    "transcript_recipe": {"transcript_segment_windows": TranscriptChunkRecipe},
+    "video_recipe": {
+        "periodic_frames": PeriodicFrameRecipe,
+        "fixed_clips": FixedClipRecipe,
+        "shot_clips_ffmpeg_scene_v1": ShotClipRecipe,
+    },
+    "audio_recipe": {"audio_windows": AudioWindowRecipe},
+}
 
 
 def _knob(name: str) -> str:
@@ -156,13 +167,13 @@ def parse_preparation_policy(raw: str) -> PreparationPolicy:
             "text_recipe",
             value.get("text_recipe", _MISSING),
             DEFAULT_PREPARATION_POLICY.text_recipe,
-            {"text_codepoint_windows": TextChunkRecipe},
+            _RECIPE_TYPES["text_recipe"],
         ),
         transcript_recipe=_optional_recipe(
             "transcript_recipe",
             value.get("transcript_recipe", _MISSING),
             DEFAULT_PREPARATION_POLICY.transcript_recipe,
-            {"transcript_segment_windows": TranscriptChunkRecipe},
+            _RECIPE_TYPES["transcript_recipe"],
         ),
         image_enabled=_boolean(
             "image_enabled",
@@ -178,17 +189,13 @@ def parse_preparation_policy(raw: str) -> PreparationPolicy:
             "video_recipe",
             value.get("video_recipe", _MISSING),
             DEFAULT_PREPARATION_POLICY.video_recipe,
-            {
-                "periodic_frames": PeriodicFrameRecipe,
-                "fixed_clips": FixedClipRecipe,
-                "shot_clips_ffmpeg_scene_v1": ShotClipRecipe,
-            },
+            _RECIPE_TYPES["video_recipe"],
         ),
         audio_recipe=_optional_recipe(
             "audio_recipe",
             value.get("audio_recipe", _MISSING),
             DEFAULT_PREPARATION_POLICY.audio_recipe,
-            {"audio_windows": AudioWindowRecipe},
+            _RECIPE_TYPES["audio_recipe"],
         ),
     )
 
@@ -220,6 +227,51 @@ def write_preparation_policy(project, policy: PreparationPolicy) -> None:
         enqueue_dirty_scope(project.db)
 
 
+def write_preparation_policy_patch(
+    project,
+    policy: PreparationPolicy,
+    *,
+    replace_fields: Collection[str],
+) -> None:
+    """Persist explicit current-version fields without erasing future JSON."""
+
+    from frisket.engine.store.search_index_work import enqueue_dirty_scope
+
+    if not isinstance(policy, PreparationPolicy):
+        raise TypeError("policy must be a PreparationPolicy")
+    replacements = frozenset(replace_fields)
+    unexpected = sorted(replacements - _POLICY_KEYS)
+    if unexpected:
+        raise ValueError(f"unknown preparation policy field {unexpected[0]}")
+
+    with project.transaction_scope():
+        raw = project.get_meta(PREPARATION_POLICY_META_KEY)
+        if raw is None:
+            stored: dict[str, Any] = {}
+        else:
+            try:
+                decoded = json.loads(raw)
+            except (TypeError, json.JSONDecodeError) as exc:
+                raise ValueError(
+                    f"{PREPARATION_POLICY_META_KEY} must be valid JSON"
+                ) from exc
+            if not isinstance(decoded, dict):
+                raise ValueError(f"{PREPARATION_POLICY_META_KEY} must be an object")
+            stored = decoded
+
+        current = json.loads(preparation_policy_json(policy))
+        for name in replacements:
+            stored[name] = current[name]
+        encoded = json.dumps(
+            stored,
+            allow_nan=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        project.set_meta(PREPARATION_POLICY_META_KEY, encoded, commit=False)
+        enqueue_dirty_scope(project.db)
+
+
 __all__ = [
     "DEFAULT_PREPARATION_POLICY",
     "DEFAULT_TEXT_RECIPE",
@@ -232,4 +284,5 @@ __all__ = [
     "read_preparation_policy",
     "read_preparation_policy_db",
     "write_preparation_policy",
+    "write_preparation_policy_patch",
 ]

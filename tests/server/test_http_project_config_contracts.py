@@ -13,7 +13,10 @@ from frisket.contracts.http.project_config import ProjectProviderKeyValidationRe
 from frisket.engine.store import Project
 from frisket.retrieval.media import AudioWindowRecipe
 from frisket.retrieval.preparation_policy import (
+    DEFAULT_PREPARATION_POLICY,
+    PREPARATION_POLICY_META_KEY,
     PreparationPolicy,
+    preparation_policy_json,
     write_preparation_policy,
 )
 from frisket.server import provider_config
@@ -232,6 +235,63 @@ def test_concurrent_partial_retrieval_patches_merge_after_writer_lock(
         assert response.json()["retrieval"]["audio_enabled"] is True
     finally:
         concurrent.close()
+
+
+@pytest.mark.parametrize(
+    ("stored_video", "reported_strategy"),
+    [
+        (
+            {
+                "strategy": "future_strategy_v2",
+                "future_key": "preserve-me",
+            },
+            "off",
+        ),
+        (
+            {
+                **json.loads(preparation_policy_json(DEFAULT_PREPARATION_POLICY))[
+                    "video_recipe"
+                ],
+                "future_key": "preserve-me",
+            },
+            "shot_clips",
+        ),
+    ],
+)
+def test_project_settings_preserve_untouched_future_policy_fields(
+    tmp_path, stored_video: dict, reported_strategy: str
+) -> None:
+    client = TestClient(create_app(tmp_path / "workspace"))
+    pid = client.post("/api/projects", json={"name": "Future policy"}).json()["id"]
+    project = client.app.state.workspace.get(pid)
+    stored = json.loads(preparation_policy_json(DEFAULT_PREPARATION_POLICY))
+    stored["future_top_level"] = {"remote_provider": "paid"}
+    stored["video_recipe"] = stored_video
+    project.set_meta(PREPARATION_POLICY_META_KEY, json.dumps(stored))
+
+    readable = client.get(f"/api/projects/{pid}/settings")
+    assert readable.status_code == 200
+    assert readable.json()["retrieval"]["video"]["strategy"] == reported_strategy
+
+    unrelated = client.patch(
+        f"/api/projects/{pid}/settings",
+        json={"retrieval": {"text_enabled": False}},
+    )
+    assert unrelated.status_code == 200, unrelated.text
+    persisted = json.loads(project.get_meta(PREPARATION_POLICY_META_KEY))
+    assert persisted["text_recipe"] is None
+    assert persisted["video_recipe"] == stored_video
+    assert persisted["future_top_level"] == {"remote_provider": "paid"}
+
+    converged = client.patch(
+        f"/api/projects/{pid}/settings",
+        json={"retrieval": {"video": {"strategy": "off"}}},
+    )
+    assert converged.status_code == 200, converged.text
+    persisted = json.loads(project.get_meta(PREPARATION_POLICY_META_KEY))
+    assert persisted["video_recipe"] is None
+    assert persisted["future_top_level"] == {"remote_provider": "paid"}
+    assert persisted["text_recipe"] is None
 
 
 def test_network_and_secret_conflict_responses_preserve_existing_wire_bytes(
