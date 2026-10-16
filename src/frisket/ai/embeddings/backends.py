@@ -178,9 +178,7 @@ def local_embedder(
             try:
                 model = TextEmbedding(resolved, **options)
             except ValueError as exc:
-                _raise_if_fastembed_cache_miss(
-                    exc, model_id=resolved, modality="text"
-                )
+                _raise_if_fastembed_cache_miss(exc, model_id=resolved, modality="text")
                 raise
             _local_models[cache_key] = model
         return [vector.tolist() for vector in model.embed(texts)]
@@ -211,9 +209,7 @@ def local_image_embedder(
             try:
                 model = ImageEmbedding(resolved, local_files_only=True)
             except ValueError as exc:
-                _raise_if_fastembed_cache_miss(
-                    exc, model_id=resolved, modality="image"
-                )
+                _raise_if_fastembed_cache_miss(exc, model_id=resolved, modality="image")
                 raise
             _local_image_models[resolved] = model
         return [vector.tolist() for vector in model.embed(images)]
