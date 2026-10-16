@@ -9064,6 +9064,7 @@ type HttpProjectSearchResponse_ProjectSearchEvidenceNavigation = ({
   "evidence_link_id": (string);
   "kind": ("evidence") & (string);
   "span_id": (string);
+  "span_ids"?: (Array<(string)>);
 });
 
 type HttpProjectSearchResponse_ProjectSearchGroup = ({
@@ -9086,6 +9087,7 @@ type HttpProjectSearchResponse_ProjectSearchHit = ({
   "score": (number);
   "snippet": (string);
   "source": (HttpProjectSearchResponse_ProjectSearchSource);
+  "source_name"?: (((string)) | ((null)));
 });
 
 type HttpProjectSearchResponse_ProjectSearchLocatedAnchor = ({

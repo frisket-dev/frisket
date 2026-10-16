@@ -40,7 +40,8 @@ def _db() -> sqlite3.Connection:
             stable_id TEXT,
             source_sheet_id INTEGER,
             source_row_id INTEGER,
-            source_column_id INTEGER
+            source_column_id INTEGER,
+            filename TEXT
         );
         CREATE TABLE source_spans(
             id INTEGER PRIMARY KEY,
@@ -74,6 +75,9 @@ def _db() -> sqlite3.Connection:
 @dataclass
 class _Project:
     db: sqlite3.Connection
+
+    def get_values(self, sheet_id, column_id, *, row_ids):
+        return {row_id: {"filename": "clip.mp4"} for row_id in row_ids}
 
     def sheets(self) -> list[dict[str, object]]:
         return [{"id": 1}]
@@ -176,7 +180,7 @@ def test_grouped_response_preserves_supporting_hits_and_real_navigation(
     db = _db()
     db.executescript(
         """
-        INSERT INTO source_artifacts VALUES (1, 'artifact-1', 1, 2, 3);
+        INSERT INTO source_artifacts VALUES (1, 'artifact-1', 1, 2, 3, 'harbor.pdf');
         INSERT INTO source_spans(id,stable_id,artifact_id)
         VALUES (1, 'span-1', 1);
         INSERT INTO evidence_links VALUES (1, 'link-1', 1, 2, 3, 'active');
@@ -259,7 +263,7 @@ def test_evidence_navigation_selects_span_for_located_page(monkeypatch) -> None:
     db = _db()
     db.executescript(
         """
-        INSERT INTO source_artifacts VALUES (1, 'artifact-1', 1, 2, 3);
+        INSERT INTO source_artifacts VALUES (1, 'artifact-1', 1, 2, 3, 'harbor.pdf');
         INSERT INTO source_spans(
             id,stable_id,artifact_id,page_start,page_end,quote
         ) VALUES
