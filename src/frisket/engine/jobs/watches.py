@@ -254,10 +254,13 @@ def register_watch_evaluate_handler(
                 }
             query_kind = str(_watch_query(row).get("kind") or "").strip().lower()
             if query_kind in {"fts", "search.fts"}:
-                from .search_index import process_index_batches
+                from .search_index import index_work_marker, process_index_batches
 
                 processed, complete = process_index_batches(project)
-                if not complete:
+                # A source write can enqueue a fresh scope after the indexer
+                # reports its quantum complete. Re-read durable work before
+                # evaluating so that run cannot advance past an unseen row.
+                if not complete or index_work_marker(project) is not None:
                     return continue_after_indexing(processed)
             try:
                 evaluation = run_watch_evaluation(project, row)
