@@ -420,10 +420,13 @@ export function usePaletteSearch(
       .finally(() => setSetupBusy(false));
   };
   const finishSetup = (pull: ModelPullDto) => {
-    setSetupOperation((currentOperation) => currentOperation?.pull.id === pull.id
-      ? { ...currentOperation, pull }
-      : currentOperation);
-    if (pull.status === 'done') {
+    const matching = pull.operation_kind === 'engine_setup'
+      && setupOperation?.setupRef === pull.model;
+    setSetupOperation((currentOperation) => {
+      if (currentOperation?.pull.id !== pull.id) return currentOperation;
+      return matching ? { ...currentOperation, pull } : null;
+    });
+    if (matching && pull.status === 'done') {
       setSearchResult(null);
       setSearchRevision((revision) => revision + 1);
     }

@@ -214,10 +214,17 @@ export function PaletteSearchSection({
   const [selectedGapSheetId, setSelectedGapSheetId] = useState('');
   const status = coverageMessage(coverage);
   const setup = coverage?.channels.find((channel) => channel.setup)?.setup;
-  const currentSetupOperation = setupOperation?.setupRef === setup?.setup_ref
+  const operationForSetup = setupOperation?.setupRef === setup?.setup_ref
     ? setupOperation
     : null;
-  const consentSetup = !currentSetupOperation && setup?.setup_ref === setupConsentRef
+  const currentSetupOperation = operationForSetup?.pull.operation_kind === 'engine_setup'
+    && operationForSetup.pull.model === setup?.setup_ref
+    ? operationForSetup
+    : null;
+  const blockingSetupOperation = operationForSetup && !currentSetupOperation
+    ? operationForSetup
+    : null;
+  const consentSetup = !operationForSetup && setup?.setup_ref === setupConsentRef
     ? setup
     : null;
   const resultCount = groups?.length ?? 0;
@@ -337,7 +344,7 @@ export function PaletteSearchSection({
       {!searchError && status && (
         <div className="search-empty" role="status">
           {status}
-          {setup && !currentSetupOperation && (
+          {setup && !operationForSetup && (
             <button
               type="button"
               className="mini-btn"
@@ -392,6 +399,38 @@ export function PaletteSearchSection({
           <ModelPullProgress
             pull={currentSetupOperation.pull}
             fetchPull={currentSetupOperation.scope === 'organization'
+              ? orgGetModelPull
+              : getModelPull}
+            onDone={onFinishSetup}
+            onFailed={onFinishSetup}
+            readOnly
+          />
+          {(currentSetupOperation.pull.status === 'failed'
+            || currentSetupOperation.pull.status === 'cancelled') && (
+            <button
+              type="button"
+              className="btn btn-primary"
+              data-testid="search-setup-retry"
+              disabled={setupBusy}
+              onClick={() => onStartSetup(
+                currentSetupOperation.setupRef,
+                currentSetupOperation.scope,
+              )}
+            >
+              {setupBusy ? 'Starting…' : 'Retry setup'}
+            </button>
+          )}
+        </section>
+      )}
+      {blockingSetupOperation && (
+        <section className="search-setup-consent" data-testid="search-setup-blocked-progress">
+          <div>
+            <strong>Another setup operation is active</strong>
+            <span>Wait for it to finish, then try semantic setup again.</span>
+          </div>
+          <ModelPullProgress
+            pull={blockingSetupOperation.pull}
+            fetchPull={blockingSetupOperation.scope === 'organization'
               ? orgGetModelPull
               : getModelPull}
             onDone={onFinishSetup}

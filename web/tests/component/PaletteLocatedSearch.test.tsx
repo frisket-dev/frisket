@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { WorkbenchCommandPalette } from '../../src/workbench/WorkbenchCommandPalette';
+import { ModelSetupRequestError } from '../../src/api/engineSetup';
 
 const searchProject = vi.fn();
 const startEngineSetup = vi.fn();
@@ -389,9 +390,12 @@ describe('located palette search', () => {
         }],
       },
     });
-    startEngineSetup.mockResolvedValue({ pull: setupPull(), deduplicated: false });
+    startEngineSetup
+      .mockResolvedValueOnce({ pull: setupPull(), deduplicated: false })
+      .mockResolvedValueOnce({ pull: setupPull({ id: 72 }), deduplicated: false });
     getModelPull.mockResolvedValue(setupPull({
       status: 'failed',
+      capabilities: { cancel: false, retry: true, remove: false },
       error: { code: 'download_failed', message: 'Could not download model' },
       finished_at: '2026-10-16T00:01:00Z',
     }));
@@ -404,6 +408,60 @@ describe('located palette search', () => {
     await waitFor(() => expect(screen.getByTestId('model-pull-error')).toHaveTextContent(
       'Could not download model',
     ), { timeout: 2_500 });
+    expect(searchProject).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByTestId('search-setup-retry'));
+    await waitFor(() => expect(startEngineSetup).toHaveBeenCalledTimes(2));
+    expect(screen.getByTestId('model-pull-progress')).toHaveAttribute('data-status', 'running');
+    expect(searchProject).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not mistake an unrelated busy pull for semantic setup', async () => {
+    searchProject.mockResolvedValue({
+      groups: [],
+      coverage: {
+        requested_mode: 'semantic', effective_modes: ['lexical'], state: 'unavailable',
+        searched_channels: ['text'], is_top_k: true, truncated: false,
+        channels: [{
+          channel: 'semantic', state: 'unavailable', reason: 'model unavailable', recipe_id: null,
+          setup: {
+            setup_ref: 'engine-setup:embeddinggemma-2.local@1', scope: 'workspace',
+            display_name: 'EmbeddingGemma 2', download_bytes: 1_525_784_180,
+            additional_runtime_download: true, license: 'Apache-2.0',
+            source_url: 'https://example.test/embeddinggemma',
+          },
+        }],
+      },
+    });
+    startEngineSetup.mockRejectedValue(new ModelSetupRequestError(409, 88));
+    getModelPull
+      .mockResolvedValueOnce(setupPull({
+        id: 88,
+        operation_kind: 'local_model',
+        model: 'llama3:8b',
+        display_name: 'Llama 3',
+      }))
+      .mockResolvedValueOnce(setupPull({
+        id: 88,
+        operation_kind: 'local_model',
+        model: 'llama3:8b',
+        display_name: 'Llama 3',
+        status: 'done',
+        finished_at: '2026-10-16T00:01:00Z',
+      }));
+
+    render(<PaletteHarness />);
+    fireEvent.click(await screen.findByTestId('search-setup'));
+    fireEvent.click(screen.getByTestId('search-setup-confirm'));
+
+    expect(await screen.findByTestId('search-setup-blocked-progress')).toHaveTextContent(
+      'Another setup operation is active',
+    );
+    expect(screen.queryByText('Setting up semantic search')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('search-setup-consent')).toBeVisible(), {
+      timeout: 2_500,
+    });
+    expect(screen.getByTestId('search-setup-confirm')).toBeEnabled();
     expect(searchProject).toHaveBeenCalledTimes(1);
   });
 
