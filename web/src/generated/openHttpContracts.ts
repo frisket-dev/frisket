@@ -1657,10 +1657,13 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
-      "id": "tenant.search_ep.get",
-      "method": "GET",
+      "id": "tenant.search_ep.post",
+      "method": "POST",
       "path": "/api/projects/{pid}/search",
-      "request": null
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
     },
     {
       "id": "tenant.seed_sample_project.post",
@@ -7056,13 +7059,6 @@ export type HttpInline_cd5e2492515e7874 = ({
   "pid": (string);
 });
 
-export type HttpInline_d038fda6e4c7e695 = ({
-  "limit"?: (number);
-  "mode"?: (string);
-  "q": (string);
-  "rerank"?: (string);
-});
-
 export type HttpInline_d746974fa9afd5e9 = (Record<string, never>);
 
 type HttpInline_d89a2ac461d6e692_ActionError = ({
@@ -8786,23 +8782,250 @@ export type HttpProjectRetentionResponse = ({
   "supported_default_evidence": (Array<("compactable" | "pinned" | "materialized") & (string)>);
 });
 
-type HttpProjectSearchPage_ProjectSearchHit = ({
-  "ai_generated": (boolean);
-  "column_id": (number);
-  "column_name": (string);
-  "rerank_score"?: (number);
+type HttpProjectSearchRequest_ProjectSearchBinding = ({
+  "binding_id": (string);
+  "column_id"?: (((number)) | ((null)));
+  "dependencies": (Array<(HttpProjectSearchRequest_ProjectSearchBindingRevision)>);
   "row_id": (number);
-  "score"?: (number);
-  "semantic"?: (boolean);
   "sheet_id": (number);
-  "snip": (string);
-  [key: string]: JsonValue | (boolean) | (number) | (string) | undefined;
 });
 
-export type HttpProjectSearchPage = ({
-  "hits": (Array<(HttpProjectSearchPage_ProjectSearchHit)>);
-  "indexing": (boolean);
-  [key: string]: JsonValue | (Array<(HttpProjectSearchPage_ProjectSearchHit)>) | (boolean);
+type HttpProjectSearchRequest_ProjectSearchBindingRevision = ({
+  "column_id": (number);
+  "retrieval_revision": (number);
+  "row_id": (number);
+});
+
+type HttpProjectSearchRequest_ProjectSearchCellAnchor = ({
+  "column_id": (number);
+  "exclude_exact"?: (boolean);
+  "kind": ("cell") & (string);
+  "location"?: (((HttpProjectSearchRequest_ProjectSearchLocation)) | ((null)));
+  "row_id": (number);
+  "sheet_id": (number);
+});
+
+type HttpProjectSearchRequest_ProjectSearchLocatedAnchor = ({
+  "binding"?: (((HttpProjectSearchRequest_ProjectSearchBinding)) | ((null)));
+  "exclude_exact"?: (boolean);
+  "kind": ("located") & (string);
+  "location": (HttpProjectSearchRequest_ProjectSearchLocation);
+  "source": (HttpProjectSearchRequest_ProjectSearchSource);
+});
+
+type HttpProjectSearchRequest_ProjectSearchLocation = ({
+  "kind": (string);
+  "pages": (((HttpProjectSearchRequest_ProjectSearchPageRange)) | ((null)));
+  "precision": ("exact" | "source_unit" | "approximate") & (string);
+  "source_span_ids": (Array<(string)>);
+  "text": (((HttpProjectSearchRequest_ProjectSearchTextRange)) | ((null)));
+  "time": (((HttpProjectSearchRequest_ProjectSearchTimeRange)) | ((null)));
+});
+
+type HttpProjectSearchRequest_ProjectSearchPageRange = ({
+  "end": (number);
+  "start": (number);
+});
+
+type HttpProjectSearchRequest_ProjectSearchProjectScope = ({
+  "kind": ("project") & (string);
+});
+
+type HttpProjectSearchRequest_ProjectSearchRanking = ({
+  "rerank"?: ("off" | "auto" | "on") & (string);
+});
+
+type HttpProjectSearchRequest_ProjectSearchSheetScope = ({
+  "column_ids"?: (((Array<(number)>)) | ((null)));
+  "filter_json"?: (((string)) | ((null)));
+  "parent_row_id"?: (((number)) | ((null)));
+  "row_ids"?: (((Array<(number)>)) | ((null)));
+  "sheet_id": (number);
+});
+
+type HttpProjectSearchRequest_ProjectSearchSheetsScope = ({
+  "kind": ("sheets") & (string);
+  "sheets": (Array<(HttpProjectSearchRequest_ProjectSearchSheetScope)>);
+});
+
+type HttpProjectSearchRequest_ProjectSearchSimilarQuery = ({
+  "anchor": (((HttpProjectSearchRequest_ProjectSearchLocatedAnchor)) | ((HttpProjectSearchRequest_ProjectSearchCellAnchor)));
+  "kind": ("similar") & (string);
+});
+
+type HttpProjectSearchRequest_ProjectSearchSource = ({
+  "content_hash": (((string)) | ((null)));
+  "source_id": (string);
+  "source_kind": (string);
+  "version_kind": (string);
+  "version_value": (((number)) | ((string)));
+});
+
+type HttpProjectSearchRequest_ProjectSearchTextQuery = ({
+  "kind": ("text") & (string);
+  "lexical_syntax"?: ("fts" | "plain") & (string);
+  "text": (string);
+});
+
+type HttpProjectSearchRequest_ProjectSearchTextRange = ({
+  "content_hash": (string);
+  "end": (number);
+  "start": (number);
+  "text_surface_id": (string);
+});
+
+type HttpProjectSearchRequest_ProjectSearchTimeRange = ({
+  "end_seconds": (number);
+  "start_seconds": (number);
+});
+
+export type HttpProjectSearchRequest = ({
+  "group_by"?: ("part" | "source" | "row") & (string);
+  "limit"?: (number);
+  "mode"?: ("lexical" | "semantic" | "hybrid") & (string);
+  "named_index_id"?: (((string)) | ((null)));
+  "query": (((HttpProjectSearchRequest_ProjectSearchTextQuery)) | ((HttpProjectSearchRequest_ProjectSearchSimilarQuery)));
+  "ranking"?: (HttpProjectSearchRequest_ProjectSearchRanking);
+  "scope": (((HttpProjectSearchRequest_ProjectSearchProjectScope)) | ((HttpProjectSearchRequest_ProjectSearchSheetsScope)));
+});
+
+type HttpProjectSearchResponse_ProjectSearchBinding = ({
+  "binding_id": (string);
+  "column_id"?: (((number)) | ((null)));
+  "dependencies": (Array<(HttpProjectSearchResponse_ProjectSearchBindingRevision)>);
+  "row_id": (number);
+  "sheet_id": (number);
+});
+
+type HttpProjectSearchResponse_ProjectSearchBindingRevision = ({
+  "column_id": (number);
+  "retrieval_revision": (number);
+  "row_id": (number);
+});
+
+type HttpProjectSearchResponse_ProjectSearchCellNavigation = ({
+  "column_id"?: (((number)) | ((null)));
+  "kind": ("cell") & (string);
+  "row_id": (number);
+  "sheet_id": (number);
+  "text_range"?: (((HttpProjectSearchResponse_ProjectSearchTextRange)) | ((null)));
+});
+
+type HttpProjectSearchResponse_ProjectSearchChannelCoverage = ({
+  "channel": (string);
+  "eligible_count"?: (((number)) | ((null)));
+  "failed_count"?: (((number)) | ((null)));
+  "prepared_count"?: (((number)) | ((null)));
+  "reason": (((string)) | ((null)));
+  "recipe_id": (((string)) | ((null)));
+  "setup"?: (((HttpProjectSearchResponse_ProjectSearchSetup)) | ((null)));
+  "state": ("ready" | "pending" | "failed" | "unavailable") & (string);
+});
+
+type HttpProjectSearchResponse_ProjectSearchContribution = ({
+  "channel": (string);
+  "method": (string);
+  "rank": (number);
+  "representation_id": (((string)) | ((null)));
+  "score": (((number)) | ((null)));
+  "space_id": (((string)) | ((null)));
+});
+
+type HttpProjectSearchResponse_ProjectSearchCoverage = ({
+  "channels": (Array<(HttpProjectSearchResponse_ProjectSearchChannelCoverage)>);
+  "effective_modes": (Array<("lexical" | "semantic") & (string)>);
+  "is_top_k": (boolean);
+  "requested_mode": ("lexical" | "semantic" | "hybrid") & (string);
+  "searched_channels": (Array<(string)>);
+  "state": ("complete" | "partial" | "preparing" | "unavailable" | "failed") & (string);
+  "truncated": (boolean);
+});
+
+type HttpProjectSearchResponse_ProjectSearchDocumentNavigation = ({
+  "column_id": (number);
+  "kind": ("document") & (string);
+  "page"?: (((number)) | ((null)));
+  "row_id": (number);
+  "sheet_id": (number);
+  "time_seconds"?: (((number)) | ((null)));
+});
+
+type HttpProjectSearchResponse_ProjectSearchEvidenceNavigation = ({
+  "evidence_link_id": (string);
+  "kind": ("evidence") & (string);
+  "span_id": (string);
+});
+
+type HttpProjectSearchResponse_ProjectSearchGroup = ({
+  "additional_count": (number);
+  "group_key": (string);
+  "primary": (HttpProjectSearchResponse_ProjectSearchHit);
+  "supporting": (Array<(HttpProjectSearchResponse_ProjectSearchHit)>);
+});
+
+type HttpProjectSearchResponse_ProjectSearchHit = ({
+  "additional_binding_count": (number);
+  "ai_generated": (boolean);
+  "binding": (HttpProjectSearchResponse_ProjectSearchBinding);
+  "column_name": (((string)) | ((null)));
+  "contributions": (Array<(HttpProjectSearchResponse_ProjectSearchContribution)>);
+  "location": (HttpProjectSearchResponse_ProjectSearchLocation);
+  "navigation": (((HttpProjectSearchResponse_ProjectSearchEvidenceNavigation)) | ((HttpProjectSearchResponse_ProjectSearchDocumentNavigation)) | ((HttpProjectSearchResponse_ProjectSearchCellNavigation)));
+  "part": (HttpProjectSearchResponse_ProjectSearchPart);
+  "rerank_score"?: (((number)) | ((null)));
+  "score": (number);
+  "snippet": (string);
+  "source": (HttpProjectSearchResponse_ProjectSearchSource);
+});
+
+type HttpProjectSearchResponse_ProjectSearchLocation = ({
+  "kind": (string);
+  "pages": (((HttpProjectSearchResponse_ProjectSearchPageRange)) | ((null)));
+  "precision": ("exact" | "source_unit" | "approximate") & (string);
+  "source_span_ids": (Array<(string)>);
+  "text": (((HttpProjectSearchResponse_ProjectSearchTextRange)) | ((null)));
+  "time": (((HttpProjectSearchResponse_ProjectSearchTimeRange)) | ((null)));
+});
+
+type HttpProjectSearchResponse_ProjectSearchPageRange = ({
+  "end": (number);
+  "start": (number);
+});
+
+type HttpProjectSearchResponse_ProjectSearchPart = ({
+  "part_id": (string);
+  "part_kind": (string);
+  "producer_recipe_id": (string);
+});
+
+type HttpProjectSearchResponse_ProjectSearchSetup = ({
+  "scope": ("workspace" | "organization") & (string);
+  "setup_ref": (string);
+});
+
+type HttpProjectSearchResponse_ProjectSearchSource = ({
+  "content_hash": (((string)) | ((null)));
+  "source_id": (string);
+  "source_kind": (string);
+  "version_kind": (string);
+  "version_value": (((number)) | ((string)));
+});
+
+type HttpProjectSearchResponse_ProjectSearchTextRange = ({
+  "content_hash": (string);
+  "end": (number);
+  "start": (number);
+  "text_surface_id": (string);
+});
+
+type HttpProjectSearchResponse_ProjectSearchTimeRange = ({
+  "end_seconds": (number);
+  "start_seconds": (number);
+});
+
+export type HttpProjectSearchResponse = ({
+  "coverage": (HttpProjectSearchResponse_ProjectSearchCoverage);
+  "groups": (Array<(HttpProjectSearchResponse_ProjectSearchGroup)>);
 });
 
 type HttpProjectSecretCatalogResponse_ProjectSecret = ({
@@ -14213,12 +14436,12 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
-  readonly "tenant.search_ep.get": {
+  readonly "tenant.search_ep.post": {
     readonly pathParams: HttpInline_87cacc773db826e7;
-    readonly query: HttpInline_d038fda6e4c7e695;
-    readonly request: undefined;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpProjectSearchRequest;
     readonly responses: {
-      readonly "200": HttpProjectSearchPage;
+      readonly "200": HttpProjectSearchResponse;
       readonly "401": HttpError;
       readonly "403": HttpError;
       readonly "404": HttpError;
