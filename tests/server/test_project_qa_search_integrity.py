@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 import frisket.retrieval.service as retrieval_service
 from frisket.contracts.http.project_qa import AskCitation
 from frisket.engine.store import Project
@@ -31,6 +33,7 @@ def _response(
     *,
     locator: SourceLocator | None = None,
     dependencies: tuple[BindingRevision, ...] | None = None,
+    mode: Literal["lexical", "semantic"] = "lexical",
 ) -> SearchResponse:
     hit = LocatedHit(
         part=IndexedPart(
@@ -60,7 +63,7 @@ def _response(
             ),
         ),
         contributions=(
-            RetrievalContribution(method="lexical", channel="text", rank=1, score=1.0),
+            RetrievalContribution(method=mode, channel="text", rank=1, score=1.0),
         ),
         rank_score=1.0,
         precision="source_unit",
@@ -69,8 +72,8 @@ def _response(
     return SearchResponse(
         results=(ResultGroup(group_key="source:text", primary=hit),),
         coverage=SearchCoverage(
-            requested_mode="lexical",
-            effective_modes=("lexical",),
+            requested_mode=mode,
+            effective_modes=(mode,),
             state="complete",
             searched_channels=("text",),
             is_top_k=True,
@@ -156,6 +159,36 @@ def test_keyword_search_mints_citation_after_dependency_recheck(tmp_path, monkey
             resolve_citation(project, turn["thread_id"], hit["citation_id"])["status"]
             == "current"
         )
+        assert result["partial"] is False
+    finally:
+        project.close()
+
+
+def test_semantic_search_uses_shared_runtime_and_mints_a_citation(
+    tmp_path, monkeypatch
+):
+    project, store, turn, sheet, row, column, revision = _ask_project(tmp_path)
+    runtime = object()
+    observed = []
+
+    def semantic_search(_project, request, **kwargs):
+        observed.append((request.mode, kwargs["runtime"]))
+        return _response(sheet, row, column, revision, mode="semantic")
+
+    monkeypatch.setattr(retrieval_service, "search_with_encoding", semantic_search)
+    try:
+        result = ProjectQATools(
+            project,
+            turn,
+            store,
+            embedding_runtime=runtime,
+            setup_scope="workspace",
+        ).search_cells("oldneedle", sheet, mode="semantic")
+
+        assert observed == [("semantic", runtime)]
+        [hit] = result["hits"]
+        assert store.get_citation(hit["citation_id"])["source_kind"] == "cell"
+        assert result["coverage"]["requested_mode"] == "semantic"
         assert result["partial"] is False
     finally:
         project.close()

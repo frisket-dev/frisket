@@ -172,6 +172,7 @@ class ProjectQATools:
         quote_provider: QuoteProvider | None = None,
         output_grants_provider: Callable[[], OutputGrantResolution] | None = None,
         embedding_runtime: EmbeddingRuntime | None = None,
+        setup_scope: Literal["workspace", "organization"] | None = None,
         research: bool = False,
     ) -> None:
         self.project = project
@@ -184,6 +185,7 @@ class ProjectQATools:
         self._source_chars = 0
         self._output_grants_provider = output_grants_provider
         self._embedding_runtime = embedding_runtime
+        self._setup_scope = setup_scope
         self._research = research
         self.cancel_event = threading.Event()
         self._project_action_catalog_payload = (
@@ -769,7 +771,10 @@ class ProjectQATools:
                 if str(error) != "source_changed":
                     raise
                 source_changed = True
-        coverage = _coverage_payload(response.coverage, offer_local_setup=True)
+        coverage = _coverage_payload(
+            response.coverage,
+            setup_scope=self._setup_scope,
+        )
         if source_changed:
             coverage = {**coverage, "state": "partial", "reason": "source_changed"}
         return {

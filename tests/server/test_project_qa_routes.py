@@ -95,6 +95,8 @@ def test_citation_resolves_saved_value_and_refuses_another_thread(tmp_path):
             "sheet_id": sheet,
             "row_id": row,
             "column_id": column,
+            "navigation": None,
+            "text_range": None,
         }
         assert (
             client.get(f"{prefix}/{other['id']}/citations/{citation_id}").status_code
@@ -106,6 +108,33 @@ def test_citation_resolves_saved_value_and_refuses_another_thread(tmp_path):
         assert "Ada" in changed["excerpt"]
         project.delete_sheet(sheet)
         assert client.get(path).json()["status"] == "unavailable"
+
+
+def test_empty_cell_citation_remains_current_until_the_cell_changes(tmp_path):
+    from frisket.engine.store.project_qa import ProjectQAStore
+    from frisket.server.services.project_qa_tools import ProjectQATools
+
+    with TestClient(create_app(tmp_path / "ws")) as client:
+        pid = client.post("/api/projects", json={"name": "Ask"}).json()["id"]
+        project = client.app.state.workspace.get(pid)
+        sheet = project.add_sheet("Evidence")
+        column = project.add_column(sheet, "Name")
+        [row] = project.add_rows(sheet, [{}], {"Name": column})
+        store = ProjectQAStore(project)
+        thread = store.create_thread(title="Question")
+        turn = store.submit_turn(thread["id"], request_id="once", question="Who?")
+        read = ProjectQATools(project, turn, store).read_rows(sheet, [row], [column])
+        citation_id = read["rows"][0]["cells"][0]["citation_id"]
+        store.finish_turn(turn["id"], status="completed")
+        path = f"/api/projects/{pid}/qa/threads/{thread['id']}/citations/{citation_id}"
+
+        current = client.get(path)
+        assert current.status_code == 200, current.text
+        assert current.json()["status"] == "current"
+        assert current.json()["target"]["row_id"] == row
+
+        project.apply_edits([{"row_id": row, "column_id": column, "value": "Ada"}])
+        assert client.get(path).json()["status"] == "changed"
 
 
 def test_query_and_prepared_evidence_citations_reopen_current_sources(tmp_path):

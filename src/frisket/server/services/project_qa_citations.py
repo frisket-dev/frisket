@@ -229,7 +229,15 @@ def _resolve_project_citation(
             project, (sheet_id, row_id, column_id), limit=1
         )
     except ValueError:
-        return result
+        values, refs = project.get_values_with_refs(
+            sheet_id,
+            column_id,
+            row_ids=[row_id],
+            include_validity=True,
+        )
+        if row_id not in values or values[row_id] is not None or row_id not in refs:
+            return result
+        current_source = {"value_ref": refs[row_id], "version": None}
     saved_ref = locator.get("value_ref")
     saved_version = locator.get("source_version")
     if saved_version is not None and locator.get("prepared_cell") is None:

@@ -14,7 +14,7 @@ from frisket.engine.store.materialization import (
 )
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.project_qa import ProjectQAStore
-from frisket.retrieval.contracts import SearchCoverage, SearchResponse
+from frisket.retrieval.contracts import ChannelCoverage, SearchCoverage, SearchResponse
 from frisket.server.services.project_qa_output_scope import (
     OutputReadGrant,
     UnavailableOutput,
@@ -567,14 +567,29 @@ def test_semantic_search_uses_the_shared_runtime_without_a_tool_local_budget(
                     searched_channels=(),
                     is_top_k=True,
                     truncated=False,
+                    channels=(
+                        ChannelCoverage(channel="semantic", state="unavailable"),
+                    ),
                 ),
             )
 
         monkeypatch.setattr(retrieval_service, "search_with_encoding", semantic_stub)
-        ordinary = ProjectQATools(project, turn, store, embedding_runtime=runtime)
-        ordinary.search_cells("one", sheet_id, mode="semantic")
-        ordinary.search_cells("one", sheet_id, mode="semantic")
+        ordinary = ProjectQATools(
+            project,
+            turn,
+            store,
+            embedding_runtime=runtime,
+            setup_scope="workspace",
+        )
+        first = ordinary.search_cells("one", sheet_id, mode="semantic")
+        second = ordinary.search_cells("one", sheet_id, mode="semantic")
         assert observed == [(runtime, "semantic"), (runtime, "semantic")]
+        assert first["coverage"]["state"] == "unavailable"
+        assert second["coverage"]["state"] == "unavailable"
+        assert first["coverage"]["channels"][0]["setup"] == {
+            "setup_ref": "engine-setup:embeddinggemma-2.local@1",
+            "scope": "workspace",
+        }
 
         observed.clear()
         research = ProjectQATools(

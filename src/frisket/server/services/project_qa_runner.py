@@ -109,6 +109,7 @@ async def run_turn(
     selected_model: str | None = None,
     selected_egress_class: str | None = None,
     embedding_runtime: EmbeddingRuntime | None = None,
+    setup_scope: Literal["workspace", "organization"] | None = None,
 ) -> dict[str, Any]:
     """Investigate one admitted turn; the caller owns terminalization."""
 
@@ -132,6 +133,7 @@ async def run_turn(
         else None,
         research=research is not None,
         embedding_runtime=embedding_runtime,
+        setup_scope=setup_scope,
     )
     tool_lock = asyncio.Lock()
     model_id = selected_model or turn["model"] or default_project_ask_model(router)
