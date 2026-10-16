@@ -19,6 +19,7 @@ from frisket.ai.embeddings.similarity import SimilarityError
 from frisket.engine.executor import ExecutorDeps, run_action_spec
 from frisket.engine.store import Project
 from frisket.retrieval.store import RetrievalStore
+from frisket.team.security.secrets import encrypt_secret, key_hint
 from helpers import replace_test_source_cell
 
 
@@ -457,7 +458,7 @@ def test_typed_preview_rejects_mid_embed_provider_metadata_edit(env, monkeypatch
 
 
 @pytest.mark.parametrize("query_kind", ["embedding_similarity", "embedding_hybrid"])
-def test_typed_preview_refuses_remote_query_text_before_gateway(
+def test_typed_preview_refuses_uncached_remote_query_text_before_gateway(
     env, monkeypatch, query_kind
 ):
     project, sheet, _cols, index_id = env
@@ -489,13 +490,13 @@ def test_typed_preview_refuses_remote_query_text_before_gateway(
         "frisket.ai.embeddings.similarity.EmbeddingGateway", forbidden_gateway
     )
     query = (
-        {**_manual_query(index_id, "cat"), "sheet_id": sheet}
+        {**_manual_query(index_id, "uncached remote query"), "sheet_id": sheet}
         if query_kind == "embedding_similarity"
         else {
             "kind": "embedding_hybrid",
             "embedding_index_id": index_id,
             "sheet_id": sheet,
-            "text": "cat",
+            "text": "uncached remote query",
         }
     )
     result = run_action_spec(
@@ -520,6 +521,75 @@ def test_typed_preview_refuses_remote_query_text_before_gateway(
     spend = project.db.execute(
         "SELECT COALESCE(SUM(spent_micro), 0), "
         "COALESCE(SUM(unmetered_calls), 0) FROM project_provider_keys"
+    ).fetchone()
+    assert tuple(spend) == spend_before
+
+
+@pytest.mark.parametrize("query_kind", ["embedding_similarity", "embedding_hybrid"])
+def test_typed_preview_uses_cached_remote_query_without_admission(
+    env, monkeypatch, query_kind
+):
+    project, sheet, _cols, index_id = env
+    project.db.execute(
+        "UPDATE embedding_spaces SET provider_id='openai', "
+        "provider_kind='platform_api' WHERE id=(SELECT space_id FROM "
+        "embedding_indexes WHERE id=?)",
+        (index_id,),
+    )
+    project.db.execute(
+        "UPDATE embedding_indexes SET provider_policy_json=? WHERE id=?",
+        ('{"allow_remote":false}', index_id),
+    )
+    project.db.commit()
+    project.set_network_policy(mode="off")
+    project.set_provider_key(
+        provider="openai",
+        encrypted=encrypt_secret("sk-cached-query"),
+        hint=key_hint("sk-cached-query"),
+        spend_cap_micro=0,
+    )
+    model_calls_before = project.db.execute(
+        "SELECT COUNT(*) FROM model_calls"
+    ).fetchone()[0]
+    spend_before = tuple(
+        project.db.execute(
+            "SELECT spent_micro,unmetered_calls FROM project_provider_keys "
+            "WHERE provider='openai'"
+        ).fetchone()
+    )
+
+    def forbidden_gateway(*_args, **_kwargs):
+        raise AssertionError("a cached query must not construct a remote gateway")
+
+    monkeypatch.setattr(
+        "frisket.ai.embeddings.similarity.EmbeddingGateway", forbidden_gateway
+    )
+    query = (
+        {**_manual_query(index_id, "cat"), "sheet_id": sheet}
+        if query_kind == "embedding_similarity"
+        else {
+            "kind": "embedding_hybrid",
+            "embedding_index_id": index_id,
+            "sheet_id": sheet,
+            "text": "cat",
+        }
+    )
+
+    result = run_action_spec(
+        project,
+        _preview_action(query, key=f"typed-cached-remote-{query_kind}"),
+        project_id="p",
+    )
+
+    assert result.status == "completed", result.errors
+    assert result.outputs[0].ref["row_count"] > 0
+    assert (
+        project.db.execute("SELECT COUNT(*) FROM model_calls").fetchone()[0]
+        == model_calls_before
+    )
+    spend = project.db.execute(
+        "SELECT spent_micro,unmetered_calls FROM project_provider_keys "
+        "WHERE provider='openai'"
     ).fetchone()
     assert tuple(spend) == spend_before
 

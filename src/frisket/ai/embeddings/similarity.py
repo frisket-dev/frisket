@@ -527,22 +527,23 @@ def _manual_query(
         provider_policy = json.loads(index["provider_policy_json"] or "{}")
     except (TypeError, ValueError):
         provider_policy = {}
-    if provider_kind in REMOTE_PROVIDER_KINDS and gateway is None:
-        raise SimilarityError(
-            "embedding_remote_preview_unsupported",
-            "this preview path does not send query text to remote embedding providers",
-            field="anchor.text",
-        )
-    if provider_kind in REMOTE_PROVIDER_KINDS and not provider_policy.get(
-        "allow_remote"
-    ):
-        raise SimilarityError(
-            "embedding_remote_confirmation_required",
-            "the index provider policy must allow remote query embedding",
-            field="anchor.text",
-        )
     accounting_project = effect_project if effect_project is not None else project
-    if provider_kind in REMOTE_PROVIDER_KINDS:
+
+    def admit_fresh(_fresh_inputs):
+        if provider_kind not in REMOTE_PROVIDER_KINDS:
+            return
+        if gateway is None:
+            raise SimilarityError(
+                "embedding_remote_preview_unsupported",
+                "this preview path does not send query text to remote embedding providers",
+                field="anchor.text",
+            )
+        if not provider_policy.get("allow_remote"):
+            raise SimilarityError(
+                "embedding_remote_confirmation_required",
+                "the index provider policy must allow remote query embedding",
+                field="anchor.text",
+            )
         if accounting_project.effective_network_policy() == "off":
             raise SimilarityError(
                 "network_disabled",
@@ -564,13 +565,14 @@ def _manual_query(
                 field="anchor.text",
                 details=exc.details,
             ) from exc
+
     text_values = [term["text"] for term in terms] + [
         exclude["text"] for exclude in excludes
     ]
     encoder_inputs = tuple(TextEncodingInput(text) for text in text_values)
-    selected_gateway = gateway or EmbeddingGateway()
 
     def encode(fresh_inputs, **_kwargs):
+        selected_gateway = gateway or EmbeddingGateway()
         try:
             return selected_gateway.embed(
                 [value.text for value in fresh_inputs],
@@ -622,6 +624,7 @@ def _manual_query(
             space=facade_space,
             space_id=str(space["id"]),
             cache_payloads=text_values,
+            before_fresh_batch=admit_fresh,
             on_fresh_batch=account,
         )
     except SimilarityError:

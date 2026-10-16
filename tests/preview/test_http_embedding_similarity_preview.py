@@ -297,7 +297,7 @@ def test_manual_text_blocks_remote_egress_without_policy(tmp_path):
     EmbeddingStore(project).update_index_policy(
         index_id, provider_policy={"allow_remote": False}
     )
-    resp = _preview(client, pid, _manual_query(index_id, "cat"))
+    resp = _preview(client, pid, _manual_query(index_id, "uncached policy query"))
     assert resp.status_code == 400
     assert resp.json()["detail"]["code"] == "embedding_remote_confirmation_required"
 
