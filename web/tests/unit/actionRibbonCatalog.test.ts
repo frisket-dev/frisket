@@ -26,11 +26,12 @@ describe('served action ribbon organization', () => {
   it('keeps import and result workflows available without exposing their helper actions in navigation', () => {
     const helpers = templates.filter((template) => template.kind.startsWith('import.')
       || template.kind.startsWith('export.') || template.kind.startsWith('embedding.')
-      || template.kind === 'resolve.entities');
+      || template.kind === 'resolve.entities' || template.kind === 'media.read_pdf_text');
     // These remain valid action templates: the ribbon policy must not remove
     // their drawers, saved drafts, or dedicated workflow entry points.
     expect(helpers.map((template) => template.kind)).toEqual(expect.arrayContaining([
       'import.xlsx', 'import.csv', 'import.append_xlsx', 'embedding.index_cluster', 'resolve.entities',
+      'media.read_pdf_text',
     ]));
     const visible = new Set(placements.map((placement) => placement.kind));
     expect(helpers.filter((template) => visible.has(template.kind))).toEqual([]);
