@@ -247,9 +247,9 @@ def _requested_limit(query: dict[str, Any]) -> int:
         raise SimilarityError(
             "invalid_query_spec", "limit must be a positive integer", field="limit"
         )
-    if value > 500:
+    if value > 100:
         raise SimilarityError(
-            "invalid_query_spec", "limit must not exceed 500", field="limit"
+            "invalid_query_spec", "limit must not exceed 100", field="limit"
         )
     return value
 
@@ -476,6 +476,22 @@ def _row_anchor(
             f"row {row_id}'s source changed since it was embedded; refresh the index",
             field="anchor.row_id",
         )
+    representation = retrieval.db.execute(
+        "SELECT dimension,length(vector) AS vector_bytes FROM representations "
+        "WHERE representation_id=?",
+        (item.representation_id,),
+    ).fetchone()
+    expected_dimension = int(space["dimension"])
+    if (
+        representation is None
+        or int(representation["dimension"]) != expected_dimension
+        or int(representation["vector_bytes"]) != expected_dimension * 4
+    ):
+        raise SimilarityError(
+            "embedding_space_mismatch",
+            "the stored anchor vector does not match the index space",
+            field="anchor.row_id",
+        )
     dependencies = tuple(
         BindingRevision(
             row_id=dependency.row_id,
@@ -597,6 +613,16 @@ def _manual_query(
         if provider_kind in REMOTE_PROVIDER_KINDS:
             _persist_manual_text_provider_call(
                 accounting_project, result, input_count=len(fresh_inputs)
+            )
+        vectors = result.get("vectors") if isinstance(result, dict) else None
+        if isinstance(vectors, list) and any(
+            isinstance(vector, list | tuple) and len(vector) != facade_space.dimensions
+            for vector in vectors
+        ):
+            raise SimilarityError(
+                "embedding_space_mismatch",
+                "the embedding provider returned a vector with the wrong dimension",
+                field="anchor.text",
             )
 
     try:
