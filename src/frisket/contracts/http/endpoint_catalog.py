@@ -410,6 +410,9 @@ _TENANT_VIEWER: tuple[RouteSpec, ...] = (
     ("history", "GET"),
     ("get_import_session", "GET"),
     ("list_import_sessions", "GET"),
+    ("get_search_preparation", "GET"),
+    ("get_search_preparation_text_samples", "GET"),
+    ("list_search_preparations", "GET"),
     ("list_lenses", "GET"),
     ("list_notification_channels", "GET"),
     (
@@ -611,6 +614,9 @@ _TENANT_SKILLS: tuple[RouteSpec, ...] = (
 )
 
 _TENANT_EDITOR: tuple[RouteSpec, ...] = (
+    ("create_search_preparation", "POST"),
+    ("decide_search_preparation", "POST"),
+    ("stop_search_preparation", "POST"),
     ("extraction_preview", "POST"),
     ("extraction_template_save", "POST"),
     ("extraction_layout_select", "POST"),
