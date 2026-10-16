@@ -615,7 +615,7 @@ def test_repaired_corrupt_blob_requeues_on_next_authoritative_dispatch(
                 channel=IMAGE_CHANNEL,
             )
             assert state is not None
-            assert (state.status, state.error_code) == ("preparing", None)
+            assert (state.status, state.error_code) == ("pending", None)
 
         repaired = process_blob_image_preparation_batch(
             project, channel=IMAGE_CHANNEL, encoder=_Encoder()

@@ -398,25 +398,6 @@ def dispatch_resolved_blob_source(
             space_id=space.identity,
             replace_channel_recipes=True,
         )
-        state = store.preparation_state(
-            resolved.source.source_id,
-            recipe_id=recipe_id,
-            channel=channel,
-        )
-        if (
-            state is not None
-            and state.status == "failed"
-            and state.error_code == "blob_integrity_failed"
-        ):
-            # A later authoritative source event may observe repaired
-            # content-addressed storage. Retry only that exact failed target;
-            # the worker itself never loops on corrupt bytes.
-            store.begin_preparation(
-                resolved.source,
-                recipe_id=recipe_id,
-                channel=channel,
-                space_id=space.identity,
-            )
         policy_disabled = recipe_id.startswith("policy-disabled-")
         if unavailable_code is not None or policy_disabled:
             error_code = unavailable_code or (
