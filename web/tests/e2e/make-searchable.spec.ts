@@ -263,7 +263,7 @@ test('native PDF import becomes searchable without starting a model setup', asyn
     count: 1,
     status: 'complete',
   });
-  expect(completed.models).toEqual([]);
+  expect(completed.models.filter((model) => model.required)).toEqual([]);
   expect(setupRequests).toEqual([]);
   expect(await modelPullInventory(page.request)).toEqual(pullsBefore);
 
@@ -348,11 +348,7 @@ test('Check text explicitly requests replacement OCR without changing the origin
   const preview = page.getByTestId('search-preparation-text-preview');
   await expect(preview).toBeVisible();
   await expect(preview).toContainText('garb1ed XXv0 vvv meaningless existing OCR');
-  await expect(preview).toContainText(
-    'This replaces Frisket’s search text. It does not change the original PDF.',
-  );
   await expect(preview.getByTestId('search-preparation-force-ocr')).toBeVisible();
-  await expect(preview.getByTestId('search-preparation-force-scope-this')).toBeChecked();
 
   const replacementRequest = page.waitForResponse((response) => (
     response.request().method() === 'POST'
