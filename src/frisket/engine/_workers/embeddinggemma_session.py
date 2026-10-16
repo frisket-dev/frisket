@@ -292,7 +292,8 @@ class EmbeddingGemma2Session:
                 if self._cancelled():
                     raise asyncio.CancelledError
                 if (
-                    isinstance(inputs[0], VideoClipEncodingInput)
+                    inputs
+                    and isinstance(inputs[0], VideoClipEncodingInput)
                     and len(inputs[0].frames) > space.max_video_frames
                 ):
                     raise EncodingError(

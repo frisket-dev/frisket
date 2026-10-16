@@ -24,6 +24,24 @@ def _runtime(tmp_path: Path) -> PythonRuntime:
 
 
 @pytest.mark.asyncio
+async def test_empty_batch_is_invalid_without_closing_session(tmp_path):
+    session = EmbeddingGemma2Session(
+        tmp_path / EMBEDDINGGEMMA2_MODEL_REVISION, _runtime(tmp_path)
+    )
+    try:
+        with pytest.raises(EncodingError) as caught:
+            await session.encode(
+                [],
+                purpose=EncodingPurpose.DOCUMENT,
+                space=EmbeddingGemma2Space(),
+            )
+        assert caught.value.code == "invalid_input"
+        assert session._closed is False
+    finally:
+        await session.aclose()
+
+
+@pytest.mark.asyncio
 async def test_missing_snapshot_is_an_actionable_preparation_error(tmp_path):
     snapshot = tmp_path / EMBEDDINGGEMMA2_MODEL_REVISION
     session = EmbeddingGemma2Session(snapshot, _runtime(tmp_path))
