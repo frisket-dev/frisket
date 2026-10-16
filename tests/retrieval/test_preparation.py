@@ -4,8 +4,11 @@ import hashlib
 import io
 import json
 
+import pytest
 from pypdf import PdfWriter
 
+from frisket.engine.jobs import search_index as search_index_job
+from frisket.engine.pdf_render import PdfRenderError
 from frisket.engine.store import Project
 from frisket.retrieval.content import (
     TextChunkRecipe,
@@ -26,6 +29,7 @@ from frisket.retrieval.preparation import (
     OCR_TEXT_CHANNEL,
     PDF_PAGE_CHANNEL,
     PreparationPolicy,
+    PreparationProgress,
     TRANSCRIPT_CHANNEL,
     UNSUPPORTED_MEDIA_CHANNEL,
     TEXT_CHANNEL,
@@ -39,6 +43,8 @@ from frisket.retrieval.preparation import (
     read_preparation_policy,
     write_preparation_policy,
 )
+from frisket.retrieval.preparation_policy import PREPARATION_POLICY_META_KEY
+from frisket.retrieval.media import AudioWindowRecipe
 from frisket.retrieval.source_adapter import (
     ResolvedCellOcrTextSource,
     ResolvedCellTranscriptSource,
@@ -46,7 +52,12 @@ from frisket.retrieval.source_adapter import (
     resolve_cell_text_sources,
 )
 from frisket.retrieval.store import RetrievalStore
-from frisket.search_index import drain_index, index_batch, index_needs_work
+from frisket.search_index import (
+    IndexProgress,
+    drain_index,
+    index_batch,
+    index_needs_work,
+)
 
 
 class _Encoder:
@@ -81,6 +92,19 @@ def _source(project, sheet_id, column_id, row_id):
 
 def _text_hash(value: str) -> str:
     return "sha256:" + hashlib.sha256(value.encode()).hexdigest()
+
+
+def _current_binding(project: Project) -> tuple[int, BindingRevision]:
+    sheet_id = project.add_sheet("Evidence")
+    column_id = project.add_column(sheet_id, "source")
+    row_id = project.add_rows(
+        sheet_id, [{"source": "authority"}], {"source": column_id}
+    )[0]
+    revision = project.db.execute(
+        "SELECT retrieval_revision FROM current_cells WHERE row_id=? AND column_id=?",
+        (row_id, column_id),
+    ).fetchone()[0]
+    return sheet_id, BindingRevision(row_id, column_id, int(revision))
 
 
 def _two_page_pdf() -> bytes:
@@ -397,6 +421,57 @@ def test_pdf_page_views_prepare_independently_and_follow_selector_edits(
         project.close()
 
 
+def test_pdf_render_failure_marks_target_failed_and_releases_queue(
+    tmp_path, monkeypatch
+) -> None:
+    project = Project.create(tmp_path / "bad-pdf.frisket")
+
+    async def fail_render(*_args, **_kwargs):
+        raise PdfRenderError("invalid PDF bytes")
+
+    monkeypatch.setattr("frisket.retrieval.preparation.render_pdf_pages", fail_render)
+    try:
+        sheet_id = project.add_sheet("Documents")
+        column_id = project.add_column(sheet_id, "document", type="file")
+        digest = project.add_blob(b"not a PDF", mime="application/pdf")
+        row_id = project.add_rows(
+            sheet_id,
+            [{"document": {"blob": digest, "mime": "application/pdf"}}],
+            {"document": column_id},
+        )[0]
+        with project.read_snapshot() as snapshot:
+            resolved = resolve_cell_blob_source(
+                snapshot,
+                sheet_id=sheet_id,
+                row_id=row_id,
+                column_id=column_id,
+            )
+        assert resolved is not None
+        with RetrievalStore(project).open() as store:
+            dispatch_resolved_blob_source(store, resolved)
+
+        progress = process_blob_image_preparation_batch(
+            project,
+            channel=PDF_PAGE_CHANNEL,
+            encoder=_Encoder(),
+        )
+
+        assert progress.complete and progress.processed_parts == 0
+        with RetrievalStore(project).open() as store:
+            state = store.preparation_state(
+                resolved.source.source_id,
+                recipe_id="pdf-page-png-v1:dpi=144:max-edge=1600",
+                channel=PDF_PAGE_CHANNEL,
+            )
+            assert state is not None
+            assert (state.status, state.error_code) == (
+                "failed",
+                "pdf_render_failed",
+            )
+    finally:
+        project.close()
+
+
 def test_preparation_policy_persists_strategy_and_defaults_raw_audio_off(
     tmp_path,
 ) -> None:
@@ -413,6 +488,55 @@ def test_preparation_policy_persists_strategy_and_defaults_raw_audio_off(
 
         assert read_preparation_policy(project) == policy
         assert index_needs_work(project)
+    finally:
+        project.close()
+
+
+def test_preparation_policy_partial_json_inherits_defaults_and_null_disables(
+    tmp_path,
+) -> None:
+    project = Project.create(tmp_path / "partial-preparation-policy.frisket")
+    try:
+        project.set_meta(PREPARATION_POLICY_META_KEY, '{"image_enabled":false}')
+        partial = read_preparation_policy(project)
+        assert partial.image_enabled is False
+        assert partial.text_recipe == DEFAULT_PREPARATION_POLICY.text_recipe
+        assert partial.video_recipe == DEFAULT_PREPARATION_POLICY.video_recipe
+
+        project.set_meta(
+            PREPARATION_POLICY_META_KEY,
+            '{"text_recipe":null,"video_recipe":null}',
+        )
+        disabled = read_preparation_policy(project)
+        assert disabled.text_recipe is None
+        assert disabled.video_recipe is None
+        assert (
+            disabled.transcript_recipe == DEFAULT_PREPARATION_POLICY.transcript_recipe
+        )
+    finally:
+        project.close()
+
+
+@pytest.mark.parametrize(
+    ("payload", "knob"),
+    [
+        ("not-json", "retrieval_preparation_policy_v1"),
+        ('{"unknown":true}', "retrieval_preparation_policy_v1.unknown"),
+        (
+            '{"video_recipe":{"strategy":"surprise"}}',
+            "retrieval_preparation_policy_v1.video_recipe.strategy",
+        ),
+        ('{"image_enabled":"yes"}', "retrieval_preparation_policy_v1.image_enabled"),
+    ],
+)
+def test_preparation_policy_refuses_malformed_named_knob(
+    tmp_path, payload: str, knob: str
+) -> None:
+    project = Project.create(tmp_path / f"malformed-{abs(hash(payload))}.frisket")
+    try:
+        project.set_meta(PREPARATION_POLICY_META_KEY, payload)
+        with pytest.raises(ValueError, match=knob.replace(".", r"\.")):
+            read_preparation_policy(project)
     finally:
         project.close()
 
@@ -439,18 +563,71 @@ def test_default_policy_records_raw_audio_as_scoped_unavailable(tmp_path) -> Non
         with RetrievalStore(project).open() as store:
             dispatch_resolved_blob_source(store, resolved)
             row = store.db.execute(
-                "SELECT status,error_message FROM preparation "
+                "SELECT status,error_code,error_message FROM preparation "
                 "WHERE source_id=? AND channel=?",
                 (resolved.source.source_id, AUDIO_CHANNEL),
             ).fetchone()
             assert row["status"] == "unavailable"
+            assert row["error_code"] == "policy_disabled"
             assert "disabled by project policy" in row["error_message"]
+            assert store.requeue_unavailable() == 0
+    finally:
+        project.close()
+
+
+def test_video_audio_opt_in_fans_out_and_policy_disable_retires_recipe(
+    tmp_path,
+) -> None:
+    project = Project.create(tmp_path / "video-audio-policy.frisket")
+    try:
+        sheet_id = project.add_sheet("Media")
+        column_id = project.add_column(sheet_id, "video", type="video")
+        digest = project.add_blob(b"video", mime="video/mp4")
+        row_id = project.add_rows(
+            sheet_id,
+            [{"video": {"blob": digest, "mime": "video/mp4"}}],
+            {"video": column_id},
+        )[0]
+        with project.read_snapshot() as snapshot:
+            resolved = resolve_cell_blob_source(
+                snapshot,
+                sheet_id=sheet_id,
+                row_id=row_id,
+                column_id=column_id,
+            )
+        assert resolved is not None
+        enabled = PreparationPolicy(audio_recipe=AudioWindowRecipe())
+        with RetrievalStore(project).open() as store:
+            dispatch_resolved_blob_source(store, resolved, policy=enabled)
+            channels = {
+                row["channel"]
+                for row in store.db.execute(
+                    "SELECT channel FROM preparation WHERE source_id=?",
+                    (resolved.source.source_id,),
+                )
+            }
+            assert channels == {"audio", "video"}
+
+            dispatch_resolved_blob_source(
+                store, resolved, policy=DEFAULT_PREPARATION_POLICY
+            )
+            audio = store.db.execute(
+                "SELECT recipe_id,status,error_code FROM preparation "
+                "WHERE source_id=? AND channel='audio'",
+                (resolved.source.source_id,),
+            ).fetchone()
+            assert tuple(audio) == (
+                "policy-disabled-audio-v1",
+                "unavailable",
+                "policy_disabled",
+            )
     finally:
         project.close()
 
 
 def test_transcript_preparation_resumes_derived_segments(tmp_path, monkeypatch) -> None:
     project = Project.create(tmp_path / "transcript-preparation.frisket")
+    sheet_id, binding = _current_binding(project)
     segment_texts = ("a" * 1200, "b" * 1200, "c" * 1200)
     transcript_text = "\n".join(segment_texts)
     source = SourceRevision(
@@ -461,8 +638,8 @@ def test_transcript_preparation_resumes_derived_segments(tmp_path, monkeypatch) 
         _text_hash(transcript_text),
     )
     resolved = ResolvedCellTranscriptSource(
-        sheet_id=1,
-        binding=BindingRevision(1, 2, 3),
+        sheet_id=sheet_id,
+        binding=binding,
         lexical_text=transcript_text,
         surface=TranscriptSurface(
             source,
@@ -512,6 +689,7 @@ def test_transcript_preparation_resumes_derived_segments(tmp_path, monkeypatch) 
 
 def test_ocr_preparation_keeps_authoritative_span_ids(tmp_path, monkeypatch) -> None:
     project = Project.create(tmp_path / "ocr-preparation.frisket")
+    sheet_id, binding = _current_binding(project)
     text = "page one words"
     source = SourceRevision(
         "ocr:evidence",
@@ -521,8 +699,8 @@ def test_ocr_preparation_keeps_authoritative_span_ids(tmp_path, monkeypatch) -> 
         _text_hash(text),
     )
     resolved = ResolvedCellOcrTextSource(
-        sheet_id=1,
-        binding=BindingRevision(1, 2, 3),
+        sheet_id=sheet_id,
+        binding=binding,
         lexical_text=text,
         surface=TextSurface(
             source,
@@ -817,3 +995,57 @@ def test_dirty_dispatch_uses_only_unified_sidecar_and_recovers_deletion(tmp_path
         assert not index_needs_work(project)
     finally:
         project.close()
+
+
+def test_index_claim_runs_one_bounded_preparation_pass(monkeypatch) -> None:
+    calls: list[str] = []
+
+    monkeypatch.setattr(
+        search_index_job,
+        "index_batch",
+        lambda *_args, **_kwargs: IndexProgress(0, False, True),
+    )
+    monkeypatch.setattr(
+        search_index_job,
+        "process_text_preparation_batch",
+        lambda *_args, **_kwargs: (
+            calls.append("text") or PreparationProgress(1, True, False)
+        ),
+    )
+    monkeypatch.setattr(
+        search_index_job,
+        "process_evidence_preparation_batch",
+        lambda *_args, channel, **_kwargs: (
+            calls.append(channel) or PreparationProgress(1, True, False)
+        ),
+    )
+    monkeypatch.setattr(
+        search_index_job,
+        "process_blob_image_preparation_batch",
+        lambda *_args, channel, **_kwargs: (
+            calls.append(channel) or PreparationProgress(1, True, False)
+        ),
+    )
+    monkeypatch.setattr(
+        search_index_job,
+        "process_timed_media_preparation_batch",
+        lambda *_args, channel, **_kwargs: (
+            calls.append(channel) or PreparationProgress(1, True, False)
+        ),
+    )
+
+    processed, complete = search_index_job.process_index_batches(
+        object(), preparation_policy=DEFAULT_PREPARATION_POLICY
+    )
+
+    assert processed == 7
+    assert not complete
+    assert calls == [
+        "text",
+        TRANSCRIPT_CHANNEL,
+        OCR_TEXT_CHANNEL,
+        "image",
+        PDF_PAGE_CHANNEL,
+        "video",
+        AUDIO_CHANNEL,
+    ]

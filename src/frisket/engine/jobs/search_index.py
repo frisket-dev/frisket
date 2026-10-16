@@ -74,50 +74,52 @@ def process_index_batches(
         complete = progress.complete
         if complete and not stopped():
             preparation_steps = (
-                process_text_preparation_batch(
+                lambda: process_text_preparation_batch(
                     project,
                     encoder=embedding_encoder,
-                    recipe=policy.text_recipe
-                    if policy.text_recipe is not None
-                    else DEFAULT_TEXT_RECIPE,
+                    recipe=(
+                        policy.text_recipe
+                        if policy.text_recipe is not None
+                        else DEFAULT_TEXT_RECIPE
+                    ),
                     cancelled=stopped,
                 ),
-                process_evidence_preparation_batch(
+                lambda: process_evidence_preparation_batch(
                     project,
                     channel=TRANSCRIPT_CHANNEL,
                     encoder=embedding_encoder,
                     cancelled=stopped,
                     policy=policy,
                 ),
-                process_evidence_preparation_batch(
+                lambda: process_evidence_preparation_batch(
                     project,
                     channel=OCR_TEXT_CHANNEL,
                     encoder=embedding_encoder,
                     cancelled=stopped,
                     policy=policy,
                 ),
-                process_blob_image_preparation_batch(
+                lambda: process_blob_image_preparation_batch(
                     project,
                     channel=IMAGE_CHANNEL,
                     encoder=embedding_encoder,
                     cancelled=stopped,
                     policy=policy,
                 ),
-                process_blob_image_preparation_batch(
+                lambda: process_blob_image_preparation_batch(
                     project,
                     channel=PDF_PAGE_CHANNEL,
                     encoder=embedding_encoder,
                     cancelled=stopped,
                     policy=policy,
                 ),
-                process_timed_media_preparation_batch(
+                lambda: process_timed_media_preparation_batch(
                     project,
                     channel=VIDEO_CHANNEL,
                     encoder=embedding_encoder,
                     cancelled=stopped,
                     policy=policy,
                 ),
-                process_timed_media_preparation_batch(
+                lambda: process_timed_media_preparation_batch(
                     project,
                     channel=AUDIO_CHANNEL,
                     encoder=embedding_encoder,
@@ -125,8 +127,19 @@ def process_index_batches(
                     policy=policy,
                 ),
             )
-            processed += sum(step.processed_parts for step in preparation_steps)
-            complete = all(step.complete for step in preparation_steps)
+            preparation_complete = True
+            for prepare in preparation_steps:
+                if stopped():
+                    preparation_complete = False
+                    break
+                step = prepare()
+                processed += step.processed_parts
+                preparation_complete = preparation_complete and step.complete
+            complete = preparation_complete and not stopped()
+            # One pass gives each channel one bounded batch. Further work gets
+            # another durable claim instead of letting one project monopolize
+            # the worker after its lexical scopes have drained.
+            break
         if complete or processed_bytes >= INDEX_BYTES_PER_CLAIM:
             break
     return processed, complete

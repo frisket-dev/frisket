@@ -10,7 +10,6 @@ rejects a source revision superseded by an edit.
 from __future__ import annotations
 
 import asyncio
-import dataclasses
 import json
 import sqlite3
 import tempfile
@@ -21,7 +20,12 @@ from typing import Protocol
 
 from frisket.ai.embeddings.facade import EmbeddingFacade, embedding_input_hash
 from frisket.engine.executor.action_inventory import BoundLocalFile
-from frisket.engine.pdf_render import render_pdf_pages
+from frisket.engine.pdf_render import (
+    PdfPageOutOfRange,
+    PdfRenderCancelled,
+    PdfRenderError,
+    render_pdf_pages,
+)
 from frisket.engine.sandbox.media_sync import run_media_sync
 from frisket.retrieval.content import (
     IMAGE_BYTES_RECIPE_ID,
@@ -54,9 +58,19 @@ from frisket.retrieval.encoding import (
     EncodingPurpose,
 )
 from frisket.retrieval.native import pack_vector
+from frisket.retrieval.preparation_policy import (
+    DEFAULT_PREPARATION_POLICY,
+    DEFAULT_TEXT_RECIPE,
+    DEFAULT_TRANSCRIPT_RECIPE as DEFAULT_TRANSCRIPT_RECIPE,
+    PREPARATION_POLICY_META_KEY,
+    PreparationPolicy,
+    parse_preparation_policy,
+    preparation_policy_json,
+    read_preparation_policy,
+    write_preparation_policy,
+)
 from frisket.retrieval.media import (
     AudioWindow,
-    AudioWindowRecipe,
     FixedClipRecipe,
     LocatedFrame,
     LocatedVideoClip,
@@ -99,8 +113,6 @@ LEXICAL_CHANNEL = "lexical"
 TEXT_CHANNEL = "text"
 TRANSCRIPT_CHANNEL = "transcript_text"
 OCR_TEXT_CHANNEL = "ocr_text"
-DEFAULT_TEXT_RECIPE = TextChunkRecipe()
-DEFAULT_TRANSCRIPT_RECIPE = TranscriptChunkRecipe()
 DEFAULT_TEXT_SPACE = EmbeddingGemma2Space()
 IMAGE_CHANNEL = "image"
 PDF_PAGE_CHANNEL = "pdf_page"
@@ -109,134 +121,15 @@ AUDIO_CHANNEL = "audio"
 UNSUPPORTED_MEDIA_CHANNEL = "media"
 PDF_PAGE_RECIPE_ID = "pdf-page-png-v1:dpi=144:max-edge=1600"
 UNSUPPORTED_MEDIA_RECIPE_ID = "unsupported-media-v1"
+ENCODER_UNAVAILABLE_ERROR = "encoder_unavailable"
+POLICY_DISABLED_ERROR = "policy_disabled"
+UNSUPPORTED_MEDIA_ERROR = "unsupported_media"
 DISABLED_TEXT_RECIPE_ID = "policy-disabled-text-v1"
 DISABLED_TRANSCRIPT_RECIPE_ID = "policy-disabled-transcript-v1"
 DISABLED_IMAGE_RECIPE_ID = "policy-disabled-image-v1"
 DISABLED_PDF_RECIPE_ID = "policy-disabled-pdf-pages-v1"
 DISABLED_VIDEO_RECIPE_ID = "policy-disabled-video-v1"
 DISABLED_AUDIO_RECIPE_ID = "policy-disabled-audio-v1"
-DEFAULT_VIDEO_RECIPE = ShotClipRecipe()
-DEFAULT_AUDIO_RECIPE = AudioWindowRecipe()
-PREPARATION_POLICY_META_KEY = "retrieval_preparation_policy_v1"
-
-
-@dataclass(frozen=True, slots=True)
-class PreparationPolicy:
-    """Persistent selection of bounded local producer strategies."""
-
-    text_recipe: TextChunkRecipe | None = DEFAULT_TEXT_RECIPE
-    transcript_recipe: TranscriptChunkRecipe | None = DEFAULT_TRANSCRIPT_RECIPE
-    image_enabled: bool = True
-    pdf_pages_enabled: bool = True
-    video_recipe: PeriodicFrameRecipe | FixedClipRecipe | ShotClipRecipe | None = (
-        DEFAULT_VIDEO_RECIPE
-    )
-    audio_recipe: AudioWindowRecipe | None = None
-
-    def __post_init__(self) -> None:
-        if self.text_recipe is not None and not isinstance(
-            self.text_recipe, TextChunkRecipe
-        ):
-            raise TypeError("text_recipe must be TextChunkRecipe or None")
-        if self.transcript_recipe is not None and not isinstance(
-            self.transcript_recipe, TranscriptChunkRecipe
-        ):
-            raise TypeError("transcript_recipe must be TranscriptChunkRecipe or None")
-        if not isinstance(self.image_enabled, bool) or not isinstance(
-            self.pdf_pages_enabled, bool
-        ):
-            raise TypeError("image and PDF policy flags must be boolean")
-        if self.video_recipe is not None and not isinstance(
-            self.video_recipe, PeriodicFrameRecipe | FixedClipRecipe | ShotClipRecipe
-        ):
-            raise TypeError("video_recipe must be a video recipe or None")
-        if self.audio_recipe is not None and not isinstance(
-            self.audio_recipe, AudioWindowRecipe
-        ):
-            raise TypeError("audio_recipe must be AudioWindowRecipe or None")
-
-
-DEFAULT_PREPARATION_POLICY = PreparationPolicy()
-
-
-def _recipe_payload(recipe) -> dict[str, object] | None:
-    return None if recipe is None else dataclasses.asdict(recipe)
-
-
-def preparation_policy_json(policy: PreparationPolicy) -> str:
-    if not isinstance(policy, PreparationPolicy):
-        raise TypeError("policy must be a PreparationPolicy")
-    return json.dumps(
-        {
-            "text_recipe": _recipe_payload(policy.text_recipe),
-            "transcript_recipe": _recipe_payload(policy.transcript_recipe),
-            "image_enabled": policy.image_enabled,
-            "pdf_pages_enabled": policy.pdf_pages_enabled,
-            "video_recipe": _recipe_payload(policy.video_recipe),
-            "audio_recipe": _recipe_payload(policy.audio_recipe),
-        },
-        allow_nan=False,
-        separators=(",", ":"),
-        sort_keys=True,
-    )
-
-
-def _optional_recipe(value, recipes):
-    if value is None:
-        return None
-    if not isinstance(value, dict):
-        raise ValueError("retrieval preparation recipe must be an object or null")
-    strategy = value.get("strategy")
-    recipe_type = recipes.get(strategy)
-    if recipe_type is None:
-        raise ValueError(f"unsupported retrieval preparation strategy {strategy!r}")
-    return recipe_type(**value)
-
-
-def read_preparation_policy(project) -> PreparationPolicy:
-    raw = project.get_meta(PREPARATION_POLICY_META_KEY)
-    if raw is None:
-        return DEFAULT_PREPARATION_POLICY
-    try:
-        value = json.loads(raw)
-        if not isinstance(value, dict):
-            raise ValueError("retrieval preparation policy must be an object")
-        return PreparationPolicy(
-            text_recipe=_optional_recipe(
-                value.get("text_recipe"),
-                {"text_codepoint_windows": TextChunkRecipe},
-            ),
-            transcript_recipe=_optional_recipe(
-                value.get("transcript_recipe"),
-                {"transcript_segment_windows": TranscriptChunkRecipe},
-            ),
-            image_enabled=value.get("image_enabled", True),
-            pdf_pages_enabled=value.get("pdf_pages_enabled", True),
-            video_recipe=_optional_recipe(
-                value.get("video_recipe"),
-                {
-                    "periodic_frames": PeriodicFrameRecipe,
-                    "fixed_clips": FixedClipRecipe,
-                    "shot_clips_ffmpeg_scene_v1": ShotClipRecipe,
-                },
-            ),
-            audio_recipe=_optional_recipe(
-                value.get("audio_recipe"), {"audio_windows": AudioWindowRecipe}
-            ),
-        )
-    except (TypeError, ValueError, json.JSONDecodeError):
-        return DEFAULT_PREPARATION_POLICY
-
-
-def write_preparation_policy(project, policy: PreparationPolicy) -> None:
-    """Persist producer selection and enqueue one existing dirty-scope rebuild."""
-
-    from frisket.engine.store.search_index_work import enqueue_dirty_scope
-
-    encoded = preparation_policy_json(policy)
-    with project.transaction_scope():
-        project.set_meta(PREPARATION_POLICY_META_KEY, encoded, commit=False)
-        enqueue_dirty_scope(project.db)
 
 
 class PreparationEncoder(Protocol):
@@ -436,6 +329,9 @@ def dispatch_resolved_evidence_source(
             recipe_id=recipe_id,
             channel=channel,
             space_id=space.identity,
+            error_code=(
+                POLICY_DISABLED_ERROR if recipe is None else ENCODER_UNAVAILABLE_ERROR
+            ),
             reason=(
                 "this retrieval producer is disabled by project policy"
                 if recipe is None
@@ -452,63 +348,84 @@ def dispatch_resolved_blob_source(
     semantic_available: bool = True,
     policy: PreparationPolicy = DEFAULT_PREPARATION_POLICY,
 ) -> None:
-    """Register one exact current blob for its local native channel."""
+    """Register one exact blob for each policy-selected native channel."""
 
     mime = resolved.mime_type.lower().split(";", 1)[0].strip()
+    targets: list[tuple[str, str, str | None]]
     if mime.startswith("image/"):
-        recipe_id, channel = (
-            (IMAGE_BYTES_RECIPE_ID, IMAGE_CHANNEL)
-            if policy.image_enabled
-            else (DISABLED_IMAGE_RECIPE_ID, IMAGE_CHANNEL)
+        recipe_id = (
+            IMAGE_BYTES_RECIPE_ID if policy.image_enabled else DISABLED_IMAGE_RECIPE_ID
         )
+        targets = [(recipe_id, IMAGE_CHANNEL, None)]
     elif mime == "application/pdf":
-        recipe_id, channel = (
-            (PDF_PAGE_RECIPE_ID, PDF_PAGE_CHANNEL)
-            if policy.pdf_pages_enabled
-            else (DISABLED_PDF_RECIPE_ID, PDF_PAGE_CHANNEL)
+        recipe_id = (
+            PDF_PAGE_RECIPE_ID if policy.pdf_pages_enabled else DISABLED_PDF_RECIPE_ID
         )
+        targets = [(recipe_id, PDF_PAGE_CHANNEL, None)]
     elif mime.startswith("video/"):
-        recipe_id, channel = (
-            (DISABLED_VIDEO_RECIPE_ID, VIDEO_CHANNEL)
+        video_recipe_id = (
+            DISABLED_VIDEO_RECIPE_ID
             if policy.video_recipe is None
-            else (policy.video_recipe.recipe_id, VIDEO_CHANNEL)
+            else policy.video_recipe.recipe_id
         )
+        targets = [(video_recipe_id, VIDEO_CHANNEL, None)]
+        if policy.audio_recipe is not None:
+            targets.append((policy.audio_recipe.recipe_id, AUDIO_CHANNEL, None))
+        elif (
+            store.db.execute(
+                "SELECT 1 FROM preparation WHERE source_id=? AND channel=? LIMIT 1",
+                (resolved.source.source_id, AUDIO_CHANNEL),
+            ).fetchone()
+            is not None
+        ):
+            # Replacing with the disabled recipe removes prior audio parts and
+            # prevents a policy change from leaving soundtrack hits searchable.
+            targets.append((DISABLED_AUDIO_RECIPE_ID, AUDIO_CHANNEL, None))
     elif mime.startswith("audio/"):
-        recipe_id, channel = (
-            (DISABLED_AUDIO_RECIPE_ID, AUDIO_CHANNEL)
+        recipe_id = (
+            DISABLED_AUDIO_RECIPE_ID
             if policy.audio_recipe is None
-            else (policy.audio_recipe.recipe_id, AUDIO_CHANNEL)
+            else policy.audio_recipe.recipe_id
         )
+        targets = [(recipe_id, AUDIO_CHANNEL, None)]
     else:
-        recipe_id, channel = UNSUPPORTED_MEDIA_RECIPE_ID, UNSUPPORTED_MEDIA_CHANNEL
-    store.register_preparation(
-        resolved.source,
-        (_binding(resolved),),
-        recipe_id=recipe_id,
-        channel=channel,
-        space_id=space.identity,
-        replace_channel_recipes=True,
-    )
-    if channel == UNSUPPORTED_MEDIA_CHANNEL:
-        store.mark_preparation_unavailable(
+        targets = [
+            (
+                UNSUPPORTED_MEDIA_RECIPE_ID,
+                UNSUPPORTED_MEDIA_CHANNEL,
+                UNSUPPORTED_MEDIA_ERROR,
+            )
+        ]
+    for recipe_id, channel, unavailable_code in targets:
+        store.register_preparation(
             resolved.source,
+            (_binding(resolved),),
             recipe_id=recipe_id,
             channel=channel,
             space_id=space.identity,
-            reason=f"unsupported local media type: {resolved.mime_type}",
+            replace_channel_recipes=True,
         )
-    elif recipe_id.startswith("policy-disabled-") or not semantic_available:
-        store.mark_preparation_unavailable(
-            resolved.source,
-            recipe_id=recipe_id,
-            channel=channel,
-            space_id=space.identity,
-            reason=(
-                "this retrieval producer is disabled by project policy"
-                if recipe_id.startswith("policy-disabled-")
-                else "the configured local retrieval encoder is unavailable"
-            ),
-        )
+        policy_disabled = recipe_id.startswith("policy-disabled-")
+        if unavailable_code is not None or policy_disabled or not semantic_available:
+            error_code = (
+                unavailable_code
+                or (POLICY_DISABLED_ERROR if policy_disabled else None)
+                or ENCODER_UNAVAILABLE_ERROR
+            )
+            store.mark_preparation_unavailable(
+                resolved.source,
+                recipe_id=recipe_id,
+                channel=channel,
+                space_id=space.identity,
+                error_code=error_code,
+                reason=(
+                    f"unsupported local media type: {resolved.mime_type}"
+                    if unavailable_code == UNSUPPORTED_MEDIA_ERROR
+                    else "this retrieval producer is disabled by project policy"
+                    if policy_disabled
+                    else "the configured local retrieval encoder is unavailable"
+                ),
+            )
 
 
 def dispatch_resolved_text_source(
@@ -538,6 +455,9 @@ def dispatch_resolved_text_source(
             recipe_id=recipe_id,
             channel=TEXT_CHANNEL,
             space_id=space.identity,
+            error_code=(
+                POLICY_DISABLED_ERROR if recipe is None else ENCODER_UNAVAILABLE_ERROR
+            ),
             reason=(
                 "this retrieval producer is disabled by project policy"
                 if recipe is None
@@ -637,12 +557,21 @@ def _resolve_work_source(
             encoded,
             value_type,
         ),
-    ).fetchall()
+    )
     with project.read_snapshot() as snapshot:
         for binding in bindings:
             row_id = int(binding["row_id"])
             column_id = int(binding["column_id"])
             sheet_id = int(binding["sheet_id"])
+            current = snapshot.db.execute(
+                "SELECT retrieval_revision FROM current_cells "
+                "WHERE column_id=? AND row_id=?",
+                (column_id, row_id),
+            ).fetchone()
+            if current is None or int(current["retrieval_revision"]) != int(
+                binding["retrieval_revision"]
+            ):
+                continue
             if target.source_kind == "transcript":
                 resolved = resolve_cell_transcript_source(
                     snapshot,
@@ -1233,14 +1162,38 @@ def process_blob_image_preparation_batch(
             channel=channel,
             space_id=space.identity,
         )
-        items, continuation = _blob_image_batch(
-            project,
-            resolved,
-            channel=channel,
-            cursor_json=work.cursor_json,
-            max_parts=max_parts,
-            cancelled=cancelled,
-        )
+        try:
+            items, continuation = _blob_image_batch(
+                project,
+                resolved,
+                channel=channel,
+                cursor_json=work.cursor_json,
+                max_parts=max_parts,
+                cancelled=cancelled,
+            )
+        except PdfRenderCancelled as exc:
+            raise asyncio.CancelledError from exc
+        except (PdfPageOutOfRange, PdfRenderError, ValueError) as exc:
+            error_code = (
+                "pdf_page_out_of_range"
+                if isinstance(exc, PdfPageOutOfRange)
+                else "pdf_render_failed"
+                if isinstance(exc, PdfRenderError)
+                else "invalid_blob_input"
+            )
+            store.fail_preparation(
+                resolved.source,
+                recipe_id=work.recipe_id,
+                channel=channel,
+                space_id=space.identity,
+                error_code=error_code,
+                error_message=str(exc),
+            )
+            pending = (
+                store.next_preparation(channel=channel, space_id=space.identity)
+                is not None
+            )
+            return PreparationProgress(0, pending, not pending)
         try:
             encoded = EmbeddingFacade(store).encode(
                 [item.input for item in items],
@@ -1632,6 +1585,7 @@ __all__ = [
     "LEXICAL_RECIPE_ID",
     "OCR_TEXT_CHANNEL",
     "PDF_PAGE_CHANNEL",
+    "PREPARATION_POLICY_META_KEY",
     "PreparationEncoder",
     "PreparationPolicy",
     "PreparationProgress",
@@ -1642,7 +1596,9 @@ __all__ = [
     "dispatch_resolved_blob_source",
     "dispatch_resolved_evidence_source",
     "dispatch_resolved_text_source",
+    "parse_preparation_policy",
     "preparation_work_marker",
+    "preparation_policy_json",
     "process_blob_image_preparation_batch",
     "process_evidence_preparation_batch",
     "process_text_preparation_batch",

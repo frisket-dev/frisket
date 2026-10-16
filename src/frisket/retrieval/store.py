@@ -471,10 +471,12 @@ class RetrievalStore:
         recipe_id: str,
         channel: str,
         space_id: str | None = None,
+        error_code: str = "encoder_unavailable",
         reason: str,
     ) -> bool:
-        """Pause an exact target until an explicit installed-runtime requeue."""
+        """Record why an exact target cannot run in the current configuration."""
 
+        _require_nonempty(error_code, "error_code")
         _require_nonempty(reason, "reason")
         source_id, _kind, version_kind, version_value, _hash = _revision_fields(
             source_revision
@@ -483,11 +485,12 @@ class RetrievalStore:
         encoded, value_type = _encode_version(version_value)
         changed = self.db.execute(
             "UPDATE preparation SET status='unavailable',"
-            "error_code='encoder_unavailable',error_message=? "
+            "error_code=?,error_message=? "
             "WHERE source_id=? AND recipe_id=? AND channel=? AND space_id IS ? "
             "AND target_version_kind=? AND target_version_value=? "
             "AND target_version_type=? AND status IN ('pending','preparing')",
             (
+                error_code,
                 reason,
                 source_id,
                 recipe_id,
@@ -500,21 +503,31 @@ class RetrievalStore:
         )
         return changed.rowcount == 1
 
-    def requeue_unavailable(self, *, channel: str | None = None) -> int:
-        """Explicitly retry unavailable work after a local runtime is installed."""
+    def requeue_unavailable(
+        self,
+        *,
+        error_code: str = "encoder_unavailable",
+        channel: str | None = None,
+        space_id: str | None = None,
+    ) -> int:
+        """Retry matching unavailable work after its prerequisite becomes ready."""
 
-        if channel is None:
-            changed = self.db.execute(
-                "UPDATE preparation SET status='pending',error_code=NULL,"
-                "error_message=NULL WHERE status='unavailable'"
-            )
-        else:
+        _require_nonempty(error_code, "error_code")
+        clauses = ["status='unavailable'", "error_code=?"]
+        values: list[object] = [error_code]
+        if channel is not None:
             _require_nonempty(channel, "channel")
-            changed = self.db.execute(
-                "UPDATE preparation SET status='pending',error_code=NULL,"
-                "error_message=NULL WHERE status='unavailable' AND channel=?",
-                (channel,),
-            )
+            clauses.append("channel=?")
+            values.append(channel)
+        if space_id is not None:
+            _validate_space_id(space_id)
+            clauses.append("space_id=?")
+            values.append(space_id)
+        changed = self.db.execute(
+            "UPDATE preparation SET status='pending',error_code=NULL,"
+            "error_message=NULL WHERE " + " AND ".join(clauses),
+            values,
+        )
         return changed.rowcount
 
     def fail_preparation(
