@@ -163,11 +163,30 @@ afterEach(cleanup);
 
 describe('located palette search', () => {
   it('puts an explicit similarity anchor ahead of unrelated palette commands', async () => {
-    searchProject.mockResolvedValue(completeResponse);
+    searchProject.mockResolvedValue({
+      ...completeResponse,
+      response_anchor: {
+        kind: 'located',
+        source: completeResponse.groups[0].primary.source,
+        binding: completeResponse.groups[0].primary.binding,
+        location: {
+          kind: 'document_page',
+          precision: 'exact',
+          text: null,
+          pages: { start: 3, end: 3 },
+          time: null,
+          source_span_ids: [],
+        },
+        exclude_exact: true,
+      },
+    });
     render(<AnchoredPaletteHarness />);
 
     expect(await screen.findByTestId('search-anchor')).toHaveTextContent('Similar to page 2');
     expect(screen.queryByText('Extract fields')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('search-anchor')).toHaveTextContent(
+      'Similar to page 3',
+    ));
 
     fireEvent.click(screen.getByRole('button', { name: 'Clear similarity anchor' }));
     expect(screen.getByText('Extract fields')).toBeVisible();

@@ -39,6 +39,28 @@ export interface PaletteSearch {
   startSetup(setupRef: string, scope: 'workspace' | 'organization'): void;
 }
 
+type ResponseAnchor = NonNullable<ProjectSearchResponseWire['response_anchor']>;
+
+function labelForResponseAnchor(anchor: ResponseAnchor): string | null {
+  const { pages, time } = anchor.location;
+  if (pages) {
+    return pages.start === pages.end
+      ? `page ${pages.start}`
+      : `pages ${pages.start}–${pages.end}`;
+  }
+  if (time) {
+    const media = anchor.location.kind.startsWith('audio')
+      ? 'audio'
+      : anchor.location.kind.startsWith('video')
+        ? 'video'
+        : 'time';
+    return time.start_seconds === time.end_seconds
+      ? `${media} ${time.start_seconds.toFixed(1)}s`
+      : `${media} ${time.start_seconds.toFixed(1)}–${time.end_seconds.toFixed(1)}s`;
+  }
+  return null;
+}
+
 function locatedAnchor(hit: ProjectSearchHitWire): ProjectSearchAnchorWire {
   return {
     kind: 'located',
@@ -141,6 +163,9 @@ export function usePaletteSearch(
   const current = searchResult?.key === requestKey ? searchResult.response : null;
   const groups = request ? current?.groups ?? null : null;
   const coverage = request ? current?.coverage ?? null : null;
+  const effectiveAnchorLabel = anchor && current?.response_anchor
+    ? labelForResponseAnchor(current.response_anchor)
+    : null;
   const searchError =
     request && searchFailure?.key === requestKey ? searchFailure.message : null;
   const preparing = coverage?.state === 'preparing'
@@ -226,7 +251,7 @@ export function usePaletteSearch(
     createSearchWatch,
     sheetName,
     anchor,
-    anchorLabel,
+    anchorLabel: effectiveAnchorLabel ?? anchorLabel,
     findSimilar(hit) {
       setAnchor(locatedAnchor(hit));
       setAnchorLabel(labelForHit(hit));
