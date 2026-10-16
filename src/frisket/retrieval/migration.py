@@ -154,6 +154,18 @@ class _IndexPlan:
     query_spec: Mapping[str, Any]
 
 
+def legacy_cell_vector_key(model_id: str, text: str) -> str:
+    """Return the exact content key used by the retired analytical cache."""
+
+    if not isinstance(model_id, str) or not model_id.strip():
+        raise ValueError("legacy model id must not be empty")
+    if not isinstance(text, str):
+        raise TypeError("legacy analytical input must be text")
+    return hashlib.sha1(
+        (model_id + "\0" + text).encode("utf-8", errors="replace")
+    ).hexdigest()
+
+
 def migrate_legacy_embedding_caches(
     project: Any,
     retrieval_store: RetrievalStore,
@@ -511,11 +523,7 @@ def _migrate_cell_vectors(
     pending: list[CachedRepresentation] = []
     imported = 0
     for proof in proofs:
-        key = hashlib.sha1(
-            (proof.legacy_model_id + "\0" + proof.text).encode(
-                "utf-8", errors="replace"
-            )
-        ).hexdigest()
+        key = legacy_cell_vector_key(proof.legacy_model_id, proof.text)
         row = legacy.execute("SELECT vec FROM cell_vec WHERE key=?", (key,)).fetchone()
         if row is None:
             misses["analytical_proof_not_cached"] += 1
