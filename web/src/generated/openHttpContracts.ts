@@ -10180,6 +10180,7 @@ type HttpSearchPreparationTextSamples_SearchPreparationTextSample = ({
   "filename": (((string)) | ((null)));
   "page_count": (number);
   "page_number": (number);
+  "page_scoped": (boolean);
   "preview_url": (string);
   "row_id": (number);
   "source": ("native" | "prepared") & (string);
