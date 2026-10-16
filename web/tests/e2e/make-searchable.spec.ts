@@ -528,7 +528,7 @@ test('native PDF import becomes searchable without starting a model setup', asyn
   });
 });
 
-test('Check text explicitly requests replacement OCR without changing the original PDF', async ({
+test('native text review requests replacement OCR without changing the original PDF', async ({
   page,
 }) => {
   if (process.env.FRISKET_E2E_LIVE_SEARCH_PREPARATION === '1') {
@@ -566,10 +566,9 @@ test('Check text explicitly requests replacement OCR without changing the origin
   expect(originalBlobResponse.ok()).toBeTruthy();
   const originalBytes = await originalBlobResponse.body();
 
-  const receipt = page.getByTestId('search-preparation-receipt');
-  await receipt.getByTestId('search-preparation-check-text').click();
   const preview = page.getByTestId('search-preparation-text-preview');
   await expect(preview).toBeVisible();
+  await expect(preview).toContainText('Does this text look right?');
   await expect(preview).toContainText('garb1ed XXv0 vvv meaningless existing OCR');
   await expect(preview.getByTestId('search-preparation-force-ocr')).toBeVisible();
 

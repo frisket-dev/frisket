@@ -8402,7 +8402,6 @@ dialog.import-workspace-layer::backdrop {
   border-radius: 10px;
   background: #fbfaf8;
 }
-.search-preparation-consent > p { margin: 0; color: #6d655f; }
 .search-preparation-model {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;

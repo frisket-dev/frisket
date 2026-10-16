@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SearchPreparationBatch } from '../../src/api/searchPreparation';
 
 const {
@@ -90,6 +90,14 @@ const consentBatch: SearchPreparationBatch = {
   errors: [],
 };
 
+beforeEach(() => {
+  getSearchPreparationTextSamples.mockResolvedValue({
+    schemaVersion: 'frisket.search_preparation_text_samples.v1',
+    batch_id: 'prep-1',
+    samples: [],
+  });
+});
+
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
@@ -115,7 +123,9 @@ describe('SearchPreparationReceipt', () => {
     expect((semantic as HTMLInputElement).checked).toBe(true);
     expect((screen.getByTestId('search-preparation-model-read_text').querySelector('input') as HTMLInputElement).disabled).toBe(true);
     expect(screen.getByText('About 1.4 GB')).not.toBeNull();
-    expect(screen.getByText(/Additional runtime files may also be downloaded/)).not.toBeNull();
+    expect(screen.queryByText(/Nothing downloads until you continue/)).toBeNull();
+    expect(screen.queryByText(/Additional runtime files may also be downloaded/)).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Source' })).toBeNull();
 
     fireEvent.click(semantic);
     expect((semantic as HTMLInputElement).checked).toBe(false);
@@ -377,7 +387,7 @@ describe('SearchPreparationReceipt', () => {
     ));
   });
 
-  it('forces OCR only after the explicit text-check action', async () => {
+  it('shows native text automatically and starts replacement OCR only after the explicit choice', async () => {
     getSearchPreparation.mockResolvedValue({ ...consentBatch, status: 'complete' });
     getSearchPreparationTextSamples.mockResolvedValue({
       schemaVersion: 'frisket.search_preparation_text_samples.v1',
@@ -406,9 +416,10 @@ describe('SearchPreparationReceipt', () => {
       />,
     );
 
-    fireEvent.click(await screen.findByTestId('search-preparation-check-text'));
     expect(createSearchPreparation).not.toHaveBeenCalled();
     await screen.findByText('Native text from the PDF');
+    expect(screen.getByText('Does this text look right?')).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Yes, keep it' })).not.toBeNull();
     expect(screen.getByText('Page 3 of 5')).not.toBeNull();
     expect(screen.queryByRole('button', { name: 'Page 1' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Refresh sample pages' })).toBeNull();
@@ -461,7 +472,6 @@ describe('SearchPreparationReceipt', () => {
       />,
     );
 
-    fireEvent.click(await screen.findByTestId('search-preparation-check-text'));
     await screen.findByText('First page text');
     fireEvent.click(screen.getByRole('button', { name: 'Page 2' }));
     await screen.findByText('Second page text');
@@ -471,6 +481,9 @@ describe('SearchPreparationReceipt', () => {
       { rowId: 42, pageNumber: 2 },
       { signal: expect.anything() },
     );
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, keep it' }));
+    expect(screen.queryByTestId('search-preparation-text-preview')).toBeNull();
+    expect(createSearchPreparation).not.toHaveBeenCalled();
   });
 
   it('keeps the latest selected PDF page when responses arrive out of order', async () => {
@@ -506,7 +519,6 @@ describe('SearchPreparationReceipt', () => {
         onError={vi.fn()}
       />,
     );
-    fireEvent.click(await screen.findByTestId('search-preparation-check-text'));
     await screen.findByText('First page text');
     fireEvent.click(screen.getByRole('button', { name: 'Page 2' }));
     fireEvent.click(screen.getByRole('button', { name: 'Page 3' }));

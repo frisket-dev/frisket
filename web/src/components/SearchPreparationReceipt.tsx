@@ -1,4 +1,4 @@
-import { Check, CircleAlert, FileSearch, LoaderCircle, Square } from 'lucide-react';
+import { Check, CircleAlert, LoaderCircle, Square } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   createSearchPreparation,
@@ -84,7 +84,7 @@ function PullProgress({ pullId, onChange }: { pullId: number; onChange(): void }
   );
 }
 
-function TextCheck({
+function TextReview({
   projectId,
   batch,
   onBatchChange,
@@ -95,10 +95,10 @@ function TextCheck({
   onBatchChange(batch: SearchPreparationBatch): void;
   onError(message: string): void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
   const [sample, setSample] = useState<SearchPreparationTextSample | null>(null);
   const [pages, setPages] = useState<number[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [forcing, setForcing] = useState(false);
   const loadGeneration = useRef(0);
   const loadController = useRef<AbortController | null>(null);
@@ -144,10 +144,13 @@ function TextCheck({
     }
   };
 
-  const show = () => {
-    setOpen(true);
-    if (!sample) void load();
-  };
+  usePoll(load, {
+    active: !dismissed && sample === null,
+    intervalMs: 1_000,
+    maxAttempts: 1,
+    immediate: true,
+  });
+
   const selectPage = (page: number) => {
     if (!sample || sample.page_scoped) return;
     void load(sample.row_id, page);
@@ -162,7 +165,7 @@ function TextCheck({
         force_ocr: true,
       });
       onBatchChange(next);
-      setOpen(false);
+      setDismissed(true);
     } catch (error) {
       onError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -172,22 +175,13 @@ function TextCheck({
 
   return (
     <>
-      <button
-        type="button"
-        className="mini-btn"
-        data-testid="search-preparation-check-text"
-        onClick={show}
-      >
-        <FileSearch size={13} /> Check text
-      </button>
-      {open && (
+      {!dismissed && (
         <section className="search-preparation-text-preview" data-testid="search-preparation-text-preview">
           <header>
             <div>
-              <strong>Text from the PDF</strong>
+              <strong>Does this text look right?</strong>
               <span>{sample?.filename ?? 'Imported PDF'}</span>
             </div>
-            <button type="button" className="mini-btn" onClick={() => setOpen(false)}>Close</button>
           </header>
           {sample ? (
             <>
@@ -224,17 +218,27 @@ function TextCheck({
                 loading={loading}
               />
               <p className="form-hint">
-                Replaces the text Frisket uses for search. Your PDF stays unchanged.
+                OCR replaces the text Frisket uses for search. Your PDF stays unchanged.
               </p>
-              <button
-                type="button"
-                className="btn btn-primary"
-                data-testid="search-preparation-force-ocr"
-                disabled={forcing}
-                onClick={() => void forceOcr()}
-              >
-                {forcing ? 'Starting…' : 'Replace existing text with OCR'}
-              </button>
+              <div className="search-preparation-actions">
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  data-testid="search-preparation-keep-text"
+                  onClick={() => setDismissed(true)}
+                >
+                  Yes, keep it
+                </button>
+                <button
+                  type="button"
+                  className="btn"
+                  data-testid="search-preparation-force-ocr"
+                  disabled={forcing}
+                  onClick={() => void forceOcr()}
+                >
+                  {forcing ? 'Starting…' : 'No, replace with OCR'}
+                </button>
+              </div>
             </>
           ) : loading ? (
             <div role="status"><LoaderCircle className="spin" size={18} /> Reading PDF text…</div>
@@ -395,7 +399,7 @@ export function SearchPreparationReceipt({
       </div>
 
       {nativeGroup && (
-        <TextCheck
+        <TextReview
           projectId={projectId}
           batch={batch}
           onBatchChange={publish}
@@ -406,9 +410,6 @@ export function SearchPreparationReceipt({
       {batch.status === 'needs_consent' && (
         <section className="search-preparation-consent" data-testid="search-preparation-model-consent">
           <h3>{missingModels.length > 0 ? 'Download local models?' : 'Prepare files?'}</h3>
-          <p>{missingModels.length > 0
-            ? 'These run on the Frisket server. Nothing downloads until you continue.'
-            : 'The required local models are ready.'}</p>
           {missingModels.map((model) => (
             <label
               className="search-preparation-model"
@@ -427,12 +428,6 @@ export function SearchPreparationReceipt({
               <span>
                 <strong>{model.display_name}</strong>
                 <small>{modelPurposeLabel(model.purpose)}</small>
-                {(model.license || model.source_url) && (
-                  <small>
-                    {model.license ?? 'Model source'}
-                    {model.source_url && <> · <a href={model.source_url} target="_blank" rel="noreferrer">Source</a></>}
-                  </small>
-                )}
                 {model.remediation && <small>{model.remediation}</small>}
               </span>
               <b>{model.download_bytes == null
@@ -440,9 +435,6 @@ export function SearchPreparationReceipt({
                 : `About ${formatNumberDisplay(model.download_bytes, 'filesize')}`}</b>
             </label>
           ))}
-          {missingModels.some((model) => model.additional_runtime_download) && (
-            <p className="form-hint">Additional runtime files may also be downloaded; their size is not included above.</p>
-          )}
           {!batch.can_setup && (
             <div className="import-field-error" role="alert">
               Model setup is unavailable. See the model details above.
