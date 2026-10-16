@@ -297,7 +297,7 @@ def test_typed_preview_local_manual_replays_without_reembedding(env, monkeypatch
 
         return embed, model_id or "BAAI/bge-small-en-v1.5"
 
-    monkeypatch.setattr("frisket.semantic.local_embedder", local_embedder)
+    monkeypatch.setattr("frisket.ai.embeddings.backends.local_embedder", local_embedder)
     query = _manual_query(index_id, "query cat")
     query["sheet_id"] = sheet
     action = _preview_action(query, key="typed-manual")
@@ -390,7 +390,7 @@ def test_typed_preview_rejects_mid_embed_source_edit_with_failed_receipt(
 
         return embed, model_id or "BAAI/bge-small-en-v1.5"
 
-    monkeypatch.setattr("frisket.semantic.local_embedder", local_embedder)
+    monkeypatch.setattr("frisket.ai.embeddings.backends.local_embedder", local_embedder)
     query = {**_manual_query(index_id, "query cat"), "sheet_id": sheet}
     result = run_action_spec(
         project,
@@ -428,7 +428,7 @@ def test_typed_preview_rejects_mid_embed_provider_metadata_edit(env, monkeypatch
 
         return embed, model_id or "BAAI/bge-small-en-v1.5"
 
-    monkeypatch.setattr("frisket.semantic.local_embedder", local_embedder)
+    monkeypatch.setattr("frisket.ai.embeddings.backends.local_embedder", local_embedder)
     query = {**_manual_query(index_id, "query cat"), "sheet_id": sheet}
     result = run_action_spec(
         project,
@@ -448,10 +448,7 @@ def test_typed_preview_rejects_mid_embed_provider_metadata_edit(env, monkeypatch
 def test_typed_preview_refuses_remote_query_text_before_gateway(
     env, monkeypatch, query_kind
 ):
-    from frisket.search import drain_index
-
     project, sheet, _cols, index_id = env
-    drain_index(project)
     project.db.execute(
         "UPDATE embedding_spaces SET provider_id='openai', "
         "provider_kind='platform_api' WHERE id=(SELECT space_id FROM "
