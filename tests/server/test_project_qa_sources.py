@@ -344,7 +344,7 @@ def test_source_text_cannot_override_an_explicit_citation_offset(source):
     assert "<b>Methodology</b> late." in opened["passages"][0]["text"]
 
 
-def test_fts_anchor_ignores_raw_b_tags_before_the_actual_match(source):
+def test_exact_fts_location_bypasses_fallback_anchor(source):
     project, store, _, turn, sheet, column, row = source
     text = (
         "Methodology decoy. "
@@ -355,13 +355,13 @@ def test_fts_anchor_ignores_raw_b_tags_before_the_actual_match(source):
     drain_index(project)
     tools = ProjectQATools(project, turn, store)
 
-    [hit] = tools.search_cells("ACTUALNEEDLE", sheet)["hits"]
+    [hit] = tools.search_cells('"ACTUALNEEDLE"', sheet)["hits"]
     citation = store.get_citation(hit["citation_id"])
     opened = tools.open_source(hit["citation_id"])
 
     assert "<b>Methodology</b>" in citation["excerpt"]
-    assert citation["metadata"]["fts_anchor"] == "ACTUALNEEDLE"
-    assert opened["range"]["start"] > 2_000
+    assert "fts_anchor" not in citation["metadata"]
+    assert opened["range"]["start"] == text.index("ACTUALNEEDLE")
     assert "ACTUALNEEDLE" in opened["passages"][0]["text"]
 
 

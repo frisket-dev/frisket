@@ -303,6 +303,43 @@ def test_repeated_lexical_anchor_keeps_whole_source_location(tmp_path):
         project.close()
 
 
+def test_quoted_lexical_match_ignores_literal_snippet_markup(tmp_path):
+    from frisket.search import drain_index
+
+    project = Project.create(tmp_path / "literal-snippet-markup.frisket")
+    try:
+        sheet = project.add_sheet("Contracts")
+        column = project.add_column(sheet, "body")
+        prefix = "Background material. " * 800
+        match = "ACTUALNEEDLE"
+        text = f"{prefix}<b>Methodology</b> immediately before {match}."
+        project.add_rows(sheet, [{"body": text}], {"body": column})
+        drain_index(project)
+
+        response = search(
+            project,
+            SearchRequest(
+                scope=RetrievalScope(sheets=(SheetScope(sheet),)),
+                query=TextQuery(f'"{match}"'),
+                mode="lexical",
+                ranking=RankingPolicy(rerank="off"),
+            ),
+        )
+
+        [result] = response.results
+        hit = result.primary
+        location = hit.part.locator
+        assert hit.precision == "exact"
+        assert hit.snippet is not None
+        assert (
+            "<b>Methodology</b> immediately before <b>ACTUALNEEDLE</b>" in hit.snippet
+        )
+        assert location.text is not None
+        assert text[location.text.start : location.text.end] == match
+    finally:
+        project.close()
+
+
 def test_semantic_scope_and_freshness_are_applied_before_top_k(tmp_path):
     project, sheet, _status, body, rows = _prepare_project(tmp_path)
     try:

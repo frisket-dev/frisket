@@ -1164,6 +1164,9 @@ def _hydrate_lexical(
         if text is None or input_hash(text) != candidate.lexical_content_hash:
             continue
         hydrated.append((candidate, text))
+    start_marker, end_marker = _lexical_snippet_markers(
+        tuple(text for _candidate, text in hydrated)
+    )
     snippets: dict[int, tuple[str, str | None]] = {}
     for offset in range(0, len(hydrated), MAX_SNIPPET_CANDIDATES):
         snippets.update(
@@ -1177,6 +1180,8 @@ def _hydrate_lexical(
                         start=offset + 1,
                     )
                 ],
+                start_marker=start_marker,
+                end_marker=end_marker,
                 include_rerank=True,
             )
         )
@@ -1185,7 +1190,13 @@ def _hydrate_lexical(
         if index not in snippets:
             continue
         snippet, rerank_text = snippets[index]
-        exact_range = _unique_lexical_range(text, literal_query, snippet)
+        exact_range = _unique_lexical_range(
+            text,
+            literal_query,
+            snippet,
+            start_marker=start_marker,
+            end_marker=end_marker,
+        )
         locator = candidate.locator
         text_range = locator.text
         if (
@@ -1209,7 +1220,9 @@ def _hydrate_lexical(
             replace(
                 candidate,
                 locator=locator,
-                snippet=snippet,
+                snippet=snippet.replace(start_marker, "<b>").replace(
+                    end_marker, "</b>"
+                ),
                 rerank_text=(rerank_text or "")[:1024],
                 lexical_exact=lexical_exact,
             )
@@ -1217,25 +1230,43 @@ def _hydrate_lexical(
     return located
 
 
+def _lexical_snippet_markers(texts: Sequence[str]) -> tuple[str, str]:
+    """Choose deterministic SQLite markers that cannot be source text."""
+
+    suffix = 0
+    while True:
+        start_marker = f"[[FRISKET_SEARCH_HIT_{suffix}_START]]"
+        end_marker = f"[[FRISKET_SEARCH_HIT_{suffix}_END]]"
+        if all(start_marker not in text and end_marker not in text for text in texts):
+            return start_marker, end_marker
+        suffix += 1
+
+
 def _unique_lexical_range(
-    text: str, literal_query: str, snippet: str
+    text: str,
+    literal_query: str,
+    snippet: str,
+    *,
+    start_marker: str,
+    end_marker: str,
 ) -> tuple[int, int] | None:
     """Locate one SQLite-selected lexical anchor without interpreting FTS syntax."""
 
     literal = literal_query.strip()
-    snippet_text = snippet.replace("<b>", "").replace("</b>", "")
+    snippet_text = snippet.replace(start_marker, "").replace(end_marker, "")
     anchors = (
         [literal]
         if literal and re.search(re.escape(literal), snippet_text, re.IGNORECASE)
         else []
     )
     marker_start = 0
-    while (start := snippet.find("<b>", marker_start)) >= 0:
-        end = snippet.find("</b>", start + 3)
+    while (start := snippet.find(start_marker, marker_start)) >= 0:
+        anchor_start = start + len(start_marker)
+        end = snippet.find(end_marker, anchor_start)
         if end < 0:
             break
-        anchors.append(snippet[start + 3 : end])
-        marker_start = end + 4
+        anchors.append(snippet[anchor_start:end])
+        marker_start = end + len(end_marker)
     for anchor in dict.fromkeys(anchor for anchor in anchors if anchor):
         pattern = re.compile(re.escape(anchor), re.IGNORECASE)
         first = pattern.search(text)

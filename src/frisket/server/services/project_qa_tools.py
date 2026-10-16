@@ -653,6 +653,8 @@ class ProjectQATools:
             contribution.method == "lexical" for contribution in hit.contributions
         ):
             return None
+        if hit.precision == "exact" and hit.part.locator.text is not None:
+            return None
         snippet = hit.snippet or ""
         if query.casefold() in unescape(snippet).casefold():
             return query
