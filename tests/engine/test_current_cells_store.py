@@ -364,6 +364,13 @@ def test_replace_remove_and_rebuild_share_the_same_projector() -> None:
         producer_id=first,
         cells=[BaseCellWrite(100, 10, "first"), BaseCellWrite(101, 10, "keep")],
     )
+    initial_revisions = {
+        int(row["row_id"]): int(row["retrieval_revision"])
+        for row in db.execute(
+            "SELECT row_id,retrieval_revision FROM current_cells "
+            "WHERE column_id=10 ORDER BY row_id"
+        )
+    }
     _op(db, 2)
     second = create_base_cell_producer(db, stage_id="op:2", op_id=2)
     replace_base_cells(
@@ -376,6 +383,49 @@ def test_replace_remove_and_rebuild_share_the_same_projector() -> None:
     assert db.execute(
         "SELECT value,base_producer_id FROM current_cell_values WHERE row_id=100"
     ).fetchone()[:] == ("second", second)
+    replaced_revisions = {
+        int(row["row_id"]): int(row["retrieval_revision"])
+        for row in db.execute(
+            "SELECT row_id,retrieval_revision FROM current_cells "
+            "WHERE column_id=10 ORDER BY row_id"
+        )
+    }
+    assert replaced_revisions[100] > initial_revisions[100]
+    assert replaced_revisions[101] == initial_revisions[101]
+
+    replace_base_cells(
+        db,
+        producer_id=second,
+        column_ids=[10],
+        row_ids=[100],
+        cells=[BaseCellWrite(100, 10, "third")],
+    )
+    same_producer_revision = int(
+        db.execute(
+            "SELECT retrieval_revision FROM current_cells "
+            "WHERE column_id=10 AND row_id=100"
+        ).fetchone()[0]
+    )
+    assert same_producer_revision > replaced_revisions[100]
+    replaced_revisions[100] = same_producer_revision
+
+    refresh_current_cells(db, column_ids=[10])
+    assert {
+        int(row["row_id"]): int(row["retrieval_revision"])
+        for row in db.execute(
+            "SELECT row_id,retrieval_revision FROM current_cells "
+            "WHERE column_id=10 ORDER BY row_id"
+        )
+    } == replaced_revisions
+
+    assert rebuild_current_cells(db) == 2
+    assert {
+        int(row["row_id"]): int(row["retrieval_revision"])
+        for row in db.execute(
+            "SELECT row_id,retrieval_revision FROM current_cells "
+            "WHERE column_id=10 ORDER BY row_id"
+        )
+    } == replaced_revisions
     assert (
         remove_base_cells(db, producer_id=second, column_ids=[10], row_ids=[101]) == 1
     )
@@ -392,7 +442,47 @@ def test_replace_remove_and_rebuild_share_the_same_projector() -> None:
         db.execute(
             "SELECT value FROM current_cell_values WHERE column_id=10 AND row_id=100"
         ).fetchone()[0]
-        == "second"
+        == "third"
+    )
+
+
+def test_source_replacement_preserves_visible_edit_revision() -> None:
+    db = _database()
+    db.execute("BEGIN")
+    _op(db, 1)
+    producer = create_base_cell_producer(db, stage_id="op:1", op_id=1)
+    initialize_base_cells(
+        db,
+        producer_id=producer,
+        cells=[BaseCellWrite(100, 10, "source")],
+    )
+    _op(db, 2, kind="edit")
+    insert_edits(db, op_id=2, edits=[EditCellWrite(100, 10, "overlay")])
+    before = db.execute(
+        "SELECT value,retrieval_revision FROM current_cell_values "
+        "JOIN current_cells USING (column_id,row_id) "
+        "WHERE column_id=10 AND row_id=100"
+    ).fetchone()
+
+    replace_base_cells(
+        db,
+        producer_id=producer,
+        column_ids=[10],
+        row_ids=[100],
+        cells=[BaseCellWrite(100, 10, "changed source")],
+    )
+
+    after = db.execute(
+        "SELECT value,retrieval_revision FROM current_cell_values "
+        "JOIN current_cells USING (column_id,row_id) "
+        "WHERE column_id=10 AND row_id=100"
+    ).fetchone()
+    assert tuple(after) == tuple(before)
+    assert (
+        db.execute(
+            "SELECT value FROM cells WHERE column_id=10 AND row_id=100"
+        ).fetchone()[0]
+        == "changed source"
     )
 
 

@@ -60,8 +60,9 @@ def _production_shaped_database(row_count: int) -> sqlite3.Connection:
     )
     db.executemany(
         "INSERT INTO current_cells "
-        "(column_id,row_id,origin_kind,origin_op_id,origin_run_id,validity) "
-        "VALUES (10,?,'run_result',2,20,'valid')",
+        "(column_id,row_id,retrieval_revision,origin_kind,origin_op_id,"
+        "origin_run_id,validity) "
+        "VALUES (10,?,1,'run_result',2,20,'valid')",
         ((row_id,) for row_id in range(1, row_count + 1)),
     )
     db.commit()

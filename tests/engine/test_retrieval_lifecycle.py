@@ -35,7 +35,9 @@ def _current_cell_project(tmp_path: Path) -> tuple[Project, int, int, int]:
     return project, sheet_id, row_id, column_id
 
 
-def test_refresh_stamps_a_new_revision_even_when_origin_is_unchanged(tmp_path) -> None:
+def test_refresh_preserves_revision_until_source_writer_reports_changed_value(
+    tmp_path,
+) -> None:
     project, _sheet_id, row_id, column_id = _current_cell_project(tmp_path)
     before = project.db.execute(
         "SELECT origin_kind,origin_op_id,origin_run_id,retrieval_revision "
@@ -44,13 +46,26 @@ def test_refresh_stamps_a_new_revision_even_when_origin_is_unchanged(tmp_path) -
     ).fetchone()
     assert before[0] == "source_cell"
 
+    with project.transaction_scope():
+        refresh_current_cells(project.db, column_ids=[column_id], row_ids=[row_id])
+    unchanged = project.db.execute(
+        "SELECT retrieval_revision FROM current_cells WHERE row_id=? AND column_id=?",
+        (row_id, column_id),
+    ).fetchone()
+    assert int(unchanged[0]) == int(before[3])
+
     with project.db:
         kind, value = encode_stored_value("second")
         project.db.execute(
             "UPDATE cells SET value_kind=?,value=? WHERE row_id=? AND column_id=?",
             (kind, value, row_id, column_id),
         )
-        refresh_current_cells(project.db, column_ids=[column_id], row_ids=[row_id])
+        refresh_current_cells(
+            project.db,
+            column_ids=[column_id],
+            row_ids=[row_id],
+            source_values_changed=True,
+        )
 
     after = project.db.execute(
         "SELECT origin_kind,origin_op_id,origin_run_id,retrieval_revision "
@@ -75,7 +90,12 @@ def test_revision_allocation_and_projection_roll_back_together(tmp_path) -> None
         "UPDATE cells SET value_kind=?,value=? WHERE row_id=? AND column_id=?",
         (kind, value, row_id, column_id),
     )
-    refresh_current_cells(project.db, column_ids=[column_id], row_ids=[row_id])
+    refresh_current_cells(
+        project.db,
+        column_ids=[column_id],
+        row_ids=[row_id],
+        source_values_changed=True,
+    )
     assert (
         read_binding_revision(project.db, row_id=row_id, column_id=column_id)
         > before_revision
