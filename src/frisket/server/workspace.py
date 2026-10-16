@@ -332,6 +332,7 @@ class Workspace:
                 if callable(self.search_preparation_enclosure_downloaded)
                 else None
             ),
+            prepare_enclosures_for_search=self.edition != "cloud",
         )
         if enable_local_model_pull:
             # Local-tier-only: deliberately

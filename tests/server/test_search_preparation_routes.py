@@ -8,6 +8,7 @@ from frisket.server.app import create_app
 from frisket.server.services import search_preparation as preparation_module
 from frisket.server.services.search_preparation import SearchPreparationService
 from frisket.server.workspace import Workspace
+from frisket.engine.jobs.search_preparation_store import SearchPreparationStore
 
 
 @dataclass(frozen=True)
@@ -114,6 +115,57 @@ def test_missing_ocr_setup_never_starts_before_exact_consent(
     )
     assert decided.status == "preparing"
     assert setup_calls == [("engine-setup:rapidocr.local@1", "owner-1")]
+
+
+def test_server_reconciles_completed_enclosure_from_separate_worker(
+    tmp_path, monkeypatch
+) -> None:
+    ready = replace(_Requirement(), weights_ready=True)
+    monkeypatch.setattr(preparation_module, "_requirements", lambda: (ready,))
+    workspace = Workspace(tmp_path / "workspace")
+    project_id = workspace.create("Enclosures")["id"]
+    project = workspace.get(project_id)
+    sheet_id = project.add_sheet("Files")
+    image_column = project.add_column(sheet_id, "Image", type="image")
+    digest = project.add_blob(b"image", filename="scan.png", mime="image/png")
+    [row_id] = project.add_rows(
+        sheet_id,
+        [{"Image": {"blob": digest, "filename": "scan.png", "mime": "image/png"}}],
+        {"Image": image_column},
+    )
+    job_id = workspace.queue.enqueue(
+        "enclosure.download",
+        {
+            "project_id": project_id,
+            "sheet_id": sheet_id,
+            "row_id": row_id,
+            "workspace_root": str(workspace.root),
+        },
+    )
+    store = SearchPreparationStore(workspace.queue, workspace_root=str(workspace.root))
+    pending = store.create_pending_materialization(
+        workspace_root=str(workspace.root),
+        storage_org_id=None,
+        project_id=project_id,
+        job_id=job_id,
+        sheet_id=sheet_id,
+        row_id=row_id,
+    )
+    claimed = workspace.queue.claim("separate-cli-worker")
+    while claimed is not None and claimed.id != job_id:
+        assert workspace.queue.complete(
+            claimed.id, "separate-cli-worker", {"skipped_by_test": True}
+        )
+        claimed = workspace.queue.claim("separate-cli-worker")
+    assert claimed is not None and claimed.id == job_id
+    assert workspace.queue.complete(job_id, "separate-cli-worker", {"ok": True})
+
+    SearchPreparationService(workspace).recover()
+
+    hydrated = store.get(pending.id, project_id=project_id, storage_org_id=None)
+    assert hydrated.plan is not None
+    assert hydrated.plan["items"][0]["row_id"] == row_id
+    assert store.children(pending.id)[0].receipt_id is not None
 
 
 def test_eligible_ocr_consent_is_not_blocked_by_unavailable_transcription_runtime(

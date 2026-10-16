@@ -853,6 +853,7 @@ class ActionRunService:
                 source=source_data,
                 sheet_id=sheet_id,
                 row_ids=row_ids,
+                prepare_for_search=self._workspace.edition != "cloud",
             )
         )
 

@@ -241,12 +241,40 @@ class SearchPreparationService:
     def create_after_materialization(
         self, project_id: str, *, sheet_id: int, row_ids: Sequence[int]
     ) -> str | None:
+        pending = self.store.pending_materialization(
+            project_id=project_id,
+            storage_org_id=self.workspace.queue_storage_org_id,
+            sheet_id=sheet_id,
+            row_ids=row_ids,
+        )
         if not self.automatic_enabled(project_id):
+            if pending is not None:
+                self.store.mark_settled(
+                    pending.id,
+                    project_id=project_id,
+                    storage_org_id=self.workspace.queue_storage_org_id,
+                )
             return None
         project = self.workspace.get(project_id)
         plan = self._plan(project, sheet_id=sheet_id, row_ids=row_ids, force_ocr=False)
         if not plan["items"]:
+            if pending is not None:
+                self.store.mark_settled(
+                    pending.id,
+                    project_id=project_id,
+                    storage_org_id=self.workspace.queue_storage_org_id,
+                )
             return None
+        if pending is not None:
+            batch = self.store.hydrate_pending_materialization(
+                pending.id,
+                project_id=project_id,
+                storage_org_id=self.workspace.queue_storage_org_id,
+                source_cutoff=int(project.op_cursor),
+                plan=plan,
+            )
+            self._advance(batch)
+            return batch.id
         batch = self.store.create(
             workspace_root=str(self.workspace.root),
             storage_org_id=self.workspace.queue_storage_org_id,
@@ -486,7 +514,7 @@ class SearchPreparationService:
             for row in rows:
                 try:
                     if row.plan is None:
-                        self._recover_pending_import(row)
+                        self._recover_pending(row)
                     else:
                         self._start_next_setup(row)
                         self._advance(row)
@@ -514,6 +542,36 @@ class SearchPreparationService:
                 break
             after_created_at = rows[-1].created_at
             after_id = rows[-1].id
+
+    def _recover_pending(self, row: SearchPreparationBatchRow) -> None:
+        if row.materialization_job_id is not None:
+            self._recover_pending_materialization(row)
+            return
+        self._recover_pending_import(row)
+
+    def _recover_pending_materialization(self, row: SearchPreparationBatchRow) -> None:
+        job = self.workspace.queue.get(row.materialization_job_id)
+        if job is None or job.status in {"failed", "cancelled"}:
+            self.store.mark_settled(
+                row.id,
+                project_id=row.project_id,
+                storage_org_id=row.storage_org_id,
+            )
+            return
+        if job.status != "done":
+            return
+        if row.sheet_id is None or not row.row_ids:
+            self.store.mark_settled(
+                row.id,
+                project_id=row.project_id,
+                storage_org_id=row.storage_org_id,
+            )
+            return
+        self.create_after_materialization(
+            row.project_id,
+            sheet_id=row.sheet_id,
+            row_ids=row.row_ids,
+        )
 
     def _recover_pending_import(self, row: SearchPreparationBatchRow) -> None:
         if row.import_ref is None or row.trigger_receipt_id is None:
@@ -730,7 +788,7 @@ class SearchPreparationService:
             limit=100,
             persist=False,
         ):
-            if pull.created_at >= row.updated_at:
+            if pull.created_at >= (row.decision_at or row.created_at):
                 latest.setdefault(pull.model_ref, pull)
         for planned in row.plan["models"]:
             requirement = live.get(planned["setup_ref"])
@@ -905,7 +963,7 @@ class SearchPreparationService:
             limit=100,
             persist=False,
         ):
-            if pull.created_at >= row.updated_at:
+            if pull.created_at >= (row.decision_at or row.created_at):
                 latest.setdefault(pull.model_ref, pull)
         planned = {item["setup_ref"]: item for item in row.plan["models"]}
         ordered = sorted(
@@ -995,7 +1053,7 @@ class SearchPreparationService:
             persist=False,
         ):
             if (
-                pull.created_at >= row.updated_at
+                pull.created_at >= (row.decision_at or row.created_at)
                 and pull.model_ref in row.selected_setup_refs
                 and pull.model_ref not in pulls
             ):

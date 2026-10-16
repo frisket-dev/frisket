@@ -13,6 +13,7 @@ from frisket.engine.jobs import (
     enqueue_enclosure_downloads,
 )
 from frisket.engine.jobs.sources import _source_poll_job_identity
+from frisket.engine.jobs.search_preparation_store import SearchPreparationStore
 from frisket.engine.store import Project
 from frisket.engine.store.sources import SourceStore
 
@@ -367,6 +368,37 @@ def test_enclosure_download_dedupe_is_scoped_by_workspace_root(
         assert job.sheet_id == sheet_id
         assert job.row_id == row_id
         assert job.workspace_root == str(workspace)
+    finally:
+        queue.close()
+        project.close()
+
+
+def test_enclosure_admission_records_exact_pending_search_preparation(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "ws"
+    project = _project(workspace)
+    sheet_id, row_id = _row_with_remote_enclosure(project)
+    queue = SqliteJobQueue(workspace / ".queue.db")
+    try:
+        [job_id] = enqueue_enclosure_downloads(
+            queue,
+            project=project,
+            project_id="news",
+            workspace_root=workspace,
+            source={"config": {"download_enclosures": "queued"}},
+            sheet_id=sheet_id,
+            row_ids=[row_id],
+            prepare_for_search=True,
+        )
+
+        [pending] = SearchPreparationStore(
+            queue, workspace_root=str(workspace)
+        ).list_active_page(storage_org_id=None)
+        assert pending.materialization_job_id == job_id
+        assert pending.sheet_id == sheet_id
+        assert pending.row_ids == (row_id,)
+        assert pending.plan is None
     finally:
         queue.close()
         project.close()

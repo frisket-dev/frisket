@@ -44,6 +44,7 @@ def test_import_receipt_is_idempotent_and_consent_is_exact(tmp_path) -> None:
         )
         assert decided.decision == "prepare"
         assert decided.selected_setup_refs == ("engine-setup:rapidocr.local@1",)
+        assert decided.decision_at is not None
 
         with pytest.raises(ValueError, match="plan changed"):
             store.decide(
@@ -63,6 +64,15 @@ def test_import_receipt_is_idempotent_and_consent_is_exact(tmp_path) -> None:
                 decision="not_now",
                 selected_setup_refs=[],
             )
+        replayed = store.decide(
+            batch.id,
+            project_id="project",
+            storage_org_id=None,
+            plan_hash=batch.plan_hash,
+            decision="prepare",
+            selected_setup_refs=["engine-setup:rapidocr.local@1"],
+        )
+        assert replayed.decision_at == decided.decision_at
     finally:
         queue.close()
 
@@ -109,6 +119,55 @@ def test_pending_import_is_internal_until_atomically_hydrated(tmp_path) -> None:
                 receipt_id="receipt-pending",
             ).id
             == pending.id
+        )
+    finally:
+        queue.close()
+
+
+def test_pending_materialization_is_internal_until_exact_job_is_hydrated(
+    tmp_path,
+) -> None:
+    queue = open_queue(workspace=tmp_path)
+    try:
+        store = SearchPreparationStore(queue, workspace_root="/workspace")
+        pending = store.create_pending_materialization(
+            workspace_root="/workspace",
+            storage_org_id=None,
+            project_id="project",
+            job_id=41,
+            sheet_id=7,
+            row_id=3,
+        )
+        assert pending.materialization_job_id == 41
+        assert pending.row_ids == (3,)
+        assert pending.plan is None
+        assert store.list_recent(project_id="project", storage_org_id=None) == []
+        assert (
+            store.pending_materialization(
+                project_id="project",
+                storage_org_id=None,
+                sheet_id=7,
+                row_ids=[3],
+            ).id
+            == pending.id
+        )
+
+        hydrated = store.hydrate_pending_materialization(
+            pending.id,
+            project_id="project",
+            storage_org_id=None,
+            source_cutoff=14,
+            plan={"groups": [], "models": [], "items": []},
+        )
+        assert hydrated.plan == {"groups": [], "models": [], "items": []}
+        assert (
+            store.pending_materialization(
+                project_id="project",
+                storage_org_id=None,
+                sheet_id=7,
+                row_ids=[3],
+            )
+            is None
         )
     finally:
         queue.close()

@@ -323,6 +323,7 @@ def register_production_handlers(
     embedding_runtime: EmbeddingRuntime | None = None,
     on_terminal_file_import: Callable[[str, str, int], None] | None = None,
     on_enclosure_downloaded: Callable[[str, int, int], None] | None = None,
+    prepare_enclosures_for_search: bool = False,
 ) -> ProjectOpener | None:
     """Register the product handlers on the OPEN worker.
 
@@ -498,6 +499,7 @@ def register_production_handlers(
         queue=queue,
         workspace_root_storage_org_id=workspace_root_storage_org_id,
         project_opener=project_opener,
+        prepare_enclosures_for_search=prepare_enclosures_for_search,
     )
     register_embedding_refresh_handler(
         registry,

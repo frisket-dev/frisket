@@ -37,6 +37,7 @@ search_preparation_batches_table = sa.Table(
     sa.Column("intent_key", sa.String, nullable=False),
     sa.Column("trigger_receipt_id", sa.String),
     sa.Column("import_ref", sa.String),
+    sa.Column("materialization_job_id", sa.Integer),
     sa.Column("sheet_id", sa.Integer),
     sa.Column("scope_json", sa.Text, nullable=False),
     sa.Column("source_cutoff", sa.Integer),
@@ -44,6 +45,7 @@ search_preparation_batches_table = sa.Table(
     sa.Column("plan_hash", sa.String),
     sa.Column("plan_json", sa.Text),
     sa.Column("decision", sa.String),
+    sa.Column("decision_at", sa.DateTime(timezone=True)),
     sa.Column("selected_setup_refs_json", sa.Text),
     sa.Column("stop_requested_at", sa.DateTime(timezone=True)),
     sa.Column("settled_at", sa.DateTime(timezone=True)),
@@ -120,6 +122,7 @@ class SearchPreparationBatchRow:
     project_id: str
     trigger_receipt_id: str | None
     import_ref: str | None
+    materialization_job_id: int | None
     sheet_id: int | None
     row_ids: tuple[int, ...] | None
     source_cutoff: int | None
@@ -127,6 +130,7 @@ class SearchPreparationBatchRow:
     plan_hash: str | None
     plan: dict[str, Any] | None
     decision: str | None
+    decision_at: datetime | None
     selected_setup_refs: tuple[str, ...]
     stop_requested_at: datetime | None
     settled_at: datetime | None
@@ -178,6 +182,11 @@ class SearchPreparationStore:
             project_id=str(row.project_id),
             trigger_receipt_id=row.trigger_receipt_id,
             import_ref=row.import_ref,
+            materialization_job_id=(
+                None
+                if row.materialization_job_id is None
+                else int(row.materialization_job_id)
+            ),
             sheet_id=None if row.sheet_id is None else int(row.sheet_id),
             row_ids=(
                 tuple(int(value) for value in scope["row_ids"])
@@ -191,6 +200,7 @@ class SearchPreparationStore:
             plan_hash=None if row.plan_hash is None else str(row.plan_hash),
             plan=(None if row.plan_json is None else dict(json.loads(row.plan_json))),
             decision=row.decision,
+            decision_at=_parse(row.decision_at),
             selected_setup_refs=tuple(str(value) for value in selected),
             stop_requested_at=_parse(row.stop_requested_at),
             settled_at=_parse(row.settled_at),
@@ -338,6 +348,92 @@ class SearchPreparationStore:
             return existing
         return self.get(batch_id, project_id=project_id, storage_org_id=storage_org_id)
 
+    def create_pending_materialization(
+        self,
+        *,
+        workspace_root: str,
+        storage_org_id: int | None,
+        project_id: str,
+        job_id: int,
+        sheet_id: int,
+        row_id: int,
+    ) -> SearchPreparationBatchRow:
+        """Record one exact enclosure job for server-side reconciliation."""
+
+        now = _now()
+        batch_id = "search-prep-" + uuid.uuid4().hex
+        intent_key = f"materialization:{int(job_id)}"
+        values = dict(
+            id=batch_id,
+            workspace_root=workspace_root,
+            storage_org_id=storage_org_id,
+            project_id=project_id,
+            intent_key=intent_key,
+            materialization_job_id=int(job_id),
+            sheet_id=int(sheet_id),
+            scope_json=json.dumps({"row_ids": [int(row_id)]}, separators=(",", ":")),
+            force_ocr=False,
+            plan_json=None,
+            cursor=0,
+            error_json="[]",
+            settled_at=None,
+            created_at=now,
+            updated_at=now,
+        )
+        if workspace_root != self.workspace_root:
+            raise ValueError("search preparation workspace root does not match store")
+        try:
+            with self._write() as cx:
+                cx.execute(search_preparation_batches_table.insert().values(**values))
+        except sa.exc.IntegrityError:
+            existing = self._for_intent(
+                storage_org_id=storage_org_id,
+                project_id=project_id,
+                intent_key=intent_key,
+            )
+            if existing is None:
+                raise
+            return existing
+        return self.get(batch_id, project_id=project_id, storage_org_id=storage_org_id)
+
+    def pending_materialization(
+        self,
+        *,
+        project_id: str,
+        storage_org_id: int | None,
+        sheet_id: int,
+        row_ids: Sequence[int],
+    ) -> SearchPreparationBatchRow | None:
+        wanted = sorted(set(int(value) for value in row_ids))
+        c = search_preparation_batches_table.c
+        predicate = (
+            c.storage_org_id.is_(None)
+            if storage_org_id is None
+            else c.storage_org_id == storage_org_id
+        )
+        with self.engine.connect() as cx:
+            rows = cx.execute(
+                sa.select(search_preparation_batches_table)
+                .where(
+                    c.workspace_root == self.workspace_root,
+                    c.project_id == project_id,
+                    predicate,
+                    c.sheet_id == int(sheet_id),
+                    c.materialization_job_id.is_not(None),
+                    c.plan_json.is_(None),
+                    c.settled_at.is_(None),
+                )
+                .order_by(c.created_at, c.id)
+            ).fetchall()
+        return next(
+            (
+                self._batch(row)
+                for row in rows
+                if self._batch(row).row_ids == tuple(wanted)
+            ),
+            None,
+        )
+
     def hydrate_pending_import(
         self,
         batch_id: str,
@@ -379,6 +475,49 @@ class SearchPreparationStore:
             )
             if result.rowcount not in {0, 1}:
                 raise RuntimeError("import preparation hydration updated multiple rows")
+        return self.get(batch_id, project_id=project_id, storage_org_id=storage_org_id)
+
+    def hydrate_pending_materialization(
+        self,
+        batch_id: str,
+        *,
+        project_id: str,
+        storage_org_id: int | None,
+        source_cutoff: int,
+        plan: Mapping[str, Any],
+    ) -> SearchPreparationBatchRow:
+        """Atomically attach a plan after the recorded materialization finishes."""
+
+        c = search_preparation_batches_table.c
+        predicate = (
+            c.storage_org_id.is_(None)
+            if storage_org_id is None
+            else c.storage_org_id == storage_org_id
+        )
+        body = dict(plan)
+        with self._write() as cx:
+            result = cx.execute(
+                search_preparation_batches_table.update()
+                .where(
+                    c.id == batch_id,
+                    c.workspace_root == self.workspace_root,
+                    c.project_id == project_id,
+                    predicate,
+                    c.materialization_job_id.is_not(None),
+                    c.plan_json.is_(None),
+                    c.settled_at.is_(None),
+                )
+                .values(
+                    source_cutoff=int(source_cutoff),
+                    plan_hash=canonical_plan_hash(body),
+                    plan_json=json.dumps(body, sort_keys=True, separators=(",", ":")),
+                    updated_at=_now(),
+                )
+            )
+            if result.rowcount not in {0, 1}:
+                raise RuntimeError(
+                    "materialization preparation hydration updated multiple rows"
+                )
         return self.get(batch_id, project_id=project_id, storage_org_id=storage_org_id)
 
     def _for_intent(
@@ -551,6 +690,7 @@ class SearchPreparationStore:
                 sa.select(
                     c.plan_hash,
                     c.decision,
+                    c.decision_at,
                     c.selected_setup_refs_json,
                     c.stop_requested_at,
                 ).where(
@@ -572,14 +712,16 @@ class SearchPreparationStore:
                 or (row.selected_setup_refs_json or "[]") != refs
             ):
                 raise ValueError("search preparation decision is already recorded")
+            now = _now()
             cx.execute(
                 search_preparation_batches_table.update()
                 .where(c.id == batch_id)
                 .values(
                     decision=decision,
+                    decision_at=row.decision_at or now,
                     selected_setup_refs_json=refs,
                     settled_at=None,
-                    updated_at=_now(),
+                    updated_at=now,
                 )
             )
         return self.get(batch_id, project_id=project_id, storage_org_id=storage_org_id)
