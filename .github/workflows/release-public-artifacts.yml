@@ -305,7 +305,7 @@ jobs:
           for expected in \
             manylinux_2_34_x86_64 \
             manylinux_2_34_aarch64 \
-            'macosx_*_arm64' \
+            macosx_14_0_arm64 \
             win_amd64; do
             matches=(release-assets/*-py3-none-$expected.whl)
             test "${#matches[@]}" -eq 1
