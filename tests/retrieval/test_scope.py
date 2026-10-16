@@ -84,6 +84,33 @@ def test_unrestricted_scope_still_excludes_hidden_rows_and_sheets(tmp_path):
         project.close()
 
 
+def test_explicit_sheet_scope_excludes_a_hidden_sheet(tmp_path):
+    project, sheet, _category, body, rows = _project(tmp_path)
+    try:
+        project.db.execute("UPDATE sheets SET hidden=1 WHERE id=?", (sheet,))
+        project.db.commit()
+
+        scope = compile_scope(
+            project,
+            RetrievalScope(
+                sheets=(
+                    SheetScope(
+                        sheet_id=sheet,
+                        row_ids=(rows[0],),
+                        column_ids=(body,),
+                    ),
+                )
+            ),
+        )
+        found = project.db.execute(
+            f"WITH {scope.cte_sql} SELECT * FROM scoped_bindings", scope.params
+        ).fetchall()
+
+        assert found == []
+    finally:
+        project.close()
+
+
 def test_repeated_sheet_scopes_keep_row_and_column_rules_correlated(tmp_path):
     project, sheet, category, body, rows = _project(tmp_path)
     try:

@@ -1205,9 +1205,18 @@ def _binding_is_current(binding: str) -> str:
 
 def _visible_column(binding: str) -> str:
     return (
-        f"({binding}.column_id IS NULL OR EXISTS (SELECT 1 FROM main.columns AS visible_column "
+        f"(({binding}.column_id IS NOT NULL AND EXISTS ("
+        "SELECT 1 FROM main.columns AS visible_column "
         f"WHERE visible_column.id={binding}.column_id "
-        f"AND visible_column.sheet_id={binding}.sheet_id AND visible_column.hidden=0))"
+        f"AND visible_column.sheet_id={binding}.sheet_id "
+        "AND visible_column.hidden=0)) OR "
+        f"({binding}.column_id IS NULL AND NOT EXISTS ("
+        "SELECT 1 FROM idx.binding_dependencies AS dependency "
+        "LEFT JOIN main.columns AS dependency_column "
+        "ON dependency_column.id=dependency.column_id "
+        f"AND dependency_column.sheet_id={binding}.sheet_id "
+        f"WHERE dependency.binding_id={binding}.binding_id "
+        "AND (dependency_column.id IS NULL OR dependency_column.hidden!=0))))"
     )
 
 

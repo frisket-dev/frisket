@@ -58,7 +58,10 @@ def compile_scope(reader: ScopeReader, scope: RetrievalScope) -> CompiledRetriev
             parent_row_id=sheet_scope.parent_row_id,
             filter_=sheet_scope.filter_json,
         )
-        joins: list[str] = []
+        joins = [
+            "JOIN sheets AS retrieval_sheet "
+            "ON retrieval_sheet.id=r.sheet_id AND retrieval_sheet.hidden=0"
+        ]
         select_params: list[Any] = [*plan.filter_join_params]
         if sheet_scope.row_ids is not None:
             joins.append(

@@ -547,6 +547,11 @@ def test_composite_binding_is_invalidated_when_any_dependency_changes(tmp_path):
         vectors = SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),))
         assert len(search(project, request, semantic_vectors=vectors).results) == 1
 
+        project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (title,))
+        project.db.commit()
+        assert search(project, request, semantic_vectors=vectors).results == ()
+
+        project.db.execute("UPDATE columns SET hidden=0 WHERE id=?", (title,))
         project.db.execute(
             "UPDATE current_cells SET retrieval_revision=retrieval_revision+1 "
             "WHERE row_id=? AND column_id=?",
