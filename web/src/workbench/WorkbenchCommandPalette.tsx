@@ -16,7 +16,6 @@ import {
 import { PaletteSearchSection } from './WorkbenchCommandPaletteSearch';
 import { useNativePopover } from '../hooks/useNativePopover';
 import { topLayerPortalRoot } from '../topLayerPortal';
-import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { createSearchPreparation } from '../api/searchPreparation';
 import { SearchPreparationReceipt } from '../components/SearchPreparationReceipt';
 
@@ -88,6 +87,8 @@ export function WorkbenchCommandPalette({
   activeSearchSheetId,
   searchSeed,
   onNavigateSearchHit,
+  projectId,
+  onOpenJobs,
   launcherCommands = EMPTY_LAUNCHER_COMMANDS,
 }: {
   onClose: () => void;
@@ -108,8 +109,9 @@ export function WorkbenchCommandPalette({
   activeSearchSheetId?: string | number | null;
   onNavigateSearchHit: (hit: ProjectSearchHitWire) => void;
   searchSeed?: PaletteSearchSeed | null;
+  projectId?: string;
+  onOpenJobs?: () => void;
 }) {
-  const { chrome, chromePreferences: { projectId } } = useWorkspaceStores();
   const backdropRef = useRef<HTMLDivElement>(null);
   useNativePopover(backdropRef, onClose, { escape: false, outside: false });
 
@@ -223,7 +225,7 @@ export function WorkbenchCommandPalette({
   const [preparationError, setPreparationError] = useState<string | null>(null);
   const prepareSearchGap = () => {
     const sheetId = Number(activeSearchSheetId);
-    if (!Number.isInteger(sheetId) || sheetId <= 0 || preparationBusy) return;
+    if (!projectId || !Number.isInteger(sheetId) || sheetId <= 0 || preparationBusy) return;
     setPreparationBusy(true);
     setPreparationError(null);
     void createSearchPreparation(projectId, { sheet_id: sheetId })
@@ -493,14 +495,14 @@ export function WorkbenchCommandPalette({
             onStartSetup={startSetup}
             preparationBusy={preparationBusy}
             preparationError={preparationError}
-            canPrepareGap={Number.isInteger(Number(activeSearchSheetId)) && Number(activeSearchSheetId) > 0}
+            canPrepareGap={Boolean(projectId) && Number.isInteger(Number(activeSearchSheetId)) && Number(activeSearchSheetId) > 0}
             onPrepareGap={prepareSearchGap}
             onViewJobs={() => {
-              chrome.setActiveBottomDockTab('jobs');
+              onOpenJobs?.();
               onClose();
             }}
           />
-          {preparationBatchId && (
+          {projectId && preparationBatchId && (
             <SearchPreparationReceipt
               key={preparationBatchId}
               projectId={projectId}

@@ -29,7 +29,11 @@ export function PdfTextPagePreview({
       <div className="pdf-packet-text-card">
         <strong>{heading}</strong>
         {loading ? (
-          <div className="pdf-packet-text-loading" role="status" aria-label={loadingCopy}>
+          <div
+            className="pdf-packet-text-loading"
+            role="status"
+            aria-label={loadingCopy.replace(/…$/, '')}
+          >
             <LoaderCircle className="spin" size={24} aria-hidden />
             <span>{loadingCopy}</span>
           </div>
