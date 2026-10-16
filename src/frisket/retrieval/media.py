@@ -1,10 +1,10 @@
 """Bounded media part producers with source-timeline locations.
 
-The caller supplies an already-admitted :class:`BoundLocalFile`.  This module
-copies and verifies that borrowed stream into owned scratch before invoking
-the existing confined ffmpeg boundary; it never accepts a URL or an arbitrary
-filesystem path.  Encoder payloads contain only representation bytes.  Exact
-presentation timestamps and intervals stay on the located wrappers here.
+The caller supplies an already-admitted :class:`BoundLocalFile` or a private
+materialization lease owned by this module. Borrowed streams are copied and
+verified into scratch; verified blob materializations are decoded only while
+their owning context is active. Encoder payloads contain only representation
+bytes. Exact presentation timestamps and intervals stay on located wrappers.
 """
 
 from __future__ import annotations
@@ -52,6 +52,36 @@ class MediaProductionError(RuntimeError):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
+
+
+@dataclass(slots=True)
+class _MaterializedMedia:
+    _path: Path
+    sha256: str
+    _active: bool = True
+
+    def borrow_path(self) -> Path:
+        if not self._active:
+            raise MediaProductionError(
+                "invalid_media_source", "media materialization lease has ended"
+            )
+        if not self._path.is_file():
+            raise MediaProductionError(
+                "invalid_media_source", "media materialization is unavailable"
+            )
+        return self._path
+
+
+@contextlib.contextmanager
+def _borrow_materialized_media(project, digest: str):
+    """Own one verified blob materialization for the yielded media borrower."""
+
+    with project.materialize_blob(digest) as path:
+        borrowed = _MaterializedMedia(Path(path), f"sha256:{digest}")
+        try:
+            yield borrowed
+        finally:
+            borrowed._active = False
 
 
 def _positive_number(value: object, name: str) -> float:
@@ -323,7 +353,7 @@ def _binary(name: str) -> str:
     return binary
 
 
-def _expected_digest(source: BoundLocalFile) -> str:
+def _expected_digest(source: BoundLocalFile | _MaterializedMedia) -> str:
     prefix, separator, digest = source.sha256.partition(":")
     if (
         prefix != "sha256"
@@ -390,6 +420,26 @@ async def _stage_source(
         raise MediaProductionError(
             "stale_media_source", "admitted media bytes no longer match their SHA-256"
         )
+
+
+@contextlib.asynccontextmanager
+async def _readable_media_path(
+    source: BoundLocalFile | _MaterializedMedia,
+    scratch: Path,
+    cancelled: CancelCheck | None,
+):
+    """Yield one confined decoder path from the admitted source variant."""
+
+    _check_cancelled(cancelled)
+    if isinstance(source, _MaterializedMedia):
+        _expected_digest(source)
+        yield source.borrow_path()
+        return
+    if not isinstance(source, BoundLocalFile):
+        raise TypeError("source must be admitted media")
+    staged = scratch / "source.media"
+    await _stage_source(source, staged, cancelled)
+    yield staged
 
 
 async def _run_tool(
@@ -1229,7 +1279,7 @@ async def _produce_audio(
 
 
 async def decode_video_frame(
-    source: BoundLocalFile,
+    source: BoundLocalFile | _MaterializedMedia,
     at_seconds: float,
     *,
     max_dimension: int = 448,
@@ -1244,27 +1294,26 @@ async def decode_video_frame(
         prefix="frisket-retrieval-video-anchor-"
     ) as directory:
         scratch = Path(directory)
-        staged = scratch / "source.media"
-        await _stage_source(source, staged, cancelled)
-        probe = await _probe(staged, "video", cancelled)
-        if not probe.start_seconds <= selected < probe.end_seconds:
-            raise MediaProductionError(
-                "media_selection_out_of_range",
-                "selected video time is outside the source timeline",
+        async with _readable_media_path(source, scratch, cancelled) as staged:
+            probe = await _probe(staged, "video", cancelled)
+            if not probe.start_seconds <= selected < probe.end_seconds:
+                raise MediaProductionError(
+                    "media_selection_out_of_range",
+                    "selected video time is outside the source timeline",
+                )
+            return await _decode_video_frame_at(
+                staged,
+                scratch / "frame",
+                at_seconds=selected,
+                input_seek_seconds=selected - probe.start_seconds,
+                max_dimension=dimension,
+                fallback_time_base=(probe.time_base_num, probe.time_base_den),
+                cancelled=cancelled,
             )
-        return await _decode_video_frame_at(
-            staged,
-            scratch / "frame",
-            at_seconds=selected,
-            input_seek_seconds=selected - probe.start_seconds,
-            max_dimension=dimension,
-            fallback_time_base=(probe.time_base_num, probe.time_base_den),
-            cancelled=cancelled,
-        )
 
 
 async def decode_audio_interval(
-    source: BoundLocalFile,
+    source: BoundLocalFile | _MaterializedMedia,
     start_seconds: float,
     end_seconds: float,
     *,
@@ -1283,65 +1332,66 @@ async def decode_audio_interval(
         prefix="frisket-retrieval-audio-anchor-"
     ) as directory:
         scratch = Path(directory)
-        staged = scratch / "source.media"
-        await _stage_source(source, staged, cancelled)
-        probe = await _probe(staged, "audio", cancelled)
-        if start < probe.start_seconds or start >= probe.end_seconds:
-            raise MediaProductionError(
-                "media_selection_out_of_range",
-                "selected audio interval starts outside the source timeline",
+        async with _readable_media_path(source, scratch, cancelled) as staged:
+            probe = await _probe(staged, "audio", cancelled)
+            if start < probe.start_seconds or start >= probe.end_seconds:
+                raise MediaProductionError(
+                    "media_selection_out_of_range",
+                    "selected audio interval starts outside the source timeline",
+                )
+            selected_end = min(end, probe.end_seconds)
+            output = scratch / "audio.pcm"
+            await _run_tool(
+                [
+                    _binary("ffmpeg"),
+                    "-hide_banner",
+                    "-nostdin",
+                    "-ss",
+                    f"{start - probe.start_seconds:.12g}",
+                    "-i",
+                    str(staged),
+                    "-t",
+                    f"{selected_end - start:.12g}",
+                    "-map",
+                    "0:a:0",
+                    "-af",
+                    "asetpts=PTS-STARTPTS,aresample=16000:async=1:first_pts=0",
+                    "-ac",
+                    "1",
+                    "-ar",
+                    str(EMBEDDINGGEMMA2_AUDIO_SAMPLE_RATE),
+                    "-c:a",
+                    "pcm_s16le",
+                    "-f",
+                    "s16le",
+                    "-y",
+                    str(output),
+                ],
+                op="retrieval.media.audio_anchor_decode",
+                read=staged,
+                write=scratch,
+                cancelled=cancelled,
             )
-        selected_end = min(end, probe.end_seconds)
-        output = scratch / "audio.pcm"
-        await _run_tool(
-            [
-                _binary("ffmpeg"),
-                "-hide_banner",
-                "-nostdin",
-                "-ss",
-                f"{start - probe.start_seconds:.12g}",
-                "-i",
-                str(staged),
-                "-t",
-                f"{selected_end - start:.12g}",
-                "-map",
-                "0:a:0",
-                "-af",
-                "asetpts=PTS-STARTPTS,aresample=16000:async=1:first_pts=0",
-                "-ac",
-                "1",
-                "-ar",
-                str(EMBEDDINGGEMMA2_AUDIO_SAMPLE_RATE),
-                "-c:a",
-                "pcm_s16le",
-                "-f",
-                "s16le",
-                "-y",
-                str(output),
-            ],
-            op="retrieval.media.audio_anchor_decode",
-            read=staged,
-            write=scratch,
-            cancelled=cancelled,
-        )
-        data = output.read_bytes()
-        if len(data) % _PCM_BYTES_PER_SAMPLE:
-            data = data[:-1]
-        max_samples = round((selected_end - start) * EMBEDDINGGEMMA2_AUDIO_SAMPLE_RATE)
-        data = data[: max_samples * _PCM_BYTES_PER_SAMPLE]
-        if not data:
-            raise MediaProductionError(
-                "media_selection_out_of_range",
-                "selected audio interval contains no decoded samples",
+            data = output.read_bytes()
+            if len(data) % _PCM_BYTES_PER_SAMPLE:
+                data = data[:-1]
+            max_samples = round(
+                (selected_end - start) * EMBEDDINGGEMMA2_AUDIO_SAMPLE_RATE
             )
-        actual_end = start + (
-            len(data) / _PCM_BYTES_PER_SAMPLE / EMBEDDINGGEMMA2_AUDIO_SAMPLE_RATE
-        )
-        return AudioWindow(start, actual_end, AudioEncodingInput(data))
+            data = data[: max_samples * _PCM_BYTES_PER_SAMPLE]
+            if not data:
+                raise MediaProductionError(
+                    "media_selection_out_of_range",
+                    "selected audio interval contains no decoded samples",
+                )
+            actual_end = start + (
+                len(data) / _PCM_BYTES_PER_SAMPLE / EMBEDDINGGEMMA2_AUDIO_SAMPLE_RATE
+            )
+            return AudioWindow(start, actual_end, AudioEncodingInput(data))
 
 
 async def produce_media(
-    source: BoundLocalFile,
+    source: BoundLocalFile | _MaterializedMedia,
     recipe: MediaRecipe,
     *,
     cancelled: CancelCheck | None = None,
@@ -1353,35 +1403,36 @@ async def produce_media(
     _check_cancelled(cancelled)
     with tempfile.TemporaryDirectory(prefix="frisket-retrieval-media-") as directory:
         scratch = Path(directory)
-        staged = scratch / "source.media"
-        await _stage_source(source, staged, cancelled)
-        if isinstance(start_index, bool) or not isinstance(start_index, int):
-            raise TypeError("start_index must be an integer")
-        if start_index < 0:
-            raise ValueError("start_index must be nonnegative")
-        if isinstance(recipe, PeriodicFrameRecipe):
-            if start_seconds is not None:
-                raise ValueError("periodic frame continuation uses start_index")
-            return await _produce_frames(
-                staged, scratch, recipe, cancelled, start_index
-            )
-        if isinstance(recipe, FixedClipRecipe):
-            if start_seconds is not None:
-                raise ValueError("fixed clip continuation uses start_index")
-            return await _produce_fixed_clips(
-                staged, scratch, recipe, cancelled, start_index
-            )
-        if isinstance(recipe, ShotClipRecipe):
-            if start_index:
-                raise ValueError("shot clip continuation uses start_seconds")
-            return await _produce_shot_clips(
-                staged, scratch, recipe, cancelled, start_seconds
-            )
-        if isinstance(recipe, AudioWindowRecipe):
-            if start_seconds is not None:
-                raise ValueError("audio continuation uses start_index")
-            return await _produce_audio(staged, scratch, recipe, cancelled, start_index)
-        raise TypeError("recipe must be a supported media producer recipe")
+        async with _readable_media_path(source, scratch, cancelled) as staged:
+            if isinstance(start_index, bool) or not isinstance(start_index, int):
+                raise TypeError("start_index must be an integer")
+            if start_index < 0:
+                raise ValueError("start_index must be nonnegative")
+            if isinstance(recipe, PeriodicFrameRecipe):
+                if start_seconds is not None:
+                    raise ValueError("periodic frame continuation uses start_index")
+                return await _produce_frames(
+                    staged, scratch, recipe, cancelled, start_index
+                )
+            if isinstance(recipe, FixedClipRecipe):
+                if start_seconds is not None:
+                    raise ValueError("fixed clip continuation uses start_index")
+                return await _produce_fixed_clips(
+                    staged, scratch, recipe, cancelled, start_index
+                )
+            if isinstance(recipe, ShotClipRecipe):
+                if start_index:
+                    raise ValueError("shot clip continuation uses start_seconds")
+                return await _produce_shot_clips(
+                    staged, scratch, recipe, cancelled, start_seconds
+                )
+            if isinstance(recipe, AudioWindowRecipe):
+                if start_seconds is not None:
+                    raise ValueError("audio continuation uses start_index")
+                return await _produce_audio(
+                    staged, scratch, recipe, cancelled, start_index
+                )
+            raise TypeError("recipe must be a supported media producer recipe")
 
 
 __all__ = [

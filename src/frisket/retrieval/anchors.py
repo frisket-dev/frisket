@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from frisket.engine.executor.action_inventory import BoundLocalFile
 from frisket.engine.pdf_render import (
     PdfRenderCancelled,
     PdfRenderError,
@@ -38,7 +37,13 @@ from .encoding import (
     ImageEncodingInput,
     TextEncodingInput,
 )
-from .media import MediaProductionError, decode_audio_interval, decode_video_frame
+from .media import (
+    MediaProductionError,
+    _MaterializedMedia,
+    _borrow_materialized_media,
+    decode_audio_interval,
+    decode_video_frame,
+)
 from .query import RetrievalQueryError
 from .source_adapter import (
     ResolvedCellBlobSource,
@@ -274,12 +279,13 @@ def _read_image(path: Path) -> ImageEncodingInput:
 
 async def _decode_blob_anchor(
     anchor: _BlobAnchor,
-    path: Path,
+    source: _MaterializedMedia,
     *,
     cancelled: CancelCheck | None,
 ) -> ResolvedAnchor:
     if cancelled is not None and cancelled():
         raise asyncio.CancelledError
+    path = source.borrow_path()
     resolved, selected = anchor.resolved, anchor.selected
     mime = resolved.mime_type.lower().split(";", 1)[0].strip()
     binding = _binding(selected, resolved.binding, source_id=resolved.source.source_id)
@@ -306,14 +312,11 @@ async def _decode_blob_anchor(
             locator = SourceLocator(kind="pdf_page", pages=PageRange(page, page))
         elif mime.startswith("video/"):
             at_seconds = _video_time(anchor)
-            with path.open("rb") as stream:
-                frame = await decode_video_frame(
-                    BoundLocalFile(
-                        stream=stream, sha256=f"sha256:{resolved.blob_hash}"
-                    ),
-                    at_seconds,
-                    cancelled=cancelled,
-                )
+            frame = await decode_video_frame(
+                source,
+                at_seconds,
+                cancelled=cancelled,
+            )
             value = frame.input
             locator = SourceLocator(
                 kind="video_frame",
@@ -321,15 +324,12 @@ async def _decode_blob_anchor(
             )
         elif mime.startswith("audio/"):
             requested = _audio_time(anchor)
-            with path.open("rb") as stream:
-                window = await decode_audio_interval(
-                    BoundLocalFile(
-                        stream=stream, sha256=f"sha256:{resolved.blob_hash}"
-                    ),
-                    requested.start_seconds,
-                    requested.end_seconds,
-                    cancelled=cancelled,
-                )
+            window = await decode_audio_interval(
+                source,
+                requested.start_seconds,
+                requested.end_seconds,
+                cancelled=cancelled,
+            )
             value = window.input
             locator = SourceLocator(
                 kind="audio_window",
@@ -369,8 +369,10 @@ async def resolve_cell_anchor_async(
     if isinstance(authority, ResolvedAnchor):
         return authority
     try:
-        with project.materialize_blob(authority.resolved.blob_hash) as path:
-            return await _decode_blob_anchor(authority, Path(path), cancelled=cancelled)
+        with _borrow_materialized_media(
+            project, authority.resolved.blob_hash
+        ) as source:
+            return await _decode_blob_anchor(authority, source, cancelled=cancelled)
     except BlobStoreError as exc:
         raise RetrievalQueryError(
             "source_anchor_unavailable",
@@ -391,10 +393,12 @@ def resolve_cell_anchor(
     if isinstance(authority, ResolvedAnchor):
         return authority
     try:
-        with project.materialize_blob(authority.resolved.blob_hash) as path:
+        with _borrow_materialized_media(
+            project, authority.resolved.blob_hash
+        ) as source:
             return run_media_sync(
                 lambda should_cancel: _decode_blob_anchor(
-                    authority, Path(path), cancelled=should_cancel
+                    authority, source, cancelled=should_cancel
                 ),
                 cancelled=cancelled,
             )

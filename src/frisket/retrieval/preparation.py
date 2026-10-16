@@ -19,7 +19,6 @@ from pathlib import Path
 from typing import Protocol
 
 from frisket.ai.embeddings.facade import EmbeddingFacade, embedding_input_hash
-from frisket.engine.executor.action_inventory import BoundLocalFile
 from frisket.engine.pdf_render import (
     PdfPageOutOfRange,
     PdfRenderCancelled,
@@ -78,6 +77,7 @@ from frisket.retrieval.media import (
     MediaProductionError,
     PeriodicFrameRecipe,
     ShotClipRecipe,
+    _borrow_materialized_media,
     produce_media,
 )
 from frisket.retrieval.source_adapter import (
@@ -1411,21 +1411,17 @@ def process_timed_media_preparation_batch(
             space_id=space.identity,
         )
         try:
-            with project.materialize_blob(resolved.blob_hash) as path:
-                with Path(path).open("rb") as stream:
-                    produced = run_media_sync(
-                        lambda should_cancel: produce_media(
-                            BoundLocalFile(
-                                stream=stream,
-                                sha256=f"sha256:{resolved.blob_hash}",
-                            ),
-                            recipe,
-                            cancelled=should_cancel,
-                            start_index=start_index,
-                            start_seconds=start_seconds,
-                        ),
-                        cancelled=cancelled,
-                    )
+            with _borrow_materialized_media(project, resolved.blob_hash) as source:
+                produced = run_media_sync(
+                    lambda should_cancel: produce_media(
+                        source,
+                        recipe,
+                        cancelled=should_cancel,
+                        start_index=start_index,
+                        start_seconds=start_seconds,
+                    ),
+                    cancelled=cancelled,
+                )
         except MediaProductionError as exc:
             store.fail_preparation(
                 resolved.source,

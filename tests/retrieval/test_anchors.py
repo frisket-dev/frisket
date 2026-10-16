@@ -22,7 +22,12 @@ from frisket.retrieval.encoding import (
     ImageEncodingInput,
     TextEncodingInput,
 )
-from frisket.retrieval.media import AudioWindow, LocatedFrame, PresentationPoint
+from frisket.retrieval.media import (
+    AudioWindow,
+    LocatedFrame,
+    MediaProductionError,
+    PresentationPoint,
+)
 from frisket.retrieval.query import RetrievalQueryError
 from frisket.retrieval.source_adapter import resolve_cell_text_sources
 
@@ -182,9 +187,12 @@ def test_video_anchor_returns_decoder_observed_frame_time(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     project = Project.create(tmp_path / "video.frisket")
+    borrowed = []
 
     async def decode(source, at_seconds, **kwargs):
         assert at_seconds == 1.25
+        assert source.borrow_path().is_file()
+        borrowed.append(source)
         return LocatedFrame(PresentationPoint(6, 1, 4), ImageEncodingInput(b"jpeg"))
 
     monkeypatch.setattr("frisket.retrieval.anchors.decode_video_frame", decode)
@@ -206,6 +214,8 @@ def test_video_anchor_returns_decoder_observed_frame_time(
 
         assert resolved.anchor.locator.time == TimeRange(1.5, 1.5)
         assert resolved.input == ImageEncodingInput(b"jpeg")
+        with pytest.raises(MediaProductionError, match="lease has ended"):
+            borrowed[0].borrow_path()
     finally:
         project.close()
 
@@ -214,9 +224,12 @@ def test_audio_anchor_returns_effective_decoded_interval(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     project = Project.create(tmp_path / "audio.frisket")
+    borrowed = []
 
     async def decode(source, start_seconds, end_seconds, **kwargs):
         assert (start_seconds, end_seconds) == (4.0, 9.0)
+        assert source.borrow_path().is_file()
+        borrowed.append(source)
         return AudioWindow(4.0, 7.25, AudioEncodingInput(b"\0\0" * 10))
 
     monkeypatch.setattr("frisket.retrieval.anchors.decode_audio_interval", decode)
@@ -235,5 +248,7 @@ def test_audio_anchor_returns_effective_decoded_interval(
 
         assert resolved.anchor.locator.time == TimeRange(4.0, 7.25)
         assert isinstance(resolved.input, AudioEncodingInput)
+        with pytest.raises(MediaProductionError, match="lease has ended"):
+            borrowed[0].borrow_path()
     finally:
         project.close()
