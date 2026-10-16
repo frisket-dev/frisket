@@ -45,13 +45,19 @@ class IndexFreshness:
 
 
 def freshness_reason(index: Any, fresh: IndexFreshness) -> str:
+    """Return whether every member of the current source scope is readable.
+
+    Published members that left the current scope still require maintenance,
+    but pinned reads exclude them and do not need new embeddings to read the
+    remaining current targets.
+    """
     if not fresh.scope_resolved:
         return FRESHNESS_SCOPE_INVALID
     if index["last_refreshed_at"] is None:
         return FRESHNESS_NEVER_REFRESHED
     if fresh.missing_count:
         return FRESHNESS_MISSING_ROWS
-    if fresh.stale_count or fresh.surplus_count:
+    if fresh.stale_count:
         return FRESHNESS_STALE_ROWS
     if index["error_items"]:
         return FRESHNESS_ERRORED_ITEMS

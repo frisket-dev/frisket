@@ -302,7 +302,7 @@ def _evaluate_embedding_similarity_watch(
             "embedding_index_incomplete",
             "new embeddable source rows are not embedded; refresh before evaluating",
         )
-    if fresh.stale_count or fresh.surplus_count:
+    if fresh.stale_count:
         raise WatchBindingError(
             "embedding_index_stale",
             "embedding index has stale rows; refresh before evaluating",

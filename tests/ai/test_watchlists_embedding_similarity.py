@@ -208,6 +208,22 @@ def test_stale_index_blocks_watch_with_typed_result(tmp_path):
     assert _notifications(client, pid)["total"] == 1
 
 
+def test_hidden_published_member_does_not_block_watch(tmp_path):
+    client = _client(tmp_path)
+    pid, project, sheet, col = _seed(client)
+    index_id = _create_index(project, pid, sheet)
+    _refresh(project, pid, index_id)
+    cat = _row_id(project, sheet, col, "cat")
+    kitten = _row_id(project, sheet, col, "kitten")
+    watch = _make_watch(client, pid, sheet, index_id, cat).json()
+    project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (kitten,))
+    project.db.commit()
+
+    result = _run(client, pid, watch["id"])
+    assert result["run"]["status"] == "ok"
+    assert result["run"]["matched_rows"] == 1
+
+
 def test_refresh_then_evaluate_clears_the_block(tmp_path):
     client = _client(tmp_path)
     pid, project, sheet, col = _seed(client)

@@ -152,14 +152,13 @@ def _index_payload(
     maintenance = _safe_obj(index["maintenance_policy_json"])
     source_columns = [str(c) for c in _safe_list(index["source_columns_json"])]
     error_items = index["error_items"]
-    ready_items = index["ready_items"]
     # Freshness is judged by recomputing the current source hash + comparing the
     # stored vectors against the CURRENT source scope (the same definition
     # refresh/similarity/export use), NOT the stale_items counter: a source cell
     # edited after embedding leaves the item 'ready' with an old hash, and a newly
     # appended row is simply missing a vector.
     fresh = index_freshness(store.project, index)
-    stale_source = fresh.stale_count + fresh.surplus_count
+    stale_source = fresh.stale_count
     missing_source = fresh.missing_count
     ready_keys = fresh.ready_count
     maintenance_mode = maintenance.get("mode", "manual")
@@ -209,7 +208,7 @@ def _index_payload(
         # total = how many rows the CURRENT source scope says should be embedded
         # (so the UI doesn't show "2/2 ready" right after a 3rd row was appended).
         "total_items": fresh.target_count,
-        "ready_items": ready_items,
+        "ready_items": ready_keys,
         "stale_items": index["stale_items"],
         # ready items whose current source content no longer matches their vector.
         "stale_source_items": stale_source,

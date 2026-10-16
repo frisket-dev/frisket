@@ -434,7 +434,7 @@ def test_freshness_requires_exact_recipe_and_space(
 
 
 @pytest.mark.parametrize("removed", ["blank", "hidden", "column_hidden"])
-def test_freshness_counts_removed_member_as_surplus_not_current_target(
+def test_freshness_records_removed_member_without_staling_current_target(
     tmp_path: Path, removed: str
 ) -> None:
     project = Project.create(tmp_path / f"{removed}.frisket", name=removed)
@@ -464,12 +464,12 @@ def test_freshness_counts_removed_member_as_surplus_not_current_target(
         assert fresh.ready_count == expected_current
         assert fresh.stale_count == 0
         assert fresh.surplus_count == expected_surplus
-        assert freshness_reason(index, fresh) == "stale_rows"
+        assert freshness_reason(index, fresh) == "fresh"
     finally:
         project.close()
 
 
-def test_freshness_detects_member_that_exits_stored_filter(tmp_path: Path) -> None:
+def test_freshness_records_member_that_exits_stored_filter(tmp_path: Path) -> None:
     project = Project.create(tmp_path / "filter.frisket", name="filter")
     try:
         sheet = project.add_sheet("animals")
@@ -492,7 +492,7 @@ def test_freshness_detects_member_that_exits_stored_filter(tmp_path: Path) -> No
         assert fresh.target_count == 0
         assert fresh.ready_count == fresh.stale_count == 0
         assert fresh.surplus_count == 1
-        assert freshness_reason(index, fresh) == "stale_rows"
+        assert freshness_reason(index, fresh) == "fresh"
     finally:
         project.close()
 

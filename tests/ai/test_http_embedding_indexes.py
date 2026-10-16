@@ -313,6 +313,25 @@ def test_freshness_reason_hidden_row_stays_fresh(tmp_path):
     assert f["reason"] == "fresh" and f["missing"] == 0
 
 
+def test_hiding_published_row_does_not_make_current_scope_stale(tmp_path):
+    client = _client(tmp_path)
+    pid, project, sheet = _seed(client)
+    index_id = _create(project, pid, sheet)
+    _refresh(project, pid, index_id)
+    col = _headline_col(project, sheet)
+    kitten = _row_id(project, sheet, col, "kitten")
+    project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (kitten,))
+    project.db.commit()
+
+    [index] = _list(client, pid, sheet).json()["indexes"]
+    assert index["freshness"]["reason"] == "fresh"
+    assert index["freshness"]["refresh_needed"] is False
+    assert index["freshness"]["stale"] == 0
+    assert index["refresh_needed"] is False
+    assert index["ready_items"] == index["total_items"] == 1
+    assert index["stale_source_items"] == 0
+
+
 def test_freshness_reason_filtered_source_query_excludes_appended_row(tmp_path):
     # an index scoped by source_query=filter(headline eq cat) ignores rows outside
     # the filter, so appending a non-matching row stays fresh.
