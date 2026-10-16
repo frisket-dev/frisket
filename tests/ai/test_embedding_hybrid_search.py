@@ -302,6 +302,7 @@ def test_hybrid_preserves_fts_boolean_syntax(env):
 
     tractor = _row(project, sheet, cols, "tractor")
     tractor_hit = next(hit for hit in result.hits if hit.row_id == tractor)
+    assert tractor_hit.vector_rank is not None
     assert tractor_hit.keyword_rank is not None
 
 

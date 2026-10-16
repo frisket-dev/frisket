@@ -635,15 +635,12 @@ class RetrievalQueryService:
                    AND MAX(binding_column.id IS NOT NULL)=1)
                OR (retrieval_binding.column_id IS NULL
                    AND COUNT(dependency_column.id)=COUNT(*)))
-        ), eligible AS NOT MATERIALIZED (
-          SELECT part.part_key,part.part_id,retrieval_binding.binding_key,
-                 retrieval_binding.binding_id,retrieval_binding.sheet_id,
-                 retrieval_binding.row_id,retrieval_binding.column_id,
+        ), eligible_bindings AS MATERIALIZED (
+          SELECT part.part_key,retrieval_binding.binding_id,
                  part_representation.representation_key,
-                 part_representation.channel,representation.representation_id,
+                 part_representation.channel,
                  {group_partition_sql} AS group_partition,
-                 {group_sort_sql} AS group_sort,
-                 1.0-vec1_cos_distance(representation.vector,?) AS similarity
+                 {group_sort_sql} AS group_sort
           FROM current_bindings AS retrieval_binding
           JOIN idx.parts AS part
             ON part.source_key=retrieval_binding.source_key
@@ -659,34 +656,44 @@ class RetrievalQueryService:
             {dataset_where}
             {"AND NOT (source.source_id=? AND source.version_kind=? AND source.version_value=? AND source.version_type=? AND part.locator_json=?)" if anchor_exclusion is not None else ""}
             {exclude_sql}
-        ), accepted AS NOT MATERIALIZED (
-          SELECT * FROM eligible WHERE 1=1{minimum_sql}
-        ), binding_ranked AS (
-          SELECT *,ROW_NUMBER() OVER (
-            PARTITION BY group_partition,part_key,representation_key,channel
-            ORDER BY similarity DESC,binding_id,part_id,representation_id
-          ) AS binding_rank,
-          COUNT(*) OVER (
-            PARTITION BY part_key,representation_key,channel
-          ) AS binding_count
+        ), binding_counts AS MATERIALIZED (
+          SELECT part_key,representation_key,channel,COUNT(*) AS binding_count
+          FROM eligible_bindings
+          GROUP BY part_key,representation_key,channel
+        ), binding_winners AS MATERIALIZED (
+          SELECT group_partition,group_sort,part_key,representation_key,channel,
+                 MIN(binding_id) AS binding_id
+          FROM eligible_bindings
+          GROUP BY group_partition,group_sort,part_key,representation_key,channel
+        ), accepted AS MATERIALIZED (
+          SELECT * FROM (
+            SELECT winner.*,part.part_id,representation.representation_id,
+                   1.0-vec1_cos_distance(representation.vector,?) AS similarity
+            FROM binding_winners AS winner
+            JOIN idx.parts AS part ON part.part_key=winner.part_key
+            JOIN idx.representations AS representation
+              ON representation.representation_key=winner.representation_key
+          ) AS scored_hit
+          WHERE 1=1{minimum_sql}
+        ), group_summaries AS MATERIALIZED (
+          SELECT group_partition,group_sort,MAX(similarity) AS best_similarity,
+                 COUNT(*) AS group_hit_count
           FROM accepted
-        ), distinct_hits AS (
-          SELECT * FROM binding_ranked WHERE binding_rank=1
-        ), ranked_hits AS (
-          SELECT *,ROW_NUMBER() OVER (
-            PARTITION BY group_partition
-            ORDER BY similarity DESC,binding_id,part_id,representation_id
-          ) AS hit_rank,
-          COUNT(*) OVER (PARTITION BY group_partition) AS group_hit_count
-          FROM distinct_hits
-        ), group_heads AS (
-          SELECT *,ROW_NUMBER() OVER (
-            ORDER BY similarity DESC,group_sort,binding_id,part_id,representation_id
-          ) AS result_rank
-          FROM ranked_hits WHERE hit_rank=1
+          GROUP BY group_partition,group_sort
         ), chosen_groups AS MATERIALIZED (
-          SELECT group_partition,result_rank
-          FROM group_heads WHERE result_rank<=?
+          SELECT group_partition,group_sort,best_similarity,group_hit_count
+          FROM group_summaries
+          ORDER BY best_similarity DESC,group_sort
+          LIMIT ?
+        ), ranked_hits AS (
+          SELECT accepted.*,chosen_groups.group_hit_count,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY accepted.group_partition
+                   ORDER BY accepted.similarity DESC,accepted.binding_id,
+                            accepted.part_id,accepted.representation_id
+                 ) AS hit_rank
+          FROM accepted
+          JOIN chosen_groups USING (group_partition)
         )
         SELECT part.part_id,source.source_id,source.version_kind,
                source.version_value,source.version_type,part.recipe_id,
@@ -696,21 +703,25 @@ class RetrievalQueryService:
                retrieval_binding.column_id,ranked_hits.channel,
                representation.representation_id,representation.space_id,
                ranked_hits.similarity,ranked_hits.group_sort AS group_key,
-               ranked_hits.group_hit_count,ranked_hits.binding_count
+               ranked_hits.group_hit_count,binding_count.binding_count
         FROM ranked_hits
         JOIN chosen_groups USING (group_partition)
+        JOIN binding_counts AS binding_count
+          ON binding_count.part_key=ranked_hits.part_key
+         AND binding_count.representation_key=ranked_hits.representation_key
+         AND binding_count.channel=ranked_hits.channel
         JOIN idx.parts AS part ON part.part_key=ranked_hits.part_key
         JOIN idx.sources AS source ON source.source_key=part.source_key
         JOIN idx.bindings AS retrieval_binding
-          ON retrieval_binding.binding_key=ranked_hits.binding_key
+          ON retrieval_binding.binding_id=ranked_hits.binding_id
         JOIN idx.representations AS representation
           ON representation.representation_key=ranked_hits.representation_key
         WHERE ranked_hits.hit_rank<=?
-        ORDER BY chosen_groups.result_rank,ranked_hits.hit_rank
+        ORDER BY chosen_groups.best_similarity DESC,chosen_groups.group_sort,
+                 ranked_hits.hit_rank
         """
         params: list[Any] = [
             *scope.params,
-            sqlite3.Binary(query_blob),
             request.space_id,
             dimension,
             *dataset_params,
@@ -718,6 +729,7 @@ class RetrievalQueryService:
         ]
         for blob, threshold in zip(exclusion_blobs, thresholds, strict=True):
             params.extend((sqlite3.Binary(blob), threshold))
+        params.append(sqlite3.Binary(query_blob))
         if minimum is not None:
             params.append(minimum)
         params.extend((limit, _GROUP_HIT_LIMIT))

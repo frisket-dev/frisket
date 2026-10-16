@@ -142,11 +142,16 @@ def resolve_embedding_hybrid(
     for group in response.results:
         vector_rank = None
         keyword_rank = None
-        for contribution in group.primary.contributions:
-            if contribution.method == "semantic":
-                vector_rank = contribution.rank
-            elif contribution.method == "lexical":
-                keyword_rank = contribution.rank
+        for located in (group.primary, *group.supporting):
+            for contribution in located.contributions:
+                if contribution.method == "semantic":
+                    vector_rank = min(
+                        vector_rank or contribution.rank, contribution.rank
+                    )
+                elif contribution.method == "lexical":
+                    keyword_rank = min(
+                        keyword_rank or contribution.rank, contribution.rank
+                    )
         hits.append(
             HybridHit(
                 row_id=group.primary.binding.row_id,

@@ -885,6 +885,11 @@ def test_row_groups_bound_scoped_locations_and_report_hidden_count(tmp_path):
         assert any(
             hit.contributions[0].method == "lexical" for hit in hybrid_group.supporting
         )
+        assert any(
+            hit.contributions[0].method == "lexical"
+            and hit.part.source != hybrid_group.primary.part.source
+            for hit in hybrid_group.supporting
+        )
     finally:
         project.close()
 
@@ -940,6 +945,117 @@ def test_source_hit_counts_other_authorized_bindings(tmp_path):
         assert group.primary.additional_binding_count == 1
         assert group.supporting == ()
         assert group.additional_count == 0
+    finally:
+        project.close()
+
+
+@pytest.mark.parametrize(
+    ("group_by", "group_count", "hits_per_group"),
+    (("source", 1, 4), ("row", 2, 4), ("part", 2, 2)),
+)
+def test_semantic_group_aggregation_preserves_global_binding_counts_and_channels(
+    tmp_path, group_by, group_count, hits_per_group
+):
+    project = Project.create(tmp_path / f"aggregate-{group_by}.frisket")
+    try:
+        sheet = project.add_sheet("Documents")
+        body = project.add_column(sheet, "body")
+        rows = project.add_rows(
+            sheet,
+            [{"body": "shared target"}, {"body": "shared target"}],
+            {"body": body},
+        )
+        revisions = [
+            read_binding_revision(project.db, row_id=row, column_id=body)
+            for row in rows
+        ]
+        assert None not in revisions
+        revision = SourceRevision(
+            f"cell:{rows[0]}:{body}",
+            "text",
+            "retrieval_revision",
+            revisions[0],
+            input_hash("shared target"),
+        )
+        locator = SourceLocator(kind="row_composite")
+        parts = tuple(
+            StoredPart(f"part:{index}", "text_passage", locator) for index in range(2)
+        )
+        representations = tuple(
+            CachedRepresentation(
+                f"representation:{index}",
+                "space:test",
+                f"input:{index}",
+                native.pack_vector((1.0, 0.0, 0.0), dimensions=3),
+                3,
+            )
+            for index in range(2)
+        )
+        attachments = tuple(
+            PartRepresentation(part.part_id, representation.representation_id, channel)
+            for part, representation in zip(parts, representations, strict=True)
+            for channel in ("text", "transcript")
+        )
+        with RetrievalStore(project).open() as store:
+            store.begin_preparation(revision, recipe_id="ties:v1", channel="text")
+            assert store.publish_source(
+                SourcePublication(
+                    source_revision=revision,
+                    recipe_id="ties:v1",
+                    channel="text",
+                    parts=parts,
+                    bindings=(
+                        StoredBinding(
+                            "binding:z",
+                            sheet,
+                            rows[0],
+                            column_id=body,
+                            dependencies=(
+                                BindingDependency(rows[0], body, revisions[0]),
+                            ),
+                        ),
+                        StoredBinding(
+                            "binding:a",
+                            sheet,
+                            rows[1],
+                            column_id=body,
+                            dependencies=(
+                                BindingDependency(rows[1], body, revisions[1]),
+                            ),
+                        ),
+                    ),
+                    representations=representations,
+                    attachments=attachments,
+                )
+            )
+
+        response = search(
+            project,
+            SearchRequest(
+                scope=RetrievalScope((SheetScope(sheet),)),
+                query=TextQuery("target"),
+                mode="semantic",
+                group_by=group_by,
+                space_id="space:test",
+                limit=10,
+            ),
+            semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
+        )
+
+        assert len(response.results) == group_count
+        for group in response.results:
+            hits = (group.primary, *group.supporting)
+            assert len(hits) == hits_per_group
+            assert {hit.contributions[0].channel for hit in hits} == {
+                "text",
+                "transcript",
+            }
+            assert {hit.additional_binding_count for hit in hits} == {1}
+            assert group.additional_count == 0
+        if group_by != "row":
+            assert {group.primary.binding.binding_id for group in response.results} == {
+                "binding:a"
+            }
     finally:
         project.close()
 
