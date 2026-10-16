@@ -45,6 +45,7 @@ from frisket.team.oauth_connections import TeamOAuthConnectionService
 from frisket.team.schema import users
 from frisket.team.secret_box import TeamSecretBox
 from tests.team_setup_helpers import claim_server
+from http_test_helpers import drain_queue
 
 
 class FakeGoogleSheetsClient:
@@ -167,6 +168,7 @@ def test_stored_connection_and_export_runs_end_to_end(tmp_path: Path) -> None:
         files={"file": ("rows.csv", "name,status\nAda,ready\n", "text/csv")},
     )
     assert imported.status_code == 200, imported.text
+    drain_queue(browser, worker_id="team-sheets-setup")
     sheet_id = int(imported.json()["sheet_id"])
 
     action = _google_export_action(sheet_id=sheet_id, connection_id=connection_id)

@@ -37,7 +37,7 @@ from fastapi.testclient import TestClient
 from frisket.ops import ytdlp as youtube_ops
 from frisket.server.app import create_app
 from frisket.ops.ytdlp import DownloadedMedia
-from http_test_helpers import post_v1_action_with_exact_confirmation
+from http_test_helpers import drain_queue, post_v1_action_with_exact_confirmation
 
 YOUTUBE_WATCH = "https://www.youtube.com/watch?v=fixture-row-progress"
 ROW_COUNT = 11
@@ -65,6 +65,7 @@ def _seed_youtube_project(client: TestClient) -> tuple[str, int]:
         ],
         columns,
     )
+    drain_queue(client, worker_id="youtube-progress-setup")
     return project_id, sheet_id
 
 

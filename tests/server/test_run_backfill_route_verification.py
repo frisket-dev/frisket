@@ -56,6 +56,7 @@ from frisket.execution.pricing_policy import (
     install_pricing_policy,
 )
 from frisket.server.app import create_app
+from http_test_helpers import drain_queue, run_worker_until_job_terminal
 
 
 class _AboveLimitPolicy:
@@ -102,6 +103,7 @@ def _seed_audio_project(client: TestClient) -> tuple[str, object, int]:
         [{"media": media_cell(blob, mime="audio/wav", filename="a.wav")}],
         {"media": col},
     )
+    drain_queue(client, worker_id="backfill-route-setup")
     return pid, project, sheet_id
 
 
@@ -205,8 +207,11 @@ def _run_original_to_completion(client: TestClient, project_id: str, project, sp
     root = client.app.state.workspace.root
     register_project_run_handler(registry, workspace_root=root, router=ModelRouter())
     worker = Worker(client.app.state.workspace.queue, registry)
-    assert worker.run_once()
-    job = client.app.state.workspace.queue.get(int(launched["job_id"]))
+    job = run_worker_until_job_terminal(
+        worker,
+        client.app.state.workspace.queue,
+        int(launched["job_id"]),
+    )
     assert job is not None and job.status == "done", job.error if job else None
     return run_id
 

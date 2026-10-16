@@ -30,6 +30,7 @@ from frisket.execution.pricing_policy import (
 )
 from frisket.ops.base import persisted_recipe_invocation_halt
 from frisket.server.app import create_app
+from http_test_helpers import drain_queue
 
 
 class _AboveLimitPolicy:
@@ -110,6 +111,7 @@ def _seed_audio_project(
         [{"media": media_cell(blob, mime="audio/wav", filename="a.wav")}],
         {"media": col},
     )
+    drain_queue(client, worker_id="r70-setup")
     return pid, project, sheet_id
 
 

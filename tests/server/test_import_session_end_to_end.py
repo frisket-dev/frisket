@@ -9,6 +9,7 @@ from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.import_intake import import_intake_dir
 from frisket.engine.store.import_inventory import ImportInventory
 from frisket.server.app import create_app
+from http_test_helpers import drain_queue
 
 
 @pytest.mark.parametrize("finish", ["complete", "keep", "remove"])
@@ -16,6 +17,7 @@ def test_http_import_worker_and_user_resolution(tmp_path, finish):
     app = create_app(tmp_path / "workspace")
     client = TestClient(app)
     pid = client.post("/api/projects", json={"name": "Evidence"}).json()["id"]
+    drain_queue(client, worker_id="import-session-setup")
     ws = app.state.workspace
     worker = Worker(ws.queue, ws.registry)
     base = f"/api/projects/{pid}/import/files/sessions"

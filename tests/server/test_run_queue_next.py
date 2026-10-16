@@ -19,8 +19,10 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 from frisket.engine.jobs import Worker
+from frisket.engine.jobs.queue import PROJECT_RUN_KIND
 from frisket.server.app import create_app
 from http_test_helpers import (
+    drain_queue,
     post_canonical_run_spec_as_v1_action,
     queued_python_run_spec,
 )
@@ -39,6 +41,7 @@ def _seed_project(client: TestClient) -> tuple[str, int]:
         files={"file": ("people.csv", CSV, "text/csv")},
     )
     assert imported.status_code == 200, imported.text
+    drain_queue(client, worker_id="queue-next-setup")
     return pid, imported.json()["sheet_id"]
 
 
@@ -143,5 +146,5 @@ def test_submit_while_run_in_flight_queues_and_executes_after(tmp_path):
     # Both queued runs produced their output columns; nothing was dropped.
     assert {"display_a", "display_b"} <= _column_names(client, pid, sheet_id)
 
-    # Queue is drained; no third job lingers.
-    assert worker.run_once() is False
+    # Both action jobs are drained; derived search maintenance may follow.
+    assert ws.queue.list_project_jobs(pid, status="queued", kind=PROJECT_RUN_KIND) == []

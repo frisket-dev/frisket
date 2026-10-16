@@ -6,6 +6,7 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 from helpers import make_client
+from http_test_helpers import drain_queue
 from frisket.engine.jobs import Worker
 from frisket.search_index import drain_index
 from frisket.server.notifications.delivery import NotificationDeliveryRuntime
@@ -71,6 +72,7 @@ def test_watch_event_routes_through_worker_to_recorded_slack_transport(
         files={"file": ("watch.csv", CSV, "text/csv")},
     )
     assert imported.status_code == 200, imported.text
+    drain_queue(client, worker_id="notification-watch-setup")
     drain_index(client.app.state.workspace.get(pid))
     watch_response = client.post(
         f"/api/projects/{pid}/watches",
