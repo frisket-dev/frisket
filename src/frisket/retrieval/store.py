@@ -158,9 +158,9 @@ class UnsupportedRetrievalSchema(RuntimeError):
 def _initialization_lock(path: Path, *, busy_timeout_ms: int) -> Iterator[None]:
     """Serialize cold WAL negotiation and schema setup across openers."""
 
-    resolved = path.resolve()
+    lock_path = path.with_name(f"{path.name}.init.lock")
     try:
-        with FileLock(f"{resolved}.init.lock", timeout=busy_timeout_ms / 1000):
+        with FileLock(str(lock_path), timeout=busy_timeout_ms / 1000):
             yield
     except FileLockTimeout as exc:
         raise sqlite3.OperationalError("database is locked") from exc
