@@ -264,9 +264,13 @@ export function SearchPreparationReceipt({
   });
 
   const requiredRefs = useMemo(() => (
-    batch?.models.filter((model) => model.required && !model.ready).map((model) => model.setup_ref) ?? []
+    batch?.models
+      .filter((model) => model.required && !model.ready && model.can_setup)
+      .map((model) => model.setup_ref) ?? []
   ), [batch]);
-  const optionalModels = batch?.models.filter((model) => !model.required && !model.ready) ?? [];
+  const optionalModels = batch?.models.filter((model) => (
+    !model.required && !model.ready && model.can_setup
+  )) ?? [];
   const selectedRefs = [
     ...requiredRefs,
     ...(semanticSelected ? optionalModels.map((model) => model.setup_ref) : []),
@@ -364,8 +368,8 @@ export function SearchPreparationReceipt({
               <input
                 type="checkbox"
                 data-testid={model.required ? undefined : 'search-preparation-semantic-model'}
-                checked={model.required || semanticSelected}
-                disabled={model.required}
+                checked={model.can_setup && (model.required || semanticSelected)}
+                disabled={model.required || !model.can_setup}
                 onChange={(event) => setSemanticSelected(event.currentTarget.checked)}
               />
               <span>

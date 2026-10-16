@@ -51,6 +51,7 @@ const consentBatch: SearchPreparationBatch = {
       required: true,
       ready: false,
       runtime_ready: true,
+      can_setup: true,
       download_bytes: 16_631_306,
       additional_runtime_download: false,
       remediation: null,
@@ -65,6 +66,7 @@ const consentBatch: SearchPreparationBatch = {
       required: false,
       ready: false,
       runtime_ready: true,
+      can_setup: true,
       download_bytes: 1_525_784_180,
       additional_runtime_download: true,
       remediation: null,
@@ -140,6 +142,62 @@ describe('SearchPreparationReceipt', () => {
       'project-1',
       'prep-1',
       { plan_hash: 'sha256:plan', decision: 'not_now', selected_setup_refs: [] },
+    ));
+  });
+
+  it('keeps unsupported required models visible without authorizing their setup', async () => {
+    const unsupported = {
+      ...consentBatch.models[0],
+      can_setup: false,
+      runtime_ready: false,
+      remediation: 'Install the local transcription runtime first.',
+    };
+    const installable = {
+      ...consentBatch.models[1],
+      required: true,
+      can_setup: true,
+    };
+    const unsupportedOptional = {
+      ...consentBatch.models[1],
+      setup_ref: 'engine-setup:optional-unsupported.local@1',
+      can_setup: false,
+      remediation: 'Optional semantic setup is unavailable on this runtime.',
+    };
+    const mixedBatch = {
+      ...consentBatch,
+      models: [unsupported, installable, unsupportedOptional],
+      can_setup: true,
+    } satisfies SearchPreparationBatch;
+    getSearchPreparation.mockResolvedValue(mixedBatch);
+    decideSearchPreparation.mockResolvedValue({ ...mixedBatch, status: 'preparing' });
+
+    render(
+      <SearchPreparationReceipt
+        projectId="project-1"
+        batchId="prep-1"
+        onDone={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+
+    const unsupportedRow = await screen.findByTestId('search-preparation-model-read_text');
+    const unsupportedCheckbox = unsupportedRow.querySelector('input') as HTMLInputElement;
+    expect(unsupportedCheckbox.disabled).toBe(true);
+    expect(unsupportedCheckbox.checked).toBe(false);
+    expect(unsupportedRow.textContent).toContain('Install the local transcription runtime first.');
+    const optionalCheckbox = screen.getByTestId('search-preparation-semantic-model') as HTMLInputElement;
+    expect(optionalCheckbox.disabled).toBe(true);
+    expect(optionalCheckbox.checked).toBe(false);
+
+    fireEvent.click(screen.getByTestId('search-preparation-decision-prepare'));
+    await waitFor(() => expect(decideSearchPreparation).toHaveBeenCalledWith(
+      'project-1',
+      'prep-1',
+      {
+        plan_hash: 'sha256:plan',
+        decision: 'prepare',
+        selected_setup_refs: ['engine-setup:embeddinggemma-2.local@1'],
+      },
     ));
   });
 
