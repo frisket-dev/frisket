@@ -145,6 +145,68 @@ describe('SearchPreparationReceipt', () => {
     ));
   });
 
+  it('prepares without download wording when every required model is ready', async () => {
+    const readyBatch = {
+      ...consentBatch,
+      models: consentBatch.models.map((model) => ({ ...model, ready: true, can_setup: false })),
+    } satisfies SearchPreparationBatch;
+    getSearchPreparation.mockResolvedValue(readyBatch);
+    decideSearchPreparation.mockResolvedValue({ ...readyBatch, status: 'preparing' });
+
+    render(
+      <SearchPreparationReceipt
+        projectId="project-1"
+        batchId="prep-1"
+        onDone={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText('Prepare files?')).not.toBeNull();
+    expect(screen.queryByText('Download local models?')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare files' }));
+    await waitFor(() => expect(decideSearchPreparation).toHaveBeenCalledWith(
+      'project-1',
+      'prep-1',
+      { plan_hash: 'sha256:plan', decision: 'prepare', selected_setup_refs: [] },
+    ));
+  });
+
+  it('adds download wording only when the optional model is selected', async () => {
+    const optionalOnlyBatch = {
+      ...consentBatch,
+      models: consentBatch.models.map((model) => (
+        model.required ? { ...model, ready: true, can_setup: false } : model
+      )),
+    } satisfies SearchPreparationBatch;
+    getSearchPreparation.mockResolvedValue(optionalOnlyBatch);
+    decideSearchPreparation.mockResolvedValue({ ...optionalOnlyBatch, status: 'preparing' });
+
+    render(
+      <SearchPreparationReceipt
+        projectId="project-1"
+        batchId="prep-1"
+        onDone={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+
+    const semantic = await screen.findByTestId('search-preparation-semantic-model');
+    expect(screen.getByRole('button', { name: 'Prepare files' })).not.toBeNull();
+    fireEvent.click(semantic);
+    expect(screen.getByRole('button', { name: 'Download and prepare' })).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Download and prepare' }));
+    await waitFor(() => expect(decideSearchPreparation).toHaveBeenCalledWith(
+      'project-1',
+      'prep-1',
+      {
+        plan_hash: 'sha256:plan',
+        decision: 'prepare',
+        selected_setup_refs: ['engine-setup:embeddinggemma-2.local@1'],
+      },
+    ));
+  });
+
   it('keeps unsupported required models visible without authorizing their setup', async () => {
     const unsupported = {
       ...consentBatch.models[0],

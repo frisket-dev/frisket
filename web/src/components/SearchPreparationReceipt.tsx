@@ -281,6 +281,7 @@ export function SearchPreparationReceipt({
     ...requiredRefs,
     ...(semanticSelected ? optionalModels.map((model) => model.setup_ref) : []),
   ];
+  const hasSelectedDownloads = selectedRefs.length > 0;
 
   const decide = async (decision: 'prepare' | 'not_now') => {
     if (!batch || busy) return;
@@ -322,6 +323,7 @@ export function SearchPreparationReceipt({
 
   const nativeGroup = batch.groups.find((group) => group.kind === 'native_pdf' && group.count > 0);
   const fullyPrepared = batch.groups.every((group) => group.status === 'complete');
+  const missingModels = batch.models.filter((model) => !model.ready);
   return (
     <section className="search-preparation-receipt" data-testid="search-preparation-receipt">
       <header>
@@ -361,9 +363,11 @@ export function SearchPreparationReceipt({
 
       {batch.status === 'needs_consent' && (
         <section className="search-preparation-consent" data-testid="search-preparation-model-consent">
-          <h3>Download local models?</h3>
-          <p>These run on the Frisket server. Nothing downloads until you continue.</p>
-          {batch.models.filter((model) => !model.ready).map((model) => (
+          <h3>{missingModels.length > 0 ? 'Download local models?' : 'Prepare files?'}</h3>
+          <p>{missingModels.length > 0
+            ? 'These run on the Frisket server. Nothing downloads until you continue.'
+            : 'The required local models are ready.'}</p>
+          {missingModels.map((model) => (
             <label
               className="search-preparation-model"
               key={model.setup_ref}
@@ -392,7 +396,7 @@ export function SearchPreparationReceipt({
               <b>{model.download_bytes == null ? formatBytes(model.download_bytes) : `About ${formatBytes(model.download_bytes)}`}</b>
             </label>
           ))}
-          {batch.models.some((model) => model.additional_runtime_download) && (
+          {missingModels.some((model) => model.additional_runtime_download) && (
             <p className="form-hint">Additional runtime files may also be downloaded; their size is not included above.</p>
           )}
           {!batch.can_setup && (
@@ -408,7 +412,7 @@ export function SearchPreparationReceipt({
               disabled={busy || !batch.can_setup}
               onClick={() => void decide('prepare')}
             >
-              {busy ? 'Starting…' : 'Download and prepare'}
+              {busy ? 'Starting…' : hasSelectedDownloads ? 'Download and prepare' : 'Prepare files'}
             </button>
             <button
               type="button"
