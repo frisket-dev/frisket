@@ -299,6 +299,7 @@ async def _stage_source(
                 "invalid_media_source",
                 "admitted media must be a seekable binary stream",
             )
+        original_position: int | None = None
         try:
             original_position = stream.tell()
             stream.seek(0)
@@ -318,8 +319,9 @@ async def _stage_source(
                 "invalid_media_source", "admitted media could not be staged"
             ) from exc
         finally:
-            with contextlib.suppress(OSError, ValueError):
-                stream.seek(original_position)
+            if original_position is not None:
+                with contextlib.suppress(OSError, ValueError):
+                    stream.seek(original_position)
     if digest.hexdigest() != expected:
         path.unlink(missing_ok=True)
         raise MediaProductionError(
@@ -869,6 +871,8 @@ async def _produce_audio(
         cancelled=cancelled,
     )
     windows: list[AudioWindow] = []
+    missing_samples = False
+    sample_tolerance = 0.5 / EMBEDDINGGEMMA2_AUDIO_SAMPLE_RATE
     with output.open("rb") as pcm:
         for start, end in spans:
             _check_cancelled(cancelled)
@@ -879,12 +883,18 @@ async def _produce_audio(
             pcm.seek(first_sample * _PCM_BYTES_PER_SAMPLE)
             data = pcm.read(sample_count * _PCM_BYTES_PER_SAMPLE)
             if not data:
+                missing_samples = True
                 continue
             if len(data) % _PCM_BYTES_PER_SAMPLE:
                 data = data[:-1]
+            if not data:
+                missing_samples = True
+                continue
             actual_end = start + (
                 len(data) / _PCM_BYTES_PER_SAMPLE / EMBEDDINGGEMMA2_AUDIO_SAMPLE_RATE
             )
+            if actual_end + sample_tolerance < end:
+                missing_samples = True
             windows.append(
                 AudioWindow(
                     start_seconds=start,
@@ -893,14 +903,14 @@ async def _produce_audio(
                 )
             )
     reason = None if complete else "max_windows"
-    if len(windows) != len(spans) and reason is None:
+    if (missing_samples or len(windows) != len(spans)) and reason is None:
         reason = "missing_samples"
     return ProducedMedia(
         items=tuple(windows),
         coverage=_coverage(
             probe,
             [(window.start_seconds, window.end_seconds) for window in windows],
-            complete=complete and len(windows) == len(spans),
+            complete=complete and not missing_samples and len(windows) == len(spans),
             reason=reason,
         ),
     )

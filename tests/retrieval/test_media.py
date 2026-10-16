@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import io
 import json
 import shutil
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -22,6 +24,7 @@ from frisket.retrieval.media import (
     LocatedFrame,
     LocatedVideoClip,
     PeriodicFrameRecipe,
+    MediaProductionError,
     ShotClipRecipe,
     produce_media,
 )
@@ -297,6 +300,66 @@ def test_preobserved_cancellation_starts_no_decode(
     finally:
         stream.close()
     assert not called
+
+
+def test_stream_tell_failure_is_reported_without_masking_cleanup_error() -> None:
+    class BrokenTell(io.BytesIO):
+        def tell(self) -> int:
+            raise OSError("tell failed")
+
+    data = b"admitted bytes"
+    stream = BrokenTell(data)
+    source = BoundLocalFile(
+        stream=stream,
+        sha256="sha256:" + hashlib.sha256(data).hexdigest(),
+    )
+
+    with pytest.raises(MediaProductionError) as caught:
+        asyncio.run(produce_media(source, PeriodicFrameRecipe()))
+
+    assert caught.value.code == "invalid_media_source"
+    assert isinstance(caught.value.__cause__, OSError)
+
+
+def test_short_final_pcm_window_is_disclosed_as_missing_samples(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data = b"admitted bytes"
+    source = BoundLocalFile(
+        stream=io.BytesIO(data),
+        sha256="sha256:" + hashlib.sha256(data).hexdigest(),
+    )
+
+    async def probe(*args, **kwargs):
+        return SimpleNamespace(
+            start_seconds=0.0,
+            end_seconds=1.0,
+            time_base_num=1,
+            time_base_den=16_000,
+        )
+
+    async def decode(argv, **kwargs):
+        Path(argv[-1]).write_bytes(b"\0\0" * 8_000)
+
+    monkeypatch.setattr("frisket.retrieval.media._probe", probe)
+    monkeypatch.setattr("frisket.retrieval.media._run_tool", decode)
+    monkeypatch.setattr("frisket.retrieval.media._binary", lambda name: name)
+
+    produced = asyncio.run(
+        produce_media(
+            source,
+            AudioWindowRecipe(
+                duration_seconds=1.0,
+                stride_seconds=1.0,
+                max_windows=2,
+            ),
+        )
+    )
+
+    assert len(produced.items) == 1
+    assert produced.items[0].end_seconds == pytest.approx(0.5)
+    assert not produced.coverage.complete
+    assert produced.coverage.truncation_reason == "missing_samples"
 
 
 def test_recipe_rejects_a_clip_that_exceeds_native_frame_budget() -> None:
