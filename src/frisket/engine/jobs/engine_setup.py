@@ -36,7 +36,13 @@ _SETUP_NAMES = {
 
 @dataclass(frozen=True)
 class LocalEngineSetupRequirement:
-    """Passive local setup fact consumed by search-preparation planners."""
+    """Passive local setup fact consumed by search-preparation planners.
+
+    ``artifact_refs`` are immutable manifest identities suitable for a plan
+    hash. ``download_bytes_if_missing`` is the current missing-byte disclosure
+    and becomes zero when every weight artifact is cached; its precision is
+    described by ``download_size_basis``.
+    """
 
     setup_ref: str
     capability: str
@@ -46,6 +52,9 @@ class LocalEngineSetupRequirement:
     download_bytes_if_missing: int
     license: str
     source_url: str
+    artifact_refs: tuple[str, ...]
+    download_size_basis: str
+    runtime_installable: bool = False
     runtime_remediation: str | None = None
 
 
@@ -77,9 +86,8 @@ def local_search_setup_requirements() -> tuple[LocalEngineSetupRequirement, ...]
     embedding = embeddinggemma_artifacts.embeddinggemma_artifact()
     if rapid is None or rapid.total_size is None or len(parakeet) != 2:
         raise RuntimeError("local search setup manifest is incomplete")
-    parakeet_bytes = sum(artifact.approx_size_bytes or 0 for artifact in parakeet)
     embedding_bytes = embedding.approx_size_bytes
-    if not parakeet_bytes or embedding_bytes is None:
+    if embedding_bytes is None:
         raise RuntimeError("local search setup sizes are missing")
     rapid_runtime, _rapid_error = rapidocr_available()
     parakeet_runtime = parakeet_runtime_present()
@@ -90,16 +98,23 @@ def local_search_setup_requirements() -> tuple[LocalEngineSetupRequirement, ...]
         )
     except (OSError, RuntimeError):
         embedding_weights_ready = False
+    rapid_weights_ready = rapidocr_setup_ready()
+    try:
+        parakeet_bytes = parakeet_artifacts.parakeet_missing_download_bytes()
+    except parakeet_artifacts.ParakeetArtifactUnavailable as exc:
+        raise RuntimeError("local search setup cache facts are unavailable") from exc
     return (
         LocalEngineSetupRequirement(
             setup_ref=RAPIDOCR_SETUP_REF,
             capability="ocr",
             display_name=_SETUP_NAMES[RAPIDOCR_SETUP_REF],
             runtime_ready=rapid_runtime,
-            weights_ready=rapidocr_setup_ready(),
-            download_bytes_if_missing=rapid.total_size,
+            weights_ready=rapid_weights_ready,
+            download_bytes_if_missing=0 if rapid_weights_ready else rapid.total_size,
             license=rapid.license,
             source_url=rapid.source_url,
+            artifact_refs=(rapid.ref,),
+            download_size_basis="exact_checksum",
             runtime_remediation=(
                 None
                 if rapid_runtime
@@ -111,10 +126,12 @@ def local_search_setup_requirements() -> tuple[LocalEngineSetupRequirement, ...]
             capability="transcription",
             display_name=_SETUP_NAMES[PARAKEET_TDT_SETUP_REF],
             runtime_ready=parakeet_runtime,
-            weights_ready=parakeet_artifacts.parakeet_setup_ready(),
+            weights_ready=parakeet_bytes == 0,
             download_bytes_if_missing=parakeet_bytes,
             license=", ".join(sorted({artifact.license for artifact in parakeet})),
             source_url=parakeet[0].source_url,
+            artifact_refs=tuple(artifact.ref for artifact in parakeet),
+            download_size_basis="manifest_estimate",
             runtime_remediation=(
                 None
                 if parakeet_runtime
@@ -127,9 +144,12 @@ def local_search_setup_requirements() -> tuple[LocalEngineSetupRequirement, ...]
             display_name=_SETUP_NAMES[EMBEDDINGGEMMA_SETUP_REF],
             runtime_ready=embedding_runtime,
             weights_ready=embedding_weights_ready,
-            download_bytes_if_missing=embedding_bytes,
+            download_bytes_if_missing=0 if embedding_weights_ready else embedding_bytes,
             license=embedding.license,
             source_url=embedding.source_url,
+            artifact_refs=(embedding.ref,),
+            download_size_basis="manifest_estimate",
+            runtime_installable=True,
             runtime_remediation=(
                 None
                 if embedding_runtime

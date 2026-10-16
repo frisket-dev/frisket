@@ -190,6 +190,7 @@ def test_rapidocr_default_recognizer_is_exactly_pinned():
 
     assert entry is not None
     assert entry.ref == am.RAPIDOCR_DEFAULT_MODEL_REF
+    assert entry.ref.endswith(f"@sha256:{entry.files[0].sha256}")
     assert entry.kind == "model_file"
     assert entry.integrity == "checksum"
     assert entry.total_size == 16_631_306

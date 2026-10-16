@@ -310,7 +310,11 @@ def test_local_search_setup_requirements_are_manifest_sized(monkeypatch) -> None
     monkeypatch.setattr(ocr_engines_local, "rapidocr_available", lambda: (True, None))
     monkeypatch.setattr(ocr_engines_local, "rapidocr_setup_ready", lambda: False)
     monkeypatch.setattr(definitions, "parakeet_runtime_present", lambda: False)
-    monkeypatch.setattr(parakeet_artifacts, "parakeet_setup_ready", lambda: False)
+    monkeypatch.setattr(
+        parakeet_artifacts,
+        "parakeet_missing_download_bytes",
+        lambda: 2_000_000,
+    )
     monkeypatch.setattr(embeddinggemma_install, "is_installed", lambda: True)
     monkeypatch.setattr(
         embeddinggemma_artifacts, "cached_embeddinggemma_path", lambda: None
@@ -324,13 +328,46 @@ def test_local_search_setup_requirements_are_manifest_sized(monkeypatch) -> None
         "semantic_search",
     ]
     assert requirements[0].download_bytes_if_missing == 16_631_306
+    assert (
+        requirements[0]
+        .artifact_refs[0]
+        .endswith(
+            "@sha256:5825fc7ebf84ae7a412be049820b4d86d77620f204a041697b0494669b1742c5"
+        )
+    )
+    assert requirements[0].download_size_basis == "exact_checksum"
+    assert requirements[0].runtime_installable is False
     assert requirements[0].runtime_ready is True
     assert requirements[0].weights_ready is False
-    assert requirements[1].download_bytes_if_missing == 672_480_039
+    assert requirements[1].download_bytes_if_missing == 2_000_000
+    assert len(requirements[1].artifact_refs) == 2
+    assert requirements[1].download_size_basis == "manifest_estimate"
+    assert requirements[1].runtime_installable is False
     assert requirements[1].runtime_ready is False
     assert "standard" in (requirements[1].runtime_remediation or "")
     assert requirements[2].download_bytes_if_missing == 1_525_784_180
     assert requirements[2].runtime_ready is True
+    assert len(requirements[2].artifact_refs) == 1
+    assert requirements[2].download_size_basis == "manifest_estimate"
+    assert requirements[2].runtime_installable is True
+
+
+def test_local_search_setup_requirements_report_zero_cached_bytes(monkeypatch) -> None:
+    from frisket.engine._workers import embeddinggemma_artifacts, parakeet_artifacts
+    from frisket.ops import ocr_engines_local
+
+    monkeypatch.setattr(ocr_engines_local, "rapidocr_available", lambda: (True, None))
+    monkeypatch.setattr(ocr_engines_local, "rapidocr_setup_ready", lambda: True)
+    monkeypatch.setattr(
+        parakeet_artifacts, "parakeet_missing_download_bytes", lambda: 0
+    )
+    monkeypatch.setattr(
+        embeddinggemma_artifacts, "cached_embeddinggemma_path", lambda: object()
+    )
+
+    requirements = engine_setup.local_search_setup_requirements()
+
+    assert [item.download_bytes_if_missing for item in requirements] == [0, 0, 0]
 
 
 def test_engine_setup_cancel_is_terminal_without_resolver(

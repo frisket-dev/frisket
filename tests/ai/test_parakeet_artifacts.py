@@ -158,6 +158,22 @@ def test_ready_cache_skips_the_supervised_downloader(
     assert resolved.model_path.is_file() is False
     assert resolved.vad_path is not None
     assert artifacts.parakeet_setup_ready() is True
+    assert artifacts.parakeet_missing_download_bytes() == 0
+
+
+def test_missing_download_bytes_are_per_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cache = tmp_path / "hub"
+    _snapshot(
+        cache,
+        repo_id=artifacts.PARAKEET_MODEL_REPO,
+        revision=artifacts.PARAKEET_MODEL_REVISION,
+        files=artifacts.PARAKEET_MODEL_FILES,
+    )
+    monkeypatch.setenv("HF_HUB_CACHE", str(cache))
+
+    assert artifacts.parakeet_missing_download_bytes() == 2_000_000
 
 
 def test_inference_resolution_never_starts_downloader_for_missing_cache(

@@ -297,6 +297,38 @@ def parakeet_setup_ready() -> bool:
     )
 
 
+def parakeet_missing_download_bytes() -> int:
+    """Manifest estimate for only the Parakeet snapshots absent from cache."""
+
+    cache_dir = huggingface_hub_cache()
+    missing = 0
+    for getter, label in (
+        (artifact_manifest.parakeet_model_artifact, "Parakeet model"),
+        (artifact_manifest.parakeet_vad_artifact, "Parakeet VAD"),
+    ):
+        entry = getter()
+        if entry is None or entry.hf_snapshot is None:
+            raise ParakeetArtifactUnavailable(
+                f"the pinned {label} manifest entry is missing"
+            )
+        snapshot = entry.hf_snapshot
+        if (
+            _cached_snapshot(
+                cache_dir=cache_dir,
+                repo_id=snapshot.repo_id,
+                revision=snapshot.revision,
+                files=snapshot.files,
+            )
+            is None
+        ):
+            if entry.approx_size_bytes is None:
+                raise ParakeetArtifactUnavailable(
+                    f"the pinned {label} download size is missing"
+                )
+            missing += entry.approx_size_bytes
+    return missing
+
+
 async def resolve_parakeet_artifacts(
     *,
     vad: bool,
@@ -444,6 +476,7 @@ __all__ = [
     "ParakeetArtifacts",
     "huggingface_hub_cache",
     "parakeet_setup_ready",
+    "parakeet_missing_download_bytes",
     "whisper_setup_ready",
     "resolve_parakeet_artifacts",
     "resolver_main",

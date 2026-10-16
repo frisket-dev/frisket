@@ -104,7 +104,9 @@ from frisket.engine._workers.rapidocr_models import (
 # also the name of the sidecar and the Modal app elsewhere in the codebase,
 # so the HF org intentionally matches them.
 FRISKET_HF_ORG = "frisket-models"
-RAPIDOCR_DEFAULT_MODEL_REF = "rapidocr:ch-pp-ocrv5-rec-mobile@3.8.0"
+RAPIDOCR_DEFAULT_MODEL_REF = (
+    f"rapidocr:ch-pp-ocrv5-rec-mobile@sha256:{_RAPIDOCR_SHA256}"
+)
 
 # Parakeet's two upstream HF repo ids. `parakeet_model.py` is the zero-import
 # leaf module shared by the worker and the artifact resolver for the
