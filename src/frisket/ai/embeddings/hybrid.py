@@ -24,6 +24,7 @@ from .similarity import (
     _embedding_query_binding,
     _load_index,
     _manual_query,
+    _require_semantic_available,
 )
 
 DEFAULT_RRF_K = 60
@@ -128,6 +129,7 @@ def resolve_embedding_hybrid(
             response = RetrievalQueryService(project).search(
                 request, semantic_vectors=vectors
             )
+            _require_semantic_available(response)
         except RetrievalQueryError as exc:
             raise SimilarityError(exc.code, str(exc)) from exc
         except RankingError as exc:

@@ -208,6 +208,24 @@ def test_hybrid_surfaces_keyword_only_and_vector_only_and_ranks_dual_first(env):
     assert order.index(bee) < order.index(tractor) if tractor in order else True
 
 
+def test_hybrid_refuses_lexical_only_result_without_vector_runtime(
+    env, tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    from frisket.ai.embeddings.hybrid import resolve_embedding_hybrid
+    from frisket.ai.embeddings.similarity import SimilarityError
+    from frisket.retrieval import native
+
+    project, sheet, _cols, index_id = env
+    monkeypatch.setattr(native, "_NATIVE_ROOT", tmp_path / "missing-native")
+
+    with pytest.raises(SimilarityError) as exc:
+        resolve_embedding_hybrid(
+            project, _hybrid_query(index_id, sheet, "drone"), gateway=MappedGateway()
+        )
+
+    assert exc.value.code == "embedding_backend_unavailable"
+
+
 def test_hybrid_route_service_resolves_inside_source_snapshot(env, monkeypatch):
     from types import SimpleNamespace
     from frisket.server.services import embeddings

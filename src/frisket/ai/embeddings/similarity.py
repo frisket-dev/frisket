@@ -13,6 +13,7 @@ from frisket.retrieval.contracts import (
     RetrievalScope,
     ScopedBinding,
     SearchRequest,
+    SearchResponse,
     SemanticExclusion,
     SheetScope,
     SourceAnchor,
@@ -165,6 +166,16 @@ class SimilarityResult:
     hits: list[SimilarityHit]
     query_embedding_use: QueryEmbeddingUse | None
     binding: EmbeddingQueryBinding
+
+
+def _require_semantic_available(response: SearchResponse) -> None:
+    # Maintained coverage can be unavailable for an empty named dataset and has
+    # no reason. The query service supplies a reason only when it deliberately
+    # falls back because the semantic runtime itself cannot run.
+    for channel in response.coverage.channels:
+        reason = channel.reason
+        if channel.channel == "semantic" and channel.state == "unavailable" and reason:
+            raise SimilarityError("embedding_backend_unavailable", reason)
 
 
 _INDEX_BINDING_COLUMNS = (
@@ -365,19 +376,7 @@ def resolve_embedding_similarity(
             response = RetrievalQueryService(project).search(
                 request, semantic_vectors=semantic_vectors
             )
-            unavailable = next(
-                (
-                    channel
-                    for channel in response.coverage.channels
-                    if channel.channel == "semantic" and channel.state == "unavailable"
-                ),
-                None,
-            )
-            if unavailable is not None:
-                raise SimilarityError(
-                    "embedding_backend_unavailable",
-                    unavailable.reason or "semantic search is unavailable",
-                )
+            _require_semantic_available(response)
         except RetrievalQueryError as exc:
             code = (
                 "embedding_source_stale"

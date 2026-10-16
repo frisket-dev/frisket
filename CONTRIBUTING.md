@@ -240,6 +240,9 @@ read historical values by ID, without substituting a same-name successor.
 - Run focused checks for routine changes. The Python suite excludes `gap`,
   `network`, and `plugin_contract` tests by default; web unit tests run with
   `npm run test:unit --prefix web`.
+- Before running Python tests that exercise semantic retrieval from a source
+  checkout, build the vendored Vec1 runtime once with
+  `uv run --no-sync python scripts/build_vec1.py`.
 - Keyless `gap` probes must be green when relevant:
   `uv run --no-sync pytest -q -n auto --dist loadfile -m "gap and not gap_env" tests/`. Run `gap_env`
   only in the prepared environment it names.
