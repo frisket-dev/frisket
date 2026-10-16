@@ -116,6 +116,7 @@ class SearchPreparationTextSample(WireModel):
     filename: str | None
     page_number: int = Field(gt=0)
     page_count: int = Field(gt=0)
+    page_scoped: bool
     preview_url: str
     text: str
     source: Literal["native", "prepared"]
