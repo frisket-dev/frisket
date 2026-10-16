@@ -19,6 +19,7 @@ from .sources import canonical_json, input_hash
 RETRIEVAL_DB_NAME = "project.retrieval.db"
 SCHEMA_VERSION = 1
 SIDECAR_ID_META_KEY = "sidecar_id"
+PROJECT_SIDECAR_META_KEY = "retrieval_sidecar_id"
 PAGE_SIZE = 16 * 1024
 CACHE_KIB = 32 * 1024
 MMAP_SIZE = 1024 * 1024 * 1024

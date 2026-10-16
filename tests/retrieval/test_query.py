@@ -8,6 +8,7 @@ import pytest
 
 from frisket.engine.store import Project
 from frisket.engine.store.retrieval_lifecycle import read_binding_revision
+from frisket.search_index import bind_retrieval_sidecar
 from frisket.retrieval import native
 from frisket.retrieval.contracts import (
     BindingRevision,
@@ -189,6 +190,7 @@ def _prepare_project(tmp_path):
                 vector=vector,
                 version=revision - 1 if row_id == rows[4] else revision,
             )
+    bind_retrieval_sidecar(project)
     project.db.execute("DELETE FROM search_dirty_scopes")
     project.db.commit()
     return project, sheet, status, body, rows
@@ -980,5 +982,27 @@ def test_hybrid_reranks_context_before_limiting_results(tmp_path):
         assert len(seen) == 3
         assert [group.primary.binding.row_id for group in result.results] == [rows[2]]
         assert "&amp;" not in result.results[0].primary.snippet
+    finally:
+        project.close()
+
+
+def test_recreated_sidecar_reports_preparing_before_worker_binds_it(tmp_path):
+    project, sheet, _status, body, _rows = _prepare_project(tmp_path)
+    try:
+        for suffix in ("", "-wal", "-shm"):
+            (project.path / ("project.retrieval.db" + suffix)).unlink(missing_ok=True)
+        # An analytical writer may recreate the cache before the lexical worker.
+        with RetrievalStore(project).open():
+            pass
+        request = SearchRequest(
+            scope=RetrievalScope(sheets=(SheetScope(sheet, column_ids=(body,)),)),
+            query=TextQuery("target"),
+            mode="lexical",
+        )
+        assert search(project, request).coverage.state == "preparing"
+        # A recreated cache must not imply pending work outside visible scope.
+        project.db.execute("UPDATE rows SET hidden=1 WHERE sheet_id=?", (sheet,))
+        project.db.commit()
+        assert search(project, request).coverage.state == "complete"
     finally:
         project.close()

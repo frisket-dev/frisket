@@ -38,6 +38,7 @@ from frisket.retrieval.source_adapter import (
 )
 from frisket.retrieval.sources import cell_source_binding_id
 from frisket.retrieval.store import (
+    PROJECT_SIDECAR_META_KEY as RETRIEVAL_SIDECAR_META_KEY,
     RETRIEVAL_DB_NAME,
     RetrievalStore,
     read_sidecar_id,
@@ -62,7 +63,6 @@ class IndexProgress:
 
 
 _SQLITE_ROW_ID_CHUNK = 900
-RETRIEVAL_SIDECAR_META_KEY = "retrieval_sidecar_id"
 
 
 def _raise_if_cancelled(cancel_event: threading.Event | None) -> None:

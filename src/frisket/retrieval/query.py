@@ -51,7 +51,7 @@ from .source_adapter import (
     resolve_source_text,
 )
 from .sources import canonical_json, identity_digest, input_hash
-from .store import RETRIEVAL_DB_NAME
+from .store import PROJECT_SIDECAR_META_KEY, RETRIEVAL_DB_NAME, SIDECAR_ID_META_KEY
 
 
 HYBRID_POOL = 400
@@ -697,7 +697,10 @@ def _scoped_dirty_work(
     return bool(
         reader.db.execute(
             f"""WITH {scope.cte_sql}
-        SELECT EXISTS (
+        SELECT (EXISTS (SELECT 1 FROM scoped_bindings) AND
+          (SELECT value FROM idx.retrieval_meta WHERE key=?)
+            IS NOT (SELECT value FROM main.meta WHERE key=?))
+        OR EXISTS (
           SELECT 1 FROM search_dirty_scopes AS dirty
           WHERE EXISTS (
             SELECT 1 FROM scoped_bindings AS scoped
@@ -707,7 +710,7 @@ def _scoped_dirty_work(
               AND (dirty.row_id_start IS NULL OR scoped.row_id BETWEEN dirty.row_id_start AND dirty.row_id_end)
           )
         )""",
-            scope.params,
+            (*scope.params, SIDECAR_ID_META_KEY, PROJECT_SIDECAR_META_KEY),
         ).fetchone()[0]
     )
 
