@@ -33,6 +33,7 @@ import {
   type ImportDraft,
   type ImportDraftMappingColumn,
   type ImportCsvPreview,
+  type ImportSessionStatus,
   type ImportUpdatePreview,
   type BulkImportFailedOutput,
   type BulkImportPlan,
@@ -1047,6 +1048,7 @@ function OpenImportWorkspaceSession({
     batchId: string | null;
     importRef: string | null;
   } | null>(null);
+  const [preparationFollowupError, setPreparationFollowupError] = useState<string | null>(null);
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [singleFileFormat, setSingleFileFormat] = useState<SingleFileFormat>('csv');
   const [ftmDatasetName, setFtmDatasetName] = useState('');
@@ -1245,6 +1247,7 @@ function OpenImportWorkspaceSession({
     setDownloadPrompt(null);
     setNerPrompt(null);
     setPreparationReceipt(null);
+    setPreparationFollowupError(null);
     onClose();
   }, [onClose, resetBulkPlan, resetCsvPreview, resetDraft]);
   const closeWorkspaceFromUser = useCallback(() => {
@@ -1306,6 +1309,7 @@ function OpenImportWorkspaceSession({
     if (!completion) return;
     if (completion.searchPreparationBatchId || completion.importRef) {
       if (completion.sheetId !== null) onImported(completion.sheetId);
+      setPreparationFollowupError(null);
       setPreparationReceipt({
         sheetId: completion.sheetId,
         batchId: completion.searchPreparationBatchId,
@@ -1318,7 +1322,14 @@ function OpenImportWorkspaceSession({
 
   usePoll(async () => {
     if (!preparationReceipt?.importRef || preparationReceipt.batchId) return;
-    const status = await getImportSession(projectId, preparationReceipt.importRef);
+    let status: ImportSessionStatus;
+    try {
+      status = await getImportSession(projectId, preparationReceipt.importRef);
+      setPreparationFollowupError(null);
+    } catch {
+      setPreparationFollowupError('Could not refresh import progress. Retrying…');
+      return;
+    }
     if (status.search_preparation_batch_id) {
       if (preparationReceipt.sheetId === null && status.sheet_id !== null) onImported(status.sheet_id);
       setPreparationReceipt((current) => current ? {
@@ -1345,6 +1356,7 @@ function OpenImportWorkspaceSession({
     active: Boolean(preparationReceipt?.importRef && !preparationReceipt.batchId),
     intervalMs: 1_000,
     guardOverlap: true,
+    immediate: true,
   });
 
   useEffect(() => {
@@ -1803,6 +1815,9 @@ function OpenImportWorkspaceSession({
                   <div className="search-preparation-receipt" data-testid="search-preparation-receipt">
                     <div role="status"><span className="run-spinner" aria-hidden /> Finishing import…</div>
                     <p>Files are saved. Frisket is checking what can be prepared for search.</p>
+                    {preparationFollowupError && (
+                      <div className="import-field-error" role="alert">{preparationFollowupError}</div>
+                    )}
                     <button type="button" className="btn" data-testid="search-preparation-done" onClick={closeWorkspace}>
                       Done
                     </button>

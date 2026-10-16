@@ -8,6 +8,7 @@ import type {
 } from '../api/projectSearch';
 import { PanelSelect } from '../components/PanelSelect';
 import { decodeEscapedText } from '../displayText';
+import { formatNumberDisplay } from '../format';
 
 function splitSnippet(text: string): Array<{ key: string; text: string; bold: boolean }> {
   const parts: Array<{ key: string; text: string; bold: boolean }> = [];
@@ -66,19 +67,6 @@ function coverageMessage(coverage: ProjectSearchResponseWire['coverage'] | null)
   return coverage.channels.some((channel) => channel.setup)
     ? 'Set up semantic search to include similar material.'
     : 'No indexed results are available for this search.';
-}
-
-function formatDownloadBytes(value: number | null | undefined): string {
-  if (value == null) return 'Size not measured';
-  if (value < 1_000) return `${value} B`;
-  const units = ['KB', 'MB', 'GB', 'TB'];
-  let amount = value / 1_000;
-  let unit = units[0];
-  for (let index = 1; index < units.length && amount >= 1_000; index += 1) {
-    amount /= 1_000;
-    unit = units[index];
-  }
-  return `${amount >= 10 ? amount.toFixed(0) : amount.toFixed(1)} ${unit}`;
 }
 
 function hitKey(hit: ProjectSearchHitWire): string {
@@ -335,8 +323,8 @@ export function PaletteSearchSection({
             <strong>Download {consentSetup.display_name}?</strong>
             <span>
               Model download: {consentSetup.download_bytes == null
-                ? formatDownloadBytes(consentSetup.download_bytes)
-                : `About ${formatDownloadBytes(consentSetup.download_bytes)}`}
+                ? 'Size not measured'
+                : `About ${formatNumberDisplay(consentSetup.download_bytes, 'filesize')}`}
             </span>
           </div>
           <p>This model runs on the Frisket server. Nothing downloads until you choose Download and set up.</p>

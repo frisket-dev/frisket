@@ -1,5 +1,5 @@
 import { Check, CircleAlert, FileSearch, LoaderCircle, Square } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   createSearchPreparation,
   decideSearchPreparation,
@@ -11,25 +11,13 @@ import {
   type SearchPreparationTextSample,
 } from '../api/searchPreparation';
 import { getModelPull, type ModelPullDto } from '../api/open';
+import { formatNumberDisplay } from '../format';
 import { usePoll } from '../hooks/usePoll';
 import { ModelPullProgress } from './ModelPullProgress';
 import { PdfTextPagePreview } from './importWorkspace/pdfPacket/PdfTextPagePreview';
 import { resamplePages, samplePages } from './importWorkspace/pdfPacket/model';
 
 const TERMINAL = new Set<SearchPreparationBatch['status']>(['complete', 'stopped', 'failed']);
-
-function formatBytes(value: number | null | undefined): string {
-  if (value == null) return 'Size not measured';
-  if (value < 1_000) return `${value} B`;
-  const units = ['KB', 'MB', 'GB', 'TB'];
-  let amount = value / 1_000;
-  let unit = units[0];
-  for (let index = 1; index < units.length && amount >= 1_000; index += 1) {
-    amount /= 1_000;
-    unit = units[index];
-  }
-  return `${amount >= 10 ? amount.toFixed(0) : amount.toFixed(1)} ${unit}`;
-}
 
 function groupLabel(group: SearchPreparationGroup): string {
   const noun = group.count === 1 ? 'file' : 'files';
@@ -60,13 +48,28 @@ function modelPurposeLabel(purpose: SearchPreparationBatch['models'][number]['pu
 
 function PullProgress({ pullId, onChange }: { pullId: number; onChange(): void }) {
   const [pull, setPull] = useState<ModelPullDto | null>(null);
-  useEffect(() => {
-    let live = true;
-    void getModelPull(pullId).then((value) => {
-      if (live) setPull(value);
-    }).catch(() => undefined);
-    return () => { live = false; };
+  const [loadError, setLoadError] = useState(false);
+  const loadGeneration = useRef(0);
+  useEffect(() => () => {
+    loadGeneration.current += 1;
   }, [pullId]);
+  usePoll(async () => {
+    const generation = loadGeneration.current;
+    try {
+      const next = await getModelPull(pullId);
+      if (generation !== loadGeneration.current) return 'stop';
+      setPull(next);
+      setLoadError(false);
+      return 'stop';
+    } catch {
+      if (generation === loadGeneration.current) setLoadError(true);
+    }
+  }, {
+    active: pull === null,
+    intervalMs: 1_000,
+    immediate: true,
+    mode: 'settle-relative',
+  });
   return pull ? (
     <ModelPullProgress
       pull={pull}
@@ -74,7 +77,11 @@ function PullProgress({ pullId, onChange }: { pullId: number; onChange(): void }
       onFailed={onChange}
       readOnly
     />
-  ) : <div className="form-hint">Loading download progress…</div>;
+  ) : (
+    <div className="form-hint" role={loadError ? 'alert' : 'status'}>
+      {loadError ? 'Could not refresh download progress. Retrying…' : 'Loading download progress…'}
+    </div>
+  );
 }
 
 function TextCheck({
@@ -93,15 +100,28 @@ function TextCheck({
   const [pages, setPages] = useState<number[]>([]);
   const [loading, setLoading] = useState(false);
   const [forcing, setForcing] = useState(false);
+  const loadGeneration = useRef(0);
+  const loadController = useRef<AbortController | null>(null);
+
+  useEffect(() => () => {
+    loadGeneration.current += 1;
+    loadController.current?.abort();
+  }, [batch.id, projectId]);
 
   const load = async (rowId?: number, pageNumber?: number) => {
+    loadController.current?.abort();
+    const controller = new AbortController();
+    loadController.current = controller;
+    const generation = ++loadGeneration.current;
     setLoading(true);
     try {
       const result = await getSearchPreparationTextSamples(
         projectId,
         batch.id,
         { rowId, pageNumber },
+        { signal: controller.signal },
       );
+      if (controller.signal.aborted || generation !== loadGeneration.current) return;
       const next = result.samples.find((item) => (
         (rowId == null || item.row_id === rowId)
         && (pageNumber == null || item.page_number === pageNumber)
@@ -113,9 +133,14 @@ function TextCheck({
           : samplePages(next.page_count ?? next.page_number));
       }
     } catch (error) {
-      onError(error instanceof Error ? error.message : String(error));
+      if (!controller.signal.aborted && generation === loadGeneration.current) {
+        onError(error instanceof Error ? error.message : String(error));
+      }
     } finally {
-      setLoading(false);
+      if (generation === loadGeneration.current) {
+        loadController.current = null;
+        setLoading(false);
+      }
     }
   };
 
@@ -237,6 +262,8 @@ export function SearchPreparationReceipt({
   const [loadingError, setLoadingError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [semanticSelected, setSemanticSelected] = useState(false);
+  const requestGeneration = useRef(0);
+  const mutationGeneration = useRef<number | null>(null);
 
   const publish = (next: SearchPreparationBatch) => {
     setBatch(next);
@@ -244,27 +271,31 @@ export function SearchPreparationReceipt({
     onBatchChange?.(next);
   };
   const refresh = async () => {
+    if (mutationGeneration.current !== null) return;
+    const generation = ++requestGeneration.current;
     try {
-      publish(await getSearchPreparation(projectId, batchId));
+      const next = await getSearchPreparation(projectId, batchId);
+      if (generation === requestGeneration.current) publish(next);
     } catch (error) {
-      setLoadingError(error instanceof Error ? error.message : String(error));
+      if (generation === requestGeneration.current) {
+        setLoadingError(error instanceof Error ? error.message : String(error));
+      }
     }
   };
 
   useEffect(() => {
-    let live = true;
-    void getSearchPreparation(projectId, batchId)
-      .then((next) => { if (live) publish(next); })
-      .catch((error) => {
-        if (live) setLoadingError(error instanceof Error ? error.message : String(error));
-      });
-    return () => { live = false; };
+    mutationGeneration.current = null;
+    void refresh();
+    return () => {
+      requestGeneration.current += 1;
+      mutationGeneration.current = null;
+    };
     // refresh is deliberately rebound to this immutable receipt identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [batchId, projectId]);
 
   usePoll(refresh, {
-    active: batch !== null && !TERMINAL.has(batch.status),
+    active: !busy && batch !== null && !TERMINAL.has(batch.status),
     intervalMs: 1_500,
     guardOverlap: true,
   });
@@ -285,30 +316,48 @@ export function SearchPreparationReceipt({
 
   const decide = async (decision: 'prepare' | 'not_now') => {
     if (!batch || busy) return;
+    const generation = ++requestGeneration.current;
+    mutationGeneration.current = generation;
+    let refreshAfterFailure = false;
     setBusy(true);
     try {
-      publish(await decideSearchPreparation(projectId, batch.id, {
+      const next = await decideSearchPreparation(projectId, batch.id, {
         plan_hash: batch.plan_hash,
         decision,
         selected_setup_refs: decision === 'prepare' ? selectedRefs : [],
-      }));
+      });
+      if (generation === requestGeneration.current) publish(next);
     } catch (error) {
-      setSemanticSelected(false);
-      onError(error instanceof Error ? error.message : String(error));
-      void refresh();
+      if (generation === requestGeneration.current) {
+        setSemanticSelected(false);
+        onError(error instanceof Error ? error.message : String(error));
+        refreshAfterFailure = true;
+      }
     } finally {
-      setBusy(false);
+      if (mutationGeneration.current === generation) {
+        mutationGeneration.current = null;
+        setBusy(false);
+      }
     }
+    if (refreshAfterFailure && generation === requestGeneration.current) void refresh();
   };
   const stop = async () => {
     if (!batch || busy) return;
+    const generation = ++requestGeneration.current;
+    mutationGeneration.current = generation;
     setBusy(true);
     try {
-      publish(await stopSearchPreparation(projectId, batch.id));
+      const next = await stopSearchPreparation(projectId, batch.id);
+      if (generation === requestGeneration.current) publish(next);
     } catch (error) {
-      onError(error instanceof Error ? error.message : String(error));
+      if (generation === requestGeneration.current) {
+        onError(error instanceof Error ? error.message : String(error));
+      }
     } finally {
-      setBusy(false);
+      if (mutationGeneration.current === generation) {
+        mutationGeneration.current = null;
+        setBusy(false);
+      }
     }
   };
 
@@ -393,7 +442,9 @@ export function SearchPreparationReceipt({
                 )}
                 {model.remediation && <small>{model.remediation}</small>}
               </span>
-              <b>{model.download_bytes == null ? formatBytes(model.download_bytes) : `About ${formatBytes(model.download_bytes)}`}</b>
+              <b>{model.download_bytes == null
+                ? 'Size not measured'
+                : `About ${formatNumberDisplay(model.download_bytes, 'filesize')}`}</b>
             </label>
           ))}
           {missingModels.some((model) => model.additional_runtime_download) && (

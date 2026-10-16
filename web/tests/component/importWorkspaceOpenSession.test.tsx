@@ -75,6 +75,13 @@ function renderDialog(open: boolean, onImported = vi.fn(), onClose = vi.fn()) {
 }
 
 beforeEach(() => {
+  getImportSession.mockReset();
+  getImportSession.mockResolvedValue({
+    import_ref: 'large-selection', state: 'running', admitted_files: 4_096, admitted_bytes: 4_096,
+    through: 4_096, committed_rows: 0, committed_bytes: 0, sheet_id: null,
+    sheet_name: 'Files', cancel_requested: false, sealed: true, error: null,
+    search_preparation_batch_id: null,
+  });
   Object.defineProperty(HTMLDialogElement.prototype, 'showModal', {
     configurable: true,
     value() { this.open = true; },
@@ -169,6 +176,41 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     await waitFor(() => expect(onImported).toHaveBeenCalledWith(91));
     expect(await screen.findByTestId('search-preparation-receipt')).toHaveTextContent('Ready to search');
     expect(getSearchPreparation).toHaveBeenCalledWith('open-session-project', 'resumable-prep');
+  });
+
+  it('surfaces a transient import follow-up failure and recovers on the next poll', async () => {
+    uploadFilesToImportSession.mockResolvedValue({
+      import_ref: 'large-selection', state: 'running', admitted_files: 2, admitted_bytes: 2,
+      through: 2, committed_rows: 0, committed_bytes: 0, sheet_id: null,
+      sheet_name: 'Files', cancel_requested: false, sealed: true, error: null,
+      search_preparation_batch_id: null,
+    });
+    getImportSession
+      .mockRejectedValueOnce(new Error('temporary status outage'))
+      .mockResolvedValueOnce({
+        import_ref: 'large-selection', state: 'running', admitted_files: 2, admitted_bytes: 2,
+        through: 2, committed_rows: 2, committed_bytes: 2, sheet_id: 91,
+        sheet_name: 'Files', cancel_requested: false, sealed: true, error: null,
+        search_preparation_batch_id: 'recovered-prep',
+      });
+    const onImported = vi.fn();
+    renderDialog(true, onImported);
+    fireEvent.click(screen.getByTestId('import-mode-files'));
+    fireEvent.change(screen.getByTestId('import-file-input'), {
+      target: {
+        files: [
+          new File(['a'], 'first.txt', { type: 'text/plain' }),
+          new File(['b'], 'second.txt', { type: 'text/plain' }),
+        ],
+      },
+    });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not refresh import progress. Retrying…',
+    );
+    await waitFor(() => expect(getImportSession).toHaveBeenCalledTimes(2), { timeout: 2_500 });
+    expect(await screen.findByTestId('search-preparation-receipt')).toHaveTextContent('Ready to search');
+    expect(onImported).toHaveBeenCalledWith(91);
   });
 
   it('gates FollowTheMoney and uploads the selected format to the first materialized sheet', async () => {
