@@ -21,7 +21,10 @@ from frisket.engine.jobs import Worker
 from frisket.ai.llm import LLMError, LLMResponse
 from frisket.engine.store.runs import RunResultStore
 from frisket.team.app import TeamConfig, create_team_app
-from http_test_helpers import post_v1_action_with_exact_confirmation
+from http_test_helpers import (
+    post_v1_action_with_exact_confirmation,
+    run_worker_until_job_terminal,
+)
 from executor_harness import (
     run_action_with_confirmation as run_action_with_exact_confirmation,
 )
@@ -258,7 +261,11 @@ def test_http_configured_byok_drives_sync_and_queued_runtime_without_double_coun
     queued_body = queued.json()
     assert queued_body["status"] in {"running", "queued"}, queued_body
     run_id = int(queued_body["run_id"])
-    assert Worker(app.state.workspace.queue, app.state.workspace.registry).run_once()
+    run_worker_until_job_terminal(
+        Worker(app.state.workspace.queue, app.state.workspace.registry),
+        app.state.workspace.queue,
+        int(queued_body["job_id"]),
+    )
     status = client.get(f"/api/projects/{pid}/actions/runs/{run_id}/status")
     assert status.status_code == 200, status.text
     assert status.json()["run"]["status"] == "completed", status.text
@@ -386,7 +393,11 @@ def test_cache_replay_needs_no_key_and_records_zero_cost_cache_fact_once(
     assert started.status_code == 200, started.text
     assert started.json()["status"] in {"queued", "running"}, started.text
     run_id = int(started.json()["run_id"])
-    assert Worker(app.state.workspace.queue, app.state.workspace.registry).run_once()
+    run_worker_until_job_terminal(
+        Worker(app.state.workspace.queue, app.state.workspace.registry),
+        app.state.workspace.queue,
+        int(started.json()["job_id"]),
+    )
     status = client.get(f"/api/projects/{pid}/actions/runs/{run_id}/status")
     assert status.status_code == 200, status.text
     assert status.json()["run"]["status"] == "completed", status.text
@@ -538,7 +549,11 @@ def test_provider_quota_error_is_named_resumable_and_does_not_become_402(
     started_body = started.json()
     run_id = int(started_body["run_id"])
     receipt_id = started_body["receipt_id"]
-    Worker(app.state.workspace.queue, app.state.workspace.registry).run_once()
+    run_worker_until_job_terminal(
+        Worker(app.state.workspace.queue, app.state.workspace.registry),
+        app.state.workspace.queue,
+        int(started_body["job_id"]),
+    )
     status = client.get(f"/api/projects/{pid}/actions/runs/{run_id}/status")
     assert status.status_code != 402, status.text
     assert status.status_code == 200, status.text

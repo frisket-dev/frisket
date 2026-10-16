@@ -12,7 +12,10 @@ from fastapi.testclient import TestClient
 
 from frisket.engine.jobs import Worker
 from frisket.ai.llm import LLMError
-from http_test_helpers import post_v1_action_with_exact_confirmation
+from http_test_helpers import (
+    post_v1_action_with_exact_confirmation,
+    run_worker_until_job_terminal,
+)
 from tests.ai.test_split_team_byok_runs import (
     _ProviderAdapter,
     _action,
@@ -178,7 +181,11 @@ def test_real_queued_worker_produces_supported_provider_exhaustion_errors(
     assert started.status_code == 200, started.text
     run_id = int(started.json()["run_id"])
     job_id = int(started.json()["job_id"])
-    assert Worker(app.state.workspace.queue, app.state.workspace.registry).run_once()
+    run_worker_until_job_terminal(
+        Worker(app.state.workspace.queue, app.state.workspace.registry),
+        app.state.workspace.queue,
+        job_id,
+    )
     status = client.get(f"/api/projects/{project_id}/actions/runs/{run_id}/status")
     assert status.status_code == 200, status.text
     status_body = status.json()
