@@ -7,6 +7,12 @@ from pathlib import Path
 import pytest
 
 import frisket.server.services.project_search as search_service
+from frisket.contracts.http.project_search import (
+    ProjectSearchProjectScope,
+    ProjectSearchRanking,
+    ProjectSearchRequest,
+    ProjectSearchTextQuery,
+)
 from frisket.retrieval.contracts import (
     ChannelCoverage,
     IndexedPart,
@@ -101,7 +107,14 @@ def test_semantic_search_uses_workspace_runtime_and_reports_local_fallback(
         Workspace, "embedding_runtime", property(lambda _self: runtime), raising=False
     )
     page = ProjectSearchService(workspace).search(
-        project_id, q="stadium bond", limit=10, mode="semantic", rerank="auto"
+        project_id,
+        request=ProjectSearchRequest(
+            scope=ProjectSearchProjectScope(kind="project"),
+            query=ProjectSearchTextQuery(kind="text", text="stadium bond"),
+            limit=10,
+            mode="semantic",
+            ranking=ProjectSearchRanking(rerank="auto"),
+        ),
     )
 
     assert len(calls) == 1
@@ -109,7 +122,9 @@ def test_semantic_search_uses_workspace_runtime_and_reports_local_fallback(
     assert isinstance(request.query, TextQuery)
     assert request.mode == "semantic"
     assert kwargs == {"runtime": runtime}
-    assert page["indexing"] is False
     assert page["coverage"]["state"] == "partial"
     assert page["coverage"]["effective_modes"] == ["lexical"]
-    assert page["hits"][0]["semantic"] is False
+    assert {
+        contribution["method"]
+        for contribution in page["groups"][0]["primary"]["contributions"]
+    } == {"lexical"}

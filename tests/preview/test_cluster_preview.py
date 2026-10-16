@@ -153,7 +153,9 @@ def test_semantic_preview_never_resolves_a_remote_embedder(tmp_path, monkeypatch
         seen["allow_remote"] = kw.get("allow_remote")
         return (StubEmbedder(), "stub/v1")
 
-    monkeypatch.setattr("frisket.preview.cluster.resolve_embedder", fake_resolve)
+    monkeypatch.setattr(
+        "frisket.preview.cluster.embedding_backends.resolve_embedder", fake_resolve
+    )
     p, sid = _seed(tmp_path, ["ACME Corp", "Acme Corporation", "ACME Inc."])
     preview = resolve_cluster_preview(
         p, sheet_id=sid, input_column="org", method="semantic"

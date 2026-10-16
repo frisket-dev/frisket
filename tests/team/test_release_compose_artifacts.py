@@ -160,8 +160,7 @@ def test_python_base_image_matches_between_dockerfile_and_sidecar_dockerfile() -
 
 
 def test_dockerfile_warmup_model_ids_match_the_frisket_constants() -> None:
-    from frisket.search import RERANK_MODEL
-    from frisket.ai.embeddings.backends import LOCAL_MODEL
+    from frisket.ai.embeddings.backends import LOCAL_MODEL, RERANK_MODEL
 
     # rule19: compare Docker warmup declarations with independent runtime model constants.
     dockerfile = (ROOT / "Dockerfile").read_text()
@@ -170,5 +169,21 @@ def test_dockerfile_warmup_model_ids_match_the_frisket_constants() -> None:
         "Dockerfile warm-up embeddings model id differs from frisket.ai.embeddings.backends.LOCAL_MODEL"
     )
     assert f"TextCrossEncoder('{RERANK_MODEL}')" in dockerfile, (
-        "Dockerfile warm-up rerank model id differs from frisket.search.RERANK_MODEL"
+        "Dockerfile warm-up rerank model id differs from frisket.ai.embeddings.backends.RERANK_MODEL"
     )
+
+
+def test_dockerfile_carries_retrieval_wheel_inputs_and_checks_sqlite_runtime() -> None:
+    dockerfile = (ROOT / "Dockerfile").read_text()
+
+    for required_copy in (
+        "COPY hatch_build.py ./",
+        "COPY scripts/build_vec1.py scripts/build_vec1.py",
+        "COPY vendor/sqlite-vec1/ vendor/sqlite-vec1/",
+        "COPY sidecar/retrieval-runtime/ sidecar/retrieval-runtime/",
+    ):
+        assert required_copy in dockerfile
+    assert "sidecar/retrieval-constraints.txt" in dockerfile
+    assert "from frisket.retrieval.native import load_vec1" in dockerfile
+    assert "contentless_delete=1" in dockerfile
+    assert "frisket.search_storage" not in dockerfile
