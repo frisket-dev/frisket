@@ -326,6 +326,13 @@ def _embedding_index_definition_replay_error(
         json.loads(index["source_columns_json"])
     ) != canonical_json(facts["source_columns"]):
         mismatches.append("source_columns")
+    for name, current in (
+        ("vector_backend_id", UNIFIED_BACKEND_ID),
+        ("vector_backend_version", UNIFIED_BACKEND_VERSION),
+    ):
+        expected = facts.get(name)
+        if expected is not None and expected != current:
+            mismatches.append(name)
     if mismatches:
         return _embedding_stale_replay_error(
             receipt,
@@ -386,6 +393,10 @@ def _embedding_sidecar_items_replay_error(
     if not isinstance(index_id, str) or not isinstance(space_id, str):
         return _embedding_stale_replay_error(
             receipt, "embedding replay item evidence is invalid"
+        )
+    if not RetrievalStore(project).path.is_file():
+        return _embedding_stale_replay_error(
+            receipt, "embedding replay unified sidecar is missing"
         )
     metadata = EmbeddingStore(project)
     index = metadata.get_index(index_id)

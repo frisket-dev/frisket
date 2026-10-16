@@ -9,8 +9,6 @@ call for a row anchor whose vector already exists.
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from frisket.ai.embeddings import (
@@ -186,7 +184,7 @@ def test_requested_limit_at_shared_cap_returns_every_match(tmp_path):
     project = Project.create(tmp_path / "large-sim.frisket", name="large-sim")
     sheet = project.add_sheet("documents")
     cols = {"headline": project.add_column(sheet, "headline")}
-    texts = [f"document {index:03d}" for index in range(101)]
+    texts = [f"document {index:03d}" for index in range(501)]
     project.add_rows(sheet, [{"headline": text} for text in texts], cols)
     vectors = {text: [1.0, 0.0, 0.0] for text in texts}
     index_id = _create_index(project, sheet, key="large-sim")
@@ -194,11 +192,11 @@ def test_requested_limit_at_shared_cap_returns_every_match(tmp_path):
 
     anchor = _row(project, sheet, cols, texts[0])
     result = resolve_embedding_similarity(
-        project, _row_query(index_id, anchor, limit=100)
+        project, _row_query(index_id, anchor, limit=500)
     )
 
-    assert result.limit == 100
-    assert len(result.hits) == 100
+    assert result.limit == 500
+    assert len(result.hits) == 500
     project.close()
 
 

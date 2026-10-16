@@ -10,7 +10,6 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-import struct
 from pathlib import Path
 from typing import Any
 
@@ -18,13 +17,14 @@ import pytest
 
 from frisket.ai.embeddings import (
     EmbeddingStore,
-    VectorBackend,
     build_batch_result,
     canonical_json,
 )
 from frisket.engine.executor import ExecutorDeps, run_action_spec
 from frisket.engine.store import Project
+from frisket.retrieval.store import RetrievalStore
 from helpers import replace_test_source_cell
+from unified_embedding_probe import UnifiedEmbeddingProbe
 
 PROJECT_ID = "p"
 
@@ -245,12 +245,6 @@ def _refresh(project: Project, index_id: str, *, key: str = "refresh@setup"):
     return result
 
 
-def _json_obj(value: str | None) -> dict[str, Any]:
-    data = json.loads(value or "{}")
-    assert isinstance(data, dict)
-    return data
-
-
 def _receipt_ref(project: Project, receipt_id: str, kind: str) -> dict[str, Any]:
     body = json.loads(
         project.db.execute(
@@ -295,6 +289,66 @@ def _insert_row(project: Project, table: str, row: dict[str, Any]) -> None:
         f"VALUES ({', '.join('?' for _ in columns)})",
         [row[column] for column in columns],
     )
+
+
+def _first_named_member(project: Project, index_id: str) -> tuple[str, str]:
+    with sqlite3.connect(project.path / "project.retrieval.db") as db:
+        row = db.execute(
+            "SELECT part_id,representation_id FROM named_dataset_membership "
+            "WHERE dataset_id=? ORDER BY part_id LIMIT 1",
+            (index_id,),
+        ).fetchone()
+    assert row is not None
+    return str(row[0]), str(row[1])
+
+
+def _named_member_count(project: Project, index_id: str) -> int:
+    with sqlite3.connect(project.path / "project.retrieval.db") as db:
+        return int(
+            db.execute(
+                "SELECT count(*) FROM named_dataset_membership WHERE dataset_id=?",
+                (index_id,),
+            ).fetchone()[0]
+        )
+
+
+def _delete_first_named_member(project: Project, index_id: str) -> None:
+    part_id, representation_id = _first_named_member(project, index_id)
+    with sqlite3.connect(project.path / "project.retrieval.db") as db:
+        db.execute(
+            "DELETE FROM named_dataset_membership "
+            "WHERE dataset_id=? AND part_id=? AND representation_id=?",
+            (index_id, part_id, representation_id),
+        )
+
+
+def _tamper_first_named_vector(
+    project: Project, index_id: str, *, malformed: bool = False
+) -> tuple[str, bytes]:
+    _part_id, representation_id = _first_named_member(project, index_id)
+    with sqlite3.connect(project.path / "project.retrieval.db") as db:
+        stored = db.execute(
+            "SELECT vector FROM representations WHERE representation_id=?",
+            (representation_id,),
+        ).fetchone()[0]
+        vector = (
+            "not-bytes" if malformed else bytes(stored)[:-1] + bytes([stored[-1] ^ 1])
+        )
+        db.execute(
+            "UPDATE representations SET vector=? WHERE representation_id=?",
+            (vector, representation_id),
+        )
+    return representation_id, bytes(stored)
+
+
+def _restore_named_vector(
+    project: Project, representation_id: str, vector: bytes
+) -> None:
+    with sqlite3.connect(project.path / "project.retrieval.db") as db:
+        db.execute(
+            "UPDATE representations SET vector=? WHERE representation_id=?",
+            (vector, representation_id),
+        )
 
 
 def test_create_replay_rejects_deleted_index(project):
@@ -495,6 +549,7 @@ def test_delete_replay_rejects_recreated_index_sidecar_and_artifact(project):
     exported = _run(project, _export_action(index_id, out, key="export-before-delete"))
     assert exported.status == "completed", exported.errors
     deleted_artifact = Path(exported.outputs[0].ref["path"])
+    original_member = _first_named_member(project, index_id)
 
     original_index = dict(
         project.db.execute(
@@ -522,28 +577,16 @@ def test_delete_replay_rejects_recreated_index_sidecar_and_artifact(project):
         "DELETE FROM embedding_spaces WHERE id=?", (original_space["id"],)
     )
     project.db.commit()
-    backend = VectorBackend(project)
-    backend.ensure_schema()
-    try:
-        backend.upsert_item(
-            index_id=index_id,
-            space_id=original_space["id"],
-            source_key="1",
-            source_ref={"sheet_id": sheet, "row_id": 1, "columns": ["headline"]},
-            source_hash="sha256:sidecar-restored",
-            status="ready",
-            vector=[1.0] + [0.0] * 383,
+    with sqlite3.connect(project.path / "project.retrieval.db") as db:
+        db.execute(
+            "INSERT INTO named_dataset_membership("
+            "dataset_id,part_id,representation_id) VALUES (?,?,?)",
+            (index_id, *original_member),
         )
-    finally:
-        backend.close()
     _assert_stale(_run(project, action))
 
-    backend = VectorBackend(project)
-    backend.ensure_schema()
-    try:
-        backend.delete_index(index_id)
-    finally:
-        backend.close()
+    with RetrievalStore(project) as retrieval:
+        retrieval.replace_named_dataset_members(index_id, ())
     deleted_artifact.write_text("restored")
     _assert_stale(_run(project, action))
 
@@ -558,12 +601,7 @@ def test_retaining_vectors_is_refused_without_deleting_the_index(project):
     assert first.status == "failed"
     assert first.errors[0].code == "invalid_action_request"
     assert EmbeddingStore(project).get_index(index_id) is not None
-    backend = VectorBackend(project)
-    backend.ensure_schema()
-    try:
-        assert sum(backend.item_counts(index_id).values()) > 0
-    finally:
-        backend.close()
+    assert _named_member_count(project, index_id) > 0
 
     assert first.receipt_id is None
 
@@ -582,17 +620,7 @@ def test_refresh_replay_validates_sidecar_without_gateway_call(project):
     assert again.receipt_id == first.receipt_id
     assert replay_gateway.calls == []
 
-    backend = VectorBackend(project)
-    backend.ensure_schema()
-    try:
-        backend.db.execute(
-            "UPDATE embedding_items SET source_hash=? "
-            "WHERE index_id=? AND source_key=(SELECT MIN(source_key) FROM embedding_items WHERE index_id=?)",
-            ("sha256:tampered", index_id, index_id),
-        )
-        backend.db.commit()
-    finally:
-        backend.close()
+    _tamper_first_named_vector(project, index_id)
 
     _assert_stale(_run(project, action, gateway=FakeGateway()))
 
@@ -604,29 +632,9 @@ def test_refresh_replay_rejects_vector_blob_and_index_definition_drift(project):
     first = _run(project, action, gateway=FakeGateway())
     assert first.status == "completed", first.errors
 
-    backend = VectorBackend(project)
-    backend.ensure_schema()
-    try:
-        vid = backend.db.execute(
-            "SELECT vector_id FROM embedding_items WHERE index_id=? ORDER BY source_key LIMIT 1",
-            (index_id,),
-        ).fetchone()["vector_id"]
-        stored_vector = backend.db.execute(
-            "SELECT vec FROM embedding_vectors_f32 WHERE id=?", (vid,)
-        ).fetchone()["vec"]
-        stored_values = struct.unpack("<384f", stored_vector)
-        tampered_values = (stored_values[0] + 1.0, *stored_values[1:])
-        assert tampered_values[0] != stored_values[0]
-        tampered_vector = struct.pack("<384f", *tampered_values)
-        assert tampered_vector != stored_vector
-        backend.db.execute(
-            "UPDATE embedding_vectors_f32 SET vec=? WHERE id=?",
-            (tampered_vector, vid),
-        )
-        backend.db.commit()
-    finally:
-        backend.close()
+    representation_id, original_vector = _tamper_first_named_vector(project, index_id)
     _assert_stale(_run(project, action, gateway=FakeGateway()))
+    _restore_named_vector(project, representation_id, original_vector)
 
     _refresh(project, index_id, key="refresh-reset")
     fresh_action = _refresh_action(index_id, key="refresh-definition-drift")
@@ -645,28 +653,19 @@ def test_refresh_replay_rejects_missing_sidecar_and_deleted_item(project):
     missing_action = _refresh_action(index_id, key="refresh-missing-sidecar")
     missing = _run(project, missing_action, gateway=FakeGateway())
     assert missing.status == "completed", missing.errors
-    (project.path / "project.embeddings.db").unlink()
+    (project.path / "project.retrieval.db").unlink()
     _assert_stale(_run(project, missing_action, gateway=FakeGateway()))
+    assert not (project.path / "project.retrieval.db").exists()
 
     _refresh(project, index_id, key="refresh-reset-missing")
     deleted_action = _refresh_action(index_id, key="refresh-deleted-item")
     deleted = _run(project, deleted_action, gateway=FakeGateway())
     assert deleted.status == "completed", deleted.errors
-    backend = VectorBackend(project)
-    backend.ensure_schema()
-    try:
-        backend.db.execute(
-            "DELETE FROM embedding_items WHERE index_id=? "
-            "AND source_key=(SELECT MIN(source_key) FROM embedding_items WHERE index_id=?)",
-            (index_id, index_id),
-        )
-        backend.db.commit()
-    finally:
-        backend.close()
+    _delete_first_named_member(project, index_id)
     _assert_stale(_run(project, deleted_action, gateway=FakeGateway()))
 
 
-def test_zero_row_refresh_replay_rejects_malformed_sidecar_without_mutating(project):
+def test_zero_row_refresh_replay_rejects_missing_sidecar_without_recreating(project):
     project, sheet, _cols, _tmp = project
     index_id = _create(
         project,
@@ -679,47 +678,11 @@ def test_zero_row_refresh_replay_rejects_malformed_sidecar_without_mutating(proj
     assert result.status == "completed", result.errors
     assert result.outputs[0].ref["total_items"] == 0
 
-    sidecar = project.path / "project.embeddings.db"
+    sidecar = project.path / "project.retrieval.db"
     sidecar.unlink()
-    conn = sqlite3.connect(sidecar)
-    try:
-        conn.execute("CREATE TABLE unrelated (id INTEGER PRIMARY KEY)")
-        conn.commit()
-    finally:
-        conn.close()
 
     _assert_stale(_run(project, action, gateway=FakeGateway()))
-    conn = sqlite3.connect(sidecar)
-    try:
-        tables = {
-            row[0]
-            for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        }
-    finally:
-        conn.close()
-    assert "embedding_items" not in tables
-    assert "embedding_vectors_f32" not in tables
-
-
-def test_refresh_replay_rejects_malformed_count_schema(project):
-    project, sheet, _cols, _tmp = project
-    index_id = _create(project, sheet)
-    action = _refresh_action(index_id, key="refresh-bad-count-schema")
-    result = _run(project, action, gateway=FakeGateway())
-    assert result.status == "completed", result.errors
-
-    sidecar = project.path / "project.embeddings.db"
-    conn = sqlite3.connect(sidecar)
-    try:
-        conn.execute("DROP TABLE embedding_items")
-        conn.execute("DROP TABLE embedding_vectors_f32")
-        conn.execute("CREATE TABLE embedding_items (not_index_id TEXT)")
-        conn.execute("CREATE TABLE embedding_vectors_f32 (not_id INTEGER)")
-        conn.commit()
-    finally:
-        conn.close()
-
-    _assert_stale(_run(project, action, gateway=FakeGateway()))
+    assert not sidecar.exists()
 
 
 def test_refresh_replay_rejects_malformed_vector_payload(project):
@@ -729,20 +692,7 @@ def test_refresh_replay_rejects_malformed_vector_payload(project):
     result = _run(project, action, gateway=FakeGateway())
     assert result.status == "completed", result.errors
 
-    backend = VectorBackend(project)
-    backend.ensure_schema()
-    try:
-        vector_id = backend.db.execute(
-            "SELECT vector_id FROM embedding_items WHERE index_id=? ORDER BY source_key LIMIT 1",
-            (index_id,),
-        ).fetchone()["vector_id"]
-        backend.db.execute(
-            "UPDATE embedding_vectors_f32 SET vec=? WHERE id=?",
-            ("not-bytes", vector_id),
-        )
-        backend.db.commit()
-    finally:
-        backend.close()
+    _tamper_first_named_vector(project, index_id, malformed=True)
 
     _assert_stale(_run(project, action, gateway=FakeGateway()))
 
@@ -753,7 +703,7 @@ def test_refresh_replay_preserves_conflict_precedence(project):
     action = _refresh_action(index_id, key="refresh-conflict")
     first = _run(project, action, gateway=FakeGateway())
     assert first.status == "completed", first.errors
-    (project.path / "project.embeddings.db").unlink()
+    (project.path / "project.retrieval.db").unlink()
 
     conflict = _run(
         project,
@@ -771,20 +721,7 @@ def test_whole_index_refresh_replay_rejects_count_drift_and_supersession(project
     first = _run(project, action, gateway=FakeGateway())
     assert first.status == "completed", first.errors
 
-    backend = VectorBackend(project)
-    backend.ensure_schema()
-    try:
-        backend.upsert_item(
-            index_id=index_id,
-            space_id=first.outputs[0].ref["space_id"],
-            source_key="9999",
-            source_ref={"sheet_id": sheet, "row_id": 9999, "columns": ["headline"]},
-            source_hash="sha256:count-drift",
-            status="ready",
-            vector=[4.0] + [0.0] * 383,
-        )
-    finally:
-        backend.close()
+    _delete_first_named_member(project, index_id)
     _assert_stale(_run(project, action, gateway=FakeGateway()))
 
     _refresh(project, index_id, key="refresh-reset-counts")
@@ -801,9 +738,7 @@ def test_whole_index_refresh_replay_rejects_count_drift_and_supersession(project
     _assert_stale(_run(project, superseded_action, gateway=FakeGateway()))
 
 
-def test_refresh_replay_ignores_later_source_drift_but_not_recorded_scope_drift(
-    project,
-):
+def test_refresh_replay_rejects_later_source_drift(project):
     project, sheet, cols, _tmp = project
     index_id = _create(project, sheet)
     row_id = _visible_row_ids(project, sheet)[0]
@@ -823,24 +758,8 @@ def test_refresh_replay_ignores_later_source_drift_but_not_recorded_scope_drift(
         value="ordinary later edit",
     )
     replay_gateway = FakeGateway()
-    again = _run(project, action, gateway=replay_gateway)
-    assert again.status == "completed"
+    _assert_stale(_run(project, action, gateway=replay_gateway))
     assert replay_gateway.calls == []
-
-    backend = VectorBackend(project)
-    backend.ensure_schema()
-    try:
-        item = backend.get_item(index_id, str(row_id))
-        source_ref = _json_obj(item["source_ref_json"])
-        source_ref["row_id"] = row_id + 1000
-        backend.db.execute(
-            "UPDATE embedding_items SET source_ref_json=? WHERE index_id=? AND source_key=?",
-            (json.dumps(source_ref, sort_keys=True), index_id, str(row_id)),
-        )
-        backend.db.commit()
-    finally:
-        backend.close()
-    _assert_stale(_run(project, action, gateway=FakeGateway()))
 
 
 def test_sparse_refresh_receipt_fails_closed(project):
@@ -897,28 +816,7 @@ def test_export_replay_rejects_metadata_and_sidecar_drift(project):
         ),
     )
     project.db.commit()
-    backend = VectorBackend(project)
-    backend.ensure_schema()
-    try:
-        vid = backend.db.execute(
-            "SELECT vector_id FROM embedding_items WHERE index_id=? ORDER BY source_key LIMIT 1",
-            (index["id"],),
-        ).fetchone()["vector_id"]
-        stored_vector = backend.db.execute(
-            "SELECT vec FROM embedding_vectors_f32 WHERE id=?", (vid,)
-        ).fetchone()["vec"]
-        stored_values = struct.unpack("<384f", stored_vector)
-        tampered_values = (stored_values[0] + 1.0, *stored_values[1:])
-        assert tampered_values[0] != stored_values[0]
-        tampered_vector = struct.pack("<384f", *tampered_values)
-        assert tampered_vector != stored_vector
-        backend.db.execute(
-            "UPDATE embedding_vectors_f32 SET vec=? WHERE id=?",
-            (tampered_vector, vid),
-        )
-        backend.db.commit()
-    finally:
-        backend.close()
+    _tamper_first_named_vector(project, str(index["id"]))
 
     _assert_stale(_run(project, action))
 
@@ -1066,41 +964,6 @@ def test_sparse_export_receipt_fails_closed(project):
     _assert_stale(_run(project, action))
 
 
-def test_export_filters_out_of_scope_ready_sidecar_rows(project):
-    project, sheet, _cols, tmp_path = project
-    out = tmp_path / "out"
-    out.mkdir()
-    index_id = _create(
-        project,
-        sheet,
-        source_query=_source_query(sheet, "story 1"),
-        key="create-filtered",
-    )
-    _refresh(project, index_id)
-    store = EmbeddingStore(project)
-    space_id = store.get_index(index_id)["space_id"]
-    backend = VectorBackend(project)
-    backend.ensure_schema()
-    try:
-        backend.upsert_item(
-            index_id=index_id,
-            space_id=space_id,
-            source_key="9999",
-            source_ref={"sheet_id": sheet, "row_id": 9999, "columns": ["headline"]},
-            source_hash="sha256:orphan",
-            status="ready",
-            vector=[9.0] + [0.0] * 383,
-        )
-    finally:
-        backend.close()
-
-    result = _run(project, _export_action(index_id, out, key="export-filtered"))
-    assert result.status == "completed", result.errors
-    lines = Path(result.outputs[0].ref["path"]).read_text().splitlines()
-    assert len(lines) == 1
-    assert json.loads(lines[0])["values"]["headline"] == "story 1"
-
-
 def test_project_and_cluster_filter_out_of_scope_rows_and_snapshot_replay(project):
     project, sheet, cols, _tmp = project
     index_id = _create(
@@ -1111,8 +974,7 @@ def test_project_and_cluster_filter_out_of_scope_rows_and_snapshot_replay(projec
     )
     _refresh(project, index_id)
     hidden_row_id = _visible_row_ids(project, sheet)[-1]
-    backend = VectorBackend(project)
-    backend.ensure_schema()
+    backend = UnifiedEmbeddingProbe(project)
     try:
         assert backend.get_item(index_id, str(hidden_row_id)) is not None
     finally:

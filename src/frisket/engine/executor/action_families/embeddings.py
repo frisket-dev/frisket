@@ -404,6 +404,10 @@ def _embedding_refresh_replay_error(
             receipt,
             "embedding refresh replay receipt lacks sidecar evidence",
         )
+    if not RetrievalStore(project).path.is_file():
+        return _embedding_stale_replay_error(
+            receipt, "embedding refresh replay unified sidecar is missing"
+        )
     stale = _embedding_index_definition_replay_error(
         project, receipt, index_ref=index_ref, evidence_ref=items_ref
     )
