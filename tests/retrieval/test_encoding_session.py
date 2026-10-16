@@ -62,10 +62,11 @@ async def test_session_json_uses_sandbox_length_framing_with_actual_child(tmp_pa
     )
     session._handle = await open_sandboxed_process(
         [
+            # subprocess-boundary: actual framed worker transport
             sys.executable,
             "-c",
             _CODEC_CHILD,
-        ],  # subprocess-boundary: actual framed worker transport
+        ],
         policy=SandboxPolicy(allowed_extra_env=["PYTHONPATH"]),
         extra_env={"PYTHONPATH": str(Path(__file__).parents[2] / "src")},
         should_cancel=session._cancelled,
