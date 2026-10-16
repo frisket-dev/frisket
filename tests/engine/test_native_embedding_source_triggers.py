@@ -18,7 +18,7 @@ from frisket.ai.embeddings import (
     EmbeddingProviderError,
     build_batch_result,
 )
-from unified_embedding_probe import UnifiedEmbeddingProbe as VectorBackend
+from unified_embedding_probe import UnifiedEmbeddingProbe
 from frisket.engine.executor import ExecutorDeps, run_action_spec
 from frisket.engine.jobs import (
     EMBEDDING_REFRESH_KIND,
@@ -157,7 +157,7 @@ def test_append_enqueues_without_calling_provider(env):
     assert job.payload["mode"] == "incremental"
     assert job.payload["row_ids"] == sorted(_all_rows(env))
     # no provider ran inline → no sidecar vectors yet
-    backend = VectorBackend(env.project)
+    backend = UnifiedEmbeddingProbe(env.project)
     backend.ensure_schema()
     assert backend.item_counts(index_id) == {}
     backend.close()
@@ -188,7 +188,7 @@ def test_worker_embeds_only_affected_rows(env):
     assert worker.run_once() is True
     # only the one appended row was embedded, not the whole 3-row sheet
     assert gw.calls == [["story 1"]]
-    backend = VectorBackend(env.project)
+    backend = UnifiedEmbeddingProbe(env.project)
     backend.ensure_schema()
     assert backend.item_counts(index_id) == {"ready": 1}
     assert backend.get_item(index_id, str(affected[0])) is not None
@@ -245,7 +245,7 @@ def test_remote_index_with_policy_runs_in_worker(env):
     worker = Worker(env.queue, _registry(env, gw))
     assert worker.run_once() is True
     assert len(gw.calls) == 1
-    backend = VectorBackend(env.project)
+    backend = UnifiedEmbeddingProbe(env.project)
     backend.ensure_schema()
     assert backend.item_counts(index_id) == {"ready": 3}
     backend.close()
@@ -269,7 +269,7 @@ def test_retryable_provider_error_requeues_then_succeeds(env):
     assert job.status == "done"
     assert job.result["status"] == "completed"
     assert len(gw.calls) == 1
-    backend = VectorBackend(env.project)
+    backend = UnifiedEmbeddingProbe(env.project)
     backend.ensure_schema()
     assert backend.item_counts(index_id) == {"ready": 3}
     backend.close()
@@ -346,7 +346,7 @@ def test_server_workspace_registry_drains_embedding_refresh(tmp_path):
             if ws.queue.get(job.id).status == "done":
                 break
             assert worker.run_once() is True
-        backend = VectorBackend(project)
+        backend = UnifiedEmbeddingProbe(project)
         backend.ensure_schema()
         assert backend.item_counts(index_id) == {"ready": 2}
         backend.close()

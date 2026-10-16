@@ -24,9 +24,6 @@ from helpers import replace_test_source_cell, write_claimless_test_model_calls
 from unified_embedding_probe import UnifiedEmbeddingProbe
 
 
-VectorBackend = UnifiedEmbeddingProbe
-
-
 PROJECT_ID = "project-embeddings"
 
 
@@ -180,7 +177,7 @@ def test_create_writes_space_and_index_metadata_only(project):
     assert space["modality"] == "text"
     assert space["dimension"] == 384
     # metadata only — no sidecar vectors yet
-    backend = VectorBackend(project)
+    backend = UnifiedEmbeddingProbe(project)
     backend.ensure_schema()
     assert backend.item_counts(index_id) == {}
     backend.close()
@@ -233,8 +230,8 @@ def test_refresh_embeds_rows_and_writes_sidecar_vectors(project):
     assert ref["refreshed"] == 3
     assert ref["skipped_current"] == 0
     assert ref["ready_items"] == 3
-    assert ref["backend_id"] == VectorBackend.BACKEND_ID
-    backend = VectorBackend(project)
+    assert ref["backend_id"] == UnifiedEmbeddingProbe.BACKEND_ID
+    backend = UnifiedEmbeddingProbe(project)
     backend.ensure_schema()
     assert backend.item_counts(index_id) == {"ready": 3}
     backend.close()
@@ -297,7 +294,7 @@ def test_refresh_dimension_mismatch_is_rejected(project):
     result = _run(project, _refresh_action(index_id), gateway=FakeGateway(dim=3))
     assert result.status == "failed"
     assert result.errors[0].code == "embedding_space_mismatch"
-    backend = VectorBackend(project)
+    backend = UnifiedEmbeddingProbe(project)
     backend.ensure_schema()
     assert backend.item_counts(index_id) == {}  # nothing written
     backend.close()
@@ -334,7 +331,7 @@ def test_remote_index_without_policy_does_not_egress(project):
     assert result.status == "failed"
     assert result.errors[0].code == "embedding_remote_confirmation_required"
     assert gw.calls == []  # the provider was never called — no data left
-    backend = VectorBackend(project)
+    backend = UnifiedEmbeddingProbe(project)
     backend.ensure_schema()
     assert backend.item_counts(index_id) == {}
     backend.close()
@@ -446,7 +443,7 @@ def test_delete_removes_index_and_sidecar_vectors(project):
         project.db.execute("SELECT COUNT(*) AS n FROM embedding_spaces").fetchone()["n"]
         == 0
     )
-    backend = VectorBackend(project)
+    backend = UnifiedEmbeddingProbe(project)
     backend.ensure_schema()
     assert backend.item_counts(index_id) == {}
     backend.close()
@@ -507,7 +504,7 @@ def test_refresh_honors_stored_source_query(project):
     assert result.status == "completed", result.errors
     assert result.outputs[0].ref["refreshed"] == 1
     assert len(gw.calls[0][0]) == 1
-    backend = VectorBackend(project)
+    backend = UnifiedEmbeddingProbe(project)
     backend.ensure_schema()
     assert set(backend.item_counts(index_id)) == {"ready"}
     assert backend.get_item(index_id, str(_row_id_for(project, "story 1"))) is not None
@@ -525,7 +522,7 @@ def test_row_scope_narrows_stored_scope(project):
     result = _run(project, action, gateway=gw)
     assert result.status == "completed", result.errors
     assert result.outputs[0].ref["refreshed"] == 1
-    backend = VectorBackend(project)
+    backend = UnifiedEmbeddingProbe(project)
     backend.ensure_schema()
     assert backend.get_item(index_id, str(_row_id_for(project, "story 2"))) is not None
     backend.close()
@@ -546,7 +543,7 @@ def test_refresh_unsupported_query_kind_fails_before_claim(project):
     assert gw.calls == []  # no provider call
     # claim was never taken — the index is not stuck 'refreshing'
     assert EmbeddingStore(project).get_index(index_id)["status"] != "refreshing"
-    backend = VectorBackend(project)
+    backend = UnifiedEmbeddingProbe(project)
     backend.ensure_schema()
     assert backend.item_counts(index_id) == {}
     backend.close()
@@ -728,7 +725,7 @@ def test_refresh_short_batch_is_provider_error_no_writes(project):
     result = _run(project, _refresh_action(index_id), gateway=_ShortGateway())
     assert result.status == "failed"
     assert result.errors[0].code == "embedding_provider_error"
-    backend = VectorBackend(project)
+    backend = UnifiedEmbeddingProbe(project)
     backend.ensure_schema()
     assert backend.item_counts(index_id) == {}  # nothing written
     backend.close()
@@ -739,7 +736,7 @@ def test_refresh_wrong_vector_width_is_space_mismatch_no_writes(project):
     result = _run(project, _refresh_action(index_id), gateway=_RaggedGateway())
     assert result.status == "failed"
     assert result.errors[0].code == "embedding_space_mismatch"
-    backend = VectorBackend(project)
+    backend = UnifiedEmbeddingProbe(project)
     backend.ensure_schema()
     assert backend.item_counts(index_id) == {}
     backend.close()
