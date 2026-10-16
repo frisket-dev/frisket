@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections import defaultdict
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 from frisket.engine.pdf_text import PdfTextError, extract_pdf_text
+from frisket.engine.sandbox.media_sync import run_media_sync
 from frisket.engine.store.prepared_content import PreparedContentStore
 from frisket.retrieval.source_adapter import resolve_cell_blob_source
 from frisket.server.route_errors import RouteError
@@ -39,8 +39,10 @@ def build_plan(
         raise RouteError(404, "one or more selected rows are not visible in this sheet")
     items: list[dict[str, Any]] = []
     counts: defaultdict[str, int] = defaultdict(int)
+    pdf_cache: dict[str, list[Any] | None] = {}
     for offset in range(0, len(selected), _SCAN_PAGE):
         page_rows = selected[offset : offset + _SCAN_PAGE]
+        bindings = []
         for column in columns:
             for selected_row, value in project.get_values(
                 sheet_id, int(column["id"]), row_ids=page_rows
@@ -57,39 +59,60 @@ def build_plan(
                 )
                 if source is None:
                     continue
-                mime = source.mime_type.lower()
-                kind: str | None = None
-                page_count: int | None = None
-                if mime == "application/pdf":
-                    native, page_count = _pdf_has_complete_text(
-                        project, source.blob_hash, source.page_number
-                    )
-                    kind = "ocr" if force_ocr or not native else "native_pdf"
-                elif mime.startswith("image/"):
-                    kind = "ocr"
-                elif mime.startswith("audio/") or mime.startswith("video/"):
-                    kind = "transcribe"
-                if kind is None:
+                bindings.append((column, selected_row, value, source))
+        pdf_pages = {
+            (selected_row, source.blob_hash, source.page_number)
+            for _column, selected_row, _value, source in bindings
+            if source.mime_type.lower() == "application/pdf"
+        }
+        for column, selected_row, value, source in bindings:
+            mime = source.mime_type.lower()
+            kind: str | None = None
+            page_count: int | None = None
+            if mime == "application/pdf":
+                if not force_ocr and _has_current_result(project, source, "native_pdf"):
                     continue
-                if not (
-                    force_ocr and mime == "application/pdf" and kind == "ocr"
-                ) and _has_current_result(project, source, kind):
-                    continue
-                items.append(
-                    {
-                        "kind": kind,
-                        "row_id": selected_row,
-                        "column_id": int(column["id"]),
-                        "column_name": str(column["name"]),
-                        "blob_hash": source.blob_hash,
-                        "mime": mime,
-                        "filename": value.get("filename"),
-                        "page_number": source.page_number,
-                        "page_count": page_count,
-                        "retrieval_revision": source.binding.retrieval_revision,
-                    }
+                native, page_count = _pdf_has_complete_text(
+                    project,
+                    source.blob_hash,
+                    source.page_number,
+                    cache=pdf_cache,
                 )
-                counts[kind] += 1
+                kind = "ocr" if force_ocr or not native else "native_pdf"
+            elif mime.startswith("image/"):
+                imported_page = _imported_pdf_page_source(project, source)
+                if (
+                    imported_page is not None
+                    and (
+                        selected_row,
+                        imported_page[0],
+                        imported_page[1],
+                    )
+                    in pdf_pages
+                ):
+                    continue
+                kind = "ocr"
+            elif mime.startswith("audio/") or mime.startswith("video/"):
+                kind = "transcribe"
+            if kind is None:
+                continue
+            if mime != "application/pdf" and _has_current_result(project, source, kind):
+                continue
+            items.append(
+                {
+                    "kind": kind,
+                    "row_id": selected_row,
+                    "column_id": int(column["id"]),
+                    "column_name": str(column["name"]),
+                    "blob_hash": source.blob_hash,
+                    "mime": mime,
+                    "filename": value.get("filename"),
+                    "page_number": source.page_number,
+                    "page_count": page_count,
+                    "retrieval_revision": source.binding.retrieval_revision,
+                }
+            )
+            counts[kind] += 1
     capabilities = {
         capability
         for kind, capability in (("ocr", "ocr"), ("transcribe", "transcription"))
@@ -116,43 +139,77 @@ def build_plan(
 
 
 def _pdf_has_complete_text(
-    project: Any, blob_hash: str, page_number: int | None
+    project: Any,
+    blob_hash: str,
+    page_number: int | None,
+    *,
+    cache: dict[str, list[Any] | None],
 ) -> tuple[bool, int]:
-    try:
-        with project.materialize_blob(blob_hash) as source:
-            pages = asyncio.run(extract_pdf_text(Path(source)))
-    except (PdfTextError, OSError):
+    pages = _pdf_pages(project, blob_hash, cache=cache)
+    if pages is None:
         return False, 1
     selected = (
         pages if page_number is None else [p for p in pages if p.page == page_number]
     )
+    if page_number is not None and not selected:
+        raise RouteError(422, "PDF page is outside the document")
     return bool(selected) and all(
         any(token.text.strip() for token in p.tokens) for p in selected
     ), len(pages)
 
 
-def _has_current_result(project: Any, source: Any, kind: str) -> bool:
-    prepared = project.db.execute(
-        "SELECT 1 FROM current_cell_values current "
-        "JOIN prepared_content_refs ref ON ref.id=current.prepared_ref_id "
-        "JOIN prepared_content_sets content ON content.id=ref.set_id "
-        "JOIN source_artifacts artifact ON artifact.id=content.source_artifact_id "
-        "JOIN columns output_column ON output_column.id=current.column_id "
-        "AND output_column.sheet_id=? AND output_column.hidden=0 "
-        "WHERE current.row_id=? AND current.value_kind='text' "
-        "AND length(trim(current.value))>0 AND artifact.blob_hash=? "
-        "AND artifact.source_sheet_id=? AND artifact.source_row_id=? "
-        "AND artifact.source_column_id=? AND ref.page_number IS ? LIMIT 1",
+def _pdf_pages(
+    project: Any,
+    blob_hash: str,
+    *,
+    cache: dict[str, list[Any] | None],
+) -> list[Any] | None:
+    if blob_hash in cache:
+        return cache[blob_hash]
+    try:
+        with project.materialize_blob(blob_hash) as source:
+            pages = run_media_sync(lambda _cancelled: extract_pdf_text(Path(source)))
+    except (PdfTextError, OSError):
+        pages = None
+    cache[blob_hash] = pages
+    return pages
+
+
+def _imported_pdf_page_source(project: Any, source: Any) -> tuple[str, int] | None:
+    row = project.db.execute(
+        "SELECT artifact.blob_hash, span.page_start "
+        "FROM evidence_links link "
+        "JOIN evidence_link_spans linked ON linked.link_id=link.id "
+        "JOIN source_spans span ON span.id=linked.span_id "
+        "JOIN source_artifacts artifact ON artifact.id=span.artifact_id "
+        "WHERE link.status='active' AND link.link_role='primary_support' "
+        "AND link.subject_kind='cell_value' AND link.sheet_id=? "
+        "AND link.row_id=? AND link.column_id=? "
+        "AND artifact.media_type='application/pdf' AND span.span_kind='page' "
+        "AND span.page_start=span.page_end "
+        "AND json_extract(span.preview_json, '$.blob_hash')=? "
+        "ORDER BY link.id DESC LIMIT 1",
         (
             source.sheet_id,
             source.binding.row_id,
-            source.blob_hash,
-            source.sheet_id,
-            source.binding.row_id,
             source.binding.column_id,
-            source.page_number,
+            source.blob_hash,
         ),
     ).fetchone()
+    if row is None or row["blob_hash"] is None or row["page_start"] is None:
+        return None
+    return str(row["blob_hash"]), int(row["page_start"])
+
+
+def _has_current_result(project: Any, source: Any, kind: str) -> bool:
+    prepared = _current_prepared_result(
+        project,
+        sheet_id=source.sheet_id,
+        row_id=source.binding.row_id,
+        column_id=source.binding.column_id,
+        blob_hash=source.blob_hash,
+        page_number=source.page_number,
+    )
     if prepared is not None:
         return True
     if kind != "transcribe":
@@ -190,11 +247,18 @@ def _has_current_result(project: Any, source: Any, kind: str) -> bool:
     )
 
 
-def sample_pdf(
-    project: Any, sheet_id: int, item: Mapping[str, Any], page: int
-) -> tuple[str, int, str]:
-    row = project.db.execute(
-        "SELECT current.prepared_ref_id FROM current_cell_values current "
+def _current_prepared_result(
+    project: Any,
+    *,
+    sheet_id: int,
+    row_id: int,
+    column_id: int,
+    blob_hash: str,
+    page_number: int | None,
+) -> Any:
+    return project.db.execute(
+        "SELECT current.prepared_ref_id,artifact.page_count "
+        "FROM current_cell_values current "
         "JOIN prepared_content_refs ref ON ref.id=current.prepared_ref_id "
         "JOIN prepared_content_sets content ON content.id=ref.set_id "
         "JOIN source_artifacts artifact ON artifact.id=content.source_artifact_id "
@@ -202,29 +266,70 @@ def sample_pdf(
         "AND output_column.sheet_id=? AND output_column.hidden=0 "
         "WHERE current.row_id=? AND current.value_kind='text' "
         "AND length(trim(current.value))>0 AND artifact.blob_hash=? "
-        "AND artifact.source_sheet_id=? AND artifact.source_row_id=? "
-        "AND artifact.source_column_id=? AND ref.page_number IS ? LIMIT 1",
+        "AND ref.page_number IS ? AND ((artifact.source_sheet_id=? "
+        "AND artifact.source_row_id=? AND artifact.source_column_id=?) OR EXISTS ("
+        "SELECT 1 FROM evidence_links source_link "
+        "JOIN evidence_link_spans source_linked "
+        "ON source_linked.link_id=source_link.id "
+        "JOIN source_spans source_span ON source_span.id=source_linked.span_id "
+        "WHERE source_link.status='active' "
+        "AND source_link.link_role='primary_support' "
+        "AND source_link.subject_kind='cell_value' "
+        "AND source_link.sheet_id=? AND source_link.row_id=? "
+        "AND source_link.column_id=? AND source_span.artifact_id=artifact.id "
+        "AND source_span.span_kind='page' "
+        "AND source_span.page_start IS ref.page_number "
+        "AND source_span.page_end IS ref.page_number)) LIMIT 1",
         (
             sheet_id,
-            item["row_id"],
-            item["blob_hash"],
+            row_id,
+            blob_hash,
+            page_number,
             sheet_id,
-            item["row_id"],
-            item["column_id"],
-            item.get("page_number"),
+            row_id,
+            column_id,
+            sheet_id,
+            row_id,
+            column_id,
         ),
     ).fetchone()
+
+
+def sample_pdf(
+    project: Any, sheet_id: int, item: Mapping[str, Any], page: int
+) -> tuple[str, int, str]:
+    selected_page = item.get("page_number")
+    if selected_page is not None and page != selected_page:
+        raise RouteError(422, "preview must use the selected PDF page")
+    row = _current_prepared_result(
+        project,
+        sheet_id=sheet_id,
+        row_id=int(item["row_id"]),
+        column_id=int(item["column_id"]),
+        blob_hash=str(item["blob_hash"]),
+        page_number=item.get("page_number"),
+    )
     if row is not None:
-        prepared = PreparedContentStore(project).resolve(int(row[0]))
+        prepared = PreparedContentStore(project).resolve(int(row["prepared_ref_id"]))
         pin = next((pin for pin in prepared.pins if pin.page_number == page), None)
         if pin is not None:
-            return prepared.text[pin.start : pin.end], len(prepared.pins), "prepared"
+            page_count = row["page_count"] or item.get("page_count")
+            return (
+                prepared.text[pin.start : pin.end],
+                int(page_count) if page_count else len(prepared.pins),
+                "prepared",
+            )
     with project.materialize_blob(str(item["blob_hash"])) as source:
-        pages = asyncio.run(extract_pdf_text(Path(source)))
+        pages = run_media_sync(lambda _cancelled: extract_pdf_text(Path(source)))
     selected = next((value for value in pages if value.page == page), None)
     if selected is None:
         raise RouteError(422, "PDF page is outside the document")
-    return " ".join(token.text for token in selected.tokens), len(pages), "native"
+    page_count = item.get("page_count")
+    return (
+        " ".join(token.text for token in selected.tokens),
+        int(page_count) if page_count else len(pages),
+        "native",
+    )
 
 
 __all__ = ["build_plan", "sample_pdf"]
