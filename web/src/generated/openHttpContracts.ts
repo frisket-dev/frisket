@@ -10088,7 +10088,7 @@ type HttpSearchPreparationBatch_SearchPreparationModel = ({
   "download_bytes"?: (((number)) | ((null)));
   "license": (string);
   "pull_id"?: (((number)) | ((null)));
-  "purpose": (string);
+  "purpose": ("read_text" | "transcribe" | "search_by_meaning") & (string);
   "ready": (boolean);
   "remediation": (((string)) | ((null)));
   "required": (boolean);
@@ -10143,7 +10143,7 @@ type HttpSearchPreparationBatchList_SearchPreparationModel = ({
   "download_bytes"?: (((number)) | ((null)));
   "license": (string);
   "pull_id"?: (((number)) | ((null)));
-  "purpose": (string);
+  "purpose": ("read_text" | "transcribe" | "search_by_meaning") & (string);
   "ready": (boolean);
   "remediation": (((string)) | ((null)));
   "required": (boolean);
