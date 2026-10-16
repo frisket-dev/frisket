@@ -29,6 +29,7 @@ class ImportSessionStatus(WireModel):
     cancel_requested: bool
     sealed: bool
     error: str | None = None
+    search_preparation_batch_id: str | None = None
 
 
 class ImportSessionList(WireModel):
