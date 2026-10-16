@@ -22,6 +22,7 @@ EMBEDDINGGEMMA2_MAX_VIDEO_FRAMES = 32
 EMBEDDINGGEMMA2_CONTEXT_TOKENS = 8192
 EMBEDDINGGEMMA2_IMAGE_SOFT_TOKENS = 280
 EMBEDDINGGEMMA2_VIDEO_SOFT_TOKENS_PER_FRAME = 140
+EMBEDDINGGEMMA2_VIDEO_FRAME_WRAPPER_TOKENS = 2
 EMBEDDINGGEMMA2_SUPPORTED_VISUAL_SOFT_TOKENS = frozenset({70, 140, 280})
 EMBEDDINGGEMMA2_MAX_ENCODED_IMAGE_BYTES = 64 * 1024 * 1024
 EMBEDDINGGEMMA2_AUDIO_SAMPLE_RATE = 16_000
@@ -161,6 +162,17 @@ class EmbeddingGemma2Space:
             f"{self.metric}:{self.precision}:normalized"
         )
 
+    @property
+    def max_video_frames(self) -> int:
+        # Each frame expands to its soft-token block plus fixed begin/end
+        # tokens.  Keep the synthesized media-only sequence inside
+        # the model's 8192-token context as visual detail is increased.
+        context_bound = (EMBEDDINGGEMMA2_CONTEXT_TOKENS - 2) // (
+            self.video_soft_tokens_per_frame
+            + EMBEDDINGGEMMA2_VIDEO_FRAME_WRAPPER_TOKENS
+        )
+        return min(EMBEDDINGGEMMA2_MAX_VIDEO_FRAMES, context_bound)
+
 
 class EmbeddingGemma2SessionProtocol(Protocol):
     async def encode(
@@ -223,6 +235,14 @@ class EmbeddingGemma2Encoder:
             ):
                 end += 1
             batch = values[offset:end]
+            if (
+                isinstance(batch[0], VideoClipEncodingInput)
+                and len(batch[0].frames) > space.max_video_frames
+            ):
+                raise EncodingError(
+                    "invalid_input",
+                    "This native video clip exceeds the selected visual-token budget.",
+                )
             encoded = await self._session.encode(batch, purpose=purpose, space=space)
             self._validate_vectors(encoded, expected=len(batch), space=space)
             vectors.extend(encoded)
@@ -279,6 +299,7 @@ __all__ = [
     "EMBEDDINGGEMMA2_SUPPORTED_VISUAL_SOFT_TOKENS",
     "EMBEDDINGGEMMA2_TRANSFORMERS_SERIES",
     "EMBEDDINGGEMMA2_VIDEO_SOFT_TOKENS_PER_FRAME",
+    "EMBEDDINGGEMMA2_VIDEO_FRAME_WRAPPER_TOKENS",
     "EmbeddingGemma2Encoder",
     "EmbeddingGemma2Space",
     "EmbeddingVector",

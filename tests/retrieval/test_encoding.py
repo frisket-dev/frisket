@@ -45,8 +45,28 @@ def test_space_identity_includes_embedding_affecting_visual_budgets():
     assert compact.identity != detailed.identity
     assert "image-soft-tokens=70" in compact.identity
     assert "video-soft-tokens-per-frame=140" in compact.identity
+    assert compact.max_video_frames == 32
+    assert detailed.max_video_frames == 29
     with pytest.raises(ValueError, match="70, 140, or 280"):
         EmbeddingGemma2Space(image_soft_tokens=560)
+
+
+@pytest.mark.asyncio
+async def test_encoder_rejects_clip_that_exceeds_selected_context_budget():
+    class UnreachedSession:
+        async def encode(self, inputs, *, purpose, space):
+            raise AssertionError("over-budget clip reached the runtime")
+
+        async def aclose(self):
+            pass
+
+    frame = ImageEncodingInput(b"encoded image")
+    with pytest.raises(EncodingError, match="visual-token budget"):
+        await EmbeddingGemma2Encoder(UnreachedSession()).encode(
+            [VideoClipEncodingInput((frame,) * 30)],
+            purpose=EncodingPurpose.DOCUMENT,
+            space=EmbeddingGemma2Space(video_soft_tokens_per_frame=280),
+        )
 
 
 @pytest.mark.asyncio

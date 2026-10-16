@@ -32,6 +32,7 @@ from frisket.retrieval.encoding import (
     EMBEDDINGGEMMA2_SUPPORTED_DIMENSIONS,
     EMBEDDINGGEMMA2_SUPPORTED_VISUAL_SOFT_TOKENS,
     EMBEDDINGGEMMA2_VIDEO_SOFT_TOKENS_PER_FRAME,
+    EMBEDDINGGEMMA2_VIDEO_FRAME_WRAPPER_TOKENS,
 )
 
 
@@ -260,6 +261,23 @@ class EmbeddingGemma2Runtime:
             EMBEDDINGGEMMA2_SUPPORTED_VISUAL_SOFT_TOKENS,
             name="video soft-token budget",
         )
+        if items[0].get("kind") == "video":
+            max_frames_for_context = min(
+                EMBEDDINGGEMMA2_MAX_VIDEO_FRAMES,
+                (EMBEDDINGGEMMA2_CONTEXT_TOKENS - 2)
+                // (
+                    video_soft_tokens_per_frame
+                    + EMBEDDINGGEMMA2_VIDEO_FRAME_WRAPPER_TOKENS
+                ),
+            )
+            if any(
+                not isinstance(item.get("frames"), list)
+                or len(item["frames"]) > max_frames_for_context
+                for item in items
+            ):
+                raise WorkerProtocolError(
+                    "native video exceeds the selected visual-token budget"
+                )
         features = self._features(
             items,
             purpose=purpose,

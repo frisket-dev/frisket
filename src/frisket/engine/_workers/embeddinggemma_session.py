@@ -296,6 +296,14 @@ class EmbeddingGemma2Session:
             try:
                 if self._cancelled():
                     raise asyncio.CancelledError
+                if (
+                    isinstance(inputs[0], VideoClipEncodingInput)
+                    and len(inputs[0].frames) > space.max_video_frames
+                ):
+                    raise EncodingError(
+                        "invalid_input",
+                        "This native video clip exceeds the selected visual-token budget.",
+                    )
                 staged = self._stage(request_dir, inputs)
                 await self._start()
                 response = await self._exchange(
