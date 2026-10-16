@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import tempfile
@@ -9,6 +10,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
+from packaging.tags import parse_tag, platform_tags
 
 
 class CustomBuildHook(BuildHookInterface):
@@ -46,7 +48,22 @@ class CustomBuildHook(BuildHookInterface):
             )
             build_data["force_include"][str(library)] = str(member)
             build_data["pure_python"] = False
-            build_data["infer_tag"] = True
+            # Release Linux wheels set this only inside a pinned manylinux
+            # image and verify the result with auditwheel. Ordinary builds use
+            # Packaging's host-platform tag and never relabel generic Linux.
+            platform_tag = os.environ.get("FRISKET_WHEEL_PLATFORM_TAG")
+            if platform_tag:
+                parsed = parse_tag(f"py3-none-{platform_tag}")
+                if len(parsed) != 1:
+                    raise RuntimeError(
+                        f"invalid Frisket wheel platform override: {platform_tag}"
+                    )
+            else:
+                platform_tag = next(platform_tags(), None)
+            if platform_tag is None:
+                raise RuntimeError("could not determine the wheel platform tag")
+            build_data["tag"] = f"py3-none-{platform_tag}"
+            print(f"Vec1 wheel platform: {platform_tag}")
         except BaseException:
             self._cleanup()
             raise

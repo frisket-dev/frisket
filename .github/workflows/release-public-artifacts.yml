@@ -1,6 +1,6 @@
 name: release-public-artifacts
 # Build/publish split for the immutable public Release. This workflow is the
-# sole producer of the public wheel, `team` frontend payload, and open-server
+# sole producer of the public wheels, `team` frontend payload, and open-server
 # installer bundle. Downstream deployments pin these assets by repository,
 # release id, asset id, API URL, and SHA-256; the checksums published here are
 # the digest authority every downloader must verify before use.
@@ -206,36 +206,11 @@ jobs:
       - name: Stage local frontend into Python package
         run: python3 scripts/release/build_frontend.py --skip-npm-build
 
-      - name: Build public wheel (uv_build backend)
-        run: uv build --wheel --out-dir release-assets
+      - name: Build release source distribution
+        run: uv build --sdist --out-dir release-assets
 
       - name: Verify public-to-private import boundaries
         run: python3 scripts/ci/check_import_boundaries.py --source-root src --config scripts/ci/import_boundaries.json
-
-      - name: Verify public wheel boundary and packaged SPA
-        run: python3 scripts/release/verify_release_artifact.py release-assets/*.whl
-
-      - name: Install and probe public wheel in clean Python 3.12 environment
-        run: |
-          set -euo pipefail
-          PROBE_ROOT="$(mktemp -d)"
-          trap 'rm -rf "$PROBE_ROOT"' EXIT
-          uv venv --python 3.12 "$PROBE_ROOT/venv"
-          uv pip install --python "$PROBE_ROOT/venv/bin/python" release-assets/*.whl
-          (
-            cd "$PROBE_ROOT"
-            unset PYTHONPATH
-            unset FRISKET_STATIC_DIR
-            export PYTHONNOUSERSITE=1
-            "$PROBE_ROOT/venv/bin/python" -c 'import sys; assert sys.version_info[:2] == (3, 12), sys.version'
-            "$PROBE_ROOT/venv/bin/frisket" --help
-            "$PROBE_ROOT/venv/bin/frisket-control" --help
-            "$PROBE_ROOT/venv/bin/frisket" doctor
-            "$PROBE_ROOT/venv/bin/python" \
-              "$GITHUB_WORKSPACE/scripts/release/probe_installed_release.py" \
-              --checkout-root "$GITHUB_WORKSPACE" \
-              --workspace "$PROBE_ROOT/workspace"
-          )
 
       - name: Package team frontend payload deterministically
         working-directory: web
@@ -255,13 +230,6 @@ jobs:
                   --owner=0 --group=0 --numeric-owner -cf - -T - | \
               gzip -n -9 > "$OUT"
           )
-
-      - name: Hash artifacts and write manifest
-        working-directory: release-assets
-        run: |
-          set -euo pipefail
-          sha256sum -- *.whl *.tar.gz > SHA256SUMS
-          cat SHA256SUMS
 
       - name: Stage provider-neutral server release template
         run: |
@@ -283,7 +251,107 @@ jobs:
               xargs -0 sha256sum > SERVER_TEMPLATE_SHA256SUMS
           )
 
-      - name: Upload build outputs (wheel + team tarball + checksums)
+      - name: Upload shared release inputs
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-assets-base
+          path: release-assets
+          retention-days: 1
+          if-no-files-found: error
+
+  wheels:
+    name: build and prove platform wheels
+    needs: build
+    permissions:
+      contents: read
+    uses: ./.github/workflows/retrieval-native.yml
+    with:
+      ref: ${{ needs.build.outputs.commit_sha }}
+      sdist_artifact: release-assets-base
+
+  assemble:
+    name: assemble and probe public Python artifacts
+    needs: [build, wheels]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout resolved release commit
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ needs.build.outputs.commit_sha }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          version: '0.11.29'
+          enable-cache: false
+      - name: Download shared release inputs
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-assets-base
+          path: release-assets
+      - name: Download platform wheels
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: release-wheel-*
+          path: release-assets
+          merge-multiple: true
+      - name: Verify complete wheel set and packaged SPA
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          wheels=(release-assets/*.whl)
+          test "${#wheels[@]}" -eq 4
+          for expected in \
+            manylinux_2_34_x86_64 \
+            manylinux_2_34_aarch64 \
+            'macosx_*_arm64' \
+            win_amd64; do
+            matches=(release-assets/*-py3-none-$expected.whl)
+            test "${#matches[@]}" -eq 1
+          done
+          for wheel in "${wheels[@]}"; do
+            python3 scripts/release/verify_release_artifact.py "$wheel"
+          done
+      - name: Install and probe x86-64 Linux wheel in clean Python 3.12 environment
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          PROBE_ROOT="$(mktemp -d)"
+          trap 'rm -rf "$PROBE_ROOT"' EXIT
+          wheel=(release-assets/*-py3-none-manylinux_2_34_x86_64.whl)
+          test "${#wheel[@]}" -eq 1
+          uv venv --python 3.12 "$PROBE_ROOT/venv"
+          uv pip install --python "$PROBE_ROOT/venv/bin/python" "${wheel[0]}"
+          (
+            cd "$PROBE_ROOT"
+            unset PYTHONPATH
+            unset FRISKET_STATIC_DIR
+            export PYTHONNOUSERSITE=1
+            "$PROBE_ROOT/venv/bin/python" -c 'import sys; assert sys.version_info[:2] == (3, 12), sys.version'
+            "$PROBE_ROOT/venv/bin/frisket" --help
+            "$PROBE_ROOT/venv/bin/frisket-control" --help
+            "$PROBE_ROOT/venv/bin/frisket" doctor
+            "$PROBE_ROOT/venv/bin/python" \
+              "$GITHUB_WORKSPACE/scripts/release/probe_installed_release.py" \
+              --checkout-root "$GITHUB_WORKSPACE" \
+              --workspace "$PROBE_ROOT/workspace"
+            "$PROBE_ROOT/venv/bin/python" - <<'PY'
+          import sqlite3
+
+          from frisket.retrieval.native import load_vec1
+
+          with sqlite3.connect(":memory:") as connection:
+              assert load_vec1(connection).startswith("version 0.8 ")
+          PY
+          )
+      - name: Hash public payloads
+        working-directory: release-assets
+        run: |
+          set -euo pipefail
+          sha256sum -- *.whl *.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+      - name: Upload assembled release assets
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-assets
@@ -451,7 +519,7 @@ jobs:
 
   server-smoke:
     name: render and smoke server bundle (no write token)
-    needs: [build, container]
+    needs: [build, assemble, container]
     runs-on: ubuntu-latest
     permissions:
       contents: read

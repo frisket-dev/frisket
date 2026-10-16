@@ -4,56 +4,179 @@ on:
   pull_request:
     paths:
       - 'vendor/sqlite-vec1/**'
+      - 'hatch_build.py'
       - 'scripts/build_vec1.py'
       - 'src/frisket/retrieval/native.py'
       - 'tests/retrieval/test_native.py'
       - 'pyproject.toml'
       - '.github/workflows/retrieval-native.yml'
+      - '.github/workflows/release-public-artifacts.yml'
+  workflow_call:
+    inputs:
+      ref:
+        description: Exact source revision to build
+        required: true
+        type: string
+      sdist_artifact:
+        description: Optional artifact containing the release source distribution
+        required: false
+        default: ''
+        type: string
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  native:
-    name: Vec1 ${{ matrix.target }}
+  wheel:
+    name: Vec1 wheel (${{ matrix.target }})
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 15
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
         include:
           - target: linux-x86_64
             runner: ubuntu-24.04
+            manylinux: true
+            image: quay.io/pypa/manylinux_2_34_x86_64@sha256:3cb61cd981757b4ed54bc658f8bd0f4e829af49372cf8cf6c237268dacf168d0
+            machine: x86_64
+            platform: manylinux_2_34_x86_64
+            native: frisket/retrieval/_native/linux-x86_64/vec1.so
           - target: linux-aarch64
             runner: ubuntu-24.04-arm
+            manylinux: true
+            image: quay.io/pypa/manylinux_2_34_aarch64@sha256:c6a53d1238a6610d465f415a2a81ccc862eec0bff60fe44dd907fa015168e703
+            machine: aarch64
+            platform: manylinux_2_34_aarch64
+            native: frisket/retrieval/_native/linux-aarch64/vec1.so
           - target: macos-arm64
             runner: macos-15
+            manylinux: false
+            platform: macosx_*_arm64
+            native: frisket/retrieval/_native/macos-arm64/vec1.dylib
           - target: windows-x86_64
             runner: windows-2022
+            manylinux: false
+            platform: win_amd64
+            native: frisket/retrieval/_native/windows-x86_64/vec1.dll
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
+          ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
+      - name: Restore release source distribution
+        if: inputs.sdist_artifact != ''
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ inputs.sdist_artifact }}
+          path: .release-inputs
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version-file: .python-version
+          python-version: '3.13'
       - if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
         with:
           version: '0.11.29'
           enable-cache: false
-      - name: Build platform wheel
-        run: uv build --wheel --out-dir dist
-      - name: Verify installed native retrieval behavior
+      - name: Prepare wheel source from sdist
         shell: bash
         run: |
           set -euo pipefail
+          shopt -s nullglob
+          mkdir -p .release-inputs .wheel-source
+          sdists=(.release-inputs/frisket_data-*.tar.gz)
+          if [ "${#sdists[@]}" -eq 0 ]; then
+            uv build --sdist --out-dir .release-inputs
+            sdists=(.release-inputs/frisket_data-*.tar.gz)
+          fi
+          test "${#sdists[@]}" -eq 1
+          SDIST="${sdists[0]}" python - <<'PY'
+          import os
+          import tarfile
+
+          with tarfile.open(os.environ["SDIST"]) as archive:
+              archive.extractall(".wheel-source", filter="data")
+          PY
+          sources=(.wheel-source/frisket_data-*)
+          test "${#sources[@]}" -eq 1
+          test -f "${sources[0]}/hatch_build.py"
+          test -f "${sources[0]}/scripts/build_vec1.py"
+          test -f "${sources[0]}/vendor/sqlite-vec1/vec1.c"
+          echo "WHEEL_SOURCE=${sources[0]}" >> "$GITHUB_ENV"
+      - name: Build and inspect manylinux wheel
+        if: matrix.manylinux
+        shell: bash
+        env:
+          MANYLINUX_IMAGE: ${{ matrix.image }}
+          EXPECTED_MACHINE: ${{ matrix.machine }}
+          EXPECTED_PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          docker run --rm \
+            --volume "$GITHUB_WORKSPACE:/io" \
+            --workdir /io \
+            --env EXPECTED_MACHINE \
+            --env EXPECTED_PLATFORM \
+            --env FRISKET_WHEEL_PLATFORM_TAG="$EXPECTED_PLATFORM" \
+            --env WHEEL_SOURCE \
+            "$MANYLINUX_IMAGE" \
+            /bin/bash -euo pipefail -c '
+              shopt -s nullglob
+              test "$(uname -m)" = "$EXPECTED_MACHINE"
+              /opt/python/cp312-cp312/bin/python -m venv /tmp/frisket-build
+              /tmp/frisket-build/bin/pip install --disable-pip-version-check uv==0.11.29
+              /tmp/frisket-build/bin/uv build --wheel --out-dir dist "$WHEEL_SOURCE"
+              wheels=(dist/*.whl)
+              test "${#wheels[@]}" -eq 1
+              case "${wheels[0]}" in
+                *-py3-none-"$EXPECTED_PLATFORM".whl) ;;
+                *) echo "unexpected wheel tag: ${wheels[0]}" >&2; exit 1 ;;
+              esac
+              auditwheel show "${wheels[0]}" | tee /tmp/auditwheel.txt
+              grep -F "$EXPECTED_PLATFORM" /tmp/auditwheel.txt
+            '
+      - name: Build host-platform wheel
+        if: matrix.manylinux == false
+        run: uv build --wheel --out-dir dist "$WHEEL_SOURCE"
+      - name: Verify wheel tag and native member
+        shell: bash
+        env:
+          EXPECTED_NATIVE: ${{ matrix.native }}
+          EXPECTED_PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
           wheels=(dist/*.whl)
           test "${#wheels[@]}" -eq 1
-          case "${wheels[0]}" in *-any.whl) exit 1;; esac
-          uv venv --python 3.12 .native-test
+          case "${wheels[0]}" in
+            *-py3-none-$EXPECTED_PLATFORM.whl) ;;
+            *) echo "unexpected wheel tag: ${wheels[0]}" >&2; exit 1 ;;
+          esac
+          WHEEL_PATH="${wheels[0]}" python - <<'PY'
+          import os
+          import zipfile
+
+          wheel = os.environ["WHEEL_PATH"]
+          expected = os.environ["EXPECTED_NATIVE"]
+          with zipfile.ZipFile(wheel) as archive:
+              names = archive.namelist()
+              assert names.count(expected) == 1, (expected, names)
+              metadata = archive.read(
+                  next(name for name in names if name.endswith(".dist-info/WHEEL"))
+              ).decode()
+          assert "Root-Is-Purelib: false" in metadata, metadata
+          assert "Tag: py3-none-" in metadata, metadata
+          PY
+      - name: Test installed wheel on Python 3.13
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          wheels=(dist/*.whl)
+          uv venv --python 3.13 .native-test
           if [ "$RUNNER_OS" = Windows ]; then
             python=.native-test/Scripts/python.exe
           else
@@ -63,3 +186,10 @@ jobs:
           uv pip install --python "$python" pytest==9.0.3
           "$python" -m pytest --confcutdir tests/retrieval -o addopts= -q \
             tests/retrieval/test_native.py
+      - name: Upload platform wheel
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-wheel-${{ matrix.target }}
+          path: dist/*.whl
+          retention-days: 1
+          if-no-files-found: error

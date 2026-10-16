@@ -17,3 +17,9 @@ SQLite 3.54.0 at check-in
 The repository build script verifies all three hashes before invoking a native
 compiler. Frisket ships the resulting loadable SQLite extension in its
 platform package; it does not compile or download Vec1 at runtime.
+
+Release wheels support glibc 2.34 or newer Linux on x86-64 and AArch64, Apple
+Silicon macOS, and 64-bit x86 Windows. Musl Linux, Intel macOS, Windows on Arm,
+and other architectures are unsupported. A source-distribution install on a
+supported target runs the same pinned build hook and therefore requires the
+platform's normal C compiler; installed Frisket never invokes that compiler.
