@@ -16,7 +16,7 @@ test('prewarm bundles only OCR and VAD without downloading transcription weights
     'frisket/trace.py': 'import os\nfrom pathlib import Path\ndef record(value):\n Path(os.environ["PREWARM_TRACE"]).open("a").write(value + "\\n")\n',
     'frisket/ai/models/artifact_manifest.py': 'from types import SimpleNamespace\nfrom frisket.trace import record\nWHISPER_BASE_REF = \"hf-snapshot:whisper@rev\"\ndef artifact(label):\n def get():\n  record(label)\n  return SimpleNamespace(hf_snapshot=SimpleNamespace(repo_id=label, revision="rev", files=("model",)))\n return get\nwhisper_base_artifact = artifact("whisper")\nparakeet_model_artifact = artifact("parakeet")\nparakeet_vad_artifact = artifact("vad")\n',
     'frisket/engine/_workers/parakeet_artifacts.py': 'from frisket.trace import record\ndef huggingface_hub_cache(): return "/cache"\ndef _snapshot_payload(**payload): return payload\ndef _resolve_snapshot(payload):\n record(payload["repo_id"])\n return "/cache/" + payload["repo_id"]\n',
-    'frisket/ops/ocr_engines_local.py': 'from frisket.trace import record\ndef _rapidocr_model_root_dir():\n record("rapidocr")\n return "/models"\n',
+    'frisket/ops/ocr_engines_local.py': 'from frisket.trace import record\ndef provision_rapidocr_default_models():\n record("rapidocr")\n return "/models"\n',
   };
   await Promise.all(Object.entries(files).map(async ([name, contents]) => {
     const file = path.join(resources, name); await fs.mkdir(path.dirname(file), { recursive: true }); await fs.writeFile(file, contents);
