@@ -14,7 +14,7 @@ from typing import Literal, TypeAlias
 
 
 QUERY_SCHEMA_VERSION = "frisket.retrieval.query.v1"
-MAX_SEARCH_LIMIT = 100
+MAX_SEARCH_LIMIT = 500
 MAX_SEMANTIC_TERMS = 16
 DEFAULT_RRF_K = 60
 
@@ -297,6 +297,7 @@ class CellAnchor:
     row_id: int
     column_id: int
     exclude_exact: bool = True
+    locator: SourceLocator | None = None
 
     def __post_init__(self) -> None:
         _positive(self.sheet_id, "sheet_id")
