@@ -24,7 +24,6 @@ from frisket.retrieval.source_adapter import (
     resolve_cell_blob_source,
     resolve_cell_text_sources,
     resolve_source_text,
-    resolve_source_text,
 )
 from frisket.retrieval.sources import ocr_source_revision, transcript_source_revision
 
