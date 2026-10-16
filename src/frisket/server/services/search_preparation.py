@@ -447,9 +447,24 @@ class SearchPreparationService:
         except KeyError as exc:
             raise RouteError(404, "search preparation batch was not found") from exc
         for child in self.store.children(row.id):
-            if child.job_id is not None:
-                self.workspace.queue.cancel(child.job_id)
+            if child.receipt_id is not None:
+                self._cancel_action_receipt(row, child.receipt_id)
         return self._project(row)
+
+    def _cancel_action_receipt(
+        self, row: SearchPreparationBatchRow, receipt_id: str
+    ) -> None:
+        """Request cancellation from the ordinary action-run authority."""
+
+        try:
+            self.action_runs.cancel_prepared_action(
+                row.project_id,
+                receipt_id=receipt_id,
+            )
+        except RouteError:
+            # The ordinary cancellation path records durable cancellation
+            # intent before reporting live-writer or terminal races.
+            return
 
     def setup_completed(self, setup_ref: str) -> None:
         """Wake every decided intent when the workspace setup slot becomes free."""
@@ -757,11 +772,7 @@ class SearchPreparationService:
             receipt_id = response.payload.get("receipt_id")
             if not isinstance(receipt_id, str):
                 errors = response.payload.get("errors")
-                if isinstance(errors, list) and any(
-                    isinstance(error, dict)
-                    and error.get("code") == "idempotency_in_progress"
-                    for error in errors
-                ):
+                if self._retryable_action_errors(errors):
                     # Another process owns the ordinary action reservation.
                     # Its receipt will expose run/job identity after enqueue;
                     # the next durable reconciliation adopts it above.
@@ -793,7 +804,7 @@ class SearchPreparationService:
             if not bound:
                 # Stop raced after this batch enqueued its own action. Do not
                 # cancel shared model pulls; only cancel this unbound child.
-                self.workspace.queue.cancel(raw_job_id)
+                self._cancel_action_receipt(row, receipt_id)
                 return
         self._settle_if_coordinated(row)
 
@@ -835,6 +846,46 @@ class SearchPreparationService:
             storage_org_id=row.storage_org_id,
         )
         if job is None:
+            current = self.store.get(
+                row.id,
+                project_id=row.project_id,
+                storage_org_id=row.storage_org_id,
+            )
+            if current.stop_requested_at is not None:
+                return True
+            response = self.action_runs.recover_prepared_action(
+                row.project_id,
+                receipt_id=receipt.id,
+            )
+            if response is None:
+                return True
+            recovered_receipt_id = response.payload.get("receipt_id")
+            recovered_job_id = response.payload.get("job_id")
+            if (
+                isinstance(recovered_receipt_id, str)
+                and isinstance(recovered_job_id, int)
+                and not isinstance(recovered_job_id, bool)
+            ):
+                bound = self.store.bind_child(
+                    child.id,
+                    job_id=recovered_job_id,
+                    receipt_id=recovered_receipt_id,
+                )
+                if not bound:
+                    self._cancel_action_receipt(row, recovered_receipt_id)
+                return True
+            errors = response.payload.get("errors")
+            if self._retryable_action_errors(errors):
+                return True
+            message = "Search preparation could not recover its queued action."
+            if isinstance(errors, list) and errors and isinstance(errors[0], dict):
+                message = str(errors[0].get("message") or message)
+            self.store.append_error(
+                row.id,
+                project_id=row.project_id,
+                storage_org_id=row.storage_org_id,
+                message=message,
+            )
             return True
         bound = self.store.bind_child(
             child.id,
@@ -842,8 +893,17 @@ class SearchPreparationService:
             receipt_id=receipt.id,
         )
         if not bound:
-            self.workspace.queue.cancel(job.id)
+            self._cancel_action_receipt(row, receipt.id)
         return True
+
+    @staticmethod
+    def _retryable_action_errors(errors: object) -> bool:
+        return isinstance(errors, list) and any(
+            isinstance(error, dict)
+            and error.get("code")
+            in {"idempotency_in_progress", "output_column_busy"}
+            for error in errors
+        )
 
     def _settle_if_coordinated(self, row: SearchPreparationBatchRow) -> None:
         from frisket.engine.jobs import model_pull_store

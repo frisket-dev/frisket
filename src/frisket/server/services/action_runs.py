@@ -184,6 +184,70 @@ class ActionRunService:
         }
         return payload
 
+    def recover_prepared_action(
+        self,
+        project_id: str,
+        *,
+        receipt_id: str,
+    ) -> ActionRunResponse | None:
+        """Resume ordinary queued admission from its durable prepared run.
+
+        The persisted runner spec owns the admitted output preconditions. A
+        caller rebuilding the request from current columns could change those
+        preconditions and turn recovery into an idempotency conflict.
+        """
+
+        project = self._workspace.get(project_id)
+        stored = ReceiptStore(project).find_by_id(receipt_id)
+        if (
+            stored is None
+            or stored.status != "queued"
+            or stored.run_id is None
+            or not stored.idempotency_key
+        ):
+            return None
+        row = project.db.execute(
+            "SELECT ops.spec FROM runs JOIN ops ON ops.id=runs.op_id WHERE runs.id=?",
+            (stored.run_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        try:
+            runner_spec = json.loads(row["spec"])
+            from frisket.engine.executor.map_rows_action import (
+                bound_typed_program_request_from_runner_spec,
+                normalized_typed_request_identity,
+            )
+
+            bound = bound_typed_program_request_from_runner_spec(
+                runner_spec,
+                project=project,
+            )
+            if bound is None or bound.action.action_id != stored.action_kind:
+                return None
+            body = normalized_typed_request_identity(bound)
+            body["idempotency_key"] = stored.idempotency_key
+        except (TypeError, ValueError):
+            return None
+        return self.run_action(project_id, body)
+
+    def cancel_prepared_action(self, project_id: str, *, receipt_id: str) -> bool:
+        """Cancel a prepared queued action through its ordinary run authority."""
+
+        project = self._workspace.get(project_id)
+        stored = ReceiptStore(project).find_by_id(receipt_id)
+        if stored is None or stored.run_id is None:
+            return False
+        row = project.db.execute(
+            "SELECT status FROM runs WHERE id=?", (stored.run_id,)
+        ).fetchone()
+        if row is None or row["status"] not in {"running", "cancelled"}:
+            return False
+        from frisket.server.services.action_run_cancel import ActionRunCancelService
+
+        ActionRunCancelService(self._workspace).cancel_run(project_id, stored.run_id)
+        return True
+
     def _storage_org_id(self) -> int | None:
         return self._workspace.queue_storage_org_id
 

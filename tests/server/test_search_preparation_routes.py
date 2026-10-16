@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 from dataclasses import dataclass
 from dataclasses import replace
+import pytest
 
 from frisket.server.app import create_app
 from frisket.server.services import search_preparation as preparation_module
@@ -26,6 +27,46 @@ class _Requirement:
     artifact_refs: tuple[str, ...] = ("sha256:fixture",)
     download_size_basis: str = "exact_checksum"
     runtime_installable: bool = False
+
+
+def _unbound_ocr_action(workspace: Workspace):
+    project_id = workspace.create("Concurrent preparation")["id"]
+    project = workspace.get(project_id)
+    sheet_id = project.add_sheet("Files")
+    image_column = project.add_column(sheet_id, "Image", type="image")
+    digest = project.add_blob(b"image", filename="scan.png", mime="image/png")
+    project.add_rows(
+        sheet_id,
+        [{"Image": {"blob": digest, "filename": "scan.png", "mime": "image/png"}}],
+        {"Image": image_column},
+    )
+    service = SearchPreparationService(workspace)
+    plan = service._plan(project, sheet_id=sheet_id, row_ids=None, force_ocr=False)
+    batch = service.store.create(
+        workspace_root=str(workspace.root),
+        storage_org_id=None,
+        project_id=project_id,
+        trigger_receipt_id=None,
+        sheet_id=sheet_id,
+        row_ids=None,
+        source_cutoff=int(project.op_cursor),
+        force_ocr=False,
+        plan=plan,
+    )
+    [item] = plan["items"]
+    child_key = service._child_key("ocr", item["column_id"], [item])
+    service.store.reserve_child_and_advance(
+        batch.id, expected_cursor=0, child_key=child_key, kind="ocr"
+    )
+    body = service._action_body(
+        project,
+        batch,
+        "ocr",
+        item["column_name"],
+        [item],
+        child_key,
+    )
+    return project_id, service, batch, body
 
 
 def test_explicit_preparation_is_reconnectable_and_double_click_safe(
@@ -268,45 +309,8 @@ def test_recovery_adopts_unbound_real_action_reservation(tmp_path, monkeypatch) 
     ready = replace(_Requirement(), weights_ready=True)
     monkeypatch.setattr(preparation_module, "_requirements", lambda: (ready,))
     workspace = Workspace(tmp_path / "workspace")
-    project_id = workspace.create("Concurrent preparation")["id"]
-    project = workspace.get(project_id)
-    sheet_id = project.add_sheet("Files")
-    image_column = project.add_column(sheet_id, "Image", type="image")
-    digest = project.add_blob(b"image", filename="scan.png", mime="image/png")
-    project.add_rows(
-        sheet_id,
-        [{"Image": {"blob": digest, "filename": "scan.png", "mime": "image/png"}}],
-        {"Image": image_column},
-    )
-    service = SearchPreparationService(workspace)
-    plan = service._plan(project, sheet_id=sheet_id, row_ids=None, force_ocr=False)
-    batch = service.store.create(
-        workspace_root=str(workspace.root),
-        storage_org_id=None,
-        project_id=project_id,
-        trigger_receipt_id=None,
-        sheet_id=sheet_id,
-        row_ids=None,
-        source_cutoff=int(project.op_cursor),
-        force_ocr=False,
-        plan=plan,
-    )
-    [item] = plan["items"]
-    child_key = service._child_key("ocr", item["column_id"], [item])
-    service.store.reserve_child_and_advance(
-        batch.id, expected_cursor=0, child_key=child_key, kind="ocr"
-    )
-    response = service.action_runs.run_action(
-        project_id,
-        service._action_body(
-            project,
-            batch,
-            "ocr",
-            item["column_name"],
-            [item],
-            child_key,
-        ),
-    )
+    project_id, service, batch, body = _unbound_ocr_action(workspace)
+    response = service.action_runs.run_action(project_id, body)
     assert response.payload["status"] == "queued"
     assert service.store.children(batch.id)[0].job_id is None
 
@@ -329,8 +333,102 @@ def test_recovery_adopts_unbound_real_action_reservation(tmp_path, monkeypatch) 
     assert service.get(project_id, batch.id).errors == []
 
 
-def test_raced_action_reservation_defers_without_poisoning_batch(
+def test_recovery_resumes_prepared_action_with_no_queue_job(
     tmp_path, monkeypatch
+) -> None:
+    ready = replace(_Requirement(), weights_ready=True)
+    monkeypatch.setattr(preparation_module, "_requirements", lambda: (ready,))
+    workspace = Workspace(tmp_path / "workspace")
+    project_id, service, batch, body = _unbound_ocr_action(workspace)
+    original_enqueue = workspace.queue.enqueue
+
+    def crash_before_enqueue(kind, payload, *args, **kwargs):
+        if kind == "project.run" and payload.get("action_kind") == "media.ocr":
+            raise RuntimeError("simulated process exit before queue enqueue")
+        return original_enqueue(kind, payload, *args, **kwargs)
+
+    monkeypatch.setattr(workspace.queue, "enqueue", crash_before_enqueue)
+    with pytest.raises(RuntimeError, match="simulated process exit"):
+        service.action_runs.run_action(project_id, body)
+    monkeypatch.setattr(workspace.queue, "enqueue", original_enqueue)
+    assert (
+        workspace.queue.list_project_jobs(project_id, kind="project.run", limit=20)
+        == []
+    )
+
+    service._advance(batch)
+
+    [child] = service.store.children(batch.id)
+    assert child.job_id is not None and child.receipt_id is not None
+    [job] = workspace.queue.list_project_jobs(project_id, kind="project.run", limit=20)
+    assert job.id == child.job_id
+    assert service.get(project_id, batch.id).errors == []
+
+
+def test_stop_does_not_resume_unbound_prepared_action(tmp_path, monkeypatch) -> None:
+    ready = replace(_Requirement(), weights_ready=True)
+    monkeypatch.setattr(preparation_module, "_requirements", lambda: (ready,))
+    workspace = Workspace(tmp_path / "workspace")
+    project_id, service, batch, body = _unbound_ocr_action(workspace)
+    original_enqueue = workspace.queue.enqueue
+
+    def crash_before_enqueue(kind, payload, *args, **kwargs):
+        if kind == "project.run" and payload.get("action_kind") == "media.ocr":
+            raise RuntimeError("simulated process exit before queue enqueue")
+        return original_enqueue(kind, payload, *args, **kwargs)
+
+    monkeypatch.setattr(workspace.queue, "enqueue", crash_before_enqueue)
+    with pytest.raises(RuntimeError, match="simulated process exit"):
+        service.action_runs.run_action(project_id, body)
+    monkeypatch.setattr(workspace.queue, "enqueue", original_enqueue)
+
+    service.stop(project_id, batch.id)
+    service.recover()
+
+    assert (
+        workspace.queue.list_project_jobs(project_id, kind="project.run", limit=20)
+        == []
+    )
+    assert service.get(project_id, batch.id).status == "stopped"
+
+
+def test_stop_uses_action_run_cancellation_and_releases_output_claims(
+    tmp_path, monkeypatch
+) -> None:
+    ready = replace(_Requirement(), weights_ready=True)
+    monkeypatch.setattr(preparation_module, "_requirements", lambda: (ready,))
+    workspace = Workspace(tmp_path / "workspace")
+    project_id, service, batch, body = _unbound_ocr_action(workspace)
+    queued = service.action_runs.run_action(project_id, body)
+    service._advance(batch)
+    project = workspace.get(project_id)
+    receipt_id = str(queued.payload["receipt_id"])
+    run_id = int(queued.payload["run_id"])
+    assert project.db.execute(
+        "SELECT COUNT(*) FROM output_column_claims "
+        "WHERE receipt_id=? AND status='active'",
+        (receipt_id,),
+    ).fetchone()[0] == 2
+
+    stopped = service.stop(project_id, batch.id)
+
+    assert stopped.status == "stopped"
+    assert project.db.execute(
+        "SELECT status FROM runs WHERE id=?", (run_id,)
+    ).fetchone()["status"] == "cancelled"
+    assert project.db.execute(
+        "SELECT status FROM receipts WHERE id=?", (receipt_id,)
+    ).fetchone()["status"] == "cancelled"
+    assert project.db.execute(
+        "SELECT COUNT(*) FROM output_column_claims "
+        "WHERE receipt_id=? AND status='active'",
+        (receipt_id,),
+    ).fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("error_code", ["idempotency_in_progress", "output_column_busy"])
+def test_raced_action_reservation_defers_without_poisoning_batch(
+    tmp_path, monkeypatch, error_code
 ) -> None:
     ready = replace(_Requirement(), weights_ready=True)
     monkeypatch.setattr(preparation_module, "_requirements", lambda: (ready,))
@@ -354,7 +452,7 @@ def test_raced_action_reservation_defers_without_poisoning_batch(
                     "status": "failed",
                     "errors": [
                         {
-                            "code": "idempotency_in_progress",
+                            "code": error_code,
                             "message": "ordinary action reservation is still publishing",
                         }
                     ],
