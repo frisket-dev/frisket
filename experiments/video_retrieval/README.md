@@ -112,3 +112,6 @@ native encoder distinguished the forward horse clip from its exact reverse by
 only 0.00052 for the “toward” query and ranked the forward clip first for the
 “away” query too. The benchmark is deliberately small and constructed; it is a
 strategy gate for this local runtime, not a claim about broad video retrieval.
+
+See [results.md](results.md) for the measured arm table, production session
+proof, provenance summary, and limits.
