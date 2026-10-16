@@ -120,7 +120,10 @@ COPY sidecar/src/ sidecar/src/
 COPY sidecar/pyproject.toml sidecar/README.md sidecar/classify-constraints.txt sidecar/indra-ocr-constraints.txt sidecar/retrieval-constraints.txt sidecar/
 COPY sidecar/retrieval-runtime/ sidecar/retrieval-runtime/
 COPY README.md LICENSE ./
-RUN uv sync --frozen --no-dev $FRISKET_UV_EXTRAS
+# Install the project as its built wheel. The wheel hook adds Vec1 outside the
+# source tree, so an editable install would import /app/src without the native
+# library that the published package and this image promise.
+RUN uv sync --frozen --no-dev --no-editable $FRISKET_UV_EXTRAS
 # Retrieval stores postings without a second copy of project text and ranks
 # vectors with packaged Vec1. Check both SQLite capabilities with the actual
 # image interpreter before publishing.
