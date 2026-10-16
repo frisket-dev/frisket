@@ -7,6 +7,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import type { HttpSelectorChoicesResponse } from '../../src/api/selectorChoices';
 import { SelectorField } from '../../src/engine-selector/SelectorField';
+import { notifyCloudConnectionChanged } from '../../src/cloud/connectionChanged';
 import { installDialogPolyfill } from '../support/domPolyfills';
 
 const { request } = vi.hoisted(() => ({ request: vi.fn() }));
@@ -54,6 +55,21 @@ function response(): HttpSelectorChoicesResponse {
 }
 
 describe('SelectorField', () => {
+  it('refreshes after Cloud sign-in elsewhere without choosing another model', async () => {
+    const load = vi.fn().mockResolvedValue(response());
+    const onSelect = vi.fn();
+    const view = render(<SelectorField projectId="project-a" label="Model"
+      query={{ schema_version: 'frisket.selector_choices_query.v1', subject: { kind: 'project_ask' } }}
+      recentNamespace="cloud-refresh" load={load} onSelect={onSelect} />);
+    await screen.findByRole('button', { name: /Ready model/ });
+    act(() => notifyCloudConnectionChanged());
+    await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+    expect(onSelect).not.toHaveBeenCalled();
+    view.unmount();
+    act(() => notifyCloudConnectionChanged());
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
   it('changes a model route through the generated project endpoint and refreshes the projection', async () => {
     const payload = response();
     const selected = payload.groups[0].choices[0];

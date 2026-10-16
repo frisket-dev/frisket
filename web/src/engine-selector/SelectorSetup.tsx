@@ -148,7 +148,7 @@ function DownloadSetupPanel({ setup, activeOperation, onChanged, sharedProgress 
   </section>;
 }
 
-export function CloudSetupPanel({ setup, projectId, onChanged }: {
+function CloudSetupPanel({ setup, projectId, onChanged }: {
   setup: CloudSetup;
   projectId: string;
   onChanged(): void;
