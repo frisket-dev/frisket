@@ -22,6 +22,8 @@ EMBEDDINGGEMMA2_MAX_VIDEO_FRAMES = 32
 EMBEDDINGGEMMA2_CONTEXT_TOKENS = 8192
 EMBEDDINGGEMMA2_IMAGE_SOFT_TOKENS = 280
 EMBEDDINGGEMMA2_VIDEO_SOFT_TOKENS_PER_FRAME = 140
+EMBEDDINGGEMMA2_SUPPORTED_VISUAL_SOFT_TOKENS = frozenset({70, 140, 280})
+EMBEDDINGGEMMA2_MAX_ENCODED_IMAGE_BYTES = 64 * 1024 * 1024
 EMBEDDINGGEMMA2_AUDIO_SAMPLE_RATE = 16_000
 EMBEDDINGGEMMA2_QUERY_PREFIX = "task: search result | query: "
 EMBEDDINGGEMMA2_DOCUMENT_PREFIX = "title: none | text: "
@@ -30,12 +32,12 @@ EMBEDDINGGEMMA2_DOCUMENT_PREFIX = "title: none | text: "
 # Sampling interval, shot detection and JPEG encoding remain producer-recipe
 # facts, so changing those recipes does not incorrectly create another model
 # space for unrelated representations.
-EMBEDDINGGEMMA2_PREPROCESSING_ID = (
+EMBEDDINGGEMMA2_PREPROCESSING_BASE_ID = (
     "transformers-5.19:auto-processor;"
     "text=query-document-prefixes,max-length-8192;"
-    "image=jpeg-rgb,soft-tokens-280;"
-    "video=jpeg-rgb,predecoded,no-sampling,max-frames-32,"
-    "soft-tokens-140,no-timestamps;"
+    "image=pillow-decoded-rgb;"
+    "video=pillow-decoded-rgb,predecoded,no-sampling,max-frames-32,"
+    "no-timestamps;"
     "audio=pcm16le-mono-16000hz;pool=attention-mask-mean-float32;"
     "truncate-prefix-then-l2"
 )
@@ -54,13 +56,13 @@ class EncodingError(RuntimeError):
         self.code = code
 
 
-def _validate_jpeg(value: bytes, *, name: str) -> None:
+def _validate_image_bytes(value: bytes, *, name: str) -> None:
     if not isinstance(value, bytes):
         raise TypeError(f"{name} must be bytes")
-    if len(value) < 4 or not value.startswith(b"\xff\xd8") or not value.endswith(
-        b"\xff\xd9"
-    ):
-        raise ValueError(f"{name} must contain one complete JPEG image")
+    if not value:
+        raise ValueError(f"{name} must not be empty")
+    if len(value) > EMBEDDINGGEMMA2_MAX_ENCODED_IMAGE_BYTES:
+        raise ValueError(f"{name} exceeds the 64 MiB encoded-image limit")
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,29 +78,21 @@ class TextEncodingInput:
 
 @dataclass(frozen=True, slots=True)
 class ImageEncodingInput:
-    jpeg_bytes: bytes
+    image_bytes: bytes
 
     def __post_init__(self) -> None:
-        _validate_jpeg(self.jpeg_bytes, name="image jpeg_bytes")
-
-
-@dataclass(frozen=True, slots=True)
-class VideoFrameEncodingInput:
-    jpeg_bytes: bytes
-
-    def __post_init__(self) -> None:
-        _validate_jpeg(self.jpeg_bytes, name="video frame jpeg_bytes")
+        _validate_image_bytes(self.image_bytes, name="image_bytes")
 
 
 @dataclass(frozen=True, slots=True)
 class VideoClipEncodingInput:
-    frames: tuple[VideoFrameEncodingInput, ...]
+    frames: tuple[ImageEncodingInput, ...]
 
     def __post_init__(self) -> None:
         if not isinstance(self.frames, tuple) or not all(
-            isinstance(frame, VideoFrameEncodingInput) for frame in self.frames
+            isinstance(frame, ImageEncodingInput) for frame in self.frames
         ):
-            raise TypeError("video frames must be a tuple of VideoFrameEncodingInput")
+            raise TypeError("video frames must be a tuple of ImageEncodingInput")
         if not 1 <= len(self.frames) <= EMBEDDINGGEMMA2_MAX_VIDEO_FRAMES:
             raise ValueError(
                 "a native video clip must contain between 1 and 32 decoded frames"
@@ -133,12 +127,13 @@ class EmbeddingGemma2Space:
     """The complete comparable-space identity for the pinned local model."""
 
     dimensions: int = 768
+    image_soft_tokens: int = EMBEDDINGGEMMA2_IMAGE_SOFT_TOKENS
+    video_soft_tokens_per_frame: int = (
+        EMBEDDINGGEMMA2_VIDEO_SOFT_TOKENS_PER_FRAME
+    )
     model_id: str = field(default=EMBEDDINGGEMMA2_MODEL_ID, init=False)
     model_revision: str = field(
         default=EMBEDDINGGEMMA2_MODEL_REVISION, init=False
-    )
-    preprocessing_id: str = field(
-        default=EMBEDDINGGEMMA2_PREPROCESSING_ID, init=False
     )
     metric: str = field(default="cosine", init=False)
     normalized: bool = field(default=True, init=False)
@@ -149,6 +144,21 @@ class EmbeddingGemma2Space:
             raise ValueError(
                 "EmbeddingGemma 2 dimensions must be one of 768, 512, 256, or 128"
             )
+        if self.image_soft_tokens not in EMBEDDINGGEMMA2_SUPPORTED_VISUAL_SOFT_TOKENS:
+            raise ValueError("image soft-token budget must be 70, 140, or 280")
+        if (
+            self.video_soft_tokens_per_frame
+            not in EMBEDDINGGEMMA2_SUPPORTED_VISUAL_SOFT_TOKENS
+        ):
+            raise ValueError("video soft-token budget must be 70, 140, or 280")
+
+    @property
+    def preprocessing_id(self) -> str:
+        return (
+            f"{EMBEDDINGGEMMA2_PREPROCESSING_BASE_ID};"
+            f"image-soft-tokens={self.image_soft_tokens};"
+            f"video-soft-tokens-per-frame={self.video_soft_tokens_per_frame}"
+        )
 
     @property
     def identity(self) -> str:
@@ -271,9 +281,11 @@ __all__ = [
     "EMBEDDINGGEMMA2_MAX_VIDEO_FRAMES",
     "EMBEDDINGGEMMA2_MODEL_ID",
     "EMBEDDINGGEMMA2_MODEL_REVISION",
-    "EMBEDDINGGEMMA2_PREPROCESSING_ID",
+    "EMBEDDINGGEMMA2_MAX_ENCODED_IMAGE_BYTES",
+    "EMBEDDINGGEMMA2_PREPROCESSING_BASE_ID",
     "EMBEDDINGGEMMA2_QUERY_PREFIX",
     "EMBEDDINGGEMMA2_SUPPORTED_DIMENSIONS",
+    "EMBEDDINGGEMMA2_SUPPORTED_VISUAL_SOFT_TOKENS",
     "EMBEDDINGGEMMA2_TRANSFORMERS_SERIES",
     "EMBEDDINGGEMMA2_VIDEO_SOFT_TOKENS_PER_FRAME",
     "EmbeddingGemma2Encoder",
@@ -285,5 +297,4 @@ __all__ = [
     "ImageEncodingInput",
     "TextEncodingInput",
     "VideoClipEncodingInput",
-    "VideoFrameEncodingInput",
 ]
