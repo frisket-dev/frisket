@@ -1,7 +1,13 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import {
+  expect,
+  test,
+  type APIRequestContext,
+  type Locator,
+  type Page,
+} from '@playwright/test';
 
 import {
   createProject,
@@ -53,12 +59,76 @@ type SearchResponse = {
   groups: Array<{
     primary: {
       snippet: string;
+      binding: { sheet_id: number; row_id: number; column_id: number | null };
       navigation:
         | { kind: 'document'; sheet_id: number; row_id: number; column_id: number; page: number | null }
-        | { kind: string };
+        | { kind: 'evidence'; evidence_link_id: string; span_id: string }
+        | { kind: 'cell'; sheet_id: number; row_id: number; column_id: number | null };
     };
   }>;
 };
+
+type SearchHit = SearchResponse['groups'][number]['primary'];
+
+async function expectSearchHitOpensPage(
+  page: Page,
+  projectId: string,
+  hit: SearchHit,
+  hitControl: Locator,
+  expected: { sheetId: number; page: number; pageCount: number },
+): Promise<void> {
+  expect(hit.binding.sheet_id).toBe(expected.sheetId);
+  if (hit.navigation.kind === 'evidence') {
+    const evidence = await page.request.get(
+      `/api/projects/${projectId}/evidence/links/${encodeURIComponent(hit.navigation.evidence_link_id)}/viewer`,
+    );
+    expect(evidence.ok()).toBeTruthy();
+    const payload = await evidence.json() as {
+      artifacts: Array<{
+        source_cell: { sheet_id: number; row_id: number; column_id: number } | null;
+        spans: Array<{
+          stable_id: string;
+          selector: { page_start?: number; page_end?: number };
+        }>;
+      }>;
+    };
+    const artifact = payload.artifacts.find((candidate) => (
+      candidate.spans.some((span) => span.stable_id === hit.navigation.span_id)
+    ));
+    expect(artifact?.source_cell?.sheet_id).toBe(expected.sheetId);
+    const citedSpan = artifact?.spans.find((span) => span.stable_id === hit.navigation.span_id);
+    expect(citedSpan?.selector).toMatchObject({
+      page_start: expected.page,
+      page_end: expected.page,
+    });
+
+    await hitControl.click();
+    const viewer = page.getByTestId('evidence-viewer');
+    await expect(viewer).toBeVisible();
+    await expect(viewer.getByTestId('evidence-pdf')).toBeVisible();
+    await expect(viewer.getByTestId('document-pdf')).toHaveAttribute(
+      'data-page-count',
+      String(expected.pageCount),
+    );
+    await expect(
+      viewer.locator(
+        `[data-testid="document-pdf-page"][data-page="${expected.page}"]`,
+      ),
+    ).toBeInViewport();
+    return;
+  }
+
+  expect(hit.navigation).toMatchObject({
+    kind: 'document',
+    sheet_id: expected.sheetId,
+    page: expected.page,
+  });
+  await hitControl.click();
+  await expect(page.getByTestId('document-view')).toBeVisible();
+  await expect(page.getByTestId('document-page-indicator')).toContainText(
+    `${expected.page} / ${expected.pageCount}`,
+  );
+}
 
 async function modelPullInventory(request: APIRequestContext): Promise<string[]> {
   const response = await request.get('/api/providers/models/pulls');
@@ -292,17 +362,14 @@ test('native PDF import becomes searchable without starting a model setup', asyn
   const result = await search.json() as SearchResponse;
   const hit = result.groups.find((group) => group.primary.snippet.includes('bluewharf'))?.primary;
   expect(hit).toBeTruthy();
-  expect(hit?.navigation).toMatchObject({
-    kind: 'document',
-    sheet_id: imported.sheet_id,
-    page: 2,
-  });
 
   const visibleHit = palette.getByTestId('search-hit').filter({ hasText: 'bluewharf' }).first();
   await expect(visibleHit).toBeVisible();
-  await visibleHit.click();
-  await expect(page.getByTestId('document-view')).toBeVisible();
-  await expect(page.getByTestId('document-page-indicator')).toContainText('2 / 2');
+  await expectSearchHitOpensPage(page, pid, hit!, visibleHit, {
+    sheetId: imported.sheet_id,
+    page: 2,
+    pageCount: 2,
+  });
 });
 
 test('Check text explicitly requests replacement OCR without changing the original PDF', async ({
@@ -471,13 +538,21 @@ test('Check text explicitly requests replacement OCR without changing the origin
       return body.query?.kind === 'text' && body.query.text === 'turquoise lighthouse';
     });
     await palette.getByTestId('command-palette-input').fill('turquoise lighthouse');
-    expect((await correctedSearch).ok()).toBeTruthy();
+    const correctedResult = await correctedSearch;
+    expect(correctedResult.ok()).toBeTruthy();
     const correctedHit = palette.getByTestId('search-hit').filter({
       hasText: 'turquoise lighthouse',
     }).first();
     await expect(correctedHit).toBeVisible({ timeout: 20_000 });
-    await correctedHit.click();
-    await expect(page.getByTestId('document-view')).toBeVisible();
-    await expect(page.getByTestId('document-page-indicator')).toContainText('1 / 1');
+    const correctedBody = await correctedResult.json() as SearchResponse;
+    const corrected = correctedBody.groups.find((group) => (
+      group.primary.snippet.includes('turquoise lighthouse')
+    ))?.primary;
+    expect(corrected).toBeTruthy();
+    await expectSearchHitOpensPage(page, pid, corrected!, correctedHit, {
+      sheetId: imported.sheet_id,
+      page: 1,
+      pageCount: 1,
+    });
   }
 });
