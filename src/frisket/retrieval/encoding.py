@@ -33,8 +33,8 @@ EMBEDDINGGEMMA2_DOCUMENT_PREFIX = "title: none | text: "
 # facts, so changing those recipes does not incorrectly create another model
 # space for unrelated representations.
 EMBEDDINGGEMMA2_PREPROCESSING_BASE_ID = (
-    "transformers-5.19:auto-processor;"
-    "text=query-document-prefixes,max-length-8192;"
+    "transformers-5.19.0:pillow-12.1.1:auto-processor;"
+    "text=retrieval-query-document-prompts-v1,max-length-8192;"
     "image=pillow-decoded-rgb;"
     "video=pillow-decoded-rgb,predecoded,no-sampling,max-frames-32,"
     "no-timestamps;"

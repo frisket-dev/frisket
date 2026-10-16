@@ -16,6 +16,7 @@ from typing import Any
 
 from frisket.engine._workers.embeddinggemma_model import (
     MODEL_REVISION,
+    PILLOW_VERSION,
     REQUIRED_SNAPSHOT_FILES,
     TRANSFORMERS_VERSION,
 )
@@ -101,13 +102,15 @@ class EmbeddingGemma2Runtime:
         import numpy as np
         import torch
         import transformers
-        from PIL import Image
+        from PIL import Image, __version__ as pillow_version
         from transformers import AutoModel, AutoProcessor
 
         if transformers.__version__ != TRANSFORMERS_VERSION:
             raise RuntimeError(
                 f"EmbeddingGemma 2 requires Transformers {TRANSFORMERS_VERSION}"
             )
+        if pillow_version != PILLOW_VERSION:
+            raise RuntimeError(f"EmbeddingGemma 2 requires Pillow {PILLOW_VERSION}")
         torch.set_num_threads(2)
         Image.MAX_IMAGE_PIXELS = MAX_DECODED_IMAGE_PIXELS
         self._np = np
