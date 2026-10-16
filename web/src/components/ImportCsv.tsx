@@ -1671,7 +1671,7 @@ function OpenImportWorkspaceSession({
         onMouseDown={closeWorkspaceFromUser}
       />
       <section
-        className={`import-workspace${pdfPacketContext.active ? ' pdf-packet-workspace' : ''}`}
+        className={`import-workspace${pdfPacketContext.active ? ' pdf-packet-workspace' : ''}${preparationReceipt ? ' import-workspace-receipt' : ''}`}
         data-testid="import-workspace"
         aria-label="Import"
         tabIndex={-1}
@@ -1758,14 +1758,16 @@ function OpenImportWorkspaceSession({
             e.target.value = '';
           }}
         />
-        <header className="import-workspace-header">
-          <div>
-            <div className="import-workspace-title">Import</div>
-            <div className="import-workspace-kicker">
-              {pdfPacketContext.active ? pdfPacketContext.subtitle : 'Project data intake'}
+        <header className={`import-workspace-header${preparationReceipt ? ' import-workspace-header-receipt' : ''}`}>
+          {!preparationReceipt ? (
+            <div>
+              <div className="import-workspace-title">Import</div>
+              <div className="import-workspace-kicker">
+                {pdfPacketContext.active ? pdfPacketContext.subtitle : 'Project data intake'}
+              </div>
             </div>
-          </div>
-          {pdfPacketContext.active ? (
+          ) : null}
+          {pdfPacketContext.active && !preparationReceipt ? (
             <ImportStageStepper stages={[...PDF_PACKET_STAGES]} stage={pdfPacketContext.stage} />
           ) : null}
           <button

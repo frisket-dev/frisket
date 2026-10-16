@@ -288,7 +288,7 @@ test('declining missing transcription setup starts no pull and remains recoverab
     response.request().method() === 'POST'
     && new URL(response.url()).pathname.endsWith('/decision')
   ));
-  await consent.getByTestId('search-preparation-decision-not-now').click();
+  await receipt.getByTestId('search-preparation-decision-not-now').click();
   const declinedResponse = await decisionResponse;
   expect(declinedResponse.ok()).toBeTruthy();
   expect(declinedResponse.request().postDataJSON()).toMatchObject({
@@ -635,7 +635,9 @@ test('native text review requests replacement OCR without changing the original 
           `/api/projects/${pid}/search-preparation/${replacement.id}/decision`
         )
       ));
-      await consent.getByTestId('search-preparation-decision-prepare').click();
+      await page.getByTestId('search-preparation-receipt')
+        .getByTestId('search-preparation-decision-prepare')
+        .click();
       const decisionResult = await decision;
       expect(decisionResult.ok()).toBeTruthy();
       expect(decisionResult.request().postDataJSON()).toEqual({

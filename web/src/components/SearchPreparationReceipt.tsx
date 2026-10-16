@@ -19,11 +19,13 @@ import { resamplePages, samplePages } from './importWorkspace/pdfPacket/model';
 
 const TERMINAL = new Set<SearchPreparationBatch['status']>(['complete', 'stopped', 'failed']);
 
-function groupLabel(group: SearchPreparationGroup): string {
+function groupLabel(group: SearchPreparationGroup): { primary: string; qualifier: string } {
   const noun = group.count === 1 ? 'file' : 'files';
-  if (group.kind === 'native_pdf') return `${group.count} PDF ${noun} with embedded text`;
-  if (group.kind === 'ocr') return `${group.count} ${noun} to read with OCR`;
-  return `${group.count} ${noun} to transcribe`;
+  if (group.kind === 'native_pdf') {
+    return { primary: `${group.count} ${group.count === 1 ? 'PDF' : 'PDFs'}`, qualifier: 'with embedded text' };
+  }
+  if (group.kind === 'ocr') return { primary: `${group.count} ${noun}`, qualifier: 'to read with OCR' };
+  return { primary: `${group.count} ${noun}`, qualifier: 'to transcribe' };
 }
 
 function groupStatus(group: SearchPreparationGroup): string {
@@ -147,6 +149,7 @@ function TextReview({
   usePoll(load, {
     active: !dismissed && sample === null,
     intervalMs: 1_000,
+    guardOverlap: true,
     maxAttempts: 1,
     immediate: true,
   });
@@ -223,20 +226,20 @@ function TextReview({
               <div className="search-preparation-actions">
                 <button
                   type="button"
-                  className="btn btn-primary"
-                  data-testid="search-preparation-keep-text"
-                  onClick={() => setDismissed(true)}
-                >
-                  Yes, keep it
-                </button>
-                <button
-                  type="button"
                   className="btn"
                   data-testid="search-preparation-force-ocr"
                   disabled={forcing}
                   onClick={() => void forceOcr()}
                 >
                   {forcing ? 'Starting…' : 'No, replace with OCR'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  data-testid="search-preparation-keep-text"
+                  onClick={() => setDismissed(true)}
+                >
+                  Yes, keep it
                 </button>
               </div>
             </>
@@ -385,17 +388,20 @@ export function SearchPreparationReceipt({
       </header>
 
       <div className="search-preparation-groups">
-        {batch.groups.map((group) => (
-          <div
-            key={group.kind}
-            className="search-preparation-group"
-            data-testid={`search-preparation-group-${group.kind}`}
-            data-status={group.status}
-          >
-            <span>{groupLabel(group)}</span>
-            <strong>{groupStatus(group)}</strong>
-          </div>
-        ))}
+        {batch.groups.map((group) => {
+          const label = groupLabel(group);
+          return (
+            <div
+              key={group.kind}
+              className="search-preparation-group"
+              data-testid={`search-preparation-group-${group.kind}`}
+              data-status={group.status}
+            >
+              <span><strong>{label.primary}</strong> <small>{label.qualifier}</small></span>
+              <strong>{groupStatus(group)}</strong>
+            </div>
+          );
+        })}
       </div>
 
       {nativeGroup && (
@@ -410,56 +416,42 @@ export function SearchPreparationReceipt({
       {batch.status === 'needs_consent' && (
         <section className="search-preparation-consent" data-testid="search-preparation-model-consent">
           <h3>{missingModels.length > 0 ? 'Download local models?' : 'Prepare files?'}</h3>
-          {missingModels.map((model) => (
-            <label
-              className="search-preparation-model"
-              key={model.setup_ref}
-              data-testid={model.required
-                ? `search-preparation-model-${model.purpose}`
-                : undefined}
-            >
-              <input
-                type="checkbox"
-                data-testid={model.required ? undefined : 'search-preparation-semantic-model'}
-                checked={model.can_setup && (model.required || semanticSelected)}
-                disabled={model.required || !model.can_setup}
-                onChange={(event) => setSemanticSelected(event.currentTarget.checked)}
-              />
-              <span>
-                <strong>{model.display_name}</strong>
-                <small>{modelPurposeLabel(model.purpose)}</small>
-                {model.remediation && <small>{model.remediation}</small>}
-              </span>
-              <b>{model.download_bytes == null
-                ? 'Size not measured'
-                : `About ${formatNumberDisplay(model.download_bytes, 'filesize')}`}</b>
-            </label>
-          ))}
+          {missingModels.length > 0 && (
+            <div className="search-preparation-model-list">
+              {missingModels.map((model) => (
+                <label
+                  className="search-preparation-model"
+                  key={model.setup_ref}
+                  data-testid={model.required
+                    ? `search-preparation-model-${model.purpose}`
+                    : undefined}
+                >
+                  <input
+                    type="checkbox"
+                    data-testid={model.required ? undefined : 'search-preparation-semantic-model'}
+                    checked={model.can_setup && (model.required || semanticSelected)}
+                    disabled={model.required || !model.can_setup}
+                    onChange={(event) => setSemanticSelected(event.currentTarget.checked)}
+                  />
+                  <span>
+                    <strong>{model.display_name}</strong>
+                    <small className="search-preparation-model-purpose">{modelPurposeLabel(model.purpose)}</small>
+                    {!model.can_setup && model.remediation && (
+                      <small className="search-preparation-model-remediation">{model.remediation}</small>
+                    )}
+                  </span>
+                  <b>{model.download_bytes == null
+                    ? 'Size not measured'
+                    : `About ${formatNumberDisplay(model.download_bytes, 'filesize')}`}</b>
+                </label>
+              ))}
+            </div>
+          )}
           {!batch.can_setup && (
             <div className="import-field-error" role="alert">
               Model setup is unavailable. See the model details above.
             </div>
           )}
-          <div className="search-preparation-actions">
-            <button
-              type="button"
-              className="btn btn-primary"
-              data-testid="search-preparation-decision-prepare"
-              disabled={busy || !batch.can_setup}
-              onClick={() => void decide('prepare')}
-            >
-              {busy ? 'Starting…' : hasSelectedDownloads ? 'Download and prepare' : 'Prepare files'}
-            </button>
-            <button
-              type="button"
-              className="btn"
-              data-testid="search-preparation-decision-not-now"
-              disabled={busy}
-              onClick={() => void decide('not_now')}
-            >
-              Not now
-            </button>
-          </div>
         </section>
       )}
 
@@ -477,27 +469,50 @@ export function SearchPreparationReceipt({
         </div>
       )}
 
-      <footer className="search-preparation-actions">
-        {batch.can_stop && (
+      {batch.status === 'needs_consent' ? (
+        <footer className="search-preparation-actions">
           <button
             type="button"
             className="btn"
-            data-testid="search-preparation-stop"
+            data-testid="search-preparation-decision-not-now"
             disabled={busy}
-            onClick={() => void stop()}
+            onClick={() => void decide('not_now')}
           >
-            <Square size={12} /> Stop remaining preparation
+            Not now
           </button>
-        )}
-        <button
-          type="button"
-          className="btn btn-primary"
-          data-testid="search-preparation-done"
-          onClick={onDone}
-        >
-          Done
-        </button>
-      </footer>
+          <button
+            type="button"
+            className="btn btn-primary"
+            data-testid="search-preparation-decision-prepare"
+            disabled={busy || !batch.can_setup}
+            onClick={() => void decide('prepare')}
+          >
+            {busy ? 'Starting…' : hasSelectedDownloads ? 'Download and prepare' : 'Prepare files'}
+          </button>
+        </footer>
+      ) : (
+        <footer className="search-preparation-actions">
+          {batch.can_stop && (
+            <button
+              type="button"
+              className="btn"
+              data-testid="search-preparation-stop"
+              disabled={busy}
+              onClick={() => void stop()}
+            >
+              <Square size={12} /> Stop remaining preparation
+            </button>
+          )}
+          <button
+            type="button"
+            className="btn btn-primary"
+            data-testid="search-preparation-done"
+            onClick={onDone}
+          >
+            Done
+          </button>
+        </footer>
+      )}
     </section>
   );
 }

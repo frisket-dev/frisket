@@ -78,7 +78,7 @@ const consentBatch: SearchPreparationBatch = {
       can_setup: true,
       download_bytes: 1_525_784_180,
       additional_runtime_download: true,
-      remediation: null,
+      remediation: 'The explicit setup also installs additional runtime components.',
       pull_id: null,
       license: 'Gemma',
       source_url: 'https://example.test/embeddinggemma',
@@ -125,7 +125,15 @@ describe('SearchPreparationReceipt', () => {
     expect(screen.getByText('About 1.4 GB')).not.toBeNull();
     expect(screen.queryByText(/Nothing downloads until you continue/)).toBeNull();
     expect(screen.queryByText(/Additional runtime files may also be downloaded/)).toBeNull();
+    expect(screen.queryByText(/installs additional runtime components/)).toBeNull();
     expect(screen.queryByRole('link', { name: 'Source' })).toBeNull();
+    const consentFooter = screen.getByTestId('search-preparation-decision-not-now').closest('footer');
+    expect(consentFooter).not.toBeNull();
+    expect(Array.from(consentFooter!.querySelectorAll('button'), (button) => button.textContent)).toEqual([
+      'Not now',
+      'Download and prepare',
+    ]);
+    expect(screen.queryByTestId('search-preparation-done')).toBeNull();
 
     fireEvent.click(semantic);
     expect((semantic as HTMLInputElement).checked).toBe(false);
@@ -257,6 +265,7 @@ describe('SearchPreparationReceipt', () => {
     );
     await act(async () => { await Promise.resolve(); });
     expect(screen.getByTestId('search-preparation-stop')).not.toBeNull();
+    expect(screen.getByTestId('search-preparation-done')).not.toBeNull();
 
     await act(async () => { await vi.advanceTimersByTimeAsync(1_500); });
     expect(getSearchPreparation).toHaveBeenCalledTimes(2);
@@ -430,6 +439,49 @@ describe('SearchPreparationReceipt', () => {
       row_ids: [42],
       force_ocr: true,
     }));
+  });
+
+  it('does not overlap a slow automatic text sample read', async () => {
+    vi.useFakeTimers();
+    const slowSample = deferred<Awaited<ReturnType<typeof getSearchPreparationTextSamples>>>();
+    getSearchPreparation.mockResolvedValue({ ...consentBatch, status: 'complete' });
+    getSearchPreparationTextSamples.mockReturnValue(slowSample.promise);
+
+    render(
+      <SearchPreparationReceipt
+        projectId="project-1"
+        batchId="prep-1"
+        onDone={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(getSearchPreparationTextSamples).toHaveBeenCalledTimes(1);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_500); });
+    expect(getSearchPreparationTextSamples).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      slowSample.resolve({
+        schemaVersion: 'frisket.search_preparation_text_samples.v1',
+        batch_id: 'prep-1',
+        samples: [{
+          row_id: 42,
+          column_id: 5,
+          filename: 'native.pdf',
+          page_number: 1,
+          page_count: 1,
+          page_scoped: true,
+          preview_url: '/api/projects/project-1/blobs/hash/pages/1/image',
+          text: 'Slow native text',
+          source: 'native',
+          truncated: false,
+        }],
+      });
+    });
+    expect(screen.getByText('Slow native text')).not.toBeNull();
   });
 
   it('keeps page sampling controls for whole-PDF preparation items', async () => {
