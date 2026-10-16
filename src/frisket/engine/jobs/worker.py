@@ -431,6 +431,7 @@ def register_production_handlers(
     project_run_registration = register_project_run_handler(
         registry,
         workspace_root=root,
+        queue=queue,
         router=router,
         control_database_url=control_database_url,
         worker_ports=ports,
@@ -446,6 +447,7 @@ def register_production_handlers(
     action_run_registration = register_action_run_handler(
         registry,
         workspace_root=root,
+        queue=queue,
         router=router,
         control_database_url=control_database_url,
         worker_ports=ports,
