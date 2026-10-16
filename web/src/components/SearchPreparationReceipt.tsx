@@ -283,21 +283,16 @@ export function SearchPreparationReceipt({
     }
   };
 
-  useEffect(() => {
+  useEffect(() => () => {
+    requestGeneration.current += 1;
     mutationGeneration.current = null;
-    void refresh();
-    return () => {
-      requestGeneration.current += 1;
-      mutationGeneration.current = null;
-    };
-    // refresh is deliberately rebound to this immutable receipt identity.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [batchId, projectId]);
 
   usePoll(refresh, {
-    active: !busy && batch !== null && !TERMINAL.has(batch.status),
+    active: batch === null || !TERMINAL.has(batch.status),
     intervalMs: 1_500,
     guardOverlap: true,
+    immediate: true,
   });
 
   const requiredRefs = useMemo(() => (
