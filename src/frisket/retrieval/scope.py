@@ -50,7 +50,7 @@ def compile_scope(reader: ScopeReader, scope: RetrievalScope) -> CompiledRetriev
 
     materialization = (
         "MATERIALIZED"
-        if any(item.row_ids is not None and not item.is_empty for item in scope.sheets)
+        if all(item.row_ids is not None for item in scope.sheets if not item.is_empty)
         else "NOT MATERIALIZED"
     )
     selects: list[str] = []
