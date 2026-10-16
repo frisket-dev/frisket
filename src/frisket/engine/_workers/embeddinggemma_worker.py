@@ -131,11 +131,19 @@ class EmbeddingGemma2Runtime:
 
     def _read_image(self, path: Path) -> Any:
         Image = self._image
-        with warnings.catch_warnings():
-            warnings.simplefilter("error", Image.DecompressionBombWarning)
-            with Image.open(path) as source:
-                source.load()
-                return source.convert("RGB")
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", Image.DecompressionBombWarning)
+                with Image.open(path) as source:
+                    source.load()
+                    return source.convert("RGB")
+        except (
+            OSError,
+            ValueError,
+            Image.DecompressionBombWarning,
+            Image.DecompressionBombError,
+        ) as exc:
+            raise WorkerProtocolError("encoded image input is invalid") from exc
 
     def _features(
         self,
@@ -193,9 +201,10 @@ class EmbeddingGemma2Runtime:
                 )
                 if item["sample_rate"] != EMBEDDINGGEMMA2_AUDIO_SAMPLE_RATE:
                     raise WorkerProtocolError("invalid audio sampling rate")
-                samples = self._np.fromfile(
-                    _staged_file(staging_root, item["path"]), dtype="<i2"
-                )
+                path = _staged_file(staging_root, item["path"])
+                if path.stat().st_size % 2:
+                    raise WorkerProtocolError("audio input has an incomplete sample")
+                samples = self._np.fromfile(path, dtype="<i2")
                 if samples.size == 0:
                     raise WorkerProtocolError("audio input must not be empty")
                 values.append(samples.astype(self._np.float32) / 32768.0)
@@ -220,7 +229,12 @@ class EmbeddingGemma2Runtime:
                     )
                     for frame in frames
                 ]
-                videos.append(self._np.stack(decoded, axis=0))
+                try:
+                    videos.append(self._np.stack(decoded, axis=0))
+                except ValueError as exc:
+                    raise WorkerProtocolError(
+                        "native video frames must have one decoded shape"
+                    ) from exc
             return self._processor(
                 videos=videos,
                 do_sample_frames=False,
