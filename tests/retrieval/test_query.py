@@ -849,3 +849,64 @@ def test_coverage_respects_preparation_channel_and_space(
         assert "transcript" not in {item.channel for item in response.coverage.channels}
     finally:
         project.close()
+
+
+def test_unavailable_work_in_ready_channel_is_partial(tmp_path):
+    project, sheet, _status, body, rows = _prepare_project(tmp_path)
+    try:
+        revision = read_binding_revision(project.db, row_id=rows[1], column_id=body)
+        source = SourceRevision(
+            f"cell:{rows[1]}:{body}",
+            "text",
+            "retrieval_revision",
+            revision,
+            input_hash("target eligible second"),
+        )
+        with RetrievalStore(project) as store:
+            store.begin_preparation(
+                source, recipe_id="optional:v1", channel="text", space_id="space:test"
+            )
+            store.mark_preparation_unavailable(
+                source,
+                recipe_id="optional:v1",
+                channel="text",
+                space_id="space:test",
+                reason="missing_runtime",
+            )
+        response = search(
+            project,
+            SearchRequest(
+                scope=_included_scope(sheet, body),
+                query=TextQuery("target"),
+                mode="semantic",
+                space_id="space:test",
+                ranking=RankingPolicy(rerank="off"),
+            ),
+            semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
+        )
+        assert response.results
+        assert response.coverage.state == "partial"
+    finally:
+        project.close()
+
+
+def test_named_scope_does_not_claim_readiness_from_other_membership(tmp_path):
+    project, sheet, _status, body, _rows = _prepare_project(tmp_path)
+    try:
+        response = search(
+            project,
+            SearchRequest(
+                scope=_included_scope(sheet, body),
+                query=TextQuery("target"),
+                mode="semantic",
+                space_id="space:test",
+                named_index_id="nonexistent",
+                ranking=RankingPolicy(rerank="off"),
+            ),
+            semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
+        )
+        assert not response.results
+        assert response.coverage.state == "unavailable"
+        assert not response.coverage.searched_channels
+    finally:
+        project.close()

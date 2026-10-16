@@ -24,6 +24,7 @@ from frisket.ai.embeddings.backends import (
     REMOTE_EMBED_MODEL,
 )
 from frisket.engine.store.value_codec import decode_stored_value
+from frisket.engine.store.search_index_work import enqueue_dirty_scope
 from frisket.search_hydration import searchable_text
 
 from .migration import (
@@ -61,6 +62,29 @@ class LegacyEmbeddingUpgradeReport:
     @property
     def complete(self) -> bool:
         return self.migration.complete
+
+
+def prepare_retrieval_on_open(project: Any) -> None:
+    """Recover disposable storage and import old caches under the bundle-open lock."""
+
+    if not (Path(project.path) / "project.retrieval.db").is_file():
+        # Analytical cache admission can create the sidecar before the lexical
+        # worker sees it. Persist repair first, including on marker-fast-path opens.
+        with project.db:
+            if (
+                project.db.execute(
+                    "SELECT 1 FROM search_dirty_scopes WHERE sheet_id IS NULL "
+                    "AND scan_cursor='[0,0]' LIMIT 1"
+                ).fetchone()
+                is None
+            ):
+                project.db.execute("BEGIN IMMEDIATE")
+                enqueue_dirty_scope(project.db)
+    if any(
+        (Path(project.path) / name).is_file()
+        for name in ("project.search.db", "project.embeddings.db")
+    ):
+        upgrade_legacy_embedding_caches(project)
 
 
 def upgrade_legacy_embedding_caches(

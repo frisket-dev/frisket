@@ -147,6 +147,9 @@ def open_bundle(project: Any) -> None:
         _migrate_retrieval_lifecycle(project.db, bundle_path=project.db_path)
         require_current_schema(project.db, bundle_path=project.path)
         _reconcile_open_time_policy(project)
+        from frisket.retrieval.upgrade import prepare_retrieval_on_open
+
+        prepare_retrieval_on_open(project)
 
 
 def _migrate_receipt_attempts(db: sqlite3.Connection) -> None:

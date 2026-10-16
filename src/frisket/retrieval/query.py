@@ -15,7 +15,7 @@ from threading import Event
 from typing import Any, Literal
 
 from frisket.engine.store import cells
-from frisket.search_hydration import native_snippets, searchable_text
+from frisket.search_hydration import native_snippets
 
 from .contracts import (
     BindingRevision,
@@ -221,7 +221,7 @@ class RetrievalQueryService:
                 "reranking was required but no reranker is available",
             )
         rerank_pool = (
-            min(RERANK_POOL, max(request.limit * 4, request.limit))
+            max(request.limit, min(RERANK_POOL, request.limit * 4))
             if request.ranking.rerank != "off" and self.reranker is not None
             else request.limit
         )
@@ -258,7 +258,7 @@ class RetrievalQueryService:
                             channels=channels or ("semantic",),
                         )
                     else:
-                        pool = min(HYBRID_POOL, max(rerank_pool, request.limit * 4))
+                        pool = max(rerank_pool, min(HYBRID_POOL, request.limit * 4))
                         lexical, _query = self._lexical_candidates(
                             reader, request, scope, limit=pool, fusion=True
                         )
@@ -559,13 +559,13 @@ class RetrievalQueryService:
         any_failed = False
         any_unavailable = False
         for channel in requested_channels:
-            ready, pending, failed = _scoped_coverage_state(
+            ready, pending, failed, unavailable = _scoped_coverage_state(
                 reader, request, scope, channel
             )
             any_ready = any_ready or ready
             any_pending = any_pending or pending
             any_failed = any_failed or failed
-            unavailable = not (ready or pending or failed)
+            unavailable = unavailable or not (ready or pending or failed)
             any_unavailable = any_unavailable or unavailable
             if ready:
                 state = "ready"
@@ -606,12 +606,28 @@ class RetrievalQueryService:
         )
 
 
+def _preparation_dataset_filter(request: SearchRequest) -> tuple[str, tuple[Any, ...]]:
+    if request.named_index_id is None:
+        return "", ()
+    return (
+        """AND EXISTS (
+          SELECT 1 FROM idx.parts AS member_part
+          JOIN idx.named_dataset_membership AS member ON member.part_id=member_part.part_id
+          WHERE member.dataset_id=? AND member_part.source_id=preparation.source_id
+            AND member_part.version_kind=preparation.target_version_kind
+            AND member_part.version_value=preparation.target_version_value
+            AND member_part.version_type=preparation.target_version_type
+        )""",
+        (request.named_index_id,),
+    )
+
+
 def _scoped_coverage_state(
     reader: PinnedRetrievalReader,
     request: SearchRequest,
     scope: CompiledRetrievalScope,
     channel: str,
-) -> tuple[bool, bool, bool]:
+) -> tuple[bool, bool, bool, bool]:
     binding_join = (
         "FROM scoped_bindings AS scoped "
         "JOIN idx.bindings AS retrieval_binding "
@@ -625,63 +641,20 @@ def _scoped_coverage_state(
         + " AND "
         + _binding_is_current("retrieval_binding")
     )
+    params: list[Any] = list(scope.params)
     if channel == "lexical":
-        row = reader.db.execute(
-            f"""
-            WITH {scope.cte_sql}
-            SELECT EXISTS (
-              SELECT 1 {binding_join}
-              JOIN idx.lexical_sources AS lexical_source
-                ON lexical_source.source_id=retrieval_binding.source_id
-               AND lexical_source.version_kind=retrieval_binding.version_kind
-               AND lexical_source.version_value=retrieval_binding.version_value
-               AND lexical_source.version_type=retrieval_binding.version_type
-              WHERE {binding_where} LIMIT 1
-            ) AS ready,
-            EXISTS (
-              SELECT 1 {binding_join}
-              JOIN idx.preparation AS preparation
-                ON preparation.source_id=retrieval_binding.source_id
-               AND preparation.target_version_kind=retrieval_binding.version_kind
-               AND preparation.target_version_value=retrieval_binding.version_value
-               AND preparation.target_version_type=retrieval_binding.version_type
-              WHERE {binding_where} AND preparation.channel='lexical'
-                AND preparation.space_id IS NULL
-                AND preparation.status IN ('pending','preparing') LIMIT 1
-            ) AS pending,
-            EXISTS (
-              SELECT 1 {binding_join}
-              JOIN idx.preparation AS preparation
-                ON preparation.source_id=retrieval_binding.source_id
-               AND preparation.target_version_kind=retrieval_binding.version_kind
-               AND preparation.target_version_value=retrieval_binding.version_value
-               AND preparation.target_version_type=retrieval_binding.version_type
-              WHERE {binding_where} AND preparation.channel='lexical'
-                AND preparation.space_id IS NULL
-                AND preparation.status='failed' LIMIT 1
-            ) AS failed
-            """,
-            scope.params,
-        ).fetchone()
-        return bool(row["ready"]), bool(row["pending"]), bool(row["failed"])
-
-    concrete_channel = channel != "semantic"
-    ready_channel_sql = "AND part_representation.channel=?" if concrete_channel else ""
-    preparation_channel_sql = "AND preparation.channel=?" if concrete_channel else ""
-    params: list[Any] = [*scope.params, request.space_id]
-    if concrete_channel:
-        params.append(channel)
-    params.append(request.space_id)
-    if concrete_channel:
-        params.append(channel)
-    params.append(request.space_id)
-    if concrete_channel:
-        params.append(channel)
-    row = reader.db.execute(
-        f"""
-        WITH {scope.cte_sql}
-        SELECT EXISTS (
-          SELECT 1 {binding_join}
+        dataset_join, dataset_where, dataset_params = _lexical_dataset_filter(request)
+        ready_join = """
+          JOIN idx.lexical_sources AS lexical_source
+            ON lexical_source.source_id=retrieval_binding.source_id
+           AND lexical_source.version_kind=retrieval_binding.version_kind
+           AND lexical_source.version_value=retrieval_binding.version_value
+           AND lexical_source.version_type=retrieval_binding.version_type
+        """
+        ready_where = ""
+    else:
+        dataset_join, dataset_where, dataset_params = _semantic_dataset_filter(request)
+        ready_join = """
           JOIN idx.parts AS part
             ON part.source_id=retrieval_binding.source_id
            AND part.version_kind=retrieval_binding.version_kind
@@ -691,36 +664,52 @@ def _scoped_coverage_state(
             ON part_representation.part_id=part.part_id
           JOIN idx.representations AS representation
             ON representation.representation_id=part_representation.representation_id
-          WHERE {binding_where} AND representation.space_id=?
-          {ready_channel_sql} LIMIT 1
-        ) AS ready,
-        EXISTS (
-          SELECT 1 {binding_join}
-          JOIN idx.preparation AS preparation
-            ON preparation.source_id=retrieval_binding.source_id
-           AND preparation.target_version_kind=retrieval_binding.version_kind
-           AND preparation.target_version_value=retrieval_binding.version_value
-           AND preparation.target_version_type=retrieval_binding.version_type
-          WHERE {binding_where}
-            AND preparation.status IN ('pending','preparing')
-            AND preparation.space_id=?
-            {preparation_channel_sql} LIMIT 1
-        ) AS pending,
-        EXISTS (
-          SELECT 1 {binding_join}
-          JOIN idx.preparation AS preparation
-            ON preparation.source_id=retrieval_binding.source_id
-           AND preparation.target_version_kind=retrieval_binding.version_kind
-           AND preparation.target_version_value=retrieval_binding.version_value
-           AND preparation.target_version_type=retrieval_binding.version_type
-          WHERE {binding_where} AND preparation.status='failed'
-            AND preparation.space_id=?
-            {preparation_channel_sql} LIMIT 1
-        ) AS failed
+        """
+        ready_where = "AND representation.space_id=?"
+        params.append(request.space_id)
+        if channel != "semantic":
+            ready_where += " AND part_representation.channel=?"
+            params.append(channel)
+    ready = reader.db.execute(
+        f"""WITH {scope.cte_sql}
+        SELECT EXISTS (SELECT 1 {binding_join} {ready_join} {dataset_join}
+          WHERE {binding_where} {ready_where} {dataset_where} LIMIT 1)""",
+        (*params, *dataset_params),
+    ).fetchone()[0]
+
+    preparation_dataset_sql, preparation_dataset_params = _preparation_dataset_filter(
+        request
+    )
+    preparation_channel_sql = (
+        "AND preparation.channel=?" if channel != "semantic" else ""
+    )
+    status = reader.db.execute(
+        f"""WITH {scope.cte_sql}
+        SELECT MAX(preparation.status IN ('pending','preparing')) AS pending,
+               MAX(preparation.status='failed') AS failed,
+               MAX(preparation.status='unavailable') AS unavailable
+        {binding_join}
+        JOIN idx.preparation AS preparation
+          ON preparation.source_id=retrieval_binding.source_id
+         AND preparation.target_version_kind=retrieval_binding.version_kind
+         AND preparation.target_version_value=retrieval_binding.version_value
+         AND preparation.target_version_type=retrieval_binding.version_type
+        WHERE {binding_where} AND preparation.space_id IS ?
+          {preparation_channel_sql} {preparation_dataset_sql}
         """,
-        params,
+        (
+            *scope.params,
+            None if channel == "lexical" else request.space_id,
+            *((channel,) if channel != "semantic" else ()),
+            *preparation_dataset_params,
+        ),
     ).fetchone()
-    return bool(row["ready"]), bool(row["pending"]), bool(row["failed"])
+    return (
+        bool(ready),
+        bool(status["pending"]),
+        bool(status["failed"]),
+        bool(status["unavailable"]),
+    )
 
 
 def _semantic_coverage_channels(
@@ -731,6 +720,9 @@ def _semantic_coverage_channels(
     """List scoped semantic channels independently of the returned top-k rows."""
 
     dataset_join, dataset_where, dataset_params = _semantic_dataset_filter(request)
+    preparation_dataset_sql, preparation_dataset_params = _preparation_dataset_filter(
+        request
+    )
     rows = reader.db.execute(
         f"""
         WITH {scope.cte_sql}, scoped_channels(channel) AS (
@@ -772,10 +764,17 @@ def _semantic_coverage_channels(
             AND {_binding_is_current("retrieval_binding")}
             AND preparation.status IN ('pending','preparing','failed','unavailable')
             AND preparation.space_id=?
+            {preparation_dataset_sql}
         )
         SELECT channel FROM scoped_channels ORDER BY channel
         """,
-        (*scope.params, request.space_id, *dataset_params, request.space_id),
+        (
+            *scope.params,
+            request.space_id,
+            *dataset_params,
+            request.space_id,
+            *preparation_dataset_params,
+        ),
     ).fetchall()
     return tuple(str(row["channel"]) for row in rows)
 
@@ -1046,12 +1045,15 @@ def _hydrate_semantic(
         if text_range is None or column_id is None:
             hydrated.append(candidate)
             continue
-        values = reader.get_values(
-            candidate.binding.sheet_id,
-            column_id,
-            row_ids=[candidate.binding.row_id],
-        )
-        text = searchable_text(values.get(candidate.binding.row_id))
+        try:
+            text = resolve_lexical_source_text(
+                reader,
+                source=candidate.source,
+                locator=candidate.locator,
+                binding=candidate.binding,
+            )
+        except UnsupportedLexicalSourceError as exc:
+            raise RetrievalQueryError("source_text_unavailable", str(exc)) from exc
         if text is None or input_hash(text) != text_range.content_hash:
             continue
         if text_range.end > len(text):
@@ -1253,14 +1255,20 @@ def _lexical_dataset_filter(request: SearchRequest) -> tuple[str, str, tuple[Any
     if request.named_index_id is None:
         return "", "", ()
     return (
-        "JOIN idx.parts AS dataset_part ON "
-        "dataset_part.source_id=lexical_source.source_id "
-        "AND dataset_part.version_kind=lexical_source.version_kind "
-        "AND dataset_part.version_value=lexical_source.version_value "
-        "AND dataset_part.version_type=lexical_source.version_type "
-        "JOIN idx.named_dataset_membership AS dataset_member "
-        "ON dataset_member.part_id=dataset_part.part_id",
-        "AND dataset_member.dataset_id=?",
+        "",
+        f"""AND EXISTS (
+          SELECT 1 FROM idx.named_dataset_membership AS dataset_member
+          JOIN idx.parts AS dataset_part ON dataset_part.part_id=dataset_member.part_id
+          JOIN idx.bindings AS dataset_binding
+            ON dataset_binding.source_id=dataset_part.source_id
+           AND dataset_binding.version_kind=dataset_part.version_kind
+           AND dataset_binding.version_value=dataset_part.version_value
+           AND dataset_binding.version_type=dataset_part.version_type
+          WHERE dataset_member.dataset_id=?
+            AND dataset_binding.sheet_id=retrieval_binding.sheet_id
+            AND dataset_binding.row_id=retrieval_binding.row_id
+            AND {_binding_is_current("dataset_binding")}
+        )""",
         (request.named_index_id,),
     )
 

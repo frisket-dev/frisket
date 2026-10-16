@@ -282,3 +282,49 @@ def test_structural_failure_stays_unmarked_and_retries_after_repair(tmp_path) ->
         ).fetchone()
     finally:
         project.close()
+
+
+def test_project_open_imports_legacy_cache_before_consumers(tmp_path):
+    path = tmp_path / "reopen.frisket"
+    with_project = Project.create(path)
+    sheet = with_project.add_sheet("Notes")
+    column = with_project.add_column(sheet, "body")
+    with_project.add_rows(sheet, [{"body": "current text"}], {"body": column})
+    _write_cell_vectors(
+        with_project,
+        [(f"fastembed/{LOCAL_MODEL}", "current text", [1.0] + [0.0] * 383)],
+    )
+    with_project.close()
+    project = Project(path)
+    try:
+        report = upgrade_legacy_embedding_caches(project)
+        assert report.already_complete
+        assert report.analytical_matches == 1
+    finally:
+        project.close()
+
+
+def test_project_open_requeues_rebuild_before_any_cache_recreates_sidecar(tmp_path):
+    from frisket.search import drain_index
+
+    path = tmp_path / "repair.frisket"
+    project = Project.create(path)
+    sheet = project.add_sheet("Notes")
+    column = project.add_column(sheet, "body")
+    project.add_rows(sheet, [{"body": "rebuild needle"}], {"body": column})
+    drain_index(project)
+    assert not project.db.execute("SELECT 1 FROM search_dirty_scopes").fetchone()
+    project.close()
+    (path / "project.retrieval.db").unlink()
+    reopened = Project(path)
+    try:
+        assert reopened.db.execute(
+            "SELECT 1 FROM search_dirty_scopes WHERE sheet_id IS NULL AND scan_cursor='[0,0]'"
+        ).fetchone()
+        with RetrievalStore(reopened):
+            pass
+        from frisket.search_index import index_needs_work
+
+        assert index_needs_work(reopened)
+    finally:
+        reopened.close()
