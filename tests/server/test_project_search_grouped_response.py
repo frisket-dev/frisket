@@ -447,12 +447,10 @@ def test_semantic_setup_offer_respects_edition_and_capability(
 def test_installed_model_is_not_offered_again_for_unavailable_search_runtime(
     monkeypatch,
 ) -> None:
-    requirement = replace(
-        _semantic_setup_requirement(),
-        runtime_ready=True,
-        weights_ready=True,
-        download_bytes_if_missing=0,
-    )
+    requirement = _semantic_setup_requirement()
+    requirement.runtime_ready = True
+    requirement.weights_ready = True
+    requirement.download_bytes_if_missing = 0
     monkeypatch.setattr(
         project_search, "local_search_setup_requirements", lambda: (requirement,)
     )

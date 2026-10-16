@@ -297,13 +297,13 @@ describe('located palette search', () => {
     expect(screen.getByTestId('search-anchor')).toHaveTextContent('budget approved');
   });
 
-  it('discloses the semantic model download before starting setup', async () => {
+  it.each(['unavailable', 'partial'] as const)('discloses semantic setup without claiming work started (%s)', async (state) => {
     searchProject.mockResolvedValue({
       groups: [],
       coverage: {
         requested_mode: 'hybrid',
         effective_modes: ['lexical'],
-        state: 'unavailable',
+        state,
         searched_channels: ['text'],
         channels: [{
           channel: 'semantic',
@@ -336,6 +336,7 @@ describe('located palette search', () => {
 
     fireEvent.click(await screen.findByTestId('search-setup'));
     expect(startEngineSetup).not.toHaveBeenCalled();
+    expect(screen.queryByText(/while more material is prepared/i)).not.toBeInTheDocument();
     const consent = screen.getByTestId('search-setup-consent');
     expect(consent).toHaveTextContent('Download EmbeddingGemma 2?');
     expect(consent).toHaveTextContent('About 1.4 GB');

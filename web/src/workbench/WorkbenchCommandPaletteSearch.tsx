@@ -69,7 +69,7 @@ function coverageMessage(coverage: ProjectSearchResponseWire['coverage'] | null)
   ));
   if (mediaGap && mediaGap.state !== 'pending') return 'Showing available search results.';
   if (coverage.state === 'preparing') return 'Preparing project search material…';
-  if (coverage.state === 'partial') return 'Showing available results while more material is prepared.';
+  if (coverage.state === 'partial') return 'Showing available search results.';
   if (coverage.state === 'failed') return 'Some project material could not be searched.';
   return coverage.channels.some((channel) => channel.setup)
     ? 'Set up semantic search to include similar material.'
