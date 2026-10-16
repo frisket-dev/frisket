@@ -154,9 +154,12 @@ def test_preparation_list_projects_durable_indexing_work(tmp_path, monkeypatch) 
         "indexing"
     ]
     assert repeated == semantic
-    assert client.app.state.workspace.queue.find_job_by_refs(
-        "search.index", project_id=project_id
-    ) is None
+    assert (
+        client.app.state.workspace.queue.find_job_by_refs(
+            "search.index", project_id=project_id
+        )
+        is None
+    )
 
     queue = client.app.state.workspace.queue
     semantic_job_id = project._frisket_schedule_search_index()

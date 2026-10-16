@@ -147,9 +147,7 @@ def test_semantic_search_retries_encoder_work_completed_by_an_external_worker(
     project = workspace.get(project_id)
     sheet_id = project.add_sheet("notes")
     column_id = project.add_column(sheet_id, "body", type="text")
-    [row_id] = project.add_rows(
-        sheet_id, [{"body": "search me"}], {"body": column_id}
-    )
+    [row_id] = project.add_rows(sheet_id, [{"body": "search me"}], {"body": column_id})
     source = SourceRevision("cell:source", "text", "retrieval_revision", 1)
     try:
         with RetrievalStore(project) as store:
@@ -172,9 +170,7 @@ def test_semantic_search_retries_encoder_work_completed_by_an_external_worker(
         monkeypatch.setattr(
             search_service,
             "search_with_encoding",
-            lambda *_args, **_kwargs: _lexical_fallback(
-                sheet_id, row_id, column_id
-            ),
+            lambda *_args, **_kwargs: _lexical_fallback(sheet_id, row_id, column_id),
         )
         ProjectSearchService(workspace).search(
             project_id,

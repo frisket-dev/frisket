@@ -96,9 +96,7 @@ def test_sample_search_reports_the_sheets_that_can_be_prepared(
         json={"sheet_id": by_name[SAMPLE_SHEET_NAME]["id"]},
     )
     assert no_op.status_code == 409, no_op.text
-    assert client.get(f"/api/projects/{pid}/search-preparation").json()[
-        "batches"
-    ] == []
+    assert client.get(f"/api/projects/{pid}/search-preparation").json()["batches"] == []
 
     actionable = client.post(
         f"/api/projects/{pid}/search-preparation",

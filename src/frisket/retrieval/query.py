@@ -973,7 +973,9 @@ def _material_preparation_coverage(
         return None
     prepared_count = int(row["prepared_count"])
     has_gap = prepared_count < eligible_count
-    gap_sheet_ids = tuple(sorted(int(value) for value in json.loads(row["gap_sheet_ids"])))
+    gap_sheet_ids = tuple(
+        sorted(int(value) for value in json.loads(row["gap_sheet_ids"]))
+    )
     return ChannelCoverage(
         channel="search_preparation",
         state="unavailable" if has_gap else "ready",

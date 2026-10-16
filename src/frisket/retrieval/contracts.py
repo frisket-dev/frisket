@@ -415,9 +415,7 @@ class ChannelCoverage:
             ):
                 raise ValueError(f"{name} must be nonnegative")
         if self.gap_sheet_ids is not None and any(
-            isinstance(sheet_id, bool)
-            or not isinstance(sheet_id, int)
-            or sheet_id <= 0
+            isinstance(sheet_id, bool) or not isinstance(sheet_id, int) or sheet_id <= 0
             for sheet_id in self.gap_sheet_ids
         ):
             raise ValueError("gap_sheet_ids must contain positive sheet ids")

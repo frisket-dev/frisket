@@ -470,9 +470,7 @@ class ProjectSearchService:
     ) -> dict[str, Any]:
         project = self._workspace.get(project_id)
         if request.mode in {"semantic", "hybrid"}:
-            retry_encoder = getattr(
-                project, "_frisket_retry_retrieval_encoder", None
-            )
+            retry_encoder = getattr(project, "_frisket_retry_retrieval_encoder", None)
             if callable(retry_encoder):
                 retry_encoder()
         search_request = _request_from_wire(request)
