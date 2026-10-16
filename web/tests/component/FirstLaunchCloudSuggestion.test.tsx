@@ -30,7 +30,10 @@ describe('optional first-launch Cloud suggestion', () => {
   it('offers shared browser sign-in without starting authorization; remembers skip', async () => {
     const done = vi.fn();
     const view = render(<FirstLaunchCloudSuggestion onComplete={done} />);
-    expect(await screen.findByRole('button', { name: 'Sign in with browser' })).toBeVisible();
+    expect(await screen.findByRole('button', { name: 'Sign in to Frisket Cloud' })).toBeVisible();
+    expect(screen.getAllByRole('button')).toHaveLength(2);
+    expect(screen.queryByRole('heading', { name: 'Connect Frisket Cloud' })).not.toBeInTheDocument();
+    expect(screen.getByRole('dialog').querySelectorAll('p')).toHaveLength(1);
     expect(api.startAuthorization).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Continue without signing in' }));
     expect(done).toHaveBeenCalledOnce();
@@ -93,7 +96,7 @@ describe('optional first-launch Cloud suggestion', () => {
     const done = vi.fn();
     render(<FirstLaunchCloudSuggestion onComplete={done} />);
     await act(async () => {});
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Sign in with browser' })); });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Sign in to Frisket Cloud' })); });
     expect(screen.getByText('ABCD')).toBeVisible();
     expect(done).not.toHaveBeenCalled();
     await act(async () => { await vi.advanceTimersByTimeAsync(1000); });

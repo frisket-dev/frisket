@@ -9575,6 +9575,14 @@ dialog.modal-card::backdrop {
   gap: 8px;
 }
 .cloud-connection-actions .btn { text-decoration: none; }
+.cloud-welcome-actions { display: grid; gap: 8px; }
+.cloud-connection-card.is-welcome {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  justify-items: stretch;
+}
 .cloud-connection-error {
   color: var(--red);
   font-size: 12px;

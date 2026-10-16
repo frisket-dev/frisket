@@ -48,7 +48,7 @@ export interface CloudConnectionClient {
 
 interface CloudConnectionPanelProps {
   client: CloudConnectionClient;
-  variant: 'profile' | 'compact';
+  variant: 'profile' | 'compact' | 'welcome';
   allowSignOut?: boolean;
   promptForAccount?: boolean;
   intent?: 'connect' | 'reconnect';
@@ -312,13 +312,15 @@ export function CloudConnectionPanel({
     ? connection.capabilities.canReconnect
     : connection.capabilities.canConnect;
   return <section className={`cloud-connection-card is-${variant}`} data-testid="cloud-connection-card">
-    <h3>{expired ? 'Reconnect Frisket Cloud' : 'Connect Frisket Cloud'}</h3>
-    <p>{expired
-      ? 'This computer was signed out of Frisket Cloud. Your settings are unchanged.'
-      : 'Sign in with your Frisket account. No API key is needed, and this project stays on this computer.'}</p>
-    {!expired && <p>Each person gets $5 of free Frisket credit every month.</p>}
+    {variant !== 'welcome' && <>
+      <h3>{expired ? 'Reconnect Frisket Cloud' : 'Connect Frisket Cloud'}</h3>
+      <p>{expired
+        ? 'This computer was signed out of Frisket Cloud. Your settings are unchanged.'
+        : 'Sign in with your Frisket account. No API key is needed, and this project stays on this computer.'}</p>
+      {!expired && <p>Each person gets $5 of free Frisket credit every month.</p>}
+    </>}
     <button className="btn btn-primary" type="button" disabled={busy || !permitted}
-      onClick={() => void begin()}>{phase === 'starting' ? 'Opening browser…' : expired ? 'Reconnect' : <><span>Sign in with browser</span><ExternalLink size={14} /></>}</button>
+      onClick={() => void begin()}>{phase === 'starting' ? 'Opening browser…' : expired ? 'Reconnect' : <><span>{variant === 'welcome' ? 'Sign in to Frisket Cloud' : 'Sign in with browser'}</span><ExternalLink size={14} /></>}</button>
     {expired && allowSignOut && connection.capabilities.canDisconnect && (
       <button className="btn" type="button" disabled={busy} onClick={() => void signOut()}>
         <LogOut size={14} /> {busy ? 'Signing out…' : 'Sign out'}

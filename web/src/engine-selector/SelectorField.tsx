@@ -5,7 +5,7 @@ import {
   type EngineSelectorChoice,
   type EngineSelectorGroup,
 } from '../components/engine-selector';
-import type { HttpSelectorChoicesQuery, HttpSelectorChoicesResponse, SelectorChoice } from '../api/selectorChoices';
+import type { HttpSelectorChoicesQuery, SelectorChoice } from '../api/selectorChoices';
 import { projectModelRoutesApi } from '../api/modelRoutes';
 import { ModelRouteControl } from './ModelRouteControl';
 import { SelectorSetup } from './SelectorSetup';
@@ -24,13 +24,6 @@ export interface SelectorFieldProps {
   /** Host-specific policy may further narrow offered choices, never broaden them. */
   allowChoice?(choice: SelectorChoice): boolean;
   onCurrentChoiceChange?(choice: SelectorChoice | null): void;
-  /** Setup guidance shares this field's authoritative readiness projection. */
-  renderSetupPrompt?(context: {
-    currentChoice: SelectorChoice | null;
-    cloudSetup: HttpSelectorChoicesResponse['cloud_setup'];
-    hasChoices: boolean;
-    hasRunnableChoices: boolean;
-  }): ReactNode;
   renderDetailExtra?(context: {
     choice: SelectorChoice;
     onEditingChange(editing: boolean): void;
@@ -178,7 +171,6 @@ export function SelectorField({
   triggerRef,
   allowChoice = () => true,
   onCurrentChoiceChange,
-  renderSetupPrompt,
   renderDetailExtra,
 }: SelectorFieldProps) {
   const state = useSelectorChoices({
@@ -214,17 +206,8 @@ export function SelectorField({
       Loading choices…
     </div>;
   }
-  const setupPrompt = !state.stale && !state.error && renderSetupPrompt?.({
-    currentChoice,
-    cloudSetup: state.response.cloud_setup,
-    hasChoices: groups.length > 0,
-    hasRunnableChoices: groups.some((group) => group.choices.some((choice) => choice.canRun)),
-  });
   if (groups.length === 0) {
-    return <div data-testid={testId}>
-      <p className="form-hint">No choices are available for this field.</p>
-      {setupPrompt}
-    </div>;
+    return <p data-testid={testId} className="form-hint">No choices are available for this field.</p>;
   }
   const refreshNotice = state.error && <div className="engine-selector-field-error" role="alert">
     <p>Could not refresh choices. {state.error.message}</p>
@@ -270,6 +253,5 @@ export function SelectorField({
         </> : null;
       }}
     />
-    {setupPrompt}
   </div>;
 }

@@ -52,14 +52,13 @@ export function FirstLaunchCloudSuggestion({ projectId, onComplete }: {
   return <dialog ref={dialogRef} className="modal-card" aria-labelledby="cloud-welcome-title"
     onCancel={(event) => { event.preventDefault(); dismiss(); }}>
     <h2 className="modal-title" id="cloud-welcome-title">Try AI with Frisket Cloud</h2>
-    <p>Use Cloud models in Ask and actions without setting up API keys. Model usage is paid
-      from your Cloud credits; signing in is optional.</p>
-    <CloudConnectionPanel client={cloudConnectionApi} variant="compact" onChanged={() => {
-      notifyCloudConnectionChanged();
-      dismiss();
-    }} />
-    <p>You can also use your own API keys or local models, and connect Cloud later in Settings.</p>
-    <div className="form-actions">
+    <p>Use AI in Ask and actions without setting up API keys. You get $5 of free credit
+      each month, and can also use your own keys or local models.</p>
+    <div className="cloud-welcome-actions">
+      <CloudConnectionPanel client={cloudConnectionApi} variant="welcome" onChanged={() => {
+        notifyCloudConnectionChanged();
+        dismiss();
+      }} />
       <button type="button" className="btn" onClick={dismiss}>Continue without signing in</button>
     </div>
   </dialog>;

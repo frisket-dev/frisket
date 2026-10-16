@@ -27,7 +27,16 @@ test('optional welcome and Ask setup stay in context', async ({ page }) => {
   await page.goto(`/p/${pid}/s/${sheet}`);
   const welcome = page.getByRole('dialog', { name: 'Try AI with Frisket Cloud' });
   await expect(welcome).toBeVisible();
-  await expect(welcome.getByRole('button', { name: 'Sign in with browser' })).toBeEnabled();
+  const signIn = welcome.getByRole('button', { name: 'Sign in to Frisket Cloud' });
+  const skip = welcome.getByRole('button', { name: 'Continue without signing in' });
+  await expect(signIn).toBeEnabled();
+  await expect(welcome.getByRole('button')).toHaveCount(2);
+  await expect(welcome.getByTestId('cloud-connection-card')).toHaveCSS('border-top-width', '0px');
+  const top = await signIn.boundingBox();
+  const bottom = await skip.boundingBox();
+  expect(bottom!.y).toBeGreaterThan(top!.y + top!.height);
+  expect(bottom!.x).toBeCloseTo(top!.x, 0);
+  expect(bottom!.width).toBeCloseTo(top!.width, 0);
   await page.screenshot({ path: test.info().outputPath('cloud-first-launch.png') });
   await welcome.getByRole('button', { name: 'Continue without signing in' }).click();
   await expect(welcome).toHaveCount(0);
@@ -36,11 +45,13 @@ test('optional welcome and Ask setup stay in context', async ({ page }) => {
   await expect(welcome).toHaveCount(0);
   await page.getByTestId('chrome-ask-toggle').click();
   const dock = page.getByTestId('ask-dock');
-  await expect(dock.getByText('Sign in to Frisket Cloud or set up a model to start chatting.')).toBeVisible();
+  const model = dock.locator('.engine-selector__trigger');
+  await expect(model).toBeVisible();
+  await expect(dock.getByRole('button', { name: 'Sign in to Frisket Cloud' })).toHaveCount(0);
+  await expect(dock.getByRole('button', { name: 'Set up a model' })).toHaveCount(0);
   const question = dock.getByRole('textbox', { name: 'Question', exact: true });
   await question.fill('Keep my question while I set up a model');
   await page.setViewportSize({ width: 1280, height: 720 });
-  await expect(dock.getByRole('button', { name: 'Sign in to Frisket Cloud', exact: true })).toBeInViewport();
   const send = dock.getByRole('button', { name: 'Send', exact: true });
   await expect(send).toBeInViewport({ ratio: 1 });
   // A viewport intersection alone misses controls covered by the Jobs pane.
@@ -49,15 +60,7 @@ test('optional welcome and Ask setup stay in context', async ({ page }) => {
     return button.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
   })).toBe(true);
   await page.screenshot({ path: test.info().outputPath('ask-model-setup.png') });
-  await dock.getByRole('button', { name: 'Sign in to Frisket Cloud', exact: true }).click();
-  const browserSignIn = dock.getByRole('button', { name: 'Sign in with browser' });
-  await browserSignIn.scrollIntoViewIfNeeded();
-  await expect(browserSignIn).toBeInViewport();
-  expect(await send.evaluate((button) => {
-    const rect = button.getBoundingClientRect();
-    return button.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
-  })).toBe(true);
-  await dock.getByRole('button', { name: 'Set up a model' }).click();
+  await model.click();
   await expect(page.getByTestId('engine-selector-dialog')).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(question).toHaveValue('Keep my question while I set up a model');
