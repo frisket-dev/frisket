@@ -587,9 +587,9 @@ def test_open_defers_repair_while_initial_sidecar_creation_is_locked(tmp_path) -
             (str(SCHEMA_VERSION),),
         )
 
-        started = time.monotonic()
+        started = time.monotonic()  # realtime: bound actual SQLite lock waiting
         prepare_retrieval_on_open(project)
-        elapsed = time.monotonic() - started
+        elapsed = time.monotonic() - started  # realtime: assert nonblocking open
 
         assert elapsed < 1
         assert project.db.execute(
@@ -619,10 +619,10 @@ def test_project_open_does_not_wait_for_current_sidecar_writer(tmp_path) -> None
     writer = sqlite3.connect(path / "project.retrieval.db", isolation_level=None)
     try:
         writer.execute("BEGIN IMMEDIATE")
-        started = time.monotonic()
+        started = time.monotonic()  # realtime: bound actual SQLite lock waiting
         with closing(Project(path)) as reopened:
             assert read_sidecar_id(reopened) == sidecar_id
-        elapsed = time.monotonic() - started
+        elapsed = time.monotonic() - started  # realtime: assert nonblocking open
         assert elapsed < 1
     finally:
         writer.rollback()

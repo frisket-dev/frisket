@@ -199,10 +199,10 @@ def test_current_store_open_does_not_wait_for_existing_writer(tmp_path):
         assert writer.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
         writer.execute("BEGIN IMMEDIATE")
 
-        started = time.monotonic()
+        started = time.monotonic()  # realtime: bound actual SQLite lock waiting
         with RetrievalStore(tmp_path).open() as reader:
             assert reader.sidecar_id() == sidecar_id
-        elapsed = time.monotonic() - started
+        elapsed = time.monotonic() - started  # realtime: assert nonblocking open
 
         assert elapsed < 1
     finally:
