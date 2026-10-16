@@ -1,10 +1,114 @@
-// The command palette's SEARCH section (project-wide FTS). Purely
-// presentational: all state/logic stays in the parent and is threaded in as
-// props — DOM/classes/testids are relied on by tests, so keep them stable.
-import { Bell } from 'lucide-react';
-import type { SearchHit } from '../api/open';
-import { Snip } from '../components/SearchPanel';
+import { Bell, SearchCheck, X } from 'lucide-react';
+import type {
+  ProjectSearchGroupWire,
+  ProjectSearchHitWire,
+  ProjectSearchResponseWire,
+} from '../api/projectSearch';
 import { PanelSelect } from '../components/PanelSelect';
+import { decodeEscapedText } from '../displayText';
+
+function splitSnippet(text: string): Array<{ key: string; text: string; bold: boolean }> {
+  const parts: Array<{ key: string; text: string; bold: boolean }> = [];
+  const markers = /<\/?b>/g;
+  let last = 0;
+  let bold = false;
+  let match: RegExpExecArray | null;
+  while ((match = markers.exec(text)) !== null) {
+    if (match.index > last) {
+      parts.push({
+        key: `${last}:${match.index}:${bold ? 'bold' : 'text'}`,
+        text: text.slice(last, match.index),
+        bold,
+      });
+    }
+    bold = match[0] === '<b>';
+    last = match.index + match[0].length;
+  }
+  if (last < text.length) {
+    parts.push({
+      key: `${last}:${text.length}:${bold ? 'bold' : 'text'}`,
+      text: text.slice(last),
+      bold,
+    });
+  }
+  return parts;
+}
+
+function Snip({ text, decodeEscapes }: { text: string; decodeEscapes?: boolean }) {
+  const parts = splitSnippet(decodeEscapes ? decodeEscapedText(text) : text);
+  return (
+    <>
+      {parts.map((part) =>
+        part.bold ? (
+          <b key={part.key}>{part.text}</b>
+        ) : (
+          <span key={part.key}>{part.text}</span>
+        ),
+      )}
+    </>
+  );
+}
+
+function coverageMessage(coverage: ProjectSearchResponseWire['coverage'] | null): string | null {
+  if (!coverage || coverage.state === 'complete') return null;
+  if (coverage.state === 'preparing') return 'Preparing project search material…';
+  if (coverage.state === 'partial') return 'Showing available results while more material is prepared.';
+  if (coverage.state === 'failed') return 'Some project material could not be searched.';
+  return coverage.channels.some((channel) => channel.setup)
+    ? 'Set up semantic search to include similar material.'
+    : 'No indexed results are available for this search.';
+}
+
+function hitKey(hit: ProjectSearchHitWire): string {
+  return `${hit.part.part_id}:${hit.binding.binding_id}`;
+}
+
+function SearchHitRow({
+  hit,
+  supporting,
+  activeIndex,
+  rowIndex,
+  onHover,
+  onActivate,
+  onFindSimilar,
+}: {
+  hit: ProjectSearchHitWire;
+  supporting: boolean;
+  activeIndex: number;
+  rowIndex: number;
+  onHover(index: number): void;
+  onActivate(hit: ProjectSearchHitWire): void;
+  onFindSimilar(hit: ProjectSearchHitWire): void;
+}) {
+  return (
+    <div
+      className={`search-hit-row${supporting ? ' supporting' : ''}`}
+      data-testid={supporting ? 'search-supporting-hit' : 'search-hit'}
+      onMouseEnter={() => rowIndex >= 0 && onHover(rowIndex)}
+    >
+      <button
+        type="button"
+        className={`search-hit${rowIndex === activeIndex ? ' active' : ''}`}
+        onClick={() => onActivate(hit)}
+      >
+        <span className="search-hit-col">{hit.column_name}</span>
+        <span className="search-hit-snip">
+          <Snip text={hit.snippet} decodeEscapes={hit.ai_generated} />
+        </span>
+      </button>
+      <button
+        type="button"
+        className="icon-btn search-hit-similar"
+        data-testid="search-hit-find-similar"
+        aria-label="Find similar"
+        title="Find similar"
+        onClick={() => onFindSimilar(hit)}
+      >
+        <SearchCheck size={13} />
+      </button>
+    </div>
+  );
+}
 
 export function PaletteSearchSection({
   mode,
@@ -16,18 +120,24 @@ export function PaletteSearchSection({
   watchStatus,
   onCreateWatch,
   searchError,
-  hits,
-  indexing,
+  groups,
+  coverage,
   query,
-  searchGroups,
   sheetName,
+  anchorLabel,
+  anchored,
+  onClearAnchor,
   activeIndex,
   rowIndexOfHit,
   onHoverHit,
   onActivateHit,
+  onFindSimilar,
+  setupBusy,
+  setupError,
+  onStartSetup,
 }: {
-  mode: 'keyword' | 'semantic';
-  onModeChange(mode: 'keyword' | 'semantic'): void;
+  mode: 'lexical' | 'semantic' | 'hybrid';
+  onModeChange(mode: 'lexical' | 'semantic' | 'hybrid'): void;
   rerank: boolean;
   onRerankChange(rerank: boolean): void;
   canWatch: boolean;
@@ -35,16 +145,26 @@ export function PaletteSearchSection({
   watchStatus: string | null;
   onCreateWatch(): void;
   searchError: string | null;
-  hits: SearchHit[] | null;
-  indexing: boolean;
+  groups: ProjectSearchGroupWire[] | null;
+  coverage: ProjectSearchResponseWire['coverage'] | null;
   query: string;
-  searchGroups: { sheetId: string; hits: SearchHit[] }[];
   sheetName(id: string | number): string;
+  anchorLabel: string | null;
+  anchored: boolean;
+  onClearAnchor(): void;
   activeIndex: number;
-  rowIndexOfHit(hit: SearchHit): number;
+  rowIndexOfHit(hit: ProjectSearchHitWire): number;
   onHoverHit(index: number): void;
-  onActivateHit(hit: SearchHit): void;
+  onActivateHit(hit: ProjectSearchHitWire): void;
+  onFindSimilar(hit: ProjectSearchHitWire): void;
+  setupBusy: boolean;
+  setupError: string | null;
+  onStartSetup(setupRef: string, scope: 'workspace' | 'organization'): void;
 }) {
+  const status = coverageMessage(coverage);
+  const setup = coverage?.channels.find((channel) => channel.setup)?.setup;
+  const resultCount = groups?.length ?? 0;
+
   return (
     <div className="palette-section palette-search-section" data-testid="palette-section-search">
       <div className="palette-section-label">
@@ -54,10 +174,13 @@ export function PaletteSearchSection({
             className="row-height-select"
             data-testid="search-mode-select"
             aria-label="Search mode"
-            value={mode}
-            onChange={(event) => onModeChange(event.target.value as 'keyword' | 'semantic')}
+            value={anchored ? 'semantic' : mode}
+            disabled={anchored}
+            onChange={(event) =>
+              onModeChange(event.target.value as 'lexical' | 'semantic' | 'hybrid')}
           >
-            <option value="keyword">Keyword</option>
+            <option value="lexical">Keyword</option>
+            <option value="hybrid">Hybrid</option>
             <option value="semantic">Semantic</option>
           </PanelSelect>
           <label className="palette-search-rerank">
@@ -75,11 +198,7 @@ export function PaletteSearchSection({
             data-testid="watch-search-button"
             disabled={!canWatch}
             onClick={onCreateWatch}
-            title={
-              mode === 'keyword'
-                ? 'Watch this search'
-                : 'Watchlists MVP supports keyword searches'
-            }
+            title={mode === 'lexical' ? 'Watch this search' : 'Watch a keyword search'}
           >
             <Bell size={12} /> {watchBusy ? 'Watching…' : 'Watch search'}
           </button>
@@ -90,36 +209,72 @@ export function PaletteSearchSection({
           )}
         </span>
       </div>
-      {searchError && <div className="picker-error">{searchError}</div>}
-      {!searchError && indexing && (
-        <div className="search-empty" role="status">Indexing… results may be incomplete.</div>
+      {anchorLabel && (
+        <div className="palette-search-anchor" data-testid="search-anchor">
+          <span>Similar to {anchorLabel}</span>
+          <button type="button" className="icon-btn" aria-label="Clear similarity anchor" onClick={onClearAnchor}>
+            <X size={12} />
+          </button>
+        </div>
       )}
-      {!searchError && hits !== null && (
-        hits.length === 0 ? (
-          !indexing && <div className="search-empty">No matches for “{query.trim()}”.</div>
+      {searchError && <div className="picker-error">{searchError}</div>}
+      {!searchError && status && (
+        <div className="search-empty" role="status">
+          {status}
+          {setup && (
+            <button
+              type="button"
+              className="mini-btn"
+              data-testid="search-setup"
+              disabled={setupBusy}
+              onClick={() => onStartSetup(setup.setup_ref, setup.scope)}
+            >
+              {setupBusy ? 'Starting…' : 'Set up semantic search'}
+            </button>
+          )}
+        </div>
+      )}
+      {setupError && <div className="picker-error">{setupError}</div>}
+      {!searchError && groups !== null && (
+        resultCount === 0 ? (
+          coverage?.state !== 'preparing' && (
+            <div className="search-empty">
+              No matches{query.trim() ? ` for “${query.trim()}”` : ''}.
+            </div>
+          )
         ) : (
           <div className="search-results" data-testid="search-results">
-            {searchGroups.map((group) => (
-              <div key={group.sheetId} className="search-group">
-                <div className="search-group-label">{sheetName(group.sheetId)}</div>
-                {group.hits.map((hit) => {
-                  const idx = rowIndexOfHit(hit);
-                  return (
-                    <button
-                      key={`${hit.sheet_id}:${hit.row_id}:${hit.column_id}:${hit.snip}`}
-                      type="button"
-                      className={`search-hit${idx === activeIndex ? ' active' : ''}`}
-                      data-testid="search-hit"
-                      onMouseEnter={() => idx >= 0 && onHoverHit(idx)}
-                      onClick={() => onActivateHit(hit)}
-                    >
-                      <span className="search-hit-col">{hit.column_name}</span>
-                      <span className="search-hit-snip">
-                        <Snip text={hit.snip} decodeEscapes={Boolean(hit.ai_generated)} />
-                      </span>
-                    </button>
-                  );
-                })}
+            {groups.map((group) => (
+              <div key={group.group_key} className="search-group">
+                <div className="search-group-label">
+                  {sheetName(group.primary.binding.sheet_id)}
+                </div>
+                <SearchHitRow
+                  hit={group.primary}
+                  supporting={false}
+                  activeIndex={activeIndex}
+                  rowIndex={rowIndexOfHit(group.primary)}
+                  onHover={onHoverHit}
+                  onActivate={onActivateHit}
+                  onFindSimilar={onFindSimilar}
+                />
+                {group.supporting.map((hit) => (
+                  <SearchHitRow
+                    key={hitKey(hit)}
+                    hit={hit}
+                    supporting
+                    activeIndex={activeIndex}
+                    rowIndex={rowIndexOfHit(hit)}
+                    onHover={onHoverHit}
+                    onActivate={onActivateHit}
+                    onFindSimilar={onFindSimilar}
+                  />
+                ))}
+                {group.additional_count > 0 && (
+                  <div className="search-group-more">
+                    {group.additional_count} more related result{group.additional_count === 1 ? '' : 's'}
+                  </div>
+                )}
               </div>
             ))}
           </div>

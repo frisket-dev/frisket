@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Search, X } from 'lucide-react';
-import { type SearchHit, type SheetMeta } from '../api/open';
+import { type SheetMeta } from '../api/open';
+import type { ProjectSearchHitWire } from '../api/projectSearch';
 import type { WorkbenchCommandEntry } from './commandRegistry';
-import { usePaletteSearch } from './usePaletteSearch';
+import { usePaletteSearch, type PaletteSearchSeed } from './usePaletteSearch';
 import {
   uniqueVisibilityTargetsByContribution,
   type WorkbenchVisibilityTarget,
@@ -64,7 +65,7 @@ type NavRow =
   | { key: string; kind: 'command'; entry: WorkbenchCommandEntry }
   | { key: string; kind: 'launcher'; item: PaletteLauncherCommand }
   | { key: string; kind: 'visibility'; action: 'hide' | 'reveal'; target: WorkbenchVisibilityTarget }
-  | { key: string; kind: 'search'; hit: SearchHit };
+  | { key: string; kind: 'search'; hit: ProjectSearchHitWire };
 
 export function WorkbenchCommandPalette({
   onClose,
@@ -81,6 +82,7 @@ export function WorkbenchCommandPalette({
   onLaunchAction,
   onNavigateSheet,
   searchSheets,
+  searchSeed,
   onNavigateSearchHit,
   launcherCommands = EMPTY_LAUNCHER_COMMANDS,
 }: {
@@ -99,7 +101,8 @@ export function WorkbenchCommandPalette({
   onLaunchAction: (actionKind: string, sourceColumn?: string) => void;
   onNavigateSheet: (sheetId: string) => void;
   searchSheets: SheetMeta[];
-  onNavigateSearchHit: (hit: SearchHit) => void;
+  onNavigateSearchHit: (hit: ProjectSearchHitWire) => void;
+  searchSeed?: PaletteSearchSeed | null;
 }) {
   const backdropRef = useRef<HTMLDivElement>(null);
   useNativePopover(backdropRef, onClose, { escape: false, outside: false });
@@ -171,12 +174,6 @@ export function WorkbenchCommandPalette({
     filteredLauncherCommands.length > 0 ||
     filteredHideTargets.length > 0 ||
     filteredRevealTargets.length > 0;
-  const hasAnyFilteredResults =
-    filteredBestMatch.length > 0 ||
-    filteredActions.length > 0 ||
-    filteredGoto.length > 0 ||
-    hasCommandsSectionResults;
-
   // SEARCH section — project-wide FTS row search reusing the same query API
   // + snippet rendering as the sidebar Search modal.
   const {
@@ -184,16 +181,28 @@ export function WorkbenchCommandPalette({
     setMode,
     rerank,
     setRerank,
-    hits,
-    indexing,
+    groups,
+    coverage,
     searchError,
     canWatch,
     watchBusy,
     watchStatus,
     createSearchWatch,
-    searchGroups,
     sheetName,
-  } = usePaletteSearch(query, searchSheets, onClose);
+    anchor,
+    anchorLabel,
+    clearAnchor,
+    findSimilar,
+    setupBusy,
+    setupError,
+    startSetup,
+  } = usePaletteSearch(query, searchSheets, onClose, searchSeed);
+  const hasAnyFilteredResults =
+    filteredBestMatch.length > 0 ||
+    filteredActions.length > 0 ||
+    filteredGoto.length > 0 ||
+    hasCommandsSectionResults ||
+    (groups?.length ?? 0) > 0;
 
   // The flat keyboard-navigable list, in visual order (production sections,
   // then COMMANDS, then SEARCH — matching the section order rendered below).
@@ -218,9 +227,11 @@ export function WorkbenchCommandPalette({
     filteredRevealTargets.forEach((target) =>
       rows.push({ key: `reveal:${target.contributionId}`, kind: 'visibility', action: 'reveal', target }),
     );
-    (hits ?? []).forEach((hit) =>
-      rows.push({ key: `hit:${hit.sheet_id}:${hit.row_id}:${hit.column_id}`, kind: 'search', hit }),
-    );
+    (groups ?? []).forEach((group) => {
+      for (const hit of [group.primary, ...group.supporting]) {
+        rows.push({ key: `hit:${hit.part.part_id}:${hit.binding.binding_id}`, kind: 'search', hit });
+      }
+    });
     return rows;
   }, [
     filteredBestMatch,
@@ -230,7 +241,7 @@ export function WorkbenchCommandPalette({
     filteredLauncherCommands,
     filteredHideTargets,
     filteredRevealTargets,
-    hits,
+    groups,
   ]);
 
   // The highlighted row. Clamp on read (rather than a setState-in-effect) so a
@@ -246,7 +257,7 @@ export function WorkbenchCommandPalette({
     onNavigateSheet(item.sheetId);
     onClose();
   };
-  const navigateHit = (hit: SearchHit) => {
+  const navigateHit = (hit: ProjectSearchHitWire) => {
     onNavigateSearchHit(hit);
     onClose();
   };
@@ -414,15 +425,21 @@ export function WorkbenchCommandPalette({
             watchStatus={watchStatus}
             onCreateWatch={createSearchWatch}
             searchError={searchError}
-            hits={hits}
-            indexing={indexing}
+            groups={groups}
+            coverage={coverage}
             query={query}
-            searchGroups={searchGroups}
             sheetName={sheetName}
+            anchorLabel={anchorLabel}
+            anchored={anchor !== null}
+            onClearAnchor={clearAnchor}
             activeIndex={activeIndex}
             rowIndexOfHit={(hit) => rowIndex((row) => row.kind === 'search' && row.hit === hit)}
             onHoverHit={setActiveIndex}
             onActivateHit={navigateHit}
+            onFindSimilar={findSimilar}
+            setupBusy={setupBusy}
+            setupError={setupError}
+            onStartSetup={startSetup}
           />
         </div>
 

@@ -2,8 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { embeddingIndexFixture, embeddingIndexListFixture } from '../support/embeddingIndexFixtures';
 import { createProject, importCsv, openDiscoverTab, uniqueName } from './helpers';
 
-// Create a "rows similar to this row" watch from the show-similar
-// preview, and surface a blocked watch's Refresh affordance in WatchesPanel. The
+// Surface a blocked watch's Refresh affordance in WatchesPanel. The
 // embedding + watch endpoints are stubbed (deterministic, embedder-independent);
 // the backend contracts are covered by Python tests.
 
@@ -106,28 +105,6 @@ async function stubEmbeddings(page: Page, pid: string, sheetId: number) {
   });
   return { watchPosts, actionPosts };
 }
-
-test('Watch this row creates an embedding_similarity watch from show-similar', async ({ page }) => {
-  const pid = await createProject(page.request, uniqueName('e2e-emb-watch'));
-  const sheetId = await importCsv(page.request, pid, 'a.csv', 'headline\ncat\nkitten\n');
-  const { watchPosts } = await stubEmbeddings(page, pid, sheetId);
-  await page.goto(`/p/${pid}`);
-
-  await openDiscoverTab(page, 'Embeddings');
-  await expect(page.getByTestId(`embedding-index-${INDEX_ID}`)).toBeVisible();
-
-  await page.getByTestId(`embedding-similar-input-${INDEX_ID}`).fill('kitty');
-  await page.getByTestId(`embedding-similar-search-${INDEX_ID}`).click();
-  await expect(page.getByTestId('embedding-watch-hit-2')).toBeVisible();
-  await page.getByTestId('embedding-watch-hit-2').click();
-
-  await expect(page.getByTestId('embedding-watch-hit-2')).toContainText('Watching');
-  await expect.poll(() => watchPosts.length).toBe(1);
-  const query = watchPosts[0].query as Record<string, unknown>;
-  expect(query.kind).toBe('embedding_similarity');
-  expect(query.embedding_index_id).toBe(INDEX_ID);
-  expect((query.anchor as Record<string, unknown>).row_id).toBe(2);
-});
 
 test('a blocked embedding watch shows a Refresh link that refreshes the index', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-emb-watch'));

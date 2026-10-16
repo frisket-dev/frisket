@@ -2,8 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { embeddingIndexFixture, embeddingIndexListFixture } from '../support/embeddingIndexFixtures';
 import { createProject, importCsv, openDiscoverTab, uniqueName } from './helpers';
 
-// Save a "rows similar to this row" lens from a
-// show-similar hit, list it, open it (resolve), and render the ranked row-set
+// List a saved similarity lens, open it (resolve), and render the ranked row-set
 // WITH per-row distance/score. A stale anchor resolve surfaces the typed
 // refresh-needed message, not a crash. The embedding + lens endpoints are
 // stubbed (deterministic, embedder-independent); the backend lens contract is
@@ -40,7 +39,6 @@ function makeIndex(sheetId: number) {
 }
 
 interface LensStubs {
-  lensPosts: Record<string, unknown>[];
   setAnchorStale(value: boolean): void;
   /** Force the next resolve to 400 with this typed code (e.g. embedding_index_incomplete). */
   setResolveError(code: string | null): void;
@@ -51,9 +49,24 @@ async function stubEmbeddingsAndLenses(
   pid: string,
   sheetId: number,
 ): Promise<LensStubs> {
-  const lensPosts: Record<string, unknown>[] = [];
-  // The stubbed lens store: POST appends, GET lists, resolve serves a ranked set.
-  const lenses: Array<Record<string, unknown>> = [];
+  const lenses: Array<Record<string, unknown>> = [{
+    id: 1,
+    name: 'Similar to kitten',
+    sheet_id: sheetId,
+    spec: {
+      schema_version: 'frisket.lens.v1',
+      query: {
+        kind: 'embedding_similarity',
+        embedding_index_id: INDEX_ID,
+        anchor: { kind: 'row', row_id: 2 },
+        limit: 500,
+      },
+      presentation: {},
+    },
+    op_id: 10,
+    created_at: '2026-06-21T00:00:00Z',
+    updated_at: '2026-06-21T00:00:00Z',
+  }];
   let anchorStale = false;
   let resolveErrorCode: string | null = null;
 
@@ -89,7 +102,6 @@ async function stubEmbeddingsAndLenses(
   await page.route(new RegExp(`/api/projects/${pid}/lenses(\\?[^/]*)?$`), async (route) => {
     if (route.request().method() === 'POST') {
       const body = route.request().postDataJSON() as Record<string, unknown>;
-      lensPosts.push(body);
       const lens = {
         id: lenses.length + 1,
         name: body.name,
@@ -162,7 +174,6 @@ async function stubEmbeddingsAndLenses(
   });
 
   return {
-    lensPosts,
     setAnchorStale: (value: boolean) => {
       anchorStale = value;
     },
@@ -172,58 +183,20 @@ async function stubEmbeddingsAndLenses(
   };
 }
 
-async function openShowSimilar(page: Page) {
+async function openEmbeddingLenses(page: Page) {
   await openDiscoverTab(page, 'Embeddings');
   await expect(page.getByTestId(`embedding-index-${INDEX_ID}`)).toBeVisible();
-  await page.getByTestId(`embedding-similar-input-${INDEX_ID}`).fill('kitty');
-  await page.getByTestId(`embedding-similar-search-${INDEX_ID}`).click();
-  await expect(page.getByTestId('embedding-lens-save-hit-2')).toBeVisible();
-}
-
-test('saving a view from a show-similar hit POSTs a row-anchor embedding_similarity lens', async ({ page }) => {
-  const pid = await createProject(page.request, uniqueName('e2e-emb-lens'));
-  const sheetId = await importCsv(page.request, pid, 'a.csv', 'headline\ncat\nkitten\npuppy\n');
-  const { lensPosts } = await stubEmbeddingsAndLenses(page, pid, sheetId);
-  await page.goto(`/p/${pid}`);
-  await openShowSimilar(page);
-
-  await page.getByTestId('embedding-lens-save-hit-2').click();
-  await expect(page.getByTestId('embedding-lens-save-hit-2')).toContainText('Saved');
-
-  await expect.poll(() => lensPosts.length).toBe(1);
-  const query = lensPosts[0].query as Record<string, unknown>;
-  expect(query.kind).toBe('embedding_similarity');
-  expect(query.embedding_index_id).toBe(INDEX_ID);
-  expect((query.anchor as Record<string, unknown>).kind).toBe('row');
-  expect((query.anchor as Record<string, unknown>).row_id).toBe(2);
-  // the saved query carries an EXPLICIT limit = the grid lens window (500), so the
-  // candidate top-K matches the window — without it the QuerySpec default (50) would
-  // silently cap the grid at 50 rows.
-  expect(query.limit).toBe(500);
-});
-
-test('the saved lens appears in the lens list', async ({ page }) => {
-  const pid = await createProject(page.request, uniqueName('e2e-emb-lens'));
-  const sheetId = await importCsv(page.request, pid, 'a.csv', 'headline\ncat\nkitten\npuppy\n');
-  await stubEmbeddingsAndLenses(page, pid, sheetId);
-  await page.goto(`/p/${pid}`);
-  await openShowSimilar(page);
-
-  await page.getByTestId('embedding-lens-save-hit-2').click();
-  // the lens list reloads and shows the new lens (id 1)
   await expect(page.getByTestId('embedding-lens-1')).toBeVisible();
   await expect(page.getByTestId('embedding-lens-1')).toContainText('Similar to');
   await expect(page.getByTestId('embedding-lens-open-1')).toBeVisible();
-});
+}
 
 test('opening a lens resolves it and renders the ranked rows with distance/score', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-emb-lens'));
   const sheetId = await importCsv(page.request, pid, 'a.csv', 'headline\ncat\nkitten\npuppy\n');
   await stubEmbeddingsAndLenses(page, pid, sheetId);
   await page.goto(`/p/${pid}`);
-  await openShowSimilar(page);
-
-  await page.getByTestId('embedding-lens-save-hit-2').click();
+  await openEmbeddingLenses(page);
   await page.getByTestId('embedding-lens-open-1').click();
 
   const results = page.getByTestId('embedding-lens-results-1');
@@ -240,10 +213,7 @@ test('a stale-anchor resolve shows a refresh-needed message rather than a crash'
   const sheetId = await importCsv(page.request, pid, 'a.csv', 'headline\ncat\nkitten\npuppy\n');
   const { setAnchorStale } = await stubEmbeddingsAndLenses(page, pid, sheetId);
   await page.goto(`/p/${pid}`);
-  await openShowSimilar(page);
-
-  await page.getByTestId('embedding-lens-save-hit-2').click();
-  await expect(page.getByTestId('embedding-lens-1')).toBeVisible();
+  await openEmbeddingLenses(page);
 
   setAnchorStale(true);
   await page.getByTestId('embedding-lens-open-1').click();
@@ -261,10 +231,7 @@ test('an incomplete-index resolve shows refresh-needed, not a raw error', async 
   const sheetId = await importCsv(page.request, pid, 'a.csv', 'headline\ncat\nkitten\npuppy\n');
   const { setResolveError } = await stubEmbeddingsAndLenses(page, pid, sheetId);
   await page.goto(`/p/${pid}`);
-  await openShowSimilar(page);
-
-  await page.getByTestId('embedding-lens-save-hit-2').click();
-  await expect(page.getByTestId('embedding-lens-1')).toBeVisible();
+  await openEmbeddingLenses(page);
 
   // an appended unembedded row -> the backend gate returns embedding_index_incomplete
   setResolveError('embedding_index_incomplete');

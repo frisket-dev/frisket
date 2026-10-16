@@ -22,7 +22,7 @@ const index: EmbeddingIndexSummary = {
     lastRefreshJobId: null, lastRefreshReceiptId: null, pendingRefreshJobId: null },
 };
 
-function mountCard() {
+function mountCard(selectedRowIds: readonly string[] = []) {
   const destinations = new Set<string>();
   const runAnalysis = vi.fn(async (request: EmbeddingIndexAnalysisInput) => {
     if (destinations.has(request.sheet_name)) throw new Error(`A sheet named '${request.sheet_name}' already exists`);
@@ -30,15 +30,30 @@ function mountCard() {
     return { sheetId: destinations.size + 10 };
   });
   const onSelectSheet = vi.fn();
+  const onFindSimilar = vi.fn();
   const apiPort = {
     runEmbeddingIndexAnalysis: runAnalysis, listLenses: vi.fn().mockResolvedValue([]),
   } as unknown as EmbeddingApiPort;
   render(<OpenLensContext.Provider value={vi.fn()}>
     <EmbeddingIndexCard apiPort={apiPort} index={index} busy={false}
-      onRefresh={vi.fn()} onChanged={vi.fn()} onSelectSheet={onSelectSheet} />
+      onRefresh={vi.fn()} onChanged={vi.fn()} onSelectSheet={onSelectSheet}
+      sheet={{ id: '3', name: 'People', rowCount: 10, columns: [{ id: '8', name: 'bio', type: 'text' }] } as never}
+      selectedRowIds={selectedRowIds} onFindSimilar={onFindSimilar} />
   </OpenLensContext.Provider>);
-  return { runAnalysis, onSelectSheet };
+  return { runAnalysis, onSelectSheet, onFindSimilar };
 }
+
+it('routes one selected row through the named index search anchor', () => {
+  const { onFindSimilar } = mountCard(['42']);
+  fireEvent.click(screen.getByTestId('embedding-find-similar-idx_1'));
+  expect(onFindSimilar).toHaveBeenCalledWith({
+    sheetId: '3',
+    rowId: '42',
+    columnId: '8',
+    label: 'People, row 42',
+    namedIndexId: 'idx_1',
+  });
+});
 
 const cases = [
   { kind: 'pca', label: 'PCA sheet name', name: 'PCA of People', actionId: 'embedding.index_project',

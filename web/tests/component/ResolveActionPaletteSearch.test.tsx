@@ -12,18 +12,25 @@ import { syntheticActionCatalogEntry } from '../support/actionCatalogFixtures';
 
 vi.mock('../../src/workbench/usePaletteSearch', () => ({
   usePaletteSearch: () => ({
-    mode: 'keyword',
+    mode: 'lexical',
     setMode: vi.fn(),
     rerank: false,
     setRerank: vi.fn(),
-    hits: null,
+    groups: null,
+    coverage: null,
     searchError: null,
     canWatch: false,
     watchBusy: false,
     watchStatus: null,
     createSearchWatch: vi.fn(),
-    searchGroups: [],
     sheetName: vi.fn(),
+    anchor: null,
+    anchorLabel: null,
+    findSimilar: vi.fn(),
+    clearAnchor: vi.fn(),
+    setupBusy: false,
+    setupError: null,
+    startSetup: vi.fn(),
   }),
 }));
 

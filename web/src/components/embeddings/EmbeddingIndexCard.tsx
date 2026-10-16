@@ -1,16 +1,16 @@
 import { useCallback, useReducer } from 'react';
-import { ChevronDown, ChevronRight, Download, RefreshCw } from 'lucide-react';
+import { ChevronDown, ChevronRight, Download, RefreshCw, ScanSearch } from 'lucide-react';
 import {
   ApiError,
   type EmbeddingExportResult,
   type EmbeddingIndexSummary,
+  type SheetMeta,
 } from '../../api/open';
 import type { EmbeddingApiPort } from '../../api/ports';
 import { REFRESH_NEEDED_CODES } from './constants';
 import { StatusChip } from '../PanelPrimitives';
 import { IndexPolicyDetail } from './IndexPolicyDetail';
 import { LensList } from './LensList';
-import { ShowSimilar } from './ShowSimilar';
 
 interface EmbeddingIndexCardProps {
   apiPort: EmbeddingApiPort;
@@ -19,18 +19,25 @@ interface EmbeddingIndexCardProps {
   onRefresh(indexId: string, mode: 'incremental' | 'full'): void;
   onChanged(): void | Promise<void>;
   onSelectSheet(sheetId: string): void;
+  sheet: SheetMeta;
+  selectedRowIds: readonly string[];
+  onFindSimilar(input: {
+    sheetId: string;
+    rowId: string;
+    columnId: string;
+    label: string;
+    namedIndexId?: string;
+  }): void;
 }
 
 interface CardState {
   showPolicy: boolean;
-  lensVersion: number;
 }
 
-type CardAction = { type: 'toggle_policy' } | { type: 'lens_saved' };
+type CardAction = { type: 'toggle_policy' };
 
 const initialCardState: CardState = {
   showPolicy: false,
-  lensVersion: 0,
 };
 
 function indexPolicyResetKey(index: EmbeddingIndexSummary): string {
@@ -49,8 +56,6 @@ function cardReducer(state: CardState, action: CardAction): CardState {
   switch (action.type) {
     case 'toggle_policy':
       return { ...state, showPolicy: !state.showPolicy };
-    case 'lens_saved':
-      return { ...state, lensVersion: state.lensVersion + 1 };
     default:
       return state;
   }
@@ -63,9 +68,16 @@ export function EmbeddingIndexCard({
   onRefresh,
   onChanged,
   onSelectSheet,
+  sheet,
+  selectedRowIds,
+  onFindSimilar,
 }: EmbeddingIndexCardProps) {
   const [state, dispatch] = useReducer(cardReducer, initialCardState);
-  const onLensSaved = useCallback(() => dispatch({ type: 'lens_saved' }), []);
+  const selectedRowId = selectedRowIds.length === 1 ? selectedRowIds[0] : null;
+  const sourceColumn = sheet.columns.find((column) =>
+    index.sourceColumns.includes(column.name),
+  );
+  const canFindSimilar = selectedRowId !== null && sourceColumn !== undefined;
 
   return (
     <div className="embedding-index" data-testid={`embedding-index-${index.indexId}`}>
@@ -118,14 +130,28 @@ export function EmbeddingIndexCard({
       </div>
       <IndexAnalysis apiPort={apiPort} index={index} onSelectSheet={onSelectSheet} />
       <ExportControl apiPort={apiPort} index={index} />
-      <ShowSimilar
-        apiPort={apiPort}
-        index={index}
-        onRefresh={onRefresh}
-        busy={busy}
-        onLensSaved={onLensSaved}
-      />
-      <LensList apiPort={apiPort} index={index} reloadKey={state.lensVersion} />
+      <button
+        type="button"
+        className="mini-btn"
+        data-testid={`embedding-find-similar-${index.indexId}`}
+        disabled={!canFindSimilar}
+        title={canFindSimilar
+          ? 'Find rows similar to the selected row'
+          : 'Select one row to find similar rows'}
+        onClick={() => {
+          if (!selectedRowId || !sourceColumn) return;
+          onFindSimilar({
+            sheetId: String(sheet.id),
+            rowId: selectedRowId,
+            columnId: String(sourceColumn.id),
+            label: `${index.name}, row ${selectedRowId}`,
+            namedIndexId: index.indexId,
+          });
+        }}
+      >
+        <ScanSearch size={11} /> Find similar
+      </button>
+      <LensList apiPort={apiPort} index={index} reloadKey={0} />
       <button
         type="button"
         className="mini-btn embedding-policy-toggle"

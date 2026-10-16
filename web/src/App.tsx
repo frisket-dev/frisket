@@ -207,7 +207,6 @@ import {
   EVIDENCE_CONTRIBUTION_ID,
   GRAPH_NEIGHBORHOOD_CONTRIBUTION_ID,
   NOTIFICATIONS_CONTRIBUTION_ID,
-  SEARCH_CONTRIBUTION_ID,
   SAVED_VIEWS_CONTRIBUTION_ID,
   SOURCES_CONTRIBUTION_ID,
   SOURCE_HEALTH_CONTRIBUTION_ID,
@@ -1129,6 +1128,8 @@ function SidebarContributionBody({ contribution }: { contribution: WorkbenchReso
     savedViewsSaving,
     activeSavedViewId,
     addWatchForCurrentView,
+    openCellSimilarity,
+    selectedRowIdsForSheet,
     setViewName,
     startCreatingSavedView,
     startEditingView,
@@ -1223,6 +1224,8 @@ function SidebarContributionBody({ contribution }: { contribution: WorkbenchReso
           onOpenLens={(lensId, name) => {
             void applyLens(lensId, name);
           }}
+          selectedRowIds={selectedRowIdsForSheet.map(String)}
+          onFindSimilar={openCellSimilarity}
         />
       ) : null;
     default: {
@@ -1254,9 +1257,7 @@ function SidebarContributionBody({ contribution }: { contribution: WorkbenchReso
   }
 }
 
-const NON_DISCOVER_LEFT_SIDEBAR_CONTRIBUTION_IDS = new Set<string>([
-  SEARCH_CONTRIBUTION_ID,
-]);
+const NON_DISCOVER_LEFT_SIDEBAR_CONTRIBUTION_IDS = new Set<string>();
 
 const DISCOVER_TAB_CONTRIBUTION_IDS: Record<DiscoverTab, readonly string[]> = {
   Facets: [FRIENDLY_FILTERS_CONTRIBUTION_ID],
@@ -3533,6 +3534,7 @@ function WorkspacePrimarySurface() {
     mapViewDescriptor,
     openRowById,
     openRowRef,
+    openDocumentSimilarity,
     project,
     promoteCurrentView,
     renderPluginDetailTab,
@@ -3680,6 +3682,7 @@ function WorkspacePrimarySurface() {
         onChangeState={setDocumentView}
         onDocumentFocus={selectDocumentRow}
         onOpenDetail={openRowById}
+        onFindSimilar={openDocumentSimilarity}
         queryDocuments={queryDocuments}
         hydrateRow={hydrateDocumentRow}
         orderKey={orderKey}
@@ -4721,6 +4724,7 @@ const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
     commandPaletteOpen,
     closeCommandPaletteAndReset,
     commandPaletteQuery,
+    commandPaletteSearchSeed,
     setCommandPaletteQuery,
     commandPaletteBestMatchItems,
     commandPaletteActionItems,
@@ -4876,6 +4880,7 @@ const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
           onLaunchAction={runActionFromSurface}
           onNavigateSheet={selectSheet}
           searchSheets={sheets}
+          searchSeed={commandPaletteSearchSeed}
           onNavigateSearchHit={navigateToSearchHit}
           launcherCommands={paletteLauncherCommands}
         />

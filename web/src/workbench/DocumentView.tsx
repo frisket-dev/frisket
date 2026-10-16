@@ -7,7 +7,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnnotatedTextReader } from './AnnotatedTextReader';
 import { MentionDetailPanel } from './MentionDetailPanel';
 import { mentionTargetForMark, type MentionDetailTarget } from './mentionDetailModel';
-import { DocumentReader } from './DocumentReader';
+import {
+  DocumentReader,
+  type DocumentFindSimilarTarget,
+} from './DocumentReader';
 import { DocumentAlongsidePane } from './DocumentAlongsidePane';
 import { useDocumentAlongsidePreference } from '../workspace/useWorkspaceChromeState';
 import type { TimedTranscriptDocument } from './timedTranscriptModel';
@@ -36,6 +39,12 @@ interface DocumentViewProps {
   onDocumentFocus(rowId: string): void;
   /** Open the resident Detail column for a row (openRowById): selects + docks. */
   onOpenDetail(rowId: string): void;
+  onFindSimilar?(anchor: {
+    sheetId: string;
+    rowId: string;
+    columnId: string;
+    target: DocumentFindSimilarTarget;
+  }): void;
   queryDocuments(args: { sourceColumnId: string; titleColumnId: string | null; query: string;
     cursor?: string; anchorRowId?: string; limit: number }): Promise<DocumentListPage>;
   hydrateRow(rowId: string, columnIds: string[]): Promise<Row | null>;
@@ -68,6 +77,7 @@ export function DocumentView({
   onChangeState,
   onDocumentFocus,
   onOpenDetail,
+  onFindSimilar,
   queryDocuments,
   hydrateRow,
   onListSort,
@@ -445,7 +455,7 @@ export function DocumentView({
         </section>
       ) : (
         <DocumentReader
-          key={`reader-${activeRowId ?? 'none'}`}
+          key={`reader-${activeRowId ?? 'none'}-${state.readerLocationKey ?? ''}`}
           media={activeMedia}
           mediaKind={activeMediaKind}
           title={activeItem?.title ?? 'No document selected'}
@@ -460,6 +470,17 @@ export function DocumentView({
             : filePage(sourceColumn && activeRow
               ? activeRow.cells[String(sourceColumn.id)]
               : null)}
+          initialTime={state.readerTime?.rowId === activeRowId
+            ? state.readerTime.seconds
+            : null}
+          onFindSimilar={activeRowId && sourceColumn && onFindSimilar
+            ? (target) => onFindSimilar({
+                sheetId: sheet.id,
+                rowId: activeRowId,
+                columnId: String(sourceColumn.id),
+                target,
+              })
+            : undefined}
           onPageChange={(page) => { if (activeRowId && (state.readerPage?.rowId !== activeRowId || state.readerPage.page !== page)) setState({ readerPage: { rowId: activeRowId, page } }); }}
           rowKey={activeRowId ?? 'none'}
           onOpenDetail={() => {

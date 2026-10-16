@@ -437,7 +437,7 @@ test('remote provider requires privacy confirmation before automatic refresh', a
   await expect(page.getByTestId('embedding-auto-confirm')).toBeVisible();
 });
 
-test('refresh clears refresh-needed and show-similar returns hits', async ({ page }) => {
+test('refresh clears refresh-needed', async ({ page }) => {
   const { stubs } = await setup(page);
   stubs.seedIndex();
   await page.reload();
@@ -450,30 +450,4 @@ test('refresh clears refresh-needed and show-similar returns hits', async ({ pag
   await expect(page.getByTestId(`embedding-refresh-needed-${INDEX_ID}`)).toHaveCount(0);
   await expect(page.getByTestId(`embedding-status-${INDEX_ID}`)).toContainText('2/2 ready');
 
-  await page.getByTestId(`embedding-similar-input-${INDEX_ID}`).fill('kitty');
-  await page.getByTestId(`embedding-similar-search-${INDEX_ID}`).click();
-  await expect(page.getByTestId(`embedding-similar-hits-${INDEX_ID}`)).toContainText('kitten');
-});
-
-test('stale embeddings surface a refresh-needed affordance, not a generic error', async ({ page }) => {
-  const { stubs } = await setup(page);
-  stubs.seedIndex();
-  await page.reload();
-  await expect(page.getByTestId('embeddings-panel')).toBeVisible();
-  await page.getByTestId(`embedding-refresh-${INDEX_ID}`).click();
-
-  // source content changed since embedding -> the next similar query is stale
-  stubs.setStale(true);
-  await page.getByTestId(`embedding-similar-input-${INDEX_ID}`).fill('kitty');
-  await page.getByTestId(`embedding-similar-search-${INDEX_ID}`).click();
-
-  const banner = page.getByTestId(`embedding-similar-stale-${INDEX_ID}`);
-  await expect(banner).toBeVisible();
-  await expect(banner).toContainText('refresh needed');
-
-  // the banner's Refresh re-embeds; a follow-up query then succeeds
-  await page.getByTestId(`embedding-similar-refresh-${INDEX_ID}`).click();
-  await page.getByTestId(`embedding-similar-input-${INDEX_ID}`).fill('kitty');
-  await page.getByTestId(`embedding-similar-search-${INDEX_ID}`).click();
-  await expect(page.getByTestId(`embedding-similar-hits-${INDEX_ID}`)).toContainText('kitten');
 });

@@ -1,24 +1,33 @@
-import type { HttpContractSuccessResponse } from './httpContract';
+import type {
+  HttpContractInvokeOptions,
+  HttpContractSuccessResponse,
+} from './httpContract';
 import { httpContract } from './httpContract';
 
+export type ProjectSearchRequestWire = NonNullable<
+  HttpContractInvokeOptions<'tenant.search_ep.post'>['body']
+>;
+export type ProjectSearchResponseWire =
+  HttpContractSuccessResponse<'tenant.search_ep.post'>;
+export type ProjectSearchGroupWire = ProjectSearchResponseWire['groups'][number];
+export type ProjectSearchHitWire = ProjectSearchGroupWire['primary'];
+type ProjectSearchQueryWire = ProjectSearchRequestWire['query'];
+type ProjectSearchSimilarQueryWire = Extract<
+  ProjectSearchQueryWire,
+  { kind: 'similar' }
+>;
+export type ProjectSearchAnchorWire = ProjectSearchSimilarQueryWire['anchor'];
+
 export interface ProjectSearchOptions {
-  limit?: number;
-  mode?: string;
-  rerank?: boolean | string;
   signal?: AbortSignal;
   headers?: HeadersInit;
 }
 
-export type ProjectSearchPageWire =
-  HttpContractSuccessResponse<'tenant.search_ep.get'>;
-
-export type ProjectSearchHitWire = ProjectSearchPageWire['hits'][number];
-
 export interface ProjectSearchApi {
   searchProject(
-    q: string,
-    options?: ProjectSearchOptions | number,
-  ): Promise<ProjectSearchPageWire>;
+    request: ProjectSearchRequestWire,
+    options?: ProjectSearchOptions,
+  ): Promise<ProjectSearchResponseWire>;
 }
 
 type ContractErrorFactory = (status: number, payload: unknown) => Error;
@@ -28,21 +37,15 @@ export function createProjectSearchApi(
   projectId: string,
 ): ProjectSearchApi {
   return {
-    searchProject(q, options = {}) {
-      const rawOptions = typeof options === 'number' ? { limit: options } : options;
-      const rerank = rawOptions.rerank;
+    searchProject(request, options = {}) {
       return httpContract(
-        'tenant.search_ep.get',
+        'tenant.search_ep.post',
         {
           pathParams: { pid: projectId },
-          query: {
-            q,
-            limit: rawOptions.limit ?? 50,
-            mode: rawOptions.mode ?? 'keyword',
-            rerank: rerank === true ? 'on' : rerank === false || rerank === undefined ? 'off' : rerank,
-          },
-          signal: rawOptions.signal,
-          headers: rawOptions.headers,
+          query: {},
+          body: request,
+          signal: options.signal,
+          headers: options.headers,
           errorFactory,
         },
       );

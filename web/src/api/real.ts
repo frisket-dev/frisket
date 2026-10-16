@@ -176,8 +176,6 @@ import type {
   ProjectRole,
   RemovalResult,
   RuntimeConfig,
-  ProjectSearchPage,
-  SearchOptions,
   SpendReport,
 } from './types';
 import type { ProjectApiPort } from './ports';
@@ -677,10 +675,10 @@ export function createDiagnosticBundle(
 
 export function searchProject(
   projectId: string,
-  q: string,
-  options: SearchOptions | number = {},
-): Promise<ProjectSearchPage> {
-  return createProjectSearchApi(apiErrorFromContract, projectId).searchProject(q, options);
+  request: import('./projectSearch').ProjectSearchRequestWire,
+  options: import('./projectSearch').ProjectSearchOptions = {},
+): Promise<import('./projectSearch').ProjectSearchResponseWire> {
+  return createProjectSearchApi(apiErrorFromContract, projectId).searchProject(request, options);
 }
 
 export function createProject(name: string): Promise<ProjectInfo> {

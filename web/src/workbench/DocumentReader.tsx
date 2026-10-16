@@ -2,11 +2,14 @@ import {
   lazy,
   Suspense,
   useCallback,
+  useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type ReactNode,
   type RefObject,
+  type SyntheticEvent,
 } from 'react';
 import {
   ChevronLeft,
@@ -16,6 +19,7 @@ import {
   Maximize2,
   Minimize2,
   Settings2,
+  ScanSearch,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
@@ -53,6 +57,12 @@ type OptionsPopoverRenderer = (props: {
 }) => ReactNode;
 
 export type { DocumentPageImage } from '../media/PdfViewer';
+
+export interface DocumentFindSimilarTarget {
+  kind: DocumentMediaKind;
+  page?: number;
+  timeSeconds?: number;
+}
 
 /** Invokes the `optionsPopover` render-prop from a component that never
  *  itself calls `useRef` — react-hooks/refs' render-time-ref-access check
@@ -116,7 +126,10 @@ interface DocumentReaderProps {
   /** Optional starting page. The reader mounts showing this page; callers
    *  remount it (via `key`) to re-target. */
   initialPage?: number | null;
+  /** Optional starting position for native audio/video. */
+  initialTime?: number | null;
   onPageChange?(page: number): void;
+  onFindSimilar?(target: DocumentFindSimilarTarget): void;
   /** Positioned inside the rendered page, in its CSS-pixel coordinate space. */
   renderPageOverlay?(page: number): ReactNode;
   /** Use server-rendered geometry when extraction coordinates use MediaBox,
@@ -152,7 +165,9 @@ export function DocumentReader({
   selectionCount,
   timedTranscriptDocument = null,
   initialPage,
+  initialTime,
   onPageChange,
+  onFindSimilar,
   renderPageOverlay,
   pageImages,
   totalPageCount,
@@ -175,8 +190,8 @@ export function DocumentReader({
     optionsMenuRefs,
   );
 
-  // page/zoom state is per-document: the reader is remounted (keyed on rowKey by
-  // the parent) when the active document changes, so this state starts fresh.
+  // Page/zoom state starts fresh when the active document changes. A located
+  // search result can also retarget the currently open document.
   const [pageCount, setPageCount] = useState(0);
   const [currentPage, setCurrentPageValue] = useState(
     typeof initialPage === 'number' && initialPage > 0 ? initialPage : 1,
@@ -186,6 +201,21 @@ export function DocumentReader({
     ? Math.max(totalPageCount ?? 0, pageImages.reduce((highest, image) => Math.max(highest, image.page), 0), 1)
     : Math.max(pageCount, 1);
   const [zoom, setZoom] = useState(1);
+  const currentMediaTime = useRef(
+    typeof initialTime === 'number' && Number.isFinite(initialTime) ? initialTime : 0,
+  );
+  const nativeMediaRef = useRef<HTMLMediaElement | null>(null);
+  useEffect(() => {
+    if (
+      nativeMediaRef.current
+      && typeof initialTime === 'number'
+      && Number.isFinite(initialTime)
+      && initialTime >= 0
+    ) {
+      nativeMediaRef.current.currentTime = initialTime;
+      currentMediaTime.current = initialTime;
+    }
+  }, [initialTime]);
   // `videoFit`/`onVideoFitChange` are lifted to the caller as chrome state —
   // sticky across this component's per-document remount and across reload —
   // instead of resetting like the genuinely per-document page/zoom state
@@ -230,6 +260,28 @@ export function DocumentReader({
   const showTimedTranscript = timedTranscriptDocument
     ? hasTimedTranscript(timedTranscriptDocument)
     : false;
+  const seekOnLoad = (event: SyntheticEvent<HTMLMediaElement>) => {
+    if (typeof initialTime === 'number' && Number.isFinite(initialTime) && initialTime >= 0) {
+      event.currentTarget.currentTime = initialTime;
+      currentMediaTime.current = initialTime;
+    }
+  };
+  const trackMediaTime = (event: SyntheticEvent<HTMLMediaElement>) => {
+    currentMediaTime.current = event.currentTarget.currentTime;
+  };
+  const trackTimedMediaTime = useCallback((seconds: number) => {
+    currentMediaTime.current = seconds;
+  }, []);
+  const findSimilar = () => {
+    if (!mediaKind || !onFindSimilar) return;
+    onFindSimilar({
+      kind: mediaKind,
+      ...(mediaKind === 'pdf' ? { page: currentPage } : {}),
+      ...(mediaKind === 'audio' || mediaKind === 'video'
+        ? { timeSeconds: currentMediaTime.current }
+        : {}),
+    });
+  };
 
   // jsx-no-jsx-as-prop: memoized so PanelHeader's chips prop doesn't get a
   // fresh JSX element every render.
@@ -328,6 +380,18 @@ export function DocumentReader({
                 {videoFit === 'full' ? <Maximize2 size={15} /> : <Minimize2 size={15} />}
               </button>
             )}
+            {media && mediaKind !== 'other' && onFindSimilar && (
+              <button
+                type="button"
+                className="icon-btn"
+                data-testid="document-find-similar"
+                aria-label="Find similar"
+                title="Find similar"
+                onClick={findSimilar}
+              >
+                <ScanSearch size={15} />
+              </button>
+            )}
             <button
               type="button"
               className="icon-btn"
@@ -399,7 +463,11 @@ export function DocumentReader({
           </div>
         )}
         {media && mediaKind === 'video' && timedTranscriptDocument && showTimedTranscript && (
-          <TimedTranscript document={timedTranscriptDocument} />
+          <TimedTranscript
+            document={timedTranscriptDocument}
+            initialTime={initialTime}
+            onTimeChange={trackTimedMediaTime}
+          />
         )}
         {media && mediaKind === 'video' && !showTimedTranscript && (
           <div
@@ -408,21 +476,35 @@ export function DocumentReader({
             data-video-fit={videoFit}
           >
             <video
+              ref={(node) => { nativeMediaRef.current = node; }}
               className={`document-video-${videoFit}`}
               src={media.url}
               aria-label={title}
               controls
+              onLoadedMetadata={seekOnLoad}
+              onTimeUpdate={trackMediaTime}
             >
               <track kind="captions" />
             </video>
           </div>
         )}
         {media && mediaKind === 'audio' && timedTranscriptDocument && showTimedTranscript && (
-          <TimedTranscript document={timedTranscriptDocument} />
+          <TimedTranscript
+            document={timedTranscriptDocument}
+            initialTime={initialTime}
+            onTimeChange={trackTimedMediaTime}
+          />
         )}
         {media && mediaKind === 'audio' && !showTimedTranscript && (
           <div className="document-native" data-testid="document-audio">
-            <audio src={media.url} aria-label={title} controls>
+            <audio
+              ref={(node) => { nativeMediaRef.current = node; }}
+              src={media.url}
+              aria-label={title}
+              controls
+              onLoadedMetadata={seekOnLoad}
+              onTimeUpdate={trackMediaTime}
+            >
               <track kind="captions" />
             </audio>
           </div>
