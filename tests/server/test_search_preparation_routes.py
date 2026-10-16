@@ -7,6 +7,7 @@ from dataclasses import replace
 from frisket.server.app import create_app
 from frisket.server.services import search_preparation as preparation_module
 from frisket.server.services.search_preparation import SearchPreparationService
+from frisket.server.services.action_runs import ActionRunResponse
 from frisket.server.workspace import Workspace
 from frisket.engine.jobs.search_preparation_store import SearchPreparationStore
 
@@ -261,6 +262,112 @@ def test_disappeared_required_setup_fails_without_enqueuing_action(
 
     assert service.get(project_id, batch.id).status == "failed"
     assert service.store.children(batch.id) == []
+
+
+def test_recovery_adopts_unbound_real_action_reservation(tmp_path, monkeypatch) -> None:
+    ready = replace(_Requirement(), weights_ready=True)
+    monkeypatch.setattr(preparation_module, "_requirements", lambda: (ready,))
+    workspace = Workspace(tmp_path / "workspace")
+    project_id = workspace.create("Concurrent preparation")["id"]
+    project = workspace.get(project_id)
+    sheet_id = project.add_sheet("Files")
+    image_column = project.add_column(sheet_id, "Image", type="image")
+    digest = project.add_blob(b"image", filename="scan.png", mime="image/png")
+    project.add_rows(
+        sheet_id,
+        [{"Image": {"blob": digest, "filename": "scan.png", "mime": "image/png"}}],
+        {"Image": image_column},
+    )
+    service = SearchPreparationService(workspace)
+    plan = service._plan(project, sheet_id=sheet_id, row_ids=None, force_ocr=False)
+    batch = service.store.create(
+        workspace_root=str(workspace.root),
+        storage_org_id=None,
+        project_id=project_id,
+        trigger_receipt_id=None,
+        sheet_id=sheet_id,
+        row_ids=None,
+        source_cutoff=int(project.op_cursor),
+        force_ocr=False,
+        plan=plan,
+    )
+    [item] = plan["items"]
+    child_key = service._child_key("ocr", item["column_id"], [item])
+    service.store.reserve_child_and_advance(
+        batch.id, expected_cursor=0, child_key=child_key, kind="ocr"
+    )
+    response = service.action_runs.run_action(
+        project_id,
+        service._action_body(
+            project,
+            batch,
+            "ocr",
+            item["column_name"],
+            [item],
+            child_key,
+        ),
+    )
+    assert response.payload["status"] == "queued"
+    assert service.store.children(batch.id)[0].job_id is None
+
+    # Simulate another process/restart advancing after action admission but
+    # before the coordinator bound its child. Output columns now exist, so a
+    # fresh request would have different replacement preconditions.
+    service._advance(batch)
+
+    [child] = service.store.children(batch.id)
+    assert child.job_id is not None
+    assert child.receipt_id is not None
+    jobs = [
+        job
+        for job in workspace.queue.list_project_jobs(
+            project_id, kind="project.run", limit=20
+        )
+        if job.action_kind == "media.ocr"
+    ]
+    assert [job.id for job in jobs] == [child.job_id]
+    assert service.get(project_id, batch.id).errors == []
+
+
+def test_raced_action_reservation_defers_without_poisoning_batch(
+    tmp_path, monkeypatch
+) -> None:
+    ready = replace(_Requirement(), weights_ready=True)
+    monkeypatch.setattr(preparation_module, "_requirements", lambda: (ready,))
+    workspace = Workspace(tmp_path / "workspace")
+    project_id = workspace.create("Reservation race")["id"]
+    project = workspace.get(project_id)
+    sheet_id = project.add_sheet("Files")
+    image_column = project.add_column(sheet_id, "Image", type="image")
+    digest = project.add_blob(b"image", filename="scan.png", mime="image/png")
+    project.add_rows(
+        sheet_id,
+        [{"Image": {"blob": digest, "filename": "scan.png", "mime": "image/png"}}],
+        {"Image": image_column},
+    )
+
+    class ReservationInProgress:
+        def run_action(self, _project_id, _body):
+            return ActionRunResponse(
+                status_code=200,
+                payload={
+                    "status": "failed",
+                    "errors": [
+                        {
+                            "code": "idempotency_in_progress",
+                            "message": "ordinary action reservation is still publishing",
+                        }
+                    ],
+                },
+            )
+
+    service = SearchPreparationService(workspace, action_runs=ReservationInProgress())
+    batch = service.create(project_id, sheet_id=sheet_id, row_ids=None, force_ocr=False)
+
+    assert batch.errors == []
+    [child] = service.store.children(batch.id)
+    assert child.job_id is None and child.receipt_id is None
+    assert service.store.list_active_page(storage_org_id=None)[0].id == batch.id
 
 
 def test_recovery_observes_setup_completed_by_another_process(

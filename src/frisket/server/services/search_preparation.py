@@ -21,6 +21,7 @@ from frisket.contracts.http.search_preparation import (
 from frisket.engine.jobs.search_index import index_work_marker
 from frisket.engine.jobs.search_preparation_store import (
     SearchPreparationBatchRow,
+    SearchPreparationChildRow,
     SearchPreparationStore,
 )
 from frisket.engine.store.import_sessions import ImportSessionStore
@@ -732,6 +733,14 @@ class SearchPreparationService:
                 )
                 cursor += 1
             project = self.workspace.get(row.project_id)
+            if self._adopt_existing_action_child(
+                project,
+                row=row,
+                child=child,
+                kind=kind,
+                child_key=key,
+            ):
+                continue
             if any(
                 not self._source_item_current(project, row.sheet_id, item)
                 for item in items
@@ -748,6 +757,15 @@ class SearchPreparationService:
             receipt_id = response.payload.get("receipt_id")
             if not isinstance(receipt_id, str):
                 errors = response.payload.get("errors")
+                if isinstance(errors, list) and any(
+                    isinstance(error, dict)
+                    and error.get("code") == "idempotency_in_progress"
+                    for error in errors
+                ):
+                    # Another process owns the ordinary action reservation.
+                    # Its receipt will expose run/job identity after enqueue;
+                    # the next durable reconciliation adopts it above.
+                    return
                 message = "Search preparation could not start."
                 if isinstance(errors, list) and errors and isinstance(errors[0], dict):
                     message = str(errors[0].get("message") or message)
@@ -778,6 +796,54 @@ class SearchPreparationService:
                 self.workspace.queue.cancel(raw_job_id)
                 return
         self._settle_if_coordinated(row)
+
+    def _adopt_existing_action_child(
+        self,
+        project: Any,
+        *,
+        row: SearchPreparationBatchRow,
+        child: SearchPreparationChildRow,
+        kind: str,
+        child_key: str,
+    ) -> bool:
+        """Bind an ordinary action reservation created by a concurrent advance.
+
+        A receipt without a run/job is still inside the action admission
+        transaction. Returning true defers without manufacturing a coordinator
+        failure; periodic recovery retries after that transaction publishes its
+        durable job identity.
+        """
+
+        action_kind = {
+            "native_pdf": "media.read_pdf_text",
+            "ocr": "media.ocr",
+            "transcribe": "media.transcribe",
+        }.get(kind)
+        if action_kind is None:
+            return False
+        receipt = ReceiptStore(project).find_by_action_kind_and_idempotency_key(
+            action_kind=action_kind,
+            key=f"search-preparation:{row.id}:{child_key}",
+        )
+        if receipt is None:
+            return False
+        if receipt.run_id is None:
+            return True
+        job = self.workspace.queue.get_project_run_job(
+            row.project_id,
+            receipt.run_id,
+            storage_org_id=row.storage_org_id,
+        )
+        if job is None:
+            return True
+        bound = self.store.bind_child(
+            child.id,
+            job_id=job.id,
+            receipt_id=receipt.id,
+        )
+        if not bound:
+            self.workspace.queue.cancel(job.id)
+        return True
 
     def _settle_if_coordinated(self, row: SearchPreparationBatchRow) -> None:
         from frisket.engine.jobs import model_pull_store
