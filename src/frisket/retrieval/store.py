@@ -133,6 +133,10 @@ class StalePublicationError(RuntimeError):
     """Prepared work no longer targets the authority revision being published."""
 
 
+class UnsupportedRetrievalSchema(RuntimeError):
+    """The derived retrieval sidecar cannot be read by this build."""
+
+
 class RetrievalStore:
     """Single-writer repository for one project's derived retrieval records."""
 
@@ -202,13 +206,13 @@ class RetrievalStore:
                 except (TypeError, ValueError):
                     version = None
                 if version != SCHEMA_VERSION:
-                    raise RuntimeError(
+                    raise UnsupportedRetrievalSchema(
                         f"unsupported retrieval schema version "
                         f"{None if row is None else row[0]!r}; "
                         f"expected {SCHEMA_VERSION}"
                     )
             elif tables:
-                raise RuntimeError(
+                raise UnsupportedRetrievalSchema(
                     "unsupported retrieval schema: schema version is missing"
                 )
 
