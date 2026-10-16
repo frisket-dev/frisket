@@ -331,26 +331,8 @@ export function PaletteSearchSection({
                 : `About ${formatNumberDisplay(consentSetup.download_bytes, 'filesize')}`}
             </span>
           </div>
-          <p>This model runs on the Frisket server. Nothing downloads until you choose Download and set up.</p>
-          {(consentSetup.license || consentSetup.source_url) && (
-            <p>
-              {consentSetup.license}
-              {consentSetup.source_url && <> · <a href={consentSetup.source_url} target="_blank" rel="noreferrer">Source</a></>}
-            </p>
-          )}
-          {consentSetup.additional_runtime_download && (
-            <p>Additional runtime files may also be downloaded; their size is not included above.</p>
-          )}
+          <p>Search by meaning.</p>
           <div className="search-preparation-actions">
-            <button
-              type="button"
-              className="btn btn-primary"
-              data-testid="search-setup-confirm"
-              disabled={setupBusy}
-              onClick={() => onStartSetup(consentSetup.setup_ref, consentSetup.scope)}
-            >
-              {setupBusy ? 'Starting…' : 'Download and set up'}
-            </button>
             <button
               type="button"
               className="btn"
@@ -359,6 +341,15 @@ export function PaletteSearchSection({
               onClick={() => setSetupConsentRef(null)}
             >
               Not now
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              data-testid="search-setup-confirm"
+              disabled={setupBusy}
+              onClick={() => onStartSetup(consentSetup.setup_ref, consentSetup.scope)}
+            >
+              {setupBusy ? 'Starting…' : 'Download and set up'}
             </button>
           </div>
         </section>
