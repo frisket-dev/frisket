@@ -147,13 +147,13 @@ class TimeRange:
 
 @dataclass(frozen=True, slots=True)
 class SourceLocator:
-    """Independent source coordinates; geometry stays behind source_span_id."""
+    """Independent source coordinates and ordered supporting source spans."""
 
     kind: str
     text: TextRange | None = None
     pages: PageRange | None = None
     time: TimeRange | None = None
-    source_span_id: str | None = None
+    source_span_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

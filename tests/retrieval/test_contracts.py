@@ -51,7 +51,7 @@ def locator() -> SourceLocator:
         ),
         pages=PageRange(start=2, end=2),
         time=TimeRange(start_seconds=1.25, end_seconds=4.5),
-        source_span_id="source_span:segment-2",
+        source_span_ids=("source_span:segment-2", "source_span:segment-3"),
     )
 
 
@@ -82,7 +82,7 @@ def test_locator_reuses_content_addressed_text_and_original_media_time() -> None
     assert located.text.content_hash == "sha256:transcript"
     assert located.pages == PageRange(start=2, end=2)
     assert located.time == TimeRange(start_seconds=1.25, end_seconds=4.5)
-    assert located.source_span_id == "source_span:segment-2"
+    assert located.source_span_ids == ("source_span:segment-2", "source_span:segment-3")
 
 
 def test_source_revision_separates_version_from_content_identity() -> None:
