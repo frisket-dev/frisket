@@ -266,7 +266,7 @@ def test_prepared_selector_uses_its_ordered_pins_not_newer_set(tmp_path) -> None
         assert newer.ref_id != selected.ref_id
         assert resolved.source.source_id == f"prepared-ref:{selected.ref_id}"
         assert resolved.source.source_kind == "prepared_text"
-        assert resolved.source.version_kind == "prepared_page_versions"
+        assert resolved.source.version_kind == "prepared_surface"
         assert isinstance(resolved.surface, PreparedDocumentSurface)
         assert [page.version_id for page in resolved.surface.pages] == [
             pin.version_id for pin in selected_text.pins

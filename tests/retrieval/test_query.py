@@ -471,6 +471,23 @@ def test_prepared_ocr_indexes_one_text_source_and_skips_positions_metadata(tmp_p
                 },
             ],
         )
+        drain_index(project)
+        request = SearchRequest(
+            scope=RetrievalScope(sheets=(SheetScope(sheet),)),
+            query=TextQuery(phrase),
+            mode="lexical",
+            group_by="source",
+            limit=10,
+            ranking=RankingPolicy(rerank="off"),
+        )
+        before_grounding = search(project, request)
+        before_prepared = next(
+            result
+            for result in before_grounding.results
+            if result.primary.part.source.source_kind == "prepared_text"
+        )
+        assert before_prepared.primary.part.locator.source_span_ids == ()
+
         region = record_source_span(
             project,
             artifact_id=int(artifact["id"]),
@@ -495,22 +512,25 @@ def test_prepared_ocr_indexes_one_text_source_and_skips_positions_metadata(tmp_p
         )
 
         drain_index(project)
-        response = search(
-            project,
-            SearchRequest(
-                scope=RetrievalScope(sheets=(SheetScope(sheet),)),
-                query=TextQuery(phrase),
-                mode="lexical",
-                group_by="source",
-                limit=10,
-                ranking=RankingPolicy(rerank="off"),
-            ),
-        )
+        response = search(project, request)
 
         assert {
             (result.primary.part.source.source_kind, result.primary.binding.column_id)
             for result in response.results
         } == {("prepared_text", ocr_text), ("text", notes)}
+        prepared_result = next(
+            result
+            for result in response.results
+            if result.primary.part.source.source_kind == "prepared_text"
+        )
+        assert prepared_result.primary.part.locator.pages == PageRange(1, 1)
+        assert prepared_result.primary.part.locator.source_span_ids == (
+            str(region["stable_id"]),
+        )
+        assert (
+            prepared_result.primary.part.source.version_value
+            != before_prepared.primary.part.source.version_value
+        )
         with RetrievalStore(project).open() as store:
             bound = store.db.execute(
                 "SELECT source.source_kind,binding.column_id "

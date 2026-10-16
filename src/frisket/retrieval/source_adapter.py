@@ -370,24 +370,34 @@ def _plain_surface(
     )
 
 
-def _prepared_surface(prepared: Any) -> PreparedDocumentSurface:
+def _prepared_surface(
+    prepared: Any,
+    *,
+    source_span_ids: tuple[str, ...] = (),
+    grounding_snapshot_hash: str | None = None,
+) -> PreparedDocumentSurface:
     source_id = f"prepared-ref:{prepared.ref_id}"
     pins = [
         (pin.page_number, pin.version_id, pin.content_hash) for pin in prepared.pins
     ]
-    pin_payload = json.dumps(
-        pins,
+    version_payload = json.dumps(
+        {
+            "pins": pins,
+            "grounding_snapshot_hash": grounding_snapshot_hash,
+            "source_span_ids": source_span_ids,
+        },
         ensure_ascii=False,
         allow_nan=False,
+        sort_keys=True,
         separators=(",", ":"),
     ).encode("utf-8")
-    pin_hash = _sha256_bytes(pin_payload)
+    version_hash = _sha256_bytes(version_payload)
     content_hash = _sha256_text(prepared.text)
     source = SourceRevision(
         source_id=source_id,
         source_kind="prepared_text",
-        version_kind="prepared_page_versions",
-        version_value=pin_hash,
+        version_kind="prepared_surface",
+        version_value=version_hash,
         content_hash=content_hash,
     )
     text = TextSurface(
@@ -395,6 +405,7 @@ def _prepared_surface(prepared: Any) -> PreparedDocumentSurface:
         text_surface_id=source_id,
         content_hash=content_hash,
         text=prepared.text,
+        source_span_ids=source_span_ids,
     )
     return PreparedDocumentSurface(
         text=text,
@@ -408,6 +419,38 @@ def _prepared_surface(prepared: Any) -> PreparedDocumentSurface:
             )
             for pin in prepared.pins
         ),
+    )
+
+
+def _prepared_ocr_grounding(
+    project: Any,
+    *,
+    sheet_id: int,
+    row_id: int,
+    column_id: int,
+    text: str,
+    source_artifact_id: int | None,
+) -> tuple[tuple[str, ...], str | None]:
+    """Return grounding owned by one exact current OCR text derivative."""
+
+    from frisket.engine.store.ocr_word_stream import resolve_current_ocr_evidence
+
+    candidates = resolve_current_ocr_evidence(
+        project,
+        sheet_id=sheet_id,
+        row_id=row_id,
+        column_id=column_id,
+    )
+    if (
+        len(candidates) != 1
+        or candidates[0].text_value != text
+        or candidates[0].artifact_id != source_artifact_id
+    ):
+        return (), None
+    selected = candidates[0]
+    return (
+        tuple(str(span["stable_id"]) for span in selected.spans),
+        selected.snapshot_hash,
     )
 
 
@@ -506,7 +549,19 @@ def resolve_cell_text_sources(
                 raise ValueError(
                     "prepared selector does not match the logical cell text"
                 )
-            surface = _prepared_surface(prepared)
+            source_span_ids, grounding_snapshot_hash = _prepared_ocr_grounding(
+                project,
+                sheet_id=selected_sheet,
+                row_id=row_id,
+                column_id=selected_column,
+                text=text,
+                source_artifact_id=prepared.source_artifact_id,
+            )
+            surface = _prepared_surface(
+                prepared,
+                source_span_ids=source_span_ids,
+                grounding_snapshot_hash=grounding_snapshot_hash,
+            )
         resolved[row_id] = ResolvedCellTextSource(
             sheet_id=selected_sheet,
             binding=BindingRevision(

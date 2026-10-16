@@ -505,7 +505,7 @@ def test_empty_project_open_does_not_queue_a_global_search_rebuild(tmp_path):
         assert not project.db.execute("SELECT 1 FROM search_dirty_scopes").fetchone()
 
 
-@pytest.mark.parametrize("kind", ["garbage", "foreign", "old_version"])
+@pytest.mark.parametrize("kind", ["garbage", "foreign", "old_v1", "old_v2"])
 def test_unusable_retrieval_cache_is_preserved_and_rebuilt_on_open(tmp_path, kind):
     from frisket.search import drain_index, search_project
 
@@ -521,13 +521,14 @@ def test_unusable_retrieval_cache_is_preserved_and_rebuilt_on_open(tmp_path, kin
         with sqlite3.connect(sidecar) as db:
             db.execute("CREATE TABLE preserved_work(value TEXT)")
             db.execute("INSERT INTO preserved_work VALUES ('paid vector remains')")
-            if kind == "old_version":
+            if kind.startswith("old_v"):
                 db.execute(
                     "CREATE TABLE retrieval_meta(key TEXT PRIMARY KEY,value TEXT)"
                 )
-                # Version 2 indexed every generated JSON output and let OCR
-                # prepared text fan out into an equivalent evidence source.
-                db.execute("INSERT INTO retrieval_meta VALUES ('schema_version','2')")
+                db.execute(
+                    "INSERT INTO retrieval_meta VALUES ('schema_version',?)",
+                    (kind.removeprefix("old_v"),),
+                )
     with closing(Project(path)) as project:
         archives = list(path.glob("retrieval-unusable-*/project.retrieval.db"))
         assert len(archives) == 1
