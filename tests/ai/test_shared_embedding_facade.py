@@ -5,6 +5,11 @@ import asyncio
 import pytest
 
 from frisket.ai.embeddings.facade import EmbeddingFacade, embedding_input_hash
+from frisket.ai.embeddings.spaces import (
+    DescriptorEmbeddingSpace,
+    make_space_descriptor,
+    space_id_for,
+)
 from frisket.retrieval.encoding import (
     AudioEncodingInput,
     EmbeddingGemma2Space,
@@ -48,8 +53,8 @@ class Cache:
             representation_id=representation_id(space=space_id, input_hash=key),
             space_id=space_id,
             input_hash=key,
-            vector=pack_vector(vector, dimensions=128),
-            dimension=128,
+            vector=pack_vector(vector, dimensions=len(vector)),
+            dimension=len(vector),
         )
 
 
@@ -159,6 +164,56 @@ async def test_legacy_cache_payload_uses_exact_migrated_hash_without_provider_ca
 
     assert vectors == [_unit()]
     assert cache.puts == []
+
+
+@pytest.mark.asyncio
+async def test_descriptor_space_caches_finite_non_normalized_legacy_vectors():
+    cache = Cache()
+    facade = EmbeddingFacade(cache)
+    descriptor = make_space_descriptor(
+        provider_id="legacy-provider",
+        provider_kind="local_process",
+        requested_model="legacy-model",
+        actual_model_id="legacy-model",
+        modality="text",
+        dimension=384,
+        normalization="none",
+    )
+    space = DescriptorEmbeddingSpace.from_descriptor(descriptor)
+    vector = [2.0, *([0.0] * 383)]
+
+    fresh = await facade.encode_async(
+        [TextEncodingInput("legacy text")],
+        encoder=lambda _inputs, **_kwargs: [vector],
+        purpose=EncodingPurpose.DOCUMENT,
+        space=space,
+        cache_payloads=["legacy text"],
+    )
+    cached = await facade.encode_async(
+        [TextEncodingInput("legacy text")],
+        encoder=lambda *_args, **_kwargs: pytest.fail("cache miss"),
+        purpose=EncodingPurpose.DOCUMENT,
+        space=space,
+        cache_payloads=["legacy text"],
+    )
+
+    assert space.identity == space_id_for(descriptor)
+    assert space.dimensions == 384
+    assert space.normalized is False
+    assert fresh == cached == [tuple(vector)]
+
+
+def test_descriptor_space_reports_l2_normalization():
+    descriptor = make_space_descriptor(
+        provider_id="fastembed",
+        provider_kind="local_process",
+        actual_model_id="model",
+        modality="text",
+        dimension=384,
+        normalization="l2",
+    )
+
+    assert DescriptorEmbeddingSpace.from_descriptor(descriptor).normalized is True
 
 
 def test_sync_facade_rejects_use_from_an_event_loop():

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import math
 import struct
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Any, Protocol, TypeAlias
@@ -12,7 +13,6 @@ from frisket.retrieval.encoding import (
     EMBEDDINGGEMMA2_DOCUMENT_PREFIX,
     EMBEDDINGGEMMA2_QUERY_PREFIX,
     AudioEncodingInput,
-    EmbeddingGemma2Space,
     EmbeddingVector,
     EncodingError,
     EncodingInput,
@@ -46,6 +46,14 @@ class RepresentationCache(Protocol):
     def put_representations(
         self, representations: Sequence[CachedRepresentation]
     ) -> None: ...
+
+
+class EmbeddingSpace(Protocol):
+    """The vector facts needed to validate and address cached representations."""
+
+    dimensions: int
+    identity: str
+    normalized: bool
 
 
 def embedding_input_hash(
@@ -107,22 +115,78 @@ def _vectors(result: RawEmbeddingResult) -> Sequence[Sequence[float]]:
 
 
 def _unpack_cached(
-    representation: CachedRepresentation, *, dimensions: int
+    representation: CachedRepresentation, *, space: EmbeddingSpace
 ) -> EmbeddingVector:
-    if representation.dimension != dimensions or representation.precision != "float32":
+    if (
+        representation.dimension != space.dimensions
+        or representation.precision != "float32"
+    ):
         raise EncodingError(
             "invalid_cached_representation",
             "The cached embedding does not match its declared space.",
         )
-    blob = validate_vector_blob(representation.vector, dimensions=dimensions)
+    try:
+        blob = _validate_vector_blob(representation.vector, space=space)
+    except (TypeError, ValueError) as exc:
+        raise EncodingError(
+            "invalid_cached_representation",
+            "The cached embedding does not match its declared space.",
+        ) from exc
     return tuple(value[0] for value in struct.iter_unpack("<f", blob))
+
+
+def _pack_vector(values: Sequence[float], *, space: EmbeddingSpace) -> bytes:
+    if space.normalized:
+        return pack_vector(values, dimensions=space.dimensions)
+    encoded = bytearray()
+    for value in values:
+        if isinstance(value, bool):
+            raise ValueError("vector values must be numbers")
+        number = float(value)
+        if not math.isfinite(number):
+            raise ValueError("vector values must be finite")
+        try:
+            chunk = struct.pack("<f", number)
+        except (OverflowError, struct.error) as exc:
+            raise ValueError("vector values must fit finite float32") from exc
+        if not math.isfinite(struct.unpack("<f", chunk)[0]):
+            raise ValueError("vector values must fit finite float32")
+        encoded.extend(chunk)
+    if len(encoded) != space.dimensions * 4:
+        raise ValueError(f"expected {space.dimensions} vector dimensions")
+    return bytes(encoded)
+
+
+def _validate_vector_blob(blob: bytes, *, space: EmbeddingSpace) -> bytes:
+    if space.normalized:
+        return validate_vector_blob(blob, dimensions=space.dimensions)
+    if not isinstance(blob, bytes):
+        raise TypeError("vector blob must be bytes")
+    if len(blob) != space.dimensions * 4:
+        raise ValueError(f"expected {space.dimensions * 4} vector bytes")
+    return _pack_vector(
+        [value[0] for value in struct.iter_unpack("<f", blob)], space=space
+    )
+
+
+def _validate_space(space: EmbeddingSpace) -> None:
+    if (
+        isinstance(space.dimensions, bool)
+        or not isinstance(space.dimensions, int)
+        or space.dimensions <= 0
+    ):
+        raise TypeError("space dimensions must be a positive integer")
+    if not isinstance(space.identity, str) or not space.identity.strip():
+        raise TypeError("space identity must be a non-empty string")
+    if not isinstance(space.normalized, bool):
+        raise TypeError("space normalized flag must be a boolean")
 
 
 def _validated_fresh(
     result: RawEmbeddingResult,
     *,
     expected: int,
-    dimensions: int,
+    space: EmbeddingSpace,
 ) -> list[EmbeddingVector]:
     raw = _vectors(result)
     if len(raw) != expected:
@@ -138,7 +202,7 @@ def _validated_fresh(
                 "The embedding provider returned an invalid vector.",
             )
         try:
-            blob = pack_vector(value, dimensions=dimensions)
+            blob = _pack_vector(value, space=space)
         except (TypeError, ValueError) as exc:
             raise EncodingError(
                 "invalid_encoder_result",
@@ -160,7 +224,7 @@ class EmbeddingFacade:
         *,
         encoder: FreshEncoder,
         purpose: EncodingPurpose,
-        space: EmbeddingGemma2Space,
+        space: EmbeddingSpace,
         space_id: str | None = None,
         cache_payloads: Sequence[bytes | str] | None = None,
         before_fresh_batch: BeforeFreshBatch | None = None,
@@ -179,8 +243,7 @@ class EmbeddingFacade:
             raise ValueError(f"embedding batches are bounded to {MAX_CACHED_BATCH} inputs")
         if not isinstance(purpose, EncodingPurpose):
             raise TypeError("purpose must be EncodingPurpose.QUERY or DOCUMENT")
-        if not isinstance(space, EmbeddingGemma2Space):
-            raise TypeError("space must be an EmbeddingGemma2Space")
+        _validate_space(space)
         resolved_space_id = space.identity if space_id is None else space_id
         if not isinstance(resolved_space_id, str) or not resolved_space_id.strip():
             raise ValueError("space_id must be non-empty")
@@ -211,7 +274,7 @@ class EmbeddingFacade:
         unique_hashes = list(dict.fromkeys(hashes))
         cached_rows = self._cache.get_representations(resolved_space_id, unique_hashes)
         cached: dict[str, EmbeddingVector] = {
-            key: _unpack_cached(row, dimensions=space.dimensions)
+            key: _unpack_cached(row, space=space)
             for key, row in cached_rows.items()
         }
         missing_hashes = [key for key in unique_hashes if key not in cached]
@@ -228,7 +291,7 @@ class EmbeddingFacade:
             fresh = _validated_fresh(
                 result,
                 expected=len(missing_hashes),
-                dimensions=space.dimensions,
+                space=space,
             )
             publications: list[CachedRepresentation] = []
             for key, vector in zip(missing_hashes, fresh, strict=True):
@@ -240,7 +303,7 @@ class EmbeddingFacade:
                         ),
                         space_id=resolved_space_id,
                         input_hash=key,
-                        vector=pack_vector(vector, dimensions=space.dimensions),
+                        vector=_pack_vector(vector, space=space),
                         dimension=space.dimensions,
                     )
                 )
@@ -253,7 +316,7 @@ class EmbeddingFacade:
         *,
         encoder: FreshEncoder,
         purpose: EncodingPurpose,
-        space: EmbeddingGemma2Space,
+        space: EmbeddingSpace,
         space_id: str | None = None,
         cache_payloads: Sequence[bytes | str] | None = None,
         before_fresh_batch: BeforeFreshBatch | None = None,
@@ -282,6 +345,7 @@ class EmbeddingFacade:
 __all__ = [
     "BeforeFreshBatch",
     "EmbeddingFacade",
+    "EmbeddingSpace",
     "FreshEncoder",
     "MAX_CACHED_BATCH",
     "OnFreshBatch",

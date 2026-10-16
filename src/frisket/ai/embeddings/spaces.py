@@ -19,6 +19,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+from dataclasses import dataclass
 from typing import Any
 
 SPACE_CONTRACT_VERSION = "frisket.embedding_space.v1"
@@ -58,6 +59,26 @@ STRICT_FIELDS: tuple[str, ...] = (
     "vector_options_hash",
     "source_payload_contract",
 )
+
+
+@dataclass(frozen=True, slots=True)
+class DescriptorEmbeddingSpace:
+    """The cache-relevant shape of an existing strict space descriptor."""
+
+    dimensions: int
+    identity: str
+    normalized: bool
+
+    @classmethod
+    def from_descriptor(
+        cls, descriptor: dict[str, Any]
+    ) -> DescriptorEmbeddingSpace:
+        validate_descriptor(descriptor)
+        return cls(
+            dimensions=descriptor["dimension"],
+            identity=space_id_for(descriptor),
+            normalized=descriptor["normalization"] == "l2",
+        )
 
 
 def canonical_json(obj: Any) -> str:

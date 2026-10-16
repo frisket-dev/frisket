@@ -97,28 +97,55 @@ class EmbeddingRuntime:
             loop.close()
 
     def _ensure_started(self) -> asyncio.AbstractEventLoop:
-        with self._state_lock:
-            if self._closed:
+        while True:
+            with self._state_lock:
+                if self._closed:
+                    raise EncodingError(
+                        "encoding_runtime_closed",
+                        "The local embedding runtime is closed.",
+                    )
+                if self._thread is None:
+                    self._ready = threading.Event()
+                    self._startup_error = None
+                    self._thread = threading.Thread(
+                        target=self._run_loop,
+                        name="frisket-embedding-runtime",
+                        daemon=False,
+                    )
+                    self._thread.start()
+                thread = self._thread
+                ready = self._ready
+            ready.wait()
+            with self._state_lock:
+                if self._thread is not thread:
+                    continue
+                error = self._startup_error
+                loop = self._loop
+                if error is not None:
+                    self._thread = None
+                    self._loop = None
+                    self._request_lock = None
+                    self._startup_error = None
+            if error is not None:
+                thread.join()
+                if isinstance(error, EncodingError):
+                    raise error
                 raise EncodingError(
-                    "encoding_runtime_closed", "The local embedding runtime is closed."
-                )
-            if self._thread is None:
-                self._thread = threading.Thread(
-                    target=self._run_loop,
-                    name="frisket-embedding-runtime",
-                    daemon=False,
-                )
-                self._thread.start()
-        self._ready.wait()
-        if self._startup_error is not None:
-            if isinstance(self._startup_error, EncodingError):
-                raise self._startup_error
-            raise EncodingError(
-                "model_unavailable", "The local embedding runtime could not start."
-            ) from self._startup_error
-        if self._loop is None:
-            raise RuntimeError("embedding runtime started without an event loop")
-        return self._loop
+                    "model_unavailable", "The local embedding runtime could not start."
+                ) from error
+            if loop is None:
+                raise RuntimeError("embedding runtime started without an event loop")
+            return loop
+
+    async def _discard_encoder(self) -> None:
+        encoder = self._encoder
+        self._encoder = None
+        if encoder is None:
+            return
+        try:
+            await encoder.aclose()
+        except BaseException:
+            pass
 
     async def _encode_on_owner_loop(
         self,
@@ -147,10 +174,10 @@ class EmbeddingRuntime:
                     "invalid_encoder_result",
                 }:
                     raise
-                self._encoder = None
+                await self._discard_encoder()
                 raise
             except BaseException:
-                self._encoder = None
+                await self._discard_encoder()
                 raise
             finally:
                 self._active_cancelled = None
