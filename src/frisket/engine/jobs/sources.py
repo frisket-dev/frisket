@@ -433,7 +433,7 @@ def enqueue_enclosure_downloads(
                     project_id=project_id,
                     job_id=job_id,
                     sheet_id=sheet_id,
-                    row_id=row_id,
+                    row_ids=[row_id],
                 )
             except Exception:  # noqa: BLE001 - enclosure admission stays authoritative
                 LOG.warning(

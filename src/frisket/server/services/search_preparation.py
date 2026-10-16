@@ -716,6 +716,8 @@ class SearchPreparationService:
             requirement = readiness.get(capability) if capability is not None else None
             if row.decision == "not_now" and capability is not None:
                 continue
+            if capability is not None and requirement is None:
+                continue
             if requirement is not None and not (
                 requirement["weights_ready"] and requirement["runtime_ready"]
             ):
@@ -792,6 +794,15 @@ class SearchPreparationService:
                 latest.setdefault(pull.model_ref, pull)
         for planned in row.plan["models"]:
             requirement = live.get(planned["setup_ref"])
+            if requirement is None:
+                if planned["required"]:
+                    self.store.mark_settled(
+                        row.id,
+                        project_id=row.project_id,
+                        storage_org_id=row.storage_org_id,
+                    )
+                    return
+                continue
             ready = requirement is not None and (
                 requirement.weights_ready and requirement.runtime_ready
             )
@@ -1065,18 +1076,12 @@ class SearchPreparationService:
         setup_active = False
         for planned in row.plan["models"]:
             live = current.get(planned["setup_ref"])
-            weights_ready = (
-                bool(live.weights_ready)
-                if live is not None
-                else planned["weights_ready"]
-            )
-            runtime_ready = (
-                bool(live.runtime_ready)
-                if live is not None
-                else planned["runtime_ready"]
-            )
+            weights_ready = bool(live.weights_ready) if live is not None else False
+            runtime_ready = bool(live.runtime_ready) if live is not None else False
             ready = weights_ready and runtime_ready
-            setup_eligible = runtime_ready or bool(planned["runtime_installable"])
+            setup_eligible = live is not None and (
+                runtime_ready or bool(planned["runtime_installable"])
+            )
             missing_required = missing_required or (
                 planned["required"] and not ready and setup_eligible
             )
@@ -1118,7 +1123,7 @@ class SearchPreparationService:
             status = "needs_consent"
         elif row.decision != "not_now" and (missing_required or setup_active):
             status = "preparing"
-        elif unavailable_required and row.decision is None:
+        elif unavailable_required:
             status = "failed"
         elif (
             not all_children

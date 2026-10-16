@@ -356,7 +356,7 @@ class SearchPreparationStore:
         project_id: str,
         job_id: int,
         sheet_id: int,
-        row_id: int,
+        row_ids: Sequence[int],
     ) -> SearchPreparationBatchRow:
         """Record one exact enclosure job for server-side reconciliation."""
 
@@ -371,7 +371,10 @@ class SearchPreparationStore:
             intent_key=intent_key,
             materialization_job_id=int(job_id),
             sheet_id=int(sheet_id),
-            scope_json=json.dumps({"row_ids": [int(row_id)]}, separators=(",", ":")),
+            scope_json=json.dumps(
+                {"row_ids": sorted(set(int(value) for value in row_ids))},
+                separators=(",", ":"),
+            ),
             force_ocr=False,
             plan_json=None,
             cursor=0,
@@ -463,13 +466,14 @@ class SearchPreparationStore:
                     predicate,
                     c.sheet_id.is_(None),
                     c.plan_json.is_(None),
-                    c.settled_at.is_(None),
+                    c.stop_requested_at.is_(None),
                 )
                 .values(
                     sheet_id=int(sheet_id),
                     source_cutoff=int(source_cutoff),
                     plan_hash=canonical_plan_hash(body),
                     plan_json=json.dumps(body, sort_keys=True, separators=(",", ":")),
+                    settled_at=None,
                     updated_at=_now(),
                 )
             )
@@ -505,12 +509,13 @@ class SearchPreparationStore:
                     predicate,
                     c.materialization_job_id.is_not(None),
                     c.plan_json.is_(None),
-                    c.settled_at.is_(None),
+                    c.stop_requested_at.is_(None),
                 )
                 .values(
                     source_cutoff=int(source_cutoff),
                     plan_hash=canonical_plan_hash(body),
                     plan_json=json.dumps(body, sort_keys=True, separators=(",", ":")),
+                    settled_at=None,
                     updated_at=_now(),
                 )
             )

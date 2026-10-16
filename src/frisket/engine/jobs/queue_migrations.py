@@ -28,7 +28,7 @@ from frisket.engine.jobs.queue_provision import (
 from frisket.engine.worker_version import code_version, require_known_code_identity
 
 
-QUEUE_SCHEMA_VERSION = 13
+QUEUE_SCHEMA_VERSION = 10
 QUEUE_SCHEMA_MIGRATION_LOCK_ID = 7_154_819_250_847_113_102
 QUEUE_SCHEMA_LEDGER = "frisket_queue_schema_migrations"
 STORAGE_RECONCILIATION_INDEX = "idx_jobs_storage_project_status_id"
@@ -243,7 +243,7 @@ def _apply_model_pulls_table(connection: Connection) -> None:
 
 
 def _apply_search_preparation_tables(connection: Connection) -> None:
-    """v10: workspace-local preparation intent and deterministic children."""
+    """v10: final workspace-local preparation coordinator schema."""
 
     from frisket.engine.jobs.search_preparation_store import (
         search_preparation_batches_table,
@@ -252,119 +252,6 @@ def _apply_search_preparation_tables(connection: Connection) -> None:
 
     search_preparation_batches_table.create(bind=connection, checkfirst=True)
     search_preparation_children_table.create(bind=connection, checkfirst=True)
-
-
-def _apply_search_preparation_settlement(connection: Connection) -> None:
-    """v11: retire coordinator intents after all child work is durably bound."""
-
-    from sqlalchemy.schema import CreateColumn
-
-    from frisket.engine.jobs.search_preparation_store import (
-        search_preparation_batches_table,
-    )
-
-    existing = {
-        str(column["name"])
-        for column in sa.inspect(connection).get_columns("search_preparation_batches")
-    }
-    column = search_preparation_batches_table.c.settled_at
-    if column.name not in existing:
-        column_ddl = str(CreateColumn(column).compile(dialect=connection.dialect))
-        connection.execute(
-            sa.text(f"ALTER TABLE search_preparation_batches ADD COLUMN {column_ddl}")
-        )
-    connection.execute(
-        sa.text(
-            "CREATE INDEX IF NOT EXISTS idx_search_preparation_active "
-            "ON search_preparation_batches"
-            "(workspace_root, storage_org_id, settled_at, created_at)"
-        )
-    )
-
-
-def _apply_search_preparation_import_admission(connection: Connection) -> None:
-    """v12: allow an import intent to exist before its sheet and plan do."""
-
-    from frisket.engine.jobs.search_preparation_store import (
-        search_preparation_batches_table,
-        search_preparation_children_table,
-    )
-
-    existing = {
-        str(column["name"])
-        for column in sa.inspect(connection).get_columns("search_preparation_batches")
-    }
-    if "import_ref" in existing:
-        return
-    if connection.dialect.name != "sqlite":
-        connection.execute(
-            sa.text("ALTER TABLE search_preparation_batches ADD COLUMN import_ref TEXT")
-        )
-        for column in ("sheet_id", "source_cutoff", "plan_hash", "plan_json"):
-            connection.execute(
-                sa.text(
-                    f"ALTER TABLE search_preparation_batches "
-                    f"ALTER COLUMN {column} DROP NOT NULL"
-                )
-            )
-        return
-
-    # SQLite cannot drop a NOT NULL constraint in place. Preserve both tables
-    # in transaction-local backups, then recreate the candidate-owned schema.
-    connection.exec_driver_sql(
-        "CREATE TEMP TABLE search_preparation_batches_v11 AS "
-        "SELECT * FROM search_preparation_batches"
-    )
-    connection.exec_driver_sql(
-        "CREATE TEMP TABLE search_preparation_children_v11 AS "
-        "SELECT * FROM search_preparation_children"
-    )
-    search_preparation_children_table.drop(connection)
-    search_preparation_batches_table.drop(connection)
-    search_preparation_batches_table.create(connection)
-    search_preparation_children_table.create(connection)
-    old_columns = [
-        column
-        for column in search_preparation_batches_table.c.keys()
-        if column not in {"import_ref", "materialization_job_id", "decision_at"}
-    ]
-    joined = ",".join(old_columns)
-    connection.exec_driver_sql(
-        f"INSERT INTO search_preparation_batches ({joined}) "
-        f"SELECT {joined} FROM search_preparation_batches_v11"
-    )
-    child_columns = ",".join(search_preparation_children_table.c.keys())
-    connection.exec_driver_sql(
-        f"INSERT INTO search_preparation_children ({child_columns}) "
-        f"SELECT {child_columns} FROM search_preparation_children_v11"
-    )
-    connection.exec_driver_sql("DROP TABLE search_preparation_children_v11")
-    connection.exec_driver_sql("DROP TABLE search_preparation_batches_v11")
-
-
-def _apply_search_preparation_materialization_admission(
-    connection: Connection,
-) -> None:
-    """v13: correlate preparation with an enclosure job across processes."""
-
-    existing = {
-        str(column["name"])
-        for column in sa.inspect(connection).get_columns("search_preparation_batches")
-    }
-    if "materialization_job_id" not in existing:
-        connection.execute(
-            sa.text(
-                "ALTER TABLE search_preparation_batches "
-                "ADD COLUMN materialization_job_id INTEGER"
-            )
-        )
-    if "decision_at" not in existing:
-        connection.execute(
-            sa.text(
-                "ALTER TABLE search_preparation_batches "
-                "ADD COLUMN decision_at TIMESTAMP"
-            )
-        )
 
 
 _SUPERSEDED_BY_MIGRATION_MESSAGE = (
@@ -857,11 +744,6 @@ MIGRATIONS = (
     QueueMigration(version=8, apply=_apply_handler_authority_table),
     QueueMigration(version=9, apply=_apply_model_pull_endpoint_identity),
     QueueMigration(version=10, apply=_apply_search_preparation_tables),
-    QueueMigration(version=11, apply=_apply_search_preparation_settlement),
-    QueueMigration(version=12, apply=_apply_search_preparation_import_admission),
-    QueueMigration(
-        version=13, apply=_apply_search_preparation_materialization_admission
-    ),
 )
 
 

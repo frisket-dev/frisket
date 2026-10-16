@@ -149,7 +149,7 @@ def test_server_reconciles_completed_enclosure_from_separate_worker(
         project_id=project_id,
         job_id=job_id,
         sheet_id=sheet_id,
-        row_id=row_id,
+        row_ids=[row_id],
     )
     claimed = workspace.queue.claim("separate-cli-worker")
     while claimed is not None and claimed.id != job_id:
@@ -227,6 +227,40 @@ def test_eligible_ocr_consent_is_not_blocked_by_unavailable_transcription_runtim
     )
     assert decided.status == "preparing"
     assert setup_calls == [(_Requirement.setup_ref, "owner-1")]
+
+
+def test_disappeared_required_setup_fails_without_enqueuing_action(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setattr(preparation_module, "_requirements", lambda: (_Requirement(),))
+    workspace = Workspace(tmp_path / "workspace")
+    project_id = workspace.create("Missing requirement")["id"]
+    project = workspace.get(project_id)
+    sheet_id = project.add_sheet("Files")
+    image_column = project.add_column(sheet_id, "Image", type="image")
+    digest = project.add_blob(b"image", filename="scan.png", mime="image/png")
+    project.add_rows(
+        sheet_id,
+        [{"Image": {"blob": digest, "filename": "scan.png", "mime": "image/png"}}],
+        {"Image": image_column},
+    )
+    service = SearchPreparationService(workspace, setup_start=lambda _ref, _actor: 17)
+    batch = service.create(project_id, sheet_id=sheet_id, row_ids=None, force_ocr=False)
+    service.decide(
+        project_id,
+        batch.id,
+        plan_hash=batch.plan_hash,
+        decision="prepare",
+        selected_setup_refs=[_Requirement.setup_ref],
+        may_setup_models=True,
+        initiated_by="owner-1",
+    )
+
+    monkeypatch.setattr(preparation_module, "_requirements", lambda: ())
+    service.recover()
+
+    assert service.get(project_id, batch.id).status == "failed"
+    assert service.store.children(batch.id) == []
 
 
 def test_recovery_observes_setup_completed_by_another_process(

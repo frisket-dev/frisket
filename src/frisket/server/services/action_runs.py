@@ -322,6 +322,12 @@ class ActionRunService:
             execution_context=execution_context,
         )
         if queued_result is not None:
+            self._reserve_queued_media_search_preparation(
+                project,
+                project_id=project_id,
+                body=body,
+                result=queued_result,
+            )
             return _action_run_response(queued_result)
 
         execution_composition = request_execution_composition()
@@ -338,6 +344,60 @@ class ActionRunService:
             edition_run_context=execution_context.edition_snapshot,
         )
         return self._direct_result_response(project, project_id, result)
+
+    def _reserve_queued_media_search_preparation(
+        self,
+        project: Project,
+        *,
+        project_id: str,
+        body: Mapping[str, Any],
+        result: V1ActionResult,
+    ) -> None:
+        """Correlate the two file-producing URL actions with their exact job."""
+
+        if (
+            self._workspace.edition == "cloud"
+            or result.status != "queued"
+            or result.job_id is None
+            or result.action.kind not in {"media.fetch_url", "media.ytdlp_download"}
+        ):
+            return
+        from frisket.engine.jobs.search_preparation_store import SearchPreparationStore
+        from frisket.project_settings import read_project_settings
+
+        if not read_project_settings(project).prepare_new_files_automatically:
+            return
+        scope = body.get("scope")
+        if not isinstance(scope, Mapping) or scope.get("kind") != "sheet_rows":
+            return
+        try:
+            sheet_id = int(scope["sheet_id"])
+            selected = scope.get("row_ids")
+            row_ids = (
+                project.visible_row_ids(sheet_id)
+                if selected is None
+                else [int(value) for value in selected]
+            )
+        except (KeyError, TypeError, ValueError):
+            return
+        if not row_ids:
+            return
+        try:
+            SearchPreparationStore(
+                self._workspace.queue, workspace_root=str(self._workspace.root)
+            ).create_pending_materialization(
+                workspace_root=str(self._workspace.root),
+                storage_org_id=self._workspace.queue_storage_org_id,
+                project_id=project_id,
+                job_id=int(result.job_id),
+                sheet_id=sheet_id,
+                row_ids=row_ids,
+            )
+        except Exception:  # noqa: BLE001 - admitted action remains authoritative
+            LOG.warning(
+                "failed to reserve automatic search preparation for media action",
+                exc_info=True,
+            )
 
     def _direct_result_response(
         self,

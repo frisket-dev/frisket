@@ -100,6 +100,7 @@ def test_pending_import_is_internal_until_atomically_hydrated(tmp_path) -> None:
             )
             is None
         )
+        store.mark_settled(pending.id, project_id="project", storage_org_id=None)
 
         hydrated = store.hydrate_pending_import(
             pending.id,
@@ -110,6 +111,7 @@ def test_pending_import_is_internal_until_atomically_hydrated(tmp_path) -> None:
             plan={"groups": [], "models": [], "items": []},
         )
         assert hydrated.sheet_id == 7
+        assert hydrated.settled_at is None
         assert hydrated.plan == {"groups": [], "models": [], "items": []}
         assert (
             store.for_receipt(
@@ -136,7 +138,7 @@ def test_pending_materialization_is_internal_until_exact_job_is_hydrated(
             project_id="project",
             job_id=41,
             sheet_id=7,
-            row_id=3,
+            row_ids=[3],
         )
         assert pending.materialization_job_id == 41
         assert pending.row_ids == (3,)
