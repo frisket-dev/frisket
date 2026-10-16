@@ -201,15 +201,13 @@ class SheetScope:
 
 @dataclass(frozen=True, slots=True)
 class RetrievalScope:
-    """All project sources (None) or an explicit union of sheet scopes."""
+    """All sources (None) or a union of independently restricted sheet scopes.
+
+    Repeated sheets are intentional: whole rows and individual selected cells
+    can coexist without broadening each other's row/column restrictions.
+    """
 
     sheets: tuple[SheetScope, ...] | None = None
-
-    def __post_init__(self) -> None:
-        if self.sheets is not None:
-            sheet_ids = [scope.sheet_id for scope in self.sheets]
-            if len(set(sheet_ids)) != len(sheet_ids):
-                raise ValueError("sheets must not contain duplicate sheet_id values")
 
     @property
     def is_empty(self) -> bool:
