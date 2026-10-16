@@ -12,6 +12,7 @@ from pydantic import JsonValue
 
 import frisket.preview.topic_segmentation as topic_compare
 from frisket.actions.system import root_action_catalog
+from frisket.ai.embeddings.capabilities import build_batch_result
 from frisket.contracts.http.endpoint_catalog import BASE_ENDPOINT_CATALOG
 from frisket.server.app import create_app
 from frisket.engine.store import Project
@@ -27,6 +28,7 @@ from frisket.features.topic_segmentation import (
     SegmentationSnapshot,
     WithinUnit,
 )
+from frisket.semantic import LOCAL_MODEL
 
 
 MUTATION_TABLES = (
@@ -143,6 +145,32 @@ class _FakeSegmenter:
         )
 
 
+class _EncodingProbeSegmenter(_FakeSegmenter):
+    def __init__(self) -> None:
+        super().__init__("deep_tiling", ())
+        self.embedding_calls: list[list[str]] = []
+
+    def segment(self, snapshot, settings, context):
+        assert context.encode_texts is not None
+
+        def embed(texts):
+            self.embedding_calls.append(list(texts))
+            return build_batch_result(
+                [[1.0, *([0.0] * 383)] for _text in texts],
+                provider_id="fastembed",
+                provider_kind="local_process",
+                requested_model=LOCAL_MODEL,
+                actual_model_id=f"fastembed/{LOCAL_MODEL}",
+            )
+
+        context.encode_texts(
+            [unit.text for unit in snapshot.units],
+            embed=embed,
+            model_id=f"fastembed/{LOCAL_MODEL}",
+        )
+        return super().segment(snapshot, settings, context)
+
+
 def test_scratch_parsers_produce_ephemeral_ordered_units() -> None:
     txt = topic_compare.parse_scratch_transcript(
         b"First paragraph\n\nSecond paragraph\n",
@@ -180,6 +208,32 @@ def test_scratch_parsers_produce_ephemeral_ordered_units() -> None:
         filename="identifier.vtt",
     )
     assert [unit.text for unit in cue_identifier.snapshot.units] == ["A real cue"]
+
+
+def test_scratch_variants_share_only_their_request_local_embedding_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = _EncodingProbeSegmenter()
+    monkeypatch.setattr(topic_compare, "get_segmenter", lambda _engine: engine)
+
+    payload = asyncio.run(
+        topic_compare.compare_topic_segmentation_scratch(
+            SRT_BYTES,
+            {
+                "filename": "sample.srt",
+                "variants": [
+                    {"id": "first", "engine": "deep_tiling"},
+                    {"id": "second", "engine": "deep_tiling"},
+                ],
+            },
+        )
+    )
+
+    assert [result["status"] for result in payload["results"]] == [
+        "completed",
+        "completed",
+    ]
+    assert len(engine.embedding_calls) == 1
 
 
 def test_compare_returns_canonical_boundaries_and_shared_within_unit_membership(

@@ -35,6 +35,7 @@ from frisket.engine.executor.classify_read import (
     AdmittedClassifier,
     local_semantic_chunks,
 )
+from frisket.engine.store import Project
 
 
 TOPIC_FIELD = {
@@ -399,19 +400,19 @@ def _patch_local_semantic_embedding(
         for text in texts:
             lowered = text.lower()
             if "government contracts" in lowered:
-                vectors.append([1.0, 0.0])
+                vectors.append([1.0, 0.0, *([0.0] * 382)])
             elif "roads and public infrastructure" in lowered:
-                vectors.append([0.0, 1.0])
+                vectors.append([0.0, 1.0, *([0.0] * 382)])
             elif "no clear topic" in lowered:
-                vectors.append([-1.0, 0.0])
+                vectors.append([-1.0, 0.0, *([0.0] * 382)])
             elif "no-bid contract" in lowered:
-                vectors.append([0.95, 0.05])
+                vectors.append([0.95, 0.05, *([0.0] * 382)])
             elif "road work" in lowered:
-                vectors.append([0.1, 0.9])
+                vectors.append([0.1, 0.9, *([0.0] * 382)])
             elif lowered in ("twin a", "twin b", "twin text"):
-                vectors.append([1.0, 0.0])
+                vectors.append([1.0, 0.0, *([0.0] * 382)])
             else:
-                vectors.append([0.0, 0.0])
+                vectors.append([0.0] * 384)
         return build_batch_result(
             vectors,
             provider_id="fastembed",
@@ -423,6 +424,24 @@ def _patch_local_semantic_embedding(
     return embedded
 
 
+class _MemoryEmbeddingCache:
+    def __init__(self) -> None:
+        self.rows = {}
+
+    def get_representations(self, space_id, input_hashes):
+        return {
+            input_hash: self.rows[(space_id, input_hash)]
+            for input_hash in input_hashes
+            if (space_id, input_hash) in self.rows
+        }
+
+    def put_representations(self, representations) -> None:
+        for representation in representations:
+            self.rows[(representation.space_id, representation.input_hash)] = (
+                representation
+            )
+
+
 TOPIC = (ClassifyField.model_validate(TOPIC_FIELD),)
 STORY_A = "City hall awarded a no-bid contract"
 STORY_B = "Routine road work finished early"
@@ -431,12 +450,19 @@ STORY_B = "Routine road work finished early"
 @pytest.mark.asyncio
 async def test_local_classifier_picks_the_cosine_winner_and_caches_labels(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
 ) -> None:
     embedded = _patch_local_semantic_embedding(monkeypatch)
-    classifier = AdmittedClassifier()
-
-    first = await classifier.classify(Row({}), STORY_A, TOPIC)
-    second = await classifier.classify(Row({}), STORY_B, TOPIC)
+    project = Project.create(tmp_path / "classifier.frisket")
+    try:
+        first = await AdmittedClassifier(project=project).classify(
+            Row({}), STORY_A, TOPIC
+        )
+        second = await AdmittedClassifier(project=project).classify(
+            Row({}), STORY_B, TOPIC
+        )
+    finally:
+        project.close()
 
     assert first == {"topic": Outcome.ok("accountability")}
     assert second == {"topic": Outcome.ok("infrastructure")}
@@ -456,18 +482,19 @@ async def test_local_classifier_breaks_ties_toward_the_lower_index(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _patch_local_semantic_embedding(monkeypatch)
+    cache = _MemoryEmbeddingCache()
     twins = (ClassifyField(name="twin", labels=["twin a", "twin b"]),)
-    assert await AdmittedClassifier().classify(Row({}), "twin text", twins) == {
-        "twin": Outcome.ok("twin a")
-    }
+    assert await AdmittedClassifier(embedding_cache=cache).classify(
+        Row({}), "twin text", twins
+    ) == {"twin": Outcome.ok("twin a")}
     reordered = (
         ClassifyField(
             name="twin", labels=["Roads and public infrastructure projects.", "twin b"]
         ),
     )
-    assert await AdmittedClassifier().classify(Row({}), "twin text", reordered) == {
-        "twin": Outcome.ok("twin b")
-    }
+    assert await AdmittedClassifier(embedding_cache=cache).classify(
+        Row({}), "twin text", reordered
+    ) == {"twin": Outcome.ok("twin b")}
 
 
 @pytest.mark.asyncio
@@ -486,7 +513,7 @@ async def test_local_classifier_serializes_rows_under_one_label_cache(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     embedded = _patch_local_semantic_embedding(monkeypatch)
-    classifier = AdmittedClassifier()
+    classifier = AdmittedClassifier(embedding_cache=_MemoryEmbeddingCache())
     results = await asyncio.gather(
         classifier.classify(Row({}), STORY_A, TOPIC),
         classifier.classify(Row({}), STORY_B, TOPIC),
@@ -534,7 +561,9 @@ async def test_bound_classifier_requires_its_admitted_row(
 ) -> None:
     _patch_local_semantic_embedding(monkeypatch)
     row = Row({"story": STORY_A})
-    bound = AdmittedClassifier().bind_row(row, sheet_id=1, row_id=1, sources=None)
+    bound = AdmittedClassifier(embedding_cache=_MemoryEmbeddingCache()).bind_row(
+        row, sheet_id=1, row_id=1, sources=None
+    )
     assert await bound.classify(row, STORY_A, TOPIC) == {
         "topic": Outcome.ok("accountability")
     }
@@ -571,7 +600,7 @@ async def test_global_fence_refuses_before_fastembed_without_opt_in(
 
     monkeypatch.setattr(builtins, "__import__", no_fastembed_import)
     with pytest.raises(EmbeddingBackendUnavailable):
-        await AdmittedClassifier().classify(
+        await AdmittedClassifier(embedding_cache=_MemoryEmbeddingCache()).classify(
             Row({}),
             "A story requiring classification",
             (ClassifyField(name="topic", labels=["news", "other"]),),

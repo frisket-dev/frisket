@@ -8,7 +8,7 @@ turns these locators into source-bound ``timeline_ranges`` values.
 from __future__ import annotations
 
 import math
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Literal, Protocol, TypeAlias, runtime_checkable
 
@@ -20,6 +20,18 @@ TOPIC_ANALYSIS_SIDECAR_COLUMN = "__topic_analysis"
 TOPIC_ANALYSIS_SIDECAR_SCHEMA_VERSION = "frisket.topic_segmentation.analysis.v1"
 DetailLevel: TypeAlias = Literal["fewer", "balanced", "more"]
 SourceKind: TypeAlias = Literal["timestamped_transcript", "untimed_transcript"]
+
+
+class AnalyticalTextEncoder(Protocol):
+    """Invocation-owned access to the shared analytical embedding cache."""
+
+    def __call__(
+        self,
+        texts: Sequence[str],
+        *,
+        embed: Callable[[list[str]], object],
+        model_id: str,
+    ) -> list[list[float]]: ...
 
 
 class SegmentationSettingsError(ValueError):
@@ -205,6 +217,7 @@ class SegmentationContext:
     """Invocation-only context; algorithm dependencies stay engine-private."""
 
     cancelled: Callable[[], bool] | None = None
+    encode_texts: AnalyticalTextEncoder | None = None
 
     def raise_if_cancelled(self) -> None:
         if self.cancelled is not None and self.cancelled():
@@ -349,6 +362,7 @@ __all__ = [
     "DETAIL_LEVELS",
     "TOPIC_ANALYSIS_SIDECAR_COLUMN",
     "TOPIC_ANALYSIS_SIDECAR_SCHEMA_VERSION",
+    "AnalyticalTextEncoder",
     "BetweenUnits",
     "BoundaryCandidate",
     "BoundaryLocator",
