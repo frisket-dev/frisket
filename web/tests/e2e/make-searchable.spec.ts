@@ -277,7 +277,7 @@ test('declining missing transcription setup starts no pull and remains recoverab
   );
   const missingOptionalModel = planned!.models.some((model) => !model.required && !model.ready);
   if (missingOptionalModel) {
-    await expect(consent.getByTestId('search-preparation-semantic-model')).not.toBeChecked();
+    await expect(consent.getByTestId('search-preparation-semantic-model')).toBeChecked();
   } else {
     await expect(consent.getByTestId('search-preparation-semantic-model')).toHaveCount(0);
   }
@@ -619,8 +619,17 @@ test('Check text explicitly requests replacement OCR without changing the origin
       const consent = page.getByTestId('search-preparation-model-consent');
       await expect(consent.getByTestId('search-preparation-model-read_text')).toBeVisible();
       const requiredRefs = activeReplacement.models
-        .filter((model) => model.required && !model.ready)
+        .filter((model) => model.required && !model.ready && model.can_setup)
         .map((model) => model.setup_ref);
+      const hasInstallableOptionalModel = activeReplacement.models.some((model) => (
+        !model.required && !model.ready && model.can_setup
+      ));
+      if (hasInstallableOptionalModel) {
+        const semantic = consent.getByTestId('search-preparation-semantic-model');
+        await expect(semantic).toBeChecked();
+        await semantic.uncheck();
+        await expect(semantic).not.toBeChecked();
+      }
       const decision = page.waitForResponse((response) => (
         response.request().method() === 'POST'
         && new URL(response.url()).pathname === (

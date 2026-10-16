@@ -8380,15 +8380,6 @@ dialog.import-workspace-layer::backdrop {
 
 .search-preparation-receipt h2,
 .search-preparation-receipt h3 { margin: 0; }
-.search-preparation-eyebrow {
-  display: block;
-  margin-bottom: 3px;
-  color: var(--muted, #756c66);
-  font-size: 11px;
-  font-weight: 650;
-  letter-spacing: .08em;
-  text-transform: uppercase;
-}
 
 .search-preparation-groups { border-top: 1px solid var(--border, #ded9d4); }
 .search-preparation-group {

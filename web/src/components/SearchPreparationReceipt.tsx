@@ -261,7 +261,7 @@ export function SearchPreparationReceipt({
   const [batch, setBatch] = useState<SearchPreparationBatch | null>(null);
   const [loadingError, setLoadingError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [semanticSelected, setSemanticSelected] = useState(false);
+  const [semanticSelected, setSemanticSelected] = useState(true);
   const requestGeneration = useRef(0);
   const mutationGeneration = useRef<number | null>(null);
 
@@ -324,7 +324,6 @@ export function SearchPreparationReceipt({
       if (generation === requestGeneration.current) publish(next);
     } catch (error) {
       if (generation === requestGeneration.current) {
-        setSemanticSelected(false);
         onError(error instanceof Error ? error.message : String(error));
         refreshAfterFailure = true;
       }
@@ -372,7 +371,6 @@ export function SearchPreparationReceipt({
     <section className="search-preparation-receipt" data-testid="search-preparation-receipt">
       <header>
         <div>
-          <span className="search-preparation-eyebrow">Imported</span>
           <h2>{fullyPrepared
             ? 'Ready to search'
             : batch.status === 'complete' || batch.status === 'stopped'

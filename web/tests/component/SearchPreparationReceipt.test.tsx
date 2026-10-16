@@ -97,7 +97,7 @@ afterEach(() => {
 });
 
 describe('SearchPreparationReceipt', () => {
-  it('does not authorize downloads on render and keeps semantic search optional', async () => {
+  it('checks semantic search by default without authorizing downloads and allows opting out', async () => {
     getSearchPreparation.mockResolvedValue(consentBatch);
     decideSearchPreparation.mockResolvedValue({ ...consentBatch, status: 'preparing' });
 
@@ -112,11 +112,13 @@ describe('SearchPreparationReceipt', () => {
 
     const semantic = await screen.findByTestId('search-preparation-semantic-model');
     expect(decideSearchPreparation).not.toHaveBeenCalled();
-    expect((semantic as HTMLInputElement).checked).toBe(false);
+    expect((semantic as HTMLInputElement).checked).toBe(true);
     expect((screen.getByTestId('search-preparation-model-read_text').querySelector('input') as HTMLInputElement).disabled).toBe(true);
     expect(screen.getByText('About 1.4 GB')).not.toBeNull();
     expect(screen.getByText(/Additional runtime files may also be downloaded/)).not.toBeNull();
 
+    fireEvent.click(semantic);
+    expect((semantic as HTMLInputElement).checked).toBe(false);
     fireEvent.click(screen.getByTestId('search-preparation-decision-prepare'));
     await waitFor(() => expect(decideSearchPreparation).toHaveBeenCalledWith(
       'project-1',
@@ -127,6 +129,28 @@ describe('SearchPreparationReceipt', () => {
         selected_setup_refs: ['engine-setup:rapidocr-default.local@1'],
       },
     ));
+  });
+
+  it('preserves the semantic model selection when the decision request fails', async () => {
+    const onError = vi.fn();
+    getSearchPreparation.mockResolvedValue(consentBatch);
+    decideSearchPreparation.mockRejectedValue(new Error('temporary outage'));
+
+    render(
+      <SearchPreparationReceipt
+        projectId="project-1"
+        batchId="prep-1"
+        onDone={vi.fn()}
+        onError={onError}
+      />,
+    );
+
+    const semantic = await screen.findByTestId('search-preparation-semantic-model');
+    expect((semantic as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(screen.getByTestId('search-preparation-decision-prepare'));
+
+    await waitFor(() => expect(onError).toHaveBeenCalledWith('temporary outage'));
+    expect((semantic as HTMLInputElement).checked).toBe(true);
   });
 
   it('declines durably without setup refs', async () => {
@@ -263,7 +287,7 @@ describe('SearchPreparationReceipt', () => {
     ));
   });
 
-  it('adds download wording only when the optional model is selected', async () => {
+  it('uses download wording and includes the optional model by default', async () => {
     const optionalOnlyBatch = {
       ...consentBatch,
       models: consentBatch.models.map((model) => (
@@ -283,8 +307,7 @@ describe('SearchPreparationReceipt', () => {
     );
 
     const semantic = await screen.findByTestId('search-preparation-semantic-model');
-    expect(screen.getByRole('button', { name: 'Prepare files' })).not.toBeNull();
-    fireEvent.click(semantic);
+    expect((semantic as HTMLInputElement).checked).toBe(true);
     expect(screen.getByRole('button', { name: 'Download and prepare' })).not.toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Download and prepare' }));
     await waitFor(() => expect(decideSearchPreparation).toHaveBeenCalledWith(
