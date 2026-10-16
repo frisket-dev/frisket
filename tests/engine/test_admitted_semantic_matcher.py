@@ -23,12 +23,15 @@ def matcher(monkeypatch):
     }
     batches = []
 
-    async def cached(project, docs, embed, model_id, **kwargs):
-        texts = [doc["content"] for doc in docs]
+    async def cached(project, texts, **kwargs):
         batches.append(texts)
         return [vectors[text] for text in texts]
 
-    monkeypatch.setattr("frisket.semantic._doc_vectors_async", cached)
+    monkeypatch.setattr(
+        "frisket.engine.executor.semantic_join_matcher."
+        "encode_project_legacy_texts_async",
+        cached,
+    )
     target = SheetColumnRef(sheet_id=2, column="company")
     admitted = AdmittedSemanticMatcher(
         target=target,

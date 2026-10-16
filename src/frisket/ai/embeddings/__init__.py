@@ -23,6 +23,7 @@ refresh (`frisket.jobs.embeddings`) are built on top of these.
 from __future__ import annotations
 
 from .analytics import (
+    cosine_similarity,
     encode_legacy_texts,
     encode_legacy_texts_async,
     encode_project_legacy_texts,
@@ -88,6 +89,7 @@ __all__ = [
     "canonical_json",
     "descriptor_hash",
     "embedding_capabilities",
+    "cosine_similarity",
     "encode_legacy_texts",
     "encode_legacy_texts_async",
     "encode_project_legacy_texts",

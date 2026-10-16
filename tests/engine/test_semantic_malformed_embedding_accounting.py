@@ -4,8 +4,8 @@ import pytest
 
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
+from frisket.retrieval.store import RetrievalStore
 from test_semantic_join_publication import case  # noqa: F401
-from test_semantic_vector_cache_alignment import _cached_rows
 
 
 @pytest.mark.parametrize("vectors", [{}, {"vectors": None}, {"vectors": "bad"}])
@@ -31,7 +31,7 @@ def test_malformed_paid_batch_is_durable_without_caching_vectors(
         }
 
     monkeypatch.setattr(
-        "frisket.semantic.resolve_embedder",
+        "frisket.ai.embeddings.backends.resolve_embedder",
         lambda *args, **kwargs: (embed, "openai/text-embedding-3-small"),
     )
     gated = case.run()
@@ -50,7 +50,10 @@ def test_malformed_paid_batch_is_durable_without_caching_vectors(
     assert run["cost_actual"] == cost
     receipt = ReceiptStore(case.project).parsed_by_id(result.receipt_id)
     assert receipt.provider_use[0]["cost_actual"] == cost
-    assert _cached_rows(case.project) == {}
+    with RetrievalStore(case.project) as retrieval:
+        assert retrieval.db.execute(
+            "SELECT COUNT(*) FROM representations"
+        ).fetchone()[0] == 0
 
     replay = case.run(confirmation=confirmation)
     assert replay.receipt_id == result.receipt_id

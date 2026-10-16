@@ -6,6 +6,8 @@ from typing import Any
 import sqlite3
 
 from frisket.actions.cluster_types import ClusterColumn, ClusterOptions
+from frisket.ai.embeddings.analytics import legacy_analytical_space
+from frisket.ai.embeddings.facade import embedding_input_hash
 from frisket.preview.cluster import (
     apply_group_edits,
     compute_method_clusters,
@@ -42,12 +44,11 @@ def cluster_embedding_inputs(values, options):
 
 def missing_cluster_vectors(project, texts, model):
     """Quote cache misses without creating or warming the rebuildable sidecar."""
-    from frisket.semantic import _vec_key
-
-    keys = [_vec_key(model, text) for text in texts]
-    sidecar = project.path / "project.search.db"
+    keys = list(dict.fromkeys(embedding_input_hash(text) for text in texts))
+    sidecar = project.path / "project.retrieval.db"
     if not keys or not sidecar.exists():
         return len(keys)
+    space = legacy_analytical_space(model)
     cached = set()
     try:
         db = sqlite3.connect(f"{sidecar.resolve().as_uri()}?mode=ro", uri=True)
@@ -58,7 +59,9 @@ def missing_cluster_vectors(project, texts, model):
                 cached.update(
                     row[0]
                     for row in db.execute(
-                        f"SELECT key FROM cell_vec WHERE key IN ({placeholders})", chunk
+                        "SELECT input_hash FROM representations WHERE space_id=? "
+                        f"AND input_hash IN ({placeholders})",
+                        (space.identity, *chunk),
                     )
                 )
         finally:

@@ -6,6 +6,11 @@ from typing import Any
 
 from frisket.actions.semantic_join_types import SemanticJoinMatch
 from frisket.actions.types import Outcome, SheetColumnRef
+from frisket.ai.embeddings.analytics import (
+    cosine_similarity,
+    encode_project_legacy_texts_async,
+)
+from frisket.ai.embeddings.backends import embedder_is_remote
 from frisket.ops.base import OpContext
 from frisket.engine.executor.embedding_batches import (
     record_embedding_batch,
@@ -25,9 +30,8 @@ class AdmittedSemanticMatcher:
         values: tuple[tuple[int, Any], ...],
         backend: tuple[Any, str],
         estimated_model: str,
+        embedding_dimension: int | None = None,
     ) -> None:
-        from frisket.semantic import embedder_is_remote
-
         if backend[1] != estimated_model:
             raise ValueError("semantic join embedding backend changed after admission")
         if embedder_is_remote(backend[1]) and not estimated_model:
@@ -41,6 +45,7 @@ class AdmittedSemanticMatcher:
         if not self.values:
             raise ValueError("target column has no values to match against")
         self.backend = backend
+        self.embedding_dimension = embedding_dimension
         self._candidates: list[tuple[int, str, Any]] | None = None
 
     def bind_row(
@@ -49,15 +54,15 @@ class AdmittedSemanticMatcher:
         return BoundSemanticMatcher(self, ctx, expected_source)
 
     async def candidates(self, ctx: OpContext) -> list[tuple[int, str, Any]]:
-        from frisket.semantic import _doc_vectors_async
-
         if self._candidates is None:
             embed, model_id = self.backend
-            vectors = await _doc_vectors_async(
+            texts = [text for _, text in self.values]
+            vectors = await encode_project_legacy_texts_async(
                 ctx.project,
-                [{"content": text} for _, text in self.values],
-                embed,
-                model_id,
+                texts,
+                embed=embed,
+                model_id=model_id,
+                dimension=self.embedding_dimension,
                 before_fresh_batch=lambda texts: refuse_missing_paid_vectors(
                     ctx, model_id, texts
                 ),
@@ -90,8 +95,6 @@ class BoundSemanticMatcher:
         match_threshold: float = 0.70,
         confident_threshold: float = 0.85,
     ) -> SemanticJoinMatch:
-        from frisket.semantic import _cosine, _doc_vectors_async
-
         if target != self._admitted.target:
             raise ValueError("semantic match target differs from the admitted column")
         if (
@@ -115,11 +118,12 @@ class BoundSemanticMatcher:
             candidates = await self._admitted.candidates(self._ctx)
             embed, model_id = self._admitted.backend
             query = (
-                await _doc_vectors_async(
+                await encode_project_legacy_texts_async(
                     self._ctx.project,
-                    [{"content": str(value).strip()}],
-                    embed,
-                    model_id,
+                    [str(value).strip()],
+                    embed=embed,
+                    model_id=model_id,
+                    dimension=self._admitted.embedding_dimension,
                     before_fresh_batch=lambda texts: refuse_missing_paid_vectors(
                         self._ctx, model_id, texts
                     ),
@@ -129,9 +133,10 @@ class BoundSemanticMatcher:
                 )
             )[0]
             best_row, best_value, vector = max(
-                candidates, key=lambda candidate: _cosine(query, candidate[2])
+                candidates,
+                key=lambda candidate: cosine_similarity(query, candidate[2]),
             )
-            score = round(max(0.0, _cosine(query, vector)), 4)
+            score = round(max(0.0, cosine_similarity(query, vector)), 4)
             justification = None
             if score < match_threshold:
                 justification = (

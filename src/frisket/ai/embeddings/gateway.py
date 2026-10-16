@@ -99,7 +99,7 @@ class EmbeddingGateway:
         """In-process CLIP image embedding via fastembed.ImageEmbedding. ``images``
         are resolved image inputs (file paths / PIL images). Vectors are L2-labeled
         like other fastembed engines (CLIP image embeddings are unit-normalized)."""
-        from frisket.semantic import local_image_embedder
+        from .backends import local_image_embedder
 
         resolved = local_image_embedder(model if model else None)
         if resolved is None:
@@ -134,7 +134,7 @@ class EmbeddingGateway:
         *,
         local_capability: LocalEmbeddingCapability | None,
     ) -> EmbeddingBatchResult:
-        from frisket.semantic import local_embedder
+        from .backends import local_embedder
 
         resolved = (
             local_embedder(model)

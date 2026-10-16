@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any, TypeAlias
 
@@ -33,6 +34,19 @@ _FALLBACK_DIMENSIONS = {
     f"fastembed/{LOCAL_MODEL}": 384,
     REMOTE_EMBED_MODEL: 1536,
 }
+
+
+def cosine_similarity(left: Sequence[float], right: Sequence[float]) -> float:
+    """Cosine similarity over finite analytical vectors of the same width."""
+
+    if len(left) != len(right):
+        raise ValueError("embedding vectors have inconsistent dimensions")
+    dot = sum(float(a) * float(b) for a, b in zip(left, right, strict=True))
+    left_norm = math.sqrt(sum(float(value) ** 2 for value in left))
+    right_norm = math.sqrt(sum(float(value) ** 2 for value in right))
+    if not left_norm or not right_norm:
+        return 0.0
+    return dot / (left_norm * right_norm)
 
 
 def _model_identity(model_id: str) -> tuple[str, str]:
@@ -142,6 +156,17 @@ def ensure_legacy_analytical_space(
     if stored != space.identity:
         raise RuntimeError("analytical embedding space identity changed while storing")
     return space
+
+
+def _reported_dimension(embed: Any, dimension: int | None) -> int | None:
+    """Use explicit or backend-reported dimensions without probing a provider."""
+
+    if dimension is not None:
+        return dimension
+    reported = getattr(embed, "embedding_dimension", None)
+    if isinstance(reported, bool) or not isinstance(reported, int) or reported <= 0:
+        return None
+    return reported
 
 
 def _text_inputs(texts: Sequence[str]) -> tuple[list[str], list[TextEncodingInput]]:
@@ -260,7 +285,10 @@ def encode_project_legacy_texts(
     """Persist the space and synchronously use one project's shared cache."""
 
     space = ensure_legacy_analytical_space(
-        project, model_id, dimension=dimension, normalization=normalization
+        project,
+        model_id,
+        dimension=_reported_dimension(embed, dimension),
+        normalization=normalization,
     )
     with RetrievalStore(project) as cache:
         return encode_legacy_texts(
@@ -287,7 +315,10 @@ async def encode_project_legacy_texts_async(
     """Persist the space and asynchronously use one project's shared cache."""
 
     space = ensure_legacy_analytical_space(
-        project, model_id, dimension=dimension, normalization=normalization
+        project,
+        model_id,
+        dimension=_reported_dimension(embed, dimension),
+        normalization=normalization,
     )
     with RetrievalStore(project) as cache:
         return await encode_legacy_texts_async(
@@ -303,6 +334,7 @@ async def encode_project_legacy_texts_async(
 __all__ = [
     "BeforeFreshTexts",
     "OnFreshTexts",
+    "cosine_similarity",
     "encode_legacy_texts",
     "encode_legacy_texts_async",
     "encode_project_legacy_texts",

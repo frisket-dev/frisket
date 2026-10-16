@@ -64,10 +64,10 @@ def _fastembed_section(env: dict[str, str]) -> dict[str, Any]:
     installed = importlib.util.find_spec("fastembed") is not None
     disabled = env.get("FRISKET_DISABLE_LOCAL_EMBED") == "1"
     # The resolved local model id (the catalog default; the same id local_embedder
-    # hands fastembed). Imported lazily so the doctor works even if semantic.py's
+    # hands fastembed). Imported lazily so the doctor stays dependency-light.
     # heavy deps are partly absent.
     try:
-        from frisket.semantic import LOCAL_MODEL
+        from frisket.ai.embeddings.backends import LOCAL_MODEL
 
         model_id = LOCAL_MODEL
     except Exception:  # noqa: BLE001

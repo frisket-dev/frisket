@@ -230,6 +230,8 @@ def local_reranker(
 class RouterRemoteEmbedder:
     """Metadata-preserving router adapter for sync and async consumers."""
 
+    embedding_dimension = 1536
+
     def __init__(self, router: Any) -> None:
         self._router = router
 
