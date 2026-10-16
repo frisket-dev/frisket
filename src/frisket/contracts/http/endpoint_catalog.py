@@ -785,6 +785,12 @@ _TENANT_EDITOR: tuple[RouteSpec, ...] = (
 _BROWSER_CLIENT_IDS = (
     frozenset(
         {
+            "tenant.create_search_preparation.post",
+            "tenant.list_search_preparations.get",
+            "tenant.get_search_preparation.get",
+            "tenant.decide_search_preparation.post",
+            "tenant.stop_search_preparation.post",
+            "tenant.get_search_preparation_text_samples.get",
             "tenant.extraction_document_get.get",
             "tenant.extraction_templates_list.get",
             "tenant.extraction_preview.post",
