@@ -43,7 +43,7 @@ test('project search prepares the missing PDF sheet while a text sheet is open',
   await page.getByTestId('search-preparation-done').click();
   await expect(page.getByTestId('search-preparation-receipt')).toBeHidden();
   // Closing and reopening searches the real index, not a mocked success response.
-  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Close command palette' }).click();
   const reopened = await openPalette(page);
   await reopened.getByTestId('command-palette-input').fill('bluewharf');
   await expect(reopened.getByTestId('search-hit').filter({ hasText: 'bluewharf' }).first())
@@ -72,7 +72,7 @@ test('semantic setup keeps download progress and errors visible after closing se
   await page.route('**/api/providers/models/pulls', (route) => (
     route.fulfill({ json: { pulls: started ? [pull] : [] } })
   ));
-  await page.route('**/api/providers/models/pulls/9876', (route) => route.fulfill({ json: pull }));
+  await page.route('**/api/providers/models/pulls/*', (route) => route.fulfill({ json: pull }));
   await openProject(page, pid, sheet);
   const palette = await openPalette(page);
   await palette.getByTestId('command-palette-input').fill('harbor');
@@ -81,7 +81,7 @@ test('semantic setup keeps download progress and errors visible after closing se
   await expect(palette.getByTestId('model-pull-progress')).toHaveAttribute('data-status', 'pending');
   pull = { ...pull, status: 'running', phase: 'Downloading', completed_bytes: 350_000_000 };
   await expect(palette.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '25');
-  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Close command palette' }).click();
   await expect(palette).toBeHidden();
   const notice = page.getByTestId('search-preparation-banner');
   await expect(notice).toContainText('EmbeddingGemma 2');
@@ -97,19 +97,20 @@ test('semantic setup keeps download progress and errors visible after closing se
   };
   await expect(reopened.getByTestId('model-pull-error')).toContainText('interrupted');
   await expect(reopened.getByTestId('search-setup-retry')).toBeVisible();
-  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Close command palette' }).click();
   await expect(notice).toContainText('interrupted');
   await page.screenshot({ path: testInfo.outputPath('download-failed@2x.png'), animations: 'disabled' });
   const retryPalette = await openPalette(page);
   await retryPalette.getByTestId('command-palette-input').fill('harbor');
+  await expect(retryPalette.getByTestId('search-setup-retry')).toBeVisible();
   pull = {
-    ...pull, status: 'running', phase: 'Downloading', error: null,
+    ...pull, id: 9877, status: 'running', phase: 'Downloading', error: null,
     completed_bytes: 700_000_000,
     capabilities: { cancel: true, retry: false, remove: false },
   };
   await retryPalette.getByTestId('search-setup-retry').click();
   await expect(retryPalette.getByTestId('model-pull-progress')).toHaveAttribute('data-status', 'running');
-  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Close command palette' }).click();
   await expect(notice.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '50');
 
   // Download bytes are simulated, so control only the resulting index lifecycle too.
