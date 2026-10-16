@@ -171,8 +171,8 @@ def _index_payload(
         "reason": reason,
         "refresh_needed": reason != "fresh",
         # ready = have a vector; current = vector still matches source.
-        "ready": ready_keys,
-        "current": ready_keys - stale_source,
+        "ready": ready_keys + stale_source,
+        "current": ready_keys,
         "missing": missing_source,
         "stale": stale_source,
         "error": error_items,

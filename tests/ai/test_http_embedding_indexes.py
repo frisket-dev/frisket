@@ -271,6 +271,7 @@ def test_freshness_reason_edited_row_is_stale_rows(tmp_path):
     f = _freshness(client, pid, sheet)
     assert f["reason"] == "stale_rows"
     assert f["stale"] == 1 and f["current"] == 1
+    assert f["ready"] == 2
 
 
 def test_freshness_reason_appended_row_is_missing_rows(tmp_path):
