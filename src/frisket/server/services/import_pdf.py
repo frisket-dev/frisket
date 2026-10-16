@@ -135,7 +135,8 @@ class ImportPdfUploadService:
             raise ImportPdfRouteError(500, "import.pdf did not return a page count")
         if self._search_preparation is not None and result.receipt_id is not None:
             try:
-                self._search_preparation.create_after_import(
+                await await_thread_worker(
+                    self._search_preparation.create_after_import,
                     project_id,
                     receipt_id=result.receipt_id,
                     sheet_id=sheet_output.sheet_id,
