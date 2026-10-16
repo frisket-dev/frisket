@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from frisket.engine.store import Project
+from frisket.redaction import redact_text
 from frisket.retrieval.contracts import (
     BindingRevision,
     RetrievalScope,
@@ -595,7 +596,9 @@ def _manual_query(
         except EmbeddingBackendUnavailable as exc:
             raise SimilarityError("embedding_backend_unavailable", str(exc)) from exc
         except EmbeddingProviderError as exc:
-            raise SimilarityError("embedding_provider_error", str(exc)) from exc
+            raise SimilarityError(
+                "embedding_provider_error", redact_text(str(exc), max_chars=200)
+            ) from None
 
     fresh_use: QueryEmbeddingUse | None = None
 
@@ -642,7 +645,9 @@ def _manual_query(
     except SimilarityError:
         raise
     except Exception as exc:
-        raise SimilarityError("embedding_provider_error", str(exc)) from exc
+        raise SimilarityError(
+            "embedding_provider_error", redact_text(str(exc), max_chars=200)
+        ) from None
     term_count = len(terms)
     request_query = WeightedSemanticQuery(
         terms=tuple(WeightedTerm(term["text"], term["weight"]) for term in terms),

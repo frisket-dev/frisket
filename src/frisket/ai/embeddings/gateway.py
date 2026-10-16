@@ -16,6 +16,8 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
+from frisket.redaction import redact_text
+
 from .capabilities import EmbeddingBatchResult, build_batch_result
 
 # Text providers known to L2-normalize their output (OpenAI/Gemini embeddings and
@@ -39,6 +41,10 @@ class EmbeddingBackendUnavailable(RuntimeError):
 
 class EmbeddingProviderError(RuntimeError):
     """The embedder was reachable but failed to produce vectors."""
+
+
+def _provider_error_message(error: Exception) -> str:
+    return redact_text(str(error), max_chars=200)
 
 
 class EmbeddingGateway:
@@ -113,7 +119,7 @@ class EmbeddingGateway:
         except LocalEmbeddingModelUnavailable as exc:
             raise EmbeddingBackendUnavailable(str(exc)) from exc
         except Exception as exc:  # noqa: BLE001 — provider/decoder failure is data
-            raise EmbeddingProviderError(str(exc)) from exc
+            raise EmbeddingProviderError(_provider_error_message(exc)) from None
         return build_batch_result(
             vectors,
             provider_id="fastembed",
@@ -154,7 +160,7 @@ class EmbeddingGateway:
         except LocalEmbeddingModelUnavailable as exc:
             raise EmbeddingBackendUnavailable(str(exc)) from exc
         except Exception as exc:  # noqa: BLE001 — provider failure is data
-            raise EmbeddingProviderError(str(exc)) from exc
+            raise EmbeddingProviderError(_provider_error_message(exc)) from None
         return build_batch_result(
             vectors,
             provider_id="fastembed",
@@ -189,4 +195,4 @@ class EmbeddingGateway:
         except EmbeddingBackendUnavailable:
             raise
         except Exception as exc:  # noqa: BLE001 — provider failure is data
-            raise EmbeddingProviderError(str(exc)) from exc
+            raise EmbeddingProviderError(_provider_error_message(exc)) from None

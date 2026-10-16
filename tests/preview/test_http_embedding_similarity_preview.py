@@ -314,6 +314,31 @@ def test_manual_text_runs_when_policy_allows(tmp_path):
     assert body["hits"][0]["row_id"] == _row(project, sheet, cols, "cat")
 
 
+def test_manual_text_provider_error_redacts_secret_from_http_response(
+    tmp_path, monkeypatch
+):
+    secret = "provider-secret-sentinel"
+    client = _client(tmp_path, _openai_router())
+    pid, _project, _sheet, _cols, index_id = _seed(
+        client, provider="openai", policy={"allow_remote": True}, dim=1536
+    )
+
+    async def fail_embed(*_args, **_kwargs):
+        raise RuntimeError(f"provider rejected api_key={secret} " + "x" * 300)
+
+    monkeypatch.setattr(ModelRouter, "embed_batch", fail_embed)
+
+    response = _preview(
+        client, pid, _manual_query(index_id, "uncached provider failure")
+    )
+
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert detail["code"] == "embedding_provider_error"
+    assert secret not in response.text
+    assert len(detail["message"]) <= 200
+
+
 @pytest.mark.parametrize("kind", ["similarity", "hybrid"])
 def test_remote_manual_preview_refuses_exhausted_project_key_before_egress(
     tmp_path, monkeypatch, kind
