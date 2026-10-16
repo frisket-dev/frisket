@@ -365,6 +365,19 @@ def resolve_embedding_similarity(
             response = RetrievalQueryService(project).search(
                 request, semantic_vectors=semantic_vectors
             )
+            unavailable = next(
+                (
+                    channel
+                    for channel in response.coverage.channels
+                    if channel.channel == "semantic" and channel.state == "unavailable"
+                ),
+                None,
+            )
+            if unavailable is not None:
+                raise SimilarityError(
+                    "embedding_backend_unavailable",
+                    unavailable.reason or "semantic search is unavailable",
+                )
         except RetrievalQueryError as exc:
             code = (
                 "embedding_source_stale"

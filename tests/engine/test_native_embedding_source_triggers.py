@@ -33,6 +33,8 @@ from frisket.engine.jobs import (
     register_watch_evaluate_handler,
 )
 from frisket.ai.llm import ModelRouter
+from frisket.features.watchlists.service import run_watch_evaluation
+from frisket.retrieval import native
 from frisket.server.workspace import Workspace
 from frisket.engine.store import Project
 
@@ -461,6 +463,40 @@ def _notification_count(env):
     return env.project.db.execute(
         "SELECT COUNT(*) AS n FROM notification_items"
     ).fetchone()["n"]
+
+
+def test_embedding_watch_preserves_cursor_when_vector_runtime_is_unavailable(
+    env, tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    index_id = _create_index(env, key="unavailable")
+    _full_refresh(env, index_id)
+    watch_id = _embedding_watch(env, index_id, _row_id(env, "story 0"))
+    before = int(env.project.get_watch(watch_id)["last_evaluated_op"] or 0)
+    monkeypatch.setattr(native, "_NATIVE_ROOT", tmp_path / "missing-native")
+
+    evaluation = run_watch_evaluation(env.project, env.project.get_watch(watch_id))
+
+    assert evaluation["run"]["status"] == "error"
+    assert evaluation["run"]["error_code"] == "embedding_backend_unavailable"
+    assert env.project.get_watch(watch_id)["last_evaluated_op"] == before
+    assert _notification_count(env) == 0
+
+
+def test_embedding_watch_accepts_complete_empty_result(env):
+    env.sheet = env.project.add_sheet("single-row")
+    env.cols = {"headline": env.project.add_column(env.sheet, "headline")}
+    [anchor] = env.project.add_rows(env.sheet, [{"headline": "only story"}], env.cols)
+    index_id = _create_index(env, key="empty")
+    _full_refresh(env, index_id)
+    watch_id = _embedding_watch(env, index_id, anchor)
+    before = int(env.project.get_watch(watch_id)["last_evaluated_op"] or 0)
+
+    evaluation = run_watch_evaluation(env.project, env.project.get_watch(watch_id))
+
+    assert evaluation["run"]["status"] == "ok"
+    assert evaluation["run"]["matched_rows"] == 0
+    assert env.project.get_watch(watch_id)["last_evaluated_op"] > before
+    assert _notification_count(env) == 0
 
 
 def test_source_append_embedding_watch_evaluates_after_refresh_not_before(env):
