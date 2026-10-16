@@ -44,9 +44,22 @@ jobs:
         with:
           version: '0.11.29'
           enable-cache: false
-      - name: Build packaged Vec1
-        run: python scripts/build_vec1.py
-      - name: Verify native retrieval behavior
-        env:
-          PYTHONPATH: src
-        run: uv run --no-project --with pytest==9.0.3 python -m pytest -q tests/retrieval/test_native.py
+      - name: Build platform wheel
+        run: uv build --wheel --out-dir dist
+      - name: Verify installed native retrieval behavior
+        shell: bash
+        run: |
+          set -euo pipefail
+          wheels=(dist/*.whl)
+          test "${#wheels[@]}" -eq 1
+          case "${wheels[0]}" in *-any.whl) exit 1;; esac
+          uv venv --python 3.12 .native-test
+          if [ "$RUNNER_OS" = Windows ]; then
+            python=.native-test/Scripts/python.exe
+          else
+            python=.native-test/bin/python
+          fi
+          uv pip install --python "$python" --no-deps "${wheels[0]}"
+          uv pip install --python "$python" pytest==9.0.3
+          "$python" -m pytest --confcutdir tests/retrieval -o addopts= -q \
+            tests/retrieval/test_native.py
