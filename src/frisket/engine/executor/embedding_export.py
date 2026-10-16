@@ -185,10 +185,13 @@ def _embedding_export_replay_error(
             receipt,
             "embedding export replay receipt lacks artifact row-count evidence",
         )
-    if any(count != provenance.get("ready_items") for count in output_row_counts):
+    if any(
+        count != provenance.get("ready_items") or count != len(fresh.ready_keys)
+        for count in output_row_counts
+    ):
         return _embedding_stale_replay_error(
             receipt,
-            "embedding export replay artifact row counts do not match provenance",
+            "embedding export replay artifact row counts do not match the current index",
         )
     return _embedding_sidecar_items_replay_error(project, receipt, items_ref)
 
