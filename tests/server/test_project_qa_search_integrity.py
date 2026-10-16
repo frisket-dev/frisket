@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import frisket.retrieval.service as retrieval_service
+from frisket.contracts.http.project_qa import AskCitation
 from frisket.engine.store import Project
 from frisket.engine.store.project_qa import ProjectQAStore
 from frisket.retrieval.contracts import (
     BindingRevision,
     IndexedPart,
     LocatedHit,
+    PageRange,
     ResultGroup,
     RetrievalContribution,
     ScopedBinding,
@@ -15,7 +17,9 @@ from frisket.retrieval.contracts import (
     SourceLocator,
     SourceRevision,
     TextQuery,
+    TimeRange,
 )
+from frisket.server.services.project_qa_citations import resolve_citation
 from frisket.server.services.project_qa_tools import ProjectQATools
 
 
@@ -26,6 +30,7 @@ def _response(
     revision: int,
     *,
     locator: SourceLocator | None = None,
+    dependencies: tuple[BindingRevision, ...] | None = None,
 ) -> SearchResponse:
     hit = LocatedHit(
         part=IndexedPart(
@@ -45,7 +50,8 @@ def _response(
             sheet_id=sheet_id,
             row_id=row_id,
             column_id=column_id,
-            dependencies=(
+            dependencies=dependencies
+            or (
                 BindingRevision(
                     row_id=row_id,
                     column_id=column_id,
@@ -141,6 +147,15 @@ def test_keyword_search_mints_citation_after_dependency_recheck(tmp_path, monkey
             "version_kind": "retrieval_revision",
             "version_value": revision,
         }
+
+        def whole_source_read(*_args, **_kwargs):
+            raise AssertionError("citation resolution loaded the whole source")
+
+        monkeypatch.setattr(project, "get_values_with_refs", whole_source_read)
+        assert (
+            resolve_citation(project, turn["thread_id"], hit["citation_id"])["status"]
+            == "current"
+        )
         assert result["partial"] is False
     finally:
         project.close()
@@ -152,7 +167,6 @@ def test_located_media_hit_mints_navigable_evidence_citation(tmp_path, monkeypat
         record_source_artifact,
         record_source_span,
     )
-    from frisket.retrieval.contracts import PageRange, TimeRange
 
     project, store, turn, sheet, row, column, _revision = _ask_project(tmp_path)
     _, refs = project.get_values_with_refs(sheet, column, [row])
@@ -213,5 +227,101 @@ def test_located_media_hit_mints_navigable_evidence_citation(tmp_path, monkeypat
             "start_seconds": 4.25,
             "end_seconds": 9.5,
         }
+    finally:
+        project.close()
+
+
+def test_page_time_hit_without_evidence_keeps_document_navigation(
+    tmp_path, monkeypatch
+):
+    project, store, turn, sheet, row, column, revision = _ask_project(tmp_path)
+    located = SourceLocator(
+        kind="video_clip",
+        pages=PageRange(3, 3),
+        time=TimeRange(12.5, 18.0),
+    )
+    monkeypatch.setattr(
+        retrieval_service,
+        "search_with_encoding",
+        lambda _project, _request, **_kwargs: _response(
+            sheet, row, column, revision, locator=located
+        ),
+    )
+    try:
+        [hit] = ProjectQATools(project, turn, store).search_cells("oldneedle", sheet)[
+            "hits"
+        ]
+        citation = store.get_citation(hit["citation_id"])
+        assert citation["source_kind"] == "cell"
+
+        current = resolve_citation(project, turn["thread_id"], hit["citation_id"])
+        assert current["status"] == "current"
+        typed = AskCitation.model_validate(current)
+        assert typed.target is not None
+        assert current["target"]["navigation"] == {
+            "kind": "document",
+            "sheet_id": sheet,
+            "row_id": row,
+            "column_id": column,
+            "page": 3,
+            "time_seconds": 12.5,
+        }
+
+        project.apply_edits(
+            [{"row_id": row, "column_id": column, "value": "replacement"}]
+        )
+        changed = resolve_citation(project, turn["thread_id"], hit["citation_id"])
+        assert changed["status"] == "changed"
+        assert "navigation" not in changed["target"]
+    finally:
+        project.close()
+
+
+def test_citation_becomes_stale_when_any_binding_dependency_changes(
+    tmp_path, monkeypatch
+):
+    project, store, turn, sheet, row, column, revision = _ask_project(tmp_path)
+    context_column = project.add_column(sheet, "Context")
+    project.apply_edits(
+        [{"row_id": row, "column_id": context_column, "value": "supporting"}]
+    )
+    context_revision = int(
+        project.db.execute(
+            "SELECT retrieval_revision FROM current_cells "
+            "WHERE row_id=? AND column_id=?",
+            (row, context_column),
+        ).fetchone()[0]
+    )
+    dependencies = (
+        BindingRevision(row, column, revision),
+        BindingRevision(row, context_column, context_revision),
+    )
+    monkeypatch.setattr(
+        retrieval_service,
+        "search_with_encoding",
+        lambda _project, _request, **_kwargs: _response(
+            sheet,
+            row,
+            column,
+            revision,
+            locator=SourceLocator(kind="document", pages=PageRange(1, 1)),
+            dependencies=dependencies,
+        ),
+    )
+    try:
+        [hit] = ProjectQATools(project, turn, store).search_cells("oldneedle", sheet)[
+            "hits"
+        ]
+        assert (
+            resolve_citation(project, turn["thread_id"], hit["citation_id"])["status"]
+            == "current"
+        )
+
+        project.apply_edits(
+            [{"row_id": row, "column_id": context_column, "value": "changed"}]
+        )
+        changed = resolve_citation(project, turn["thread_id"], hit["citation_id"])
+        assert changed["status"] == "changed"
+        assert "navigation" not in changed["target"]
     finally:
         project.close()

@@ -54,7 +54,8 @@ def test_keyword_search_uses_search_revision_not_unrelated_operation_cursor(sour
     project.db.commit()
     result = ProjectQATools(project, turn, store).search_cells("NEEDLE", sheet)
     assert result["hits"]
-    assert result["coverage"]["complete"] is True
+    assert result["coverage"]["state"] == "complete"
+    assert result["coverage"]["requested_mode"] == "lexical"
 
 
 def test_exact_cell_scope_still_searches_its_original_text(source):
@@ -378,11 +379,9 @@ def test_keyword_result_reports_when_its_ranked_examples_hit_the_limit(source):
     result = ProjectQATools(project, turn, store).search_cells("NEEDLE", sheet, limit=1)
 
     assert len(result["hits"]) == 1
-    assert result["coverage"] == {
-        "semantic": False,
-        "complete": True,
-        "result_limit_reached": True,
-    }
+    assert result["coverage"]["state"] == "complete"
+    assert result["coverage"]["is_top_k"] is True
+    assert result["coverage"]["searched_channels"] == ["lexical"]
 
 
 def test_citation_freshness_uses_the_saved_source_version(source):
@@ -526,7 +525,7 @@ def test_late_prepared_quote_keeps_timestamps_without_full_viewer_load(
     assert prepared["citation_id"] in tools.citation_ids
 
 
-def test_file_scope_reads_current_prepared_text_and_finds_it(tmp_path, monkeypatch):
+def test_file_scope_reads_current_prepared_text_and_finds_it(tmp_path):
     from frisket.engine.store.evidence import (
         record_evidence_link,
         record_source_artifact,
@@ -534,7 +533,6 @@ def test_file_scope_reads_current_prepared_text_and_finds_it(tmp_path, monkeypat
     )
     from frisket.engine.store.media_blobs import media_cell
     from frisket.server.services.project_qa_citations import resolve_citation
-    import frisket.server.services.project_qa_tools as tools_module
 
     project = Project.create(tmp_path / "prepared-file.frisket", name="Prepared")
     try:
@@ -625,43 +623,17 @@ def test_file_scope_reads_current_prepared_text_and_finds_it(tmp_path, monkeypat
         assert "NEEDLE decisive prepared evidence." in found["matches"][0]["text"]
         resolved = resolve_citation(project, turn["thread_id"], citation_id)
         assert resolved["status"] == "current"
-        assert resolved["target"] == {
+        assert resolved["target"] is not None
+        assert {
+            key: resolved["target"][key]
+            for key in ("kind", "sheet_id", "row_id", "column_id")
+        } == {
             "kind": "cell",
             "sheet_id": sheet,
             "row_id": row,
             "column_id": text_column,
         }
-
-        def semantic_prepared_hit(*args, **kwargs):
-            assert kwargs["file_cells"] == {(row, source_column), (row, text_column)}
-            start = prepared_text.index("NEEDLE")
-            return {
-                "hits": [
-                    {
-                        "sheet_id": sheet,
-                        "row_id": row,
-                        "column_id": text_column,
-                        "column_name": "Text result",
-                        "char_start": start,
-                        "char_end": start + len("NEEDLE"),
-                        "text": "NEEDLE",
-                        "semantic": True,
-                    }
-                ],
-                "new_embeddings": 0,
-                "coverage": {"complete": True, "semantic": True},
-            }
-
-        monkeypatch.setattr(
-            tools_module, "semantic_passage_search", semantic_prepared_hit
-        )
-        [semantic_hit] = tools.search_cells("NEEDLE", sheet, mode="semantic")["hits"]
-        assert semantic_hit["column_id"] == source_column
-        semantic_opened = tools.open_source(semantic_hit["citation_id"])
-        assert (
-            "NEEDLE decisive prepared evidence."
-            in semantic_opened["passages"][0]["text"]
-        )
+        assert resolved["target"]["text_range"]["start"] == 0
         with pytest.raises(ProjectQAScopeError, match="file scope"):
             tools.read_rows(sheet, [row], [text_column])
 
@@ -702,35 +674,3 @@ def test_file_scope_reads_current_prepared_text_and_finds_it(tmp_path, monkeypat
         )
     finally:
         project.close()
-
-
-def test_semantic_hit_is_not_cited_with_new_reference_after_an_edit(
-    source, monkeypatch
-):
-    import frisket.server.services.project_qa_tools as module
-
-    project, store, _, turn, sheet, column, row = source
-    tools = ProjectQATools(project, turn, store)
-
-    def racing_search(*args, **kwargs):
-        project.apply_edits([{"row_id": row, "column_id": column, "value": "changed"}])
-        return {
-            "hits": [
-                {
-                    "row_id": row,
-                    "column_id": column,
-                    "column_name": "Text",
-                    "char_start": 0,
-                    "char_end": 7,
-                    "text": "opening",
-                    "semantic": True,
-                }
-            ],
-            "new_embeddings": 1,
-            "coverage": {"complete": True, "semantic": True},
-        }
-
-    monkeypatch.setattr(module, "semantic_passage_search", racing_search)
-    result = tools.search_cells("needle", sheet, mode="semantic")
-    assert result["hits"] == []
-    assert result["coverage"]["reason"] == "source_changed"

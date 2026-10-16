@@ -176,6 +176,32 @@ def _resolve_evidence_target(
     }, status
 
 
+def _binding_dependencies_current(project: Project, dependencies: object) -> bool:
+    if not isinstance(dependencies, list) or not dependencies:
+        return False
+    for dependency in dependencies:
+        if not isinstance(dependency, dict):
+            return False
+        row_id = dependency.get("row_id")
+        column_id = dependency.get("column_id")
+        revision = dependency.get("retrieval_revision")
+        if any(
+            isinstance(value, bool) or not isinstance(value, int) or value <= 0
+            for value in (row_id, column_id, revision)
+        ):
+            return False
+        if (
+            project.db.execute(
+                "SELECT 1 FROM current_cells WHERE row_id=? AND column_id=? "
+                "AND retrieval_revision=?",
+                (row_id, column_id, revision),
+            ).fetchone()
+            is None
+        ):
+            return False
+    return True
+
+
 def _resolve_project_citation(
     project: Project,
     citation: dict[str, Any],
@@ -198,26 +224,29 @@ def _resolve_project_citation(
     column = next((c for c in project.columns(sheet_id) if c["id"] == column_id), None)
     if column is None:
         return result
-    values, refs = project.get_values_with_refs(
-        sheet_id, column_id, row_ids=[row_id], include_validity=True
-    )
-    if row_id not in values:
+    try:
+        current_source = read_source_text(
+            project, (sheet_id, row_id, column_id), limit=1
+        )
+    except ValueError:
         return result
     saved_ref = locator.get("value_ref")
     saved_version = locator.get("source_version")
     if saved_version is not None and locator.get("prepared_cell") is None:
-        current_version = read_source_text(
-            project, (sheet_id, row_id, column_id), limit=1
-        )["version"]
-        status = "current" if saved_version == current_version else "changed"
+        status = "current" if saved_version == current_source["version"] else "changed"
     else:
         status = (
             "unverified"
             if saved_ref is None
             else "current"
-            if saved_ref == refs.get(row_id)
+            if saved_ref == current_source["value_ref"]
             else "changed"
         )
+    dependencies = locator.get("binding_dependencies")
+    if dependencies is not None and not _binding_dependencies_current(
+        project, dependencies
+    ):
+        status = "changed"
     target = {
         "kind": "cell",
         "sheet_id": sheet_id,
@@ -232,6 +261,13 @@ def _resolve_project_citation(
         if evidence is None:
             return result
         target, status = evidence
+    elif status == "current":
+        navigation = locator.get("navigation")
+        if isinstance(navigation, dict) and navigation.get("kind") == "document":
+            target["navigation"] = navigation
+        location = locator.get("location")
+        if isinstance(location, dict) and isinstance(location.get("text"), dict):
+            target["text_range"] = location["text"]
     return {
         **result,
         "label": safe_web_text(

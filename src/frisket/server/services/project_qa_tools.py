@@ -7,6 +7,7 @@ import heapq
 import json
 import threading
 from collections.abc import Callable, Mapping
+from html import unescape
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlsplit
 
@@ -482,17 +483,37 @@ class ProjectQATools:
         return result
 
     def _record_retrieval_hit(
-        self, query: str, hit: LocatedHit, column: Mapping[str, Any]
+        self,
+        query: str,
+        hit: LocatedHit,
+        column: Mapping[str, Any],
+        *,
+        prepared_target: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Mint a citation only while every retrieval dependency is current."""
 
         binding = hit.binding
         if binding.column_id is None or not binding.dependencies:
             raise ValueError("source_changed")
-        cell = (binding.sheet_id, binding.row_id, binding.column_id)
-        current = read_source_text(
-            self.project, cell, limit=1, cancel=self.cancel_event
+        binding_cell = (binding.sheet_id, binding.row_id, binding.column_id)
+        source_cell = (
+            tuple(prepared_target["source_cell"])
+            if prepared_target is not None
+            else binding_cell
         )
+        try:
+            current = read_source_text(
+                self.project, binding_cell, limit=1, cancel=self.cancel_event
+            )
+            original = (
+                read_source_text(
+                    self.project, source_cell, limit=1, cancel=self.cancel_event
+                )
+                if prepared_target is not None
+                else current
+            )
+        except (LookupError, ValueError) as exc:
+            raise ValueError("source_changed") from exc
         db = self.project.db
         db.execute("BEGIN IMMEDIATE")
         try:
@@ -510,19 +531,53 @@ class ProjectQATools:
                     is None
                 ):
                     raise ValueError("source_changed")
-            evidence = self._retrieval_evidence(hit, cell)
-            if evidence is None and (
-                hit.part.locator.source_span_ids
-                or hit.part.locator.pages is not None
-                or hit.part.locator.time is not None
-            ):
-                raise ValueError("source_changed")
-            location = _search_hit_payload(hit, column=dict(column))["location"]
+            dependency_payload = [
+                {
+                    "row_id": dependency.row_id,
+                    "column_id": dependency.column_id,
+                    "retrieval_revision": dependency.retrieval_revision,
+                }
+                for dependency in binding.dependencies
+            ]
+            if prepared_target is not None:
+                resolved_cell, resolved_source, resolved_prepared = (
+                    read_source_with_prepared(
+                        self.project,
+                        source_cell,
+                        evidence_link_id=str(prepared_target["evidence_link_id"]),
+                        cancel=self.cancel_event,
+                    )
+                )
+                if (
+                    resolved_prepared is None
+                    or resolved_cell != binding_cell
+                    or resolved_source["version"] != original["version"]
+                    or resolved_prepared["prepared_version"] != current["version"]
+                ):
+                    raise ValueError("source_changed")
+                source_revision = db.execute(
+                    "SELECT retrieval_revision FROM current_cells "
+                    "WHERE row_id=? AND column_id=?",
+                    (source_cell[1], source_cell[2]),
+                ).fetchone()
+                if source_revision is None:
+                    raise ValueError("source_changed")
+                source_dependency = {
+                    "row_id": source_cell[1],
+                    "column_id": source_cell[2],
+                    "retrieval_revision": int(source_revision[0]),
+                }
+                if source_dependency not in dependency_payload:
+                    dependency_payload.append(source_dependency)
+            evidence = self._retrieval_evidence(hit, source_cell)
+            payload = _search_hit_payload(self.project, hit, column=dict(column))
+            location = payload["location"]
+            text_range = location.get("text")
             locator = {
-                "sheet_id": cell[0],
-                "row_id": cell[1],
-                "column_id": cell[2],
-                "value_ref": current["value_ref"],
+                "sheet_id": source_cell[0],
+                "row_id": source_cell[1],
+                "column_id": source_cell[2],
+                "value_ref": original["value_ref"],
                 "source_version": current["version"],
                 "retrieval_source": {
                     "source_id": hit.part.source.source_id,
@@ -531,31 +586,82 @@ class ProjectQATools:
                     "version_value": hit.part.source.version_value,
                 },
                 "location": location,
+                "navigation": payload["navigation"],
+                "binding_dependencies": dependency_payload,
+                **(
+                    {
+                        "char_start": text_range["start"],
+                        "char_end": text_range["end"],
+                    }
+                    if text_range is not None
+                    else {}
+                ),
+                **(
+                    {
+                        "prepared_cell": {
+                            "sheet_id": binding_cell[0],
+                            "row_id": binding_cell[1],
+                            "column_id": binding_cell[2],
+                        },
+                        "prepared_value_ref": current["value_ref"],
+                        "prepared_evidence_link_id": prepared_target[
+                            "evidence_link_id"
+                        ],
+                    }
+                    if prepared_target is not None
+                    else {}
+                ),
                 **(evidence or {}),
             }
+            fts_anchor = self._retrieval_fts_anchor(query, hit)
             citation = self.store.add_citation(
                 self.turn_id,
                 label=(
-                    f"Search hit · {self._sheet_name(cell[0])} · row {cell[1]} "
+                    f"Search hit · {self._sheet_name(source_cell[0])} "
+                    f"· row {source_cell[1]} "
                     f"· {column['name']}"
                 ),
                 source_kind="evidence" if evidence else "cell",
                 locator=locator,
                 excerpt=hit.snippet or "",
-                metadata={"search": query},
+                metadata={
+                    "search": query,
+                    **({"fts_anchor": fts_anchor} if fts_anchor else {}),
+                },
             )
             db.commit()
         except BaseException:
             db.rollback()
             raise
         self._citation_ids.add(citation["id"])
-        payload = _search_hit_payload(hit, column=dict(column))
-        snippet = payload.pop("snip")
         return {
+            "sheet_id": source_cell[0],
+            "row_id": source_cell[1],
+            "column_id": source_cell[2],
             **payload,
-            "snippet": snippet,
+            "semantic": any(
+                contribution.method == "semantic" for contribution in hit.contributions
+            ),
             "citation_id": citation["id"],
         }
+
+    @staticmethod
+    def _retrieval_fts_anchor(query: str, hit: LocatedHit) -> str | None:
+        if not any(
+            contribution.method == "lexical" for contribution in hit.contributions
+        ):
+            return None
+        snippet = hit.snippet or ""
+        if query.casefold() in unescape(snippet).casefold():
+            return query
+        start = snippet.find("<b>")
+        if start < 0:
+            return None
+        end = snippet.find("</b>", start + 3)
+        if end < 0:
+            return None
+        anchor = unescape(snippet[start + 3 : end]).strip()
+        return anchor or None
 
     def _retrieval_evidence(
         self, hit: LocatedHit, cell: tuple[int, int, int]
@@ -605,11 +711,20 @@ class ProjectQATools:
         from frisket.retrieval.service import search_with_encoding
 
         semantic = mode == "semantic"
+        file_only_cells = (
+            set()
+            if allowed_rows is None
+            else {cell for cell in file_cells if cell[0] not in allowed_rows}
+        )
+        prepared_targets = self._prepared_file_targets(sheet_id, file_only_cells)
         response = search_with_encoding(
             self.project,
             SearchRequest(
                 scope=_retrieval_scope(
-                    sheet_id, allowed_rows, file_cells, sheet_grants
+                    sheet_id,
+                    allowed_rows,
+                    file_cells | {(cell[1], cell[2]) for cell in prepared_targets},
+                    sheet_grants,
                 ),
                 query=TextQuery(query),
                 mode="semantic" if semantic else "lexical",
@@ -636,12 +751,25 @@ class ProjectQATools:
                 source_changed = True
                 continue
             try:
-                out.append(self._record_retrieval_hit(query, hit, column))
+                out.append(
+                    self._record_retrieval_hit(
+                        query,
+                        hit,
+                        column,
+                        prepared_target=prepared_targets.get(
+                            (
+                                hit.binding.sheet_id,
+                                hit.binding.row_id,
+                                hit.binding.column_id,
+                            )
+                        ),
+                    )
+                )
             except ValueError as error:
                 if str(error) != "source_changed":
                     raise
                 source_changed = True
-        coverage = _coverage_payload(response.coverage)
+        coverage = _coverage_payload(response.coverage, offer_local_setup=True)
         if source_changed:
             coverage = {**coverage, "state": "partial", "reason": "source_changed"}
         return {
@@ -650,6 +778,23 @@ class ProjectQATools:
             "partial": coverage["state"] != "complete",
             "coverage": coverage,
         }
+
+    def _prepared_file_targets(
+        self, sheet_id: int, file_cells: set[tuple[int, int]]
+    ) -> dict[tuple[int, int, int], dict[str, Any]]:
+        """Resolve exact current prepared cells without widening file grants."""
+
+        targets: dict[tuple[int, int, int], dict[str, Any]] = {}
+        for row_id, column_id in sorted(file_cells):
+            source_cell = (sheet_id, row_id, column_id)
+            _target, _source, prepared = read_source_with_prepared(
+                self.project, source_cell, cancel=self.cancel_event
+            )
+            if prepared is not None:
+                targets.setdefault(
+                    prepared["cell"], {"source_cell": source_cell, **prepared}
+                )
+        return targets
 
     def record_web_search(self, search: Mapping[str, Any]) -> dict[str, Any]:
         """Persist safe public-search snippets as answer-citable receipts."""
