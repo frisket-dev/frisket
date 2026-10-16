@@ -181,6 +181,75 @@ def test_upgrade_proves_current_and_preserved_inputs_then_marks_once(tmp_path) -
         project.close()
 
 
+def test_upgrade_reopens_when_a_legacy_wal_gains_a_committed_vector(tmp_path) -> None:
+    project = Project.create(tmp_path / "wal-append.frisket")
+    writer: sqlite3.Connection | None = None
+    try:
+        sheet_id = project.add_sheet("Notes")
+        column_id = project.add_column(sheet_id, "body")
+        project.add_rows(
+            sheet_id,
+            [{"body": "first cached text"}, {"body": "second cached text"}],
+            {"body": column_id},
+        )
+        model = f"fastembed/{LOCAL_MODEL}"
+        path = project.path / "project.search.db"
+        writer = sqlite3.connect(path)
+        assert writer.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+        writer.execute("CREATE TABLE cell_vec(key TEXT PRIMARY KEY,vec BLOB)")
+        writer.execute(
+            "INSERT INTO cell_vec(key,vec) VALUES (?,?)",
+            (
+                legacy_cell_vector_key(model, "first cached text"),
+                array("f", [0.25] * 384).tobytes(),
+            ),
+        )
+        writer.commit()
+        writer.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+
+        first = upgrade_legacy_embedding_caches(project)
+
+        assert not first.reused
+        assert first.migration.analytical_imported == 1
+        main_fingerprint = (path.stat().st_size, path.stat().st_mtime_ns)
+
+        writer.execute(
+            "INSERT INTO cell_vec(key,vec) VALUES (?,?)",
+            (
+                legacy_cell_vector_key(model, "second cached text"),
+                array("f", [0.5] * 384).tobytes(),
+            ),
+        )
+        writer.commit()
+        assert (path.stat().st_size, path.stat().st_mtime_ns) == main_fingerprint
+        wal_path = path.with_name(f"{path.name}-wal")
+        assert wal_path.stat().st_size > 0
+
+        second = upgrade_legacy_embedding_caches(project)
+
+        assert not second.reused
+        assert second.migration.analytical_items == 2
+        assert second.migration.analytical_imported == 2
+        space = legacy_analytical_space(model)
+        with RetrievalStore(project).open() as store:
+            found = store.get_representations(
+                space.identity,
+                [input_hash("first cached text"), input_hash("second cached text")],
+            )
+        assert set(found) == {
+            input_hash("first cached text"),
+            input_hash("second cached text"),
+        }
+
+        stable = upgrade_legacy_embedding_caches(project)
+        assert stable.reused
+        assert stable.migration == second.migration
+    finally:
+        if writer is not None:
+            writer.close()
+        project.close()
+
+
 def test_upgrade_imports_named_index_before_marking_completion(tmp_path) -> None:
     project = Project.create(tmp_path / "named.frisket")
     try:

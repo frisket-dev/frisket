@@ -41,7 +41,7 @@ from .store import RetrievalStore
 
 
 LEGACY_EMBEDDING_UPGRADE_META_KEY = "retrieval_legacy_embedding_upgrade_v1"
-_MARKER_VERSION = 2
+_MARKER_VERSION = 3
 _UPGRADE_LOCK_NAME = ".retrieval-upgrade.lock"
 _LEGACY_FILENAMES = ("project.search.db", "project.embeddings.db")
 _SEMANTIC_PREFIX_CHARACTERS = 50_000
@@ -461,6 +461,17 @@ def _legacy_fingerprints(project_path: Path) -> dict[str, list[int]]:
             continue
         stat = path.stat()
         fingerprints[name] = [int(stat.st_size), int(stat.st_mtime_ns)]
+        wal_name = f"{name}-wal"
+        try:
+            wal_stat = (project_path / wal_name).stat()
+        except FileNotFoundError:
+            fingerprints[wal_name] = [0, 0, 0]
+        else:
+            fingerprints[wal_name] = [
+                1,
+                int(wal_stat.st_size),
+                int(wal_stat.st_mtime_ns),
+            ]
     return fingerprints
 
 
