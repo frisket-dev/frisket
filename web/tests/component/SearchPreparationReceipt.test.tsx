@@ -55,6 +55,8 @@ const consentBatch: SearchPreparationBatch = {
       additional_runtime_download: false,
       remediation: null,
       pull_id: null,
+      license: 'Apache-2.0',
+      source_url: 'https://example.test/rapidocr',
     },
     {
       setup_ref: 'engine-setup:embeddinggemma-2.local@1',
@@ -67,6 +69,8 @@ const consentBatch: SearchPreparationBatch = {
       additional_runtime_download: true,
       remediation: null,
       pull_id: null,
+      license: 'Gemma',
+      source_url: 'https://example.test/embeddinggemma',
     },
   ],
   jobs: [],

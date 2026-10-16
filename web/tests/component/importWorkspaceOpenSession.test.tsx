@@ -141,7 +141,9 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     });
 
     await waitFor(() => expect(onImported).toHaveBeenCalledWith(91));
-    expect(await screen.findByTestId('search-preparation-receipt')).toHaveTextContent('Ready to search');
+    const receipt = await screen.findByTestId('search-preparation-receipt');
+    expect(receipt).toHaveTextContent('Ready to search');
+    expect(receipt.closest('.import-workspace-main')).toHaveClass('import-workspace-main-receipt');
     expect(getSearchPreparation).toHaveBeenCalledWith('open-session-project', 'sync-prep');
   });
 

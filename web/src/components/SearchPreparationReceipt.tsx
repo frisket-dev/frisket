@@ -18,8 +18,8 @@ import { resamplePages, samplePages } from './importWorkspace/pdfPacket/model';
 
 const TERMINAL = new Set<SearchPreparationBatch['status']>(['complete', 'stopped', 'failed']);
 
-function formatBytes(value: number | null): string {
-  if (value === null) return 'Size not measured';
+function formatBytes(value: number | null | undefined): string {
+  if (value == null) return 'Size not measured';
   if (value < 1_000) return `${value} B`;
   const units = ['KB', 'MB', 'GB', 'TB'];
   let amount = value / 1_000;
@@ -50,6 +50,12 @@ function groupStatus(group: SearchPreparationGroup): string {
     case 'needs_consent': return 'Needs your approval';
     default: return 'Checking';
   }
+}
+
+function modelPurposeLabel(purpose: SearchPreparationBatch['models'][number]['purpose']): string {
+  if (purpose === 'read_text') return 'Read text in scans and images';
+  if (purpose === 'transcribe') return 'Transcribe recordings and video';
+  return 'Search by meaning';
 }
 
 function PullProgress({ pullId, onChange }: { pullId: number; onChange(): void }) {
@@ -364,7 +370,7 @@ export function SearchPreparationReceipt({
               />
               <span>
                 <strong>{model.display_name}</strong>
-                <small>{model.purpose === 'search_by_meaning' ? 'Search by meaning' : model.purpose.replaceAll('_', ' ')}</small>
+                <small>{modelPurposeLabel(model.purpose)}</small>
                 {(model.license || model.source_url) && (
                   <small>
                     {model.license ?? 'Model source'}
@@ -406,9 +412,9 @@ export function SearchPreparationReceipt({
         </section>
       )}
 
-      {batch.models.some((model) => model.pull_id !== null) && (
+      {batch.models.some((model) => model.pull_id != null) && (
         <div className="search-preparation-pulls">
-          {batch.models.map((model) => model.pull_id === null ? null : (
+          {batch.models.map((model) => model.pull_id == null ? null : (
             <PullProgress key={model.pull_id} pullId={model.pull_id} onChange={() => void refresh()} />
           ))}
         </div>

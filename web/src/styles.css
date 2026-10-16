@@ -7806,6 +7806,7 @@ dialog.import-workspace-layer::backdrop {
   display: grid;
   grid-template-columns: 230px minmax(0, 1fr);
 }
+.import-workspace-main-receipt { grid-template-columns: minmax(0, 1fr); }
 .import-workspace-sidebar {
   min-width: 0;
   border-right: 1px solid var(--border);
@@ -8420,7 +8421,7 @@ dialog.import-workspace-layer::backdrop {
   border-top: 1px solid #e6e1dc;
 }
 .search-preparation-model > span { display: grid; gap: 2px; }
-.search-preparation-model small { color: #756c66; text-transform: capitalize; }
+.search-preparation-model small { color: #756c66; }
 .search-preparation-model > b { font-size: 12px; font-variant-numeric: tabular-nums; }
 .search-preparation-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 .search-preparation-receipt > footer { padding-top: 4px; }

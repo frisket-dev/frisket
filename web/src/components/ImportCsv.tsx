@@ -1767,7 +1767,7 @@ function OpenImportWorkspaceSession({
             <X size={16} />
           </button>
         </header>
-        <div className={`import-workspace-main${pdfPacketContext.active ? ' pdf-packet-workspace-main' : ''}`}>
+        <div className={`import-workspace-main${pdfPacketContext.active ? ' pdf-packet-workspace-main' : ''}${preparationReceipt ? ' import-workspace-main-receipt' : ''}`}>
           {!pdfPacketContext.active && !preparationReceipt ? (
             <aside className="import-workspace-sidebar">
               <ImportModeRail modes={IMPORT_MODES} mode={railMode} onSelectMode={selectMode} />
