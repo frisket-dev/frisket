@@ -51,7 +51,11 @@ def _requirement_dict(item: Any, *, required: bool) -> dict[str, Any]:
     return {
         "setup_ref": str(item.setup_ref),
         "capability": str(item.capability),
-        "display_name": str(item.display_name),
+        "display_name": (
+            "Parakeet"
+            if str(item.setup_ref) == _TRANSCRIBE_REF
+            else str(item.display_name)
+        ),
         "purpose": {
             "ocr": "read_text",
             "transcription": "transcribe",
@@ -114,6 +118,8 @@ class SearchPreparationService:
         force_ocr: bool,
         trigger_receipt_id: str | None = None,
     ) -> SearchPreparationBatch:
+        if self.workspace.edition == "cloud":
+            raise RouteError(409, "local search preparation is unavailable in Cloud")
         project = self.workspace.get(project_id)
         plan = self._plan(
             project, sheet_id=sheet_id, row_ids=row_ids, force_ocr=force_ocr
@@ -403,15 +409,24 @@ class SearchPreparationService:
     def recover(self) -> None:
         """Resume durable decided intents at process startup without new consent."""
 
+        if self.workspace.edition == "cloud":
+            return
+
         for project in self.workspace.list():
-            for row in self.store.list_recent(
-                project_id=str(project["id"]),
-                storage_org_id=self.workspace.queue_storage_org_id,
-                limit=100,
-            ):
-                if row.decision == "prepare" and row.stop_requested_at is None:
+            offset = 0
+            while True:
+                rows = self.store.list_decided_page(
+                    project_id=str(project["id"]),
+                    storage_org_id=self.workspace.queue_storage_org_id,
+                    limit=100,
+                    offset=offset,
+                )
+                for row in rows:
                     self._start_next_setup(row)
                     self._advance(row)
+                if len(rows) < 100:
+                    break
+                offset += len(rows)
 
     def text_samples(
         self,
@@ -788,9 +803,19 @@ class SearchPreparationService:
         }
 
     def _start_next_setup(self, row: SearchPreparationBatchRow) -> None:
+        from frisket.engine.jobs import model_pull_store
+
         if self.setup_start is None or row.decision != "prepare":
             return
         requirements = {item.setup_ref: item for item in _requirements()}
+        latest = {}
+        for pull in model_pull_store.list_recent(
+            self.workspace.queue.engine,
+            str(self.workspace.root),
+            limit=100,
+            persist=False,
+        ):
+            latest.setdefault(pull.model_ref, pull)
         planned = {item["setup_ref"]: item for item in row.plan["models"]}
         ordered = sorted(
             row.selected_setup_refs,
@@ -802,6 +827,9 @@ class SearchPreparationService:
                 not requirement.weights_ready
                 or (not requirement.runtime_ready and requirement.runtime_installable)
             ):
+                pull = latest.get(ref)
+                if pull is not None and pull.status in {"failed", "cancelled"}:
+                    return
                 self.setup_start(ref, None)
                 return
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hashlib
+import logging
 import os
 import re
 import shutil
@@ -61,6 +62,7 @@ _MAX_PACKET_PAGES = 2000
 _MAX_CHILD_FILENAME_BYTES = 255
 _NAME_PATTERN_FIELDS = frozenset({"packet", "index", "start", "end", "page"})
 _NAME_PATTERN_FIELD_RE = re.compile(r"\{([^{}]+)\}")
+LOG = logging.getLogger(__name__)
 
 
 def _utc_now() -> datetime:
@@ -131,6 +133,7 @@ class PdfPacketSplitService:
         page_signature: Callable[[Path], int] | None = None,
         ttl_seconds: float = _SESSION_TTL_SECONDS,
         clock: Callable[[], datetime] | None = None,
+        search_preparation: Any = None,
     ) -> None:
         self._workspace = workspace
         self._registry = registry
@@ -139,6 +142,7 @@ class PdfPacketSplitService:
         self._page_signature = page_signature or _page_signature
         self._ttl_seconds = ttl_seconds
         self._clock = clock or _utc_now
+        self._search_preparation = search_preparation
         self._sessions: dict[str, _PacketSession] = {}
         self._lock = threading.RLock()
 
@@ -750,6 +754,18 @@ class PdfPacketSplitService:
                 cancelled=cancelled.is_set,
                 seal_cancellation=cancelled.seal,
             )
+            if self._search_preparation is not None:
+                try:
+                    project = self._workspace.get(session.project_id)
+                    sheet_id = int(committed["sheet_id"])
+                    self._search_preparation.create_after_import(
+                        session.project_id,
+                        receipt_id=str(committed["receipt_id"]),
+                        sheet_id=sheet_id,
+                        row_ids=project.visible_row_ids(sheet_id),
+                    )
+                except Exception:
+                    LOG.warning("search_preparation_import_hook_failed", exc_info=True)
             with self._lock:
                 session.commit_result = committed
                 session.status = "completed"

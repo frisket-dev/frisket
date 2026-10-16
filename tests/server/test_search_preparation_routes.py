@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 from dataclasses import dataclass
+from dataclasses import replace
 
 from frisket.server.app import create_app
 from frisket.server.services import search_preparation as preparation_module
@@ -113,3 +114,44 @@ def test_missing_ocr_setup_never_starts_before_exact_consent(
     )
     assert decided.status == "preparing"
     assert setup_calls == [("engine-setup:rapidocr.local@1", "owner-1")]
+
+
+def test_recovery_observes_setup_completed_by_another_process(
+    tmp_path, monkeypatch
+) -> None:
+    requirements = [_Requirement()]
+    monkeypatch.setattr(
+        preparation_module, "_requirements", lambda: tuple(requirements)
+    )
+    workspace = Workspace(tmp_path / "workspace")
+    project_id = workspace.create("Images")["id"]
+    project = workspace.get(project_id)
+    sheet_id = project.add_sheet("Files")
+    image_column = project.add_column(sheet_id, "Image", type="image")
+    digest = project.add_blob(b"image", filename="scan.png", mime="image/png")
+    project.add_rows(
+        sheet_id,
+        [{"Image": {"blob": digest, "filename": "scan.png", "mime": "image/png"}}],
+        {"Image": image_column},
+    )
+    service = SearchPreparationService(workspace, setup_start=lambda _ref, _actor: 1)
+    batch = service.create(project_id, sheet_id=sheet_id, row_ids=None, force_ocr=False)
+    service.decide(
+        project_id,
+        batch.id,
+        plan_hash=batch.plan_hash,
+        decision="prepare",
+        selected_setup_refs=[_Requirement.setup_ref],
+        may_setup_models=True,
+        initiated_by="owner-1",
+    )
+
+    # A separate CLI worker makes the shared setup fact ready. A fresh server
+    # coordinator observes that durable fact without any in-process callback.
+    requirements[0] = replace(requirements[0], weights_ready=True)
+    SearchPreparationService(workspace, setup_start=lambda _ref, _actor: 2).recover()
+
+    resumed = service.get(project_id, batch.id)
+    assert resumed.status == "preparing"
+    assert len(resumed.jobs) == 1
+    assert resumed.jobs[0].status == "queued"

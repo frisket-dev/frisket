@@ -334,6 +334,41 @@ class SearchPreparationStore:
             ).fetchall()
         return [self._batch(row) for row in rows]
 
+    def list_decided_page(
+        self,
+        *,
+        project_id: str,
+        storage_org_id: int | None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[SearchPreparationBatchRow]:
+        """Bounded stable page of consented intents eligible for reconciliation."""
+
+        if limit < 1 or limit > 500 or offset < 0:
+            raise ValueError("invalid search preparation reconciliation page")
+        c = search_preparation_batches_table.c
+        predicate = (
+            c.storage_org_id.is_(None)
+            if storage_org_id is None
+            else c.storage_org_id == storage_org_id
+        )
+        with self.engine.connect() as cx:
+            rows = cx.execute(
+                sa.select(search_preparation_batches_table)
+                .where(
+                    c.workspace_root == self.workspace_root,
+                    c.project_id == project_id,
+                    predicate,
+                    c.decision == "prepare",
+                    c.stop_requested_at.is_(None),
+                    c.error_json == "[]",
+                )
+                .order_by(c.created_at, c.id)
+                .limit(limit)
+                .offset(offset)
+            ).fetchall()
+        return [self._batch(row) for row in rows]
+
     def decide(
         self,
         batch_id: str,

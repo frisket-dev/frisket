@@ -8,6 +8,7 @@ mounts the same API under an auth layer.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import threading
@@ -750,10 +751,12 @@ def create_app(
     pdf_packet_preview_run_service = ActionPreviewRunService(
         ws, registry=pdf_packet_job_registry
     )
+    search_preparation_service = SearchPreparationService(ws)
     pdf_packet_split_service = PdfPacketSplitService(
         ws,
         registry=pdf_packet_job_registry,
         preview_runs=pdf_packet_preview_run_service,
+        search_preparation=search_preparation_service,
     )
     app.state.pdf_packet_split_service = pdf_packet_split_service
 
@@ -781,7 +784,6 @@ def create_app(
         import_admission=import_admission,
     )
 
-    search_preparation_service = SearchPreparationService(ws)
     ws.search_preparation_setup_completed = search_preparation_service.setup_completed
     ws.search_preparation_import_completed = lambda project_id, receipt_id, sheet_id: (
         search_preparation_service.create_after_import(
@@ -800,6 +802,32 @@ def create_app(
     )
     search_preparation_service.recover()
 
+    async def _reconcile_search_preparation() -> None:
+        while True:
+            await asyncio.sleep(1.0)
+            try:
+                await asyncio.to_thread(search_preparation_service.recover)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                LOG.warning("search_preparation_reconcile_failed", exc_info=True)
+
+    async def _start_search_preparation_reconciler() -> None:
+        app.state.search_preparation_reconciler = asyncio.create_task(
+            _reconcile_search_preparation()
+        )
+
+    async def _stop_search_preparation_reconciler() -> None:
+        task = getattr(app.state, "search_preparation_reconciler", None)
+        if task is None:
+            return
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    app.router.add_event_handler("startup", _start_search_preparation_reconciler)
+    app.router.add_event_handler("shutdown", _stop_search_preparation_reconciler)
+
     # ---------- sheet data ----------
 
     register_sheet_grid_routes(app, service=SheetGridService(ws))
@@ -816,7 +844,14 @@ def create_app(
 
     register_import_draft_routes(app, service=ImportDraftService(ws))
 
-    register_import_bulk_routes(app, service=ImportBulkService(ws, limits=bulk_limits))
+    register_import_bulk_routes(
+        app,
+        service=ImportBulkService(
+            ws,
+            limits=bulk_limits,
+            search_preparation=search_preparation_service,
+        ),
+    )
 
     def enqueue_import_page(
         project_id: str, ref: str, through: int, sealed: bool
