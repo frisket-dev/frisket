@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import sqlite3
 import struct
 from array import array
@@ -9,7 +10,6 @@ import pytest
 
 from frisket.ai.embeddings import EmbeddingStore, make_space_descriptor
 from frisket.ai.embeddings.source_payload import build_source_payloads
-from frisket.ai.embeddings.vector_backend import VectorBackend
 from frisket.engine.store import Project
 from frisket.engine.store.retrieval_lifecycle import read_binding_revisions
 from frisket.retrieval.migration import (
@@ -18,6 +18,50 @@ from frisket.retrieval.migration import (
 )
 from frisket.retrieval.sources import input_hash
 from frisket.retrieval.store import RetrievalStore
+
+
+def _write_legacy_item(
+    project,
+    *,
+    index_id,
+    space_id,
+    source_key,
+    source_ref,
+    source_hash,
+    vector,
+):
+    db = sqlite3.connect(project.path / "project.embeddings.db")
+    db.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS embedding_vectors_f32 (
+          id INTEGER PRIMARY KEY, dimension INTEGER NOT NULL, vec BLOB NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS embedding_items (
+          index_id TEXT NOT NULL, space_id TEXT NOT NULL, source_key TEXT NOT NULL,
+          source_ref_json TEXT NOT NULL, source_hash TEXT NOT NULL,
+          status TEXT NOT NULL, vector_table TEXT, vector_id INTEGER,
+          PRIMARY KEY(index_id, source_key)
+        );
+        """
+    )
+    cursor = db.execute(
+        "INSERT INTO embedding_vectors_f32(dimension,vec) VALUES (?,?)",
+        (len(vector), struct.pack(f"<{len(vector)}f", *vector)),
+    )
+    db.execute(
+        "INSERT INTO embedding_items VALUES (?,?,?,?,?,'ready',"
+        "'embedding_vectors_f32',?)",
+        (
+            index_id,
+            space_id,
+            str(source_key),
+            json.dumps(source_ref, sort_keys=True, separators=(",", ":")),
+            source_hash,
+            cursor.lastrowid,
+        ),
+    )
+    db.commit()
+    db.close()
 
 
 def _row_space(model: str, *, dimension: int = 2) -> dict:
@@ -55,18 +99,15 @@ def _legacy_project(tmp_path):
     )
     index = metadata.get_index(index_id)
     payload = build_source_payloads(project, index, ["Title", "Body"], [row_id])[0]
-    backend = VectorBackend(project)
-    backend.ensure_schema()
-    backend.upsert_item(
+    _write_legacy_item(
+        project,
         index_id=index_id,
         space_id=space_id,
         source_key=payload["source_key"],
         source_ref=payload["source_ref"],
         source_hash=payload["source_hash"],
-        status="ready",
         vector=[0.25, 0.75],
     )
-    backend.close()
     return project, index_id, space_id, model, row_id, title_id, body_id, payload
 
 
@@ -251,18 +292,15 @@ def test_blob_backed_legacy_image_uses_verified_bytes_as_cache_input(tmp_path):
     )
     index = metadata.get_index(index_id)
     payload = build_source_payloads(project, index, ["Image"], [row_id])[0]
-    backend = VectorBackend(project)
-    backend.ensure_schema()
-    backend.upsert_item(
+    _write_legacy_item(
+        project,
         index_id=index_id,
         space_id=space_id,
         source_key=str(row_id),
         source_ref=payload["source_ref"],
         source_hash=payload["source_hash"],
-        status="ready",
         vector=[0.3, 0.4],
     )
-    backend.close()
 
     with RetrievalStore(project).open() as target:
         report = migrate_legacy_embedding_caches(project, target)
