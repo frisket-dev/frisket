@@ -69,7 +69,13 @@ def test_multi_file_composite_digest_is_order_independent():
 def test_shipped_manifest_entries_are_well_formed():
     for entry in am.all_pinned():
         assert entry.ref
-        assert entry.kind in ("ct2_pair", "hf_file", "hf_snapshot", "spacy_model")
+        assert entry.kind in (
+            "ct2_pair",
+            "hf_file",
+            "hf_snapshot",
+            "model_file",
+            "spacy_model",
+        )
         assert _SPDX_RE.match(entry.license), entry.license
         assert entry.license_url.startswith("https://")
         assert entry.source_url.startswith("https://")
@@ -176,6 +182,20 @@ def test_spacy_model_wheel_is_checksum_pinned():
     assert entry.total_size == 12_806_118
     assert entry.files[0].sha256 == (
         "1932429db727d4bff3deed6b34cfc05df17794f4a52eeb26cf8928f7c1a0fb85"
+    )
+
+
+def test_rapidocr_default_recognizer_is_exactly_pinned():
+    entry = am.rapidocr_default_model_artifact()
+
+    assert entry is not None
+    assert entry.ref == am.RAPIDOCR_DEFAULT_MODEL_REF
+    assert entry.kind == "model_file"
+    assert entry.integrity == "checksum"
+    assert entry.total_size == 16_631_306
+    assert entry.files[0].repo_relpath == "ch_PP-OCRv5_rec_mobile.onnx"
+    assert entry.files[0].sha256 == (
+        "5825fc7ebf84ae7a412be049820b4d86d77620f204a041697b0494669b1742c5"
     )
 
 

@@ -301,8 +301,9 @@ async def resolve_parakeet_artifacts(
     *,
     vad: bool,
     should_cancel: Any = None,
+    allow_download: bool = False,
 ) -> ParakeetArtifacts:
-    """Resolve and verify the immutable model snapshots in a bounded child.
+    """Resolve and verify immutable model snapshots from the persistent cache.
 
     The repo/revision/file-list identity for both the model and (if
     requested) the VAD companion is looked up from the pinned manifest on
@@ -310,7 +311,8 @@ async def resolve_parakeet_artifacts(
     The manifest entry is NOT the re-pinning edit site, though: it is built
     from the ``parakeet_model.py`` constants, and the inference worker
     validates against those same constants (rejecting any other revision) --
-    an editor re-pins in ``parakeet_model.py``.
+    an editor re-pins in ``parakeet_model.py``. Only explicit engine setup may
+    set ``allow_download``; inference uses the cache-only default.
     """
 
     cache_dir = huggingface_hub_cache()
@@ -357,6 +359,11 @@ async def resolve_parakeet_artifacts(
             model_revision=model_revision,
             vad_path=vad_path,
             vad_revision=vad_revision if vad else None,
+        )
+
+    if not allow_download:
+        raise ParakeetArtifactUnavailable(
+            "the pinned Parakeet artifacts are not cached; run explicit setup"
         )
 
     try:

@@ -862,6 +862,7 @@ def test_org_engine_setup_requires_owner_deduplicates_and_audits(tmp_path) -> No
 @pytest.mark.parametrize(
     "setup_ref",
     [
+        "engine-setup:rapidocr.local@1",
         "engine-setup:indra-ocr.local@1",
         "engine-setup:embeddinggemma-2.local@1",
     ],

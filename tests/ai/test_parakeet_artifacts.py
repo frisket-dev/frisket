@@ -122,7 +122,9 @@ def test_resolver_uses_exact_public_pins_and_revalidates_parent_side(
         return False
 
     resolved = asyncio.run(
-        artifacts.resolve_parakeet_artifacts(vad=True, should_cancel=cancel)
+        artifacts.resolve_parakeet_artifacts(
+            vad=True, should_cancel=cancel, allow_download=True
+        )
     )
 
     assert resolved.model_path == model.resolve()
@@ -156,6 +158,20 @@ def test_ready_cache_skips_the_supervised_downloader(
     assert resolved.model_path.is_file() is False
     assert resolved.vad_path is not None
     assert artifacts.parakeet_setup_ready() is True
+
+
+def test_inference_resolution_never_starts_downloader_for_missing_cache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "hub"))
+
+    async def should_not_run(*_args, **_kwargs):
+        raise AssertionError("inference must not start a network-capable resolver")
+
+    monkeypatch.setattr(artifacts, "run_sandboxed", should_not_run)
+
+    with pytest.raises(artifacts.ParakeetArtifactUnavailable, match="explicit setup"):
+        asyncio.run(artifacts.resolve_parakeet_artifacts(vad=True))
 
 
 def test_child_snapshot_resolution_uses_hub_without_importing_onnx(
@@ -226,7 +242,9 @@ def test_resolver_failure_classes(
         else artifacts.ParakeetArtifactUnavailable
     )
     with pytest.raises(expected) as caught:
-        asyncio.run(artifacts.resolve_parakeet_artifacts(vad=False))
+        asyncio.run(
+            artifacts.resolve_parakeet_artifacts(vad=False, allow_download=True)
+        )
     assert "private path must not escape" not in str(caught.value)
 
 
@@ -316,7 +334,9 @@ def test_resolution_identity_comes_from_the_manifest(
 
     monkeypatch.setattr(artifacts, "run_sandboxed", fake_run)
 
-    resolved = asyncio.run(artifacts.resolve_parakeet_artifacts(vad=False))
+    resolved = asyncio.run(
+        artifacts.resolve_parakeet_artifacts(vad=False, allow_download=True)
+    )
 
     entry = artifact_manifest.parakeet_model_artifact()
     assert entry is not None and entry.hf_snapshot is not None
@@ -335,7 +355,9 @@ def test_resolution_fails_loudly_if_the_manifest_entry_is_missing(
     monkeypatch.setattr(artifact_manifest, "parakeet_model_artifact", lambda: None)
 
     with pytest.raises(artifacts.ParakeetArtifactUnavailable):
-        asyncio.run(artifacts.resolve_parakeet_artifacts(vad=False))
+        asyncio.run(
+            artifacts.resolve_parakeet_artifacts(vad=False, allow_download=True)
+        )
 
 
 def test_parent_rejects_malformed_or_extra_resolver_output(
@@ -361,7 +383,9 @@ def test_parent_rejects_malformed_or_extra_resolver_output(
 
     monkeypatch.setattr(artifacts, "run_sandboxed", fake_run)
     with pytest.raises(artifacts.ParakeetArtifactUnavailable):
-        asyncio.run(artifacts.resolve_parakeet_artifacts(vad=False))
+        asyncio.run(
+            artifacts.resolve_parakeet_artifacts(vad=False, allow_download=True)
+        )
 
 
 def test_whisper_setup_requires_complete_pinned_snapshot(tmp_path, monkeypatch):

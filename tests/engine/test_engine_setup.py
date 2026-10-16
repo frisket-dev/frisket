@@ -182,6 +182,9 @@ def test_classifier_setup_installs_runtime_then_selected_weights(
 
 
 def test_engine_setup_uses_existing_row_and_marks_done(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "frisket.execution.definitions.parakeet_runtime_present", lambda: True
+    )
     queue = open_queue(workspace=tmp_path)
     try:
         row, created = store.create_or_get_active(
@@ -193,9 +196,10 @@ def test_engine_setup_uses_existing_row_and_marks_done(tmp_path, monkeypatch) ->
         store.mark_running(queue.engine, row.id, job_id=1)
         seen: dict[str, object] = {}
 
-        async def fake_resolve(*, vad: bool, should_cancel):
+        async def fake_resolve(*, vad: bool, should_cancel, allow_download: bool):
             seen["vad"] = vad
             seen["cancelled"] = should_cancel()
+            seen["allow_download"] = allow_download
             return object()
 
         monkeypatch.setattr(
@@ -210,13 +214,123 @@ def test_engine_setup_uses_existing_row_and_marks_done(tmp_path, monkeypatch) ->
         )
 
         assert result == {"status": "done"}
-        assert seen == {"vad": True, "cancelled": False}
+        assert seen == {"vad": True, "cancelled": False, "allow_download": True}
         completed = store.get(queue.engine, row.id)
         assert completed is not None
         assert completed.status == store.STATUS_DONE
         assert completed.artifact_kind == "engine_setup"
     finally:
         queue.close()
+
+
+def test_parakeet_setup_refuses_weights_when_runtime_is_missing(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        "frisket.execution.definitions.parakeet_runtime_present", lambda: False
+    )
+
+    async def forbidden(**_kwargs):
+        raise AssertionError("unusable Parakeet weights must not be downloaded")
+
+    monkeypatch.setattr(
+        "frisket.engine._workers.parakeet_artifacts.resolve_parakeet_artifacts",
+        forbidden,
+    )
+    queue = open_queue(workspace=tmp_path)
+    try:
+        row, _ = store.create_or_get_active(
+            queue.engine,
+            workspace_root=str(tmp_path),
+            model_ref=engine_setup.PARAKEET_TDT_SETUP_REF,
+        )
+        store.mark_running(queue.engine, row.id, job_id=1)
+
+        with pytest.raises(RuntimeError, match="engine_setup_unavailable"):
+            engine_setup.run_engine_setup(
+                engine=queue.engine,
+                pull_id=row.id,
+                should_cancel=lambda: False,
+                is_final_attempt=True,
+            )
+    finally:
+        queue.close()
+
+
+def test_rapidocr_setup_records_manifest_size_and_digest(tmp_path, monkeypatch) -> None:
+    from frisket.ai.models.artifact_manifest import rapidocr_default_model_artifact
+    from frisket.ops import ocr_engines_local
+
+    seen = {}
+
+    def provision(*, should_cancel, progress):
+        assert should_cancel() is False
+        progress(0, 16_631_306)
+        progress(16_631_306, 16_631_306)
+        seen["provisioned"] = True
+
+    monkeypatch.setattr(
+        ocr_engines_local, "provision_rapidocr_default_models", provision
+    )
+    queue = open_queue(workspace=tmp_path)
+    try:
+        row, _ = store.create_or_get_active(
+            queue.engine,
+            workspace_root=str(tmp_path),
+            model_ref=engine_setup.RAPIDOCR_SETUP_REF,
+        )
+        store.mark_running(queue.engine, row.id, job_id=1)
+
+        result = engine_setup.run_engine_setup(
+            engine=queue.engine,
+            pull_id=row.id,
+            should_cancel=lambda: False,
+            is_final_attempt=True,
+        )
+
+        artifact = rapidocr_default_model_artifact()
+        completed = store.get(queue.engine, row.id)
+        assert artifact is not None and completed is not None
+        assert result == {"status": "done"}
+        assert seen == {"provisioned": True}
+        assert completed.total_bytes == artifact.total_size
+        assert completed.completed_bytes == artifact.total_size
+        assert completed.resolved_digest == artifact.composite_digest
+        assert completed.artifact_license == artifact.license
+    finally:
+        queue.close()
+
+
+def test_local_search_setup_requirements_are_manifest_sized(monkeypatch) -> None:
+    from frisket.engine._workers import embeddinggemma_artifacts, parakeet_artifacts
+    from frisket.execution import definitions
+    from frisket.ops import ocr_engines_local
+    from frisket.runtime import embeddinggemma_install
+
+    monkeypatch.setattr(ocr_engines_local, "rapidocr_available", lambda: (True, None))
+    monkeypatch.setattr(ocr_engines_local, "rapidocr_setup_ready", lambda: False)
+    monkeypatch.setattr(definitions, "parakeet_runtime_present", lambda: False)
+    monkeypatch.setattr(parakeet_artifacts, "parakeet_setup_ready", lambda: False)
+    monkeypatch.setattr(embeddinggemma_install, "is_installed", lambda: True)
+    monkeypatch.setattr(
+        embeddinggemma_artifacts, "cached_embeddinggemma_path", lambda: None
+    )
+
+    requirements = engine_setup.local_search_setup_requirements()
+
+    assert [item.capability for item in requirements] == [
+        "ocr",
+        "transcription",
+        "semantic_search",
+    ]
+    assert requirements[0].download_bytes_if_missing == 16_631_306
+    assert requirements[0].runtime_ready is True
+    assert requirements[0].weights_ready is False
+    assert requirements[1].download_bytes_if_missing == 672_480_039
+    assert requirements[1].runtime_ready is False
+    assert "standard" in (requirements[1].runtime_remediation or "")
+    assert requirements[2].download_bytes_if_missing == 1_525_784_180
+    assert requirements[2].runtime_ready is True
 
 
 def test_engine_setup_cancel_is_terminal_without_resolver(

@@ -592,11 +592,13 @@ def register_operational_routes(
             EMBEDDINGGEMMA_SETUP_REF,
             INDRA_OCR_SETUP_REF,
             PARAKEET_TDT_SETUP_REF,
+            RAPIDOCR_SETUP_REF,
         )
 
         actor = require_owner(request)
         if body.setup_ref not in {
             PARAKEET_TDT_SETUP_REF,
+            RAPIDOCR_SETUP_REF,
             INDRA_OCR_SETUP_REF,
             EMBEDDINGGEMMA_SETUP_REF,
         }:

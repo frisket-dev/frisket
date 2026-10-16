@@ -360,7 +360,9 @@ class ParakeetProcessSession:
         artifact_started = time.perf_counter()
         try:
             artifacts = await resolve_parakeet_artifacts(
-                vad=self.vad, should_cancel=self._should_cancel
+                vad=self.vad,
+                should_cancel=self._should_cancel,
+                allow_download=False,
             )
         except ParakeetArtifactCancelled as error:
             self._closed = True

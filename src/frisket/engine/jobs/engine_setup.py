@@ -6,6 +6,7 @@ import asyncio
 import os
 import subprocess
 from collections.abc import Callable
+from dataclasses import dataclass
 
 from frisket.contracts.classification import LOCAL_CLASSIFIERS
 from frisket.engine._workers.embeddinggemma_model import (
@@ -15,10 +16,12 @@ from frisket.engine._workers.indra_ocr_model import SETUP_REF as INDRA_OCR_SETUP
 from frisket.engine.jobs import model_pull_store
 
 PARAKEET_TDT_SETUP_REF = "engine-setup:parakeet-tdt.local-onnx@1"
+RAPIDOCR_SETUP_REF = "engine-setup:rapidocr.local@1"
 DOCLING_SETUP_REF = "engine-setup:docling.local@1"
 
 _SETUP_NAMES = {
     PARAKEET_TDT_SETUP_REF: "Parakeet TDT (local ONNX)",
+    RAPIDOCR_SETUP_REF: "RapidOCR",
     DOCLING_SETUP_REF: "Docling",
     INDRA_OCR_SETUP_REF: "Indra OCR",
     EMBEDDINGGEMMA_SETUP_REF: "EmbeddingGemma 2",
@@ -29,6 +32,111 @@ _SETUP_NAMES = {
         for engine_id, spec in LOCAL_CLASSIFIERS.items()
     },
 }
+
+
+@dataclass(frozen=True)
+class LocalEngineSetupRequirement:
+    """Passive local setup fact consumed by search-preparation planners."""
+
+    setup_ref: str
+    capability: str
+    display_name: str
+    runtime_ready: bool
+    weights_ready: bool
+    download_bytes_if_missing: int
+    license: str
+    source_url: str
+    runtime_remediation: str | None = None
+
+
+def local_search_setup_requirements() -> tuple[LocalEngineSetupRequirement, ...]:
+    """Return cache/runtime facts for local searchable-content engines.
+
+    The probe performs no installation, cache mutation, subprocess launch, or
+    network access. Callers choose which capabilities their imported media need.
+    """
+
+    from frisket.ai.models import artifact_manifest
+    from frisket.engine._workers import embeddinggemma_artifacts, parakeet_artifacts
+    from frisket.execution.definitions import parakeet_runtime_present
+    from frisket.ops.ocr_engines_local import (
+        rapidocr_available,
+        rapidocr_setup_ready,
+    )
+    from frisket.runtime.embeddinggemma_install import is_installed
+
+    rapid = artifact_manifest.rapidocr_default_model_artifact()
+    parakeet = tuple(
+        artifact
+        for artifact in (
+            artifact_manifest.parakeet_model_artifact(),
+            artifact_manifest.parakeet_vad_artifact(),
+        )
+        if artifact is not None
+    )
+    embedding = embeddinggemma_artifacts.embeddinggemma_artifact()
+    if rapid is None or rapid.total_size is None or len(parakeet) != 2:
+        raise RuntimeError("local search setup manifest is incomplete")
+    parakeet_bytes = sum(artifact.approx_size_bytes or 0 for artifact in parakeet)
+    embedding_bytes = embedding.approx_size_bytes
+    if not parakeet_bytes or embedding_bytes is None:
+        raise RuntimeError("local search setup sizes are missing")
+    rapid_runtime, _rapid_error = rapidocr_available()
+    parakeet_runtime = parakeet_runtime_present()
+    embedding_runtime = is_installed()
+    try:
+        embedding_weights_ready = (
+            embeddinggemma_artifacts.cached_embeddinggemma_path() is not None
+        )
+    except (OSError, RuntimeError):
+        embedding_weights_ready = False
+    return (
+        LocalEngineSetupRequirement(
+            setup_ref=RAPIDOCR_SETUP_REF,
+            capability="ocr",
+            display_name=_SETUP_NAMES[RAPIDOCR_SETUP_REF],
+            runtime_ready=rapid_runtime,
+            weights_ready=rapidocr_setup_ready(),
+            download_bytes_if_missing=rapid.total_size,
+            license=rapid.license,
+            source_url=rapid.source_url,
+            runtime_remediation=(
+                None
+                if rapid_runtime
+                else "Repair the Frisket base install and restart."
+            ),
+        ),
+        LocalEngineSetupRequirement(
+            setup_ref=PARAKEET_TDT_SETUP_REF,
+            capability="transcription",
+            display_name=_SETUP_NAMES[PARAKEET_TDT_SETUP_REF],
+            runtime_ready=parakeet_runtime,
+            weights_ready=parakeet_artifacts.parakeet_setup_ready(),
+            download_bytes_if_missing=parakeet_bytes,
+            license=", ".join(sorted({artifact.license for artifact in parakeet})),
+            source_url=parakeet[0].source_url,
+            runtime_remediation=(
+                None
+                if parakeet_runtime
+                else "Install Frisket's standard data tier, then restart Frisket."
+            ),
+        ),
+        LocalEngineSetupRequirement(
+            setup_ref=EMBEDDINGGEMMA_SETUP_REF,
+            capability="semantic_search",
+            display_name=_SETUP_NAMES[EMBEDDINGGEMMA_SETUP_REF],
+            runtime_ready=embedding_runtime,
+            weights_ready=embedding_weights_ready,
+            download_bytes_if_missing=embedding_bytes,
+            license=embedding.license,
+            source_url=embedding.source_url,
+            runtime_remediation=(
+                None
+                if embedding_runtime
+                else "The explicit setup also installs additional runtime components."
+            ),
+        ),
+    )
 
 
 def engine_setup_display_name(ref: str) -> str | None:
@@ -85,6 +193,13 @@ def run_engine_setup(
             should_cancel=should_cancel,
             is_final_attempt=is_final_attempt,
         )
+    if row.model_ref == RAPIDOCR_SETUP_REF:
+        return _run_rapidocr_setup(
+            engine=engine,
+            pull_id=pull_id,
+            should_cancel=should_cancel,
+            is_final_attempt=is_final_attempt,
+        )
 
     from frisket.engine._workers.parakeet_artifacts import (
         ParakeetArtifactCancelled,
@@ -93,9 +208,20 @@ def run_engine_setup(
     )
     from frisket.engine.jobs.model_pull import _fail
 
+    from frisket.execution.definitions import parakeet_runtime_present
+
     if should_cancel():
         model_pull_store.mark_cancelled(engine, pull_id)
         return {"status": "cancelled"}
+    if not parakeet_runtime_present():
+        raise _fail(
+            engine,
+            pull_id,
+            error_code="engine_setup_unavailable",
+            message="Install Frisket's standard data tier and restart before downloading Parakeet weights.",
+            terminal=False,
+            is_final_attempt=is_final_attempt,
+        )
     model_pull_store.set_artifact_metadata(
         engine,
         pull_id,
@@ -108,7 +234,13 @@ def run_engine_setup(
         engine, pull_id, phase="provisioning", total_bytes=None, completed_bytes=0
     )
     try:
-        asyncio.run(resolve_parakeet_artifacts(vad=True, should_cancel=should_cancel))
+        asyncio.run(
+            resolve_parakeet_artifacts(
+                vad=True,
+                should_cancel=should_cancel,
+                allow_download=True,
+            )
+        )
     except ParakeetArtifactCancelled:
         model_pull_store.mark_cancelled(engine, pull_id)
         return {"status": "cancelled"}
@@ -125,6 +257,67 @@ def run_engine_setup(
         model_pull_store.mark_cancelled(engine, pull_id)
         return {"status": "cancelled"}
     model_pull_store.mark_done(engine, pull_id)
+    return {"status": "done"}
+
+
+def _run_rapidocr_setup(
+    *, engine, pull_id: int, should_cancel: Callable[[], bool], is_final_attempt: bool
+) -> dict[str, object]:
+    from frisket.ai.models.artifact_manifest import rapidocr_default_model_artifact
+    from frisket.engine.jobs.model_pull import _fail
+    from frisket.ops.ocr_engines_local import (
+        OcrCancelled,
+        provision_rapidocr_default_models,
+    )
+
+    artifact = rapidocr_default_model_artifact()
+    if artifact is None or artifact.total_size is None:
+        raise _fail(
+            engine,
+            pull_id,
+            error_code="engine_setup_unavailable",
+            message="The pinned RapidOCR setup manifest is unavailable.",
+            terminal=True,
+            is_final_attempt=is_final_attempt,
+        )
+    model_pull_store.set_artifact_metadata(
+        engine,
+        pull_id,
+        artifact_kind="engine_setup",
+        artifact_source_url=artifact.source_url,
+        artifact_license=artifact.license,
+        artifact_manifest_version=artifact.manifest_version,
+    )
+
+    def progress(completed: int, total: int) -> None:
+        model_pull_store.update_progress(
+            engine,
+            pull_id,
+            phase="provisioning",
+            total_bytes=total,
+            completed_bytes=completed,
+        )
+
+    try:
+        provision_rapidocr_default_models(
+            should_cancel=should_cancel,
+            progress=progress,
+        )
+    except OcrCancelled:
+        model_pull_store.mark_cancelled(engine, pull_id)
+        return {"status": "cancelled"}
+    except (OSError, RuntimeError) as exc:
+        raise _fail(
+            engine,
+            pull_id,
+            error_code="engine_setup_unavailable",
+            message="Could not provision the pinned RapidOCR model. Check the connection and retry.",
+            terminal=False,
+            is_final_attempt=is_final_attempt,
+        ) from exc
+    model_pull_store.mark_done(
+        engine, pull_id, resolved_digest=artifact.composite_digest
+    )
     return {"status": "done"}
 
 
@@ -326,6 +519,9 @@ __all__ = [
     "DOCLING_SETUP_REF",
     "INDRA_OCR_SETUP_REF",
     "PARAKEET_TDT_SETUP_REF",
+    "RAPIDOCR_SETUP_REF",
+    "LocalEngineSetupRequirement",
     "is_engine_setup_ref",
+    "local_search_setup_requirements",
     "run_engine_setup",
 ]

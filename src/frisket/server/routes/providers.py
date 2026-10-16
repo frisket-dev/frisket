@@ -494,10 +494,12 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
             EMBEDDINGGEMMA_SETUP_REF,
             INDRA_OCR_SETUP_REF,
             PARAKEET_TDT_SETUP_REF,
+            RAPIDOCR_SETUP_REF,
         )
 
         if body.setup_ref not in {
             PARAKEET_TDT_SETUP_REF,
+            RAPIDOCR_SETUP_REF,
             DOCLING_SETUP_REF,
             INDRA_OCR_SETUP_REF,
             EMBEDDINGGEMMA_SETUP_REF,

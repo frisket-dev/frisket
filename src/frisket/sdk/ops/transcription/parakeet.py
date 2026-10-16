@@ -96,7 +96,7 @@ class ParakeetAdapter:
         except ParakeetArtifactUnavailable as error:
             raise RecipeInvocationHalt(
                 "local_artifact_unavailable",
-                "the pinned local Parakeet artifacts are unavailable; retry after checking the persistent model cache and network",
+                "the pinned local Parakeet artifacts are unavailable; download them with local engine setup, then retry",
             ) from error
         except ParakeetSessionFailure as error:
             raise RecipeInvocationHalt(

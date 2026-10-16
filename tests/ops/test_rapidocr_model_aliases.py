@@ -54,6 +54,33 @@ def test_bundled_alias_plan_seeds_only_v4_detector_and_classifier(
     )
 
 
+def test_runtime_resolution_never_downloads_missing_default_model(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    package_root = tmp_path / "package"
+    shared_root = tmp_path / "shared"
+    package_root.mkdir()
+    monkeypatch.setattr(ocr_local, "rapidocr_available", lambda: (True, None))
+    monkeypatch.setattr(
+        ocr_local,
+        "rapidocr_model_requirements",
+        lambda _language=None: (package_root, _V5_REQUESTED),
+    )
+    monkeypatch.setattr(
+        ocr_local, "rapidocr_shared_model_cache_dir", lambda: shared_root
+    )
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("inference must not provision model weights")
+
+    monkeypatch.setattr(ocr_local, "_provision_default_rapidocr_recognizer", forbidden)
+
+    with pytest.raises(ocr_local.RecipeInvocationHalt) as caught:
+        ocr_local._rapidocr_model_root_dir()
+
+    assert caught.value.code == "local_artifact_unavailable"
+
+
 def test_default_recognizer_download_is_checked_before_atomic_publication(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

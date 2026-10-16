@@ -493,6 +493,18 @@ def test_engine_setup_is_allowlisted_and_deduplicated(tmp_path) -> None:
     assert refused.json()["detail"]["code"] == "unknown_engine_setup"
 
 
+def test_rapidocr_engine_setup_is_allowlisted_for_solo(tmp_path) -> None:
+    from frisket.engine.jobs.engine_setup import RAPIDOCR_SETUP_REF
+
+    client = _client(tmp_path)
+    response = client.post(
+        "/api/providers/models/setup", json={"setup_ref": RAPIDOCR_SETUP_REF}
+    )
+
+    assert response.status_code == 202, response.text
+    assert response.json()["pull"]["model"] == RAPIDOCR_SETUP_REF
+
+
 def test_docling_engine_setup_is_allowlisted_for_solo(tmp_path) -> None:
     from frisket.engine.jobs.engine_setup import DOCLING_SETUP_REF
 

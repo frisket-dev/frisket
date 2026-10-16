@@ -5,7 +5,7 @@ and it carries **two distinct integrity guarantees** -- a reader (and the
 admin surface) must never conflate them:
 
 - **checksum** (``PinnedArtifact.integrity == "checksum"``, kinds
-  ``ct2_pair``/``hf_file``/``spacy_model``): a per-file SHA256, verified against the streamed
+  ``ct2_pair``/``hf_file``/``model_file``/``spacy_model``): a per-file SHA256, verified against the streamed
   bytes before promotion. This is the original, strongest guarantee -- a
   license, a per-file checksum, a pin version, and an exact source URL,
   recorded at pull time and again in run receipts.
@@ -94,11 +94,17 @@ from frisket.engine._workers.parakeet_model import (
     VAD_FILES as _PARAKEET_VAD_FILES,
     VAD_REVISION as _PARAKEET_VAD_REVISION,
 )
+from frisket.engine._workers.rapidocr_models import (
+    RAPIDOCR_DEFAULT_RECOGNIZER_FILENAME as _RAPIDOCR_FILENAME,
+    RAPIDOCR_DEFAULT_RECOGNIZER_SHA256 as _RAPIDOCR_SHA256,
+    RAPIDOCR_DEFAULT_RECOGNIZER_URL as _RAPIDOCR_URL,
+)
 
 # The org that hosts pinned frisket-converted artifacts. `frisket-models` is
 # also the name of the sidecar and the Modal app elsewhere in the codebase,
 # so the HF org intentionally matches them.
 FRISKET_HF_ORG = "frisket-models"
+RAPIDOCR_DEFAULT_MODEL_REF = "rapidocr:ch-pp-ocrv5-rec-mobile@3.8.0"
 
 # Parakeet's two upstream HF repo ids. `parakeet_model.py` is the zero-import
 # leaf module shared by the worker and the artifact resolver for the
@@ -201,13 +207,13 @@ class PinnedArtifact:
 
       Two source shapes share this one type, distinguished by ``kind`` and
       surfaced uniformly via ``integrity`` (see the module docstring):
-    ``ct2_pair``/``hf_file``/``spacy_model`` are checksum-verified (``files`` is populated,
+    ``ct2_pair``/``hf_file``/``model_file``/``spacy_model`` are checksum-verified (``files`` is populated,
       ``hf_snapshot`` is None); ``hf_snapshot`` is revision-pinned (``files`` is
       empty, ``hf_snapshot`` carries the repo id/revision/file-list instead).
     """
 
     ref: str
-    kind: str  # "ct2_pair" | "hf_file" | "hf_snapshot" | "spacy_model"
+    kind: str  # "ct2_pair" | "hf_file" | "hf_snapshot" | "model_file" | "spacy_model"
     display_name: str
     manifest_version: str
     license: str  # SPDX id, e.g. "CC-BY-4.0", "Apache-2.0"
@@ -273,6 +279,23 @@ def opus_mt_source_url(src: str, tgt: str, revision: str, filename: str) -> str:
 
 
 _MANIFEST: dict[str, PinnedArtifact] = {
+    RAPIDOCR_DEFAULT_MODEL_REF: PinnedArtifact(
+        ref=RAPIDOCR_DEFAULT_MODEL_REF,
+        kind="model_file",
+        display_name="RapidOCR PP-OCRv5 default recognizer",
+        manifest_version="2026.10.1",
+        license="Apache-2.0",
+        license_url="https://www.apache.org/licenses/LICENSE-2.0",
+        source_url="https://www.modelscope.cn/models/RapidAI/RapidOCR/tree/v3.8.0",
+        files=(
+            PinnedFile(
+                _RAPIDOCR_FILENAME,
+                _RAPIDOCR_URL,
+                _RAPIDOCR_SHA256,
+                16_631_306,
+            ),
+        ),
+    ),
     EMBEDDINGGEMMA_REF: PinnedArtifact(
         ref=EMBEDDINGGEMMA_REF,
         kind="hf_snapshot",
@@ -781,6 +804,11 @@ def parakeet_model_artifact() -> PinnedArtifact | None:
     return _MANIFEST.get(PARAKEET_MODEL_REF)
 
 
+def rapidocr_default_model_artifact() -> PinnedArtifact | None:
+    """The checksummed default RapidOCR recognizer, or None if unpinned."""
+    return _MANIFEST.get(RAPIDOCR_DEFAULT_MODEL_REF)
+
+
 def parakeet_vad_artifact() -> PinnedArtifact | None:
     """The pinned Silero VAD entry, or None if unpinned."""
     return _MANIFEST.get(PARAKEET_VAD_REF)
@@ -827,6 +855,7 @@ __all__ = [
     "PARAKEET_VAD_HF_REPO",
     "PARAKEET_VAD_REF",
     "PROVIDERLESS_CLASSIFY_REF",
+    "RAPIDOCR_DEFAULT_MODEL_REF",
     "SPACY_MODEL_REF",
     "WHISPER_BASE_HF_REPO",
     "WHISPER_BASE_REF",
@@ -842,6 +871,7 @@ __all__ = [
     "opus_mt_source_url",
     "parakeet_model_artifact",
     "parakeet_vad_artifact",
+    "rapidocr_default_model_artifact",
     "providerless_classify_artifact",
     "whisper_base_artifact",
     "spacy_model_artifact",
