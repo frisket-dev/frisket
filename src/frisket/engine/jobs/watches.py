@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from frisket.engine.store import Project
 from frisket.engine.jobs.notifications_delivery import (
@@ -27,6 +27,9 @@ from .queue import JobQueue, claimed_project_location
 from .project_opener import ProjectOpener, claimed_opener_key
 from .ports import JobHandlerContext
 from .worker import HandlerRegistration, HandlerRegistry
+
+if TYPE_CHECKING:
+    from frisket.retrieval.preparation import PreparationEncoder
 
 WATCH_EVALUATE_KIND = "watch.evaluate"
 
@@ -185,6 +188,7 @@ def register_watch_evaluate_handler(
     queue: JobQueue,
     workspace_root_storage_org_id: int | None = None,
     project_opener: ProjectOpener | None = None,
+    embedding_encoder: PreparationEncoder | None = None,
 ) -> HandlerRegistration:
     """Register the worker handler that runs one queued watch evaluation."""
     root = Path(workspace_root)
@@ -222,7 +226,7 @@ def register_watch_evaluate_handler(
                 continuation["storage_org_id"] = delivery_storage_org_id
             if isinstance(context.trusted_job_org_id, int):
                 continuation["org_id"] = context.trusted_job_org_id
-            marker = index_work_marker(project) or "repair"
+            marker = index_work_marker(project, include_preparation=False) or "repair"
             trigger_key = _watch_eval_dedupe_key(watch_id, continuation["trigger_ref"])
             queue.enqueue(
                 WATCH_EVALUATE_KIND,
@@ -254,10 +258,20 @@ def register_watch_evaluate_handler(
                 }
             query_kind = str(_watch_query(row).get("kind") or "").strip().lower()
             if query_kind in {"fts", "search.fts"}:
-                from .search_index import process_index_batches
+                from .search_index import index_work_marker, process_index_batches
 
-                processed, complete = process_index_batches(project)
-                if not complete:
+                # Keyword watches depend only on lexical publication. Running
+                # optional semantic preparation here could let contention for
+                # the shared encoder delay or exhaust an otherwise-ready watch.
+                processed, _complete = process_index_batches(
+                    project, embedding_encoder=None
+                )
+                # A source write can enqueue a fresh scope after the indexer
+                # reports its quantum complete. Re-read durable work before
+                # evaluating so that run cannot advance past an unseen row.
+                # Semantic preparation may remain after the lexical dependency
+                # is ready and must not delay a keyword-only watch.
+                if index_work_marker(project, include_preparation=False) is not None:
                     return continue_after_indexing(processed)
             try:
                 evaluation = run_watch_evaluation(project, row)

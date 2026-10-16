@@ -1,30 +1,23 @@
-"""Embedding index freshness: is an index fully current for its source scope?
-
-Two ways a stored vector set drifts from the source:
-- a READY row's source content CHANGED (its stored ``source_hash`` is now stale);
-- a row entered the index's source scope and was never embedded (MISSING).
-
-Both are judged with the SAME source payload/hash definition as refresh /
-similarity / export (``build_source_payloads``) and the same stored-scope
-resolution the refresh action uses (``resolve_index_scope_rows``), so a "refresh
-needed" list view and a watch never disagree with what a refresh would do.
-"""
+"""Freshness of named embedding indexes in the unified retrieval sidecar."""
 
 from __future__ import annotations
 
 import json
-import sqlite3
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
-from frisket.ai.embeddings.scope import IndexScopeError, resolve_index_scope_rows
+from frisket.ai.embeddings.scope import (
+    IndexScopeError,
+    index_scope_plan,
+    iter_index_scope_row_pages,
+)
 from frisket.ai.embeddings.source_payload import build_source_payloads
-from frisket.ai.embeddings.vector_backend import VectorBackend
 from frisket.engine.store import Project
+from frisket.retrieval.query import PinnedRetrievalReader, RetrievalQueryError
+from frisket.retrieval.store import RetrievalStore
 
+from .unified_index import descriptor_space, recipe_for_index
 
-# refresh_needed reason codes, highest-priority first. 'fresh' means the stored
-# vectors fully cover the current source scope.
 FRESHNESS_FRESH = "fresh"
 FRESHNESS_SCOPE_INVALID = "scope_invalid"
 FRESHNESS_NEVER_REFRESHED = "never_refreshed"
@@ -32,34 +25,39 @@ FRESHNESS_MISSING_ROWS = "missing_rows"
 FRESHNESS_STALE_ROWS = "stale_rows"
 FRESHNESS_ERRORED_ITEMS = "errored_items"
 
+_SAMPLE_LIMIT = 20
+_MISSING_PAGE_SIZE = 500
+
 
 @dataclass(frozen=True)
 class IndexFreshness:
-    ready_keys: set[str]
-    # ready items whose CURRENT source content no longer matches their vector
-    # (changed, or content now empty).
-    stale_keys: list[str] = field(default_factory=list)
-    # embeddable rows in the stored source scope that are NOT yet ready.
-    missing_keys: list[str] = field(default_factory=list)
-    # False when the stored source_query could not be resolved (corrupt scope).
+    """Exact counts plus bounded diagnostic samples."""
+
+    ready_count: int = 0
+    stale_count: int = 0
+    missing_count: int = 0
+    surplus_count: int = 0
+    ready_source_key_samples: tuple[str, ...] = ()
+    stale_source_key_samples: tuple[str, ...] = ()
+    missing_source_key_samples: tuple[str, ...] = ()
     scope_resolved: bool = True
-    # how many rows SHOULD be embedded right now = embeddable rows in the current
-    # source scope (not the last materialized total_items, which is stale after an
-    # append/delete). Falls back to the ready count when the scope can't resolve.
     target_count: int = 0
 
 
 def freshness_reason(index: Any, fresh: IndexFreshness) -> str:
-    """One reason code for why an index does (not) need a refresh, in priority
-    order: an unresolvable scope or a never-refreshed index dominate; then missing
-    rows, then stale rows, then errored items; else fresh."""
+    """Return whether every member of the current source scope is readable.
+
+    Published members that left the current scope still require maintenance,
+    but pinned reads exclude them and do not need new embeddings to read the
+    remaining current targets.
+    """
     if not fresh.scope_resolved:
         return FRESHNESS_SCOPE_INVALID
     if index["last_refreshed_at"] is None:
         return FRESHNESS_NEVER_REFRESHED
-    if fresh.missing_keys:
+    if fresh.missing_count:
         return FRESHNESS_MISSING_ROWS
-    if fresh.stale_keys:
+    if fresh.stale_count:
         return FRESHNESS_STALE_ROWS
     if index["error_items"]:
         return FRESHNESS_ERRORED_ITEMS
@@ -67,15 +65,6 @@ def freshness_reason(index: Any, fresh: IndexFreshness) -> str:
 
 
 def freshness_error_code(reason: str) -> str | None:
-    """The typed error code an export / download should surface for a freshness
-    reason, or None when the index is fresh (proceed). Shared so the export action
-    and the download route agree on the contract.
-
-    - changed ready rows -> embedding_source_stale (preserve existing behavior);
-    - missing/errored/never-refreshed rows the artifact would omit ->
-      embedding_index_incomplete;
-    - an unresolvable stored scope -> embedding_index_scope_invalid.
-    """
     if reason == FRESHNESS_STALE_ROWS:
         return "embedding_source_stale"
     if reason in (
@@ -90,26 +79,14 @@ def freshness_error_code(reason: str) -> str | None:
 
 
 def embedding_search_freshness_error(
-    project: Project, index_id: Any, *, backend: VectorBackend | None = None
+    project: Project, index_id: Any
 ) -> tuple[str, str] | None:
-    """Freshness gate for PRODUCT-FACING embedding_similarity SEARCH paths (the
-    query-preview spine, a lens resolve, and the Show-Similar route). Returns
-    ``(error_code, message)`` when the index is unknown or not fresh enough to search
-    — so Show Similar / a saved lens never silently searches a PARTIAL/stale index —
-    else None when it's safe to resolve.
-
-    Codes align with the export/download product contract via ``freshness_error_code``:
-    unknown -> ``embedding_index_not_found``; unresolvable scope ->
-    ``embedding_index_scope_invalid``; missing/never-refreshed/errored rows ->
-    ``embedding_index_incomplete``; changed ready rows -> ``embedding_source_stale``.
-    This is a PRODUCT-PATH gate, deliberately NOT inside the low-level resolver.
-    """
-    from frisket.ai.embeddings.store import EmbeddingStore  # local: avoid import cycle
+    from frisket.ai.embeddings.store import EmbeddingStore
 
     index = EmbeddingStore(project).get_index(index_id)
     if index is None:
         return ("embedding_index_not_found", f"no embedding index {index_id!r}")
-    reason = freshness_reason(index, index_freshness(project, index, backend=backend))
+    reason = freshness_reason(index, index_freshness(project, index))
     code = freshness_error_code(reason)
     if code is None:
         return None
@@ -125,116 +102,340 @@ def _safe_columns(index: Any) -> list[str]:
         parsed = json.loads(index["source_columns_json"] or "[]")
     except (TypeError, ValueError):
         return []
-    return [str(c) for c in parsed] if isinstance(parsed, list) else []
+    return [str(column) for column in parsed] if isinstance(parsed, list) else []
 
 
-def _ready_sidecar_hashes(
-    project: Project, index_id: str, *, backend: VectorBackend | None = None
-) -> dict[str, str]:
-    owned_backend = backend is None
-    backend = backend or VectorBackend(project)
-    if not backend.db_path.exists():
-        return {}
-    try:
-        rows = backend.db.execute(
-            "SELECT source_key, source_hash FROM embedding_items "
-            "WHERE index_id=? AND status='ready'",
-            (index_id,),
-        ).fetchall()
-    except sqlite3.OperationalError:
-        return {}
-    finally:
-        if owned_backend:
-            backend.close()
-    return {row["source_key"]: row["source_hash"] for row in rows}
-
-
-def _row_ids(keys: list[str]) -> list[int]:
-    out: list[int] = []
-    for key in keys:
-        try:
-            out.append(int(key))
-        except (TypeError, ValueError):
-            continue
-    return out
-
-
-def index_freshness(
-    project: Project, index: Any, *, backend: VectorBackend | None = None
-) -> IndexFreshness:
-    """Compare an index's READY sidecar vectors against the CURRENT source scope.
-
-    The STALE check needs only the ready keys (recompute their current hash) and
-    never raises. The MISSING check needs the stored scope; if that can't resolve
-    (corrupt source_query) ``scope_resolved`` is False and ``missing_keys`` is left
-    empty rather than guessing."""
-    source_columns = _safe_columns(index)
-    ready = _ready_sidecar_hashes(project, index["id"], backend=backend)
-    ready_keys = set(ready)
-
-    # stale: ready (row) keys whose current content hash drifted from the stored
-    # one (a None current hash = content now empty = stale). A HIDDEN ready row is
-    # NOT stale — it is dormant (search/scope already exclude it) and its vector
-    # still matches its present content; build_source_payloads omits hidden rows, so
-    # without this guard a hidden ready row would look stale and wrongly block.
-    sheet_id_for_vis = index["sheet_id"]
-    visible_rows = (
-        set(project.visible_row_ids(sheet_id_for_vis))
-        if sheet_id_for_vis is not None
-        else None
+def _member_status_sql(plan: Any) -> str:
+    current = (
+        "part.recipe_id=? AND representation.space_id=? AND "
+        "EXISTS (SELECT 1 FROM idx.binding_dependencies AS required "
+        "WHERE required.binding_key=binding.binding_key) AND NOT EXISTS ("
+        "SELECT 1 FROM idx.binding_dependencies AS dependency "
+        "WHERE dependency.binding_key=binding.binding_key "
+        "AND dependency.retrieval_revision != COALESCE(("
+        "SELECT current_head.retrieval_revision FROM main.current_cells AS current_head "
+        "WHERE current_head.column_id=dependency.column_id "
+        "AND current_head.row_id=dependency.row_id),0)) AND NOT EXISTS ("
+        "SELECT 1 FROM idx.binding_dependencies AS visible_dependency "
+        "LEFT JOIN main.columns AS dependency_column "
+        "ON dependency_column.id=visible_dependency.column_id "
+        "AND dependency_column.sheet_id=binding.sheet_id "
+        "WHERE visible_dependency.binding_key=binding.binding_key "
+        "AND (dependency_column.id IS NULL OR dependency_column.hidden!=0))"
     )
-
-    def _key_visible(key: str) -> bool:
-        if visible_rows is None:
-            return True
-        try:
-            return int(key) in visible_rows
-        except (TypeError, ValueError):
-            return True
-
-    current_for_ready = {
-        payload["source_key"]: payload["source_hash"]
-        for payload in build_source_payloads(
-            project, index, source_columns, _row_ids(list(ready_keys))
+    return f"""
+        WITH scoped_rows AS (
+          SELECT DISTINCT r.id AS row_id
+          FROM {plan.filter_from_sql}
+          WHERE {plan.where_sql}
+        ), member_status AS (
+          SELECT binding.row_id,
+                 MAX(CASE WHEN scoped.row_id IS NOT NULL AND {current}
+                          THEN 1 ELSE 0 END) AS is_current,
+                 MAX(CASE WHEN scoped.row_id IS NOT NULL THEN 1 ELSE 0 END)
+                   AS in_scope
+          FROM idx.named_dataset_membership AS member
+          JOIN idx.parts AS part ON part.part_key=member.part_key
+          JOIN idx.representations AS representation
+            ON representation.representation_key=member.representation_key
+          JOIN idx.bindings AS binding ON binding.source_key=part.source_key
+          LEFT JOIN scoped_rows AS scoped ON scoped.row_id=binding.row_id
+          WHERE member.dataset_id=? AND binding.sheet_id=?
+          GROUP BY binding.row_id
+        ), numbered AS (
+          SELECT row_id,is_current,in_scope,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY is_current ORDER BY row_id
+                 ) AS sample_number
+          FROM member_status
         )
-    }
-    stale = sorted(
-        key
-        for key in (str(rid) for rid in _row_ids(list(ready_keys)))
-        if _key_visible(key) and current_for_ready.get(key) != ready.get(key)
+        SELECT
+          COUNT(*) FILTER (WHERE is_current=1) AS ready_count,
+          COUNT(*) FILTER (WHERE is_current=0) AS stale_count,
+          COUNT(*) FILTER (WHERE in_scope=0) AS surplus_count,
+          COALESCE(json_group_array(CAST(row_id AS TEXT)) FILTER (
+            WHERE is_current=1 AND sample_number<=?
+          ),'[]') AS ready_samples,
+          COALESCE(json_group_array(CAST(row_id AS TEXT)) FILTER (
+            WHERE is_current=0 AND sample_number<=?
+          ),'[]') AS stale_samples
+        FROM numbered
+    """
+
+
+def _member_status(
+    reader: PinnedRetrievalReader,
+    *,
+    plan: Any,
+    dataset_id: str,
+    sheet_id: int,
+    recipe_id: str,
+    space_id: str,
+) -> tuple[int, int, int, tuple[str, ...], tuple[str, ...]]:
+    row = reader.db.execute(
+        _member_status_sql(plan),
+        [
+            *plan.filter_params,
+            recipe_id,
+            space_id,
+            dataset_id,
+            sheet_id,
+            _SAMPLE_LIMIT,
+            _SAMPLE_LIMIT,
+        ],
+    ).fetchone()
+    return (
+        int(row["ready_count"] or 0),
+        int(row["stale_count"] or 0),
+        int(row["surplus_count"] or 0),
+        tuple(str(value) for value in json.loads(row["ready_samples"])),
+        tuple(str(value) for value in json.loads(row["stale_samples"])),
     )
 
-    # missing: embeddable rows in the stored scope with no ready vector yet.
-    # target_count: how many rows the current scope says SHOULD be embedded.
-    missing: list[str] = []
-    scope_resolved = True
-    target_count = len(ready_keys)
-    try:
-        scope_rows = resolve_index_scope_rows(project, index)
-        current_keys = {
-            payload["source_key"]
-            for payload in build_source_payloads(
-                project, index, source_columns, scope_rows
+
+def _stale_scope_row_pages(
+    reader: PinnedRetrievalReader,
+    *,
+    plan: Any,
+    dataset_id: str,
+    sheet_id: int,
+    recipe_id: str,
+    space_id: str,
+):
+    """Yield in-scope rows whose published member is no longer current."""
+
+    current = (
+        "part.recipe_id=? AND representation.space_id=? AND "
+        "EXISTS (SELECT 1 FROM idx.binding_dependencies AS required "
+        "WHERE required.binding_key=binding.binding_key) AND NOT EXISTS ("
+        "SELECT 1 FROM idx.binding_dependencies AS dependency "
+        "WHERE dependency.binding_key=binding.binding_key "
+        "AND dependency.retrieval_revision != COALESCE(("
+        "SELECT current_head.retrieval_revision FROM main.current_cells AS current_head "
+        "WHERE current_head.column_id=dependency.column_id "
+        "AND current_head.row_id=dependency.row_id),0)) AND NOT EXISTS ("
+        "SELECT 1 FROM idx.binding_dependencies AS visible_dependency "
+        "LEFT JOIN main.columns AS dependency_column "
+        "ON dependency_column.id=visible_dependency.column_id "
+        "AND dependency_column.sheet_id=binding.sheet_id "
+        "WHERE visible_dependency.binding_key=binding.binding_key "
+        "AND (dependency_column.id IS NULL OR dependency_column.hidden!=0))"
+    )
+    offset = 0
+    while True:
+        rows = reader.db.execute(
+            f"""
+            WITH scoped_rows AS (
+              SELECT DISTINCT r.id AS row_id
+              FROM {plan.filter_from_sql}
+              WHERE {plan.where_sql}
             )
-        }
-        missing = sorted(current_keys - ready_keys)
-        target_count = len(current_keys)
-    except IndexScopeError:
-        scope_resolved = False
+            SELECT binding.row_id
+            FROM idx.named_dataset_membership AS member
+            JOIN idx.parts AS part ON part.part_key=member.part_key
+            JOIN idx.representations AS representation
+              ON representation.representation_key=member.representation_key
+            JOIN idx.bindings AS binding ON binding.source_key=part.source_key
+            JOIN scoped_rows AS scoped ON scoped.row_id=binding.row_id
+            WHERE member.dataset_id=? AND binding.sheet_id=?
+            GROUP BY binding.row_id
+            HAVING MAX(CASE WHEN {current} THEN 1 ELSE 0 END)=0
+            ORDER BY binding.row_id
+            LIMIT ? OFFSET ?
+            """,
+            [
+                *plan.filter_params,
+                dataset_id,
+                sheet_id,
+                recipe_id,
+                space_id,
+                _MISSING_PAGE_SIZE,
+                offset,
+            ],
+        ).fetchall()
+        if not rows:
+            return
+        yield [int(row["row_id"]) for row in rows]
+        if len(rows) < _MISSING_PAGE_SIZE:
+            return
+        offset += len(rows)
+
+
+def _missing_scope_row_pages(
+    reader: PinnedRetrievalReader,
+    *,
+    plan: Any,
+    dataset_id: str,
+    sheet_id: int,
+):
+    """Yield scoped rows without any published membership for this dataset."""
+
+    order_clause = ", ".join(plan.order_parts) or "r.position ASC"
+    offset = 0
+    while True:
+        rows = reader.db.execute(
+            f"""
+            SELECT r.id
+            FROM {plan.from_sql}
+            WHERE ({plan.where_sql}) AND NOT EXISTS (
+              SELECT 1
+              FROM idx.named_dataset_membership AS member
+              JOIN idx.parts AS part ON part.part_key=member.part_key
+              JOIN idx.bindings AS binding ON binding.source_key=part.source_key
+              WHERE member.dataset_id=?
+                AND binding.sheet_id=?
+                AND binding.row_id=r.id
+            )
+            ORDER BY {order_clause}
+            LIMIT ? OFFSET ?
+            """,
+            [
+                *plan.join_params,
+                *plan.where_params,
+                dataset_id,
+                sheet_id,
+                *plan.order_params,
+                _MISSING_PAGE_SIZE,
+                offset,
+            ],
+        ).fetchall()
+        if not rows:
+            return
+        yield [int(row["id"]) for row in rows]
+        if len(rows) < _MISSING_PAGE_SIZE:
+            return
+        offset += len(rows)
+
+
+def index_freshness(project: Project, index: Any) -> IndexFreshness:
+    """Read exact counts without reconstructing every ready source payload.
+
+    Published members are authoritative when their stored recipe, embedding
+    space, and every binding dependency still match ``current_cells``. Only
+    never-published scoped rows use the canonical payload builder, to distinguish
+    missing embeddable rows from intentionally blank rows.
+    """
+
+    if not RetrievalStore(project).path.is_file():
+        from .store import EmbeddingStore
+
+        space = EmbeddingStore(project).get_space(index["space_id"])
+        if space is None or index["sheet_id"] is None:
+            return IndexFreshness(scope_resolved=False)
+        try:
+            descriptor, _declared_space = descriptor_space(space)
+            recipe_for_index(project, index, descriptor)
+            missing = 0
+            samples: list[str] = []
+            columns = _safe_columns(index)
+            visible_columns = {
+                str(column["name"])
+                for column in project.columns(
+                    int(index["sheet_id"]), include_hidden=False
+                )
+            }
+            if all(column in visible_columns for column in columns):
+                for row_ids in iter_index_scope_row_pages(project, index):
+                    payloads = build_source_payloads(project, index, columns, row_ids)
+                    missing += len(payloads)
+                    if len(samples) < _SAMPLE_LIMIT:
+                        samples.extend(
+                            str(payload["source_key"])
+                            for payload in payloads[: _SAMPLE_LIMIT - len(samples)]
+                        )
+            return IndexFreshness(
+                missing_count=missing,
+                missing_source_key_samples=tuple(samples),
+                target_count=missing,
+            )
+        except (IndexScopeError, KeyError, TypeError, ValueError):
+            return IndexFreshness(scope_resolved=False)
+
+    try:
+        with PinnedRetrievalReader(project) as reader:
+            pinned_index = reader.db.execute(
+                "SELECT * FROM main.embedding_indexes WHERE id=?", (index["id"],)
+            ).fetchone()
+            if pinned_index is None or pinned_index["sheet_id"] is None:
+                return IndexFreshness(scope_resolved=False)
+            space = reader.db.execute(
+                "SELECT * FROM main.embedding_spaces WHERE id=?",
+                (pinned_index["space_id"],),
+            ).fetchone()
+            if space is None:
+                return IndexFreshness(scope_resolved=False)
+            plan = index_scope_plan(reader, pinned_index)
+            if plan is None:
+                return IndexFreshness(scope_resolved=False)
+            descriptor, _declared_space = descriptor_space(space)
+            recipe = recipe_for_index(reader, pinned_index, descriptor)
+            dataset_id = str(pinned_index["id"])
+            sheet_id = int(pinned_index["sheet_id"])
+            ready, stale, _surplus, ready_samples, stale_samples = _member_status(
+                reader,
+                plan=plan,
+                dataset_id=dataset_id,
+                sheet_id=sheet_id,
+                recipe_id=recipe.recipe_id,
+                space_id=str(space["id"]),
+            )
+            missing = 0
+            stale_targets = 0
+            missing_samples: list[str] = []
+            columns = _safe_columns(pinned_index)
+            visible_columns = {
+                str(column["name"])
+                for column in reader.columns(sheet_id, include_hidden=False)
+            }
+            if all(column in visible_columns for column in columns):
+                for row_ids in _stale_scope_row_pages(
+                    reader,
+                    plan=plan,
+                    dataset_id=dataset_id,
+                    sheet_id=sheet_id,
+                    recipe_id=recipe.recipe_id,
+                    space_id=str(space["id"]),
+                ):
+                    stale_targets += len(
+                        build_source_payloads(reader, pinned_index, columns, row_ids)
+                    )
+                for row_ids in _missing_scope_row_pages(
+                    reader,
+                    plan=plan,
+                    dataset_id=dataset_id,
+                    sheet_id=sheet_id,
+                ):
+                    payloads = build_source_payloads(
+                        reader, pinned_index, columns, row_ids
+                    )
+                    missing += len(payloads)
+                    if len(missing_samples) < _SAMPLE_LIMIT:
+                        missing_samples.extend(
+                            str(payload["source_key"])
+                            for payload in payloads[
+                                : _SAMPLE_LIMIT - len(missing_samples)
+                            ]
+                        )
+    except (IndexScopeError, RetrievalQueryError, KeyError, TypeError, ValueError):
+        return IndexFreshness(scope_resolved=False)
 
     return IndexFreshness(
-        ready_keys=ready_keys,
-        stale_keys=stale,
-        missing_keys=missing,
-        scope_resolved=scope_resolved,
-        target_count=target_count,
+        ready_count=ready,
+        stale_count=stale_targets,
+        missing_count=missing,
+        surplus_count=stale - stale_targets,
+        ready_source_key_samples=ready_samples,
+        stale_source_key_samples=stale_samples,
+        missing_source_key_samples=tuple(missing_samples),
+        scope_resolved=True,
+        target_count=ready + stale_targets + missing,
     )
 
 
-def stale_ready_source_keys(
+def stale_ready_source_key_samples(
     project: Project, index: Any, source_columns: list[str] | None = None
-) -> list[str]:
-    """Back-compat: just the CHANGED-ready keys (use ``index_freshness`` for the
-    full picture incl. missing rows). ``source_columns`` is ignored — read from the
-    index for one definition."""
-    return index_freshness(project, index).stale_keys
+) -> tuple[str, ...]:
+    """Return bounded stale-key diagnostics for a named index."""
+
+    del source_columns
+    return index_freshness(project, index).stale_source_key_samples

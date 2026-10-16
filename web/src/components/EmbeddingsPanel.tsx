@@ -18,6 +18,14 @@ export interface EmbeddingsPanelProps {
    *  button delegates to App, which resolves the lens and pages the MAIN grid to
    *  its ranked row-set - opening a lens affects the grid, not just this list. */
   onOpenLens(lensId: number, name: string): void;
+  selectedRowIds: readonly string[];
+  onFindSimilar(input: {
+    sheetId: string;
+    rowId: string;
+    columnId: string;
+    label: string;
+    namedIndexId?: string;
+  }): void;
 }
 
 export function EmbeddingsPanel({
@@ -26,6 +34,8 @@ export function EmbeddingsPanel({
   sheet,
   onSelectSheet,
   onOpenLens,
+  selectedRowIds,
+  onFindSimilar,
 }: EmbeddingsPanelProps) {
   const panel = useEmbeddingsPanelController({ apiPort, sheet });
 
@@ -54,6 +64,9 @@ export function EmbeddingsPanel({
               onRefresh={panel.refresh}
               onChanged={panel.load}
               onSelectSheet={onSelectSheet}
+              sheet={sheet}
+              selectedRowIds={selectedRowIds}
+              onFindSimilar={onFindSimilar}
             />
           ))}
 

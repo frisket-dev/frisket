@@ -7,7 +7,7 @@ Legacy create/refresh actions over the embeddings foundation (frisket.embeddings
   remote model makes one consented, capped, metered dimension-discovery probe.
   It never writes vectors (those are the refresh's job).
 - ``embedding.index_refresh`` — embeds missing/stale (incremental) or all (full)
-  source rows into the project.embeddings.db sidecar under an index-level claim,
+  source rows into unified retrieval under an index-level claim,
   gating remote egress on the index provider policy.
 
 Direct vs queued: this family is the synchronous direct path (a dev/executor
@@ -23,7 +23,6 @@ from __future__ import annotations
 import json
 import logging
 import math
-import sqlite3
 import hashlib
 from contextlib import ExitStack
 from typing import Any
@@ -61,7 +60,6 @@ from frisket.ai.embeddings import (
     EmbeddingGateway,
     EmbeddingProviderError,
     EmbeddingStore,
-    VectorBackend,
     make_space_descriptor,
     resolve_embedding_capability,
 )
@@ -70,6 +68,16 @@ from frisket.ai.embeddings.gateway import provider_normalization
 from frisket.ai.embeddings.scope import IndexScopeError, resolve_scope_rows
 from frisket.ai.embeddings.source_payload import build_source_payloads
 from frisket.ai.embeddings.spaces import canonical_json
+from frisket.ai.embeddings.unified_index import (
+    UNIFIED_BACKEND_ID,
+    UNIFIED_BACKEND_VERSION,
+    cached_representation,
+    dataset_rows,
+    plan_named_index_items,
+    publish_named_index,
+)
+from frisket.retrieval.store import RetrievalStore
+from frisket.retrieval.store import NamedDatasetMember
 from frisket.sdk.plain import build_plain_action_run_fn
 from frisket.engine.executor.action_inventory import (
     _TypedProjectEnvelope,
@@ -108,12 +116,11 @@ from frisket.engine.executor.embedding_read import (
     _embedding_index_ref,
     _embedding_index_definition_replay_error,
     _embedding_sidecar_items_replay_error,
+    _embedding_stale_replay_error,
+    _named_item_evidence,
+    _json_obj,
     _compare_field,
     _compare_json_field,
-    _open_existing_sidecar,
-    _sidecar_item_evidence,
-    _embedding_stale_replay_error,
-    _json_obj,
 )
 from frisket.engine.executor.embedding_export import (
     embedding_export_dir,
@@ -397,6 +404,10 @@ def _embedding_refresh_replay_error(
             receipt,
             "embedding refresh replay receipt lacks sidecar evidence",
         )
+    if not RetrievalStore(project).path.is_file():
+        return _embedding_stale_replay_error(
+            receipt, "embedding refresh replay unified sidecar is missing"
+        )
     stale = _embedding_index_definition_replay_error(
         project, receipt, index_ref=index_ref, evidence_ref=items_ref
     )
@@ -437,27 +448,16 @@ def _embedding_refresh_counts_replay_error(
     # refreshes validate only their recorded item evidence because later disjoint
     # scoped refreshes may legitimately change whole-index counts.
     if items_ref.get("row_scope") is None:
-        backend = _open_existing_sidecar(project)
-        if backend is None:
+        index = EmbeddingStore(project).get_index(index_id)
+        if index is None:
             return _embedding_stale_replay_error(
-                receipt,
-                "embedding refresh replay cannot open sidecar for count validation",
+                receipt, "embedding refresh replay index is missing"
             )
-        try:
-            live_counts = backend.item_counts(index_id)
-        except sqlite3.Error:
-            return _embedding_stale_replay_error(
-                receipt,
-                "embedding refresh replay sidecar count schema is invalid",
-                details={"receipt_id": receipt.receipt_id, "index_id": index_id},
-            )
-        finally:
-            backend.close()
-        live_total = sum(int(v) for v in live_counts.values())
-        if (
-            live_counts.get("ready", 0) != expected_ready
-            or live_total != expected_total
-        ):
+        from frisket.ai.embeddings.freshness import index_freshness
+
+        fresh = index_freshness(project, index)
+        live_ready = fresh.ready_count
+        if live_ready != expected_ready or fresh.target_count != expected_total:
             return _embedding_stale_replay_error(
                 receipt,
                 "embedding refresh replay sidecar counts drifted",
@@ -465,10 +465,9 @@ def _embedding_refresh_counts_replay_error(
                     "receipt_id": receipt.receipt_id,
                     "index_id": index_id,
                     "expected_ready": expected_ready,
-                    "actual_ready": live_counts.get("ready", 0),
+                    "actual_ready": live_ready,
                 },
             )
-        index = EmbeddingStore(project).get_index(index_id)
         if (
             index is None
             or index["last_refresh_receipt_id"] is not None
@@ -488,19 +487,17 @@ def _source_policy_hash(policy: dict[str, Any]) -> str:
 
 
 def _sidecar_has_index_rows(project: Project, index_id: str) -> bool:
-    path = project.path / "project.embeddings.db"
-    if not path.exists():
+    retrieval = RetrievalStore(project)
+    if not retrieval.path.exists():
         return False
     try:
-        conn = sqlite3.connect(path)
-        try:
-            row = conn.execute(
-                "SELECT 1 FROM embedding_items WHERE index_id=? LIMIT 1", (index_id,)
+        with retrieval:
+            row = retrieval.db.execute(
+                "SELECT 1 FROM named_dataset_membership WHERE dataset_id=? LIMIT 1",
+                (index_id,),
             ).fetchone()
-            return row is not None
-        finally:
-            conn.close()
-    except sqlite3.Error:
+        return row is not None
+    except Exception:
         return True
 
 
@@ -1928,8 +1925,24 @@ def _do_refresh(
 
     source_columns = json.loads(index["source_columns_json"])
     payloads = build_source_payloads(project, index, source_columns, row_ids)
-    backend = VectorBackend(project)
-    backend.ensure_schema()
+    retrieval = RetrievalStore(project).open()
+    try:
+        recipe, planned_items = plan_named_index_items(
+            project, index=index, space=space, payloads=payloads
+        )
+    except (TypeError, ValueError) as exc:
+        retrieval.close()
+        return _error(
+            action,
+            project_id,
+            "embedding_source_unsupported",
+            str(exc),
+            field="params.index_id",
+        )
+    planned_by_key = {item.source_key: item for item in planned_items}
+    payload_by_key = {str(item["source_key"]): item for item in payloads}
+    existing_rows = dataset_rows(retrieval, str(index["id"]))
+    existing_pairs = set(existing_rows.values())
     run_store = RunResultStore(project)
     run_id: int | None = None
     run_finalized = False
@@ -1942,18 +1955,26 @@ def _do_refresh(
     try:
         full = params.mode == "full"
         to_embed: list[dict[str, Any]] = []
+        to_publish: list[Any] = []
         skipped = 0
         for item in payloads:
-            if not full:
-                existing = backend.get_item(params.index_id, item["source_key"])
-                if (
-                    existing is not None
-                    and existing["status"] == "ready"
-                    and existing["source_hash"] == item["source_hash"]
-                ):
-                    skipped += 1
-                    continue
-            to_embed.append(item)
+            planned = planned_by_key[str(item["source_key"])]
+            current = (planned.part_id, planned.representation_id) in existing_pairs
+            if current and not full:
+                skipped += 1
+                continue
+            to_publish.append(planned)
+        cached: dict[str, Any] = {}
+        hashes = [item.input_hash for item in to_publish]
+        for offset in range(0, len(hashes), 1000):
+            cached.update(
+                retrieval.get_representations(
+                    str(space["id"]), hashes[offset : offset + 1000]
+                )
+            )
+        for planned in to_publish:
+            if full or planned.input_hash not in cached:
+                to_embed.append(payload_by_key[planned.source_key])
 
         refreshed = 0
         batch_result: dict[str, Any] | None = None
@@ -2385,10 +2406,17 @@ def _do_refresh(
                         else int(result["dimension"]),
                     },
                 )
-            # The vector sidecar is a second SQLite file, but replacement
-            # authority lives in the project DB.  Hold the project write lock
-            # from the current-writer check through every sidecar commit so a
-            # stale refresh cannot write vectors after B takes over.
+            encoded_items = [
+                cached_representation(
+                    planned_by_key[str(item["source_key"])],
+                    vector,
+                    space_id=str(space["id"]),
+                    dimension=space_dim,
+                )
+                for item, vector in zip(to_embed, vectors, strict=True)
+            ]
+            # Hold the authoritative project writer fence while publishing the
+            # returned cache rows. A stale action cannot win after a successor.
             project.db.execute("BEGIN IMMEDIATE")
             try:
                 assert run_id is not None
@@ -2400,25 +2428,34 @@ def _do_refresh(
                     claim_token=None,
                     claimless_direct_effect=True,
                 )
-                for item, vector in zip(to_embed, vectors):
-                    backend.upsert_item(
-                        index_id=params.index_id,
-                        space_id=space["id"],
-                        source_key=item["source_key"],
-                        source_ref=item["source_ref"],
-                        source_hash=item["source_hash"],
-                        status="ready",
-                        vector=list(vector),
-                    )
-                    refreshed += 1
+                retrieval.put_representations(encoded_items)
                 project.db.commit()
             except BaseException:
                 project.db.rollback()
                 raise
 
-        counts = backend.item_counts(params.index_id)
-        ready_items = counts.get("ready", 0)
-        total_items = len(payloads)
+        # Publish every changed/currently missing row only after all vectors are
+        # present, then swap the complete named membership atomically. Failed
+        # provider work therefore leaves the previous dataset intact.
+        preserved_members: tuple[NamedDatasetMember, ...] = ()
+        if params.row_scope is not None:
+            replacing_rows = {int(row_id) for row_id in row_ids}
+            preserved_members = tuple(
+                NamedDatasetMember(str(index["id"]), part_id, representation_id)
+                for row_id, (part_id, representation_id) in existing_rows.items()
+                if row_id not in replacing_rows
+            )
+        publish_named_index(
+            retrieval,
+            index_id=str(params.index_id),
+            space_id=str(space["id"]),
+            recipe=recipe,
+            items=planned_items,
+            preserve_members=preserved_members,
+        )
+        refreshed = len(to_publish)
+        ready_items = len(planned_items) + len(preserved_members)
+        total_items = ready_items
 
         # Token-limit guard: providers/fastembed SILENTLY TRUNCATE inputs beyond a
         # model's max_input_tokens, yielding a misleading vector. We don't reject
@@ -2448,15 +2485,15 @@ def _do_refresh(
             "ready_items": ready_items,
             "truncated_items": truncated_items,
             "max_input_tokens": max_input_tokens,
-            "backend_id": VectorBackend.BACKEND_ID,
-            "backend_version": VectorBackend.BACKEND_VERSION,
+            "backend_id": UNIFIED_BACKEND_ID,
+            "backend_version": UNIFIED_BACKEND_VERSION,
         }
         item_evidence = _refresh_items_evidence(
-            backend=backend,
+            project=project,
             index=index,
             space=space,
             params=params,
-            payloads=payloads,
+            items=planned_items,
             output_ref=output_ref,
         )
         receipt = _refresh_receipt(
@@ -2620,7 +2657,7 @@ def _do_refresh(
             # skips this by construction, leaving 'dispatching' for the
             # stale-attempt sweep — the ambiguous case stays visible.
             set_attempt_state(project, attempt_id, "halted")
-        backend.close()
+        retrieval.close()
 
 
 def repair_unfinalized_refresh(project: Any, index_id: str) -> dict[str, int] | None:
@@ -2636,21 +2673,19 @@ def repair_unfinalized_refresh(project: Any, index_id: str) -> dict[str, int] | 
     """
 
     from frisket.ai.embeddings.store import EmbeddingStore
-    from frisket.ai.embeddings.vector_backend import VectorBackend
+    from frisket.ai.embeddings.freshness import index_freshness
 
     store = EmbeddingStore(project)
-    if store.get_index(index_id) is None:
+    index = store.get_index(index_id)
+    if index is None:
         return None
-    backend = VectorBackend(project)
-    try:
-        backend.ensure_schema()
-        by_status = backend.item_counts(index_id)
-    finally:
-        backend.close()
-    total = sum(by_status.values())
-    ready = int(by_status.get("ready", 0))
-    stale = int(by_status.get("stale", 0))
-    error = int(by_status.get("error", 0))
+    fresh = index_freshness(project, index)
+    ready = fresh.ready_count
+    stale = fresh.stale_count + fresh.surplus_count
+    # Persisted counters describe the currently published sidecar membership.
+    # ``fresh.target_count`` separately describes the current embeddable scope.
+    total = ready + stale
+    error = int(index["error_items"] or 0)
     # Reconcile counts to the sidecar reality; do NOT touch last_refresh_receipt_id
     # so a crashed refresh is never recorded as a completed one.
     store.update_index_counts(
@@ -2890,22 +2925,22 @@ def _persist_embedding_provider_fact(
 
 def _refresh_items_evidence(
     *,
-    backend: VectorBackend,
+    project: Project,
     index,
     space,
     params: IndexRefreshParams,
-    payloads: list[dict[str, Any]],
+    items: tuple[Any, ...],
     output_ref: dict[str, Any],
 ) -> dict[str, Any]:
-    source_keys = [str(item["source_key"]) for item in payloads]
+    source_keys = [item.source_key for item in items]
     evidence = {
         "kind": "embedding_index_refresh_items",
         "index_id": index["id"],
         "space_id": space["id"],
         "mode": params.mode,
         "row_scope": params.row_scope,
-        "backend_id": VectorBackend.BACKEND_ID,
-        "backend_version": VectorBackend.BACKEND_VERSION,
+        "backend_id": UNIFIED_BACKEND_ID,
+        "backend_version": UNIFIED_BACKEND_VERSION,
         "source_query": _json_obj(index["source_query_json"]),
         "source_columns": json.loads(index["source_columns_json"]),
         "source_policy_hash": index["source_policy_hash"],
@@ -2917,10 +2952,10 @@ def _refresh_items_evidence(
         },
     }
     evidence.update(
-        _sidecar_item_evidence(
-            backend,
-            index_id=index["id"],
-            space_id=space["id"],
+        _named_item_evidence(
+            project=project,
+            index=index,
+            space=space,
             source_keys=source_keys,
         )
     )
@@ -3367,11 +3402,19 @@ def run_typed_embedding_action(
         )
     perform = _perform_index_update_policy_in_txn
     replay_validate = _embedding_update_policy_replay_error
+    resolve = None
+    post_commit = None
     if terminal.capabilities == (IndexDeleter,):
-        from frisket.engine.executor.embedding_delete import _perform_delete_in_txn
+        from frisket.engine.executor.embedding_delete import (
+            _finalize_delete_effects,
+            _perform_delete_in_txn,
+            _resolve_delete_effects,
+        )
 
         perform = _perform_delete_in_txn
         replay_validate = _embedding_delete_replay_error
+        resolve = _resolve_delete_effects
+        post_commit = _finalize_delete_effects
     run = build_plain_action_run_fn(
         kind=envelope.kind,
         params_model=terminal.params_model,
@@ -3380,5 +3423,7 @@ def run_typed_embedding_action(
         ),
         params_hash_fn=lambda _action: params_hash,
         replay_validate_fn=replay_validate,
+        resolve_fn=resolve,
+        post_commit_fn=post_commit,
     )
     return run(project, envelope, bound.params, project_id=project_id)

@@ -1,0 +1,166 @@
+{
+  "schema_version": "video_retrieval_corpus.v1",
+  "model": {
+    "id": "google/embeddinggemma-2",
+    "revision": "914f7f89142e33e77833254d9c9b90c3cef7303b",
+    "weights_sha256": "197a32965d4b1105faf060417baa899e193fb73cd401f42ec9295234d5553d79"
+  },
+  "sources": [
+    {
+      "id": "pasta_boiling",
+      "filename": "pasta-boiling.webm",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/7/7e/Pot_of_pasta_boiling.webm",
+      "description_url": "https://commons.wikimedia.org/wiki/File:Pot_of_pasta_boiling.webm",
+      "sha256": "5cf36241df2e9c3e096b9e159dd4bab3343aad7624c1e2eb76bf2cf549289b77",
+      "license": "CC BY-SA 4.0",
+      "license_url": "https://creativecommons.org/licenses/by-sa/4.0",
+      "author": "Anselm Schuler (Wikimedia user Theanswertolifetheuniverseandeverything)",
+      "description": "A pot of pasta boiling over"
+    },
+    {
+      "id": "go_train",
+      "filename": "go-train.webm",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/2/29/GO_Train_at_level_crossing.webm",
+      "description_url": "https://commons.wikimedia.org/wiki/File:GO_Train_at_level_crossing.webm",
+      "sha256": "224db2c5024a84106f7525a934a5a78b1d3edf1f27c2e294d945cb015b4c0163",
+      "license": "CC BY-SA 3.0",
+      "license_url": "https://creativecommons.org/licenses/by-sa/3.0",
+      "author": "Wikimedia user Whpq",
+      "description": "GO Train at a level crossing"
+    },
+    {
+      "id": "horses_running",
+      "filename": "horses-running.webm",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/a/af/Horses_running_in_a_pasture.webm",
+      "description_url": "https://commons.wikimedia.org/wiki/File:Horses_running_in_a_pasture.webm",
+      "sha256": "a845625850b2b899fb70e377154cc1a20e8f977f7a0542ba6ec5f6dbcd636ff4",
+      "license": "CC BY 3.0",
+      "license_url": "https://creativecommons.org/licenses/by/3.0",
+      "author": "Field of Dreams",
+      "description": "Horses running in a pasture in St. Charles, Illinois"
+    },
+    {
+      "id": "librispeech_1688_142285_0007",
+      "filename": "librispeech-1688-142285-0007.wav",
+      "source": "LibriSpeech via the official TorchAudio CTC tutorial asset",
+      "source_url": "https://download.pytorch.org/torchaudio/tutorial-assets/VOiCES_devkit/source-16k/1688-142285-0007.wav",
+      "sha256": "67dfc27041e572bea27936e75eedc542ccf6f3af5cc251a0ab4e1e947d787fc8",
+      "pcm16_filename": "librispeech-1688-142285-0007-pcm16.wav",
+      "pcm16_sha256": "8295590232103d73cf809dcc118fb5f20e0415b1440f46a38b2354f9f1630a5b",
+      "license": "CC BY 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0",
+      "transcript": "i really was very much afraid of showing him how much shocked i was at some parts of what he said"
+    }
+  ],
+  "derived": [
+    {
+      "id": "composite_cfr",
+      "logical_source_id": "composite",
+      "filename": "composite-cfr.mkv",
+      "recipe_version": 1,
+      "duration_seconds": 40.0,
+      "timeline": [
+        {"source_id": "pasta_boiling", "source_start": 0.0, "start": 0.0, "end": 5.0},
+        {"source_id": "go_train", "source_start": 0.0, "start": 5.0, "end": 25.0},
+        {"source_id": "horses_running", "source_start": 30.0, "start": 25.0, "end": 40.0}
+      ],
+      "audio": {"source_id": "librispeech_1688_142285_0007", "start": 4.2, "end": 11.26},
+      "video_timing": "cfr_10fps"
+    },
+    {
+      "id": "composite_vfr",
+      "logical_source_id": "composite",
+      "filename": "composite-vfr.mkv",
+      "recipe_version": 1,
+      "duration_seconds": 40.0,
+      "equivalent_timeline_to": "composite_cfr",
+      "video_timing": "controlled_vfr_2fps_and_5fps_alternating_half_seconds"
+    },
+    {
+      "id": "horses_forward",
+      "logical_source_id": "horses_forward",
+      "filename": "horses-forward-5s.mkv",
+      "recipe_version": 1,
+      "duration_seconds": 5.0,
+      "timeline": [
+        {"source_id": "horses_running", "source_start": 40.0, "start": 0.0, "end": 5.0}
+      ],
+      "video_timing": "cfr_10fps"
+    },
+    {
+      "id": "horses_reversed",
+      "logical_source_id": "horses_reversed",
+      "filename": "horses-reversed-5s.mkv",
+      "recipe_version": 1,
+      "duration_seconds": 5.0,
+      "derived_from": "horses_forward",
+      "transform": "reverse_video_frame_order",
+      "video_timing": "cfr_10fps"
+    }
+  ],
+  "queries": [
+    {
+      "id": "static_train",
+      "family": "visual",
+      "kind": "static",
+      "text": "a green and white commuter train",
+      "targets": [{"source_id": "composite", "start": 5.0, "end": 22.0, "seek": 5.0}]
+    },
+    {
+      "id": "motion_train_crossing",
+      "family": "visual",
+      "kind": "motion",
+      "text": "a green commuter train passing through a road level crossing",
+      "targets": [{"source_id": "composite", "start": 6.0, "end": 18.0, "seek": 6.0}]
+    },
+    {
+      "id": "motion_gate_rises",
+      "family": "visual",
+      "kind": "motion",
+      "text": "the crossing gate rises after the train has passed",
+      "targets": [{"source_id": "composite", "start": 20.0, "end": 25.0, "seek": 20.0}]
+    },
+    {
+      "id": "static_horses",
+      "family": "visual",
+      "kind": "static",
+      "text": "horses in a green pasture",
+      "targets": [{"source_id": "composite", "start": 25.0, "end": 40.0, "seek": 25.0}]
+    },
+    {
+      "id": "motion_horses_running",
+      "family": "visual",
+      "kind": "motion",
+      "text": "several horses running toward the camera",
+      "targets": [{"source_id": "composite", "start": 32.0, "end": 40.0, "seek": 32.0}]
+    },
+    {
+      "id": "motion_pasta_boiling",
+      "family": "visual",
+      "kind": "motion",
+      "text": "pasta boiling over in a metal pot",
+      "targets": [{"source_id": "composite", "start": 0.0, "end": 5.0, "seek": 0.0}]
+    },
+    {
+      "id": "speech_sentence",
+      "family": "speech",
+      "kind": "spoken_semantics",
+      "text": "he was afraid to show how shocked he was by what was said",
+      "targets": [{"source_id": "composite", "start": 4.2, "end": 11.26, "seek": 4.2}]
+    },
+    {
+      "id": "order_horses_toward",
+      "family": "order_contrast_visual",
+      "kind": "motion_order",
+      "text": "several horses running from the distant field toward the camera",
+      "targets": [{"source_id": "horses_forward", "start": 0.0, "end": 5.0, "seek": 0.0}]
+    },
+    {
+      "id": "order_horses_away",
+      "family": "order_contrast_visual",
+      "kind": "motion_order",
+      "text": "several horses running away from the camera into the distant field",
+      "targets": [{"source_id": "horses_reversed", "start": 0.0, "end": 5.0, "seek": 0.0}]
+    }
+  ]
+}

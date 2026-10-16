@@ -305,13 +305,15 @@ def _assert_embedding_request_confirmation_reaches_its_host_gate(tmp_path, regis
     def embed(texts):
         calls.append(list(texts))
         return {
-            "vectors": [[1.0, 0.0] for _ in texts],
+            "vectors": [[1.0, *([0.0] * 1535)] for _ in texts],
             "provider_id": "openai",
             "actual_model_id": "text-embedding-3-small",
             "provider_cost_usd": 0.001,
             "cost_source": "provider_reported",
             "usage": {"input_count": len(texts)},
         }
+
+    embed.embedding_dimension = 1536
 
     def counts():
         return tuple(
@@ -351,7 +353,7 @@ def _assert_embedding_request_confirmation_reaches_its_host_gate(tmp_path, regis
 
         with pytest.MonkeyPatch.context() as patch:
             patch.setattr(
-                "frisket.semantic.resolve_embedder",
+                "frisket.ai.embeddings.backends.resolve_embedder",
                 lambda *a, **kw: (embed, "openai/text-embedding-3-small"),
             )
             before = counts()

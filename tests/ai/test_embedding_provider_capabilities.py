@@ -22,7 +22,7 @@ import httpx
 import pytest
 
 import frisket.ai.embeddings.capabilities as capabilities_module
-import frisket.semantic as semantic_module
+import frisket.ai.embeddings.backends as backends_module
 
 from frisket.ai.embeddings import (
     ALL_MODALITIES,
@@ -37,7 +37,7 @@ from frisket.ai.embeddings import (
 from frisket.ai.llm.adapters import OpenAICompatAdapter
 from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
 from frisket.ai.llm.router import ModelRouter
-from frisket.semantic import local_embedder
+from frisket.ai.embeddings.backends import local_embedder
 
 
 # --------------------------------------------------------------------------
@@ -99,7 +99,7 @@ def test_fastembed_text_producer_mints_known_free_cost(
             actual_model,
         )
 
-    monkeypatch.setattr("frisket.semantic.local_embedder", local_embedder)
+    monkeypatch.setattr("frisket.ai.embeddings.backends.local_embedder", local_embedder)
     result = EmbeddingGateway().embed(
         ["one", "two"], provider="fastembed", model=model, modality="text"
     )
@@ -126,19 +126,19 @@ def test_providerless_classify_gateway_uses_the_typed_local_capability(
             f"fastembed/{requested_model}",
         )
 
-    monkeypatch.setattr("frisket.semantic.local_embedder", local_embedder)
+    monkeypatch.setattr("frisket.ai.embeddings.backends.local_embedder", local_embedder)
     result = EmbeddingGateway().embed(
         ["one"],
         provider="fastembed",
-        model=semantic_module.PROVIDERLESS_CLASSIFY_MODEL,
+        model=backends_module.PROVIDERLESS_CLASSIFY_MODEL,
         modality="text",
         local_capability="providerless_classify",
     )
 
     assert calls == [
         (
-            semantic_module.PROVIDERLESS_CLASSIFY_MODEL,
-            semantic_module.PROVIDERLESS_CLASSIFY_CAPABILITY,
+            backends_module.PROVIDERLESS_CLASSIFY_MODEL,
+            backends_module.PROVIDERLESS_CLASSIFY_CAPABILITY,
         )
     ]
     assert result["provider_cost_usd"] == 0.0
@@ -159,7 +159,7 @@ def test_providerless_classify_gateway_capability_rejects_other_consumers(
         EmbeddingGateway().embed(
             ["one"],
             provider=provider,
-            model=semantic_module.PROVIDERLESS_CLASSIFY_MODEL,
+            model=backends_module.PROVIDERLESS_CLASSIFY_MODEL,
             modality=modality,
             local_capability="providerless_classify",
         )
@@ -184,31 +184,31 @@ def test_providerless_classify_uses_only_the_pinned_offline_snapshot(
     installed_fastembed = ModuleType("fastembed")
     installed_fastembed.TextEmbedding = _TextEmbedding  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "fastembed", installed_fastembed)
-    monkeypatch.setattr(semantic_module, "_local_models", {})
+    monkeypatch.setattr(backends_module, "_local_models", {})
     monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path))
     monkeypatch.setenv("HF_HUB_OFFLINE", "1")
     cloud_env = {
         "FRISKET_DISABLE_LOCAL_EMBED": "1",
-        semantic_module.PROVIDERLESS_CLASSIFY_ENABLE_ENV: "1",
-        semantic_module.PROVIDERLESS_CLASSIFY_THREADS_ENV: "2",
+        backends_module.PROVIDERLESS_CLASSIFY_ENABLE_ENV: "1",
+        backends_module.PROVIDERLESS_CLASSIFY_THREADS_ENV: "2",
     }
 
     assert (
         local_embedder(
-            semantic_module.PROVIDERLESS_CLASSIFY_MODEL,
+            backends_module.PROVIDERLESS_CLASSIFY_MODEL,
             env={
-                semantic_module.PROVIDERLESS_CLASSIFY_ENABLE_ENV: "1",
-                semantic_module.PROVIDERLESS_CLASSIFY_THREADS_ENV: "invalid-but-irrelevant",
+                backends_module.PROVIDERLESS_CLASSIFY_ENABLE_ENV: "1",
+                backends_module.PROVIDERLESS_CLASSIFY_THREADS_ENV: "invalid-but-irrelevant",
             },
         )
         is not None
     ), "classify-only configuration must not change the generic enabled path"
     assert (
-        local_embedder(semantic_module.PROVIDERLESS_CLASSIFY_MODEL, env=cloud_env)
+        local_embedder(backends_module.PROVIDERLESS_CLASSIFY_MODEL, env=cloud_env)
         is None
     )
     resolved = local_embedder(
-        semantic_module.PROVIDERLESS_CLASSIFY_MODEL,
+        backends_module.PROVIDERLESS_CLASSIFY_MODEL,
         env=cloud_env,
         capability="providerless_classify",
     )
@@ -237,10 +237,10 @@ def test_providerless_classify_uses_only_the_pinned_offline_snapshot(
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("pinned", encoding="utf-8")
     assert embed(["one"]) == [[1.0, 0.0]]
-    assert model_id == f"fastembed/{semantic_module.PROVIDERLESS_CLASSIFY_MODEL}"
+    assert model_id == f"fastembed/{backends_module.PROVIDERLESS_CLASSIFY_MODEL}"
     assert constructed == [
         (
-            semantic_module.PROVIDERLESS_CLASSIFY_MODEL,
+            backends_module.PROVIDERLESS_CLASSIFY_MODEL,
             {
                 "threads": 2,
                 "specific_model_path": str(snapshot),
@@ -254,21 +254,21 @@ def test_providerless_classify_uses_only_the_pinned_offline_snapshot(
 def test_providerless_classify_thread_bound_refuses_invalid_values(
     monkeypatch: pytest.MonkeyPatch, value: str
 ) -> None:
-    monkeypatch.setattr(semantic_module, "_local_models", {})
+    monkeypatch.setattr(backends_module, "_local_models", {})
     with pytest.raises(
         ValueError,
-        match=semantic_module.PROVIDERLESS_CLASSIFY_THREADS_ENV,
+        match=backends_module.PROVIDERLESS_CLASSIFY_THREADS_ENV,
     ):
         local_embedder(
-            semantic_module.PROVIDERLESS_CLASSIFY_MODEL,
+            backends_module.PROVIDERLESS_CLASSIFY_MODEL,
             env={
                 "FRISKET_DISABLE_LOCAL_EMBED": "1",
-                semantic_module.PROVIDERLESS_CLASSIFY_ENABLE_ENV: "1",
-                semantic_module.PROVIDERLESS_CLASSIFY_THREADS_ENV: value,
+                backends_module.PROVIDERLESS_CLASSIFY_ENABLE_ENV: "1",
+                backends_module.PROVIDERLESS_CLASSIFY_THREADS_ENV: value,
             },
             capability="providerless_classify",
         )
-    assert semantic_module._local_models == {}
+    assert backends_module._local_models == {}
 
 
 def test_providerless_classify_capability_refuses_any_other_model() -> None:
@@ -276,14 +276,14 @@ def test_providerless_classify_capability_refuses_any_other_model() -> None:
         ValueError,
         match=(
             "providerless_classify requires "
-            + semantic_module.PROVIDERLESS_CLASSIFY_MODEL
+            + backends_module.PROVIDERLESS_CLASSIFY_MODEL
         ),
     ):
         local_embedder(
             "BAAI/bge-base-en-v1.5",
             env={
                 "FRISKET_DISABLE_LOCAL_EMBED": "1",
-                semantic_module.PROVIDERLESS_CLASSIFY_ENABLE_ENV: "1",
+                backends_module.PROVIDERLESS_CLASSIFY_ENABLE_ENV: "1",
             },
             capability="providerless_classify",
         )
@@ -302,7 +302,9 @@ def test_fastembed_image_producer_mints_known_free_cost(
             actual_model,
         )
 
-    monkeypatch.setattr("frisket.semantic.local_image_embedder", local_image_embedder)
+    monkeypatch.setattr(
+        "frisket.ai.embeddings.backends.local_image_embedder", local_image_embedder
+    )
     result = EmbeddingGateway().embed(
         ["/tmp/image.png"],
         provider="fastembed",

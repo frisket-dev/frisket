@@ -147,12 +147,14 @@ def _seed(project: Project, tmp_path: Path) -> dict[str, Any]:
             router=ModelRouter(cache=None, cache_mode="off"),
         )
 
+    def embed(texts):
+        return [VECS[text] for text in texts]
+
+    embed.embedding_dimension = 3
+
     with mock.patch(
-        "frisket.semantic.resolve_embedder",
-        lambda router=None, **_kw: (
-            lambda texts: [VECS[text] for text in texts],
-            "stub/derive-link-table",
-        ),
+        "frisket.ai.embeddings.backends.resolve_embedder",
+        lambda router=None, **_kw: (embed, "stub/derive-link-table"),
     ):
         gated = run(
             _join_action(source_sheet_id, target_sheet_id),

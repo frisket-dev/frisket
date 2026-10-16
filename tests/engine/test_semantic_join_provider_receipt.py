@@ -29,7 +29,8 @@ def test_semantic_receipt_projects_only_current_run_embedding_facts(
 
     def embed(texts):
         calls.append(list(texts))
-        vectors = [[1.0, 0.0] for _ in texts]
+        dimension = 1536 if model == "openai/text-embedding-3-small" else 2
+        vectors = [[1.0, *([0.0] * (dimension - 1))] for _ in texts]
         if provider == "fastembed":
             return vectors
         return {
@@ -44,8 +45,12 @@ def test_semantic_receipt_projects_only_current_run_embedding_facts(
             "cost_source": "provider_reported" if cost is not None else "unknown",
         }
 
+    if model != "openai/text-embedding-3-small":
+        embed.embedding_dimension = 2
+
     monkeypatch.setattr(
-        "frisket.semantic.resolve_embedder", lambda *a, **kw: (embed, model)
+        "frisket.ai.embeddings.backends.resolve_embedder",
+        lambda *a, **kw: (embed, model),
     )
     project = Project.create(tmp_path / "provider-receipt.frisket")
     try:

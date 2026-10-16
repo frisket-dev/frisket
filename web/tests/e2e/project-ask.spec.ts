@@ -1,12 +1,42 @@
 import { expect, test } from '@playwright/test';
 import type { AskEvent, AskThread, AskTurn } from '../../src/api/projectQA';
-import { createProject, importCsv, uniqueName } from './helpers';
+import {
+  createProject,
+  importCsv,
+  sheetColumns,
+  sheetData,
+  textPdf,
+  uniqueName,
+} from './helpers';
 import { selectorChoicesResponse, stubSelectorChoices } from './selectorChoicesFixture';
+
+test.use({ deviceScaleFactor: 2, viewport: { width: 1600, height: 900 } });
 
 test('Ask stays docked, keeps its draft, and reconnects to saved progress', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-project-ask'));
   const sheetId = await importCsv(page.request, pid, 'stories.csv', 'story\nThe council approved the contract.\nThe school opened.\n');
   const otherSheetId = await importCsv(page.request, pid, 'council audio.csv', 'recording\nCouncil meeting\n');
+  const imported = await page.request.post(`/api/projects/${pid}/import/files?sheet_name=documents`, {
+    multipart: {
+      files: {
+        name: 'council-filing.pdf',
+        mimeType: 'application/pdf',
+        buffer: textPdf([
+          ['Council filing', 'The first page introduces the filing.'],
+          ['Vote record', 'The second page records the final vote.'],
+        ]),
+      },
+    },
+  });
+  expect(imported.ok()).toBeTruthy();
+  const sheets = await (await page.request.get(`/api/projects/${pid}/sheets`)).json() as Array<{
+    id: number;
+    name: string;
+  }>;
+  const documentSheet = sheets.find((candidate) => candidate.name === 'documents')!;
+  const documentColumns = await sheetColumns(page.request, pid, documentSheet.id);
+  const documentColumn = documentColumns.find((column) => column.type === 'file')!;
+  const documentRow = (await sheetData(page.request, pid, documentSheet.id, 0, 1)).rows[0];
   await stubSelectorChoices(page, pid, (subject) => selectorChoicesResponse({
     projectId: pid, subject, currentChoiceId: 'test-model', groups: [{
       id: 'local', label: 'On this computer', choices: [{ choiceId: 'test-model', label: 'Test model',
@@ -19,6 +49,29 @@ test('Ask stays docked, keeps its draft, and reconnects to saved progress', asyn
   let active = false;
   let polls = 0;
   const events: { thread_id: string; turn_id: string; seq: number; kind: string; payload: object; created_at: string }[] = [];
+  const sourceCitation = {
+    id: 'source-1',
+    label: 'Documents · council-filing.pdf · page 2',
+    source_kind: 'cell',
+    excerpt: 'The second page records the final vote.',
+    status: 'current',
+    message: null,
+    target: {
+      kind: 'cell',
+      sheet_id: documentSheet.id,
+      row_id: documentRow.id,
+      column_id: documentColumn.id,
+      navigation: {
+        kind: 'document',
+        sheet_id: documentSheet.id,
+        row_id: documentRow.id,
+        column_id: documentColumn.id,
+        page: 2,
+        time_seconds: null,
+      },
+      text_range: null,
+    },
+  } as const;
   const turnWire = (): AskTurn => ({
     id: 'turn', thread_id: thread.id, request_id: 'request', question: 'What changed?',
     status: 'running', submitted_by: null, started_at: '', finished_at: null,
@@ -45,13 +98,13 @@ test('Ask stays docked, keeps its draft, and reconnects to saved progress', asyn
         active = false;
         events.push({ thread_id: 'thread', turn_id: 'turn', seq: 3, kind: 'tool_completed', payload: { tool: 'inspect_sheets', sheets: 1 }, created_at: '' });
         events.push({ thread_id: 'thread', turn_id: 'turn', seq: 4, kind: 'action_proposal', payload: { proposal: { title: 'Add a note', spec: { action_id: 'map.template', scope: { kind: 'sheet_rows', sheet_id: sheetId }, params: { template: { text: 'note: {{story}}' } }, output_names: { rendered: 'note' } } } }, created_at: '' });
-        events.push({ thread_id: 'thread', turn_id: 'turn', seq: 5, kind: 'answer', payload: { text: 'The council approved the contract. [1](#cite-1)\n\nYou can [Summarize rows](#action/map.summarize), or use this prepared [Add a note](#action-4).', citation_ids: ['source-1'] }, citations: [{ id: 'source-1', label: 'Stories · row 1 · story', source_kind: 'cell', excerpt: 'The council approved the contract.', status: 'current', message: null, target: { kind: 'cell', sheet_id: sheetId, row_id: 1, column_id: 1 } }], created_at: '' });
+        events.push({ thread_id: 'thread', turn_id: 'turn', seq: 5, kind: 'answer', payload: { text: 'The council approved the contract. [1](#cite-1)\n\nYou can [Summarize rows](#action/map.summarize), or use this prepared [Add a note](#action-4).', citation_ids: ['source-1'] }, citations: [sourceCitation], created_at: '' });
         events.push({ thread_id: 'thread', turn_id: 'turn', seq: 6, kind: 'result_suggestion', payload: { title: 'Records analyzed in stories', sheet_name: 'stories', total: 1, citation_id: 'query-1' }, created_at: '' });
         events.push({ thread_id: 'thread', turn_id: 'turn', seq: 7, kind: 'status', payload: { status: 'completed' }, created_at: '' });
       }
       return route.fulfill({ json: { events: events.filter((event) => event.seq > Number(url.searchParams.get('after') ?? 0)), cursor: events.length, has_more: false, active_turn: active ? turnWire() : null } });
     }
-    if (tail === '/thread/citations/source-1') return route.fulfill({ json: { id: 'source-1', label: 'Stories · row 1 · story', source_kind: 'cell', excerpt: 'The council approved the contract.', status: 'current', message: null, target: { kind: 'cell', sheet_id: sheetId, row_id: 1, column_id: 1 } } });
+    if (tail === '/thread/citations/source-1') return route.fulfill({ json: sourceCitation });
     if (tail === '/thread/citations/query-1') return route.fulfill({ json: { id: 'query-1', label: 'Council records', source_kind: 'query', excerpt: null, status: 'current', message: null, target: { kind: 'query', sheet_id: sheetId, row_ids: [1, 2], filter: { story: { contains: 'council' } }, sort: null, total: 1 } } });
     if (tail === '/thread') return route.fulfill({ json: { thread, active_turn: active ? turnWire() : null,
       history: { events, cursor: events.length, has_more: false, active_turn: active ? turnWire() : null } } });
@@ -103,8 +156,14 @@ test('Ask stays docked, keeps its draft, and reconnects to saved progress', asyn
   await expect(dock.locator('.ask-answer')).toHaveCSS('padding-right', '0px');
   await expect(dock.getByRole('button', { name: 'Copy answer text', exact: true }).locator('..')).toHaveCSS('position', 'absolute');
   await dock.getByRole('button', { name: /^Source 1/ }).click();
-  await expect(page.getByTestId('row-drawer')).toBeVisible();
-  await expect(page.getByTestId('sheet-stats')).toContainText('2 rows');
+  await expect(page.getByTestId('document-pdf')).toHaveAttribute('data-page-count', '2');
+  await expect(page.getByTestId('document-page-indicator')).toContainText('2 / 2');
+  if (process.env.FRISKET_RETRIEVAL_SCREENSHOTS) {
+    await page.screenshot({
+      path: `${process.env.FRISKET_RETRIEVAL_SCREENSHOTS}/retrieval-ask-page-citation@2x.png`,
+      animations: 'disabled',
+    });
+  }
   await expect(page.getByRole('button', { name: 'Back to previous view', exact: true })).toHaveCount(0);
   await expect(page.getByLabel('Source opened from Ask', { exact: true })).toHaveCount(0);
   await dock.getByRole('button', { name: '1 row in stories', exact: true }).click();

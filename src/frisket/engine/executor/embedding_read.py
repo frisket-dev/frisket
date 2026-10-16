@@ -1,27 +1,35 @@
-"""Host-owned embedding reads, freshness, and receipt evidence projection."""
+"""Host-owned named-index reads and replay evidence over unified retrieval."""
 
 from __future__ import annotations
 
 import hashlib
 import json
-import sqlite3
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 from frisket.actions.types import EmbeddingVector, RowSource
-from frisket.ai.embeddings import EmbeddingStore, VectorBackend, unpack_f32
-from frisket.contracts.action import ActionError, Receipt
+from frisket.ai.embeddings import EmbeddingStore
 from frisket.ai.embeddings.freshness import (
     FRESHNESS_FRESH,
     freshness_error_code,
     freshness_reason,
     index_freshness,
 )
-from frisket.ai.embeddings.scope import IndexScopeError, resolve_index_scope_rows
+from frisket.ai.embeddings.scope import IndexScopeError, iter_index_scope_row_pages
+from frisket.ai.embeddings.source_payload import build_source_payloads
 from frisket.ai.embeddings.spaces import canonical_json
-from frisket.engine.executor.action_families._errors import receipt_stale_replay_error
+from frisket.ai.embeddings.unified_index import (
+    UNIFIED_BACKEND_ID,
+    UNIFIED_BACKEND_VERSION,
+    plan_named_index_items,
+    vector_values,
+)
+from frisket.contracts.action import ActionError, Receipt
 from frisket.engine.executor.action_receipts import _receipt_ref
 from frisket.engine.store import Project
+from frisket.retrieval.query import PinnedRetrievalReader
+from frisket.retrieval.store import RetrievalStore
 
 
 class TableReadRefused(Exception):
@@ -61,8 +69,8 @@ class AdmittedEmbeddingIndexReader:
     def _read(
         self, index_id: str, minimum_rows: int
     ) -> tuple[EmbeddingVector, ...] | ActionError:
-        store = EmbeddingStore(self.project)
-        index = store.get_index(index_id)
+        metadata = EmbeddingStore(self.project)
+        index = metadata.get_index(index_id)
         if index is None:
             return ActionError(
                 code="embedding_index_not_found",
@@ -70,7 +78,7 @@ class AdmittedEmbeddingIndexReader:
                 action_kind=self.action_kind,
                 field="index_id",
             )
-        space = store.get_space(index["space_id"])
+        space = metadata.get_space(index["space_id"])
         if space is None or index["sheet_id"] is None:
             return ActionError(
                 code="embedding_space_mismatch",
@@ -78,30 +86,25 @@ class AdmittedEmbeddingIndexReader:
                 action_kind=self.action_kind,
                 field="params",
             )
-
-        backend = VectorBackend(self.project)
-        if not backend.db_path.exists():
+        if not RetrievalStore(self.project).path.is_file():
             return ActionError(
                 code="embedding_export_sidecar_missing",
-                message=(
-                    "the project.embeddings.db sidecar does not exist; refresh the index first"
-                ),
+                message="the project.retrieval.db sidecar does not exist; refresh the index first",
                 action_kind=self.action_kind,
                 field="index_id",
             )
-        backend.ensure_schema()
+        fresh = index_freshness(self.project, index)
+        freshness = index_read_freshness_error(
+            self.project, index, self.action_kind, fresh=fresh
+        )
+        if freshness is not None:
+            return freshness
         try:
-            # Authoritative freshness preflight (same contract as export/watches): never
-            # analyze a stale/incomplete/scope-invalid index.
-            freshness = index_read_freshness_error(
-                self.project, index, self.action_kind
-            )
-            if freshness is not None:
-                return freshness
-
-            source_columns = json.loads(index["source_columns_json"])
             rows = collect_index_rows(
-                self.project, backend, index, source_columns, include_vectors=True
+                self.project,
+                index,
+                json.loads(index["source_columns_json"]),
+                include_vectors=True,
             )
         except IndexScopeError as exc:
             return ActionError(
@@ -110,9 +113,21 @@ class AdmittedEmbeddingIndexReader:
                 action_kind=self.action_kind,
                 field="index_id",
             )
-        finally:
-            backend.close()
-
+        except (TypeError, ValueError):
+            return ActionError(
+                code="embedding_space_mismatch",
+                message="a ready vector does not match the index space dimension",
+                action_kind=self.action_kind,
+                field="index_id",
+                details={"expected_dimension": int(space["dimension"])},
+            )
+        if len(rows) != fresh.ready_count:
+            return ActionError(
+                code="embedding_source_stale",
+                message="the embedding index changed while it was being read",
+                action_kind=self.action_kind,
+                field="index_id",
+            )
         if not rows:
             return ActionError(
                 code="embedding_export_no_ready_vectors",
@@ -120,28 +135,24 @@ class AdmittedEmbeddingIndexReader:
                 action_kind=self.action_kind,
                 field="index_id",
             )
-        dim = int(space["dimension"])
-        for row in rows:
-            if row["vector"] is None or len(row["vector"]) != dim:
-                return ActionError(
-                    code="embedding_space_mismatch",
-                    message=(
-                        f"ready vector {row['source_key']!r} has width "
-                        f"{0 if row['vector'] is None else len(row['vector'])} != space "
-                        f"dimension {dim}"
-                    ),
-                    action_kind=self.action_kind,
-                    field="index_id",
-                    details={
-                        "expected_dimension": dim,
-                        "source_key": row["source_key"],
-                    },
-                )
-
+        dimension = int(space["dimension"])
+        if any(
+            row["vector"] is None or len(row["vector"]) != dimension for row in rows
+        ):
+            return ActionError(
+                code="embedding_space_mismatch",
+                message="a ready vector does not match the index space dimension",
+                action_kind=self.action_kind,
+                field="index_id",
+                details={"expected_dimension": dimension},
+            )
         if len(rows) < minimum_rows:
             return ActionError(
                 code="embedding_analysis_insufficient_rows",
-                message=f"analysis requires at least {minimum_rows} ready vectors; index has {len(rows)}",
+                message=(
+                    f"analysis requires at least {minimum_rows} ready vectors; "
+                    f"index has {len(rows)}"
+                ),
                 action_kind=self.action_kind,
                 field="params",
                 details={"ready": len(rows), "minimum_rows": minimum_rows},
@@ -166,12 +177,12 @@ class AdmittedEmbeddingIndexReader:
                 "provider_kind": space["provider_kind"],
                 "actual_model_id": space["actual_model_id"],
                 "model_revision": space["model_revision"],
-                "dimension": dim,
+                "dimension": dimension,
                 "distance_metric": space["distance_metric"],
                 "normalization": space["normalization"],
                 "source_policy_hash": index["source_policy_hash"],
-                "vector_backend_id": VectorBackend.BACKEND_ID,
-                "vector_backend_version": VectorBackend.BACKEND_VERSION,
+                "vector_backend_id": UNIFIED_BACKEND_ID,
+                "vector_backend_version": UNIFIED_BACKEND_VERSION,
                 "minimum_rows": minimum_rows,
                 "row_count": len(entries),
             }
@@ -179,88 +190,181 @@ class AdmittedEmbeddingIndexReader:
         return entries
 
 
-def collect_index_rows(
-    project: Project,
-    backend: VectorBackend,
-    index,
-    source_columns: list[str],
+class _PinnedNamedIndexProject:
+    """Project methods used by named-index planning on one pinned DB snapshot."""
+
+    def __init__(self, reader: PinnedRetrievalReader):
+        self.reader = reader
+        self.db = reader.db
+
+    def columns(self, sheet_id: int, include_hidden: bool = False):
+        return self.reader.columns(sheet_id, include_hidden)
+
+    def get_values(self, sheet_id: int, column_id: int, row_ids=None, **kwargs):
+        return self.reader.get_values(sheet_id, column_id, row_ids, **kwargs)
+
+    def read_blob(self, digest: str) -> bytes:
+        with self.reader.blob_store.materialize(digest) as path:
+            return Path(path).read_bytes()
+
+
+def _named_rows_for_page(
+    snapshot: _PinnedNamedIndexProject,
     *,
+    index: Any,
+    space: Any,
+    source_columns: list[str],
+    row_ids: list[int],
     include_vectors: bool,
 ) -> list[dict[str, Any]]:
-    """Ready items joined to their vectors, with each row's CURRENT source values
-    (the 'originals'). One query for the items+vectors, one column-fetch per
-    source column — no N+1."""
-    index_id = index["id"]
-    sheet_id = index["sheet_id"]
-    current_scope_keys = _current_scope_source_keys(project, index)
-    if not current_scope_keys:
+    payloads = build_source_payloads(snapshot, index, source_columns, row_ids)
+    _recipe, planned = plan_named_index_items(
+        snapshot, index=index, space=space, payloads=payloads
+    )
+    if not planned:
         return []
-    items = backend.db.execute(
-        "SELECT i.source_key AS source_key, i.source_ref_json AS source_ref_json, "
-        "i.source_hash AS source_hash, v.vec AS vec "
-        "FROM embedding_items i JOIN embedding_vectors_f32 v ON v.id = i.vector_id "
-        "WHERE i.index_id=? AND i.status='ready' ORDER BY i.source_key",
-        (index_id,),
-    ).fetchall()
-    row_ids: list[int] = []
-    parsed: list[tuple[str, int | None, str, dict, Any]] = []
-    for it in items:
-        sk = it["source_key"]
-        if sk not in current_scope_keys:
-            continue
-        try:
-            rid: int | None = int(sk)
-        except (TypeError, ValueError):
-            rid = None
-        if rid is not None:
-            row_ids.append(rid)
-        parsed.append(
-            (sk, rid, it["source_hash"], _json_obj(it["source_ref_json"]), it["vec"])
+    placeholders = ",".join("?" for _ in row_ids)
+    stored = {
+        (str(row["part_id"]), str(row["representation_id"])): row
+        for row in snapshot.db.execute(
+            "SELECT binding.row_id,part.part_id,representation.* "
+            "FROM idx.named_dataset_membership AS member "
+            "JOIN idx.parts AS part ON part.part_key=member.part_key "
+            "JOIN idx.representations AS representation "
+            "ON representation.representation_key=member.representation_key "
+            "JOIN idx.bindings AS binding ON binding.source_key=part.source_key "
+            "WHERE member.dataset_id=? AND representation.space_id=? "
+            f"AND binding.row_id IN ({placeholders})",
+            (str(index["id"]), str(space["id"]), *row_ids),
         )
-
-    values_by_row: dict[int, dict[str, Any]] = {rid: {} for rid in row_ids}
-    if sheet_id is not None and row_ids:
-        col_ids = {
-            c["name"]: int(c["id"])
-            for c in project.columns(sheet_id, include_hidden=True)
-        }
-        for name in source_columns:
-            cid = col_ids.get(name)
-            if cid is None:
-                continue
-            vals = project.get_values(sheet_id, cid, row_ids=row_ids)
-            for rid in row_ids:
-                if rid in vals:
-                    values_by_row[rid][name] = vals[rid]
+    }
+    planned_row_ids = [item.row_id for item in planned]
+    values_by_row: dict[int, dict[str, Any]] = {
+        row_id: {} for row_id in planned_row_ids
+    }
+    column_ids = {
+        str(column["name"]): int(column["id"])
+        for column in snapshot.columns(int(index["sheet_id"]), include_hidden=True)
+    }
+    for name in source_columns:
+        column_id = column_ids.get(name)
+        if column_id is None:
+            continue
+        values = snapshot.get_values(
+            int(index["sheet_id"]), column_id, row_ids=planned_row_ids
+        )
+        for row_id in planned_row_ids:
+            if row_id in values:
+                values_by_row[row_id][name] = values[row_id]
 
     rows: list[dict[str, Any]] = []
-    for sk, rid, shash, sref, vec in parsed:
+    for item in planned:
+        representation = stored.get((item.part_id, item.representation_id))
+        if representation is None:
+            continue
+        dimension = int(representation["dimension"])
+        vector_blob = bytes(representation["vector"])
         rows.append(
             {
-                "source_key": sk,
-                "row_id": rid,
-                "source_hash": shash,
-                "source_ref": sref,
-                "values": values_by_row.get(rid, {}) if rid is not None else {},
-                "vector": unpack_f32(vec) if include_vectors else None,
+                "source_key": item.source_key,
+                "row_id": item.row_id,
+                "source_hash": item.source_hash,
+                "source_ref": dict(item.source_ref),
+                "values": values_by_row.get(item.row_id, {}),
+                "vector": (
+                    list(vector_values(vector_blob, dimension=dimension))
+                    if include_vectors
+                    else None
+                ),
+                "_vector_blob": vector_blob,
+                "representation_id": str(representation["representation_id"]),
+                "part_id": item.part_id,
+                "dimension": dimension,
             }
         )
     return rows
 
 
-def _current_scope_source_keys(project: Project, index) -> set[str]:
-    return {str(row_id) for row_id in resolve_index_scope_rows(project, index)}
+def iter_index_row_pages(
+    project: Project,
+    index: Any,
+    source_columns: list[str],
+    *,
+    include_vectors: bool,
+) -> Iterator[list[dict[str, Any]]]:
+    """Yield exact current named members in bounded source-scope pages."""
+
+    with PinnedRetrievalReader(project) as reader:
+        pinned_index = reader.db.execute(
+            "SELECT * FROM main.embedding_indexes WHERE id=?", (index["id"],)
+        ).fetchone()
+        if pinned_index is None:
+            return
+        identity_fields = (
+            "space_id",
+            "sheet_id",
+            "source_query_json",
+            "source_columns_json",
+            "source_policy_json",
+            "source_policy_hash",
+        )
+        if any(pinned_index[field] != index[field] for field in identity_fields):
+            raise IndexScopeError(
+                "embedding_source_stale",
+                "the embedding index definition changed while it was being read",
+            )
+        space = reader.db.execute(
+            "SELECT * FROM main.embedding_spaces WHERE id=?",
+            (pinned_index["space_id"],),
+        ).fetchone()
+        if space is None:
+            return
+        pinned_columns = json.loads(pinned_index["source_columns_json"])
+        if pinned_columns != source_columns:
+            raise IndexScopeError(
+                "embedding_source_stale",
+                "the embedding index source columns changed while it was being read",
+            )
+        snapshot = _PinnedNamedIndexProject(reader)
+        for row_ids in iter_index_scope_row_pages(reader, pinned_index):
+            rows = _named_rows_for_page(
+                snapshot,
+                index=pinned_index,
+                space=space,
+                source_columns=source_columns,
+                row_ids=row_ids,
+                include_vectors=include_vectors,
+            )
+            if rows:
+                yield rows
+
+
+def collect_index_rows(
+    project: Project,
+    index: Any,
+    source_columns: list[str],
+    *,
+    include_vectors: bool,
+) -> list[dict[str, Any]]:
+    """Materialize rows for analytical algorithms that require a full matrix."""
+
+    return [
+        row
+        for page in iter_index_row_pages(
+            project, index, source_columns, include_vectors=include_vectors
+        )
+        for row in page
+    ]
 
 
 def index_read_freshness_error(
-    project: Project, index, action_kind: str
+    project: Project,
+    index: Any,
+    action_kind: str,
+    *,
+    fresh: Any | None = None,
 ) -> ActionError | None:
-    """The freshness gate as an ActionError (shared by the export block and the
-    project/cluster resolve seams). Uses the authoritative freshness contract (the same
-    index_freshness/freshness_reason the index list and watches use) so it catches BOTH
-    changed ready rows and missing/errored current source rows the artifact would silently
-    omit. Returns None when fresh."""
-    fresh = index_freshness(project, index)
+    fresh = index_freshness(project, index) if fresh is None else fresh
     reason = freshness_reason(index, fresh)
     if reason == FRESHNESS_FRESH:
         return None
@@ -272,8 +376,8 @@ def index_read_freshness_error(
         field="params.index_id",
         details={
             "freshness_reason": reason,
-            "stale_source_keys": fresh.stale_keys[:20],
-            "missing_source_keys": fresh.missing_keys[:20],
+            "stale_source_keys": list(fresh.stale_source_key_samples),
+            "missing_source_keys": list(fresh.missing_source_key_samples),
         },
     )
 
@@ -297,113 +401,48 @@ def _embedding_index_definition_replay_error(
         return _embedding_stale_replay_error(
             receipt, "embedding replay receipt has invalid index evidence"
         )
-    store = EmbeddingStore(project)
-    index = store.get_index(index_id)
-    space = store.get_space(space_id)
-    if index is None or space is None:
+    metadata = EmbeddingStore(project)
+    index = metadata.get_index(index_id)
+    space = metadata.get_space(space_id)
+    if index is None or space is None or index["space_id"] != space_id:
         return _embedding_stale_replay_error(
-            receipt,
-            "embedding replay index or space is missing",
-            details={"receipt_id": receipt.receipt_id, "index_id": index_id},
-        )
-    if index["space_id"] != space_id:
-        return _embedding_stale_replay_error(
-            receipt, "embedding replay index points at a different space"
+            receipt, "embedding replay index or space is missing or changed"
         )
     facts = evidence_ref or {}
     mismatches: list[str] = []
-    _compare_field(
-        mismatches,
+    for name in (
         "provider_id",
-        space["provider_id"],
-        index_ref.get("provider_id", facts.get("provider_id")),
-    )
-    _compare_field(
-        mismatches,
         "provider_kind",
-        space["provider_kind"],
-        index_ref.get("provider_kind", facts.get("provider_kind")),
-    )
-    _compare_field(
-        mismatches,
         "actual_model_id",
-        space["actual_model_id"],
-        index_ref.get("actual_model_id", facts.get("actual_model_id")),
-    )
-    _compare_field(
-        mismatches,
-        "dimension",
-        int(space["dimension"]),
-        index_ref.get("dimension", facts.get("dimension")),
-    )
-    _compare_field(
-        mismatches,
         "distance_metric",
-        space["distance_metric"],
-        index_ref.get("distance_metric", facts.get("distance_metric")),
-    )
-    _compare_field(
-        mismatches,
         "normalization",
-        space["normalization"],
-        index_ref.get("normalization", facts.get("normalization")),
+    ):
+        expected = index_ref.get(name, facts.get(name))
+        if expected is not None and space[name] != expected:
+            mismatches.append(name)
+    expected_dimension = index_ref.get("dimension", facts.get("dimension"))
+    if expected_dimension is not None and int(space["dimension"]) != expected_dimension:
+        mismatches.append("dimension")
+    expected_policy = index_ref.get(
+        "source_policy_hash", facts.get("source_policy_hash")
     )
-    if "dtype" in facts or "dtype" in index_ref:
-        _compare_field(
-            mismatches,
-            "dtype",
-            space["dtype"],
-            index_ref.get("dtype", facts.get("dtype")),
-        )
-    if "model_revision" in facts or "model_revision" in index_ref:
-        _compare_field(
-            mismatches,
-            "model_revision",
-            space["model_revision"],
-            index_ref.get("model_revision", facts.get("model_revision")),
-        )
-    if "vector_backend_id" in facts:
-        _compare_field(
-            mismatches,
-            "vector_backend_id",
-            VectorBackend.BACKEND_ID,
-            facts.get("vector_backend_id"),
-        )
-    if "vector_backend_version" in facts:
-        _compare_field(
-            mismatches,
-            "vector_backend_version",
-            VectorBackend.BACKEND_VERSION,
-            facts.get("vector_backend_version"),
-        )
-    _compare_field(
-        mismatches,
-        "source_policy_hash",
-        index["source_policy_hash"],
-        index_ref.get("source_policy_hash", facts.get("source_policy_hash")),
-    )
-    if evidence_ref is not None:
-        if "source_query" in evidence_ref:
-            _compare_json_field(
-                mismatches,
-                "source_query",
-                index["source_query_json"],
-                evidence_ref.get("source_query"),
-            )
-        if "source_columns" in evidence_ref:
-            _compare_json_field(
-                mismatches,
-                "source_columns",
-                index["source_columns_json"],
-                evidence_ref.get("source_columns"),
-            )
-        if "source_policy_hash" in evidence_ref:
-            _compare_field(
-                mismatches,
-                "source_policy_hash",
-                index["source_policy_hash"],
-                evidence_ref.get("source_policy_hash"),
-            )
+    if expected_policy is not None and index["source_policy_hash"] != expected_policy:
+        mismatches.append("source_policy_hash")
+    if "source_query" in facts and canonical_json(
+        _json_obj(index["source_query_json"])
+    ) != canonical_json(facts["source_query"]):
+        mismatches.append("source_query")
+    if "source_columns" in facts and canonical_json(
+        json.loads(index["source_columns_json"])
+    ) != canonical_json(facts["source_columns"]):
+        mismatches.append("source_columns")
+    for name, current in (
+        ("vector_backend_id", UNIFIED_BACKEND_ID),
+        ("vector_backend_version", UNIFIED_BACKEND_VERSION),
+    ):
+        expected = facts.get(name)
+        if expected is not None and expected != current:
+            mismatches.append(name)
     if mismatches:
         return _embedding_stale_replay_error(
             receipt,
@@ -413,6 +452,87 @@ def _embedding_index_definition_replay_error(
     return None
 
 
+def _named_item_evidence(
+    project: Project,
+    *,
+    index: Any,
+    space: Any,
+    source_keys: list[str] | None = None,
+) -> dict[str, Any]:
+    selected = None if source_keys is None else set(source_keys)
+    records: list[dict[str, Any]] = []
+    for page in iter_index_row_pages(
+        project,
+        index,
+        json.loads(index["source_columns_json"]),
+        include_vectors=False,
+    ):
+        records.extend(
+            _item_evidence_record(row)
+            for row in page
+            if selected is None or row["source_key"] in selected
+        )
+    records.sort(key=lambda item: item["source_key"])
+    keys = [record["source_key"] for record in records]
+    if len(records) <= 1000:
+        return {"evidence_version": 2, "source_keys": keys, "items": records}
+    digest = hashlib.sha256(canonical_json(records).encode("utf-8")).hexdigest()
+    return {
+        "evidence_version": 2,
+        "source_keys": keys,
+        "item_count": len(records),
+        "items_digest": f"sha256:{digest}",
+    }
+
+
+def _item_evidence_record(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "source_key": row["source_key"],
+        "source_hash": row["source_hash"],
+        "source_ref": row["source_ref"],
+        "status": "ready",
+        "vector_table": "representations",
+        "vector_id": row["representation_id"],
+        "vector_sha256": _vector_sha256(row["_vector_blob"]),
+        "dimension": row["dimension"],
+        "part_id": row["part_id"],
+    }
+
+
+class NamedItemEvidenceDigest:
+    """Bounded v3 receipt evidence for a complete ordered named dataset."""
+
+    def __init__(self) -> None:
+        self._digest = hashlib.sha256()
+        self._count = 0
+
+    def add_page(self, rows: list[dict[str, Any]]) -> None:
+        for row in rows:
+            record = _item_evidence_record(row)
+            self._digest.update(canonical_json(record).encode("utf-8"))
+            self._digest.update(b"\n")
+            self._count += 1
+
+    def evidence(self) -> dict[str, Any]:
+        return {
+            "evidence_version": 3,
+            "item_count": self._count,
+            "items_digest": f"sha256:{self._digest.hexdigest()}",
+        }
+
+
+def _named_item_digest_evidence(project: Project, *, index: Any) -> dict[str, Any]:
+    digest = NamedItemEvidenceDigest()
+    for page in iter_index_row_pages(
+        project,
+        index,
+        json.loads(index["source_columns_json"]),
+        include_vectors=False,
+    ):
+        digest.add_page(page)
+    return digest.evidence()
+
+
 def _embedding_sidecar_items_replay_error(
     project: Project, receipt: Receipt, items_ref: dict[str, Any]
 ) -> ActionError | None:
@@ -420,71 +540,100 @@ def _embedding_sidecar_items_replay_error(
     space_id = items_ref.get("space_id")
     if not isinstance(index_id, str) or not isinstance(space_id, str):
         return _embedding_stale_replay_error(
-            receipt, "embedding sidecar replay evidence is invalid"
+            receipt, "embedding replay item evidence is invalid"
         )
-    backend = _open_existing_sidecar(project)
-    if backend is None:
+    if not RetrievalStore(project).path.is_file():
         return _embedding_stale_replay_error(
-            receipt,
-            "embedding sidecar replay cannot open project.embeddings.db",
-            details={"receipt_id": receipt.receipt_id, "index_id": index_id},
+            receipt, "embedding replay unified sidecar is missing"
+        )
+    metadata = EmbeddingStore(project)
+    index = metadata.get_index(index_id)
+    space = metadata.get_space(space_id)
+    if index is None or space is None:
+        return _embedding_stale_replay_error(
+            receipt, "embedding replay index or space is missing"
+        )
+    if items_ref.get("evidence_version") == 3:
+        try:
+            actual_digest = _named_item_digest_evidence(project, index=index)
+        except (KeyError, TypeError, ValueError, IndexScopeError):
+            return _embedding_stale_replay_error(
+                receipt, "embedding replay cannot resolve unified item evidence"
+            )
+        if actual_digest.get("item_count") != items_ref.get(
+            "item_count"
+        ) or actual_digest.get("items_digest") != items_ref.get("items_digest"):
+            return _embedding_stale_replay_error(
+                receipt, "embedding replay item digest drifted"
+            )
+        return None
+
+    keys = items_ref.get("source_keys")
+    if not isinstance(keys, list) or any(not isinstance(key, str) for key in keys):
+        return _embedding_stale_replay_error(
+            receipt, "embedding replay lacks source-key evidence"
         )
     try:
-        items = items_ref.get("items")
-        if isinstance(items, list):
-            for expected in items:
-                if not isinstance(expected, dict):
-                    return _embedding_stale_replay_error(
-                        receipt, "embedding sidecar replay item evidence is invalid"
-                    )
-                actual = _sidecar_item_record(
-                    backend, index_id, expected.get("source_key")
+        actual = _named_item_evidence(
+            project, index=index, space=space, source_keys=keys
+        )
+    except (KeyError, TypeError, ValueError, IndexScopeError):
+        return _embedding_stale_replay_error(
+            receipt, "embedding replay cannot resolve unified item evidence"
+        )
+    expected_items = items_ref.get("items")
+    if isinstance(expected_items, list):
+        by_key = {item["source_key"]: item for item in actual.get("items", [])}
+        for expected in expected_items:
+            if not isinstance(expected, dict):
+                return _embedding_stale_replay_error(
+                    receipt, "embedding replay item evidence is invalid"
                 )
-                if actual is None or not _sidecar_item_matches(
-                    actual, expected, space_id
-                ):
-                    return _embedding_stale_replay_error(
-                        receipt,
-                        "embedding sidecar replay item drifted",
-                        details={
-                            "receipt_id": receipt.receipt_id,
-                            "source_key": expected.get("source_key"),
-                        },
-                    )
-            return None
-        digest = items_ref.get("items_digest")
-        item_count = items_ref.get("item_count")
-        if isinstance(digest, str) and isinstance(item_count, int):
-            source_keys = items_ref.get("source_keys")
-            if not isinstance(source_keys, list):
+            current = by_key.get(expected.get("source_key"))
+            if current is None or any(
+                canonical_json(current.get(field))
+                != canonical_json(expected.get(field))
+                for field in (
+                    "source_hash",
+                    "source_ref",
+                    "status",
+                    "vector_sha256",
+                    "dimension",
+                )
+            ):
                 return _embedding_stale_replay_error(
                     receipt,
-                    "embedding sidecar replay digest lacks source-key evidence",
-                    details={"receipt_id": receipt.receipt_id, "index_id": index_id},
+                    "embedding replay item drifted",
+                    details={"source_key": expected.get("source_key")},
                 )
-            actual_digest, actual_count = _sidecar_items_digest(
-                backend, index_id, space_id, source_keys
-            )
-            if actual_count != item_count or actual_digest != digest:
-                return _embedding_stale_replay_error(
-                    receipt,
-                    "embedding sidecar replay digest drifted",
-                    details={"receipt_id": receipt.receipt_id, "index_id": index_id},
-                )
-            return None
+        return None
+    if items_ref.get("evidence_version") != 2:
         return _embedding_stale_replay_error(
             receipt,
-            "embedding sidecar replay lacks item evidence",
-            details={"receipt_id": receipt.receipt_id, "index_id": index_id},
+            "legacy aggregate vector evidence cannot be revalidated after migration",
         )
-    except (sqlite3.Error, TypeError, ValueError):
+    if actual.get("item_count") != items_ref.get("item_count") or actual.get(
+        "items_digest"
+    ) != items_ref.get("items_digest"):
         return _embedding_stale_replay_error(
-            receipt,
-            "embedding sidecar replay schema cannot provide item evidence",
-            details={"receipt_id": receipt.receipt_id, "index_id": index_id},
+            receipt, "embedding replay item digest drifted"
         )
-    finally:
-        backend.close()
+    return None
+
+
+def _vector_sha256(blob: bytes) -> str:
+    return "sha256:" + hashlib.sha256(blob).hexdigest()
+
+
+def _embedding_stale_replay_error(
+    receipt: Receipt, message: str, *, details: dict[str, Any] | None = None
+) -> ActionError:
+    return ActionError(
+        code="stale_replay",
+        message=message,
+        action_kind=receipt.action_kind,
+        details=details or {},
+    )
 
 
 def _compare_field(
@@ -506,194 +655,13 @@ def _compare_json_field(
         mismatches.append(name)
 
 
-def _open_existing_sidecar(project: Project) -> VectorBackend | None:
-    backend = VectorBackend(project)
-    if not backend.db_path.exists():
-        return None
-    if not _sidecar_has_replay_schema(backend.db_path):
-        return None
-    return backend
-
-
-def _sidecar_has_replay_schema(path: Path) -> bool:
-    try:
-        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
-        try:
-            rows = conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' "
-                "AND name IN ('embedding_items', 'embedding_vectors_f32')"
-            ).fetchall()
-            return {str(row[0]) for row in rows} == {
-                "embedding_items",
-                "embedding_vectors_f32",
-            }
-        finally:
-            conn.close()
-    except sqlite3.Error:
-        return False
-
-
-def _vector_sha256(blob: bytes) -> str:
-    return "sha256:" + hashlib.sha256(blob).hexdigest()
-
-
-def _sidecar_item_record(
-    backend: VectorBackend, index_id: str, source_key: Any
-) -> dict[str, Any] | None:
-    if not isinstance(source_key, str):
-        return None
-    row = backend.db.execute(
-        "SELECT i.index_id, i.space_id, i.source_key, i.source_ref_json, "
-        "i.source_hash, i.status, i.vector_table, i.vector_id, "
-        "v.dimension AS dimension, v.vec AS vec "
-        "FROM embedding_items i LEFT JOIN embedding_vectors_f32 v ON v.id = i.vector_id "
-        "WHERE i.index_id=? AND i.source_key=?",
-        (index_id, source_key),
-    ).fetchone()
-    if row is None:
-        return None
-    return _sidecar_row_record(row)
-
-
-def _sidecar_row_record(row) -> dict[str, Any]:
-    vec = row["vec"]
-    return {
-        "index_id": row["index_id"],
-        "space_id": row["space_id"],
-        "source_key": row["source_key"],
-        "source_hash": row["source_hash"],
-        "source_ref_json": row["source_ref_json"],
-        "source_ref": _json_obj(row["source_ref_json"]),
-        "status": row["status"],
-        "vector_table": row["vector_table"],
-        "vector_id": row["vector_id"],
-        "dimension": row["dimension"],
-        "vector_sha256": _vector_sha256(vec) if vec is not None else None,
-    }
-
-
-def _sidecar_item_matches(
-    actual: dict[str, Any], expected: dict[str, Any], space_id: str
-) -> bool:
-    # Current VectorBackend only writes f32 vectors. Keep this explicit so a
-    # future backend/table change fails closed until replay evidence learns it.
-    return (
-        actual["space_id"] == space_id
-        and actual["vector_table"] == "embedding_vectors_f32"
-        and actual["source_key"] == expected.get("source_key")
-        and actual["source_hash"] == expected.get("source_hash")
-        and canonical_json(actual["source_ref"])
-        == canonical_json(expected.get("source_ref"))
-        and actual["status"] == expected.get("status")
-        and actual["vector_table"] == expected.get("vector_table")
-        and actual["vector_id"] == expected.get("vector_id")
-        and actual["dimension"] == expected.get("dimension")
-        and actual["vector_sha256"] == expected.get("vector_sha256")
-    )
-
-
-def _sidecar_item_evidence(
-    backend: VectorBackend,
-    *,
-    index_id: str,
-    space_id: str,
-    source_keys: list[str],
-) -> dict[str, Any]:
-    keys = sorted({str(key) for key in source_keys})
-    if not keys:
-        items: list[dict[str, Any]] = []
-    else:
-        placeholders = ",".join("?" for _ in keys)
-        rows = backend.db.execute(
-            "SELECT i.index_id, i.space_id, i.source_key, i.source_ref_json, "
-            "i.source_hash, i.status, i.vector_table, i.vector_id, "
-            "v.dimension AS dimension, v.vec AS vec "
-            "FROM embedding_items i JOIN embedding_vectors_f32 v ON v.id = i.vector_id "
-            f"WHERE i.index_id=? AND i.source_key IN ({placeholders}) "
-            "ORDER BY i.source_key",
-            (index_id, *keys),
-        ).fetchall()
-        items = [_sidecar_row_record(row) for row in rows]
-    if len(items) != len(keys):
-        raise ValueError("embedding sidecar evidence requires ready vector rows")
-    if len(items) <= 1000:
-        return {"source_keys": keys, "items": [_public_sidecar_item(i) for i in items]}
-    digest, count = _sidecar_items_digest(backend, index_id, space_id, keys)
-    return {
-        "source_keys": keys,
-        "item_count": count,
-        "items_digest": digest,
-    }
-
-
-def _public_sidecar_item(item: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "source_key": item["source_key"],
-        "source_hash": item["source_hash"],
-        "source_ref": item["source_ref"],
-        "status": item["status"],
-        "vector_table": item["vector_table"],
-        "vector_id": item["vector_id"],
-        "vector_sha256": item["vector_sha256"],
-        "dimension": item["dimension"],
-    }
-
-
-def _sidecar_items_digest(
-    backend: VectorBackend,
-    index_id: str,
-    space_id: str,
-    source_keys: Any = None,
-) -> tuple[str, int]:
-    params: list[Any] = [index_id, space_id]
-    key_sql = ""
-    if isinstance(source_keys, list):
-        keys = sorted(str(key) for key in source_keys)
-        if not keys:
-            return "sha256:" + hashlib.sha256(b"[]").hexdigest(), 0
-        key_sql = f"AND i.source_key IN ({','.join('?' for _ in keys)}) "
-        params.extend(keys)
-    rows = backend.db.execute(
-        "SELECT i.source_key, i.source_hash, i.source_ref_json, i.vector_id, "
-        "v.dimension, v.vec "
-        "FROM embedding_items i JOIN embedding_vectors_f32 v ON v.id = i.vector_id "
-        "WHERE i.index_id=? AND i.space_id=? AND i.status='ready' "
-        f"{key_sql}"
-        "ORDER BY i.source_key",
-        params,
-    ).fetchall()
-    tuples = [
-        [
-            row["source_key"],
-            row["source_hash"],
-            canonical_json(_json_obj(row["source_ref_json"])),
-            row["vector_id"],
-            _vector_sha256(row["vec"]),
-            row["dimension"],
-        ]
-        for row in rows
-    ]
-    digest = hashlib.sha256(canonical_json(tuples).encode("utf-8")).hexdigest()
-    return f"sha256:{digest}", len(tuples)
-
-
-def _embedding_stale_replay_error(
-    receipt: Receipt,
-    message: str,
-    *,
-    details: dict[str, Any] | None = None,
-) -> ActionError:
-    return receipt_stale_replay_error(
-        receipt,
-        message,
-        details=details,
-        include_receipt_id=not details,
-    )
-
-
 def _json_obj(value: Any) -> dict[str, Any]:
-    try:
-        data = json.loads(value or "{}")
-    except (TypeError, ValueError, json.JSONDecodeError):
-        return {}
-    return data if isinstance(data, dict) else {}
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except (TypeError, ValueError):
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}

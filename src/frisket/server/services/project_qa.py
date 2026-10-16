@@ -755,6 +755,14 @@ class ProjectQAService:
                         execution=execution,
                         selected_model=model,
                         selected_egress_class=selected_egress_class,
+                        embedding_runtime=self.workspace.embedding_runtime,
+                        setup_scope=(
+                            "workspace"
+                            if self.workspace.edition == "solo"
+                            else "organization"
+                            if self.workspace.edition == "team"
+                            else None
+                        ),
                         search_service=(
                             self._search_service_factory()
                             if self._search_service_factory

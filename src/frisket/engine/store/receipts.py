@@ -167,7 +167,7 @@ class ReceiptStore:
     ) -> None:
         """Pin actual matcher arguments before transient row checkpoints retire."""
         from frisket.ai.llm.types import provider_from_model_id
-        from frisket.semantic import embedder_is_remote
+        from frisket.ai.embeddings.backends import embedder_is_remote
 
         model = fact["model"]
         for ref in (

@@ -37,7 +37,7 @@ from frisket.features.topic_segmentation.contracts import (
 )
 from frisket.features.topic_segmentation.engines import (
     engine_catalog,
-    get_segmenter,
+    runtime_segmenter as get_segmenter,
 )
 
 
@@ -55,6 +55,43 @@ _VOICE_RE = re.compile(r"<v(?:\.[^\s>]+)*\s+([^>]+)>", re.IGNORECASE)
 
 class TopicSegmentationCompareError(ComparePreviewError):
     """Invalid scratch input returned as a compare-preview 400."""
+
+
+class _RequestEmbeddingCache:
+    """Request-local implementation of the shared representation-cache contract."""
+
+    def __init__(self) -> None:
+        self._rows: dict[tuple[str, str], Any] = {}
+
+    def get_representations(self, space_id, input_hashes):
+        return {
+            input_hash: self._rows[(space_id, input_hash)]
+            for input_hash in input_hashes
+            if (space_id, input_hash) in self._rows
+        }
+
+    def put_representations(self, representations) -> None:
+        for representation in representations:
+            self._rows[(representation.space_id, representation.input_hash)] = (
+                representation
+            )
+
+
+def _request_text_encoder(cache: _RequestEmbeddingCache):
+    def encode(texts, *, embed, model_id):
+        from frisket.ai.embeddings.analytics import (
+            encode_legacy_texts,
+            legacy_analytical_space,
+        )
+
+        return encode_legacy_texts(
+            cache,
+            texts,
+            embed=embed,
+            space=legacy_analytical_space(model_id),
+        )
+
+    return encode
 
 
 @dataclass(frozen=True, slots=True)
@@ -652,6 +689,7 @@ async def compare_topic_segmentation_scratch(
     )
     results: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
+    encode_texts = _request_text_encoder(_RequestEmbeddingCache())
 
     for variant in req.variants:
         started = time.perf_counter()
@@ -684,7 +722,7 @@ async def compare_topic_segmentation_scratch(
                 segmenter.segment,
                 parsed.snapshot,
                 resolved_settings,
-                SegmentationContext(),
+                SegmentationContext(encode_texts=encode_texts),
             )
             if result.engine_id != segmenter.definition.id:
                 raise ValueError("topic engine returned a mismatched engine id")

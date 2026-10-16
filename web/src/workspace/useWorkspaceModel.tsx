@@ -29,8 +29,22 @@ import {
   type RegisteredActionRequest,
   type Row,
   type SavedView,
-  type SearchHit,
 } from '../api/open';
+import type {
+  ProjectSearchAnchorWire,
+  ProjectSearchHitWire,
+} from '../api/projectSearch';
+import type { PaletteSearchSeed } from '../workbench/usePaletteSearch';
+import { documentSimilarityLocation } from '../workbench/documentSimilarity';
+
+type ProjectSearchCellAnchorWire = Extract<
+  ProjectSearchAnchorWire,
+  { kind: 'cell' }
+>;
+type ProjectSearchCellLocationWire = NonNullable<
+  ProjectSearchCellAnchorWire['location']
+>;
+
 import { freshActionRequestKey } from '../api/open';
 import type { ActionLaunchPrefill } from '../actions/actionFormInitial';
 import { canEditProject } from '../api/projectRole';
@@ -396,7 +410,6 @@ export function useWorkspaceModel({
     lastCommandAction,
     hideActionPanel,
     openActionPanel,
-    openCommandPalette,
     openEvidenceViewer,
     projectionStatus,
     recordCommandAction,
@@ -749,7 +762,17 @@ export function useWorkspaceModel({
 
   const commandPaletteQuery = useSelector(chrome.store, (s) => s.commandPaletteQuery);
   const setCommandPaletteQuery = chrome.setCommandPaletteQuery;
-  const closeCommandPaletteAndReset = chrome.closeCommandPaletteAndReset;
+  const [commandPaletteSearchSeed, setCommandPaletteSearchSeed] =
+    useState<PaletteSearchSeed | null>(null);
+  const closeCommandPaletteAndReset = useCallback(() => {
+    setCommandPaletteSearchSeed(null);
+    chrome.closeCommandPaletteAndReset();
+  }, [chrome]);
+  const openSearchPalette = useCallback((seed: PaletteSearchSeed | null = null) => {
+    setCommandPaletteSearchSeed(seed);
+    chrome.setCommandPaletteQuery('');
+    chrome.openCommandPalette();
+  }, [chrome]);
 
   const openImportDialog = actSurface.openImportDialog;
 
@@ -763,16 +786,16 @@ export function useWorkspaceModel({
         if (commandPaletteOpen) {
           closeCommandPaletteAndReset();
         } else {
-          openCommandPalette();
+          openSearchPalette();
         }
       } else if (key === 'p' && event.shiftKey) {
         event.preventDefault();
-        openCommandPalette();
+        openSearchPalette();
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [commandPaletteOpen, openCommandPalette, closeCommandPaletteAndReset]);
+  }, [commandPaletteOpen, openSearchPalette, closeCommandPaletteAndReset]);
 
   const openSourcesConnections = useCallback(() => {
     actSurface.openSourcesConnections();
@@ -909,24 +932,41 @@ export function useWorkspaceModel({
     [sheets],
   );
 
-  const navigateToSearchHit = useCallback(
-    (hit: SearchHit) => {
-      const sheetId = String(hit.sheet_id);
-      const rowId = String(hit.row_id);
-      requestGridCellReveal({
-        projectId: project.id,
-        sheetId,
-        rowId,
-        columnId: String(hit.column_id),
-        columnName: hit.column_name,
-      });
-      selectSheet(sheetId);
-      window.dispatchEvent(
-        new CustomEvent('frisket:reveal-row', { detail: { sheetId, rowId } }),
-      );
-    },
-    [project.id, selectSheet],
-  );
+  const openCellSimilarity = useCallback((input: {
+    sheetId: string;
+    rowId: string;
+    columnId: string;
+    label: string;
+    location?: ProjectSearchCellLocationWire;
+    namedIndexId?: string;
+  }) => {
+    openSearchPalette({
+      anchor: {
+        kind: 'cell',
+        sheet_id: Number(input.sheetId),
+        row_id: Number(input.rowId),
+        column_id: Number(input.columnId),
+        exclude_exact: true,
+        ...(input.location ? { location: input.location } : {}),
+      },
+      label: input.label,
+      ...(input.namedIndexId ? { namedIndexId: input.namedIndexId } : {}),
+    });
+  }, [openSearchPalette]);
+
+  const openDocumentSimilarity = useCallback((input: {
+    sheetId: string;
+    rowId: string;
+    columnId: string;
+    target: { kind: string; page?: number; timeSeconds?: number };
+  }) => {
+    const { label, location } = documentSimilarityLocation(input.target);
+    openCellSimilarity({
+      ...input,
+      label,
+      location,
+    });
+  }, [openCellSimilarity]);
 
   const closeHeaderMenu = useCallback(() => {
     detail.closeHeaderMenu();
@@ -1083,6 +1123,60 @@ export function useWorkspaceModel({
     }
     openEvidenceViewer(linkId, host, focus);
   }, [isContributionHidden, openEvidenceViewer]);
+
+  const navigateToSearchHit = useCallback(
+    (hit: ProjectSearchHitWire) => {
+      const navigation = hit.navigation;
+      if (navigation.kind === 'evidence') {
+        openEvidenceViewerForWorkspace(navigation.evidence_link_id, 'modalOrPeek', {
+          scopeSpanId: navigation.span_id,
+        });
+        return;
+      }
+      const sheetId = String(navigation.sheet_id);
+      const rowId = String(navigation.row_id);
+      if (navigation.kind === 'document') {
+        setOpenSplit(null);
+        setDocumentView({
+          sheetId,
+          sourceColumnId: String(navigation.column_id),
+          titleColumnId: null,
+          layout: 'continuous',
+          fit: 'width',
+          videoFit: 'full',
+          textLayer: true,
+          sync: false,
+          activeRowId: rowId,
+          readerLocationKey: crypto.randomUUID(),
+          ...(navigation.page
+            ? { readerPage: { rowId, page: navigation.page } }
+            : {}),
+          ...(navigation.time_seconds !== null && navigation.time_seconds !== undefined
+            ? { readerTime: { rowId, seconds: navigation.time_seconds } }
+            : {}),
+        });
+      } else if (navigation.column_id !== null && navigation.column_id !== undefined) {
+        requestGridCellReveal({
+          projectId: project.id,
+          sheetId,
+          rowId,
+          columnId: String(navigation.column_id),
+          columnName: hit.column_name ?? String(navigation.column_id),
+        });
+      }
+      selectSheet(sheetId);
+      window.dispatchEvent(
+        new CustomEvent('frisket:reveal-row', { detail: { sheetId, rowId } }),
+      );
+    },
+    [
+      openEvidenceViewerForWorkspace,
+      project.id,
+      selectSheet,
+      setDocumentView,
+      setOpenSplit,
+    ],
+  );
 
   const openRowById = useCallback(
     (rowId: string) => {
@@ -3715,6 +3809,8 @@ export function useWorkspaceModel({
       mapViewDescriptor,
       openRowById,
       openRowRef,
+      openDocumentSimilarity,
+      openCellSimilarity,
       project,
       promoteCurrentView,
       renderPluginDetailTab,
@@ -3866,6 +3962,8 @@ export function useWorkspaceModel({
       mapViewDescriptor,
       openRowById,
       openRowRef,
+      openDocumentSimilarity,
+      openCellSimilarity,
       project,
       promoteCurrentView,
       renderPluginDetailTab,
@@ -3912,6 +4010,7 @@ export function useWorkspaceModel({
       commandPaletteOpen,
       closeCommandPaletteAndReset,
       commandPaletteQuery,
+      commandPaletteSearchSeed,
       setCommandPaletteQuery,
       commandPaletteBestMatchItems,
       commandPaletteActionItems,
@@ -3969,6 +4068,7 @@ export function useWorkspaceModel({
       commandPaletteOpen,
       closeCommandPaletteAndReset,
       commandPaletteQuery,
+      commandPaletteSearchSeed,
       setCommandPaletteQuery,
       commandPaletteBestMatchItems,
       commandPaletteActionItems,

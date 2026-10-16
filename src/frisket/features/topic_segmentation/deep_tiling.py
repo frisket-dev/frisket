@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from typing import Any, Protocol
 
@@ -22,7 +22,7 @@ from frisket.ai.embeddings import (
     EmbeddingBackendUnavailable,
     EmbeddingProviderError,
 )
-from frisket.semantic import LOCAL_MODEL
+from frisket.ai.embeddings.backends import LOCAL_MODEL
 
 from .contracts import (
     BetweenUnits,
@@ -98,7 +98,7 @@ def _semantic_cohesion(vectors: np.ndarray, window: int) -> list[float]:
     return scores
 
 
-def _validated_vectors(batch: Mapping[str, Any], unit_count: int) -> np.ndarray:
+def _validated_local_batch(batch: Mapping[str, Any]) -> Mapping[str, Any]:
     if (
         batch.get("provider_id") != "fastembed"
         or batch.get("provider_kind") != "local_process"
@@ -106,41 +106,41 @@ def _validated_vectors(batch: Mapping[str, Any], unit_count: int) -> np.ndarray:
         raise SegmentationExecutionError(
             "semantic windows refused a non-local embedding result"
         )
+    return batch
+
+
+def _validated_vectors(
+    vectors: Sequence[Sequence[float]], unit_count: int
+) -> np.ndarray:
     try:
-        vectors = np.asarray(batch["vectors"], dtype=np.float64)
-    except (KeyError, TypeError, ValueError) as exc:
+        values = np.asarray(vectors, dtype=np.float64)
+    except (TypeError, ValueError) as exc:
         raise SegmentationExecutionError(
             "local embedding result did not contain numeric vectors"
         ) from exc
-    if vectors.ndim != 2 or vectors.shape[0] != unit_count or vectors.shape[1] == 0:
+    if values.ndim != 2 or values.shape[0] != unit_count or values.shape[1] == 0:
         raise SegmentationExecutionError(
             "local embedding result shape does not match the transcript units"
         )
-    if not bool(np.isfinite(vectors).all()):
+    if not bool(np.isfinite(values).all()):
         raise SegmentationExecutionError(
             "local embedding result contains nonfinite values"
         )
-    return vectors
+    return values
 
 
-def _embedding_diagnostics(batch: Mapping[str, Any]) -> dict[str, JsonValue]:
-    """Keep model identity and usage, never vectors or provider credentials."""
+def _embedding_diagnostics(*, model_id: str, dimension: int) -> dict[str, JsonValue]:
+    """Report stable space facts without inventing a provider call on cache hits."""
 
-    usage = batch.get("usage")
     return {
-        "provider_id": str(batch.get("provider_id") or "fastembed"),
-        "provider_kind": str(batch.get("provider_kind") or "local_process"),
-        "requested_model": (
-            str(batch["requested_model"])
-            if batch.get("requested_model") is not None
-            else None
-        ),
-        "actual_model_id": str(batch.get("actual_model_id") or "unknown"),
-        "model_revision": str(batch.get("model_revision") or "unknown"),
-        "dimension": int(batch.get("dimension") or 0),
-        "normalization": str(batch.get("normalization") or "none"),
-        "usage": dict(usage) if isinstance(usage, Mapping) else {},
-        "fact_version": str(batch.get("fact_version") or "unknown"),
+        "provider_id": "fastembed",
+        "provider_kind": "local_process",
+        "requested_model": model_id,
+        "actual_model_id": f"fastembed/{model_id}",
+        "model_revision": "unknown",
+        "dimension": dimension,
+        "normalization": "none",
+        "cache": "shared",
     }
 
 
@@ -251,12 +251,28 @@ class DeepTilingSegmenter:
         preflight.require()
         context.raise_if_cancelled()
 
+        if context.encode_texts is None:
+            raise SegmentationEngineUnavailable(
+                "Semantic windows requires an invocation-owned embedding cache."
+            )
+
         try:
-            batch = self._gateway().embed(
+            gateway = self._gateway()
+
+            def embed(texts: list[str]) -> Mapping[str, Any]:
+                return _validated_local_batch(
+                    gateway.embed(
+                        texts,
+                        provider="fastembed",
+                        model=self._model_id,
+                        modality="text",
+                    )
+                )
+
+            encoded = context.encode_texts(
                 [unit.text for unit in snapshot.units],
-                provider="fastembed",
-                model=self._model_id,
-                modality="text",
+                embed=embed,
+                model_id=f"fastembed/{self._model_id}",
             )
         except EmbeddingBackendUnavailable as exc:
             raise SegmentationEngineUnavailable(str(exc)) from exc
@@ -266,7 +282,7 @@ class DeepTilingSegmenter:
             ) from exc
         context.raise_if_cancelled()
 
-        vectors = _validated_vectors(batch, len(snapshot.units))
+        vectors = _validated_vectors(encoded, len(snapshot.units))
         scores = _semantic_cohesion(vectors, _WINDOW_UNITS)
         depths = _depth_scores(scores, clip=_BOUNDARY_CLIP)
         detail = str(resolved_settings["detail"])
@@ -304,7 +320,9 @@ class DeepTilingSegmenter:
                 "window_units": _WINDOW_UNITS,
                 "cohesion_gap_count": len(scores),
                 "cutoff": cutoff,
-                "embedding": _embedding_diagnostics(batch),
+                "embedding": _embedding_diagnostics(
+                    model_id=self._model_id, dimension=int(vectors.shape[1])
+                ),
             },
         )
 

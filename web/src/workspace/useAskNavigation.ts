@@ -47,12 +47,13 @@ export function useAskNavigation(
 
     const sheet = sheets.find((item) => item.id === String(target.sheet_id));
     if (!sheet) return;
+    const documentNavigation = target.kind === 'cell' ? target.navigation : null;
     route.navigate({
       ...route.store.get(),
       sheetId: sheet.id,
       actionKind: null,
       review: false,
-      panel: target.kind === 'cell'
+      panel: target.kind === 'cell' && !documentNavigation
         ? {
             kind: 'row',
             rowId: String(target.row_id),
@@ -61,6 +62,30 @@ export function useAskNavigation(
         : null,
     });
     showGrid(sheet.id);
+
+    if (documentNavigation) {
+      const rowId = String(documentNavigation.row_id);
+      commands.setDocumentView({
+        sheetId: String(documentNavigation.sheet_id),
+        sourceColumnId: String(documentNavigation.column_id),
+        titleColumnId: null,
+        layout: 'continuous',
+        fit: 'width',
+        videoFit: 'full',
+        textLayer: true,
+        sync: false,
+        activeRowId: rowId,
+        readerLocationKey: crypto.randomUUID(),
+        ...(documentNavigation.page
+          ? { readerPage: { rowId, page: documentNavigation.page } }
+          : {}),
+        ...(documentNavigation.time_seconds !== null
+          && documentNavigation.time_seconds !== undefined
+          ? { readerTime: { rowId, seconds: documentNavigation.time_seconds } }
+          : {}),
+      });
+      return;
+    }
 
     if (target.kind === 'query') {
       gridView.store.set((state) => ({

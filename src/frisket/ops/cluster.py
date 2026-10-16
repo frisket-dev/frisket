@@ -3,8 +3,8 @@
 The fingerprint method (ops/cluster_fingerprint.py) only collides values that share
 normalized tokens — "Jon Smith" / "Smith, Jon" — and misses meaning-level
 duplicates like "WHO" / "World Health Organization". ``method: semantic``
-embeds the column's distinct values via frisket/semantic.py's
-``resolve_embedder`` (local fastembed model first, API embeddings via the
+embeds the column's distinct values via the shared embedding backend
+(local fastembed model first, API embeddings via the
 router second — remote cost flows through the router as usual) and groups
 values whose pairwise cosine similarity is >= ``threshold`` (default
 ``DEFAULT_THRESHOLD``, spec-overridable) into single-linkage connected
@@ -23,9 +23,8 @@ calls in bounded batches. ``FRISKET_CLUSTER_SEMANTIC_CAP`` remains an explicit
 deployment escape hatch; when set, the envelope reports ``distinct_values`` vs
 ``considered`` so that truncation is visible.
 
-Vectors are NOT re-embedded per run: they come from the content-addressed
-``cell_vec`` sidecar cache (sha1(model_id + content)), shared with semantic
-search — a value embedded for search is free here and vice versa.
+Vectors are not re-embedded per run: they come from the unified retrieval
+representation cache, keyed by the analytical space and exact text bytes.
 
 No embedding backend at all → honest fallback to fingerprint clustering,
 flagged ``semantic: False`` / ``method: "fingerprint"`` in the envelope (the
@@ -40,8 +39,9 @@ import os
 from collections import Counter
 from typing import Any, Callable
 
+from frisket.ai.embeddings.analytics import encode_project_legacy_texts
+from frisket.ai.embeddings.backends import Embedder
 from frisket.ops.cluster_fingerprint import canonical, column_values
-from frisket.semantic import Embedder, _doc_vectors
 from frisket.engine.store import Project
 
 DEFAULT_THRESHOLD = 0.85
@@ -166,6 +166,8 @@ def compute_semantic_clusters(
     *,
     values: dict[int, str] | None = None,
     derive_key: Callable[[str], str] | None = None,
+    embedding_dimension: int | None = None,
+    embedding_vectors: list[list[float]] | None = None,
 ) -> tuple[list[dict[str, Any]], int, int]:
     """Group a column's values by pairwise cosine >= ``threshold``.
 
@@ -196,21 +198,37 @@ def compute_semantic_clusters(
     embed_texts = (
         [derive_key(s) for s in ordered] if derive_key is not None else ordered
     )
-    vectors: list[list[float]] = []
-    for batch_index, offset in enumerate(
-        range(0, len(embed_texts), SEMANTIC_EMBED_BATCH_SIZE)
-    ):
-        planned_batch = embed_texts[offset : offset + SEMANTIC_EMBED_BATCH_SIZE]
-        vectors.extend(
-            _doc_vectors(
-                project,
-                [{"content": text} for text in planned_batch],
-                lambda texts, index=batch_index: _embed_planned_batch(
-                    embed, index, texts
-                ),
-                embed_id,
+    if embedding_dimension is None:
+        reported_dimension = getattr(embed, "embedding_dimension", None)
+        if (
+            isinstance(reported_dimension, int)
+            and not isinstance(reported_dimension, bool)
+            and reported_dimension > 0
+        ):
+            embedding_dimension = reported_dimension
+    if embedding_vectors is None:
+        vectors: list[list[float]] = []
+        for batch_index, offset in enumerate(
+            range(0, len(embed_texts), SEMANTIC_EMBED_BATCH_SIZE)
+        ):
+            planned_batch = embed_texts[offset : offset + SEMANTIC_EMBED_BATCH_SIZE]
+            vectors.extend(
+                encode_project_legacy_texts(
+                    project,
+                    planned_batch,
+                    embed=lambda texts, index=batch_index: _embed_planned_batch(
+                        embed, index, texts
+                    ),
+                    model_id=embed_id,
+                    dimension=embedding_dimension,
+                )
             )
-        )
+    else:
+        vectors = embedding_vectors
+        if len(vectors) != len(embed_texts):
+            raise RuntimeError(
+                "precomputed embeddings do not cover the semantic cluster inputs"
+            )
     units = [_unit(v) for v in vectors]
 
     clusters: list[dict[str, Any]] = []

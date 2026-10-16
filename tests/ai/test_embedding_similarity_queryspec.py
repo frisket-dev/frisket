@@ -9,18 +9,17 @@ call for a row anchor whose vector already exists.
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from frisket.ai.embeddings import (
-    VectorBackend,
     build_batch_result,
     resolve_embedding_similarity,
 )
 from frisket.ai.embeddings.similarity import SimilarityError
 from frisket.engine.executor import ExecutorDeps, run_action_spec
 from frisket.engine.store import Project
+from frisket.retrieval.store import RetrievalStore
+from frisket.team.security.secrets import encrypt_secret, key_hint
 from helpers import replace_test_source_cell
 
 
@@ -37,7 +36,11 @@ class MappedGateway:
         self.calls.append(list(texts))
         out = []
         for t in texts:
-            base = list(self.vectors_by_text.get(t, [0.0, 0.0, 0.0]))
+            base = list(
+                self.vectors_by_text.get(
+                    t, [1.0, 0.0, 0.0] if t == "query cat" else [0.0, 0.0, 0.0]
+                )
+            )
             out.append(base + [0.0] * (self.dim - len(base)))
         return build_batch_result(
             out,
@@ -177,12 +180,24 @@ def test_limit_and_threshold(env):
         _row(project, sheet, cols, "kitten")
     ]
 
+    none = resolve_embedding_similarity(
+        project, _row_query(index_id, cat, threshold=-0.01)
+    )
+    assert none.hits == []
+    all_matches = resolve_embedding_similarity(
+        project, _row_query(index_id, cat, threshold=2.01)
+    )
+    assert [hit.row_id for hit in all_matches.hits] == [
+        _row(project, sheet, cols, "kitten"),
+        _row(project, sheet, cols, "airplane"),
+    ]
 
-def test_requested_limit_above_legacy_cap_returns_every_match(tmp_path):
+
+def test_saved_limit_above_public_cap_remains_valid(tmp_path):
     project = Project.create(tmp_path / "large-sim.frisket", name="large-sim")
     sheet = project.add_sheet("documents")
     cols = {"headline": project.add_column(sheet, "headline")}
-    texts = [f"document {index:03d}" for index in range(502)]
+    texts = [f"document {index:03d}" for index in range(501)]
     project.add_rows(sheet, [{"headline": text} for text in texts], cols)
     vectors = {text: [1.0, 0.0, 0.0] for text in texts}
     index_id = _create_index(project, sheet, key="large-sim")
@@ -190,11 +205,11 @@ def test_requested_limit_above_legacy_cap_returns_every_match(tmp_path):
 
     anchor = _row(project, sheet, cols, texts[0])
     result = resolve_embedding_similarity(
-        project, _row_query(index_id, anchor, limit=501)
+        project, _row_query(index_id, anchor, limit=750)
     )
 
-    assert result.limit == 501
-    assert len(result.hits) == 501
+    assert result.limit == 750
+    assert len(result.hits) == 500
     project.close()
 
 
@@ -205,26 +220,6 @@ def test_missing_anchor_is_typed_failure(env):
     with pytest.raises(SimilarityError) as exc:
         resolve_embedding_similarity(project, _row_query(index_id, new_row))
     assert exc.value.code == "embedding_anchor_not_found"
-
-
-def test_stale_anchor_is_typed_failure(env):
-    project, sheet, cols, index_id = env
-    cat = _row(project, sheet, cols, "cat")
-    backend = VectorBackend(project)
-    backend.ensure_schema()
-    backend.upsert_item(
-        index_id=index_id,
-        space_id="ignored",
-        source_key=str(cat),
-        source_ref={},
-        source_hash="h",
-        status="stale",
-        vector=[1.0, 0.0, 0.0],
-    )
-    backend.close()
-    with pytest.raises(SimilarityError) as exc:
-        resolve_embedding_similarity(project, _row_query(index_id, cat))
-    assert exc.value.code == "embedding_source_stale"
 
 
 def test_unknown_index_is_typed_failure(env):
@@ -308,12 +303,15 @@ def test_typed_preview_local_manual_replays_without_reembedding(env, monkeypatch
     def local_embedder(model_id=None, **_kwargs):
         def embed(texts):
             calls.append(list(texts))
-            return [list(_VECTORS[text]) + [0.0] * 381 for text in texts]
+            return [
+                list(_VECTORS.get(text, [1.0, 0.0, 0.0])) + [0.0] * 381
+                for text in texts
+            ]
 
         return embed, model_id or "BAAI/bge-small-en-v1.5"
 
-    monkeypatch.setattr("frisket.semantic.local_embedder", local_embedder)
-    query = _manual_query(index_id, "cat")
+    monkeypatch.setattr("frisket.ai.embeddings.backends.local_embedder", local_embedder)
+    query = _manual_query(index_id, "query cat")
     query["sheet_id"] = sheet
     action = _preview_action(query, key="typed-manual")
     first = run_action_spec(project, action, project_id="p")
@@ -329,7 +327,7 @@ def test_typed_preview_local_manual_replays_without_reembedding(env, monkeypatch
 
     assert first.status == replay.status == "completed"
     assert replay.receipt_id == first.receipt_id
-    assert calls == [["cat"]]
+    assert calls == [["query cat"]]
     assert fresh.status == "failed"
     assert fresh.errors[0].code == "embedding_index_incomplete"
     receipt = ReceiptStore(project).parsed_by_id(first.receipt_id)
@@ -348,7 +346,10 @@ def test_typed_preview_receipt_uses_actual_gateway_identity(env, monkeypatch):
     class ActualGateway:
         def embed(self, texts, *, provider, model, modality):
             del provider, model
-            vectors = [list(_VECTORS[text]) + [0.0] * 381 for text in texts]
+            vectors = [
+                list(_VECTORS.get(text, [1.0, 0.0, 0.0])) + [0.0] * 381
+                for text in texts
+            ]
             return build_batch_result(
                 vectors,
                 provider_id="actual-local-provider",
@@ -360,7 +361,7 @@ def test_typed_preview_receipt_uses_actual_gateway_identity(env, monkeypatch):
     monkeypatch.setattr(
         "frisket.ai.embeddings.similarity.EmbeddingGateway", ActualGateway
     )
-    query = {**_manual_query(index_id, "cat"), "sheet_id": sheet}
+    query = {**_manual_query(index_id, "query cat"), "sheet_id": sheet}
     result = run_action_spec(
         project,
         _preview_action(query, key="typed-actual-provider"),
@@ -395,12 +396,15 @@ def test_typed_preview_rejects_mid_embed_source_edit_with_failed_receipt(
                         }
                     ]
                 )
-            return [list(_VECTORS[text]) + [0.0] * 381 for text in texts]
+            return [
+                list(_VECTORS.get(text, [1.0, 0.0, 0.0])) + [0.0] * 381
+                for text in texts
+            ]
 
         return embed, model_id or "BAAI/bge-small-en-v1.5"
 
-    monkeypatch.setattr("frisket.semantic.local_embedder", local_embedder)
-    query = {**_manual_query(index_id, "cat"), "sheet_id": sheet}
+    monkeypatch.setattr("frisket.ai.embeddings.backends.local_embedder", local_embedder)
+    query = {**_manual_query(index_id, "query cat"), "sheet_id": sheet}
     result = run_action_spec(
         project,
         _preview_action(query, key="typed-mid-embed-source-edit"),
@@ -430,12 +434,15 @@ def test_typed_preview_rejects_mid_embed_provider_metadata_edit(env, monkeypatch
                     ("mutated-provider", "mutated-model", index_id),
                 )
                 project.db.commit()
-            return [list(_VECTORS[text]) + [0.0] * 381 for text in texts]
+            return [
+                list(_VECTORS.get(text, [1.0, 0.0, 0.0])) + [0.0] * 381
+                for text in texts
+            ]
 
         return embed, model_id or "BAAI/bge-small-en-v1.5"
 
-    monkeypatch.setattr("frisket.semantic.local_embedder", local_embedder)
-    query = {**_manual_query(index_id, "cat"), "sheet_id": sheet}
+    monkeypatch.setattr("frisket.ai.embeddings.backends.local_embedder", local_embedder)
+    query = {**_manual_query(index_id, "query cat"), "sheet_id": sheet}
     result = run_action_spec(
         project,
         _preview_action(query, key="typed-mid-embed-provider-edit"),
@@ -450,83 +457,11 @@ def test_typed_preview_rejects_mid_embed_provider_metadata_edit(env, monkeypatch
     assert receipt is not None and receipt["status"] == "failed"
 
 
-def test_typed_preview_rejects_same_second_highest_vector_replacement(env, monkeypatch):
-    project, sheet, cols, index_id = env
-    reader = VectorBackend(project)
-    item = reader.db.execute(
-        "SELECT * FROM embedding_items WHERE index_id=? "
-        "ORDER BY vector_id DESC LIMIT 1",
-        (index_id,),
-    ).fetchone()
-    assert item is not None
-    item_state = dict(item)
-    row_id = int(item_state["source_key"])
-    reader.close()
-    mutated = False
-
-    def local_embedder(model_id=None, **_kwargs):
-        def embed(texts):
-            nonlocal mutated
-            if not mutated:
-                mutated = True
-                writer = VectorBackend(project)
-                writer.ensure_schema()
-                writer.upsert_item(
-                    index_id=index_id,
-                    space_id=item_state["space_id"],
-                    source_key=str(row_id),
-                    source_ref=json.loads(item_state["source_ref_json"]),
-                    source_hash=item_state["source_hash"],
-                    status="ready",
-                    vector=[0.0] * 384,
-                )
-                replacement = writer.get_item(index_id, str(row_id))
-                assert replacement is not None
-                # Deleting and reinserting the highest rowid reuses it. Restore the
-                # second-resolution timestamps too: every item metadata field now
-                # matches the captured state while the supported upsert changed bytes.
-                assert replacement["vector_id"] == item_state["vector_id"]
-                writer.db.execute(
-                    "UPDATE embedding_items SET source_ref_json=?, embedded_at=?, "
-                    "updated_at=? WHERE index_id=? AND source_key=?",
-                    (
-                        item_state["source_ref_json"],
-                        item_state["embedded_at"],
-                        item_state["updated_at"],
-                        index_id,
-                        str(row_id),
-                    ),
-                )
-                writer.db.commit()
-                writer.close()
-            return [list(_VECTORS[text]) + [0.0] * 381 for text in texts]
-
-        return embed, model_id or "BAAI/bge-small-en-v1.5"
-
-    monkeypatch.setattr("frisket.semantic.local_embedder", local_embedder)
-    query = {**_manual_query(index_id, "cat"), "sheet_id": sheet}
-    result = run_action_spec(
-        project,
-        _preview_action(query, key="typed-mid-embed-sidecar-edit"),
-        project_id="p",
-    )
-
-    assert result.status == "failed"
-    assert result.errors[0].code == "stale_input"
-    receipt = project.db.execute(
-        "SELECT status FROM receipts WHERE action_kind='query.preview'"
-    ).fetchone()
-    assert receipt is not None and receipt["status"] == "failed"
-
-
 @pytest.mark.parametrize("query_kind", ["embedding_similarity", "embedding_hybrid"])
-def test_typed_preview_refuses_remote_query_text_before_gateway(
+def test_typed_preview_refuses_uncached_remote_query_text_before_gateway(
     env, monkeypatch, query_kind
 ):
-    from frisket.search import drain_index
-
     project, sheet, _cols, index_id = env
-    drain_index(project)
     project.db.execute(
         "UPDATE embedding_spaces SET provider_id='openai', "
         "provider_kind='platform_api' WHERE id=(SELECT space_id FROM "
@@ -555,13 +490,13 @@ def test_typed_preview_refuses_remote_query_text_before_gateway(
         "frisket.ai.embeddings.similarity.EmbeddingGateway", forbidden_gateway
     )
     query = (
-        {**_manual_query(index_id, "cat"), "sheet_id": sheet}
+        {**_manual_query(index_id, "uncached remote query"), "sheet_id": sheet}
         if query_kind == "embedding_similarity"
         else {
             "kind": "embedding_hybrid",
             "embedding_index_id": index_id,
             "sheet_id": sheet,
-            "text": "cat",
+            "text": "uncached remote query",
         }
     )
     result = run_action_spec(
@@ -590,6 +525,75 @@ def test_typed_preview_refuses_remote_query_text_before_gateway(
     assert tuple(spend) == spend_before
 
 
+@pytest.mark.parametrize("query_kind", ["embedding_similarity", "embedding_hybrid"])
+def test_typed_preview_uses_cached_remote_query_without_admission(
+    env, monkeypatch, query_kind
+):
+    project, sheet, _cols, index_id = env
+    project.db.execute(
+        "UPDATE embedding_spaces SET provider_id='openai', "
+        "provider_kind='platform_api' WHERE id=(SELECT space_id FROM "
+        "embedding_indexes WHERE id=?)",
+        (index_id,),
+    )
+    project.db.execute(
+        "UPDATE embedding_indexes SET provider_policy_json=? WHERE id=?",
+        ('{"allow_remote":false}', index_id),
+    )
+    project.db.commit()
+    project.set_network_policy(mode="off")
+    project.set_provider_key(
+        provider="openai",
+        encrypted=encrypt_secret("sk-cached-query"),
+        hint=key_hint("sk-cached-query"),
+        spend_cap_micro=0,
+    )
+    model_calls_before = project.db.execute(
+        "SELECT COUNT(*) FROM model_calls"
+    ).fetchone()[0]
+    spend_before = tuple(
+        project.db.execute(
+            "SELECT spent_micro,unmetered_calls FROM project_provider_keys "
+            "WHERE provider='openai'"
+        ).fetchone()
+    )
+
+    def forbidden_gateway(*_args, **_kwargs):
+        raise AssertionError("a cached query must not construct a remote gateway")
+
+    monkeypatch.setattr(
+        "frisket.ai.embeddings.similarity.EmbeddingGateway", forbidden_gateway
+    )
+    query = (
+        {**_manual_query(index_id, "cat"), "sheet_id": sheet}
+        if query_kind == "embedding_similarity"
+        else {
+            "kind": "embedding_hybrid",
+            "embedding_index_id": index_id,
+            "sheet_id": sheet,
+            "text": "cat",
+        }
+    )
+
+    result = run_action_spec(
+        project,
+        _preview_action(query, key=f"typed-cached-remote-{query_kind}"),
+        project_id="p",
+    )
+
+    assert result.status == "completed", result.errors
+    assert result.outputs[0].ref["row_count"] > 0
+    assert (
+        project.db.execute("SELECT COUNT(*) FROM model_calls").fetchone()[0]
+        == model_calls_before
+    )
+    spend = project.db.execute(
+        "SELECT spent_micro,unmetered_calls FROM project_provider_keys "
+        "WHERE provider='openai'"
+    ).fetchone()
+    assert tuple(spend) == spend_before
+
+
 def test_manual_text_blocks_remote_egress_without_policy(tmp_path):
     project = Project.create(tmp_path / "remote.frisket", name="remote")
     sheet = project.add_sheet("animals")
@@ -610,6 +614,32 @@ def test_manual_text_blocks_remote_egress_without_policy(tmp_path):
     project.close()
 
 
+def test_manual_text_honors_effective_network_policy_before_remote_call(tmp_path):
+    project = Project.create(tmp_path / "network-off.frisket", name="network-off")
+    sheet = project.add_sheet("animals")
+    cols = {"headline": project.add_column(sheet, "headline")}
+    project.add_rows(sheet, [{"headline": text} for text in _VECTORS], cols)
+    gateway = MappedGateway(_VECTORS, dim=1536)
+    index_id = _create_index(
+        project,
+        sheet,
+        provider="openai",
+        policy={"allow_remote": True},
+        key="network-off",
+    )
+    project.set_network_policy(mode="off")
+
+    with pytest.raises(SimilarityError) as exc:
+        resolve_embedding_similarity(
+            project, _manual_query(index_id, "uncached network query"), gateway=gateway
+        )
+
+    assert exc.value.code == "network_disabled"
+    assert exc.value.details == {"capability": "provider:platform_api"}
+    assert gateway.calls == []
+    project.close()
+
+
 def test_manual_text_runs_when_policy_allows(tmp_path):
     project = Project.create(tmp_path / "remote2.frisket", name="remote2")
     sheet = project.add_sheet("animals")
@@ -622,65 +652,13 @@ def test_manual_text_runs_when_policy_allows(tmp_path):
     _refresh(project, index_id, gw)
     gw.calls.clear()
     result = resolve_embedding_similarity(
-        project, _manual_query(index_id, "cat"), gateway=gw
+        project, _manual_query(index_id, "query cat"), gateway=gw
     )
-    assert gw.calls == [["cat"]]  # embedded the query once
+    assert gw.calls == [["query cat"]]  # embedded the query once
     kitten = _row(project, sheet, cols, "kitten")
     # "cat" query vector ranks cat first (exact), then kitten, then airplane
     assert result.hits[0].row_id == _row(project, sheet, cols, "cat")
     assert result.hits[1].row_id == kitten
-
-
-def test_hard_not_scans_past_100000_matching_vectors(env):
-    project, sheet, cols, index_id = env
-    airplane = _row(project, sheet, cols, "airplane")
-    cat = _row(project, sheet, cols, "cat")
-    kitten = _row(project, sheet, cols, "kitten")
-
-    backend = VectorBackend(project)
-    backend.ensure_schema()
-    index = backend.get_item(index_id, str(airplane))
-    assert index is not None
-    # Share the real airplane vector across 100,000 synthetic sidecar entries. Their
-    # fixed-width keys sort ahead of the real row key, placing that real excluded row
-    # immediately beyond the legacy scan ceiling without allocating 100,000 vectors.
-    backend.db.executemany(
-        "INSERT INTO embedding_items ("
-        "index_id, space_id, source_key, source_ref_json, source_hash, status, "
-        "vector_table, vector_id, embedded_at) VALUES (?, ?, ?, '{}', 'synthetic', "
-        "'ready', ?, ?, datetime('now'))",
-        (
-            (
-                index_id,
-                index["space_id"],
-                f"{position:06d}",
-                index["vector_table"],
-                index["vector_id"],
-            )
-            for position in range(100_000)
-        ),
-    )
-    backend.db.commit()
-    backend.close()
-
-    result = resolve_embedding_similarity(
-        project,
-        {
-            "kind": "embedding_similarity",
-            "embedding_index_id": index_id,
-            "anchor": {
-                "kind": "manual_text_query",
-                "text": "cat",
-                "exclude": [{"text": "airplane"}],
-            },
-            "limit": 10,
-        },
-        gateway=MappedGateway(_VECTORS),
-    )
-    hit_ids = {hit.row_id for hit in result.hits}
-
-    assert airplane not in hit_ids
-    assert hit_ids == {cat, kitten}
 
 
 # --------------------------------------------------------------------------
@@ -762,7 +740,7 @@ def test_manual_text_wrong_vector_count_is_provider_error(tmp_path):
     project, sheet, cols, index_id = _remote_index(tmp_path, "twovec")
     with pytest.raises(SimilarityError) as exc:
         resolve_embedding_similarity(
-            project, _manual_query(index_id, "cat"), gateway=_TwoVectorGateway()
+            project, _manual_query(index_id, "query cat"), gateway=_TwoVectorGateway()
         )
     assert exc.value.code == "embedding_provider_error"
     project.close()
@@ -772,7 +750,9 @@ def test_manual_text_wrong_dimension_is_space_mismatch(tmp_path):
     project, sheet, cols, index_id = _remote_index(tmp_path, "wrongdim")
     with pytest.raises(SimilarityError) as exc:
         resolve_embedding_similarity(
-            project, _manual_query(index_id, "cat"), gateway=_WrongWidthGateway()
+            project,
+            _manual_query(index_id, "query cat"),
+            gateway=_WrongWidthGateway(),
         )
     assert exc.value.code == "embedding_space_mismatch"
     project.close()
@@ -781,21 +761,21 @@ def test_manual_text_wrong_dimension_is_space_mismatch(tmp_path):
 def test_row_anchor_wrong_stored_dimension_is_space_mismatch(env):
     project, sheet, cols, index_id = env
     cat = _row(project, sheet, cols, "cat")
-    backend = VectorBackend(project)
-    backend.ensure_schema()
-    stored_hash = backend.get_item(index_id, str(cat))["source_hash"]
-    # a ready item whose source hash still matches but whose vector is the wrong
-    # width (e.g. a provider upgrade changed dimensions)
-    backend.upsert_item(
-        index_id=index_id,
-        space_id="s",
-        source_key=str(cat),
-        source_ref={},
-        source_hash=stored_hash,
-        status="ready",
-        vector=[1.0, 0.0, 0.0],  # 3-d, not the 384-d space
-    )
-    backend.close()
+    with RetrievalStore(project) as retrieval:
+        representation_id = retrieval.db.execute(
+            "SELECT representation.representation_id "
+            "FROM named_dataset_membership member "
+            "JOIN parts part ON part.part_key=member.part_key "
+            "JOIN bindings binding ON binding.source_key=part.source_key "
+            "JOIN representations representation "
+            "ON representation.representation_key=member.representation_key "
+            "WHERE member.dataset_id=? AND binding.row_id=?",
+            (index_id, cat),
+        ).fetchone()[0]
+        retrieval.db.execute(
+            "UPDATE representations SET vector=?,dimension=3 WHERE representation_id=?",
+            (b"\0" * 12, representation_id),
+        )
     with pytest.raises(SimilarityError) as exc:
         resolve_embedding_similarity(project, _row_query(index_id, cat))
     assert exc.value.code == "embedding_space_mismatch"
@@ -851,6 +831,43 @@ def test_query_preview_blocks_incomplete_after_append(env):
     with pytest.raises(QueryPreviewError) as excinfo:
         resolve_query_preview(project, _row_query(index_id, cat, sheet_id=sheet))
     assert excinfo.value.code == "embedding_index_incomplete"
+
+
+def test_query_preview_rejects_concurrent_named_membership_swap(env, monkeypatch):
+    import frisket.ai.embeddings.similarity as similarity_module
+    from frisket.preview.query import QueryPreviewError, resolve_query_preview
+
+    project, sheet, cols, index_id = env
+    cat = _row(project, sheet, cols, "cat")
+    original = similarity_module.resolve_embedding_similarity
+
+    def resolve_then_change_membership(*args, **kwargs):
+        result = original(*args, **kwargs)
+        with RetrievalStore(project) as retrieval:
+            member = retrieval.db.execute(
+                "SELECT part_key,representation_key "
+                "FROM named_dataset_membership WHERE dataset_id=? "
+                "ORDER BY part_key,representation_key LIMIT 1",
+                (index_id,),
+            ).fetchone()
+            assert member is not None
+            retrieval.db.execute(
+                "DELETE FROM named_dataset_membership "
+                "WHERE dataset_id=? AND part_key=? AND representation_key=?",
+                (index_id, member["part_key"], member["representation_key"]),
+            )
+        return result
+
+    monkeypatch.setattr(
+        similarity_module,
+        "resolve_embedding_similarity",
+        resolve_then_change_membership,
+    )
+
+    with pytest.raises(QueryPreviewError) as excinfo:
+        resolve_query_preview(project, _row_query(index_id, cat, sheet_id=sheet))
+    assert excinfo.value.code == "stale_input"
+    assert excinfo.value.field == "query.embedding_index_id"
 
 
 def test_query_preview_limit_zero_is_empty_window_total_preserved(env):

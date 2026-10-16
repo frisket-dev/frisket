@@ -18,7 +18,7 @@ import asyncio
 import math
 import re
 from collections.abc import Callable, Sequence
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from frisket.actions.classify_types import ClassifyField
 from frisket.actions.types import Outcome, Row, RowError
@@ -27,11 +27,14 @@ from frisket.contracts.classification import (
     LOCAL_CLASSIFIER_ENGINE_IDS,
     ClassifierError,
 )
-from frisket.semantic import PROVIDERLESS_CLASSIFY_MODEL
-from frisket.semantic import (
+from frisket.ai.embeddings.backends import PROVIDERLESS_CLASSIFY_MODEL
+from frisket.ai.embeddings.backends import (
     ProviderlessClassifierProvisionError,
     ensure_providerless_classifier_installed,
 )
+
+if TYPE_CHECKING:
+    from frisket.ai.embeddings.facade import RepresentationCache
 
 
 # Moved from frisket.sdk.ops.classify, which sits above the executor boundary.
@@ -159,6 +162,8 @@ class AdmittedClassifier:
         context: str = "",
         cancelled: Callable[[], bool] | None = None,
         session_factory: _SessionFactory | None = None,
+        project: Any | None = None,
+        embedding_cache: RepresentationCache | None = None,
     ) -> None:
         if engine != "local_semantic" and engine not in LOCAL_CLASSIFIER_ENGINE_IDS:
             raise ValueError(f"unknown direct classifier engine: {engine}")
@@ -167,7 +172,10 @@ class AdmittedClassifier:
         self._cancelled = cancelled
         self._closed = False
         self._lock = asyncio.Lock()
-        self._label_vector_cache: dict[tuple[str, ...], list[list[float]]] = {}
+        if project is not None and embedding_cache is not None:
+            raise ValueError("provide a project or embedding_cache, not both")
+        self._project = project
+        self._embedding_cache = embedding_cache
         self._session_factory = session_factory or _new_classifier_session
         self._session: _ClassifierSession | None = None
 
@@ -206,40 +214,74 @@ class AdmittedClassifier:
         if not chunks:
             return {field.name: Outcome.ok(labels[0])}
 
-        try:
-            await asyncio.to_thread(ensure_providerless_classifier_installed)
-        except ProviderlessClassifierProvisionError as exc:
-            raise RowError("model_unavailable", str(exc)) from exc
-        self._check_open()
-
         from frisket.ai.embeddings import EmbeddingGateway
 
         async with self._lock:
             self._check_open()
             gateway = EmbeddingGateway()
-            label_vectors = self._label_vector_cache.get(label_texts)
-            if label_vectors is None:
-                label_vectors = gateway.embed(
-                    list(label_texts),
+
+            def embed(texts: list[str]):
+                return gateway.embed(
+                    texts,
                     provider="fastembed",
                     model=LOCAL_SEMANTIC_MODEL,
                     modality="text",
                     local_capability="providerless_classify",
-                )["vectors"]
-                self._label_vector_cache[label_texts] = label_vectors
-            row_vectors = gateway.embed(
-                chunks,
-                provider="fastembed",
-                model=LOCAL_SEMANTIC_MODEL,
-                modality="text",
-                local_capability="providerless_classify",
-            )["vectors"]
+                )
+
+            def before_fresh_batch(_texts: list[str]) -> None:
+                self._check_open()
+                try:
+                    ensure_providerless_classifier_installed()
+                except ProviderlessClassifierProvisionError as exc:
+                    raise RowError("model_unavailable", str(exc)) from exc
+
+            label_vectors = await self._encode_semantic_texts(
+                list(label_texts), embed=embed, before_fresh_batch=before_fresh_batch
+            )
+            row_vectors = await self._encode_semantic_texts(
+                chunks, embed=embed, before_fresh_batch=before_fresh_batch
+            )
         row_vector = _normalized_mean(row_vectors)
         winner_index, _similarity = max(
             enumerate(_cosine(row_vector, vector) for vector in label_vectors),
             key=lambda item: (item[1], -item[0]),
         )
         return {field.name: Outcome.ok(labels[winner_index])}
+
+    async def _encode_semantic_texts(
+        self,
+        texts: list[str],
+        *,
+        embed: Callable[[list[str]], Any],
+        before_fresh_batch: Callable[[list[str]], None],
+    ) -> list[list[float]]:
+        from frisket.ai.embeddings.analytics import (
+            encode_legacy_texts_async,
+            encode_project_legacy_texts_async,
+            legacy_analytical_space,
+        )
+
+        model_id = f"fastembed/{LOCAL_SEMANTIC_MODEL}"
+        if self._project is not None:
+            return await encode_project_legacy_texts_async(
+                self._project,
+                texts,
+                embed=embed,
+                model_id=model_id,
+                before_fresh_batch=before_fresh_batch,
+            )
+        if self._embedding_cache is not None:
+            return await encode_legacy_texts_async(
+                self._embedding_cache,
+                texts,
+                embed=embed,
+                space=legacy_analytical_space(model_id),
+                before_fresh_batch=before_fresh_batch,
+            )
+        raise RuntimeError(
+            "local semantic classifier requires an invocation-owned embedding cache"
+        )
 
     async def _classify_native(
         self, text: str, fields: Sequence[ClassifyField]

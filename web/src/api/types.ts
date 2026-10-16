@@ -7,6 +7,8 @@ import type {
   HttpEvidenceViewerResponse,
   HttpLocalEndpointDiscoveryResponse,
   HttpModelPull,
+  HttpProjectSettingsRequest,
+  HttpProjectSettingsResponse,
   HttpReceipt,
 } from '../generated/openHttpContracts';
 
@@ -240,7 +242,11 @@ export interface ProjectNetworkPolicy {
   [key: string]: unknown;
 }
 
-export interface ProjectSettings {
+export type ProjectRetrievalSettings = HttpProjectSettingsResponse['retrieval'];
+export type ProjectRetrievalSettingsPatch = NonNullable<HttpProjectSettingsRequest['retrieval']>;
+export type ProjectSettingsPatch = HttpProjectSettingsRequest & Record<string, unknown>;
+
+export interface ProjectSettings extends HttpProjectSettingsResponse {
   /**
    * EFFECTIVE value: whether media downloads may reach loopback and RFC1918
    * addresses, after the server default (FRISKET_MEDIA_PRIVATE_HOSTS) and any
@@ -353,26 +359,6 @@ export type {
   AdminUsers,
   AdminUsersOrg,
 } from './adminBrowser';
-
-export interface SearchHit {
-  sheet_id: number | string;
-  row_id: number | string;
-  column_id: number | string;
-  column_name: string;
-  ai_generated?: boolean;
-  snip: string;
-}
-
-export interface ProjectSearchPage {
-  hits: SearchHit[];
-  indexing: boolean;
-}
-
-export interface SearchOptions {
-  limit?: number;
-  mode?: 'keyword' | 'semantic';
-  rerank?: boolean;
-}
 
 /** The core column types. The palette is OPEN: plugins register more over
  *  the backend registry (GET /api/column-types), so a column's type is any
@@ -4941,7 +4927,7 @@ export interface FrisketApi {
   compactProject(): Promise<Record<string, unknown>>;
   getProjectSettings(): Promise<ProjectSettings>;
   updateProjectSettings(
-    input: Partial<ProjectSettings>,
+    input: ProjectSettingsPatch,
   ): Promise<ProjectSettings>;
   getProjectProviderKeys(): Promise<ProjectProviderKeys>;
   setProjectProviderKey(

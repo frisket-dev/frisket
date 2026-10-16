@@ -19,7 +19,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from frisket.ai.embeddings import EmbeddingStore, VectorBackend, build_batch_result
+from frisket.ai.embeddings import EmbeddingStore, build_batch_result
+from unified_embedding_probe import UnifiedEmbeddingProbe
 from frisket.engine.executor import ExecutorDeps, run_action_spec
 from frisket.engine.jobs import (
     EMBEDDING_REFRESH_KIND,
@@ -186,7 +187,7 @@ def test_worker_runs_scheduled_refresh_over_full_scope(env):
     worker = Worker(env.queue, _registry(env, gw))
     assert worker.run_once() is True
     assert sorted(gw.calls[0]) == ["story 0", "story 1", "story 2"]  # whole index
-    backend = VectorBackend(env.project)
+    backend = UnifiedEmbeddingProbe(env.project)
     backend.ensure_schema()
     assert backend.item_counts(index_id) == {"ready": 3}
     backend.close()
@@ -239,7 +240,7 @@ def test_automatic_remote_with_flags_and_ceiling_runs(env):
     worker = Worker(env.queue, _registry(env, gw))
     assert worker.run_once() is True
     assert len(gw.calls) == 1  # ran
-    backend = VectorBackend(env.project)
+    backend = UnifiedEmbeddingProbe(env.project)
     backend.ensure_schema()
     assert backend.item_counts(index_id) == {"ready": 3}
     backend.close()

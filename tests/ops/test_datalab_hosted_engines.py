@@ -1224,7 +1224,7 @@ def test_classify_catalog_stays_disabled_under_the_general_cloud_fence(
 def test_classify_catalog_honors_only_the_explicit_providerless_opt_in(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from frisket import semantic as semantic_module
+    from frisket.ai.embeddings import backends as backends_module
     from frisket.server.action_catalog_hints import (
         project_action_catalog_payload_with_launcher_hints,
     )
@@ -1241,7 +1241,7 @@ def test_classify_catalog_honors_only_the_explicit_providerless_opt_in(
     monkeypatch.setenv("FRISKET_PROVIDERLESS_CLASSIFY_THREADS", "2")
     model_cache = tmp_path / "fastembed-cache"
     monkeypatch.setenv("FASTEMBED_CACHE_PATH", str(model_cache))
-    monkeypatch.setattr(semantic_module, "_local_models", {})
+    monkeypatch.setattr(backends_module, "_local_models", {})
 
     payload = project_action_catalog_payload_with_launcher_hints(
         _StubProject(), sidecar_capabilities={}
@@ -1253,7 +1253,7 @@ def test_classify_catalog_honors_only_the_explicit_providerless_opt_in(
 
     assert engines["local_semantic"]["available"] is True
     assert engines["local_semantic"]["models"] == ["BAAI/bge-small-en-v1.5"]
-    assert semantic_module._local_models == {}, "catalog discovery must stay lazy"
+    assert backends_module._local_models == {}, "catalog discovery must stay lazy"
     assert not model_cache.exists(), "catalog discovery must not download a model"
 
 

@@ -216,30 +216,27 @@ def _resolve_embedding_similarity_preview(
     from frisket.ai.embeddings.freshness import embedding_search_freshness_error
     from frisket.ai.embeddings.similarity import (
         SimilarityError,
+        current_embedding_query_binding,
         resolve_embedding_similarity,
     )
-    from frisket.ai.embeddings.vector_backend import VectorBackend
 
     # Freshness gate (product path, NOT the resolver): never silently search a
     # partial/stale index. Runs before resolution so an appended-but-unembedded row
     # or a changed ready row blocks with a typed, refresh-needed code.
-    backend = VectorBackend(project)
     try:
-        backend.ensure_schema()
-        backend.begin_read_snapshot()
+        binding_before = current_embedding_query_binding(
+            project, normalized["embedding_index_id"]
+        )
         gate = embedding_search_freshness_error(
-            project, normalized.get("embedding_index_id"), backend=backend
+            project, normalized.get("embedding_index_id")
         )
         if gate is not None:
             code, message = gate
             raise QueryPreviewError(code, message, field="query.embedding_index_id")
-        result = resolve_embedding_similarity(
-            project, normalized, gateway=None, backend=backend
-        )
+        result = resolve_embedding_similarity(project, normalized, gateway=None)
+        _require_stable_embedding_binding(project, binding_before, result.binding)
     except SimilarityError as exc:
         raise QueryPreviewError(exc.code, exc.message, field=exc.field) from exc
-    finally:
-        backend.close()
     hits = list(result.hits)
     total = len(hits)
     # limit=0 is an EMPTY window (total preserved) — not "return all".
@@ -288,27 +285,26 @@ def _resolve_embedding_hybrid_preview(
     rank). The vector side's egress gate fires inside resolve_embedding_hybrid."""
     from frisket.ai.embeddings.freshness import embedding_search_freshness_error
     from frisket.ai.embeddings.hybrid import resolve_embedding_hybrid
-    from frisket.ai.embeddings.similarity import SimilarityError
-    from frisket.ai.embeddings.vector_backend import VectorBackend
+    from frisket.ai.embeddings.similarity import (
+        SimilarityError,
+        current_embedding_query_binding,
+    )
 
-    backend = VectorBackend(project)
     try:
-        backend.ensure_schema()
-        backend.begin_read_snapshot()
+        binding_before = current_embedding_query_binding(
+            project, normalized["embedding_index_id"]
+        )
         gate = embedding_search_freshness_error(
-            project, normalized.get("embedding_index_id"), backend=backend
+            project, normalized.get("embedding_index_id")
         )
         if gate is not None:
             code, message = gate
             raise QueryPreviewError(code, message, field="query.embedding_index_id")
-        result = resolve_embedding_hybrid(
-            project, normalized, gateway=None, backend=backend
-        )
+        result = resolve_embedding_hybrid(project, normalized, gateway=None)
+        _require_stable_embedding_binding(project, binding_before, result.binding)
     except SimilarityError as exc:
         field = "text" if exc.field == "anchor.text" else exc.field
         raise QueryPreviewError(exc.code, exc.message, field=field) from exc
-    finally:
-        backend.close()
     hits = list(result.hits)
     total = len(hits)
     window = hits[offset : offset + limit]
@@ -381,6 +377,22 @@ def _embedding_provider_use(kind: str, result: Any) -> list[dict[str, Any]]:
     return [fact]
 
 
+def _require_stable_embedding_binding(
+    project: Project,
+    before: EmbeddingQueryBinding | None,
+    resolved: EmbeddingQueryBinding,
+) -> None:
+    from frisket.ai.embeddings.similarity import current_embedding_query_binding
+
+    after = current_embedding_query_binding(project, resolved.index_id)
+    if before != resolved or after != resolved:
+        raise QueryPreviewError(
+            "stale_input",
+            "the embedding index changed while the query preview was running; retry",
+            field="query.embedding_index_id",
+        )
+
+
 def revalidate_query_preview_resolution(
     project: Project, resolved: QueryPreviewResolution
 ) -> None:
@@ -388,18 +400,12 @@ def revalidate_query_preview_resolution(
     binding = resolved.embedding_binding
     if binding is not None:
         from frisket.ai.embeddings.freshness import embedding_search_freshness_error
-        from frisket.ai.embeddings.similarity import current_embedding_query_binding
 
         gate = embedding_search_freshness_error(project, binding.index_id)
         if gate is not None:
             code, message = gate
             raise QueryPreviewError(code, message, field="query.embedding_index_id")
-        if current_embedding_query_binding(project, binding.index_id) != binding:
-            raise QueryPreviewError(
-                "stale_input",
-                "the embedding index changed while the query preview was running; retry",
-                field="query.embedding_index_id",
-            )
+        _require_stable_embedding_binding(project, binding, binding)
     if project.op_cursor != resolved.source_op_cursor:
         raise QueryPreviewError(
             "stale_input",

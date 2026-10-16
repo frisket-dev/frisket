@@ -831,6 +831,21 @@ def engines_report() -> dict[str, Any]:
     return report
 
 
+def retrieval_report() -> dict[str, Any]:
+    """Passive readiness for unified local retrieval."""
+
+    from frisket.operability.doctor.embeddings import local_retrieval_section
+
+    status = local_retrieval_section()
+    vec1_ready = bool(status["vec1"].get("available"))
+    model_ready = bool(status["embeddinggemma"].get("ready"))
+    status["summary"] = (
+        f"Vec1 {'ready' if vec1_ready else 'unavailable'}; "
+        f"EmbeddingGemma {'ready' if model_ready else 'not provisioned'}"
+    )
+    return status
+
+
 def spacy_model_report() -> dict[str, Any]:
     """Checksum-aware state for the runtime-managed spaCy pipeline.
 
@@ -1249,6 +1264,7 @@ def run_diagnostics(
             lambda: plugin_health_report(project, project_id=project_id),
         ),
         "local_engines": _info_probe("local engines", engines_report),
+        "retrieval": _info_probe("retrieval", retrieval_report),
         "spacy_model": _info_probe("spaCy model", spacy_model_report),
         "entities_extra": _info_probe("entities extra", entities_report),
         "models_sidecar": _info_probe("models sidecar", models_sidecar_report),

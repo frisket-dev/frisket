@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
+from dataclasses import dataclass
 from typing import Any
 
 from frisket.actions.core import _ProjectAction
 from frisket.actions.types import DeletedEmbeddingIndex
-from frisket.ai.embeddings import EmbeddingStore, VectorBackend
+from frisket.ai.embeddings import EmbeddingStore
 from frisket.contracts.action import (
     ActionError,
     ActionResult,
@@ -15,6 +17,7 @@ from frisket.contracts.action import (
     ReceiptIO,
 )
 from frisket.engine.executor.embedding_export import (
+    embedding_export_dir,
     _unlink_export_artifacts,
 )
 from frisket.engine.executor.action_inventory import _TypedProjectEnvelope
@@ -22,6 +25,7 @@ from frisket.engine.executor.action_receipts import _result_from_receipt
 from frisket.engine.executor.action_support import _failed_result
 from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
+from frisket.retrieval.store import RetrievalStore
 
 
 class _DeleteRefused(Exception):
@@ -30,9 +34,69 @@ class _DeleteRefused(Exception):
         self.message = message
 
 
+@dataclass(slots=True)
+class _DeleteEffects:
+    project: Project
+    index_id: str | None = None
+
+
+def _referenced_index_id(raw: Any, *, lens: bool = False) -> str | None:
+    try:
+        value = raw if isinstance(raw, dict) else json.loads(raw or "{}")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    if not isinstance(value, dict):
+        return None
+    query = value.get("query") if lens else value
+    if not isinstance(query, dict):
+        return None
+    index_id = query.get("embedding_index_id")
+    return index_id.strip() if isinstance(index_id, str) else None
+
+
+def _require_unreferenced(project: Project, index_id: str) -> None:
+    watches = [
+        row
+        for row in project.watches()
+        if bool(row["enabled"]) and _referenced_index_id(row["query"]) == index_id
+    ]
+    lenses = [
+        row
+        for row in project.lenses()
+        if _referenced_index_id(row["spec"], lens=True) == index_id
+    ]
+    if not watches and not lenses:
+        return
+    references = [f"watch {row['id']} ({row['name']})" for row in watches]
+    references.extend(f"lens {row['id']} ({row['name']})" for row in lenses)
+    preview = ", ".join(references[:5])
+    if len(references) > 5:
+        preview = f"{preview}, and {len(references) - 5} more"
+    raise _DeleteRefused(
+        "embedding_index_in_use",
+        f"Index {index_id!r} is still used by {preview}. "
+        "Remove those saved searches before deleting it.",
+    )
+
+
+def _resolve_delete_effects(project: Project, _params: Any) -> _DeleteEffects:
+    return _DeleteEffects(project)
+
+
+def _finalize_delete_effects(effects: _DeleteEffects) -> None:
+    """Remove derived records only after metadata and receipt have committed."""
+
+    if effects.index_id is None:
+        return
+    with RetrievalStore(effects.project) as retrieval:
+        retrieval.replace_named_dataset_members(effects.index_id, ())
+    _unlink_export_artifacts(effects.project, effects.index_id)
+
+
 class _IndexDeleter:
-    def __init__(self, project: Project):
+    def __init__(self, project: Project, effects: _DeleteEffects):
         self._project = project
+        self._effects = effects
         self._called = False
         self.result: DeletedEmbeddingIndex | None = None
 
@@ -51,18 +115,28 @@ class _IndexDeleter:
             raise _DeleteRefused(
                 "embedding_index_not_found", f"no embedding index {index_id!r}"
             )
+        _require_unreferenced(self._project, index_id)
         space_id = index["space_id"]
-        backend = VectorBackend(self._project)
+        with RetrievalStore(self._project) as retrieval:
+            deleted_items = int(
+                retrieval.db.execute(
+                    "SELECT count(*) FROM named_dataset_membership WHERE dataset_id=?",
+                    (index_id,),
+                ).fetchone()[0]
+            )
         try:
-            backend.ensure_schema()
-            deleted_items = backend.delete_index(index_id)
-        finally:
-            backend.close()
-        # The sidecar above and filesystem cleanup below are independent writes.
-        # A later project/receipt rollback does not restore either of them.
+            deleted_export_artifacts = sum(
+                1
+                for path in embedding_export_dir(self._project).glob(
+                    f"{index_id}.embeddings.*"
+                )
+                if path.is_file()
+            )
+        except OSError:
+            deleted_export_artifacts = 0
         store.delete_index(index_id, commit=False)
         space_deleted = store.delete_space_if_orphan(space_id, commit=False)
-        deleted_export_artifacts = _unlink_export_artifacts(self._project, index_id)
+        self._effects.index_id = index_id
         self.result = DeletedEmbeddingIndex(
             index_id=index_id,
             space_id=space_id,
@@ -90,8 +164,10 @@ def _perform_delete_in_txn(
     params_hash: str,
     resolved: Any,
 ) -> ActionResult:
-    del cur, resolved
-    capability = _IndexDeleter(project)
+    del cur
+    if not isinstance(resolved, _DeleteEffects):
+        raise TypeError("index deletion requires resolved delete effects")
+    capability = _IndexDeleter(project, resolved)
     try:
         returned = terminal.handler(params, capability)
     except _DeleteRefused as error:

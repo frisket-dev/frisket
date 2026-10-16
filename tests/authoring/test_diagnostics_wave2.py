@@ -700,6 +700,7 @@ def test_run_diagnostics_exposes_all_new_info_keys(tmp_path):
         "queue_health",
         "disk_free",
         "plugin_health",
+        "retrieval",
     ):
         assert key in report["info"], f"missing info.{key}"
         assert "summary" in report["info"][key]

@@ -1173,6 +1173,7 @@ CREATE INDEX IF NOT EXISTS idx_edits_rowcol ON edits(column_id, row_id, op_id);
 CREATE TABLE IF NOT EXISTS current_cells (
   column_id INTEGER NOT NULL REFERENCES columns(id) ON DELETE CASCADE,
   row_id INTEGER NOT NULL REFERENCES rows(id) ON DELETE CASCADE,
+  retrieval_revision INTEGER NOT NULL CHECK (retrieval_revision > 0),
   origin_kind TEXT NOT NULL CHECK (
     origin_kind IN ('source_cell', 'run_result', 'manual_edit')
   ),

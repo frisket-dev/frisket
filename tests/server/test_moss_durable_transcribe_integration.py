@@ -32,6 +32,8 @@ behavior for a dead worker and for a declaration-violating adapter result.
 from __future__ import annotations
 
 from frisket.engine.store.media_blobs import owned_media_metadata_document
+from http_test_helpers import drain_queue
+from frisket.engine.jobs.queue import PROJECT_RUN_KIND
 
 import io
 import json
@@ -246,6 +248,7 @@ def _seeded_app_with_audio_row(tmp_path: Path):
         ],
         cols,
     )
+    drain_queue(client, worker_id="moss-durable-setup")
     return client, project_id, project, sheet_id, row_id, audio
 
 
@@ -566,7 +569,9 @@ def test_moss_durable_run_dead_worker_fails_honestly_and_commits_nothing(
 
     # the job itself terminalized on its first attempt — the failed receipt
     # is the durable record; row failures are data, not queue crashes
-    [job] = client.app.state.workspace.queue.list_project_jobs(project_id)
+    [job] = client.app.state.workspace.queue.list_project_jobs(
+        project_id, kind=PROJECT_RUN_KIND
+    )
     assert job.status == "done"
     assert job.error is None
 
@@ -683,7 +688,9 @@ def test_moss_durable_run_refuses_declaration_violating_result(
         ("transcript_segments", "failed"),
     ]
 
-    [job] = client.app.state.workspace.queue.list_project_jobs(project_id)
+    [job] = client.app.state.workspace.queue.list_project_jobs(
+        project_id, kind=PROJECT_RUN_KIND
+    )
     assert job.status == "done"
     assert job.error is None
 

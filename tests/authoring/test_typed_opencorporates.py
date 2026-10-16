@@ -16,6 +16,7 @@ from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.value_codec import decode_stored_value
 from frisket.server.app import create_app
 from helpers import replace_test_source_cell
+from http_test_helpers import drain_queue
 
 PLUGIN = "frisket.opencorporates"
 
@@ -132,6 +133,7 @@ def installed(tmp_path, monkeypatch):
                 **kwargs, transport=httpx.MockTransport(respond)
             ),
         )
+        drain_queue(client, worker_id="opencorporates-setup")
         yield client, project, project_id, sheet, rows, calls, responses
     _reset_default_registry_for_tests()
 

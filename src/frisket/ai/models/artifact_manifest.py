@@ -70,6 +70,15 @@ from frisket.contracts.classification import (
     JEFF_ENGINE_ID,
     LOCAL_CLASSIFIERS,
 )
+from frisket.engine._workers.embeddinggemma_model import (
+    MODEL_ID as _EMBEDDINGGEMMA_REPO,
+    MODEL_REVISION as _EMBEDDINGGEMMA_REVISION,
+    MODEL_REF as EMBEDDINGGEMMA_REF,
+    MODEL_DOWNLOAD_SIZE as _EMBEDDINGGEMMA_DOWNLOAD_SIZE,
+    MODEL_LICENSE as _EMBEDDINGGEMMA_LICENSE,
+    MODEL_LICENSE_URL as _EMBEDDINGGEMMA_LICENSE_URL,
+    REQUIRED_SNAPSHOT_FILES as _EMBEDDINGGEMMA_FILES,
+)
 from frisket.engine._workers.indra_ocr_model import (
     MODEL_DOWNLOAD_SIZE as _INDRA_OCR_DOWNLOAD_SIZE,
     MODEL_FILES as _INDRA_OCR_FILES,
@@ -264,6 +273,22 @@ def opus_mt_source_url(src: str, tgt: str, revision: str, filename: str) -> str:
 
 
 _MANIFEST: dict[str, PinnedArtifact] = {
+    EMBEDDINGGEMMA_REF: PinnedArtifact(
+        ref=EMBEDDINGGEMMA_REF,
+        kind="hf_snapshot",
+        display_name="EmbeddingGemma 2",
+        manifest_version="2026.10.1",
+        license=_EMBEDDINGGEMMA_LICENSE,
+        license_url=_EMBEDDINGGEMMA_LICENSE_URL,
+        source_url=f"https://huggingface.co/{_EMBEDDINGGEMMA_REPO}/tree/{_EMBEDDINGGEMMA_REVISION}",
+        files=(),
+        hf_snapshot=HfSnapshotSource(
+            repo_id=_EMBEDDINGGEMMA_REPO,
+            revision=_EMBEDDINGGEMMA_REVISION,
+            files=_EMBEDDINGGEMMA_FILES,
+        ),
+        approx_size_bytes=_EMBEDDINGGEMMA_DOWNLOAD_SIZE,
+    ),
     INDRA_OCR_REF: PinnedArtifact(
         ref=INDRA_OCR_REF,
         kind="hf_snapshot",

@@ -1,32 +1,32 @@
-"""Embeddings doctor / live-proof harness (Lane E, native-embedding-doctor).
+"""Passive diagnostics for local retrieval and optional remote embeddings.
 
-``report_embeddings`` returns a DETERMINISTIC structured report (pure data, no
-printing, no network when nothing is configured) describing the whole embedding
-product path: fastembed availability + model cache, provider key PRESENCE (by
-NAME only — never a value), sidecar embedding-route health, the scheduler config,
-and the current live-proof skip/run status. It mirrors the existing CLI doctor's
-INFO-probe ethos: missing config is a NOTE, never a failure, and a probe never
-crashes the report.
+``report_embeddings`` returns a deterministic structured report describing
+Frisket's unified local retrieval prerequisites, optional remote provider key
+presence, the legacy models sidecar route, and scheduler configuration. Local
+checks are passive: they load the packaged SQLite extension only into an
+in-memory connection and inspect pinned runtime/cache markers without starting
+a model worker or downloading artifacts.
 
 Secrets discipline (load-bearing): provider keys are reported as
 ``key_present: bool`` derived from ``router.providers()`` / env-var PRESENCE. No
 key value is ever read into the report. A test asserts no secret substring
 appears anywhere in ``json.dumps(report)``.
 
-The live_proofs section mirrors the runtime gates in the live tests:
-- ``local_real`` ← ``tests/ai/test_native_embedding_real_local.py`` (skip when
-  ``local_embedder()`` is None: fastembed absent OR FRISKET_DISABLE_LOCAL_EMBED=1)
-- ``remote_<provider>`` ← ``tests/ai/test_remote_embeddings_live.py`` (skip when the
-  provider's key env is not set).
+The live_proofs section retains the optional remote provider checks and reports
+whether the pinned local retrieval runtime is ready for its public contract
+tests. It never runs those tests itself.
 """
 
 from __future__ import annotations
 
-import importlib.util
+import logging
 import os
-import tempfile
+import sqlite3
 from pathlib import Path
 from typing import Any
+
+
+LOG = logging.getLogger(__name__)
 
 # Provider -> the key env var the live remote-embedding test gates on
 # (mirrors tests/ai/test_remote_embeddings_live.py _CASES + OpenRouter).
@@ -60,71 +60,57 @@ def _key_present(env: dict[str, str], router: Any, provider: str, key_env: str) 
     return False
 
 
-def _fastembed_section(env: dict[str, str]) -> dict[str, Any]:
-    installed = importlib.util.find_spec("fastembed") is not None
-    disabled = env.get("FRISKET_DISABLE_LOCAL_EMBED") == "1"
-    # The resolved local model id (the catalog default; the same id local_embedder
-    # hands fastembed). Imported lazily so the doctor works even if semantic.py's
-    # heavy deps are partly absent.
+def local_retrieval_section() -> dict[str, Any]:
+    """Report packaged Vec1 and pinned EmbeddingGemma readiness, passively."""
+
+    vec1: dict[str, Any]
     try:
-        from frisket.semantic import LOCAL_MODEL
+        from frisket.retrieval.native import load_vec1, packaged_vec1_path
 
-        model_id = LOCAL_MODEL
-    except Exception:  # noqa: BLE001
-        model_id = None
+        path = packaged_vec1_path()
+        with sqlite3.connect(":memory:") as connection:
+            version = load_vec1(connection)
+        vec1 = {
+            "available": True,
+            "path": str(path),
+            "version": version,
+        }
+    except Exception:  # noqa: BLE001 - doctor reports, never crashes
+        LOG.exception("Packaged Vec1 readiness check failed")
+        vec1 = {
+            "available": False,
+            "detail": "Packaged Vec1 readiness check failed; inspect server logs",
+        }
 
-    cache = _fastembed_cache_status(env)
-    return {
-        "installed": installed,
-        "disabled_by_env": disabled,
-        "active": installed and not disabled,
-        "local_model_id": model_id,
-        "cache": cache,
-    }
-
-
-def _fastembed_cache_dir(env: dict[str, str]) -> Path:
-    """Where fastembed stores model weights: FASTEMBED_CACHE_PATH or the default
-    ``<tempdir>/fastembed_cache`` (matches fastembed's define_cache_dir, also
-    noted in search.py). ``tempfile.gettempdir()`` checks TMPDIR/TEMP/TMP and
-    the platform-specific Windows fallback locations -- no hand-written
-    literal ``/tmp`` fallback."""
-    explicit = _env_value(env, "FASTEMBED_CACHE_PATH")
-    if explicit:
-        return Path(explicit)
-    return Path(tempfile.gettempdir()) / "fastembed_cache"
-
-
-def _fastembed_cache_status(env: dict[str, str]) -> dict[str, Any]:
-    path = _fastembed_cache_dir(env)
-    exists = False
-    approx_bytes: int | None = None
     try:
-        exists = path.is_dir()
-        if exists:
-            approx_bytes = _approx_dir_bytes(path)
-    except OSError:
-        exists = False
-        approx_bytes = None
-    return {
-        "path": str(path),
-        "exists": exists,
-        "approx_bytes": approx_bytes,
-    }
+        from frisket.engine._workers.embeddinggemma_artifacts import (
+            cached_embeddinggemma_path,
+            embeddinggemma_artifact,
+        )
+        from frisket.runtime.embeddinggemma_install import is_installed
 
-
-def _approx_dir_bytes(path: Path) -> int | None:
-    total = 0
-    try:
-        for p in path.rglob("*"):
-            try:
-                if p.is_file():
-                    total += p.stat().st_size
-            except OSError:
-                continue
-    except OSError:
-        return None
-    return total
+        artifact = embeddinggemma_artifact()
+        snapshot = artifact.hf_snapshot
+        cached_path = cached_embeddinggemma_path()
+        runtime_installed = is_installed()
+        model_cached = cached_path is not None
+        embeddinggemma = {
+            "runtime_installed": runtime_installed,
+            "model_cached": model_cached,
+            "ready": runtime_installed and model_cached,
+            "model_ref": artifact.ref,
+            "revision": snapshot.revision if snapshot is not None else None,
+            "cache_path": str(cached_path) if cached_path is not None else None,
+        }
+    except Exception:  # noqa: BLE001 - doctor reports, never crashes
+        LOG.exception("EmbeddingGemma readiness check failed")
+        embeddinggemma = {
+            "runtime_installed": False,
+            "model_cached": False,
+            "ready": False,
+            "detail": "EmbeddingGemma readiness check failed; inspect server logs",
+        }
+    return {"vec1": vec1, "embeddinggemma": embeddinggemma}
 
 
 def _providers_section(env: dict[str, str], router: Any) -> dict[str, Any]:
@@ -269,40 +255,25 @@ def _count_scheduled_indexes(workspace_root: str | Path) -> int | str:
         return f"unavailable ({exc})"
 
 
-def _local_embedder_available(env: dict[str, str]) -> bool:
-    """Mirror local_embedder()'s availability gate WITHOUT loading a model:
-    FRISKET_DISABLE_LOCAL_EMBED!=1 AND fastembed importable."""
-    if env.get("FRISKET_DISABLE_LOCAL_EMBED") == "1":
-        return False
-    return importlib.util.find_spec("fastembed") is not None
-
-
-def _live_proofs_section(env: dict[str, str], router: Any) -> dict[str, Any]:
+def _live_proofs_section(
+    env: dict[str, str], router: Any, local_retrieval: dict[str, Any]
+) -> dict[str, Any]:
     """Mirror the runtime gates of the optional live tests."""
     proofs: dict[str, Any] = {}
 
-    # local-real proof: tests/ai/test_native_embedding_real_local.py
-    if _local_embedder_available(env):
-        proofs["local_real"] = {
-            "optional": True,
-            "test": "tests/ai/test_native_embedding_real_local.py",
-            "status": "would_run",
-            "reason": "bundled local embedder available (fastembed, not disabled)",
-        }
-    elif env.get("FRISKET_DISABLE_LOCAL_EMBED") == "1":
-        proofs["local_real"] = {
-            "optional": True,
-            "test": "tests/ai/test_native_embedding_real_local.py",
-            "status": "would_skip",
-            "reason": "FRISKET_DISABLE_LOCAL_EMBED=1 forces the non-local path",
-        }
-    else:
-        proofs["local_real"] = {
-            "optional": True,
-            "test": "tests/ai/test_native_embedding_real_local.py",
-            "status": "would_skip",
-            "reason": "bundled fastembed runtime missing (reinstall Frisket)",
-        }
+    ready = bool(local_retrieval["embeddinggemma"].get("ready")) and bool(
+        local_retrieval["vec1"].get("available")
+    )
+    proofs["local_retrieval"] = {
+        "optional": True,
+        "test": "tests/retrieval/test_encoding_session.py",
+        "status": "would_run" if ready else "would_skip",
+        "reason": (
+            "packaged Vec1 and pinned EmbeddingGemma runtime are ready"
+            if ready
+            else "packaged Vec1 or pinned EmbeddingGemma runtime is unavailable"
+        ),
+    }
 
     # remote-live proofs: tests/ai/test_remote_embeddings_live.py (one per provider)
     for provider in _REMOTE_LIVE_PROVIDERS:
@@ -338,10 +309,11 @@ def report_embeddings(
     No network call happens unless FRISKET_MODELS_URL is configured.
     """
     env = dict(os.environ) if env is None else env
+    local_retrieval = local_retrieval_section()
     return {
-        "fastembed": _fastembed_section(env),
+        "local_retrieval": local_retrieval,
         "providers": _providers_section(env, router),
         "sidecar": _sidecar_section(env),
         "scheduler": _scheduler_section(env, workspace_root),
-        "live_proofs": _live_proofs_section(env, router),
+        "live_proofs": _live_proofs_section(env, router, local_retrieval),
     }

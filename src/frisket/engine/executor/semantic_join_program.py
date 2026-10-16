@@ -94,7 +94,7 @@ class _SemanticJoinProgram(_TypedMapRowsProgram):
 
     def estimate(self, project, spec, rows, *, resolution=None):
         from frisket.ai.llm import estimate_tokens, model_pricing
-        from frisket.semantic import embedder_is_remote
+        from frisket.ai.embeddings.backends import embedder_is_remote
 
         state = spec["semantic_join"]
         model_id = state["embedding_model"]
@@ -124,7 +124,7 @@ class _SemanticJoinProgram(_TypedMapRowsProgram):
     @asynccontextmanager
     async def execution_scope(self, spec, ctx, *, expected_rows):
         from frisket.ops.base import RecipeInvocationHalt
-        from frisket.semantic import resolve_embedder
+        from frisket.ai.embeddings.backends import resolve_embedder
 
         state = spec["semantic_join"]
         try:

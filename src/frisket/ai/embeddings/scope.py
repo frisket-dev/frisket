@@ -10,15 +10,20 @@ views in agreement about what "should be embedded".
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
+from dataclasses import replace
 from typing import Any
 
-from frisket.querysets import SheetRowSetError, resolve_sheet_filter_rows
 from frisket.engine.store import Project
 from frisket.features.watchlists.specs import canonical_json, normalize_query_spec
+from frisket.querysets import (
+    SheetRowScopePlan,
+    SheetRowSetError,
+    execute_sheet_row_page_without_total,
+    sheet_row_scope_plan,
+)
 
-# resolve_sheet_filter_rows is LIMIT-bounded; a cap far above any real sheet means
-# "every row in scope".
-_ALL_ROWS_LIMIT = 1_000_000_000
+DEFAULT_SCOPE_PAGE_SIZE = 500
 
 
 class IndexScopeError(ValueError):
@@ -31,6 +36,15 @@ class IndexScopeError(ValueError):
         self.message = message
 
 
+def _stable_plan(plan: SheetRowScopePlan) -> SheetRowScopePlan:
+    """Add a unique final key for every OFFSET-paged named-index scope."""
+
+    if plan.order_parts:
+        # The shared sorted-plan compiler already appends position + id.
+        return plan
+    return replace(plan, order_parts=["r.position ASC", "r.id ASC"])
+
+
 def _safe_obj(value: Any) -> dict[str, Any]:
     try:
         parsed = json.loads(value or "{}")
@@ -39,16 +53,19 @@ def _safe_obj(value: Any) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
-def resolve_scope_rows(
+def scope_plan(
     project: Project, sheet_id: int, spec: dict[str, Any]
-) -> list[int]:
-    """Ordered visible row ids for a scope spec against ``sheet_id``.
+) -> SheetRowScopePlan:
+    """Compile one stored named-index source scope.
 
     Empty spec ``{}`` means all visible rows. A non-empty spec must be a
     ``sheet.filter`` QuerySpec whose scope sheet_id matches; anything else raises
     ``IndexScopeError``."""
     if not spec:
-        return list(project.visible_row_ids(sheet_id))
+        try:
+            return _stable_plan(sheet_row_scope_plan(project, sheet_id))
+        except SheetRowSetError as exc:
+            raise IndexScopeError("invalid_query_spec", str(exc)) from exc
     try:
         normalized = normalize_query_spec(spec)
     except ValueError as exc:
@@ -69,17 +86,53 @@ def resolve_scope_rows(
     filter_json = canonical_json(normalized.get("filter", {}))
     sort_json = canonical_json(normalized["sort"]) if "sort" in normalized else None
     try:
-        rowset = resolve_sheet_filter_rows(
-            project,
-            sheet_id,
-            filter_=filter_json,
-            sort=sort_json,
-            limit=_ALL_ROWS_LIMIT,
-            offset=0,
+        return _stable_plan(
+            sheet_row_scope_plan(
+                project,
+                sheet_id,
+                filter_=filter_json,
+                sort=sort_json,
+            )
         )
     except SheetRowSetError as exc:
         raise IndexScopeError("invalid_query_spec", str(exc)) from exc
-    return list(rowset.row_ids)
+
+
+def iter_scope_row_pages(
+    project: Project,
+    sheet_id: int,
+    spec: dict[str, Any],
+    *,
+    page_size: int = DEFAULT_SCOPE_PAGE_SIZE,
+) -> Iterator[list[int]]:
+    """Yield ordered row-id pages without materializing the full source scope."""
+
+    if isinstance(page_size, bool) or not isinstance(page_size, int) or page_size < 1:
+        raise ValueError("scope page size must be a positive integer")
+    plan = scope_plan(project, sheet_id, spec)
+    offset = 0
+    while True:
+        rows = execute_sheet_row_page_without_total(
+            project, plan, limit=page_size, offset=offset
+        )
+        if not rows:
+            return
+        yield [int(row["id"]) for row in rows]
+        if len(rows) < page_size:
+            return
+        offset += len(rows)
+
+
+def resolve_scope_rows(
+    project: Project, sheet_id: int, spec: dict[str, Any]
+) -> list[int]:
+    """Materialize a complete scope for explicit all-row action boundaries."""
+
+    return [
+        row_id
+        for page in iter_scope_row_pages(project, sheet_id, spec)
+        for row_id in page
+    ]
 
 
 def resolve_index_scope_rows(project: Project, index: Any) -> list[int]:
@@ -90,4 +143,29 @@ def resolve_index_scope_rows(project: Project, index: Any) -> list[int]:
         return []
     return resolve_scope_rows(
         project, int(sheet_id), _safe_obj(index["source_query_json"])
+    )
+
+
+def index_scope_plan(project: Project, index: Any) -> SheetRowScopePlan | None:
+    """Compile an index's stored source scope, or None for an unbound index."""
+
+    sheet_id = index["sheet_id"]
+    if sheet_id is None:
+        return None
+    return scope_plan(project, int(sheet_id), _safe_obj(index["source_query_json"]))
+
+
+def iter_index_scope_row_pages(
+    project: Project, index: Any, *, page_size: int = DEFAULT_SCOPE_PAGE_SIZE
+) -> Iterator[list[int]]:
+    """Yield an index's source rows in stable stored-scope order."""
+
+    sheet_id = index["sheet_id"]
+    if sheet_id is None:
+        return
+    yield from iter_scope_row_pages(
+        project,
+        int(sheet_id),
+        _safe_obj(index["source_query_json"]),
+        page_size=page_size,
     )

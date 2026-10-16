@@ -12,6 +12,7 @@ from frisket.engine.jobs.worker import Worker
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.plugins.manifest_generate import generate_manifest_text
 from frisket.server.app import create_app
+from http_test_helpers import drain_queue
 
 
 SOURCE = """
@@ -102,6 +103,7 @@ def installed(tmp_path, monkeypatch):
             [{"Transcript": "Source transcript."}],
             {"Transcript": transcript_id},
         )[0]
+        drain_queue(client, worker_id="installed-table-setup")
         yield client, project, project_id, sheet_id, row_id, calls
     _reset_default_registry_for_tests()
 

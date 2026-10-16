@@ -348,11 +348,11 @@ def embedding_model_size_budget_gb(env: dict[str, str] | None = None) -> float:
 def _detect_local_text(env: dict[str, str]) -> bool:
     """The in-process text engine is usable under the runtime's availability rule.
 
-    Delegating to ``semantic.local_embedder`` keeps package detection and the
+    Delegating to the shared local backend keeps package detection and the
     ``FRISKET_DISABLE_LOCAL_EMBED`` escape hatch single-sourced. The returned
     embedder is lazy, so capability discovery never loads or downloads a model.
     """
-    from frisket.semantic import local_embedder
+    from .backends import local_embedder
 
     return local_embedder(env=env) is not None
 
@@ -360,9 +360,9 @@ def _detect_local_text(env: dict[str, str]) -> bool:
 def _detect_local_image(env: dict[str, str]) -> bool:
     """The in-process CLIP image engine is usable: fastembed's ``ImageEmbedding``
     AND PIL importable, and FRISKET_DISABLE_LOCAL_EMBED not set. Delegates to
-    ``semantic.local_image_embedder`` so the availability rule is single-sourced
+    the shared image backend so the availability rule is single-sourced
     (no model load — the embedder is lazy)."""
-    from frisket.semantic import local_image_embedder
+    from .backends import local_image_embedder
 
     return local_image_embedder(env=env) is not None
 

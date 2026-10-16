@@ -59,6 +59,60 @@ class ProjectSettingsRequest(CoerciveProjectConfigRequest):
     model_config = ConfigDict(extra="forbid", json_schema_extra=_optional_by_omission)
 
     media_allow_private_hosts: bool | None = None
+    retrieval: ProjectRetrievalSettingsRequest | None = None
+
+
+class ProjectRetrievalVideoRequest(CoerciveProjectConfigRequest):
+    model_config = ConfigDict(extra="forbid", json_schema_extra=_optional_by_omission)
+
+    strategy: Literal["off", "frames", "fixed_clips", "shot_clips"]
+    interval_seconds: float | None = Field(default=None, gt=0)
+    duration_seconds: float | None = Field(default=None, gt=0)
+    stride_seconds: float | None = Field(default=None, gt=0)
+    sample_fps: float | None = Field(default=None, gt=0)
+
+    @model_validator(mode="after")
+    def fields_match_strategy(self) -> ProjectRetrievalVideoRequest:
+        supplied = {
+            name
+            for name in (
+                "interval_seconds",
+                "duration_seconds",
+                "stride_seconds",
+                "sample_fps",
+            )
+            if getattr(self, name) is not None
+        }
+        permitted = {
+            "off": set(),
+            "frames": {"interval_seconds"},
+            "fixed_clips": {
+                "duration_seconds",
+                "stride_seconds",
+                "sample_fps",
+            },
+            "shot_clips": {"duration_seconds", "sample_fps"},
+        }[self.strategy]
+        invalid = sorted(supplied - permitted)
+        if invalid:
+            raise ValueError(
+                f"{', '.join(invalid)} is not valid for video strategy "
+                f"{self.strategy!r}"
+            )
+        return self
+
+
+class ProjectRetrievalSettingsRequest(CoerciveProjectConfigRequest):
+    """A partial update of the canonical retrieval preparation policy."""
+
+    model_config = ConfigDict(extra="forbid", json_schema_extra=_optional_by_omission)
+
+    text_enabled: bool | None = None
+    transcript_enabled: bool | None = None
+    image_enabled: bool | None = None
+    pdf_pages_enabled: bool | None = None
+    video: ProjectRetrievalVideoRequest | None = None
+    audio_enabled: bool | None = None
 
 
 class ProjectProviderKeyRequest(CoerciveProjectConfigRequest):
@@ -102,6 +156,24 @@ class ProjectNetworkResponse(WireModel):
 class ProjectSettingsResponse(WireModel):
     media_allow_private_hosts: bool
     media_allow_private_hosts_locked: bool
+    retrieval: ProjectRetrievalSettingsResponse
+
+
+class ProjectRetrievalVideoResponse(WireModel):
+    strategy: Literal["off", "frames", "fixed_clips", "shot_clips"]
+    interval_seconds: float | None
+    duration_seconds: float | None
+    stride_seconds: float | None
+    sample_fps: float | None
+
+
+class ProjectRetrievalSettingsResponse(WireModel):
+    text_enabled: bool
+    transcript_enabled: bool
+    image_enabled: bool
+    pdf_pages_enabled: bool
+    video: ProjectRetrievalVideoResponse
+    audio_enabled: bool
 
 
 class ProjectCompactResponse(WireModel):

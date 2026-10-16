@@ -1,0 +1,1673 @@
+"""One scoped lexical/vector/hybrid query service over the retrieval sidecar."""
+
+from __future__ import annotations
+
+import json
+import math
+import re
+import sqlite3
+from collections import defaultdict
+from collections.abc import Callable, Sequence
+from contextlib import AbstractContextManager
+from dataclasses import dataclass, replace
+from pathlib import Path
+from threading import Event
+from typing import Any, Literal
+
+from frisket.engine.store import cells
+from frisket.search_hydration import MAX_SNIPPET_CANDIDATES, native_snippets
+
+from .contracts import (
+    BindingRevision,
+    ChannelCoverage,
+    IndexedPart,
+    LocatedHit,
+    PageRange,
+    ResultGroup,
+    RetrievalContribution,
+    ScopedBinding,
+    SearchCoverage,
+    SearchRequest,
+    SearchResponse,
+    SourceAnchor,
+    SourceLocator,
+    SourceRevision,
+    TextQuery,
+    TextRange,
+    TimeRange,
+    WeightedSemanticQuery,
+)
+from .native import (
+    RETRIEVAL_CACHE_KIB,
+    RETRIEVAL_MMAP_BYTES,
+    Vec1Unavailable,
+    load_vec1,
+    configure_retrieval_connection,
+    pack_vector,
+)
+from .ranking import compose_weighted_vectors, reciprocal_rank_fusion
+from .scope import CompiledRetrievalScope, compile_scope
+from .source_adapter import (
+    UnsupportedLexicalSourceError,
+    resolve_source_text,
+)
+from .sources import canonical_json, identity_digest, input_hash
+from .store import PROJECT_SIDECAR_META_KEY, RETRIEVAL_DB_NAME, SIDECAR_ID_META_KEY
+
+
+HYBRID_POOL = 400
+RERANK_POOL = 100
+SUPPORTING_HIT_LIMIT = 3
+_GROUP_HIT_LIMIT = 1 + SUPPORTING_HIT_LIMIT
+Reranker = Callable[[str, Sequence[str]], Sequence[float]]
+
+
+class RetrievalQueryError(RuntimeError):
+    """The requested query cannot be executed with its declared contracts."""
+
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+
+
+@dataclass(frozen=True)
+class SemanticQueryVectors:
+    """Encoder output aligned to a request's semantic terms and exclusions."""
+
+    term_vectors: tuple[Sequence[float], ...]
+    exclusion_vectors: tuple[Sequence[float], ...] = ()
+
+
+@dataclass(frozen=True)
+class _Candidate:
+    source: SourceRevision
+    part_id: str
+    producer_recipe_id: str
+    part_kind: str
+    locator: SourceLocator
+    binding: ScopedBinding
+    method: Literal["lexical", "semantic"]
+    channel: str
+    raw_score: float
+    representation_id: str | None
+    space_id: str | None
+    group_key: str
+    group_hit_count: int
+    additional_binding_count: int
+    lexical_rowid: int | None = None
+    lexical_content_hash: str | None = None
+    snippet: str | None = None
+    rerank_text: str | None = None
+    lexical_exact: bool = False
+
+
+class PinnedRetrievalReader(AbstractContextManager["PinnedRetrievalReader"]):
+    """One connection with project.db as main and a read-only attached sidecar."""
+
+    def __init__(self, project: Any):
+        self.path = Path(project.path)
+        self.db_path = self.path / "project.db"
+        self.blob_store = project.blob_store
+        self._connection: sqlite3.Connection | None = None
+
+    @property
+    def db(self) -> sqlite3.Connection:
+        if self._connection is None:
+            raise RuntimeError("retrieval reader is closed")
+        return self._connection
+
+    def open(self) -> "PinnedRetrievalReader":
+        if self._connection is not None:
+            return self
+        sidecar = self.path / RETRIEVAL_DB_NAME
+        if not sidecar.is_file():
+            raise RetrievalQueryError(
+                "retrieval_not_prepared", "the project retrieval index does not exist"
+            )
+        db = sqlite3.connect(
+            f"{self.db_path.resolve().as_uri()}?mode=ro",
+            uri=True,
+            isolation_level=None,
+            check_same_thread=False,
+        )
+        db.row_factory = sqlite3.Row
+        try:
+            db.execute("PRAGMA foreign_keys=ON")
+            db.execute("PRAGMA busy_timeout=10000")
+            configure_retrieval_connection(db, load_vector_extension=False)
+            db.execute(
+                "ATTACH DATABASE ? AS idx",
+                (f"{sidecar.resolve().as_uri()}?mode=ro",),
+            )
+            db.execute(f"PRAGMA idx.cache_size=-{RETRIEVAL_CACHE_KIB}")
+            db.execute(f"PRAGMA idx.mmap_size={RETRIEVAL_MMAP_BYTES}")
+            db.execute("BEGIN")
+            # Read one page from each database after BEGIN so both WAL snapshots
+            # are pinned before scope compilation or ranking begins.
+            fence = db.execute(
+                "SELECT main_meta.value,idx_meta.value "
+                "FROM main.meta AS main_meta "
+                "CROSS JOIN idx.retrieval_meta AS idx_meta "
+                "WHERE main_meta.key='op_cursor' "
+                "AND idx_meta.key='schema_version'"
+            ).fetchone()
+            if fence is None:
+                raise RetrievalQueryError(
+                    "retrieval_snapshot_invalid", "could not pin the retrieval snapshot"
+                )
+        except BaseException:
+            db.close()
+            raise
+        self._connection = db
+        return self
+
+    def close(self) -> None:
+        db, self._connection = self._connection, None
+        if db is None:
+            return
+        try:
+            if db.in_transaction:
+                db.rollback()
+        finally:
+            db.close()
+
+    def __enter__(self) -> "PinnedRetrievalReader":
+        return self.open()
+
+    def __exit__(self, *_exc: object) -> None:
+        self.close()
+
+    def columns(self, sheet_id: int, include_hidden: bool = False) -> list[sqlite3.Row]:
+        return cells.columns(self, sheet_id, include_hidden)
+
+    def get_values(
+        self,
+        sheet_id: int,
+        column_id: int,
+        row_ids: list[int] | None = None,
+        *,
+        apply_edits: bool = True,
+        tolerate_decode_errors: bool = False,
+        preserve_invalid: bool = False,
+    ) -> dict[int, Any]:
+        return cells.get_values(
+            self,
+            sheet_id,
+            column_id,
+            row_ids,
+            apply_edits=apply_edits,
+            tolerate_decode_errors=tolerate_decode_errors,
+            preserve_invalid=preserve_invalid,
+        )
+
+    def get_values_with_refs(
+        self,
+        sheet_id: int,
+        column_id: int,
+        row_ids: list[int] | None = None,
+        *,
+        apply_edits: bool = True,
+        tolerate_decode_errors: bool = False,
+        preserve_invalid: bool = False,
+        include_validity: bool = False,
+    ) -> tuple[dict[int, Any], dict[int, dict[str, Any]]]:
+        return cells.get_values_with_refs(
+            self,
+            sheet_id,
+            column_id,
+            row_ids,
+            apply_edits=apply_edits,
+            tolerate_decode_errors=tolerate_decode_errors,
+            preserve_invalid=preserve_invalid,
+            include_validity=include_validity,
+        )
+
+
+class RetrievalQueryService:
+    def __init__(self, project: Any, *, reranker: Reranker | None = None):
+        self.project = project
+        self.reranker = reranker
+
+    def search(
+        self,
+        request: SearchRequest,
+        *,
+        semantic_vectors: SemanticQueryVectors | None = None,
+        cancel_event: Event | None = None,
+    ) -> SearchResponse:
+        """Execute one request against an authorization-pinned project snapshot."""
+
+        if cancel_event is not None and cancel_event.is_set():
+            raise InterruptedError("retrieval search was stopped")
+        if request.scope.is_empty:
+            return _empty_response(request)
+        if request.ranking.rerank == "on" and self.reranker is None:
+            raise RetrievalQueryError(
+                "reranker_unavailable",
+                "reranking was required but no reranker is available",
+            )
+        rerank_pool = (
+            max(request.limit, min(RERANK_POOL, request.limit * 4))
+            if request.ranking.rerank != "off" and self.reranker is not None
+            else request.limit
+        )
+        try:
+            with PinnedRetrievalReader(self.project) as reader:
+                if cancel_event is not None:
+                    reader.db.set_progress_handler(
+                        lambda: int(cancel_event.is_set()), 1000
+                    )
+                try:
+                    scope = compile_scope(reader, request.scope)
+                    if request.mode == "lexical":
+                        lexical, _query = self._lexical_candidates(
+                            reader, request, scope, limit=rerank_pool
+                        )
+                        groups = _single_method_groups(lexical, request)
+                        candidates = lexical
+                        coverage = self._coverage(
+                            reader, request, scope, channels=("lexical",)
+                        )
+                    elif request.mode == "semantic":
+                        semantic = self._semantic_candidates(
+                            reader,
+                            request,
+                            scope,
+                            semantic_vectors=semantic_vectors,
+                            limit=rerank_pool,
+                        )
+                        groups = _single_method_groups(semantic, request)
+                        candidates = semantic
+                        channels = _semantic_coverage_channels(reader, request, scope)
+                        coverage = self._coverage(
+                            reader,
+                            request,
+                            scope,
+                            channels=channels or ("semantic",),
+                        )
+                    else:
+                        pool = max(rerank_pool, min(HYBRID_POOL, request.limit * 4))
+                        lexical, _query = self._lexical_candidates(
+                            reader, request, scope, limit=pool, fusion=True
+                        )
+                        semantic = self._semantic_candidates(
+                            reader,
+                            request,
+                            scope,
+                            semantic_vectors=semantic_vectors,
+                            limit=pool,
+                            fusion=True,
+                        )
+                        groups = _hybrid_groups(lexical, semantic, request)
+                        candidates = [*lexical, *semantic]
+                        channels = (
+                            "lexical",
+                            *_semantic_coverage_channels(reader, request, scope),
+                        )
+                        coverage = self._coverage(
+                            reader, request, scope, channels=channels
+                        )
+                    groups = self._rerank(groups, request, candidates)
+                finally:
+                    if cancel_event is not None:
+                        reader.db.set_progress_handler(None, 0)
+        except Vec1Unavailable:
+            return self.without_semantic(
+                request,
+                reason="Semantic search is unavailable in this SQLite runtime. "
+                "Install a supported Frisket runtime to enable it.",
+                cancel_event=cancel_event,
+            )
+        except sqlite3.OperationalError as exc:
+            if (
+                cancel_event is not None
+                and cancel_event.is_set()
+                and "interrupt" in str(exc).lower()
+            ):
+                raise InterruptedError("retrieval search was stopped") from exc
+            raise
+        if cancel_event is not None and cancel_event.is_set():
+            raise InterruptedError("retrieval search was stopped")
+        return SearchResponse(results=tuple(groups[: request.limit]), coverage=coverage)
+
+    def without_semantic(
+        self, request: SearchRequest, *, reason: str, cancel_event: Event | None = None
+    ) -> SearchResponse:
+        """Keep keyword search available without reinterpreting composed queries."""
+        missing = ChannelCoverage(
+            channel="semantic", state="unavailable", reason=reason
+        )
+        if isinstance(request.query, TextQuery):
+            lexical = self.search(
+                replace(request, mode="lexical"), cancel_event=cancel_event
+            )
+            available = any(c.state == "ready" for c in lexical.coverage.channels)
+            return replace(
+                lexical,
+                coverage=replace(
+                    lexical.coverage,
+                    requested_mode=request.mode,
+                    state="partial" if available else lexical.coverage.state,
+                    effective_modes=("lexical",) if available else (),
+                    searched_channels=("lexical",) if available else (),
+                    channels=(*lexical.coverage.channels, missing),
+                ),
+            )
+        return SearchResponse(
+            results=(),
+            coverage=SearchCoverage(
+                requested_mode=request.mode,
+                effective_modes=(),
+                state="unavailable",
+                searched_channels=(),
+                is_top_k=True,
+                truncated=False,
+                channels=(missing,),
+            ),
+        )
+
+    def _rerank(
+        self,
+        groups: list[ResultGroup],
+        request: SearchRequest,
+        candidates: list[_Candidate],
+    ) -> list[ResultGroup]:
+        if request.ranking.rerank == "off" or self.reranker is None or not groups:
+            return groups
+        query_text = _rerank_query_text(request)
+        contexts = {
+            candidate.part_id: candidate.rerank_text
+            for candidate in candidates
+            if candidate.rerank_text
+        }
+        positions = [
+            index
+            for index, group in enumerate(groups)
+            if group.primary.part.part_id in contexts
+        ]
+        if query_text is None or not positions:
+            if request.ranking.rerank == "on":
+                raise RetrievalQueryError(
+                    "reranker_input_unavailable",
+                    "reranking requires a textual query and hydrated candidate text",
+                )
+            return groups
+        documents = [
+            contexts[groups[index].primary.part.part_id] for index in positions
+        ]
+        try:
+            scores = tuple(
+                float(score) for score in self.reranker(query_text, documents)
+            )
+            if len(scores) != len(positions) or any(
+                not math.isfinite(score) for score in scores
+            ):
+                raise ValueError("reranker returned invalid scores")
+        except Exception as exc:
+            if request.ranking.rerank == "on":
+                raise RetrievalQueryError("reranker_failed", str(exc)) from exc
+            return groups
+        # The local cross-encoder's near-flat logits are uninformative (notably
+        # outside its training languages). Preserve first-stage ordering.
+        if request.ranking.rerank == "auto" and max(scores) - min(scores) < 1.0:
+            return groups
+        ranked = sorted(
+            (
+                (groups[index], score)
+                for index, score in zip(positions, scores, strict=True)
+            ),
+            key=lambda item: item[1],
+            reverse=True,
+        )
+        result = list(groups)
+        # Visual/audio-only hits have no text to rerank. Keep their positions
+        # instead of inventing empty-text scores that compete with real evidence.
+        for index, (group, score) in zip(positions, ranked, strict=True):
+            result[index] = replace(
+                group, primary=replace(group.primary, rank_score=score)
+            )
+        return result
+
+    def _lexical_candidates(
+        self,
+        reader: PinnedRetrievalReader,
+        request: SearchRequest,
+        scope: CompiledRetrievalScope,
+        *,
+        limit: int,
+        fusion: bool = False,
+    ) -> tuple[list[_Candidate], str]:
+        if not isinstance(request.query, TextQuery):
+            raise RetrievalQueryError(
+                "invalid_query", "lexical retrieval requires a text query"
+            )
+        query = (
+            request.query.text
+            if request.query.lexical_syntax == "fts"
+            else _quoted_fts(request.query.text)
+        )
+        grouping = "row" if request.group_by == "row" else "source"
+        group_sql = (
+            "printf('row:%d:%d',retrieval_binding.sheet_id,retrieval_binding.row_id)"
+            if grouping == "row"
+            else _sql_source_key("source")
+        )
+        dataset_join, dataset_where, dataset_params = _lexical_dataset_filter(request)
+        sql = f"""
+        WITH {scope.cte_sql}, matched AS NOT MATERIALIZED (
+          SELECT DISTINCT lexical_source.rowid AS lexical_rowid,
+                 source.source_id,source.version_kind,
+                 source.version_value,source.version_type,
+                 lexical_source.content_hash AS lexical_content_hash,
+                 lexical_source.locator_json,source.source_kind,source.content_hash,
+                 retrieval_binding.binding_id,retrieval_binding.sheet_id,
+                 retrieval_binding.row_id,retrieval_binding.column_id,
+                 bm25(lexical_fts) AS raw_score,{group_sql} AS group_key
+          FROM idx.lexical_fts
+          JOIN idx.lexical_sources AS lexical_source
+            ON lexical_source.rowid=lexical_fts.rowid
+          JOIN idx.sources AS source
+            ON source.source_key=lexical_source.source_key
+          JOIN idx.bindings AS retrieval_binding
+            ON retrieval_binding.source_key=lexical_source.source_key
+          JOIN scoped_bindings AS scoped
+            ON scoped.sheet_id=retrieval_binding.sheet_id
+           AND scoped.row_id=retrieval_binding.row_id
+           AND (scoped.column_id IS NULL
+                OR scoped.column_id=retrieval_binding.column_id)
+          {dataset_join}
+          WHERE lexical_fts MATCH ?
+            AND {_visible_column("retrieval_binding")}
+            AND {_binding_is_current("retrieval_binding")}
+            {dataset_where}
+        ), binding_ranked AS (
+          SELECT *,ROW_NUMBER() OVER (
+            PARTITION BY group_key,lexical_rowid
+            ORDER BY raw_score,binding_id
+          ) AS binding_rank,
+          COUNT(*) OVER (
+            PARTITION BY lexical_rowid
+          ) AS binding_count
+          FROM matched
+        ), distinct_hits AS (
+          SELECT * FROM binding_ranked WHERE binding_rank=1
+        ), ranked_hits AS (
+          SELECT *,ROW_NUMBER() OVER (
+            PARTITION BY group_key ORDER BY raw_score,binding_id,source_id
+          ) AS hit_rank,
+          COUNT(*) OVER (PARTITION BY group_key) AS group_hit_count
+          FROM distinct_hits
+        ), group_heads AS (
+          SELECT *,ROW_NUMBER() OVER (
+            ORDER BY raw_score,group_key,binding_id,source_id
+          ) AS result_rank
+          FROM ranked_hits WHERE hit_rank=1
+        ), chosen_groups AS MATERIALIZED (
+          SELECT group_key,result_rank FROM group_heads WHERE result_rank<=?
+        )
+        SELECT ranked_hits.* FROM ranked_hits
+        JOIN chosen_groups USING (group_key)
+        WHERE ranked_hits.hit_rank<=?
+        ORDER BY chosen_groups.result_rank,ranked_hits.hit_rank
+        """
+        params = [
+            *scope.params,
+            query,
+            *dataset_params,
+            limit,
+            _GROUP_HIT_LIMIT,
+        ]
+        try:
+            rows = reader.db.execute(sql, params).fetchall()
+            effective_query = query
+        except sqlite3.OperationalError as exc:
+            if request.query.lexical_syntax != "fts" or not _is_fts_syntax_error(exc):
+                raise
+            effective_query = _quoted_fts(request.query.text)
+            params[len(scope.params)] = effective_query
+            rows = reader.db.execute(sql, params).fetchall()
+        candidates = _attach_binding_dependencies(
+            reader, [_lexical_candidate(row) for row in rows]
+        )
+        candidates = _hydrate_lexical(
+            reader,
+            candidates,
+            effective_query,
+            literal_query=request.query.text,
+        )
+        return candidates, effective_query
+
+    def _semantic_candidates(
+        self,
+        reader: PinnedRetrievalReader,
+        request: SearchRequest,
+        scope: CompiledRetrievalScope,
+        *,
+        semantic_vectors: SemanticQueryVectors | None,
+        limit: int,
+        fusion: bool = False,
+    ) -> list[_Candidate]:
+        load_vec1(reader.db)
+        if not request.space_id:
+            raise RetrievalQueryError(
+                "embedding_space_required", "semantic retrieval requires space_id"
+            )
+        anchor_exclusion: tuple[str, str, str, str, str] | None = None
+        if isinstance(request.query, SourceAnchor):
+            if semantic_vectors is None:
+                query_blob, dimension, _ = _resolve_anchor_vector(
+                    reader, request, scope
+                )
+            else:
+                query_blob, dimension = _source_anchor_query_blob(semantic_vectors)
+            if request.query.exclude_exact:
+                version_value, version_type = _encode_version(
+                    request.query.source.version_value
+                )
+                anchor_exclusion = (
+                    request.query.source.source_id,
+                    request.query.source.version_kind,
+                    version_value,
+                    version_type,
+                    canonical_json(request.query.locator),
+                )
+            exclusion_blobs: tuple[bytes, ...] = ()
+            thresholds: tuple[float, ...] = ()
+            minimum = None
+        else:
+            query_blob, exclusion_blobs, thresholds, minimum, dimension = (
+                _semantic_query_blob(request, semantic_vectors)
+            )
+        grouping = (
+            "row"
+            if request.group_by == "row"
+            else ("source" if fusion or request.group_by == "source" else "part")
+        )
+        group_partition_sql = {
+            "row": "printf('row:%d:%d',retrieval_binding.sheet_id,retrieval_binding.row_id)",
+            "source": "part.source_key",
+            "part": "part.part_key",
+        }[grouping]
+        group_sort_sql = {
+            "row": "printf('row:%d:%d',retrieval_binding.sheet_id,retrieval_binding.row_id)",
+            "source": _sql_source_key("source"),
+            "part": "part.part_id",
+        }[grouping]
+        dataset_join, dataset_where, dataset_params = _semantic_dataset_filter(request)
+        exclude_sql = "".join(
+            " AND (1.0-vec1_cos_distance(representation.vector,?))<?"
+            for _ in exclusion_blobs
+        )
+        minimum_sql = "" if minimum is None else " AND similarity>=?"
+        sql = f"""
+        WITH {scope.cte_sql}, scoped_binding_keys AS MATERIALIZED (
+          SELECT DISTINCT retrieval_binding.binding_key
+          FROM scoped_bindings AS scoped
+          JOIN idx.bindings AS retrieval_binding
+            ON retrieval_binding.sheet_id=scoped.sheet_id
+           AND retrieval_binding.row_id=scoped.row_id
+           AND (scoped.column_id IS NULL
+                OR scoped.column_id=retrieval_binding.column_id)
+        ), current_bindings AS MATERIALIZED (
+          SELECT retrieval_binding.binding_key,retrieval_binding.binding_id,
+                 retrieval_binding.source_key,retrieval_binding.sheet_id,
+                 retrieval_binding.row_id,retrieval_binding.column_id
+          FROM scoped_binding_keys AS scoped
+          JOIN idx.bindings AS retrieval_binding
+            ON retrieval_binding.binding_key=scoped.binding_key
+          JOIN idx.binding_dependencies AS dependency
+            ON dependency.binding_key=retrieval_binding.binding_key
+          LEFT JOIN main.current_cells AS current_head
+            ON current_head.column_id=dependency.column_id
+           AND current_head.row_id=dependency.row_id
+          LEFT JOIN main.columns AS dependency_column
+            ON dependency_column.id=dependency.column_id
+           AND dependency_column.sheet_id=retrieval_binding.sheet_id
+           AND dependency_column.hidden=0
+          LEFT JOIN main.columns AS binding_column
+            ON binding_column.id=retrieval_binding.column_id
+           AND binding_column.sheet_id=retrieval_binding.sheet_id
+           AND binding_column.hidden=0
+          GROUP BY retrieval_binding.binding_key
+          HAVING MAX(dependency.retrieval_revision !=
+                     COALESCE(current_head.retrieval_revision,0))=0
+             AND ((retrieval_binding.column_id IS NOT NULL
+                   AND MAX(binding_column.id IS NOT NULL)=1)
+               OR (retrieval_binding.column_id IS NULL
+                   AND COUNT(dependency_column.id)=COUNT(*)))
+        ), eligible_bindings AS MATERIALIZED (
+          SELECT part.part_key,retrieval_binding.binding_id,
+                 part_representation.representation_key,
+                 part_representation.channel,
+                 {group_partition_sql} AS group_partition,
+                 {group_sort_sql} AS group_sort
+          FROM current_bindings AS retrieval_binding
+          JOIN idx.parts AS part
+            ON part.source_key=retrieval_binding.source_key
+          JOIN idx.sources AS source
+            ON source.source_key=part.source_key
+          JOIN idx.part_representations AS part_representation
+            ON part_representation.part_key=part.part_key
+          JOIN idx.representations AS representation
+            ON representation.representation_key=
+               part_representation.representation_key
+          {dataset_join}
+          WHERE representation.space_id=? AND representation.dimension=?
+            {dataset_where}
+            {"AND NOT (source.source_id=? AND source.version_kind=? AND source.version_value=? AND source.version_type=? AND part.locator_json=?)" if anchor_exclusion is not None else ""}
+            {exclude_sql}
+        ), binding_counts AS MATERIALIZED (
+          SELECT part_key,representation_key,channel,COUNT(*) AS binding_count
+          FROM eligible_bindings
+          GROUP BY part_key,representation_key,channel
+        ), binding_winners AS MATERIALIZED (
+          SELECT group_partition,group_sort,part_key,representation_key,channel,
+                 MIN(binding_id) AS binding_id
+          FROM eligible_bindings
+          GROUP BY group_partition,group_sort,part_key,representation_key,channel
+        ), accepted AS MATERIALIZED (
+          SELECT * FROM (
+            SELECT winner.*,part.part_id,representation.representation_id,
+                   1.0-vec1_cos_distance(representation.vector,?) AS similarity
+            FROM binding_winners AS winner
+            JOIN idx.parts AS part ON part.part_key=winner.part_key
+            JOIN idx.representations AS representation
+              ON representation.representation_key=winner.representation_key
+          ) AS scored_hit
+          WHERE 1=1{minimum_sql}
+        ), group_summaries AS MATERIALIZED (
+          SELECT group_partition,group_sort,MAX(similarity) AS best_similarity,
+                 COUNT(*) AS group_hit_count
+          FROM accepted
+          GROUP BY group_partition,group_sort
+        ), chosen_groups AS MATERIALIZED (
+          SELECT group_partition,group_sort,best_similarity,group_hit_count
+          FROM group_summaries
+          ORDER BY best_similarity DESC,group_sort
+          LIMIT ?
+        ), ranked_hits AS (
+          SELECT accepted.*,chosen_groups.group_hit_count,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY accepted.group_partition
+                   ORDER BY accepted.similarity DESC,accepted.binding_id,
+                            accepted.part_id,accepted.representation_id
+                 ) AS hit_rank
+          FROM accepted
+          JOIN chosen_groups USING (group_partition)
+        )
+        SELECT part.part_id,source.source_id,source.version_kind,
+               source.version_value,source.version_type,part.recipe_id,
+               part.part_kind,part.locator_json,source.source_kind,
+               source.content_hash,retrieval_binding.binding_id,
+               retrieval_binding.sheet_id,retrieval_binding.row_id,
+               retrieval_binding.column_id,ranked_hits.channel,
+               representation.representation_id,representation.space_id,
+               ranked_hits.similarity,ranked_hits.group_sort AS group_key,
+               ranked_hits.group_hit_count,binding_count.binding_count
+        FROM ranked_hits
+        JOIN chosen_groups USING (group_partition)
+        JOIN binding_counts AS binding_count
+          ON binding_count.part_key=ranked_hits.part_key
+         AND binding_count.representation_key=ranked_hits.representation_key
+         AND binding_count.channel=ranked_hits.channel
+        JOIN idx.parts AS part ON part.part_key=ranked_hits.part_key
+        JOIN idx.sources AS source ON source.source_key=part.source_key
+        JOIN idx.bindings AS retrieval_binding
+          ON retrieval_binding.binding_id=ranked_hits.binding_id
+        JOIN idx.representations AS representation
+          ON representation.representation_key=ranked_hits.representation_key
+        WHERE ranked_hits.hit_rank<=?
+        ORDER BY chosen_groups.best_similarity DESC,chosen_groups.group_sort,
+                 ranked_hits.hit_rank
+        """
+        params: list[Any] = [
+            *scope.params,
+            request.space_id,
+            dimension,
+            *dataset_params,
+            *(anchor_exclusion or ()),
+        ]
+        for blob, threshold in zip(exclusion_blobs, thresholds, strict=True):
+            params.extend((sqlite3.Binary(blob), threshold))
+        params.append(sqlite3.Binary(query_blob))
+        if minimum is not None:
+            params.append(minimum)
+        params.extend((limit, _GROUP_HIT_LIMIT))
+        return _hydrate_semantic(
+            reader,
+            _attach_binding_dependencies(
+                reader,
+                [_semantic_candidate(row) for row in reader.db.execute(sql, params)],
+            ),
+        )
+
+    def _coverage(
+        self,
+        reader: PinnedRetrievalReader,
+        request: SearchRequest,
+        scope: CompiledRetrievalScope,
+        *,
+        channels: tuple[str, ...],
+    ) -> SearchCoverage:
+        requested_channels = tuple(dict.fromkeys(channels or (request.mode,)))
+        channel_coverage: list[ChannelCoverage] = []
+        any_ready = False
+        any_pending = False
+        any_failed = False
+        any_unavailable = False
+        dirty = request.named_index_id is None and _scoped_dirty_work(reader, scope)
+        for channel in requested_channels:
+            ready, pending, failed, unavailable = _scoped_coverage_state(
+                reader, request, scope, channel
+            )
+            pending = pending or dirty
+            if (
+                channel == "lexical"
+                and request.named_index_id is None
+                and not (ready or pending or failed or unavailable)
+            ):
+                ready = True  # A fully maintained empty text corpus is searchable.
+            any_ready = any_ready or ready
+            any_pending = any_pending or pending
+            any_failed = any_failed or failed
+            unavailable = unavailable or not (ready or pending or failed)
+            any_unavailable = any_unavailable or unavailable
+            if ready:
+                state = "ready"
+            elif failed:
+                state = "failed"
+            elif pending:
+                state = "pending"
+            else:
+                state = "unavailable"
+            channel_coverage.append(ChannelCoverage(channel=channel, state=state))
+        if any_ready and not (any_pending or any_failed or any_unavailable):
+            coverage_state = "complete"
+        elif any_ready:
+            coverage_state = "partial"
+        elif any_pending and not (any_failed or any_unavailable):
+            coverage_state = "preparing"
+        elif any_failed and not (any_pending or any_unavailable):
+            coverage_state = "failed"
+        elif any_unavailable and not (any_pending or any_failed):
+            coverage_state = "unavailable"
+        else:
+            coverage_state = "partial"
+        effective = (
+            ("lexical", "semantic") if request.mode == "hybrid" else (request.mode,)
+        )
+        return SearchCoverage(
+            requested_mode=request.mode,
+            effective_modes=effective,
+            state=coverage_state,
+            searched_channels=tuple(
+                channel.channel
+                for channel in channel_coverage
+                if channel.state == "ready"
+            ),
+            is_top_k=True,
+            truncated=False,
+            channels=tuple(channel_coverage),
+        )
+
+
+def _scoped_dirty_work(
+    reader: PinnedRetrievalReader, scope: CompiledRetrievalScope
+) -> bool:
+    return bool(
+        reader.db.execute(
+            f"""WITH {scope.cte_sql}
+        SELECT (EXISTS (SELECT 1 FROM scoped_bindings) AND
+          (SELECT value FROM idx.retrieval_meta WHERE key=?)
+            IS NOT (SELECT value FROM main.meta WHERE key=?))
+        OR EXISTS (
+          SELECT 1 FROM search_dirty_scopes AS dirty
+          WHERE EXISTS (
+            SELECT 1 FROM scoped_bindings AS scoped
+            WHERE (dirty.sheet_id IS NULL OR dirty.sheet_id=scoped.sheet_id)
+              AND (dirty.column_id IS NULL OR scoped.column_id IS NULL
+                   OR dirty.column_id=scoped.column_id)
+              AND (dirty.row_id_start IS NULL OR scoped.row_id BETWEEN dirty.row_id_start AND dirty.row_id_end)
+          )
+        )""",
+            (*scope.params, SIDECAR_ID_META_KEY, PROJECT_SIDECAR_META_KEY),
+        ).fetchone()[0]
+    )
+
+
+def _preparation_dataset_filter(request: SearchRequest) -> tuple[str, tuple[Any, ...]]:
+    if request.named_index_id is None:
+        return "", ()
+    return (
+        """AND EXISTS (
+          SELECT 1 FROM idx.parts AS member_part
+          JOIN idx.sources AS member_source
+            ON member_source.source_key=member_part.source_key
+          JOIN idx.named_dataset_membership AS member
+            ON member.part_key=member_part.part_key
+          WHERE member.dataset_id=? AND member_source.source_id=preparation.source_id
+            AND member_source.version_kind=preparation.target_version_kind
+            AND member_source.version_value=preparation.target_version_value
+            AND member_source.version_type=preparation.target_version_type
+        )""",
+        (request.named_index_id,),
+    )
+
+
+def _scoped_coverage_state(
+    reader: PinnedRetrievalReader,
+    request: SearchRequest,
+    scope: CompiledRetrievalScope,
+    channel: str,
+) -> tuple[bool, bool, bool, bool]:
+    binding_join = (
+        "FROM scoped_bindings AS scoped "
+        "JOIN idx.bindings AS retrieval_binding "
+        "ON retrieval_binding.sheet_id=scoped.sheet_id "
+        "AND retrieval_binding.row_id=scoped.row_id "
+        "AND (scoped.column_id IS NULL "
+        "OR scoped.column_id=retrieval_binding.column_id) "
+        "JOIN idx.sources AS retrieval_source "
+        "ON retrieval_source.source_key=retrieval_binding.source_key "
+    )
+    binding_where = (
+        _visible_column("retrieval_binding")
+        + " AND "
+        + _binding_is_current("retrieval_binding")
+    )
+    params: list[Any] = list(scope.params)
+    if channel == "lexical":
+        dataset_join, dataset_where, dataset_params = _lexical_dataset_filter(request)
+        ready_join = """
+          JOIN idx.lexical_sources AS lexical_source
+            ON lexical_source.source_key=retrieval_binding.source_key
+        """
+        ready_where = ""
+    else:
+        dataset_join, dataset_where, dataset_params = _semantic_dataset_filter(request)
+        ready_join = """
+          JOIN idx.parts AS part
+            ON part.source_key=retrieval_binding.source_key
+          JOIN idx.part_representations AS part_representation
+            ON part_representation.part_key=part.part_key
+          JOIN idx.representations AS representation
+            ON representation.representation_key=
+               part_representation.representation_key
+        """
+        ready_where = "AND representation.space_id=?"
+        params.append(request.space_id)
+        if channel != "semantic":
+            ready_where += " AND part_representation.channel=?"
+            params.append(channel)
+    ready = reader.db.execute(
+        f"""WITH {scope.cte_sql}
+        SELECT EXISTS (SELECT 1 {binding_join} {ready_join} {dataset_join}
+          WHERE {binding_where} {ready_where} {dataset_where} LIMIT 1)""",
+        (*params, *dataset_params),
+    ).fetchone()[0]
+
+    preparation_dataset_sql, preparation_dataset_params = _preparation_dataset_filter(
+        request
+    )
+    preparation_channel_sql = (
+        "AND preparation.channel=?" if channel != "semantic" else ""
+    )
+    status = reader.db.execute(
+        f"""WITH {scope.cte_sql}
+        SELECT MAX(preparation.status IN ('pending','preparing')) AS pending,
+               MAX(preparation.status='failed') AS failed,
+               MAX(preparation.status='unavailable') AS unavailable
+        {binding_join}
+        JOIN idx.preparation AS preparation
+          ON preparation.source_id=retrieval_source.source_id
+         AND preparation.target_version_kind=retrieval_source.version_kind
+         AND preparation.target_version_value=retrieval_source.version_value
+         AND preparation.target_version_type=retrieval_source.version_type
+        WHERE {binding_where} AND preparation.space_id IS ?
+          AND preparation.status!='ready'
+          {preparation_channel_sql} {preparation_dataset_sql}
+        """,
+        (
+            *scope.params,
+            None if channel == "lexical" else request.space_id,
+            *((channel,) if channel != "semantic" else ()),
+            *preparation_dataset_params,
+        ),
+    ).fetchone()
+    return (
+        bool(ready),
+        bool(status["pending"]),
+        bool(status["failed"]),
+        bool(status["unavailable"]),
+    )
+
+
+def _semantic_coverage_channels(
+    reader: PinnedRetrievalReader,
+    request: SearchRequest,
+    scope: CompiledRetrievalScope,
+) -> tuple[str, ...]:
+    """List scoped semantic channels independently of the returned top-k rows."""
+
+    # Discover the small channel roster without enumerating every scoped part.
+    # Scope, freshness, space and named-index membership are checked by EXISTS
+    # in the shared coverage reader below.
+    rows = reader.db.execute(
+        "SELECT DISTINCT channel FROM idx.part_representations "
+        "UNION SELECT DISTINCT channel FROM idx.preparation WHERE status!='ready' "
+        "ORDER BY channel"
+    ).fetchall()
+    return tuple(
+        str(row["channel"])
+        for row in rows
+        if any(_scoped_coverage_state(reader, request, scope, str(row["channel"])))
+    )
+
+
+def search(
+    project: Any,
+    request: SearchRequest,
+    *,
+    semantic_vectors: SemanticQueryVectors | None = None,
+    cancel_event: Event | None = None,
+    reranker: Reranker | None = None,
+) -> SearchResponse:
+    """Shared public retrieval entry point."""
+
+    return RetrievalQueryService(project, reranker=reranker).search(
+        request,
+        semantic_vectors=semantic_vectors,
+        cancel_event=cancel_event,
+    )
+
+
+def _semantic_query_blob(
+    request: SearchRequest, vectors: SemanticQueryVectors | None
+) -> tuple[bytes, tuple[bytes, ...], tuple[float, ...], float | None, int]:
+    if vectors is None or not vectors.term_vectors:
+        raise RetrievalQueryError(
+            "query_embedding_required", "semantic query vectors were not supplied"
+        )
+    if isinstance(request.query, WeightedSemanticQuery):
+        if len(vectors.term_vectors) != len(request.query.terms):
+            raise RetrievalQueryError(
+                "query_embedding_mismatch", "term vectors do not match semantic terms"
+            )
+        if len(vectors.exclusion_vectors) != len(request.query.exclusions):
+            raise RetrievalQueryError(
+                "query_embedding_mismatch",
+                "exclusion vectors do not match semantic exclusions",
+            )
+        composed = compose_weighted_vectors(
+            vectors.term_vectors, tuple(term.weight for term in request.query.terms)
+        )
+        thresholds = tuple(term.threshold for term in request.query.exclusions)
+        minimum = request.query.minimum_similarity
+    elif isinstance(request.query, TextQuery):
+        if len(vectors.term_vectors) != 1 or vectors.exclusion_vectors:
+            raise RetrievalQueryError(
+                "query_embedding_mismatch",
+                "plain text requires exactly one query vector",
+            )
+        composed = compose_weighted_vectors(vectors.term_vectors, (1.0,))
+        thresholds = ()
+        minimum = None
+    else:
+        raise RetrievalQueryError("invalid_query", "unsupported semantic query")
+    dimension = len(composed)
+    query_blob = pack_vector(composed, dimensions=dimension)
+    exclusion_blobs = tuple(
+        pack_vector(compose_weighted_vectors((vector,), (1.0,)), dimensions=dimension)
+        for vector in vectors.exclusion_vectors
+    )
+    return query_blob, exclusion_blobs, thresholds, minimum, dimension
+
+
+def _source_anchor_query_blob(
+    vectors: SemanticQueryVectors,
+) -> tuple[bytes, int]:
+    if len(vectors.term_vectors) != 1 or vectors.exclusion_vectors:
+        raise RetrievalQueryError(
+            "query_embedding_mismatch",
+            "a source anchor requires exactly one source vector",
+        )
+    composed = compose_weighted_vectors(vectors.term_vectors, (1.0,))
+    dimension = len(composed)
+    return pack_vector(composed, dimensions=dimension), dimension
+
+
+def _resolve_anchor_vector(
+    reader: PinnedRetrievalReader,
+    request: SearchRequest,
+    scope: CompiledRetrievalScope,
+) -> tuple[bytes, int, str]:
+    anchor = request.query
+    if not isinstance(anchor, SourceAnchor) or not request.space_id:
+        raise RetrievalQueryError("invalid_anchor", "source anchor requires a space")
+    version_value, version_type = _encode_version(anchor.source.version_value)
+    binding_sql = ""
+    binding_params: tuple[Any, ...] = ()
+    if anchor.binding is not None:
+        binding_sql = (
+            "AND retrieval_binding.binding_id=? "
+            "AND retrieval_binding.sheet_id=? AND retrieval_binding.row_id=? "
+            "AND retrieval_binding.column_id IS ?"
+        )
+        binding_params = (
+            anchor.binding.binding_id,
+            anchor.binding.sheet_id,
+            anchor.binding.row_id,
+            anchor.binding.column_id,
+        )
+    sql = f"""
+    WITH {scope.cte_sql}
+    SELECT DISTINCT part.part_id,representation.vector,representation.dimension
+    FROM scoped_bindings AS scoped
+    JOIN idx.bindings AS retrieval_binding
+      ON retrieval_binding.sheet_id=scoped.sheet_id
+     AND retrieval_binding.row_id=scoped.row_id
+     AND (scoped.column_id IS NULL
+          OR scoped.column_id=retrieval_binding.column_id)
+    JOIN idx.parts AS part
+      ON part.source_key=retrieval_binding.source_key
+    JOIN idx.sources AS source ON source.source_key=part.source_key
+    JOIN idx.part_representations AS part_representation
+      ON part_representation.part_key=part.part_key
+    JOIN idx.representations AS representation
+      ON representation.representation_key=part_representation.representation_key
+    WHERE {_visible_column("retrieval_binding")}
+      AND {_binding_is_current("retrieval_binding")}
+      AND source.source_id=? AND source.version_kind=?
+      AND source.version_value=? AND source.version_type=?
+      AND part.locator_json=? AND representation.space_id=?
+      {binding_sql}
+    ORDER BY retrieval_binding.binding_id,part.part_id,representation.representation_id
+    LIMIT 2
+    """
+    rows = reader.db.execute(
+        sql,
+        (
+            *scope.params,
+            anchor.source.source_id,
+            anchor.source.version_kind,
+            version_value,
+            version_type,
+            canonical_json(anchor.locator),
+            request.space_id,
+            *binding_params,
+        ),
+    ).fetchall()
+    if not rows:
+        raise RetrievalQueryError(
+            "source_anchor_not_found",
+            "the exact source location is not prepared in the authorized scope",
+        )
+    if len(rows) != 1:
+        raise RetrievalQueryError(
+            "source_anchor_ambiguous",
+            "the source location resolves to more than one prepared representation",
+        )
+    row = rows[0]
+    return bytes(row["vector"]), int(row["dimension"]), str(row["part_id"])
+
+
+def _lexical_candidate(row: sqlite3.Row) -> _Candidate:
+    source = _source_revision(row)
+    locator = _locator_from_json(str(row["locator_json"]))
+    return _Candidate(
+        source=source,
+        part_id=identity_digest(
+            "lexical_source_part", {"source": source, "locator": locator}
+        ),
+        producer_recipe_id="frisket.lexical.whole-source.v1",
+        part_kind="lexical_source",
+        locator=locator,
+        binding=_binding(row),
+        method="lexical",
+        channel="lexical",
+        raw_score=float(row["raw_score"]),
+        representation_id=None,
+        space_id=None,
+        group_key=str(row["group_key"]),
+        group_hit_count=int(row["group_hit_count"]),
+        additional_binding_count=int(row["binding_count"]) - 1,
+        lexical_rowid=int(row["lexical_rowid"]),
+        lexical_content_hash=str(row["lexical_content_hash"]),
+    )
+
+
+def _semantic_candidate(row: sqlite3.Row) -> _Candidate:
+    return _Candidate(
+        source=_source_revision(row),
+        part_id=str(row["part_id"]),
+        producer_recipe_id=str(row["recipe_id"]),
+        part_kind=str(row["part_kind"]),
+        locator=_locator_from_json(str(row["locator_json"])),
+        binding=_binding(row),
+        method="semantic",
+        channel=str(row["channel"]),
+        raw_score=float(row["similarity"]),
+        representation_id=str(row["representation_id"]),
+        space_id=str(row["space_id"]),
+        group_key=str(row["group_key"]),
+        group_hit_count=int(row["group_hit_count"]),
+        additional_binding_count=int(row["binding_count"]) - 1,
+    )
+
+
+def _hydrate_lexical(
+    reader: PinnedRetrievalReader,
+    candidates: list[_Candidate],
+    query: str,
+    *,
+    literal_query: str,
+) -> list[_Candidate]:
+    hydrated: list[tuple[_Candidate, str]] = []
+    for candidate in candidates:
+        try:
+            text = resolve_source_text(
+                reader,
+                source=candidate.source,
+                locator=candidate.locator,
+                binding=candidate.binding,
+            )
+        except UnsupportedLexicalSourceError as exc:
+            raise RetrievalQueryError("lexical_source_unavailable", str(exc)) from exc
+        if text is None or input_hash(text) != candidate.lexical_content_hash:
+            continue
+        hydrated.append((candidate, text))
+    start_marker, end_marker = _lexical_snippet_markers(
+        tuple(text for _candidate, text in hydrated)
+    )
+    snippets: dict[int, tuple[str, str | None]] = {}
+    for offset in range(0, len(hydrated), MAX_SNIPPET_CANDIDATES):
+        snippets.update(
+            native_snippets(
+                reader.db,
+                query,
+                [
+                    {"index_id": index, "content": text}
+                    for index, (_candidate, text) in enumerate(
+                        hydrated[offset : offset + MAX_SNIPPET_CANDIDATES],
+                        start=offset + 1,
+                    )
+                ],
+                start_marker=start_marker,
+                end_marker=end_marker,
+                include_rerank=True,
+            )
+        )
+    located: list[_Candidate] = []
+    for index, (candidate, text) in enumerate(hydrated, start=1):
+        if index not in snippets:
+            continue
+        snippet, rerank_text = snippets[index]
+        exact_range = _unique_lexical_range(
+            text,
+            literal_query,
+            snippet,
+            start_marker=start_marker,
+            end_marker=end_marker,
+        )
+        locator = candidate.locator
+        text_range = locator.text
+        if (
+            exact_range is not None
+            and text_range is not None
+            and text_range.start <= exact_range[0]
+            and exact_range[1] <= text_range.end
+        ):
+            lexical_exact = True
+            locator = replace(
+                locator,
+                text=replace(
+                    text_range,
+                    start=exact_range[0],
+                    end=exact_range[1],
+                ),
+            )
+        else:
+            lexical_exact = False
+        located.append(
+            replace(
+                candidate,
+                locator=locator,
+                snippet=snippet.replace(start_marker, "<b>").replace(
+                    end_marker, "</b>"
+                ),
+                rerank_text=(rerank_text or "")[:1024],
+                lexical_exact=lexical_exact,
+            )
+        )
+    return located
+
+
+def _lexical_snippet_markers(texts: Sequence[str]) -> tuple[str, str]:
+    """Choose deterministic SQLite markers that cannot be source text."""
+
+    suffix = 0
+    while True:
+        start_marker = f"[[FRISKET_SEARCH_HIT_{suffix}_START]]"
+        end_marker = f"[[FRISKET_SEARCH_HIT_{suffix}_END]]"
+        if all(start_marker not in text and end_marker not in text for text in texts):
+            return start_marker, end_marker
+        suffix += 1
+
+
+def _unique_lexical_range(
+    text: str,
+    literal_query: str,
+    snippet: str,
+    *,
+    start_marker: str,
+    end_marker: str,
+) -> tuple[int, int] | None:
+    """Locate one SQLite-selected lexical anchor without interpreting FTS syntax."""
+
+    anchors: list[str] = []
+    marker_start = 0
+    while (start := snippet.find(start_marker, marker_start)) >= 0:
+        anchor_start = start + len(start_marker)
+        end = snippet.find(end_marker, anchor_start)
+        if end < 0:
+            return None
+        anchors.append(snippet[anchor_start:end])
+        marker_start = end + len(end_marker)
+    if not anchors or any(not anchor for anchor in anchors):
+        return None
+
+    marked_ranges: list[tuple[int, int]] = []
+    for anchor in anchors:
+        pattern = re.compile(re.escape(anchor), re.IGNORECASE)
+        first = pattern.search(text)
+        if first is None or pattern.search(text, first.start() + 1) is not None:
+            return None
+        marked_ranges.append(first.span())
+
+    literal = literal_query.strip()
+    if literal:
+        pattern = re.compile(re.escape(literal), re.IGNORECASE)
+        literal_ranges = [match.span() for match in pattern.finditer(text)]
+        marked_start = min(start for start, _end in marked_ranges)
+        marked_end = max(end for _start, end in marked_ranges)
+        aligned = [
+            span
+            for span in literal_ranges
+            if (
+                len(marked_ranges) == 1
+                and marked_ranges[0][0] <= span[0]
+                and span[1] <= marked_ranges[0][1]
+            )
+            or span == (marked_start, marked_end)
+        ]
+        if len(aligned) == 1:
+            return aligned[0]
+    if len(marked_ranges) == 1:
+        return marked_ranges[0]
+    return None
+
+
+def _attach_binding_dependencies(
+    reader: PinnedRetrievalReader, candidates: list[_Candidate]
+) -> list[_Candidate]:
+    binding_ids = tuple(dict.fromkeys(row.binding.binding_id for row in candidates))
+    if not binding_ids:
+        return candidates
+    rows = reader.db.execute(
+        "SELECT binding.binding_id,dependency.row_id,dependency.column_id,"
+        "dependency.retrieval_revision "
+        "FROM idx.binding_dependencies AS dependency "
+        "JOIN idx.bindings AS binding ON binding.binding_key=dependency.binding_key "
+        "JOIN json_each(?) AS selected "
+        "ON selected.type='text' AND selected.value=binding.binding_id "
+        "ORDER BY binding.binding_id,dependency.column_id,dependency.row_id",
+        (json.dumps(binding_ids),),
+    ).fetchall()
+    by_binding: dict[str, list[BindingRevision]] = defaultdict(list)
+    for row in rows:
+        by_binding[str(row["binding_id"])].append(
+            BindingRevision(
+                row_id=int(row["row_id"]),
+                column_id=int(row["column_id"]),
+                retrieval_revision=int(row["retrieval_revision"]),
+            )
+        )
+    return [
+        replace(
+            candidate,
+            binding=replace(
+                candidate.binding,
+                dependencies=tuple(by_binding[candidate.binding.binding_id]),
+            ),
+        )
+        for candidate in candidates
+    ]
+
+
+def _hydrate_semantic(
+    reader: PinnedRetrievalReader, candidates: list[_Candidate]
+) -> list[_Candidate]:
+    hydrated: list[_Candidate] = []
+    for candidate in candidates:
+        text_range = candidate.locator.text
+        column_id = candidate.binding.column_id
+        if text_range is None or column_id is None:
+            hydrated.append(candidate)
+            continue
+        try:
+            text = resolve_source_text(
+                reader,
+                source=candidate.source,
+                locator=candidate.locator,
+                binding=candidate.binding,
+            )
+        except UnsupportedLexicalSourceError as exc:
+            raise RetrievalQueryError("source_text_unavailable", str(exc)) from exc
+        if text is None or input_hash(text) != text_range.content_hash:
+            continue
+        if text_range.end > len(text):
+            continue
+        context_start = max(0, text_range.start - 100)
+        context_end = min(len(text), text_range.end + 100)
+        snippet = (
+            text[context_start : text_range.start]
+            + "<b>"
+            + text[text_range.start : text_range.end]
+            + "</b>"
+            + text[text_range.end : context_end]
+        )
+        hydrated.append(
+            replace(
+                candidate,
+                snippet=snippet,
+                rerank_text=text[context_start:context_end][:1024],
+            )
+        )
+    return hydrated
+
+
+def _single_method_groups(
+    candidates: list[_Candidate], request: SearchRequest
+) -> list[ResultGroup]:
+    del request
+    groups: list[ResultGroup] = []
+    for rank, (key, grouped) in enumerate(_candidate_groups(candidates), start=1):
+        hits = tuple(
+            _located_hit(candidate, rank=rank, rank_score=1.0 / rank)
+            for candidate in grouped
+        )
+        groups.append(
+            ResultGroup(
+                group_key=key,
+                primary=hits[0],
+                supporting=hits[1:],
+                additional_count=max(grouped[0].group_hit_count - len(hits), 0),
+            )
+        )
+    return groups
+
+
+def _hybrid_groups(
+    lexical: list[_Candidate], semantic: list[_Candidate], request: SearchRequest
+) -> list[ResultGroup]:
+    lexical_by_key = dict(_candidate_groups(lexical))
+    semantic_by_key = dict(_candidate_groups(semantic))
+    fused = reciprocal_rank_fusion(
+        [list(semantic_by_key), list(lexical_by_key)], k=request.ranking.k_rrf
+    )
+    groups: list[ResultGroup] = []
+    for fused_rank, item in enumerate(fused, start=1):
+        key = str(item.key)
+        semantic_candidates = semantic_by_key.get(key, [])
+        lexical_candidates = lexical_by_key.get(key, [])
+        primary = (semantic_candidates or lexical_candidates or [None])[0]
+        if primary is None:
+            continue
+        semantic_rank, lexical_rank = item.ranks
+        candidates = _interleave_candidates(semantic_candidates, lexical_candidates)
+        hits = [
+            _located_hit(
+                candidate,
+                rank=(semantic_rank if candidate.method == "semantic" else lexical_rank)
+                or fused_rank,
+                rank_score=item.score,
+            )
+            for candidate in candidates[:_GROUP_HIT_LIMIT]
+        ]
+        hit = hits[0]
+        contributions: list[RetrievalContribution] = []
+        if semantic_candidates and semantic_rank is not None:
+            contributions.append(_contribution(semantic_candidates[0], semantic_rank))
+        if lexical_candidates and lexical_rank is not None:
+            lexical_primary = lexical_candidates[0]
+            if not semantic_candidates or lexical_primary.source == primary.source:
+                contributions.append(_contribution(lexical_primary, lexical_rank))
+                if hit.snippet is None:
+                    hit = replace(hit, snippet=lexical_primary.snippet)
+        hit = replace(hit, contributions=tuple(contributions))
+        total = sum(
+            rows[0].group_hit_count
+            for rows in (semantic_candidates, lexical_candidates)
+            if rows
+        )
+        groups.append(
+            ResultGroup(
+                group_key=key,
+                primary=hit,
+                supporting=tuple(hits[1:]),
+                additional_count=max(total - len(hits), 0),
+            )
+        )
+    return groups
+
+
+def _candidate_groups(
+    candidates: list[_Candidate],
+) -> list[tuple[str, list[_Candidate]]]:
+    groups: list[tuple[str, list[_Candidate]]] = []
+    for candidate in candidates:
+        if groups and groups[-1][0] == candidate.group_key:
+            groups[-1][1].append(candidate)
+        else:
+            groups.append((candidate.group_key, [candidate]))
+    return groups
+
+
+def _interleave_candidates(
+    semantic: list[_Candidate], lexical: list[_Candidate]
+) -> list[_Candidate]:
+    candidates: list[_Candidate] = []
+    for index in range(max(len(semantic), len(lexical))):
+        if index < len(semantic):
+            candidates.append(semantic[index])
+        if index < len(lexical):
+            candidates.append(lexical[index])
+    return candidates
+
+
+def _located_hit(candidate: _Candidate, *, rank: int, rank_score: float) -> LocatedHit:
+    return LocatedHit(
+        part=IndexedPart(
+            part_id=candidate.part_id,
+            source=candidate.source,
+            producer_recipe_id=candidate.producer_recipe_id,
+            part_kind=candidate.part_kind,
+            locator=candidate.locator,
+        ),
+        binding=candidate.binding,
+        contributions=(_contribution(candidate, rank),),
+        rank_score=rank_score,
+        precision=(
+            "source_unit"
+            if (candidate.method == "lexical" and not candidate.lexical_exact)
+            or candidate.part_kind == "transcript_chunk"
+            else "exact"
+        ),
+        snippet=candidate.snippet,
+        additional_binding_count=candidate.additional_binding_count,
+    )
+
+
+def _contribution(candidate: _Candidate, rank: int) -> RetrievalContribution:
+    return RetrievalContribution(
+        method=candidate.method,
+        channel=candidate.channel,
+        rank=rank,
+        representation_id=candidate.representation_id,
+        space_id=candidate.space_id,
+        score=candidate.raw_score,
+    )
+
+
+def _rerank_query_text(request: SearchRequest) -> str | None:
+    if isinstance(request.query, TextQuery):
+        return request.query.text
+    if isinstance(request.query, WeightedSemanticQuery):
+        return " ".join(term.text for term in request.query.terms)
+    return None
+
+
+def _source_revision(row: sqlite3.Row) -> SourceRevision:
+    value: int | str = (
+        int(row["version_value"])
+        if row["version_type"] == "integer"
+        else str(row["version_value"])
+    )
+    return SourceRevision(
+        source_id=str(row["source_id"]),
+        source_kind=str(row["source_kind"]),
+        version_kind=str(row["version_kind"]),
+        version_value=value,
+        content_hash=None if row["content_hash"] is None else str(row["content_hash"]),
+    )
+
+
+def _binding(row: sqlite3.Row) -> ScopedBinding:
+    return ScopedBinding(
+        binding_id=str(row["binding_id"]),
+        sheet_id=int(row["sheet_id"]),
+        row_id=int(row["row_id"]),
+        column_id=None if row["column_id"] is None else int(row["column_id"]),
+    )
+
+
+def _locator_from_json(raw: str) -> SourceLocator:
+    value = json.loads(raw)
+    text = value.get("text")
+    pages = value.get("pages")
+    time = value.get("time")
+    return SourceLocator(
+        kind=str(value["kind"]),
+        text=None if text is None else TextRange(**text),
+        pages=None if pages is None else PageRange(**pages),
+        time=None if time is None else TimeRange(**time),
+        source_span_ids=tuple(value.get("source_span_ids", ())),
+    )
+
+
+def _binding_is_current(binding: str) -> str:
+    return (
+        "EXISTS (SELECT 1 FROM idx.binding_dependencies AS required_dependency "
+        f"WHERE required_dependency.binding_key={binding}.binding_key) AND NOT EXISTS ("
+        "SELECT 1 FROM idx.binding_dependencies AS dependency "
+        "WHERE dependency.binding_key="
+        f"{binding}.binding_key AND dependency.retrieval_revision != COALESCE(("
+        "SELECT current_head.retrieval_revision FROM main.current_cells AS current_head "
+        "WHERE current_head.column_id=dependency.column_id "
+        "AND current_head.row_id=dependency.row_id),0))"
+    )
+
+
+def _visible_column(binding: str) -> str:
+    return (
+        f"(({binding}.column_id IS NOT NULL AND EXISTS ("
+        "SELECT 1 FROM main.columns AS visible_column "
+        f"WHERE visible_column.id={binding}.column_id "
+        f"AND visible_column.sheet_id={binding}.sheet_id "
+        "AND visible_column.hidden=0)) OR "
+        f"({binding}.column_id IS NULL AND NOT EXISTS ("
+        "SELECT 1 FROM idx.binding_dependencies AS dependency "
+        "LEFT JOIN main.columns AS dependency_column "
+        "ON dependency_column.id=dependency.column_id "
+        f"AND dependency_column.sheet_id={binding}.sheet_id "
+        f"WHERE dependency.binding_key={binding}.binding_key "
+        "AND (dependency_column.id IS NULL OR dependency_column.hidden!=0))))"
+    )
+
+
+def _sql_source_key(alias: str) -> str:
+    return (
+        f"printf('source:%s:%s:%s:%s',{alias}.source_id,{alias}.version_kind,"
+        f"{alias}.version_type,{alias}.version_value)"
+    )
+
+
+def _semantic_dataset_filter(
+    request: SearchRequest,
+) -> tuple[str, str, tuple[Any, ...]]:
+    if request.named_index_id is None:
+        return "", "", ()
+    return (
+        "JOIN idx.named_dataset_membership AS dataset_member "
+        "ON dataset_member.part_key=part.part_key "
+        "AND dataset_member.representation_key=representation.representation_key",
+        "AND dataset_member.dataset_id=?",
+        (request.named_index_id,),
+    )
+
+
+def _lexical_dataset_filter(request: SearchRequest) -> tuple[str, str, tuple[Any, ...]]:
+    # A saved hybrid query combines sheet keywords with a named semantic index.
+    # Its keyword arm is not restricted to rows having a vector in that index.
+    if request.named_index_id is None or request.mode == "hybrid":
+        return "", "", ()
+    return (
+        "",
+        f"""AND EXISTS (
+          SELECT 1 FROM idx.named_dataset_membership AS dataset_member
+          JOIN idx.parts AS dataset_part
+            ON dataset_part.part_key=dataset_member.part_key
+          JOIN idx.bindings AS dataset_binding
+            ON dataset_binding.source_key=dataset_part.source_key
+          WHERE dataset_member.dataset_id=?
+            AND dataset_binding.sheet_id=retrieval_binding.sheet_id
+            AND dataset_binding.row_id=retrieval_binding.row_id
+            AND {_binding_is_current("dataset_binding")}
+        )""",
+        (request.named_index_id,),
+    )
+
+
+def _encode_version(value: int | str) -> tuple[str, str]:
+    return (str(value), "integer") if isinstance(value, int) else (value, "text")
+
+
+def _quoted_fts(value: str) -> str:
+    return '"' + value.replace('"', '""') + '"'
+
+
+def _is_fts_syntax_error(error: sqlite3.OperationalError) -> bool:
+    message = str(error).lower()
+    # FTS treats punctuation in ordinary identifiers (ORCHID-79, Case:123)
+    # as column-filter syntax. Retry these as literal text as well.
+    return (
+        "fts5" in message
+        or "syntax error" in message
+        or "unterminated" in message
+        or message.startswith("no such column:")
+    )
+
+
+def _empty_response(request: SearchRequest) -> SearchResponse:
+    effective = ("lexical", "semantic") if request.mode == "hybrid" else (request.mode,)
+    return SearchResponse(
+        results=(),
+        coverage=SearchCoverage(
+            requested_mode=request.mode,
+            effective_modes=effective,
+            state="complete",
+            searched_channels=(),
+            is_top_k=True,
+            truncated=False,
+        ),
+    )

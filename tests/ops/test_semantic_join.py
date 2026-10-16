@@ -18,7 +18,7 @@ from frisket.engine.executor import run_action_spec
 from frisket.engine.executor.semantic_join_matcher import AdmittedSemanticMatcher
 from frisket.engine.executor.semantic_join_program import semantic_join_references
 from frisket.ops.base import OpContext
-from frisket.semantic import resolve_embedder as _REAL_RESOLVE_EMBEDDER
+from frisket.ai.embeddings.backends import resolve_embedder as _REAL_RESOLVE_EMBEDDER
 from frisket.engine.runner.review import review_queue
 from frisket.engine.store import Project
 from http_test_helpers import drain_queue
@@ -37,10 +37,17 @@ def _fake_embed(texts):
     return [VECS[text] for text in texts]
 
 
+_fake_embed.embedding_dimension = 3
+
+
+def _openai_vector(text: str) -> list[float]:
+    return [*VECS[text], *([0.0] * (1536 - len(VECS[text])))]
+
+
 @pytest.fixture(autouse=True)
 def _stub_embedder(monkeypatch):
     monkeypatch.setattr(
-        "frisket.semantic.resolve_embedder",
+        "frisket.ai.embeddings.backends.resolve_embedder",
         lambda router=None, **_kw: (_fake_embed, "stub/test-v1"),
     )
 
@@ -311,7 +318,7 @@ def test_missing_sources_refuse_before_embedding_or_mutation(
     p, a, b, *_ = _project_with_location(tmp_path)
     calls = []
     monkeypatch.setattr(
-        "frisket.semantic.resolve_embedder",
+        "frisket.ai.embeddings.backends.resolve_embedder",
         lambda *args, **kwargs: (lambda texts: calls.append(texts), "stub/test"),
     )
     target = change.pop("target_sheet_id", b)
@@ -343,7 +350,7 @@ def test_self_join_rejected(tmp_path):
 def test_no_embedding_backend_fails_honestly(tmp_path, monkeypatch):
     p, a, b, *_ = _project(tmp_path)
     monkeypatch.setattr(
-        "frisket.semantic.resolve_embedder", lambda *args, **kwargs: None
+        "frisket.ai.embeddings.backends.resolve_embedder", lambda *args, **kwargs: None
     )
     try:
         result = run_action_spec(p, _request(a, b), project_id="test")
@@ -358,7 +365,7 @@ def test_no_embedding_backend_fails_honestly(tmp_path, monkeypatch):
 @pytest.mark.network
 @pytest.mark.real
 def test_local_embedder_path_smoke(tmp_path, monkeypatch):
-    from frisket.semantic import local_embedder
+    from frisket.ai.embeddings.backends import local_embedder
 
     backend = local_embedder()
     if backend is None:
@@ -759,7 +766,8 @@ def test_semantic_join_endpoint_maps_user_errors_to_400(tmp_path):
 
 def test_semantic_join_endpoint_maps_embedding_failure_clearly(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        "frisket.semantic.resolve_embedder", lambda router=None, **_kw: None
+        "frisket.ai.embeddings.backends.resolve_embedder",
+        lambda router=None, **_kw: None,
     )
     client = _client(tmp_path)
     pid, donors, registry = _api_project(client)
@@ -793,16 +801,18 @@ def test_semantic_join_remote_embedder_gates_before_any_embed_call(
     RECORDS every embed call. confirmed=false must yield the 402
     needs_confirmation envelope with ZERO embed calls and no run/job — the
     remote spend is gated BEFORE any egress."""
-    from frisket import semantic as semantic_module
+    from frisket.ai.embeddings import backends as embedding_backends
     from frisket.server.app import create_app
 
     # undo this module's autouse resolve_embedder stub: the fence needs the
     # real resolution (local disabled -> remote fallback), not a fake backend
-    monkeypatch.setattr("frisket.semantic.resolve_embedder", _REAL_RESOLVE_EMBEDDER)
+    monkeypatch.setattr(
+        "frisket.ai.embeddings.backends.resolve_embedder", _REAL_RESOLVE_EMBEDDER
+    )
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
     monkeypatch.setenv("FRISKET_ENABLE_PROVIDERLESS_CLASSIFY", "1")
     monkeypatch.setenv("FRISKET_PROVIDERLESS_CLASSIFY_THREADS", "2")
-    assert semantic_module.local_embedder() is None
+    assert embedding_backends.local_embedder() is None
 
     embed_calls = _patch_async_remote_embedding(monkeypatch)
     router = ModelRouter(
@@ -843,12 +853,14 @@ def test_semantic_join_tiny_known_zero_quote_is_preapproved(tmp_path, monkeypatc
     case exercises a priced remote model whose exact quote is below half a
     micro-dollar, so the canonical billed amount is $0.0 and can queue.
     """
-    from frisket import semantic as semantic_module
+    from frisket.ai.embeddings import backends as embedding_backends
     from frisket.server.app import create_app
 
-    monkeypatch.setattr("frisket.semantic.resolve_embedder", _REAL_RESOLVE_EMBEDDER)
+    monkeypatch.setattr(
+        "frisket.ai.embeddings.backends.resolve_embedder", _REAL_RESOLVE_EMBEDDER
+    )
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
-    assert semantic_module.local_embedder() is None
+    assert embedding_backends.local_embedder() is None
     # Price the remote embed model so cheap the 6-decimal rounding lands on
     # exactly 0.0 for this corpus ($0.001/MTok input).
     from frisket.ai.llm import ModelPricing
@@ -877,7 +889,9 @@ def test_semantic_join_tiny_known_zero_quote_is_preapproved(tmp_path, monkeypatc
     estimate = estimate_response.json()["estimate"]
     assert estimate["cost"] == 0.0
     assert estimate["cost_source"] == "pricing_data"
-    assert estimate["pricing_key"] == f"{semantic_module.REMOTE_EMBED_MODEL}.tokens"
+    assert estimate["pricing_key"] == (
+        f"{embedding_backends.REMOTE_EMBED_MODEL}.tokens"
+    )
     assert embed_calls == []
 
     response = client.post(
@@ -903,7 +917,7 @@ def _patch_async_remote_embedding(monkeypatch):
         batch = list(texts)
         calls.append(batch)
         return build_batch_result(
-            [VECS[text] for text in batch],
+            [_openai_vector(text) for text in batch],
             provider_id="openai",
             provider_kind="platform_api",
             requested_model="text-embedding-3-small",
@@ -924,7 +938,7 @@ def _patch_paid_remote_result(monkeypatch):
     dual-shape seam while retaining each batch for the money-path assertions.
     """
     from frisket.ai.embeddings import build_batch_result
-    from frisket.semantic import REMOTE_EMBED_MODEL
+    from frisket.ai.embeddings.backends import REMOTE_EMBED_MODEL
 
     paid_results = []
 
@@ -937,7 +951,7 @@ def _patch_paid_remote_result(monkeypatch):
         def embed(texts):
             batch = list(texts)
             result = build_batch_result(
-                [VECS[text] for text in batch],
+                [_openai_vector(text) for text in batch],
                 provider_id="openai",
                 provider_kind="platform_api",
                 requested_model="text-embedding-3-small",
@@ -954,7 +968,9 @@ def _patch_paid_remote_result(monkeypatch):
 
         return embed, REMOTE_EMBED_MODEL
 
-    monkeypatch.setattr("frisket.semantic.resolve_embedder", resolve_paid_remote)
+    monkeypatch.setattr(
+        "frisket.ai.embeddings.backends.resolve_embedder", resolve_paid_remote
+    )
     return paid_results
 
 
@@ -1012,7 +1028,9 @@ def test_remote_semantic_join_refuses_exhausted_project_key_before_queue_or_embe
     from frisket.server.app import create_app
     from frisket.team.security.secrets import encrypt_secret, key_hint
 
-    monkeypatch.setattr("frisket.semantic.resolve_embedder", _REAL_RESOLVE_EMBEDDER)
+    monkeypatch.setattr(
+        "frisket.ai.embeddings.backends.resolve_embedder", _REAL_RESOLVE_EMBEDDER
+    )
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
     embed_calls = _patch_async_remote_embedding(monkeypatch)
     client = TestClient(
@@ -1091,7 +1109,9 @@ def test_remote_semantic_join_completes_through_the_async_router_bridge(
     from frisket.server.app import create_app
     from frisket.team.security.secrets import encrypt_secret, key_hint
 
-    monkeypatch.setattr("frisket.semantic.resolve_embedder", _REAL_RESOLVE_EMBEDDER)
+    monkeypatch.setattr(
+        "frisket.ai.embeddings.backends.resolve_embedder", _REAL_RESOLVE_EMBEDDER
+    )
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
     embed_calls = _patch_async_remote_embedding(monkeypatch)
     client = TestClient(
@@ -1275,7 +1295,7 @@ def test_remote_semantic_join_retry_refuses_to_rebuy_fact_without_cached_vectors
     buy again under fresh run-scoped call identities and must account for that
     spend truthfully.
     """
-    from frisket import semantic as semantic_module
+    from frisket.retrieval.store import RetrievalStore
     from frisket.team.security.secrets import encrypt_secret, key_hint
 
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
@@ -1294,33 +1314,21 @@ def test_remote_semantic_join_retry_refuses_to_rebuy_fact_without_cached_vectors
         cache_mode="off",
         use_env_keys=False,
     )
-    real_sidecar = semantic_module._vector_cache
+    real_put = RetrievalStore.put_representations
     failed_once = False
 
-    class FailAfterFactBeforeVectors:
-        def __init__(self, db):
-            self._db = db
-
-        def __getattr__(self, name):
-            return getattr(self._db, name)
-
-        def executemany(self, statement, rows):
-            del statement, rows
+    def fail_first_sidecar_write(self, representations):
+        nonlocal failed_once
+        if not failed_once:
+            failed_once = True
             assert (
                 project.db.execute("SELECT COUNT(*) FROM model_calls").fetchone()[0]
                 == 1
             )
             raise RuntimeError("injected vector sidecar commit failure")
+        return real_put(self, representations)
 
-    def fail_first_sidecar_write(owner):
-        nonlocal failed_once
-        db = real_sidecar(owner)
-        if failed_once:
-            return db
-        failed_once = True
-        return FailAfterFactBeforeVectors(db)
-
-    monkeypatch.setattr(semantic_module, "_vector_cache", fail_first_sidecar_write)
+    monkeypatch.setattr(RetrievalStore, "put_representations", fail_first_sidecar_write)
     request = _request(
         source_sheet,
         target_sheet,
@@ -1667,7 +1675,7 @@ def test_direct_join_semantic_stale_clear_retry_resumes_abandoned_run(
 def test_semantic_join_worker_refuses_undeclared_remote_fallback(tmp_path, monkeypatch):
     """A local enqueue decision cannot silently become remote in the worker."""
     monkeypatch.setattr(
-        "frisket.semantic.resolve_embedder",
+        "frisket.ai.embeddings.backends.resolve_embedder",
         lambda router=None, **_kw: (_fake_embed, "fastembed/test-local"),
     )
     client = _client(tmp_path)
@@ -1683,10 +1691,10 @@ def test_semantic_join_worker_refuses_undeclared_remote_fallback(tmp_path, monke
 
     def remote_embed(texts):
         remote_calls.append(list(texts))
-        return [[1.0, 0.0, 0.0] for _ in texts]
+        return [[1.0, *([0.0] * 1535)] for _ in texts]
 
     monkeypatch.setattr(
-        "frisket.semantic.resolve_embedder",
+        "frisket.ai.embeddings.backends.resolve_embedder",
         lambda router=None, **_kw: (remote_embed, "openai/text-embedding-3-small"),
     )
     drain_queue(client)

@@ -67,17 +67,84 @@ def test_present_key_reports_present_without_leaking_value(tmp_path):
     assert secret not in blob
 
 
-def test_disable_local_embed_reports_disabled_and_skips_local_proof(tmp_path):
-    report = report_embeddings(
-        env={"FRISKET_DISABLE_LOCAL_EMBED": "1"},
-        router=_FakeRouter([]),
-        workspace_root=tmp_path,
+def test_local_retrieval_reports_vec1_and_pinned_model_without_starting_runtime(
+    tmp_path, monkeypatch
+):
+    from frisket.engine._workers import embeddinggemma_artifacts
+    from frisket.operability.doctor import embeddings
+    from frisket.runtime import embeddinggemma_install
+
+    native = tmp_path / "vec1.so"
+    native.write_bytes(b"native")
+    cached = tmp_path / "model"
+    cached.mkdir()
+    monkeypatch.setattr("frisket.retrieval.native.packaged_vec1_path", lambda: native)
+    monkeypatch.setattr(
+        "frisket.retrieval.native.load_vec1", lambda _connection: "version 0.8 test"
     )
-    fe = report["fastembed"]
-    assert fe["disabled_by_env"] is True
-    local = report["live_proofs"]["local_real"]
-    assert local["status"] == "would_skip"
-    assert local.get("reason")
+    monkeypatch.setattr(
+        embeddinggemma_artifacts, "cached_embeddinggemma_path", lambda: cached
+    )
+    monkeypatch.setattr(embeddinggemma_install, "is_installed", lambda: True)
+
+    report = embeddings.report_embeddings(
+        env={}, router=_FakeRouter([]), workspace_root=tmp_path
+    )
+
+    local = report["local_retrieval"]
+    assert local["vec1"] == {
+        "available": True,
+        "path": str(native),
+        "version": "version 0.8 test",
+    }
+    assert local["embeddinggemma"]["ready"] is True
+    assert local["embeddinggemma"]["cache_path"] == str(cached)
+    assert report["live_proofs"]["local_retrieval"]["status"] == "would_run"
+
+
+def test_local_retrieval_unavailable_is_reported_without_leaking_exception(
+    monkeypatch, caplog
+):
+    from frisket.operability.doctor import embeddings
+
+    def unavailable():
+        raise RuntimeError("sensitive path: /private/operator/vec1.so")
+
+    monkeypatch.setattr("frisket.retrieval.native.packaged_vec1_path", unavailable)
+
+    report = embeddings.report_embeddings(env={}, router=_FakeRouter([]))
+
+    assert report["local_retrieval"]["vec1"]["available"] is False
+    assert report["local_retrieval"]["vec1"]["detail"] == (
+        "Packaged Vec1 readiness check failed; inspect server logs"
+    )
+    assert "/private/operator/vec1.so" not in json.dumps(report)
+    assert "Packaged Vec1 readiness check failed" in caplog.text
+    assert report["live_proofs"]["local_retrieval"]["status"] == "would_skip"
+
+
+def test_embeddinggemma_readiness_failure_does_not_leak_exception(monkeypatch, caplog):
+    from frisket.engine._workers import embeddinggemma_artifacts
+    from frisket.operability.doctor import embeddings
+
+    def unavailable():
+        raise RuntimeError("sensitive path: /private/operator/model-cache")
+
+    monkeypatch.setattr(
+        embeddinggemma_artifacts, "embeddinggemma_artifact", unavailable
+    )
+
+    report = embeddings.report_embeddings(env={}, router=_FakeRouter([]))
+
+    local = report["local_retrieval"]["embeddinggemma"]
+    assert local == {
+        "runtime_installed": False,
+        "model_cached": False,
+        "ready": False,
+        "detail": "EmbeddingGemma readiness check failed; inspect server logs",
+    }
+    assert "/private/operator/model-cache" not in json.dumps(report)
+    assert "EmbeddingGemma readiness check failed" in caplog.text
 
 
 def test_sidecar_unconfigured_when_url_unset(tmp_path):
@@ -95,7 +162,7 @@ def test_cli_doctor_embeddings_exits_zero():
         capture_output=True,
         text=True,
         timeout=120,
-        env={**_clean_env(), "FRISKET_DISABLE_LOCAL_EMBED": "1"},
+        env=_clean_env(),
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "embeddings" in proc.stdout.lower()
@@ -107,11 +174,11 @@ def test_cli_doctor_embeddings_json_flag_exits_zero():
         capture_output=True,
         text=True,
         timeout=120,
-        env={**_clean_env(), "FRISKET_DISABLE_LOCAL_EMBED": "1"},
+        env=_clean_env(),
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
     payload = json.loads(proc.stdout)
-    assert "providers" in payload and "live_proofs" in payload
+    assert "local_retrieval" in payload and "live_proofs" in payload
 
 
 def _clean_env() -> dict[str, str]:

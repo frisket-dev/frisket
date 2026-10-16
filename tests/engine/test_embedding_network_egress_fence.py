@@ -12,7 +12,8 @@ from __future__ import annotations
 
 import pytest
 
-from frisket.ai.embeddings import VectorBackend, build_batch_result
+from frisket.ai.embeddings import build_batch_result
+from unified_embedding_probe import UnifiedEmbeddingProbe
 from frisket.engine.executor import ExecutorDeps, run_action_spec
 from frisket.engine.store import Project
 
@@ -97,7 +98,7 @@ def test_network_off_blocks_remote_backed_refresh_before_egress(project) -> None
     assert result.status == "failed"
     assert result.errors[0].code == "network_disabled"
     assert gw.calls == []  # blocked BEFORE any provider call
-    backend = VectorBackend(project)
+    backend = UnifiedEmbeddingProbe(project)
     backend.ensure_schema()
     assert backend.item_counts(index_id) == {}
     backend.close()

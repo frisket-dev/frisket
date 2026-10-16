@@ -453,6 +453,7 @@ def register_model_pull_handler(
     client_factory: Callable[[], httpx.Client] | None = None,
     artifact_cache_root: Path | None = None,
     artifact_manifest_lookup: Callable[[str], Any] | None = None,
+    on_embedding_setup_done: Callable[[], None] | None = None,
 ) -> HandlerRegistration:
     """Register the ``model.pull`` handler.
 
@@ -528,18 +529,31 @@ def register_model_pull_handler(
             canonical_ref = row.model_ref
 
             from frisket.engine.jobs.engine_setup import (
+                EMBEDDINGGEMMA_SETUP_REF,
                 is_engine_setup_ref,
                 run_engine_setup,
             )
 
             should_cancel = _make_cancel_checker(queue, job_id, engine, pull_id)
             if is_engine_setup_ref(canonical_ref):
-                return run_engine_setup(
+                result = run_engine_setup(
                     engine=engine,
                     pull_id=pull_id,
                     should_cancel=should_cancel,
                     is_final_attempt=is_final_attempt,
                 )
+                if (
+                    result.get("status") == "done"
+                    and canonical_ref == EMBEDDINGGEMMA_SETUP_REF
+                    and on_embedding_setup_done is not None
+                ):
+                    try:
+                        on_embedding_setup_done()
+                    except Exception:
+                        LOG.warning(
+                            "embedding_setup_completion_hook_failed", exc_info=True
+                        )
+                return result
 
             # Route by ref kind. A qualified local-model ref uses the native
             # server flow below; an opus-mt:/hf: artifact ref routes to the HTTP

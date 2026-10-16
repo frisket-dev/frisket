@@ -12,6 +12,7 @@ live server or network.
 import asyncio
 import json
 import sys
+import threading
 
 import httpx
 import pytest
@@ -767,6 +768,50 @@ def test_hosted_backfill_named_refusal_is_structured_not_an_exception() -> None:
 
 
 class TestToolSurface:
+    def test_server_lifespan_closes_local_backend_runtime(self, tmp_path):
+        backend = LocalBackend(tmp_path / "ws")
+        closed = False
+
+        class Runtime:
+            async def aclose(self):
+                nonlocal closed
+                closed = True
+
+        backend.ws.embedding_runtime = Runtime()
+        backend.ws._owns_embedding_runtime = True
+
+        async def go():
+            async with session_for(backend) as session:
+                await session.list_tools()
+
+        asyncio.run(go())
+
+        assert closed is True
+
+    def test_local_backend_shutdown_stops_and_cancels_drain_workers(self, tmp_path):
+        backend = LocalBackend(tmp_path / "ws")
+        stop = threading.Event()
+        runtime_closed = False
+
+        class Runtime:
+            async def aclose(self):
+                nonlocal runtime_closed
+                runtime_closed = True
+
+        backend.ws.embedding_runtime = Runtime()
+        backend.ws._owns_embedding_runtime = True
+
+        async def go():
+            task = asyncio.create_task(asyncio.Event().wait())
+            backend._tasks.add(task)
+            backend._worker_stops[task] = stop
+            await backend.aclose()
+            return task.cancelled()
+
+        assert asyncio.run(go()) is True
+        assert stop.is_set()
+        assert runtime_closed is True
+
     def test_tools_with_typed_schemas(self, tmp_path):
         backend = LocalBackend(tmp_path / "ws")
 
@@ -1010,14 +1055,53 @@ class TestSearch:
         out = call(
             LocalBackend(tmp_path / "ws"),
             "search",
-            {"project_id": "demo", "query": "paving"},
+            {
+                "project_id": "demo",
+                "request": {
+                    "scope": {"kind": "project"},
+                    "query": {"kind": "text", "text": "paving"},
+                    "mode": "lexical",
+                    "ranking": {"rerank": "off"},
+                },
+            },
         )
-        assert out["query"] == "paving"
-        hits = out["results"]
+        assert out["coverage"]["effective_modes"] == ["lexical"]
+        hits = [group["primary"] for group in out["groups"]]
         assert hits and all(
-            {"sheet_id", "row_id", "column_name", "snip"} <= set(h) for h in hits
+            {"binding", "column_name", "snippet", "navigation"} <= set(h) for h in hits
         )
-        assert any("paving" in h["snip"] for h in hits)
+        assert any("paving" in h["snippet"] for h in hits)
+
+    def test_hosted_search_uses_same_scoped_contract(self, tmp_path):
+        from frisket.contracts.http.project_search import ProjectSearchRequest
+        from frisket.server.app import create_app
+        from frisket.search import drain_index
+
+        root = tmp_path / "ws"
+        sheet = seed_workspace(root, ["paving contract", "rail contract"])
+        local = LocalBackend(root)
+        project = local.ws.get("demo")
+        drain_index(project)
+        request = ProjectSearchRequest.model_validate(
+            {
+                "scope": {"kind": "sheets", "sheets": [{"sheet_id": sheet}]},
+                "query": {"kind": "text", "text": "paving"},
+                "mode": "lexical",
+                "ranking": {"rerank": "off"},
+            }
+        )
+        expected = local.search("demo", request)
+
+        async def go():
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=create_app(root)),
+                base_url="http://frisket.test",
+            ) as client:
+                return await HostedBackend(client=client).search("demo", request)
+
+        actual = asyncio.run(go())
+        assert actual == expected
+        assert actual["groups"][0]["primary"]["binding"]["sheet_id"] == sheet
 
 
 class TestRunAction:

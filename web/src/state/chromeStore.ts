@@ -50,6 +50,8 @@ export type DocumentViewVideoFit = 'full' | 'fit-height';
 
 export interface DocumentViewState {
   readerPage?: { rowId: string; page: number };
+  readerTime?: { rowId: string; seconds: number };
+  readerLocationKey?: string;
   sheetId: string;
   sourceColumnId: string | null;
   titleColumnId: string | null;

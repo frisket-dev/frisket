@@ -1,22 +1,4 @@
-"""``embedding_similarity`` retrieval backend for finding similar rows.
-
-A narrow query path over ONE embedding index / space. It is NOT a persisted
-column and NOT a saved view: the result carries per-row distance/similarity as
-query metadata. Two anchors:
-
-- ``row`` / ``row_cell`` — "show similar to this row" using the row's ALREADY
-  stored vector as the query. No provider call.
-- ``manual_text_query`` — embed query text through the gateway. Remote egress is
-  gated on the index provider policy, exactly like a refresh.
-
-All comparison happens inside the index's single ``space_id``; a query that names
-a different space, a mis-dimensioned text embedding, a missing/stale anchor, or
-an unsupported modality fails with a typed error before ranking. Results are
-constrained to the index's sheet and to currently-visible rows.
-
-Not in scope here: UI, saved LensSpec/QuerySpec persistence, watchlists,
-clustering, scheduled refresh, or export.
-"""
+"""Compatibility resolver for named-index similarity on unified retrieval."""
 
 from __future__ import annotations
 
@@ -26,35 +8,53 @@ from dataclasses import dataclass
 from typing import Any
 
 from frisket.engine.store import Project
+from frisket.redaction import redact_text
+from frisket.retrieval.contracts import (
+    BindingRevision,
+    RetrievalScope,
+    ScopedBinding,
+    SearchRequest,
+    SearchResponse,
+    SemanticExclusion,
+    SheetScope,
+    SourceAnchor,
+    WeightedSemanticQuery,
+    WeightedTerm,
+)
+from frisket.retrieval.encoding import EncodingPurpose, TextEncodingInput
+from frisket.retrieval.query import (
+    RetrievalQueryError,
+    RetrievalQueryService,
+    SemanticQueryVectors,
+)
+from frisket.retrieval.ranking import RankingError
+from frisket.retrieval.store import RetrievalStore
 
+from .facade import EmbeddingFacade
 from .gateway import (
     EmbeddingBackendUnavailable,
     EmbeddingGateway,
     EmbeddingProviderError,
 )
-from .source_payload import build_source_payloads, source_hash_for_row
+from .source_payload import build_source_payloads
+from .spaces import DescriptorEmbeddingSpace
 from .store import REMOTE_PROVIDER_KINDS, EmbeddingStore
-from .vector_backend import VectorBackend
+from .unified_index import (
+    dataset_binding_hash,
+    dataset_rows,
+    descriptor_space,
+    plan_named_index_items,
+)
 
 EMBEDDING_SIMILARITY_QUERY_KIND = "embedding_similarity"
 DEFAULT_SIMILARITY_LIMIT = 50
 _EMBEDDABLE_MODALITIES = frozenset({"text", "row"})
 _ROW_ANCHOR_KINDS = frozenset({"row", "row_cell", "vector_ref"})
-# Composed manual_text_query: at most this many weighted terms per query (one
-# gateway batch). Bounds egress + keeps the query a focused steer, not a corpus.
 MAX_QUERY_TERMS = 16
-# Hard NOT: a row whose cosine SCORE to an exclude term is >= this is
-# REMOVED. The default is a moderate cutoff; each exclude term may override it.
 DEFAULT_EXCLUDE_THRESHOLD = 0.5
 
 
 def normalize_manual_text_excludes(anchor: dict[str, Any]) -> list[dict[str, Any]]:
-    """Canonical ``[{text, threshold}]`` for a manual_text_query anchor's optional
-    ``exclude`` (a hard gate that removes rows, distinct from the
-    steering ``terms``). Absent -> []. Each threshold defaults to
-    ``DEFAULT_EXCLUDE_THRESHOLD`` and must be in (0, 1]. Raises ``ValueError`` on a
-    malformed exclude (callers map it to their typed error). Shared by the resolver
-    and the lens normalizer."""
     raw = anchor.get("exclude")
     if raw is None:
         return []
@@ -65,35 +65,27 @@ def normalize_manual_text_excludes(anchor: dict[str, Any]) -> list[dict[str, Any
             f"manual_text_query supports at most {MAX_QUERY_TERMS} exclude terms"
         )
     out: list[dict[str, Any]] = []
-    for i, term in enumerate(raw):
+    for index, term in enumerate(raw):
         if not isinstance(term, dict):
-            raise ValueError(f"exclude {i} must be an object {{text, threshold}}")
-        t = term.get("text")
-        if not isinstance(t, str) or not t.strip():
-            raise ValueError(f"exclude {i} needs non-empty text")
-        thr = term.get("threshold", DEFAULT_EXCLUDE_THRESHOLD)
+            raise ValueError(f"exclude {index} must be an object {{text, threshold}}")
+        text = term.get("text")
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError(f"exclude {index} needs non-empty text")
+        threshold = term.get("threshold", DEFAULT_EXCLUDE_THRESHOLD)
         if (
-            isinstance(thr, bool)
-            or not isinstance(thr, (int, float))
-            or not math.isfinite(thr)
+            isinstance(threshold, bool)
+            or not isinstance(threshold, int | float)
+            or not math.isfinite(threshold)
         ):
-            raise ValueError(f"exclude {i} threshold must be a finite number")
-        thr = float(thr)
-        if not (0.0 < thr <= 1.0):
-            raise ValueError(f"exclude {i} threshold must be in (0, 1]")
-        out.append({"text": t.strip(), "threshold": thr})
+            raise ValueError(f"exclude {index} threshold must be a finite number")
+        threshold = float(threshold)
+        if not 0.0 < threshold <= 1.0:
+            raise ValueError(f"exclude {index} threshold must be in (0, 1]")
+        out.append({"text": text.strip(), "threshold": threshold})
     return out
 
 
 def normalize_manual_text_terms(anchor: dict[str, Any]) -> list[dict[str, Any]]:
-    """Canonical ``[{text, weight}]`` for a ``manual_text_query`` anchor (Stage 7
-    Lane F). Accepts EITHER a single ``text`` (-> one term, weight 1.0) or an
-    explicit ``terms`` list of ``{text, weight}``; weight is a signed float
-    (negative = steer AWAY). Raises ``ValueError`` on a malformed anchor — callers
-    map it to their own typed error (the resolver -> ``SimilarityError``; the lens
-    normalizer lets it propagate as an ``invalid_lens_spec`` ValueError). One
-    definition shared by the resolver and the lens normalizer so they cannot drift.
-    """
     raw_terms = anchor.get("terms")
     text = anchor.get("text")
     if raw_terms is not None and text is not None:
@@ -107,54 +99,24 @@ def normalize_manual_text_terms(anchor: dict[str, Any]) -> list[dict[str, Any]]:
     if len(raw_terms) > MAX_QUERY_TERMS:
         raise ValueError(f"manual_text_query supports at most {MAX_QUERY_TERMS} terms")
     out: list[dict[str, Any]] = []
-    for i, term in enumerate(raw_terms):
+    for index, term in enumerate(raw_terms):
         if not isinstance(term, dict):
-            raise ValueError(f"term {i} must be an object {{text, weight}}")
-        t = term.get("text")
-        if not isinstance(t, str) or not t.strip():
-            raise ValueError(f"term {i} needs non-empty text")
-        w = term.get("weight", 1.0)
+            raise ValueError(f"term {index} must be an object {{text, weight}}")
+        value = term.get("text")
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"term {index} needs non-empty text")
+        weight = term.get("weight", 1.0)
         if (
-            isinstance(w, bool)
-            or not isinstance(w, (int, float))
-            or not math.isfinite(w)
+            isinstance(weight, bool)
+            or not isinstance(weight, int | float)
+            or not math.isfinite(weight)
         ):
-            raise ValueError(f"term {i} weight must be a finite number")
-        out.append({"text": t.strip(), "weight": float(w)})
+            raise ValueError(f"term {index} weight must be a finite number")
+        out.append({"text": value.strip(), "weight": float(weight)})
     return out
 
 
-def _compose_query_vector(
-    vectors: list[list[float]], weights: list[float], dim: int
-) -> list[float]:
-    """One query vector from weighted terms: NORMALIZE each term to unit length,
-    scale by its signed weight, sum, then normalize the result. Normalizing each
-    term first keeps term magnitude (sentence length) from skewing the lean; a
-    negative weight subtracts (steers away). A composed vector that cancels to ~0
-    (e.g. equal-and-opposite terms) is a degenerate query, not a silent all-equal
-    ranking."""
-    acc = [0.0] * dim
-    for vec, weight in zip(vectors, weights):
-        norm = math.sqrt(sum(x * x for x in vec))
-        if norm == 0.0:
-            continue  # a zero term vector contributes no direction
-        scale = weight / norm
-        for i in range(dim):
-            acc[i] += vec[i] * scale
-    total = math.sqrt(sum(x * x for x in acc))
-    if total <= 1e-12:
-        raise SimilarityError(
-            "embedding_composed_query_degenerate",
-            "the composed query vector cancels to zero (terms/weights offset each "
-            "other); adjust the terms or weights",
-            field="anchor.terms",
-        )
-    return [x / total for x in acc]
-
-
 class SimilarityError(Exception):
-    """A similarity query that cannot run. Carries a typed action error code."""
-
     def __init__(
         self,
         code: str,
@@ -176,7 +138,7 @@ class SimilarityHit:
     source_key: str
     sheet_id: int | None
     distance: float
-    score: float | None  # cosine similarity (1 - distance) for cosine spaces
+    score: float | None
 
 
 @dataclass(frozen=True)
@@ -207,6 +169,16 @@ class SimilarityResult:
     binding: EmbeddingQueryBinding
 
 
+def _require_semantic_available(response: SearchResponse) -> None:
+    # Maintained coverage can be unavailable for an empty named dataset and has
+    # no reason. The query service supplies a reason only when it deliberately
+    # falls back because the semantic runtime itself cannot run.
+    for channel in response.coverage.channels:
+        reason = channel.reason
+        if channel.channel == "semantic" and channel.state == "unavailable" and reason:
+            raise SimilarityError("embedding_backend_unavailable", reason)
+
+
 _INDEX_BINDING_COLUMNS = (
     "id",
     "space_id",
@@ -235,81 +207,62 @@ _SPACE_BINDING_COLUMNS = (
 
 
 def _embedding_query_binding(
-    index: Any, space: Any, backend: VectorBackend
+    index: Any, space: Any, retrieval: RetrievalStore
 ) -> EmbeddingQueryBinding:
     return EmbeddingQueryBinding(
         index_id=str(index["id"]),
         index_metadata=tuple(index[column] for column in _INDEX_BINDING_COLUMNS),
         space_metadata=tuple(space[column] for column in _SPACE_BINDING_COLUMNS),
-        sidecar_hash=backend.index_binding(str(index["id"])),
+        sidecar_hash=dataset_binding_hash(retrieval, str(index["id"])),
     )
 
 
 def current_embedding_query_binding(
     project: Project, index_id: str
 ) -> EmbeddingQueryBinding | None:
-    """Read the current metadata + vector binding for an evaluated index."""
-    store = EmbeddingStore(project)
-    index = store.get_index(index_id)
+    metadata = EmbeddingStore(project)
+    index = metadata.get_index(index_id)
     if index is None:
         return None
-    space = store.get_space(index["space_id"])
+    space = metadata.get_space(index["space_id"])
     if space is None:
         return None
-    backend = VectorBackend(project)
-    if not backend.db_path.exists():
-        return None
     try:
-        backend.begin_read_snapshot()
-        return _embedding_query_binding(index, space, backend)
+        with RetrievalStore(project) as retrieval:
+            return _embedding_query_binding(index, space, retrieval)
     except Exception:
         return None
-    finally:
-        backend.close()
 
 
 def _requested_limit(query: dict[str, Any]) -> int:
-    raw = query.get("limit", DEFAULT_SIMILARITY_LIMIT)
-    if isinstance(raw, bool) or not isinstance(raw, int):
-        raise SimilarityError(
-            "invalid_query_spec", "limit must be an integer", field="limit"
-        )
-    if raw <= 0:
+    value = query.get("limit", DEFAULT_SIMILARITY_LIMIT)
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
         raise SimilarityError(
             "invalid_query_spec", "limit must be a positive integer", field="limit"
         )
-    return raw
+    return value
 
 
-def _score_for(metric: str, distance: float) -> float | None:
-    # cosine distance = 1 - cosine similarity; only cosine spaces get a score.
-    return round(1.0 - distance, 6) if metric == "cosine" else None
-
-
-def resolve_embedding_similarity(
-    project: Project,
-    query: dict[str, Any],
-    *,
-    gateway: Any = None,
-    backend: VectorBackend | None = None,
-    effect_project: Project | None = None,
-) -> SimilarityResult:
-    """Resolve an ``embedding_similarity`` QuerySpec into ranked source rows.
-
-    ``gateway`` is only used for a ``manual_text_query`` anchor (and only after
-    the remote-egress gate passes); row anchors never touch it.
-    """
-    if not isinstance(query, dict):
-        raise SimilarityError("invalid_query_spec", "query must be an object")
-    # Lower-case to match the normalizer (specs.py), so a raw query reaching the
-    # resolver directly (the preview path) accepts the same casing a saved spec does.
-    kind = str(query.get("kind") or "").strip().lower()
-    if kind != EMBEDDING_SIMILARITY_QUERY_KIND:
+def _threshold(query: dict[str, Any]) -> float | None:
+    value = query.get("threshold")
+    if value is None:
+        return None
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int | float)
+        or not math.isfinite(value)
+    ):
         raise SimilarityError(
             "invalid_query_spec",
-            f"query kind must be {EMBEDDING_SIMILARITY_QUERY_KIND!r}",
-            field="kind",
+            "threshold must be a finite maximum cosine distance",
+            field="threshold",
         )
+    return float(value)
+
+
+def _load_index(
+    project: Project, query: dict[str, Any]
+) -> tuple[Any, Any, dict[str, Any], DescriptorEmbeddingSpace]:
     index_id = query.get("embedding_index_id")
     if not isinstance(index_id, str) or not index_id.strip():
         raise SimilarityError(
@@ -317,64 +270,93 @@ def resolve_embedding_similarity(
             "embedding_index_id is required",
             field="embedding_index_id",
         )
-
-    store = EmbeddingStore(project)
-    index = store.get_index(index_id)
+    metadata = EmbeddingStore(project)
+    index = metadata.get_index(index_id)
     if index is None:
         raise SimilarityError(
             "embedding_index_not_found",
             f"no embedding index {index_id!r}",
             field="embedding_index_id",
         )
-    space = store.get_space(index["space_id"])
+    space = metadata.get_space(index["space_id"])
     if space is None:
         raise SimilarityError(
             "embedding_index_not_found",
             f"embedding index {index_id!r} references a missing space",
             field="embedding_index_id",
         )
-    space_id = space["id"]
-    # An explicit space_id must match the index's space — never compare across
-    # spaces (exactly one space_id per query).
     requested_space = query.get("space_id")
-    if requested_space is not None and requested_space != space_id:
+    if requested_space is not None and requested_space != space["id"]:
         raise SimilarityError(
             "embedding_space_mismatch",
-            f"query space_id {requested_space!r} is not the index space {space_id!r}",
+            f"query space_id {requested_space!r} is not the index space {space['id']!r}",
             field="space_id",
         )
+    try:
+        descriptor, facade_space = descriptor_space(space)
+    except ValueError as exc:
+        raise SimilarityError("embedding_space_mismatch", str(exc)) from exc
+    if descriptor["distance_metric"] != "cosine":
+        raise SimilarityError(
+            "embedding_metric_unsupported",
+            "named-index retrieval supports cosine spaces only",
+            field="space_id",
+            details={"distance_metric": descriptor["distance_metric"]},
+        )
+    if descriptor["dtype"] != "float32":
+        raise SimilarityError(
+            "embedding_space_mismatch",
+            "named-index retrieval requires float32 vectors",
+            field="space_id",
+        )
+    return index, space, descriptor, facade_space
 
+
+def resolve_embedding_similarity(
+    project: Project,
+    query: dict[str, Any],
+    *,
+    gateway: Any = None,
+    effect_project: Project | None = None,
+) -> SimilarityResult:
+    if not isinstance(query, dict):
+        raise SimilarityError("invalid_query_spec", "query must be an object")
+    if str(query.get("kind") or "").strip().lower() != EMBEDDING_SIMILARITY_QUERY_KIND:
+        raise SimilarityError(
+            "invalid_query_spec",
+            f"query kind must be {EMBEDDING_SIMILARITY_QUERY_KIND!r}",
+            field="kind",
+        )
+    index, space, descriptor, facade_space = _load_index(project, query)
     anchor = query.get("anchor")
     if not isinstance(anchor, dict):
         raise SimilarityError(
             "invalid_query_spec", "anchor must be an object", field="anchor"
         )
-    anchor_kind = str(anchor.get("kind") or "").strip().lower()
     limit = _requested_limit(query)
-    sheet_id = index["sheet_id"]
-    metric = space["distance_metric"]
-    space_dim = int(space["dimension"])
-    source_columns = json.loads(index["source_columns_json"])
+    maximum_distance = _threshold(query)
+    scope = RetrievalScope((SheetScope(sheet_id=int(index["sheet_id"])),))
+    anchor_kind = str(anchor.get("kind") or "").strip().lower()
+    query_use: QueryEmbeddingUse | None = None
+    semantic_vectors: SemanticQueryVectors | None = None
 
-    owned_backend = backend is None
-    backend = backend or VectorBackend(project)
-    if owned_backend:
-        backend.ensure_schema()
-        backend.begin_read_snapshot()
-    try:
+    with RetrievalStore(project) as retrieval:
         if anchor_kind in _ROW_ANCHOR_KINDS:
-            qvec, exclude = _row_anchor_vector(
-                project, backend, index, source_columns, space_dim, anchor
+            request_query = _row_anchor(
+                project, retrieval, index=index, space=space, anchor=anchor
             )
-            query_embedding_use = None
         elif anchor_kind == "manual_text_query":
-            qvec, exclude, query_embedding_use = _manual_text_vector(
-                effect_project if effect_project is not None else project,
-                index,
-                space,
-                anchor,
-                gateway,
-                backend,
+            request_query, semantic_vectors, query_use = _manual_query(
+                project,
+                retrieval,
+                index=index,
+                space=space,
+                descriptor=descriptor,
+                facade_space=facade_space,
+                anchor=anchor,
+                maximum_distance=maximum_distance,
+                gateway=gateway,
+                effect_project=effect_project,
             )
         else:
             raise SimilarityError(
@@ -382,152 +364,81 @@ def resolve_embedding_similarity(
                 f"unsupported anchor kind {anchor_kind!r}",
                 field="anchor.kind",
             )
-
-        hits = _ranked_hits(
-            project,
-            backend,
-            index,
-            space_id,
-            qvec,
-            exclude,
-            sheet_id=sheet_id,
-            source_columns=source_columns,
+        request = SearchRequest(
+            scope=scope,
+            query=request_query,
+            mode="semantic",
+            group_by="row",
             limit=limit,
-            threshold=query.get("threshold"),
-            metric=metric,
+            named_index_id=str(index["id"]),
+            space_id=str(space["id"]),
         )
-        binding = _embedding_query_binding(index, space, backend)
-    finally:
-        if owned_backend:
-            backend.close()
+        try:
+            response = RetrievalQueryService(project).search(
+                request, semantic_vectors=semantic_vectors
+            )
+            _require_semantic_available(response)
+        except RetrievalQueryError as exc:
+            code = (
+                "embedding_source_stale"
+                if exc.code == "source_anchor_not_found"
+                else exc.code
+            )
+            raise SimilarityError(code, str(exc), field="anchor.row_id") from exc
+        except RankingError as exc:
+            raise SimilarityError(
+                "embedding_composed_query_degenerate",
+                "the composed query vector cancels to zero; adjust the terms or weights",
+                field="anchor.terms",
+            ) from exc
+        binding = _embedding_query_binding(index, space, retrieval)
 
+    hits: list[SimilarityHit] = []
+    for group in response.results:
+        hit = group.primary
+        score = next(
+            (
+                contribution.score
+                for contribution in hit.contributions
+                if contribution.method == "semantic"
+            ),
+            None,
+        )
+        if score is None:
+            continue
+        distance = max(0.0, min(2.0, 1.0 - float(score)))
+        if maximum_distance is not None and distance > maximum_distance:
+            continue
+        hits.append(
+            SimilarityHit(
+                row_id=hit.binding.row_id,
+                source_key=str(hit.binding.row_id),
+                sheet_id=hit.binding.sheet_id,
+                distance=round(distance, 6),
+                score=round(float(score), 6),
+            )
+        )
     return SimilarityResult(
-        index_id=index_id,
-        space_id=space_id,
-        sheet_id=sheet_id,
-        distance_metric=metric,
+        index_id=str(index["id"]),
+        space_id=str(space["id"]),
+        sheet_id=int(index["sheet_id"]),
+        distance_metric="cosine",
         anchor=dict(anchor),
         limit=limit,
         hits=hits,
-        query_embedding_use=query_embedding_use,
+        query_embedding_use=query_use,
         binding=binding,
     )
 
 
-def _ranked_hits(
+def _row_anchor(
     project: Project,
-    backend: VectorBackend,
-    index: Any,
-    space_id: str,
-    qvec: list[float],
-    exclude: set[str],
+    retrieval: RetrievalStore,
     *,
-    sheet_id: int | None,
-    source_columns: list[str],
-    limit: int,
-    threshold: Any,
-    metric: str,
-) -> list[SimilarityHit]:
-    """Top-``limit`` nearest visible, NON-stale rows.
-
-    The candidate pool grows adaptively (instead of a fixed ``limit + N``) so a
-    run can still return ``limit`` visible rows when many higher-ranked rows are
-    hidden or stale — never starved by a small cap. query_similar already filters
-    to the query's exact dimension, so every candidate vector matches the space.
-    """
-    index_id = index["id"]
-    visible = set(project.visible_row_ids(sheet_id)) if sheet_id is not None else None
-    ready = backend.item_counts(index_id).get("ready", 0)
-    cap = ready + len(exclude)  # the most rows query_similar can return
-    if cap <= 0:
-        return []
-    k = min(max(limit * 4, limit + len(exclude) + 1), cap)
-    while True:
-        pool = backend.query_similar(
-            index_id, space_id, qvec, k=k, exclude_source_keys=exclude
-        )
-        hits = _accept_candidates(
-            project,
-            backend,
-            index,
-            pool,
-            visible=visible,
-            sheet_id=sheet_id,
-            source_columns=source_columns,
-            limit=limit,
-            threshold=threshold,
-            metric=metric,
-        )
-        # enough accepted, or the pool is exhausted (no more ready rows to pull)
-        if len(hits) >= limit or len(pool) < k or k >= cap:
-            return hits[:limit]
-        k = min(k * 4, cap)
-
-
-def _accept_candidates(
-    project: Project,
-    backend: VectorBackend,
     index: Any,
-    pool: list[tuple[str, float]],
-    *,
-    visible: set[int] | None,
-    sheet_id: int | None,
-    source_columns: list[str],
-    limit: int,
-    threshold: Any,
-    metric: str,
-) -> list[SimilarityHit]:
-    candidates: list[tuple[str, int, float]] = []
-    for source_key, distance in pool:
-        try:
-            row_id = int(source_key)
-        except (TypeError, ValueError):
-            continue
-        if visible is not None and row_id not in visible:
-            continue
-        if isinstance(threshold, int | float) and not isinstance(threshold, bool):
-            if distance > float(threshold):
-                continue
-        candidates.append((source_key, row_id, distance))
-    if not candidates:
-        return []
-    # Staleness: a sidecar 'ready' row is only valid if its stored source_hash
-    # still matches the row's CURRENT content (same builder as refresh). Stale or
-    # content-removed candidates are dropped — never returned as nearest matches.
-    stored = backend.get_source_hashes(index["id"], [sk for sk, _, _ in candidates])
-    current = {
-        p["source_key"]: p["source_hash"]
-        for p in build_source_payloads(
-            project, index, source_columns, [rid for _, rid, _ in candidates]
-        )
-    }
-    hits: list[SimilarityHit] = []
-    for source_key, row_id, distance in candidates:
-        if stored.get(source_key) != current.get(source_key):
-            continue
-        hits.append(
-            SimilarityHit(
-                row_id=row_id,
-                source_key=source_key,
-                sheet_id=sheet_id,
-                distance=distance,
-                score=_score_for(metric, distance),
-            )
-        )
-        if len(hits) >= limit:
-            break
-    return hits
-
-
-def _row_anchor_vector(
-    project: Project,
-    backend: VectorBackend,
-    index: Any,
-    source_columns: list[str],
-    space_dim: int,
+    space: Any,
     anchor: dict[str, Any],
-) -> tuple[list[float], set[str]]:
-    index_id = index["id"]
+) -> SourceAnchor:
     row_id = anchor.get("row_id")
     if not isinstance(row_id, int) or isinstance(row_id, bool) or row_id <= 0:
         raise SimilarityError(
@@ -535,66 +446,88 @@ def _row_anchor_vector(
             "row anchor requires a positive integer row_id",
             field="anchor.row_id",
         )
-    source_key = str(row_id)
-    item = backend.get_item(index_id, source_key)
-    if item is None or item["vector_id"] is None:
+    source_columns = json.loads(index["source_columns_json"])
+    payloads = build_source_payloads(project, index, source_columns, [row_id])
+    if len(payloads) != 1:
+        raise SimilarityError(
+            "embedding_anchor_not_found",
+            f"row {row_id} has no embeddable source in this index",
+            field="anchor.row_id",
+        )
+    _recipe, items = plan_named_index_items(
+        project, index=index, space=space, payloads=payloads
+    )
+    item = items[0]
+    stored = dataset_rows(retrieval, str(index["id"]), row_ids=(row_id,))
+    if row_id not in stored:
         raise SimilarityError(
             "embedding_anchor_not_found",
             f"row {row_id} has no embedding in this index; refresh it first",
             field="anchor.row_id",
         )
-    if item["status"] != "ready":
+    if stored[row_id] != (item.part_id, item.representation_id):
         raise SimilarityError(
             "embedding_source_stale",
-            f"row {row_id}'s embedding is {item['status']!r}, not ready",
+            f"row {row_id}'s source changed since it was embedded; refresh the index",
             field="anchor.row_id",
         )
-    # 'ready' is not enough: recompute the row's current source hash (same builder
-    # as refresh). If it differs, the cell changed since the vector was written —
-    # the stored vector is stale and must not anchor a search.
-    current_hash = source_hash_for_row(project, index, source_columns, row_id)
-    if current_hash is None or current_hash != item["source_hash"]:
-        raise SimilarityError(
-            "embedding_source_stale",
-            f"row {row_id}'s source content changed since it was embedded; "
-            "refresh the index before anchoring on it",
-            field="anchor.row_id",
-        )
-    qvec = backend.get_vector(index_id, source_key)
-    if not qvec:
-        raise SimilarityError(
-            "embedding_anchor_not_found",
-            f"row {row_id}'s stored vector is missing",
-            field="anchor.row_id",
-        )
-    if len(qvec) != space_dim:
+    representation = retrieval.db.execute(
+        "SELECT dimension,length(vector) AS vector_bytes FROM representations "
+        "WHERE representation_id=?",
+        (item.representation_id,),
+    ).fetchone()
+    expected_dimension = int(space["dimension"])
+    if (
+        representation is None
+        or int(representation["dimension"]) != expected_dimension
+        or int(representation["vector_bytes"]) != expected_dimension * 4
+    ):
         raise SimilarityError(
             "embedding_space_mismatch",
-            f"row {row_id}'s stored vector has dimension {len(qvec)}, "
-            f"not the space dimension {space_dim}",
+            "the stored anchor vector does not match the index space",
             field="anchor.row_id",
         )
-    return qvec, {source_key}
+    dependencies = tuple(
+        BindingRevision(
+            row_id=dependency.row_id,
+            column_id=dependency.column_id,
+            retrieval_revision=dependency.retrieval_revision,
+        )
+        for dependency in item.binding.dependencies
+    )
+    return SourceAnchor(
+        source=item.source,
+        locator=item.locator,
+        binding=ScopedBinding(
+            binding_id=item.binding.binding_id,
+            sheet_id=item.binding.sheet_id,
+            row_id=item.binding.row_id,
+            column_id=None,
+            dependencies=dependencies,
+        ),
+        exclude_exact=True,
+    )
 
 
-def _manual_text_vector(
+def _manual_query(
     project: Project,
+    retrieval: RetrievalStore,
+    *,
     index: Any,
     space: Any,
+    descriptor: dict[str, Any],
+    facade_space: DescriptorEmbeddingSpace,
     anchor: dict[str, Any],
+    maximum_distance: float | None,
     gateway: Any,
-    backend: Any,
-) -> tuple[list[float], set[str], QueryEmbeddingUse]:
-    modality = space["modality"]
-    if modality not in _EMBEDDABLE_MODALITIES:
+    effect_project: Project | None,
+) -> tuple[WeightedSemanticQuery, SemanticQueryVectors, QueryEmbeddingUse | None]:
+    if descriptor["modality"] not in _EMBEDDABLE_MODALITIES:
         raise SimilarityError(
             "embedding_source_unsupported",
-            f"manual text query needs a text space, not {modality!r}",
+            f"manual text query needs a text space, not {descriptor['modality']!r}",
             field="anchor.kind",
         )
-    # Steering terms + hard-exclude terms. A single `text` is one
-    # term weight 1.0; `terms` composes a steered vector; `exclude` REMOVES rows about
-    # a concept. Malformed -> typed 400.
     try:
         terms = normalize_manual_text_terms(anchor)
         excludes = normalize_manual_text_excludes(anchor)
@@ -602,46 +535,42 @@ def _manual_text_vector(
         raise SimilarityError(
             "invalid_query_spec", str(exc), field="anchor.terms"
         ) from exc
-    # Remote egress gate — BEFORE constructing/using a gateway, mirroring refresh. ALL
-    # terms AND exclude terms ride the SAME index policy: one gate covers one batch.
-    provider_kind = space["provider_kind"]
+    provider_kind = str(space["provider_kind"])
     try:
         provider_policy = json.loads(index["provider_policy_json"] or "{}")
     except (TypeError, ValueError):
         provider_policy = {}
-    if provider_kind in REMOTE_PROVIDER_KINDS and gateway is None:
-        raise SimilarityError(
-            "embedding_remote_preview_unsupported",
-            "this preview path does not send manual or hybrid query text to remote "
-            "embedding providers; use the dedicated embedding preview route",
-            field="anchor.text",
-        )
-    if provider_kind in REMOTE_PROVIDER_KINDS and not provider_policy.get(
-        "allow_remote"
-    ):
-        raise SimilarityError(
-            "embedding_remote_confirmation_required",
-            (
-                f"index provider_kind={provider_kind!r} is remote; its provider "
-                "policy must set allow_remote=true before a manual text query can "
-                "embed remotely"
-            ),
-            field="anchor.text",
-        )
-    gw = gateway or EmbeddingGateway()
-    if provider_kind in REMOTE_PROVIDER_KINDS:
-        # ``allow_remote`` is egress consent, not permission to ignore the
-        # independent bound on the project-owned key this provider will use.
-        # This is the last effect-site check before the gateway call, matching
-        # remote index create/refresh rather than relying on a route caller to
-        # remember a preview-specific preflight.
+    accounting_project = effect_project if effect_project is not None else project
+
+    def admit_fresh(_fresh_inputs):
+        if provider_kind not in REMOTE_PROVIDER_KINDS:
+            return
+        if gateway is None:
+            raise SimilarityError(
+                "embedding_remote_preview_unsupported",
+                "this preview path does not send query text to remote embedding providers",
+                field="anchor.text",
+            )
+        if not provider_policy.get("allow_remote"):
+            raise SimilarityError(
+                "embedding_remote_confirmation_required",
+                "the index provider policy must allow remote query embedding",
+                field="anchor.text",
+            )
+        if accounting_project.effective_network_policy() == "off":
+            raise SimilarityError(
+                "network_disabled",
+                "this project's network setting blocks remote query embedding",
+                field="anchor.text",
+                details={"capability": f"provider:{provider_kind}"},
+            )
         from frisket.engine.runner.validation import (
             ProviderKeyRefusal,
             assert_provider_spend_cap,
         )
 
         try:
-            assert_provider_spend_cap(project, str(space["provider_id"]))
+            assert_provider_spend_cap(accounting_project, str(space["provider_id"]))
         except ProviderKeyRefusal as exc:
             raise SimilarityError(
                 exc.error_code,
@@ -649,82 +578,102 @@ def _manual_text_vector(
                 field="anchor.text",
                 details=exc.details,
             ) from exc
-    try:
-        # ONE batch embed for ALL term + exclude texts — one egress, not per term.
-        texts = [t["text"] for t in terms] + [e["text"] for e in excludes]
-        result = gw.embed(
-            texts,
-            provider=space["provider_id"],
-            model=space["actual_model_id"],
-            modality=modality,
-        )
-    except EmbeddingBackendUnavailable as exc:
-        raise SimilarityError("embedding_backend_unavailable", str(exc)) from exc
-    except EmbeddingProviderError as exc:
-        raise SimilarityError("embedding_provider_error", str(exc)) from exc
-    if provider_kind in REMOTE_PROVIDER_KINDS:
-        # Persist before validation: malformed paid responses still count toward spend.
-        _persist_manual_text_provider_call(project, result, input_count=len(texts))
-    vectors = result["vectors"]
-    space_dim = int(space["dimension"])
-    expected = len(terms) + len(excludes)
-    # One vector per (term + exclude) — a wrong count is a provider contract violation.
-    if len(vectors) != expected:
-        raise SimilarityError(
-            "embedding_provider_error",
-            f"provider returned {len(vectors)} vectors for {expected} terms",
-            field="anchor.terms",
-        )
-    # The declared dimension AND every vector width must match the space.
-    if result["dimension"] != space_dim or any(len(v) != space_dim for v in vectors):
-        raise SimilarityError(
-            "embedding_space_mismatch",
-            f"query embedding dimension {result.get('dimension')} does not match "
-            f"space {space['id']} dimension {space_dim}",
-            field="anchor.text",
-        )
-    term_vecs = vectors[: len(terms)]
-    exclude_vecs = vectors[len(terms) :]
-    composed = _compose_query_vector(term_vecs, [t["weight"] for t in terms], space_dim)
-    # HARD NOT: drop rows whose cosine SCORE to an exclude concept >= its threshold.
-    # query_similar returns (source_key, distance) nearest-first; score = 1 - distance,
-    # so exclude when distance <= 1 - threshold — and we can stop at the first row past
-    # the cutoff. These keys feed the existing _ranked_hits exclude set (removal).
-    exclude_keys: set[str] = set()
-    ready_items = backend.item_counts(index["id"]).get("ready", 0)
-    for evec, espec in zip(exclude_vecs, excludes):
-        max_distance = 1.0 - espec["threshold"]
-        for source_key, distance in backend.query_similar(
-            index["id"], space["id"], evec, k=ready_items
+
+    text_values = [term["text"] for term in terms] + [
+        exclude["text"] for exclude in excludes
+    ]
+    encoder_inputs = tuple(TextEncodingInput(text) for text in text_values)
+
+    def encode(fresh_inputs, **_kwargs):
+        selected_gateway = gateway or EmbeddingGateway()
+        try:
+            return selected_gateway.embed(
+                [value.text for value in fresh_inputs],
+                provider=space["provider_id"],
+                model=space["actual_model_id"],
+                modality=descriptor["modality"],
+            )
+        except EmbeddingBackendUnavailable as exc:
+            raise SimilarityError("embedding_backend_unavailable", str(exc)) from exc
+        except EmbeddingProviderError as exc:
+            raise SimilarityError(
+                "embedding_provider_error", redact_text(str(exc), max_chars=200)
+            ) from None
+
+    fresh_use: QueryEmbeddingUse | None = None
+
+    def account(result, fresh_inputs):
+        nonlocal fresh_use
+        try:
+            fresh_use = QueryEmbeddingUse(
+                provider_id=str(result["provider_id"]),
+                provider_kind=str(result["provider_kind"]),
+                actual_model_id=str(result["actual_model_id"]),
+            )
+        except (KeyError, TypeError) as exc:
+            raise SimilarityError(
+                "embedding_provider_error",
+                "the embedding provider returned incomplete identity facts",
+                field="anchor.text",
+            ) from exc
+        if provider_kind in REMOTE_PROVIDER_KINDS:
+            _persist_manual_text_provider_call(
+                accounting_project, result, input_count=len(fresh_inputs)
+            )
+        vectors = result.get("vectors") if isinstance(result, dict) else None
+        if isinstance(vectors, list) and any(
+            isinstance(vector, list | tuple) and len(vector) != facade_space.dimensions
+            for vector in vectors
         ):
-            if distance <= max_distance:
-                exclude_keys.add(source_key)
-            else:
-                break
-    return (
-        composed,
-        exclude_keys,
-        QueryEmbeddingUse(
-            provider_id=str(result["provider_id"]),
-            provider_kind=str(result["provider_kind"]),
-            actual_model_id=str(result["actual_model_id"]),
+            raise SimilarityError(
+                "embedding_space_mismatch",
+                "the embedding provider returned a vector with the wrong dimension",
+                field="anchor.text",
+            )
+
+    try:
+        vectors = EmbeddingFacade(retrieval).encode(
+            encoder_inputs,
+            encoder=encode,
+            purpose=EncodingPurpose.QUERY,
+            space=facade_space,
+            space_id=str(space["id"]),
+            cache_payloads=text_values,
+            before_fresh_batch=admit_fresh,
+            on_fresh_batch=account,
+        )
+    except SimilarityError:
+        raise
+    except Exception as exc:
+        raise SimilarityError(
+            "embedding_provider_error", redact_text(str(exc), max_chars=200)
+        ) from None
+    term_count = len(terms)
+    request_query = WeightedSemanticQuery(
+        terms=tuple(WeightedTerm(term["text"], term["weight"]) for term in terms),
+        exclusions=tuple(
+            SemanticExclusion(exclude["text"], exclude["threshold"])
+            for exclude in excludes
         ),
+        minimum_similarity=(
+            None
+            if maximum_distance is None or not 0.0 <= maximum_distance <= 2.0
+            else 1.0 - maximum_distance
+        ),
+    )
+    return (
+        request_query,
+        SemanticQueryVectors(
+            term_vectors=tuple(vectors[:term_count]),
+            exclusion_vectors=tuple(vectors[term_count:]),
+        ),
+        fresh_use,
     )
 
 
 def _persist_manual_text_provider_call(
-    project: Project,
-    result: dict[str, Any],
-    *,
-    input_count: int,
+    project: Project, result: dict[str, Any], *, input_count: int
 ) -> None:
-    """Write one remote manual-query batch as an unscoped neutral fact.
-
-    These direct similarity/hybrid preview routes do not own an execution run
-    or action receipt. The neutral ledger is still the authority for provider
-    spend, and its writer commits the fact and matching project-key accrual in
-    one transaction.
-    """
     from frisket.ai.models.metadata import ModelCallMeta
     from frisket.engine.store.runs import RunResultStore
 
@@ -746,18 +695,11 @@ def _persist_manual_text_provider_call(
     ).as_dict()
     try:
         RunResultStore(project).write_unscoped_model_calls(
-            [fact],
-            row_id=None,
-            column_id=None,
+            [fact], row_id=None, column_id=None
         )
     except Exception as exc:
-        # Returning ranked rows would falsely imply the paid preview completed
-        # cleanly while its accounting vanished. Refuse the response and name
-        # the retry ambiguity; this legacy direct route has no idempotency key
-        # with which to reconcile another request.
         raise SimilarityError(
             "embedding_accounting_failed",
-            "the embedding provider returned a result, but its usage facts could "
-            "not be recorded; retrying may make another paid provider call",
+            "the embedding provider returned a result, but its usage facts could not be recorded",
             field="anchor.text",
         ) from exc

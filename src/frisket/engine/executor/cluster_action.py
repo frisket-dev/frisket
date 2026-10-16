@@ -76,7 +76,7 @@ class AdmittedValueClusterer:
 
 
 def prepare_cluster_action(project, bound, *, router=None, admission=True):
-    from frisket.semantic import embedder_is_remote, resolve_embedder
+    from frisket.ai.embeddings.backends import embedder_is_remote, resolve_embedder
     from frisket.engine.runner.validation import NetworkDisabled
 
     terminal = bound.action.definition.run
@@ -269,7 +269,13 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
             "An operator accepted this embedding as charged; no clustering result was produced.",
         )
     if halt := persisted_recipe_invocation_halt(run["params"]):
-        return abort(*halt)
+        code, detail = halt
+        if (
+            code == "local_artifact_unavailable"
+            and state["options"]["method"] == "semantic"
+        ):
+            code = "embedding_backend_unavailable"
+        return abort(code, detail)
     if run["status"] != "completed":
         return abort(
             "cluster_failed",
@@ -336,7 +342,7 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
         )
         provider_use = _cluster_provider_use(project, run_id)
         if not provider_use and state["embedding_model"] is not None:
-            from frisket.semantic import embedder_is_remote
+            from frisket.ai.embeddings.backends import embedder_is_remote
             from frisket.ai.llm.types import provider_from_model_id
 
             if embedder_is_remote(state["embedding_model"]):

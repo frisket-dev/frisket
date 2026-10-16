@@ -6,7 +6,6 @@ import { HistoryPanel, type HistoryPanelProps } from '../components/HistoryPanel
 import { MentionsPanel, type MentionsPanelProps } from '../components/MentionsPanel';
 import { MENTIONS_EXTRACT_ACTION_KIND } from '../components/mentionsPanelModel';
 import { NotificationsPanel } from '../components/NotificationsPanel';
-import { SearchPanel, type SearchPanelProps } from '../components/SearchPanel';
 import { SourcesPanel, type SourcesPanelProps } from '../components/SourcesPanel';
 import { WatchesPanel } from '../components/WatchesPanel';
 import { ViewsPanel, type ViewsPanelProps } from '../workspace/ViewsPanel';
@@ -36,7 +35,6 @@ import {
   ROW_DELETE_CONFIRM_VIEW_DESCRIPTOR,
   ROW_INSPECTOR_EVIDENCE_SECTION_DESCRIPTOR,
   SAVED_VIEWS_DESCRIPTOR,
-  SEARCH_DESCRIPTOR,
   SOURCES_DESCRIPTOR,
   SOURCE_HEALTH_VIEW_DESCRIPTOR,
   SOURCE_KIND_FORM_DESCRIPTORS,
@@ -115,9 +113,6 @@ interface MentionsWorkbenchPanelProps extends MentionsPanelProps {
   hostContext?: WorkbenchHostContext;
 }
 
-interface SearchWorkbenchPanelProps extends SearchPanelProps {
-  host?: WorkbenchRegionId;
-}
 
 interface NotificationsWorkbenchPanelProps {
   host?: WorkbenchRegionId;
@@ -705,22 +700,6 @@ export function MentionsWorkbenchPanel({
   );
 }
 
-export function SearchWorkbenchPanel({
-  host = 'leftSidebar',
-  sheets,
-  onPick,
-}: SearchWorkbenchPanelProps) {
-  const descriptor = SEARCH_DESCRIPTOR;
-  const placement = placementForHost(descriptor, host);
-
-  return (
-    <WorkbenchContributionFrame descriptor={descriptor} host={placement.host} className="">
-      <SearchPanel sheets={sheets} onPick={onPick} />
-    </WorkbenchContributionFrame>
-  );
-}
-
-
 export function NotificationsWorkbenchPanel({
   host = 'leftSidebar',
 }: NotificationsWorkbenchPanelProps) {
@@ -779,6 +758,8 @@ export function EmbeddingsWorkbenchPanel({
   sheet,
   onSelectSheet,
   onOpenLens,
+  selectedRowIds,
+  onFindSimilar,
 }: EmbeddingsWorkbenchPanelProps) {
   const descriptor = EMBEDDINGS_DESCRIPTOR;
   const placement = placementForHost(descriptor, host);
@@ -791,6 +772,8 @@ export function EmbeddingsWorkbenchPanel({
         sheet={sheet}
         onSelectSheet={onSelectSheet}
         onOpenLens={onOpenLens}
+        selectedRowIds={selectedRowIds}
+        onFindSimilar={onFindSimilar}
       />
     </WorkbenchContributionFrame>
   );

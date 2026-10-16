@@ -77,8 +77,11 @@ def case(tmp_path, monkeypatch):
         calls.append(list(texts))
         return [[1.0, 0.0] for _ in texts]
 
+    embed.embedding_dimension = 2
+
     monkeypatch.setattr(
-        "frisket.semantic.resolve_embedder", lambda *a, **kw: (embed, "fastembed/test")
+        "frisket.ai.embeddings.backends.resolve_embedder",
+        lambda *a, **kw: (embed, "fastembed/test"),
     )
     project = Project.create(tmp_path / "review.frisket")
     left = project.add_sheet("Donors")
@@ -155,8 +158,11 @@ def test_changed_input_during_matching_aborts_without_permanent_claim(
             )
         return [[1.0, 0.0] for _ in texts]
 
+    embed.embedding_dimension = 2
+
     monkeypatch.setattr(
-        "frisket.semantic.resolve_embedder", lambda *a, **kw: (embed, "fastembed/test")
+        "frisket.ai.embeddings.backends.resolve_embedder",
+        lambda *a, **kw: (embed, "fastembed/test"),
     )
     result = case.run()
     assert result.status == "failed", result
@@ -281,14 +287,14 @@ def test_child_retains_target_dependency_even_without_matches(
     )
 
     if not matches:
+
+        def no_match_embed(texts):
+            return [[1.0, 0.0] if text == "ACME" else [0.0, 1.0] for text in texts]
+
+        no_match_embed.embedding_dimension = 2
         monkeypatch.setattr(
-            "frisket.semantic.resolve_embedder",
-            lambda *a, **kw: (
-                lambda texts: [
-                    [1.0, 0.0] if text == "ACME" else [0.0, 1.0] for text in texts
-                ],
-                "fastembed/test",
-            ),
+            "frisket.ai.embeddings.backends.resolve_embedder",
+            lambda *a, **kw: (no_match_embed, "fastembed/test"),
         )
     result = case.run()
     assert result.status == "completed", result

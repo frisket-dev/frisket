@@ -297,7 +297,7 @@ def test_manual_text_blocks_remote_egress_without_policy(tmp_path):
     EmbeddingStore(project).update_index_policy(
         index_id, provider_policy={"allow_remote": False}
     )
-    resp = _preview(client, pid, _manual_query(index_id, "cat"))
+    resp = _preview(client, pid, _manual_query(index_id, "uncached policy query"))
     assert resp.status_code == 400
     assert resp.json()["detail"]["code"] == "embedding_remote_confirmation_required"
 
@@ -312,6 +312,31 @@ def test_manual_text_runs_when_policy_allows(tmp_path):
     body = resp.json()
     # the router's embed produced a [1,0,...] query → cat ranks first
     assert body["hits"][0]["row_id"] == _row(project, sheet, cols, "cat")
+
+
+def test_manual_text_provider_error_redacts_secret_from_http_response(
+    tmp_path, monkeypatch
+):
+    secret = "provider-secret-sentinel"
+    client = _client(tmp_path, _openai_router())
+    pid, _project, _sheet, _cols, index_id = _seed(
+        client, provider="openai", policy={"allow_remote": True}, dim=1536
+    )
+
+    async def fail_embed(*_args, **_kwargs):
+        raise RuntimeError(f"provider rejected api_key={secret} " + "x" * 300)
+
+    monkeypatch.setattr(ModelRouter, "embed_batch", fail_embed)
+
+    response = _preview(
+        client, pid, _manual_query(index_id, "uncached provider failure")
+    )
+
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert detail["code"] == "embedding_provider_error"
+    assert secret not in response.text
+    assert len(detail["message"]) <= 200
 
 
 @pytest.mark.parametrize("kind", ["similarity", "hybrid"])
@@ -337,7 +362,7 @@ def test_remote_manual_preview_refuses_exhausted_project_key_before_egress(
         client,
         pid,
         kind,
-        _paid_preview_query(kind, index_id, sheet, "cat"),
+        _paid_preview_query(kind, index_id, sheet, "fresh cat query"),
     )
 
     assert response.status_code == 400, response.text
@@ -379,7 +404,7 @@ def test_remote_manual_preview_persists_paid_fact_and_project_key_spend(
         client,
         pid,
         kind,
-        _paid_preview_query(kind, index_id, sheet, "cat"),
+        _paid_preview_query(kind, index_id, sheet, "fresh cat query"),
     )
 
     assert response.status_code == 200, response.text
@@ -418,10 +443,12 @@ def test_remote_manual_preview_accounts_for_paid_malformed_provider_result(
     calls = []
     _install_paid_project_key_embed(monkeypatch, calls, dimension=8)
 
-    response = _preview(client, pid, _manual_query(index_id, "cat"))
+    response = _preview(client, pid, _manual_query(index_id, "fresh cat query"))
 
     assert response.status_code == 400, response.text
-    assert response.json()["detail"]["code"] == "embedding_space_mismatch"
+    assert response.json()["detail"]["code"] == "embedding_space_mismatch", (
+        response.text
+    )
     assert len(calls) == 1
     [fact] = project.db.execute(
         "SELECT * FROM model_calls WHERE run_id IS NULL AND provider='openai'"

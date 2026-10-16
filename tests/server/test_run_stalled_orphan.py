@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from frisket.engine.jobs.queue import jobs_table
 from frisket.server.app import create_app
 from http_test_helpers import (
+    drain_queue,
     post_canonical_run_spec_as_v1_action,
     queued_python_run_spec,
 )
@@ -28,6 +29,7 @@ def _seed_queued_action_run(client: TestClient) -> tuple[str, int, int, int]:
         files={"file": ("people.csv", CSV, "text/csv")},
     )
     assert imported.status_code == 200, imported.text
+    drain_queue(client, worker_id="queue-status-setup")
     sheet_id = imported.json()["sheet_id"]
     spec = queued_python_run_spec(sheet_id, "first", "display")
     run = post_canonical_run_spec_as_v1_action(client, pid, spec, confirmed=True)

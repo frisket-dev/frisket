@@ -16,9 +16,9 @@ import pytest
 
 from frisket.ai.embeddings import (
     EmbeddingProviderError,
-    VectorBackend,
     build_batch_result,
 )
+from unified_embedding_probe import UnifiedEmbeddingProbe
 from frisket.engine.executor import ExecutorDeps, run_action_spec
 from frisket.engine.jobs import (
     EMBEDDING_REFRESH_KIND,
@@ -33,6 +33,8 @@ from frisket.engine.jobs import (
     register_watch_evaluate_handler,
 )
 from frisket.ai.llm import ModelRouter
+from frisket.features.watchlists.service import run_watch_evaluation
+from frisket.retrieval import native
 from frisket.server.workspace import Workspace
 from frisket.engine.store import Project
 
@@ -157,7 +159,7 @@ def test_append_enqueues_without_calling_provider(env):
     assert job.payload["mode"] == "incremental"
     assert job.payload["row_ids"] == sorted(_all_rows(env))
     # no provider ran inline → no sidecar vectors yet
-    backend = VectorBackend(env.project)
+    backend = UnifiedEmbeddingProbe(env.project)
     backend.ensure_schema()
     assert backend.item_counts(index_id) == {}
     backend.close()
@@ -188,7 +190,7 @@ def test_worker_embeds_only_affected_rows(env):
     assert worker.run_once() is True
     # only the one appended row was embedded, not the whole 3-row sheet
     assert gw.calls == [["story 1"]]
-    backend = VectorBackend(env.project)
+    backend = UnifiedEmbeddingProbe(env.project)
     backend.ensure_schema()
     assert backend.item_counts(index_id) == {"ready": 1}
     assert backend.get_item(index_id, str(affected[0])) is not None
@@ -245,7 +247,7 @@ def test_remote_index_with_policy_runs_in_worker(env):
     worker = Worker(env.queue, _registry(env, gw))
     assert worker.run_once() is True
     assert len(gw.calls) == 1
-    backend = VectorBackend(env.project)
+    backend = UnifiedEmbeddingProbe(env.project)
     backend.ensure_schema()
     assert backend.item_counts(index_id) == {"ready": 3}
     backend.close()
@@ -269,7 +271,7 @@ def test_retryable_provider_error_requeues_then_succeeds(env):
     assert job.status == "done"
     assert job.result["status"] == "completed"
     assert len(gw.calls) == 1
-    backend = VectorBackend(env.project)
+    backend = UnifiedEmbeddingProbe(env.project)
     backend.ensure_schema()
     assert backend.item_counts(index_id) == {"ready": 3}
     backend.close()
@@ -346,7 +348,7 @@ def test_server_workspace_registry_drains_embedding_refresh(tmp_path):
             if ws.queue.get(job.id).status == "done":
                 break
             assert worker.run_once() is True
-        backend = VectorBackend(project)
+        backend = UnifiedEmbeddingProbe(project)
         backend.ensure_schema()
         assert backend.item_counts(index_id) == {"ready": 2}
         backend.close()
@@ -461,6 +463,40 @@ def _notification_count(env):
     return env.project.db.execute(
         "SELECT COUNT(*) AS n FROM notification_items"
     ).fetchone()["n"]
+
+
+def test_embedding_watch_preserves_cursor_when_vector_runtime_is_unavailable(
+    env, tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    index_id = _create_index(env, key="unavailable")
+    _full_refresh(env, index_id)
+    watch_id = _embedding_watch(env, index_id, _row_id(env, "story 0"))
+    before = int(env.project.get_watch(watch_id)["last_evaluated_op"] or 0)
+    monkeypatch.setattr(native, "_NATIVE_ROOT", tmp_path / "missing-native")
+
+    evaluation = run_watch_evaluation(env.project, env.project.get_watch(watch_id))
+
+    assert evaluation["run"]["status"] == "error"
+    assert evaluation["run"]["error_code"] == "embedding_backend_unavailable"
+    assert env.project.get_watch(watch_id)["last_evaluated_op"] == before
+    assert _notification_count(env) == 0
+
+
+def test_embedding_watch_accepts_complete_empty_result(env):
+    env.sheet = env.project.add_sheet("single-row")
+    env.cols = {"headline": env.project.add_column(env.sheet, "headline")}
+    [anchor] = env.project.add_rows(env.sheet, [{"headline": "only story"}], env.cols)
+    index_id = _create_index(env, key="empty")
+    _full_refresh(env, index_id)
+    watch_id = _embedding_watch(env, index_id, anchor)
+    before = int(env.project.get_watch(watch_id)["last_evaluated_op"] or 0)
+
+    evaluation = run_watch_evaluation(env.project, env.project.get_watch(watch_id))
+
+    assert evaluation["run"]["status"] == "ok"
+    assert evaluation["run"]["matched_rows"] == 0
+    assert env.project.get_watch(watch_id)["last_evaluated_op"] > before
+    assert _notification_count(env) == 0
 
 
 def test_source_append_embedding_watch_evaluates_after_refresh_not_before(env):

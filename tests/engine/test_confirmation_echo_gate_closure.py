@@ -55,6 +55,7 @@ from frisket.execution.pricing_policy import (
     RatedQuote,
     install_pricing_policy,
 )
+from http_test_helpers import drain_queue
 
 
 class _PaidClosurePolicy:
@@ -779,6 +780,7 @@ def _drive_run_backfill(
     monkeypatch.setattr(transcribe_engines, "run_transcription_engine", fake_run_engine)
     client = mod._client(tmp_path)
     pid, project, sheet_id = mod._seed_audio_project(client)
+    drain_queue(client, worker_id="echo-closure-search-setup")
     mod._run_original_to_completion(client, pid, project, mod._gateway_spec(sheet_id))
     mod._add_audio_row(project, sheet_id, duration_seconds=40.0)
     action = {

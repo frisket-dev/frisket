@@ -297,12 +297,12 @@ def _evaluate_embedding_similarity_watch(
             "embedding_index_scope_invalid",
             "the index stored source scope could not be resolved",
         )
-    if fresh.missing_keys:
+    if fresh.missing_count:
         raise WatchBindingError(
             "embedding_index_incomplete",
             "new embeddable source rows are not embedded; refresh before evaluating",
         )
-    if fresh.stale_keys:
+    if fresh.stale_count:
         raise WatchBindingError(
             "embedding_index_stale",
             "embedding index has stale rows; refresh before evaluating",

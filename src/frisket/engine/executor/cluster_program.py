@@ -9,6 +9,8 @@ import inspect
 from contextlib import asynccontextmanager
 
 from frisket.actions.cluster_types import ClusterOptions
+from frisket.ai.embeddings import backends as embedding_backends
+from frisket.ai.embeddings.analytics import encode_project_legacy_texts_async
 from frisket.engine.executor.embedding_batches import (
     record_embedding_batch,
 )
@@ -217,10 +219,8 @@ class _ClusterProgram(_TypedMapBatchProgram):
     keep_zero_success_output_columns = True
 
     def estimate(self, project, spec, rows, *, resolution=None):
-        from frisket.semantic import embedder_is_remote
-
         model = spec["cluster_values"]["embedding_model"]
-        if model is None or not embedder_is_remote(model):
+        if model is None or not embedding_backends.embedder_is_remote(model):
             return free_local_estimate()
         state = spec["cluster_values"]
         values = validate_cluster_source(project, state["source"])
@@ -268,11 +268,6 @@ class _ClusterProgram(_TypedMapBatchProgram):
 
     async def execute_batch(self, values_by_row, spec, ctx):
         from frisket.ops.cluster import SEMANTIC_EMBED_BATCH_SIZE
-        from frisket.semantic import (
-            _doc_vectors_async,
-            embedder_is_remote,
-            resolve_embedder,
-        )
 
         state = spec["cluster_values"]
         options = ClusterOptions.model_validate(state["options"])
@@ -288,16 +283,20 @@ class _ClusterProgram(_TypedMapBatchProgram):
             )
         model = state["embedding_model"]
         checkpoints = []
+        embedding_vectors = None
         if options.method == "semantic":
-            backend = resolve_embedder(ctx.extras.get("router"), allow_remote=True)
+            backend = embedding_backends.resolve_embedder(
+                ctx.extras.get("router"), allow_remote=True
+            )
             if backend is None or backend[1] != model:
                 raise RecipeInvocationHalt(
                     "promise_violation", "The admitted embedding backend changed"
                 )
-            remote = embedder_is_remote(model)
+            remote = embedding_backends.embedder_is_remote(model)
             if remote and ctx.extras.get("preview") is True:
                 raise ValueError("Cluster review preview only uses local embeddings")
             texts = cluster_embedding_inputs(values, options)
+            embedding_vectors = []
 
             def before_batch(batch):
                 if remote:
@@ -332,13 +331,19 @@ class _ClusterProgram(_TypedMapBatchProgram):
                     if remote
                     else backend[0]
                 )
-                await _doc_vectors_async(
-                    ctx.project,
-                    [{"content": text} for text in batch_texts],
-                    embed,
-                    model,
-                    before_fresh_batch=before_batch,
-                )
+                try:
+                    batch_vectors = await encode_project_legacy_texts_async(
+                        ctx.project,
+                        batch_texts,
+                        embed=embed,
+                        model_id=model,
+                        before_fresh_batch=before_batch,
+                    )
+                except embedding_backends.LocalEmbeddingModelUnavailable as exc:
+                    raise RecipeInvocationHalt(
+                        "local_artifact_unavailable", str(exc)
+                    ) from exc
+                embedding_vectors.extend(batch_vectors)
                 if remote and embed.store.get(embed.id) is not None:
                     checkpoints.append(embed.id)
         computation = compute_reviewed_clusters(
@@ -349,6 +354,7 @@ class _ClusterProgram(_TypedMapBatchProgram):
             options=options,
             embed=_cache_only_embedding if model else None,
             embed_id=model,
+            embedding_vectors=embedding_vectors,
         )
         if ctx.extras.get("preview") is not True:
             attempt = attempt_in_scope(ctx.extras)

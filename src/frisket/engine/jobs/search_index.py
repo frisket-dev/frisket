@@ -7,8 +7,23 @@ from pathlib import Path
 from frisket.engine.store import Project
 from frisket.engine.store.search_index_work import latest_revision, read_dirty_scopes
 from frisket.project_identity import ProjectStorageKey
-from frisket.search import index_batch, index_needs_work
-from frisket.search_storage import reclaim_is_pending, reclaim_search_storage
+from frisket.retrieval.preparation import (
+    AUDIO_CHANNEL,
+    DEFAULT_TEXT_RECIPE,
+    IMAGE_CHANNEL,
+    OCR_TEXT_CHANNEL,
+    PDF_PAGE_CHANNEL,
+    TRANSCRIPT_CHANNEL,
+    VIDEO_CHANNEL,
+    PreparationEncoder,
+    preparation_work_marker,
+    process_blob_image_preparation_batch,
+    process_evidence_preparation_batch,
+    process_text_preparation_batch,
+    process_timed_media_preparation_batch,
+    read_preparation_policy,
+)
+from frisket.search_index import analyze_retrieval_store, index_batch, index_needs_work
 
 from .ports import JobHandlerContext
 from .project_opener import ProjectOpener, open_claimed_project
@@ -27,11 +42,15 @@ INDEX_BYTES_PER_CLAIM = INDEX_BATCH_MAX_BYTES * BATCHES_PER_CLAIM
 
 
 def process_index_batches(
-    project: Project, *, stopped=lambda: False
+    project: Project,
+    *,
+    stopped=lambda: False,
+    embedding_encoder: PreparationEncoder | None = None,
 ) -> tuple[int, bool]:
-    """Process one fair worker quantum of durable keyword-index work."""
+    """Process one fair worker quantum of lexical and local preparation work."""
     processed = processed_bytes = 0
     complete = False
+    preparation_started = False
     for _ in range(BATCHES_PER_CLAIM):
         if stopped():
             break
@@ -43,16 +62,92 @@ def process_index_batches(
         processed += progress.processed
         processed_bytes += progress.processed_bytes
         complete = progress.complete
+        if complete and not stopped() and embedding_encoder is not None:
+            policy = read_preparation_policy(project)
+            preparation_started = preparation_work_marker(project.path) is not None
+            preparation_steps = (
+                lambda: process_text_preparation_batch(
+                    project,
+                    encoder=embedding_encoder,
+                    recipe=(
+                        policy.text_recipe
+                        if policy.text_recipe is not None
+                        else DEFAULT_TEXT_RECIPE
+                    ),
+                    cancelled=stopped,
+                ),
+                lambda: process_evidence_preparation_batch(
+                    project,
+                    channel=TRANSCRIPT_CHANNEL,
+                    encoder=embedding_encoder,
+                    cancelled=stopped,
+                    policy=policy,
+                ),
+                lambda: process_evidence_preparation_batch(
+                    project,
+                    channel=OCR_TEXT_CHANNEL,
+                    encoder=embedding_encoder,
+                    cancelled=stopped,
+                    policy=policy,
+                ),
+                lambda: process_blob_image_preparation_batch(
+                    project,
+                    channel=IMAGE_CHANNEL,
+                    encoder=embedding_encoder,
+                    cancelled=stopped,
+                    policy=policy,
+                ),
+                lambda: process_blob_image_preparation_batch(
+                    project,
+                    channel=PDF_PAGE_CHANNEL,
+                    encoder=embedding_encoder,
+                    cancelled=stopped,
+                    policy=policy,
+                ),
+                lambda: process_timed_media_preparation_batch(
+                    project,
+                    channel=VIDEO_CHANNEL,
+                    encoder=embedding_encoder,
+                    cancelled=stopped,
+                    policy=policy,
+                ),
+                lambda: process_timed_media_preparation_batch(
+                    project,
+                    channel=AUDIO_CHANNEL,
+                    encoder=embedding_encoder,
+                    cancelled=stopped,
+                    policy=policy,
+                ),
+            )
+            preparation_complete = True
+            for prepare in preparation_steps:
+                if stopped():
+                    preparation_complete = False
+                    break
+                step = prepare()
+                processed += step.processed_parts
+                preparation_complete = preparation_complete and step.complete
+            complete = preparation_complete and not stopped()
+            # One pass gives each channel one bounded batch. Further work gets
+            # another durable claim instead of letting one project monopolize
+            # the worker after its lexical scopes have drained.
+            break
         if complete or processed_bytes >= INDEX_BYTES_PER_CLAIM:
             break
+    if complete and not stopped() and (processed > 0 or preparation_started):
+        analyze_retrieval_store(project)
     return processed, complete
 
 
 def enqueue_search_index(
-    project: Project, queue: JobQueue, payload: dict
+    project: Project,
+    queue: JobQueue,
+    payload: dict,
+    *,
+    include_preparation: bool = True,
 ) -> int | None:
     """Schedule pending durable work; an enqueue failure cannot lose that work."""
-    marker = index_work_marker(project)
+    marker = index_work_marker(project, include_preparation=include_preparation)
     if marker is None:
         return None
     return queue.enqueue(
@@ -61,7 +156,9 @@ def enqueue_search_index(
     )
 
 
-def index_work_marker(project: Project) -> str | None:
+def index_work_marker(
+    project: Project, *, include_preparation: bool = True
+) -> str | None:
     """Stable identity for the next durable indexing position."""
     scopes = read_dirty_scopes(project.db, limit=1)
     if scopes:
@@ -69,8 +166,8 @@ def index_work_marker(project: Project) -> str | None:
         return f"{first.id}:{first.scan_cursor}"
     if index_needs_work(project):
         return f"repair:{latest_revision(project.db)}"
-    if reclaim_is_pending(project.path / "project.search.db"):
-        return "reclaim"
+    if include_preparation and (marker := preparation_work_marker(project.path)):
+        return f"prepare:{marker}"
     return None
 
 
@@ -81,6 +178,7 @@ def register_search_index_handler(
     queue: JobQueue,
     workspace_root_storage_org_id: int | None = None,
     project_opener: ProjectOpener | None = None,
+    embedding_encoder: PreparationEncoder | None = None,
 ) -> HandlerRegistration:
     def handle(payload: dict, context: JobHandlerContext) -> dict:
         def stopped() -> bool:
@@ -103,10 +201,11 @@ def register_search_index_handler(
         processed = 0
         complete = False
         try:
-            processed, complete = process_index_batches(project, stopped=stopped)
-            if complete and not stopped():
-                if not reclaim_search_storage(project.path / "project.search.db"):
-                    raise RuntimeError("search index reclaim deferred")
+            processed, complete = process_index_batches(
+                project,
+                stopped=stopped,
+                embedding_encoder=embedding_encoder,
+            )
             if not stopped():
                 continuation = {
                     "project_id": project_id,
@@ -117,7 +216,16 @@ def register_search_index_handler(
                     continuation["storage_org_id"] = claimed.storage_org_id
                 if isinstance(context.trusted_job_org_id, int):
                     continuation["org_id"] = context.trusted_job_org_id
-                enqueue_search_index(project, queue, continuation)
+                if (
+                    enqueue_search_index(
+                        project,
+                        queue,
+                        continuation,
+                        include_preparation=embedding_encoder is not None,
+                    )
+                    is not None
+                ):
+                    complete = False
             return {
                 "project_id": project_id,
                 "processed": processed,

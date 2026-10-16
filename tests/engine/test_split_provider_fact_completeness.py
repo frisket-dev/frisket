@@ -603,7 +603,7 @@ def test_local_embedding_refresh_persists_known_free_cost(
             actual_model,
         )
 
-    monkeypatch.setattr("frisket.semantic.local_embedder", local_embedder)
+    monkeypatch.setattr("frisket.ai.embeddings.backends.local_embedder", local_embedder)
     project, sheet_id = _project(tmp_path, "local-embedding-facts")
     try:
         create = run_action_spec(

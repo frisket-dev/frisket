@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+from functools import partial
 from threading import Event
 from typing import Any
 
@@ -33,6 +34,17 @@ from frisket.features.topic_segmentation.contracts import (
     WithinUnit,
 )
 from frisket.features.topic_segmentation import engines
+
+
+def _encode_project_topic_texts(project, texts, *, embed, model_id):
+    from frisket.ai.embeddings.analytics import encode_project_legacy_texts
+
+    return encode_project_legacy_texts(
+        project,
+        texts,
+        embed=embed,
+        model_id=model_id,
+    )
 
 
 def _dialogue_snapshot(resolved: Any) -> SegmentationSnapshot:
@@ -183,7 +195,7 @@ class _BoundTopicSectionsReader:
                 "stale_input", "Topic source differs from its admitted cell."
             )
         resolved = self._resolve(captured)
-        segmenter = engines.get_segmenter(engine)
+        segmenter = engines.runtime_segmenter(engine)
         settings = dict(segmenter.validate_settings(settings))
         definition = segmenter.definition
         if not definition.available:
@@ -207,7 +219,10 @@ class _BoundTopicSectionsReader:
                             self._owner._cancelled is not None
                             and self._owner._cancelled()
                         )
-                    )
+                    ),
+                    encode_texts=partial(
+                        _encode_project_topic_texts, self._owner._project
+                    ),
                 ),
             )
         )

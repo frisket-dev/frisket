@@ -43,7 +43,8 @@ from frisket.preview.common import (
     require_visible_column,
     require_visible_sheet,
 )
-from frisket.semantic import Embedder, resolve_embedder
+from frisket.ai.embeddings import backends as embedding_backends
+from frisket.ai.embeddings.backends import Embedder
 from frisket.engine.store import Project
 
 CLUSTER_PREVIEW_SCHEMA_VERSION = "frisket.cluster_preview.v1"
@@ -137,6 +138,7 @@ def compute_method_clusters(
     key_template: str | None = None,
     embed: Embedder | None = None,
     embed_id: str | None = None,
+    embedding_vectors: list[list[float]] | None = None,
     values: dict[int, str] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Compute clusters for ``method`` over ``column``, returning
@@ -199,7 +201,7 @@ def compute_method_clusters(
             # anywhere. Without a local backend
             # this now refuses with the error the route already documents,
             # rather than spending silently.
-            backend = resolve_embedder(allow_remote=False)
+            backend = embedding_backends.resolve_embedder(allow_remote=False)
             if backend is None:
                 raise ClusterPreviewError(
                     "embedding_backend_unavailable",
@@ -212,17 +214,23 @@ def compute_method_clusters(
             embed, embed_id = backend
         if embed_id is None:
             embed_id = "injected/unknown"
-        clusters, distinct, considered = compute_semantic_clusters(
-            project,
-            sheet_id,
-            column,
-            embed,
-            embed_id,
-            threshold=thr,
-            min_size=min_size,
-            values=values,
-            derive_key=derive_key,
-        )
+        try:
+            clusters, distinct, considered = compute_semantic_clusters(
+                project,
+                sheet_id,
+                column,
+                embed,
+                embed_id,
+                threshold=thr,
+                min_size=min_size,
+                values=values,
+                derive_key=derive_key,
+                embedding_vectors=embedding_vectors,
+            )
+        except embedding_backends.LocalEmbeddingModelUnavailable as exc:
+            raise ClusterPreviewError(
+                "embedding_backend_unavailable", str(exc), field="method"
+            ) from exc
         return clusters, {
             "method": "semantic",
             "semantic": True,

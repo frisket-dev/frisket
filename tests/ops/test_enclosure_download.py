@@ -4,12 +4,14 @@ import httpx
 from fastapi.testclient import TestClient
 
 from helpers import make_client as _client
+from http_test_helpers import drain_queue
 from frisket.engine.jobs import Worker
 from frisket.engine.store.sources import SourceStore
 
 
 def _project(client: TestClient):
     pid = client.post("/api/projects", json={"name": "Enclosures"}).json()["id"]
+    drain_queue(client, worker_id="enclosure-setup")
     return pid, client.app.state.workspace.get(pid)
 
 

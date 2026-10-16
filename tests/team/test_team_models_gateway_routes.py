@@ -5,6 +5,7 @@ import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.testclient import TestClient
+from http_test_helpers import drain_queue
 
 from frisket.engine.jobs.ports import JobHandlerContext, WorkerPorts
 from frisket.engine.jobs.runs import resolve_run_models_gateway
@@ -282,6 +283,7 @@ def test_actual_queued_handler_resolves_team_store_and_preserves_external_factor
     sheet_id = project.add_sheet("Notes")
     column_id = project.add_column(sheet_id, "note", type="text")
     project.add_rows(sheet_id, [{"note": "Call 212-555-0123"}], {"note": column_id})
+    drain_queue(client, worker_id="team-gateway-setup")
     response = client.post(
         f"/api/projects/{project_id}/actions/v1/run",
         json={

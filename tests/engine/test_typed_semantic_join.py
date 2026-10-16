@@ -13,9 +13,14 @@ def test_semantic_join_publishes_source_and_child_with_feedable_receipt(
     tmp_path, monkeypatch
 ):
     vectors = {"ACME": [1.0, 0.0], "Acme": [1.0, 0.0], "Globex": [0.0, 1.0]}
+
+    def embed(texts):
+        return [vectors[text] for text in texts]
+
+    embed.embedding_dimension = 2
     monkeypatch.setattr(
-        "frisket.semantic.resolve_embedder",
-        lambda *a, **kw: (lambda texts: [vectors[t] for t in texts], "fastembed/test"),
+        "frisket.ai.embeddings.backends.resolve_embedder",
+        lambda *a, **kw: (embed, "fastembed/test"),
     )
     project = Project.create(tmp_path / "semantic.frisket")
     try:

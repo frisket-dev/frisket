@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from fastapi import FastAPI, HTTPException, Path, Query
+from fastapi import FastAPI, HTTPException, Path, Query, Request
 
 from frisket.contracts.http.history_review import (
     ReviewBatchRequest,
@@ -14,7 +14,10 @@ from frisket.contracts.http.history_review import (
     ReviewRunStatus,
     ReviewRunStatusRequest,
 )
-from frisket.contracts.http.project_search import ProjectSearchPage
+from frisket.contracts.http.project_search import (
+    ProjectSearchRequest,
+    ProjectSearchResponse,
+)
 from frisket.contracts.http.run_provenance import ProvenanceManifest
 from frisket.server.paging import PageLimit100, PageOffset
 from frisket.server.route_errors import http_error_responses
@@ -26,32 +29,34 @@ from frisket.server.services.project_entity_review import (
 )
 from frisket.server.services.project_provenance import ProjectProvenanceService
 from frisket.server.services.project_search import ProjectSearchService
+from frisket.server.services.selector_choices_capabilities import (
+    SelectorCapabilitiesFor,
+)
 
 
 def register_project_search_routes(
     app: FastAPI,
     *,
     service: ProjectSearchService,
+    capabilities_for: SelectorCapabilitiesFor,
 ) -> None:
-    @app.get(
+    @app.post(
         "/api/projects/{pid}/search",
-        response_model=ProjectSearchPage,
+        response_model=ProjectSearchResponse,
         response_model_exclude_unset=True,
         responses=http_error_responses(401, 403, 404, 422, 500),
     )
     def search_ep(
+        http_request: Request,
         pid: str,
-        q: str,
-        limit: PageLimit100 = 50,
-        mode: str = "keyword",
-        rerank: str = "auto",
-    ) -> ProjectSearchPage:
-        return service.search(
-            pid,
-            q=q,
-            limit=limit,
-            mode=mode,
-            rerank=rerank,
+        request: ProjectSearchRequest,
+    ) -> ProjectSearchResponse:
+        return ProjectSearchResponse.model_validate(
+            service.search(
+                pid,
+                request=request,
+                offer_setup=capabilities_for(http_request, pid).manage_model_downloads,
+            )
         )
 
 

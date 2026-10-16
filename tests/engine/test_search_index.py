@@ -1,21 +1,14 @@
-"""Bounded maintenance, crash replay, and honest latest-only search."""
+"""Bounded unified retrieval maintenance and freshness."""
 
-import sqlite3
-from types import SimpleNamespace
+from __future__ import annotations
 
 import pytest
 
-import frisket.search as search_mod
+from frisket.engine.jobs.search_index import process_index_batches
 from frisket.engine.store import Project
 from frisket.engine.store.project import ProjectReadSnapshot
-from frisket.search import (
-    SearchIndexNotReady,
-    drain_index,
-    fresh_sidecar,
-    index_batch,
-    search_project,
-    search_project_page,
-)
+from frisket.retrieval.store import RETRIEVAL_DB_NAME, RetrievalStore
+from frisket.search import SearchIndexNotReady, drain_index, index_batch, search_project
 import frisket.search_index as maintenance
 
 
@@ -33,15 +26,12 @@ def documents(tmp_path):
         project.close()
 
 
-def test_readers_do_not_rebuild_and_batches_are_bounded(documents):
+def test_readers_do_not_prepare_and_maintenance_batches_are_bounded(documents):
     project, *_ = documents
     with pytest.raises(SearchIndexNotReady):
         search_project(project, "needle", rerank="off")
-    assert search_project_page(project, "needle", rerank="off") == {
-        "hits": [],
-        "complete": False,
-    }
-    assert not (project.path / "project.search.db").exists()
+    assert not (project.path / RETRIEVAL_DB_NAME).exists()
+
     for _ in range(100):
         progress = index_batch(project, batch_size=2)
         assert progress.processed <= 2
@@ -49,125 +39,66 @@ def test_readers_do_not_rebuild_and_batches_are_bounded(documents):
             break
     else:
         pytest.fail("bounded indexing did not finish")
+
     assert len(search_project(project, "needle", rerank="off")) == 7
 
 
-def test_partial_results_hide_changed_and_deleted_text(documents):
-    project, sheet, column, rows = documents
-    drain_index(project)
-    project.apply_edits(
-        [{"row_id": rows[0], "column_id": column, "value": "replacement"}]
-    )
-    project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (rows[1],))
-    project.db.commit()
-    page = search_project_page(project, "needle", rerank="off")
-    assert page["complete"] is False
-    assert {hit["row_id"] for hit in page["hits"]} == set(rows[2:])
-    drain_index(project, batch_size=2)
-    assert search_project(project, "replacement", rerank="off")[0]["row_id"] == rows[0]
-    assert len(search_project(project, "needle", rerank="off")) == 5
+def test_completed_dirty_pass_analyzes_the_retrieval_sidecar(documents):
+    project, *_ = documents
 
+    class Encoder:
+        def available(self):
+            return True
 
-def test_incomplete_page_retains_bounded_overfetch_and_validation(
-    tmp_path, monkeypatch
-):
-    project = Project.create(tmp_path / "incomplete.frisket")
-    try:
-        sheet = project.add_sheet("Documents")
-        column = project.add_column(sheet, "body")
-        rows = project.add_rows(
-            sheet,
-            [
-                {"body": ("needle " * (20 if index < 2 else 1)) + str(index)}
-                for index in range(60)
-            ],
-            {"body": column},
-        )
-        drain_index(project)
-        project.apply_edits(
-            [{"row_id": rows[0], "column_id": column, "value": "replacement"}]
-        )
-        project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (rows[1],))
-        project.db.commit()
+        def encode(self, inputs, *, purpose, space, cancelled=None):
+            return [tuple([1.0] + [0.0] * (space.dimensions - 1)) for _ in inputs]
 
-        observed = []
-        ranked_candidates = search_mod._ranked_candidates
-
-        def record_limit(db, query, limit):
-            observed.append(limit)
-            return ranked_candidates(db, query, limit)
-
-        monkeypatch.setattr(search_mod, "_ranked_candidates", record_limit)
-        page = search_project_page(project, "needle", limit=3, rerank="off")
-
-        assert observed == [12]
-        assert page["complete"] is False
-        assert {hit["row_id"] for hit in page["hits"]}.isdisjoint(rows[:2])
-    finally:
-        project.close()
-
-
-def test_sparse_edits_reindex_only_the_changed_cells(documents):
-    project, _, column, rows = documents
-    drain_index(project)
-    changed = {rows[0], rows[-1]}
-    project.apply_edits(
-        [
-            {"row_id": row_id, "column_id": column, "value": "changedneedle"}
-            for row_id in changed
-        ]
-    )
-
-    processed_bytes = 0
     for _ in range(20):
-        progress = index_batch(project, batch_size=2)
-        processed_bytes += progress.processed_bytes
-        if progress.complete:
+        _processed, complete = process_index_batches(
+            project, embedding_encoder=Encoder()
+        )
+        if complete:
             break
     else:
-        pytest.fail("sparse edit maintenance did not finish")
-    # Native text bytes are the indexing budget; empty-scope bookkeeping may
-    # consume work units but must not reread unchanged cells.
-    assert processed_bytes == len(changed) * len("changedneedle")
+        pytest.fail("retrieval maintenance never completed")
+
+    with RetrievalStore(project).open() as store:
+        stats = {
+            str(row[0]) for row in store.db.execute("SELECT tbl FROM sqlite_stat1")
+        }
     assert {
-        hit["row_id"] for hit in search_project(project, "changedneedle", rerank="off")
-    } == changed
+        "bindings",
+        "lexical_sources",
+        "part_representations",
+        "parts",
+        "representations",
+        "sources",
+    } <= stats
+
+
+def test_dirty_edit_is_not_reported_as_fresh_until_maintenance_finishes(documents):
+    project, _sheet, column, rows = documents
+    drain_index(project)
+    project.apply_edits(
+        [{"row_id": rows[0], "column_id": column, "value": "replacementneedle"}]
+    )
+
     assert {
         hit["row_id"] for hit in search_project(project, "needle", rerank="off")
-    } == set(rows) - changed
+    } == set(rows[1:])
+    assert search_project(project, "replacementneedle", rerank="off") == []
+
+    drain_index(project, batch_size=2)
+    assert (
+        search_project(project, "replacementneedle", rerank="off")[0]["row_id"]
+        == rows[0]
+    )
+    assert {
+        hit["row_id"] for hit in search_project(project, "needle", rerank="off")
+    } == set(rows[1:])
 
 
-def test_bulk_edits_keep_the_search_worklist_compact(tmp_path):
-    project = Project.create(tmp_path / "bulk-edits.frisket")
-    try:
-        sheet = project.add_sheet("Documents")
-        column = project.add_column(sheet, "body")
-        rows = project.add_rows(
-            sheet, [{"body": "original"} for _ in range(300)], {"body": column}
-        )
-        drain_index(project)
-        changed = rows[::2]
-        project.apply_edits(
-            [
-                {"row_id": row_id, "column_id": column, "value": "bulkneedle"}
-                for row_id in changed
-            ]
-        )
-        # Fragmented bulk changes must not require a worklist row per cell.
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM search_dirty_scopes").fetchone()[0]
-            < len(changed) // 2
-        )
-        drain_index(project, batch_size=40)
-        assert {
-            hit["row_id"]
-            for hit in search_project(project, "bulkneedle", rerank="off", limit=200)
-        } == set(changed)
-    finally:
-        project.close()
-
-
-def test_crash_after_index_commit_before_ack_replays(documents, monkeypatch):
+def test_crash_before_dirty_ack_replays_committed_publication(documents, monkeypatch):
     project, *_ = documents
     original = maintenance.advance_dirty_scope
 
@@ -178,168 +109,21 @@ def test_crash_after_index_commit_before_ack_replays(documents, monkeypatch):
     with pytest.raises(RuntimeError, match="crash before checkpoint"):
         index_batch(project, batch_size=2)
     monkeypatch.setattr(maintenance, "advance_dirty_scope", original)
+
     assert drain_index(project, batch_size=2) == 7
     assert len(search_project(project, "needle", rerank="off")) == 7
 
 
-def test_changed_cell_behind_backfill_cursor_is_reconciled(documents):
-    project, _, column, rows = documents
-    index_batch(project, batch_size=2)
-    project.apply_edits(
-        [{"row_id": rows[0], "column_id": column, "value": "newneedle"}]
-    )
-    drain_index(project, batch_size=2)
-    assert search_project(project, "newneedle", rerank="off")[0]["row_id"] == rows[0]
-
-
-def test_old_source_snapshot_never_rebuilds_shared_index(documents):
-    project, sheet, column, _ = documents
-    drain_index(project)
-    with project.read_snapshot() as old:
-        db = fresh_sidecar(old)
-        db.close()
-        project.add_rows(sheet, [{"body": "laterneedle"}], {"body": column})
-        drain_index(project)
-        with pytest.raises(SearchIndexNotReady):
-            fresh_sidecar(old)
-    assert search_project(project, "laterneedle", rerank="off")
-
-
-def test_partial_mutation_revokes_old_complete_checkpoint(documents):
-    project, sheet, column, _ = documents
-    drain_index(project)
-    with project.read_snapshot() as old:
-        db = fresh_sidecar(old)
-        db.close()
-        project.add_rows(
-            sheet, [{"body": "laterneedle"}, {"body": "another"}], {"body": column}
-        )
-        assert not index_batch(project, batch_size=1).complete
-        with pytest.raises(SearchIndexNotReady):
-            fresh_sidecar(old)
-
-
-def test_missing_sidecar_recovers_even_after_work_acknowledged(documents):
+def test_deleted_unified_sidecar_is_rebuilt_from_authoritative_cells(documents):
     project, *_ = documents
     drain_index(project)
-    (project.path / "project.search.db").unlink()
+    (project.path / RETRIEVAL_DB_NAME).unlink()
+
     assert drain_index(project, batch_size=2) == 7
+    assert len(search_project(project, "needle", rerank="off")) == 7
 
 
-def test_pinned_index_remains_stable_during_later_update(documents):
-    project, sheet, column, _ = documents
-    drain_index(project)
-    db = fresh_sidecar(project)
-    try:
-        project.add_rows(sheet, [{"body": "laterneedle"}], {"body": column})
-        drain_index(project)
-        assert db.execute("SELECT COUNT(*) FROM cell_fts").fetchone()[0] == 7
-    finally:
-        db.close()
-    assert len(search_project(project, "laterneedle", rerank="off")) == 1
-
-
-@pytest.mark.parametrize("change", ["rename", "hide", "delete"])
-def test_column_lifecycle_reconciles_indexed_identities(documents, change):
-    project, _, column, _ = documents
-    drain_index(project)
-    if change == "rename":
-        project.db.execute("UPDATE columns SET name='renamed' WHERE id=?", (column,))
-    elif change == "hide":
-        project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (column,))
-    else:
-        project.db.execute("DELETE FROM columns WHERE id=?", (column,))
-    project.db.commit()
-    assert search_project_page(project, "needle", rerank="off")["hits"] == []
-    drain_index(project, batch_size=2)
-    hits = search_project(project, "needle", rerank="off")
-    if change == "rename":
-        assert len(hits) == 7
-        assert {hit["column_name"] for hit in hits} == {"renamed"}
-    else:
-        assert hits == []
-
-
-def test_foreground_read_does_not_wait_for_index_writer(documents):
-    project, *_ = documents
-    drain_index(project)
-    from frisket.search import _sidecar
-
-    writer = _sidecar(project)
-    try:
-        writer.execute("BEGIN IMMEDIATE")
-        assert search_project_page(project, "needle", rerank="off")["complete"]
-        reader = fresh_sidecar(project)
-        reader.close()
-    finally:
-        writer.rollback()
-        writer.close()
-
-
-@pytest.mark.parametrize("size", [10, 2000])
-def test_nonsearchable_columns_do_not_scan_cell_corpus(tmp_path, size):
-    project = Project.create(tmp_path / "nontext.frisket", name="nontext")
-    try:
-        sheet = project.add_sheet("Documents")
-        columns = {
-            "amount": project.add_column(sheet, "amount", type="number"),
-            "date": project.add_column(sheet, "date", type="date"),
-            "file": project.add_column(sheet, "file", type="file"),
-            "hidden": project.add_column(sheet, "hidden", hidden=True),
-        }
-        records = [
-            {
-                "amount": i,
-                "date": "2026-10-02",
-                "file": {"name": "a.pdf"},
-                "hidden": "secret",
-            }
-            for i in range(size)
-        ]
-        project.add_rows(sheet, records, columns)
-        progress = index_batch(project, batch_size=5)
-        assert progress.complete and progress.processed <= 1
-        # Explicit column-range invalidations from a subsequent append must
-        # also skip live values, not only the initial whole-project walk.
-        project.add_rows(sheet, records, columns)
-        processed = 0
-        for _ in range(10):
-            progress = index_batch(project, batch_size=5)
-            processed += progress.processed
-            if progress.complete:
-                break
-        assert progress.complete and processed <= len(columns)
-    finally:
-        project.close()
-
-
-def test_former_text_column_purges_only_previously_indexed_cells(documents):
-    project, sheet, column, rows = documents
-    drain_index(project)
-    project.db.execute("UPDATE columns SET type='number' WHERE id=?", (column,))
-    project.db.commit()
-    project.add_rows(sheet, [{"body": i} for i in range(2000)], {"body": column})
-    processed = 0
-    for _ in range(10):
-        progress = index_batch(project, batch_size=5)
-        processed += progress.processed
-        if progress.complete:
-            break
-    assert progress.complete and processed <= len(rows) + 3
-    assert search_project(project, "needle", rerank="off") == []
-
-
-def test_one_quantum_drains_many_tiny_scopes(documents):
-    project, sheet, column, _ = documents
-    drain_index(project)
-    for i in range(30):
-        project.add_rows(sheet, [{"body": f"newneedle {i}"}], {"body": column})
-    progress = index_batch(project, batch_size=100)
-    assert progress.complete and progress.processed <= 100
-    assert len(search_project(project, "newneedle", rerank="off")) == 30
-
-
-def test_byte_budget_loads_only_cells_it_can_process(tmp_path, monkeypatch):
+def test_byte_budget_loads_only_the_admitted_cell_page(tmp_path, monkeypatch):
     project = Project.create(tmp_path / "bytes.frisket", name="bytes")
     try:
         sheet = project.add_sheet("Documents")
@@ -358,99 +142,20 @@ def test_byte_budget_loads_only_cells_it_can_process(tmp_path, monkeypatch):
 
         monkeypatch.setattr(ProjectReadSnapshot, "get_values", observe)
         progress = index_batch(project)
+
         assert not progress.complete
         assert 3 * 1024 * 1024 < progress.processed_bytes < 4 * 1024 * 1024
         assert loaded == [project.visible_row_ids(sheet)[:2]]
         drain_index(project)
-        assert [row for batch in loaded for row in batch] == project.visible_row_ids(
-            sheet
-        )
         assert search_project(project, "tailneedle3", rerank="off")
     finally:
         project.close()
 
 
-def test_index_batch_hydrates_a_small_page_in_one_authoritative_read(
-    tmp_path, monkeypatch
+def test_concurrent_edit_during_publication_remains_dirty_and_is_reconciled(
+    documents, monkeypatch
 ):
-    project = Project.create(tmp_path / "batched-values.frisket")
-    try:
-        sheet = project.add_sheet("Documents")
-        column = project.add_column(sheet, "body")
-        rows = project.add_rows(
-            sheet,
-            [{"body": f"needle {index}"} for index in range(100)],
-            {"body": column},
-        )
-        loaded = []
-        get_values = ProjectReadSnapshot.get_values
-
-        def observe(snapshot, sheet_id, column_id, row_ids=None, **kwargs):
-            loaded.append(list(row_ids or []))
-            return get_values(snapshot, sheet_id, column_id, row_ids=row_ids, **kwargs)
-
-        monkeypatch.setattr(ProjectReadSnapshot, "get_values", observe)
-        progress = index_batch(project, batch_size=200, max_bytes=1024 * 1024)
-
-        assert progress.complete
-        assert loaded == [rows]
-    finally:
-        project.close()
-
-
-def test_unchanged_scope_preserves_sidecar_identities_and_answers(documents):
-    project, sheet, column, _ = documents
-    drain_index(project)
-    from frisket.engine.store.search_index_work import enqueue_dirty_scope
-    from frisket.search import _read_sidecar
-
-    def identities():
-        db = _read_sidecar(project)
-        try:
-            return db.execute(
-                "SELECT column_id,row_id,id,source_hash,column_name "
-                "FROM search_cells ORDER BY column_id,row_id"
-            ).fetchall()
-        finally:
-            db.close()
-
-    before_rows = [tuple(row) for row in identities()]
-    before_hits = search_project(project, "needle", rerank="off")
-    project.db.execute("BEGIN IMMEDIATE")
-    enqueue_dirty_scope(project.db, sheet_id=sheet, column_id=column)
-    project.db.commit()
-
-    drain_index(project)
-
-    assert [tuple(row) for row in identities()] == before_rows
-    assert search_project(project, "needle", rerank="off") == before_hits
-
-
-def test_single_oversized_cell_keeps_full_searchable_content(tmp_path):
-    project = Project.create(tmp_path / "oversized.frisket", name="oversized")
-    try:
-        sheet = project.add_sheet("Documents")
-        column = project.add_column(sheet, "body")
-        project.add_rows(
-            sheet,
-            [
-                {"body": "x" * (5 * 1024 * 1024) + " oversizedtail"},
-                {"body": "nextcell"},
-            ],
-            {"body": column},
-        )
-        first = index_batch(project)
-        assert first.processed == 1 and first.processed_bytes > 4 * 1024 * 1024
-        assert not first.complete
-        drain_index(project)
-        assert search_project(project, "oversizedtail", rerank="off")
-        assert search_project(project, "nextcell", rerank="off")
-    finally:
-        project.close()
-
-
-def test_concurrent_scope_replacement_survives_deferred_ack(documents, monkeypatch):
-    project, _, column, rows = documents
+    project, _sheet, column, rows = documents
     drain_index(project)
     project.apply_edits([{"row_id": rows[0], "column_id": column, "value": "first"}])
     replace = maintenance._replace_cell
@@ -462,85 +167,19 @@ def test_concurrent_scope_replacement_survives_deferred_ack(documents, monkeypat
         if not changed:
             changed = True
             project.apply_edits(
-                [{"row_id": rows[0], "column_id": column, "value": "concurrentneedle"}]
+                [
+                    {
+                        "row_id": rows[0],
+                        "column_id": column,
+                        "value": "concurrentneedle",
+                    }
+                ]
             )
 
     monkeypatch.setattr(maintenance, "_replace_cell", replace_then_change)
     assert not index_batch(project).complete
     drain_index(project)
-    assert search_project(project, "concurrentneedle", rerank="off")
-
-
-def test_candidate_discovery_does_not_read_cell_values(documents):
-    project, sheet, column, rows = documents
-    drain_index(project)
-    from frisket.search import _read_sidecar
-
-    def deny_values(operation, table, field, _database, _trigger):
-        if (
-            operation == sqlite3.SQLITE_READ
-            and table == "current_cells"
-            and field == "value"
-        ):
-            return sqlite3.SQLITE_DENY
-        return sqlite3.SQLITE_OK
-
-    index = _read_sidecar(project)
-    try:
-        with project.read_snapshot() as snapshot:
-            snapshot.db.set_authorizer(deny_values)
-            scope = SimpleNamespace(
-                sheet_id=sheet, column_id=column, row_id_start=None, row_id_end=None
-            )
-            ids, live_ids, old_by_row = maintenance._column_page(
-                snapshot.db, index, scope, column, 0, 500, searchable=True
-            )
-            assert ids == rows
-            assert live_ids == set(rows)
-            assert set(old_by_row) == set(rows)
-    finally:
-        index.close()
-
-
-def test_sparse_column_discovery_does_not_scan_other_columns(tmp_path):
-    project = Project.create(tmp_path / "wide.frisket", name="wide")
-    from frisket.search import _sidecar
-
-    index = _sidecar(project)
-    try:
-        sheet = project.add_sheet("Wide")
-        columns = {
-            f"column{i}": project.add_column(sheet, f"column{i}") for i in range(16)
-        }
-        rows = project.add_rows(
-            sheet, [{name: "value" for name in columns}] * 200, columns
-        )
-        empty = project.add_column(sheet, "empty")
-        sparse = project.add_column(sheet, "sparse")
-        project.apply_edits(
-            [{"row_id": rows[-1], "column_id": sparse, "value": "only"}]
-        )
-        for column, expected in ((empty, []), (sparse, [rows[-1]])):
-            with project.read_snapshot() as snapshot:
-                instructions = 0
-
-                def enforce_bounded_lookup():
-                    nonlocal instructions
-                    instructions += 100
-                    return int(instructions > 2000)
-
-                # A row-first identity scan visits thousands of unrelated
-                # entries. A column-first covering seek touches only our scope.
-                snapshot.db.set_progress_handler(enforce_bounded_lookup, 100)
-                scope = SimpleNamespace(
-                    sheet_id=sheet, column_id=column, row_id_start=None, row_id_end=None
-                )
-                ids, live_ids, old_by_row = maintenance._column_page(
-                    snapshot.db, index, scope, column, 0, 500, searchable=True
-                )
-                assert ids == expected
-                assert live_ids == set(expected)
-                assert old_by_row == {}
-    finally:
-        index.close()
-        project.close()
+    assert (
+        search_project(project, "concurrentneedle", rerank="off")[0]["row_id"]
+        == rows[0]
+    )

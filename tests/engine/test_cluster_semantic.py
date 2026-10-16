@@ -54,6 +54,7 @@ class StubEmbedder:
 
     def __init__(self, vecs: dict[str, list[float]] | None = None):
         self.vecs = vecs or VECS
+        self.embedding_dimension = len(next(iter(self.vecs.values())))
         self.embedded: list[str] = []
 
     def __call__(self, texts: list[str]) -> list[list[float]]:
@@ -140,7 +141,7 @@ def test_threshold_is_spec_overridable(tmp_path):
 
 def test_vectors_cached_never_reembedded(tmp_path):
     """Second run embeds NOTHING — vectors come from the shared
-    content-addressed sidecar cache (sha1(model_id + content))."""
+    shared representation cache (SHA-256 of the exact input text bytes)."""
     p, sid = _seed(tmp_path, ROWS)
     emb = StubEmbedder()
     compute_semantic_clusters(p, sid, "org", emb, "stub/v1")
@@ -185,6 +186,7 @@ def test_default_semantic_clustering_considers_501_distinct_values(
             return [[1.0, 0.0] for _text in texts]
 
     embedder = UniformEmbedder()
+    embedder.embedding_dimension = 2
     clusters, distinct, considered = compute_semantic_clusters(
         project,
         sheet_id,
@@ -218,7 +220,7 @@ def test_real_model_groups_meaning_duplicates(tmp_path):
     """End-to-end with the bundled real local embedder:
     name variants cluster, the unrelated value stays out — at the default
     threshold, with no stubs."""
-    from frisket.semantic import resolve_embedder
+    from frisket.ai.embeddings.backends import resolve_embedder
 
     backend = resolve_embedder()
     if backend is None:  # FRISKET_DISABLE_LOCAL_EMBED set in the environment

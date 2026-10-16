@@ -153,7 +153,9 @@ def test_semantic_preview_never_resolves_a_remote_embedder(tmp_path, monkeypatch
         seen["allow_remote"] = kw.get("allow_remote")
         return (StubEmbedder(), "stub/v1")
 
-    monkeypatch.setattr("frisket.preview.cluster.resolve_embedder", fake_resolve)
+    monkeypatch.setattr(
+        "frisket.preview.cluster.embedding_backends.resolve_embedder", fake_resolve
+    )
     p, sid = _seed(tmp_path, ["ACME Corp", "Acme Corporation", "ACME Inc."])
     preview = resolve_cluster_preview(
         p, sheet_id=sid, input_column="org", method="semantic"
@@ -187,6 +189,24 @@ def test_semantic_errors_when_no_embedder(tmp_path, monkeypatch):
     with pytest.raises(ClusterPreviewError) as exc:
         resolve_cluster_preview(p, sheet_id=sid, input_column="org", method="semantic")
     assert exc.value.code == "embedding_backend_unavailable"
+    p.close()
+
+
+def test_semantic_cache_miss_is_typed_unavailable(tmp_path, monkeypatch):
+    from frisket.ai.embeddings.backends import LocalEmbeddingModelUnavailable
+
+    def missing(_texts):
+        raise LocalEmbeddingModelUnavailable("local model is not installed")
+
+    monkeypatch.setattr(
+        "frisket.preview.cluster.embedding_backends.resolve_embedder",
+        lambda **_kwargs: (missing, "fastembed/missing"),
+    )
+    p, sid = _seed(tmp_path, ["Jon Smith", "Smith, Jon"])
+    with pytest.raises(ClusterPreviewError) as exc:
+        resolve_cluster_preview(p, sheet_id=sid, input_column="org", method="semantic")
+    assert exc.value.code == "embedding_backend_unavailable"
+    assert exc.value.field == "method"
     p.close()
 
 

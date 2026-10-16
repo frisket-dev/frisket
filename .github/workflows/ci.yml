@@ -225,6 +225,7 @@ jobs:
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils ffmpeg ripgrep
       - run: uv sync --dev --extra entities
+      - run: uv run --no-sync python scripts/build_vec1.py
       # Real RapidOCR tests skip when model files are absent; CI does not
       # hydrate third-party weights.
       # keyless by design: replay_strict against the committed response cache.
@@ -264,6 +265,7 @@ jobs:
         working-directory: sdk
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils ffmpeg ripgrep
       - run: uv sync --dev --extra entities
+      - run: uv run --no-sync python scripts/build_vec1.py
       - run: FRISKET_CHECKLOG_DISABLE=1 uv run --no-sync pytest $PYTEST_TARGET -q -n auto --dist loadfile --durations=50 --durations-min=0.5 -o faulthandler_timeout=120
       # The ordinary suite excludes gap tests. Run the keyless acceptance
       # subset separately, using the same file-level parallelism. Tests marked

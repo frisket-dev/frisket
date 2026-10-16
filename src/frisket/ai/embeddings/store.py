@@ -3,8 +3,8 @@
 ``embedding_spaces`` and ``embedding_indexes`` are definitions/provenance, not
 vectors. ``EmbeddingStore`` is a thin helper over a ``Project``'s connection:
 spaces are minted from a strict descriptor (idempotent by descriptor hash), and
-indexes reference a space plus their source/maintenance/provider policy. Raw
-vectors are the rebuildable ``VectorBackend``'s job, never here.
+indexes reference a space plus their source/maintenance/provider policy. Derived
+vectors live in the unified retrieval sidecar.
 """
 
 from __future__ import annotations
@@ -146,7 +146,7 @@ class EmbeddingStore:
 
     def delete_index(self, index_id: str, *, commit: bool = True) -> bool:
         """Delete an index's metadata row. Returns False if it did not exist.
-        Sidecar vectors are the VectorBackend's responsibility (caller decides).
+        Unified named membership is removed by the admitted delete capability.
         ``commit=False`` keeps the DELETE inside the caller's transaction."""
         cur = self.db.execute("DELETE FROM embedding_indexes WHERE id=?", (index_id,))
         if commit:

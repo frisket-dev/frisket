@@ -5,8 +5,10 @@ from typing import Any
 import pytest
 
 from frisket.ai.embeddings import EmbeddingBackendUnavailable
+from frisket.ai.embeddings.analytics import encode_legacy_texts, legacy_analytical_space
 from frisket.ai.embeddings.capabilities import build_batch_result
-from frisket.semantic import LOCAL_MODEL
+from frisket.ai.embeddings.backends import LOCAL_MODEL
+from frisket.features.topic_segmentation import engines
 from frisket.features.topic_segmentation import (
     BetweenUnits,
     DeepTilingSegmenter,
@@ -57,13 +59,49 @@ class _FakeGateway:
         )
 
 
+def _context():
+    def encode(texts, *, embed, model_id):
+        assert model_id == f"fastembed/{LOCAL_MODEL}"
+        return embed(list(texts))["vectors"]
+
+    return SegmentationContext(encode_texts=encode)
+
+
+class _MemoryEmbeddingCache:
+    def __init__(self) -> None:
+        self.rows = {}
+
+    def get_representations(self, space_id, input_hashes):
+        return {
+            input_hash: self.rows[(space_id, input_hash)]
+            for input_hash in input_hashes
+            if (space_id, input_hash) in self.rows
+        }
+
+    def put_representations(self, representations) -> None:
+        for representation in representations:
+            self.rows[(representation.space_id, representation.input_hash)] = (
+                representation
+            )
+
+
+def _cached_context(cache: _MemoryEmbeddingCache) -> SegmentationContext:
+    space = legacy_analytical_space(f"fastembed/{LOCAL_MODEL}")
+
+    def encode(texts, *, embed, model_id):
+        assert model_id == f"fastembed/{LOCAL_MODEL}"
+        return encode_legacy_texts(cache, texts, embed=embed, space=space)
+
+    return SegmentationContext(encode_texts=encode)
+
+
 def test_deep_tiling_batches_local_embeddings_and_finds_the_semantic_gap() -> None:
     gateway = _FakeGateway([[1.0, 0.0]] * 4 + [[0.0, 1.0]] * 4)
     engine = DeepTilingSegmenter(gateway=gateway)
     snapshot = _snapshot(language="es")
 
     assert engine.preflight(snapshot, {}).ok
-    result = engine.segment(snapshot, {}, SegmentationContext())
+    result = engine.segment(snapshot, {}, _context())
 
     assert gateway.calls == [
         {
@@ -77,9 +115,30 @@ def test_deep_tiling_batches_local_embeddings_and_finds_the_semantic_gap() -> No
         BetweenUnits(left_unit_id="u3", right_unit_id="u4"),
     )
     embedding = result.diagnostics["embedding"]
-    assert embedding["actual_model_id"] == "fastembed/test-multilingual-model"
+    assert embedding["actual_model_id"] == f"fastembed/{LOCAL_MODEL}"
     assert embedding["dimension"] == 2
     assert "vectors" not in embedding
+
+
+def test_deep_tiling_instances_share_exact_unit_vectors_through_context_cache() -> None:
+    first = [1.0, 0.0, *([0.0] * 382)]
+    second = [0.0, 1.0, *([0.0] * 382)]
+    gateway = _FakeGateway([first] * 4 + [second] * 4)
+    context = _cached_context(_MemoryEmbeddingCache())
+
+    one = DeepTilingSegmenter(gateway=gateway).segment(_snapshot(), {}, context)
+    two = DeepTilingSegmenter(gateway=gateway).segment(_snapshot(), {}, context)
+
+    assert one.boundaries == two.boundaries
+    assert len(gateway.calls) == 1
+
+
+def test_runtime_deep_tiling_is_invocation_owned_not_the_catalog_singleton() -> None:
+    first = engines.runtime_segmenter("deep_tiling")
+    second = engines.runtime_segmenter("deep_tiling")
+
+    assert first is not second
+    assert first is not engines.ENGINE_BY_ID["deep_tiling"]
 
 
 def test_deep_tiling_balanced_keeps_two_equally_clear_topic_shifts() -> None:
@@ -88,7 +147,7 @@ def test_deep_tiling_balanced_keeps_two_equally_clear_topic_shifts() -> None:
     )
 
     result = DeepTilingSegmenter(gateway=gateway).segment(
-        _snapshot(12), {"detail": "balanced"}, SegmentationContext()
+        _snapshot(12), {"detail": "balanced"}, _context()
     )
 
     assert tuple(candidate.locator for candidate in result.boundaries) == (
@@ -104,7 +163,7 @@ def test_deep_tiling_detail_is_monotonic_and_does_not_change_models() -> None:
     )
 
     results = {
-        detail: engine.segment(snapshot, {"detail": detail}, SegmentationContext())
+        detail: engine.segment(snapshot, {"detail": detail}, _context())
         for detail in ("fewer", "balanced", "more")
     }
 
@@ -127,9 +186,7 @@ def test_deep_tiling_rejects_a_gateway_that_returns_remote_facts() -> None:
     )
 
     with pytest.raises(SegmentationExecutionError, match="non-local"):
-        DeepTilingSegmenter(gateway=gateway).segment(
-            _snapshot(), {}, SegmentationContext()
-        )
+        DeepTilingSegmenter(gateway=gateway).segment(_snapshot(), {}, _context())
 
 
 def test_deep_tiling_surfaces_a_missing_local_backend_without_fallback() -> None:
@@ -139,7 +196,7 @@ def test_deep_tiling_surfaces_a_missing_local_backend_without_fallback() -> None
 
     with pytest.raises(SegmentationEngineUnavailable, match="fastembed"):
         DeepTilingSegmenter(gateway=MissingGateway()).segment(
-            _snapshot(), {}, SegmentationContext()
+            _snapshot(), {}, _context()
         )
 
 
@@ -160,10 +217,7 @@ def test_deep_tiling_gateway_factory_is_a_complete_test_seam() -> None:
     )
 
     assert engine.definition.available
-    assert (
-        engine.segment(_snapshot(), {}, SegmentationContext()).engine_id
-        == "deep_tiling"
-    )
+    assert engine.segment(_snapshot(), {}, _context()).engine_id == "deep_tiling"
     assert len(gateway.calls) == 1
 
 

@@ -29,6 +29,7 @@ from frisket.engine.jobs.queue import ACTION_RUN_KIND
 from frisket.engine.jobs.worker import Worker
 from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
 from frisket.server.app import create_app
+from http_test_helpers import drain_queue
 
 
 class _GoogleClient:
@@ -82,6 +83,7 @@ def _seed(client: TestClient) -> tuple[str, int]:
         files={"file": ("rows.csv", "name\nAda\n", "text/csv")},
     )
     assert imported.status_code == 200, imported.text
+    drain_queue(client, worker_id="google-admission-setup")
     return project_id, int(imported.json()["sheet_id"])
 
 
@@ -340,7 +342,12 @@ def test_unpublished_prepared_receipt_does_not_bypass_current_dependency_gate(
     assert refused.status_code == 400, refused.text
     assert refused.json()["errors"][0]["code"] == "google_sheets_client_unavailable"
     assert _artifact_counts(client, project_id) == baseline
-    assert baseline["jobs"] == 0
+    assert (
+        client.app.state.workspace.queue.list_project_jobs(
+            project_id, kind=ACTION_RUN_KIND
+        )
+        == []
+    )
 
 
 @pytest.mark.parametrize(

@@ -32,6 +32,9 @@ WHEEL_RESOURCES = (
     "frisket/runtime/_guard.py",
     "frisket/runtime/_guard_windows.ps1",
     "frisket/data/model-server/pyproject.toml",
+    "frisket/data/model-server/classify-constraints.txt",
+    "frisket/data/model-server/indra-ocr-constraints.txt",
+    "frisket/data/model-server/retrieval-constraints.txt",
     "frisket/data/model-server/README.md",
     "frisket/data/model-server/src/frisket_models/local.py",
     "frisket/data/plugin_sdk.mjs",
@@ -171,7 +174,15 @@ def prepare(*, skip_web_build: bool = False, platform: str = "darwin") -> None:
         run("uv", "build", "--wheel", "--out-dir", temporary)
         (wheel,) = Path(temporary).glob("*.whl")
         with zipfile.ZipFile(wheel) as archive:
-            missing = sorted(set(WHEEL_RESOURCES) - set(archive.namelist()))
+            retrieval_library = {
+                "darwin": "macos-arm64/vec1.dylib",
+                "win32": "windows-x86_64/vec1.dll",
+            }[platform]
+            required = {
+                *WHEEL_RESOURCES,
+                f"frisket/retrieval/_native/{retrieval_library}",
+            }
+            missing = sorted(required - set(archive.namelist()))
             if missing:
                 raise ValueError(
                     f"Desktop wheel is missing runtime resources: {missing}"

@@ -7,6 +7,10 @@ from typing import Annotated, Literal
 from pydantic import Field, JsonValue, field_validator, model_validator
 
 from frisket.contracts.http.models import WireModel
+from frisket.contracts.http.project_search import (
+    ProjectSearchDocumentNavigation,
+    ProjectSearchTextRange,
+)
 
 
 class AskSheetSource(WireModel):
@@ -177,6 +181,8 @@ class AskCellTarget(WireModel):
     sheet_id: int
     row_id: int
     column_id: int
+    navigation: ProjectSearchDocumentNavigation | None = None
+    text_range: ProjectSearchTextRange | None = None
 
 
 class AskEvidenceTarget(WireModel):

@@ -95,8 +95,8 @@ RUN uv sync --frozen --no-dev --no-install-project $FRISKET_UV_EXTRAS
 # cell text never has to leave it. Embeddings are ~0.2GB and RapidOCR ~15MB.
 # Hugging Face-backed local ASR models stay cold until first use, then reuse
 # the persistent repository cache under /data configured below.
-# Model ids are inlined rather than imported from frisket.semantic /
-# frisket.search: importing frisket would require src/ in this layer,
+# Model ids are inlined rather than imported from the embedding backends:
+# importing frisket would require src/ in this layer,
 # defeating the point of keying it on the lockfile alone. Kept in sync with
 # those modules by tests/team/test_release_compose_artifacts.py.
 # Full OpenCV needs the explicitly installed libGL/GLib/XCB runtime libraries;
@@ -110,15 +110,24 @@ RUN uv run --no-sync python -c "import cv2" \
     && uv run --no-sync python -c "from rapidocr import RapidOCR; from rapidocr.utils.typings import OCRVersion; RapidOCR(params={'Rec.ocr_version': OCRVersion.PPOCRV5})" \
     && uv run --no-sync python -c "from fastembed.rerank.cross_encoder import TextCrossEncoder; \
     TextCrossEncoder('Xenova/ms-marco-MiniLM-L-6-v2')"
+# The custom wheel hook builds packaged Vec1 from the pinned vendored source.
+COPY hatch_build.py ./
+COPY scripts/build_vec1.py scripts/build_vec1.py
+COPY vendor/sqlite-vec1/ vendor/sqlite-vec1/
 COPY src/ src/
 # Bundle the standalone model-server project as data with the core wheel.
 COPY sidecar/src/ sidecar/src/
-COPY sidecar/pyproject.toml sidecar/README.md sidecar/classify-constraints.txt sidecar/indra-ocr-constraints.txt sidecar/
+COPY sidecar/pyproject.toml sidecar/README.md sidecar/classify-constraints.txt sidecar/indra-ocr-constraints.txt sidecar/retrieval-constraints.txt sidecar/
+COPY sidecar/retrieval-runtime/ sidecar/retrieval-runtime/
 COPY README.md LICENSE ./
-RUN uv sync --frozen --no-dev $FRISKET_UV_EXTRAS
-# Search stores postings without a second copy of project text. Check the
-# actual interpreter's SQLite capabilities before publishing the image.
-RUN uv run --no-sync python -c "from frisket.search_storage import ensure_search_runtime; ensure_search_runtime()"
+# Install the project as its built wheel. The wheel hook adds Vec1 outside the
+# source tree, so an editable install would import /app/src without the native
+# library that the published package and this image promise.
+RUN uv sync --frozen --no-dev --no-editable $FRISKET_UV_EXTRAS
+# Retrieval stores postings without a second copy of project text and ranks
+# vectors with packaged Vec1. Check both SQLite capabilities with the actual
+# image interpreter before publishing.
+RUN uv run --no-sync python -c "import sqlite3; from frisket.retrieval.native import load_vec1; db=sqlite3.connect(':memory:'); db.execute(\"CREATE VIRTUAL TABLE probe_fts USING fts5(content,content='',contentless_delete=1)\"); load_vec1(db)"
 COPY --from=web /build/dist /app/static
 
 # Published/product images carry their exact source identity without shipping

@@ -33,8 +33,10 @@ from frisket.server.services.action_run_cancel import (
 from frisket.server.services.action_runs import ActionRunService
 from frisket.server.workspace import Workspace
 from http_test_helpers import (
+    drain_queue,
     post_canonical_run_spec_as_v1_action,
     queued_python_run_spec,
+    run_worker_until_job_terminal,
     v1_action_from_canonical_run_spec,
 )
 
@@ -563,11 +565,11 @@ def test_cancel_intent_before_dispatch_converges_through_unclaimed_kernel(
         replacement = replacement_registry.get(RUN_PROJECT_KIND)
         assert replacement is not None
         registry.register(RUN_PROJECT_KIND, replacement)
-        assert Worker(
+        run_worker_until_job_terminal(
+            Worker(queue, registry, worker_id="pre-dispatch-cancel"),
             queue,
-            registry,
-            worker_id="pre-dispatch-cancel",
-        ).run_once()
+            job_id,
+        )
 
         job = queue.get(job_id)
         assert job is not None
@@ -630,6 +632,7 @@ def test_live_writer_cancel_records_intent_then_converges_within_one_row(
     )
     assert imported.status_code == 200, imported.text
     sheet_id = int(imported.json()["sheet_id"])
+    drain_queue(client, worker_id="cancel-intent-search-setup")
     launched = post_canonical_run_spec_as_v1_action(
         client,
         project_id,

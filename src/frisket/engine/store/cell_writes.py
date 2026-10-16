@@ -407,7 +407,12 @@ def replace_base_cells(
             "VALUES (?,?,?,?,?)",
             [(*cell, producer_id) for cell in encoded],
         )
-    refresh_current_cells(db, column_ids=columns, row_ids=rows)
+    refresh_current_cells(
+        db,
+        column_ids=columns,
+        row_ids=rows,
+        source_values_changed=True,
+    )
     return len(encoded)
 
 

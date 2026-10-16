@@ -815,7 +815,7 @@ class ModelRouter:
         """Embed ``texts`` into vectors via an OpenAI-compatible /embeddings
         endpoint. Raises LLMError if the provider isn't configured.
 
-        Vector-only by design: this is the seam ``frisket.semantic`` already
+        Vector-only by design: this is the seam the shared embedding backend already
         depends on. Native embeddings call :meth:`embed_batch` for the
         metadata-rich result."""
         provider = provider_from_model_id(model)

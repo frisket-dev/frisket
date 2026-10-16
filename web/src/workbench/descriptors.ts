@@ -279,10 +279,6 @@ export const SOURCES_DESCRIPTOR: WorkbenchPanelDescriptor = firstPartyDescriptor
   'frisket.core.panel.sources',
 );
 
-export const SEARCH_DESCRIPTOR: WorkbenchPanelDescriptor = firstPartyDescriptor(
-  'frisket.core.panel.search',
-);
-
 export const NOTIFICATIONS_DESCRIPTOR: WorkbenchPanelDescriptor = firstPartyDescriptor(
   'frisket.core.panel.notifications',
 );

@@ -1,0 +1,288 @@
+"""Typed project policy for bounded retrieval preparation."""
+
+from __future__ import annotations
+
+import dataclasses
+import json
+import logging
+from collections.abc import Collection
+from dataclasses import dataclass
+from typing import Any
+
+from frisket.retrieval.content import TextChunkRecipe, TranscriptChunkRecipe
+from frisket.retrieval.media import (
+    AudioWindowRecipe,
+    FixedClipRecipe,
+    PeriodicFrameRecipe,
+    ShotClipRecipe,
+)
+
+
+PREPARATION_POLICY_META_KEY = "retrieval_preparation_policy_v1"
+DEFAULT_TEXT_RECIPE = TextChunkRecipe()
+DEFAULT_TRANSCRIPT_RECIPE = TranscriptChunkRecipe()
+DEFAULT_VIDEO_RECIPE = ShotClipRecipe()
+DEFAULT_AUDIO_RECIPE: AudioWindowRecipe | None = None
+LOG = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class PreparationPolicy:
+    """Persistent selection of bounded local producer strategies."""
+
+    text_recipe: TextChunkRecipe | None = DEFAULT_TEXT_RECIPE
+    transcript_recipe: TranscriptChunkRecipe | None = DEFAULT_TRANSCRIPT_RECIPE
+    image_enabled: bool = True
+    pdf_pages_enabled: bool = True
+    video_recipe: PeriodicFrameRecipe | FixedClipRecipe | ShotClipRecipe | None = (
+        DEFAULT_VIDEO_RECIPE
+    )
+    audio_recipe: AudioWindowRecipe | None = DEFAULT_AUDIO_RECIPE
+
+    def __post_init__(self) -> None:
+        if self.text_recipe is not None and not isinstance(
+            self.text_recipe, TextChunkRecipe
+        ):
+            raise TypeError("text_recipe must be TextChunkRecipe or None")
+        if self.transcript_recipe is not None and not isinstance(
+            self.transcript_recipe, TranscriptChunkRecipe
+        ):
+            raise TypeError("transcript_recipe must be TranscriptChunkRecipe or None")
+        if not isinstance(self.image_enabled, bool):
+            raise TypeError("image_enabled must be boolean")
+        if not isinstance(self.pdf_pages_enabled, bool):
+            raise TypeError("pdf_pages_enabled must be boolean")
+        if self.video_recipe is not None and not isinstance(
+            self.video_recipe, PeriodicFrameRecipe | FixedClipRecipe | ShotClipRecipe
+        ):
+            raise TypeError("video_recipe must be a video recipe or None")
+        if self.audio_recipe is not None and not isinstance(
+            self.audio_recipe, AudioWindowRecipe
+        ):
+            raise TypeError("audio_recipe must be AudioWindowRecipe or None")
+
+
+DEFAULT_PREPARATION_POLICY = PreparationPolicy()
+_MISSING = object()
+_POLICY_KEYS = frozenset(field.name for field in dataclasses.fields(PreparationPolicy))
+_RECIPE_TYPES: dict[str, dict[str, type[Any]]] = {
+    "text_recipe": {"text_codepoint_windows": TextChunkRecipe},
+    "transcript_recipe": {"transcript_segment_windows": TranscriptChunkRecipe},
+    "video_recipe": {
+        "periodic_frames": PeriodicFrameRecipe,
+        "fixed_clips": FixedClipRecipe,
+        "shot_clips_ffmpeg_scene_v1": ShotClipRecipe,
+    },
+    "audio_recipe": {"audio_windows": AudioWindowRecipe},
+}
+
+
+def _knob(name: str) -> str:
+    return f"{PREPARATION_POLICY_META_KEY}.{name}"
+
+
+def _recipe_payload(recipe: object) -> dict[str, object] | None:
+    return None if recipe is None else dataclasses.asdict(recipe)
+
+
+def preparation_policy_json(policy: PreparationPolicy) -> str:
+    if not isinstance(policy, PreparationPolicy):
+        raise TypeError("policy must be a PreparationPolicy")
+    return json.dumps(
+        {
+            "text_recipe": _recipe_payload(policy.text_recipe),
+            "transcript_recipe": _recipe_payload(policy.transcript_recipe),
+            "image_enabled": policy.image_enabled,
+            "pdf_pages_enabled": policy.pdf_pages_enabled,
+            "video_recipe": _recipe_payload(policy.video_recipe),
+            "audio_recipe": _recipe_payload(policy.audio_recipe),
+        },
+        allow_nan=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
+def _optional_recipe(
+    name: str,
+    value: object,
+    default: object,
+    recipes: dict[str, type[Any]],
+) -> object:
+    if value is _MISSING:
+        return default
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError(f"{_knob(name)} must be an object or null")
+    strategy = value.get("strategy")
+    recipe_type = recipes.get(strategy) if isinstance(strategy, str) else None
+    if recipe_type is None:
+        LOG.warning(
+            "Ignoring unsupported stored retrieval recipe strategy %s for %s",
+            strategy,
+            _knob(name),
+        )
+        return None
+    allowed = {field.name for field in dataclasses.fields(recipe_type)}
+    unexpected = sorted(set(value) - allowed)
+    if unexpected:
+        LOG.warning(
+            "Ignoring unknown stored retrieval policy keys for %s: %s",
+            _knob(name),
+            ", ".join(unexpected),
+        )
+        value = {key: item for key, item in value.items() if key in allowed}
+    try:
+        return recipe_type(**value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"invalid {_knob(name)}: {exc}") from exc
+
+
+def _boolean(name: str, value: object, default: bool) -> bool:
+    if value is _MISSING:
+        return default
+    if not isinstance(value, bool):
+        raise ValueError(f"{_knob(name)} must be boolean")
+    return value
+
+
+def parse_preparation_policy(raw: str) -> PreparationPolicy:
+    """Parse stored JSON while tolerating keys written by a newer version."""
+
+    try:
+        value = json.loads(raw)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"{PREPARATION_POLICY_META_KEY} must be valid JSON") from exc
+    if not isinstance(value, dict):
+        raise ValueError(f"{PREPARATION_POLICY_META_KEY} must be an object")
+    unexpected = sorted(set(value) - _POLICY_KEYS)
+    if unexpected:
+        LOG.warning(
+            "Ignoring unknown stored retrieval policy keys: %s",
+            ", ".join(unexpected),
+        )
+    return PreparationPolicy(
+        text_recipe=_optional_recipe(
+            "text_recipe",
+            value.get("text_recipe", _MISSING),
+            DEFAULT_PREPARATION_POLICY.text_recipe,
+            _RECIPE_TYPES["text_recipe"],
+        ),
+        transcript_recipe=_optional_recipe(
+            "transcript_recipe",
+            value.get("transcript_recipe", _MISSING),
+            DEFAULT_PREPARATION_POLICY.transcript_recipe,
+            _RECIPE_TYPES["transcript_recipe"],
+        ),
+        image_enabled=_boolean(
+            "image_enabled",
+            value.get("image_enabled", _MISSING),
+            DEFAULT_PREPARATION_POLICY.image_enabled,
+        ),
+        pdf_pages_enabled=_boolean(
+            "pdf_pages_enabled",
+            value.get("pdf_pages_enabled", _MISSING),
+            DEFAULT_PREPARATION_POLICY.pdf_pages_enabled,
+        ),
+        video_recipe=_optional_recipe(
+            "video_recipe",
+            value.get("video_recipe", _MISSING),
+            DEFAULT_PREPARATION_POLICY.video_recipe,
+            _RECIPE_TYPES["video_recipe"],
+        ),
+        audio_recipe=_optional_recipe(
+            "audio_recipe",
+            value.get("audio_recipe", _MISSING),
+            DEFAULT_PREPARATION_POLICY.audio_recipe,
+            _RECIPE_TYPES["audio_recipe"],
+        ),
+    )
+
+
+def read_preparation_policy_db(db) -> PreparationPolicy:
+    """Read policy from the caller's current project database snapshot."""
+
+    row = db.execute(
+        "SELECT value FROM meta WHERE key=?", (PREPARATION_POLICY_META_KEY,)
+    ).fetchone()
+    raw = None if row is None else str(row[0])
+    if raw is None:
+        return DEFAULT_PREPARATION_POLICY
+    return parse_preparation_policy(raw)
+
+
+def read_preparation_policy(project) -> PreparationPolicy:
+    return read_preparation_policy_db(project.db)
+
+
+def write_preparation_policy(project, policy: PreparationPolicy) -> None:
+    """Persist producer selection and enqueue one existing dirty-scope rebuild."""
+
+    from frisket.engine.store.search_index_work import enqueue_dirty_scope
+
+    encoded = preparation_policy_json(policy)
+    with project.transaction_scope():
+        project.set_meta(PREPARATION_POLICY_META_KEY, encoded, commit=False)
+        enqueue_dirty_scope(project.db)
+
+
+def write_preparation_policy_patch(
+    project,
+    policy: PreparationPolicy,
+    *,
+    replace_fields: Collection[str],
+) -> None:
+    """Persist explicit current-version fields without erasing future JSON."""
+
+    from frisket.engine.store.search_index_work import enqueue_dirty_scope
+
+    if not isinstance(policy, PreparationPolicy):
+        raise TypeError("policy must be a PreparationPolicy")
+    replacements = frozenset(replace_fields)
+    unexpected = sorted(replacements - _POLICY_KEYS)
+    if unexpected:
+        raise ValueError(f"unknown preparation policy field {unexpected[0]}")
+
+    with project.transaction_scope():
+        raw = project.get_meta(PREPARATION_POLICY_META_KEY)
+        if raw is None:
+            stored: dict[str, Any] = {}
+        else:
+            try:
+                decoded = json.loads(raw)
+            except (TypeError, json.JSONDecodeError) as exc:
+                raise ValueError(
+                    f"{PREPARATION_POLICY_META_KEY} must be valid JSON"
+                ) from exc
+            if not isinstance(decoded, dict):
+                raise ValueError(f"{PREPARATION_POLICY_META_KEY} must be an object")
+            stored = decoded
+
+        current = json.loads(preparation_policy_json(policy))
+        for name in replacements:
+            stored[name] = current[name]
+        encoded = json.dumps(
+            stored,
+            allow_nan=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        project.set_meta(PREPARATION_POLICY_META_KEY, encoded, commit=False)
+        enqueue_dirty_scope(project.db)
+
+
+__all__ = [
+    "DEFAULT_PREPARATION_POLICY",
+    "DEFAULT_TEXT_RECIPE",
+    "DEFAULT_TRANSCRIPT_RECIPE",
+    "DEFAULT_VIDEO_RECIPE",
+    "PREPARATION_POLICY_META_KEY",
+    "PreparationPolicy",
+    "parse_preparation_policy",
+    "preparation_policy_json",
+    "read_preparation_policy",
+    "read_preparation_policy_db",
+    "write_preparation_policy",
+    "write_preparation_policy_patch",
+]

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   parseTimedTranscriptSegments,
   timedTranscriptValue,
@@ -19,8 +19,12 @@ function formatSeconds(seconds: number): string {
 
 export function TimedTranscript({
   document,
+  initialTime,
+  onTimeChange,
 }: {
   document: TimedTranscriptDocument;
+  initialTime?: number | null;
+  onTimeChange?(seconds: number): void;
 }) {
   const transcript = useMemo(() => timedTranscriptValue(document), [document]);
   const mediaRef = useRef<HTMLMediaElement | null>(null);
@@ -29,6 +33,17 @@ export function TimedTranscript({
     [transcript?.segments],
   );
   const [activeIndex, setActiveIndex] = useState<number | null>(segments[0]?.index ?? null);
+  useEffect(() => {
+    if (
+      mediaRef.current
+      && typeof initialTime === 'number'
+      && Number.isFinite(initialTime)
+      && initialTime >= 0
+    ) {
+      mediaRef.current.currentTime = initialTime;
+      onTimeChange?.(initialTime);
+    }
+  }, [initialTime, onTimeChange]);
 
   const seek = (segment: TimedTranscriptSegment) => {
     const media = mediaRef.current;
@@ -42,6 +57,7 @@ export function TimedTranscript({
   const onTimeUpdate = () => {
     const seconds = mediaRef.current?.currentTime;
     if (seconds === undefined) return;
+    onTimeChange?.(seconds);
     const active = segments.find((segment) => seconds >= segment.start && seconds < segment.end);
     if (active) setActiveIndex(active.index);
   };
@@ -53,6 +69,12 @@ export function TimedTranscript({
       src={document.media.url}
       aria-label={document.title}
       controls
+      onLoadedMetadata={(event) => {
+        if (typeof initialTime === 'number' && Number.isFinite(initialTime) && initialTime >= 0) {
+          event.currentTarget.currentTime = initialTime;
+          onTimeChange?.(initialTime);
+        }
+      }}
       onTimeUpdate={onTimeUpdate}
     >
       <track kind="captions" />
@@ -63,6 +85,12 @@ export function TimedTranscript({
       src={document.media.url}
       aria-label={document.title}
       controls
+      onLoadedMetadata={(event) => {
+        if (typeof initialTime === 'number' && Number.isFinite(initialTime) && initialTime >= 0) {
+          event.currentTarget.currentTime = initialTime;
+          onTimeChange?.(initialTime);
+        }
+      }}
       onTimeUpdate={onTimeUpdate}
     >
       <track kind="captions" />

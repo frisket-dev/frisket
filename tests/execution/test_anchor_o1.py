@@ -31,6 +31,7 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
+from http_test_helpers import drain_queue
 
 from frisket.ai.llm import ModelRouter
 from frisket.actions.system import typed_action_for_request
@@ -173,6 +174,7 @@ def _seeded_app_with_audio_row(
         [{"media": media_cell(blob, mime="audio/wav", filename="ep1.wav")}],
         {"media": col},
     )
+    drain_queue(client, worker_id="anchor-o1-setup")
     return client, project_id, project, sheet_id, row_id
 
 

@@ -12,6 +12,10 @@ import sys
 
 # Application-owned entrypoints, never module names supplied by a request.
 TARGETS = {
+    "embeddinggemma-session": (
+        "frisket.engine._workers.embeddinggemma_worker",
+        "framed_main",
+    ),
     "classifier-session": ("frisket.engine._workers.classifier_worker", "framed_main"),
     "indra-ocr": ("frisket.engine._workers.indra_ocr_worker", "main"),
     "parakeet-session": ("frisket.engine._workers.parakeet_worker", "framed_main"),

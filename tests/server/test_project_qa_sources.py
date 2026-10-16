@@ -54,7 +54,8 @@ def test_keyword_search_uses_search_revision_not_unrelated_operation_cursor(sour
     project.db.commit()
     result = ProjectQATools(project, turn, store).search_cells("NEEDLE", sheet)
     assert result["hits"]
-    assert result["coverage"]["complete"] is True
+    assert result["coverage"]["state"] == "complete"
+    assert result["coverage"]["requested_mode"] == "lexical"
 
 
 def test_exact_cell_scope_still_searches_its_original_text(source):
@@ -72,6 +73,44 @@ def test_exact_cell_scope_still_searches_its_original_text(source):
     [hit] = tools.search_cells("NEEDLE", sheet)["hits"]
     assert hit["column_id"] == column
     assert "NEEDLE" in tools.open_source(hit["citation_id"])["passages"][0]["text"]
+
+
+def test_search_skips_a_file_target_hidden_after_scope_admission(source):
+    project, store, _, turn, sheet, column, row = source
+    [hidden_row] = project.add_rows(
+        sheet, [{"Text": "unrelated file target"}], {"Text": column}
+    )
+    scoped_turn = {
+        **turn,
+        "scope": {
+            "kind": "sources",
+            "sources": [
+                {
+                    "kind": "file",
+                    "sheet_id": sheet,
+                    "row_id": row,
+                    "column_id": column,
+                },
+                {
+                    "kind": "file",
+                    "sheet_id": sheet,
+                    "row_id": hidden_row,
+                    "column_id": column,
+                },
+            ],
+        },
+    }
+    tools = ProjectQATools(project, scoped_turn, store)
+    project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (hidden_row,))
+    project.db.commit()
+
+    result = tools.search_cells("NEEDLE", sheet)
+
+    assert [hit["row_id"] for hit in result["hits"]] == [row]
+    assert result["partial"] is True
+    assert result["coverage"]["reason"] == "source_changed"
+    with pytest.raises(ProjectQAScopeError, match="hidden or missing"):
+        ProjectQATools(project, scoped_turn, store)
 
 
 def test_prior_sources_reopen_only_in_current_scope_and_metadata_is_filtered(source):
@@ -312,7 +351,8 @@ def test_reopening_an_old_offset_after_a_shorter_edit_returns_current_source(sou
     reopened = tools.open_source(citation["id"])
 
     assert reopened["source_changed"] is True
-    assert reopened["passages"][0]["text"] == ""
+    assert reopened["range"]["start"] == 0
+    assert reopened["passages"][0]["text"] == "replacement text"
     assert reopened["reached_end"] is True
 
 
@@ -343,7 +383,7 @@ def test_source_text_cannot_override_an_explicit_citation_offset(source):
     assert "<b>Methodology</b> late." in opened["passages"][0]["text"]
 
 
-def test_fts_anchor_ignores_raw_b_tags_before_the_actual_match(source):
+def test_exact_fts_location_bypasses_fallback_anchor(source):
     project, store, _, turn, sheet, column, row = source
     text = (
         "Methodology decoy. "
@@ -354,13 +394,13 @@ def test_fts_anchor_ignores_raw_b_tags_before_the_actual_match(source):
     drain_index(project)
     tools = ProjectQATools(project, turn, store)
 
-    [hit] = tools.search_cells("ACTUALNEEDLE", sheet)["hits"]
+    [hit] = tools.search_cells('"ACTUALNEEDLE"', sheet)["hits"]
     citation = store.get_citation(hit["citation_id"])
     opened = tools.open_source(hit["citation_id"])
 
     assert "<b>Methodology</b>" in citation["excerpt"]
-    assert citation["metadata"]["fts_anchor"] == "ACTUALNEEDLE"
-    assert opened["range"]["start"] > 2_000
+    assert "fts_anchor" not in citation["metadata"]
+    assert opened["range"]["start"] == text.index("ACTUALNEEDLE")
     assert "ACTUALNEEDLE" in opened["passages"][0]["text"]
 
 
@@ -378,11 +418,9 @@ def test_keyword_result_reports_when_its_ranked_examples_hit_the_limit(source):
     result = ProjectQATools(project, turn, store).search_cells("NEEDLE", sheet, limit=1)
 
     assert len(result["hits"]) == 1
-    assert result["coverage"] == {
-        "semantic": False,
-        "complete": True,
-        "result_limit_reached": True,
-    }
+    assert result["coverage"]["state"] == "complete"
+    assert result["coverage"]["is_top_k"] is True
+    assert result["coverage"]["searched_channels"] == ["lexical"]
 
 
 def test_citation_freshness_uses_the_saved_source_version(source):
@@ -526,7 +564,7 @@ def test_late_prepared_quote_keeps_timestamps_without_full_viewer_load(
     assert prepared["citation_id"] in tools.citation_ids
 
 
-def test_file_scope_reads_current_prepared_text_and_finds_it(tmp_path, monkeypatch):
+def test_file_scope_reads_current_prepared_text_and_finds_it(tmp_path):
     from frisket.engine.store.evidence import (
         record_evidence_link,
         record_source_artifact,
@@ -534,7 +572,6 @@ def test_file_scope_reads_current_prepared_text_and_finds_it(tmp_path, monkeypat
     )
     from frisket.engine.store.media_blobs import media_cell
     from frisket.server.services.project_qa_citations import resolve_citation
-    import frisket.server.services.project_qa_tools as tools_module
 
     project = Project.create(tmp_path / "prepared-file.frisket", name="Prepared")
     try:
@@ -625,42 +662,19 @@ def test_file_scope_reads_current_prepared_text_and_finds_it(tmp_path, monkeypat
         assert "NEEDLE decisive prepared evidence." in found["matches"][0]["text"]
         resolved = resolve_citation(project, turn["thread_id"], citation_id)
         assert resolved["status"] == "current"
-        assert resolved["target"] == {
+        assert resolved["target"] is not None
+        assert {
+            key: resolved["target"][key]
+            for key in ("kind", "sheet_id", "row_id", "column_id")
+        } == {
             "kind": "cell",
             "sheet_id": sheet,
             "row_id": row,
             "column_id": text_column,
         }
-
-        def semantic_prepared_hit(*args, **kwargs):
-            assert kwargs["file_cells"] == {(row, source_column), (row, text_column)}
-            start = prepared_text.index("NEEDLE")
-            return {
-                "hits": [
-                    {
-                        "sheet_id": sheet,
-                        "row_id": row,
-                        "column_id": text_column,
-                        "column_name": "Text result",
-                        "char_start": start,
-                        "char_end": start + len("NEEDLE"),
-                        "text": "NEEDLE",
-                        "semantic": True,
-                    }
-                ],
-                "new_embeddings": 0,
-                "coverage": {"complete": True, "semantic": True},
-            }
-
-        monkeypatch.setattr(
-            tools_module, "semantic_passage_search", semantic_prepared_hit
-        )
-        [semantic_hit] = tools.search_cells("NEEDLE", sheet, mode="semantic")["hits"]
-        assert semantic_hit["column_id"] == source_column
-        semantic_opened = tools.open_source(semantic_hit["citation_id"])
-        assert (
-            "NEEDLE decisive prepared evidence."
-            in semantic_opened["passages"][0]["text"]
+        resolved_range = resolved["target"]["text_range"]
+        assert prepared_text[resolved_range["start"] : resolved_range["end"]] == (
+            "NEEDLE"
         )
         with pytest.raises(ProjectQAScopeError, match="file scope"):
             tools.read_rows(sheet, [row], [text_column])
@@ -702,35 +716,3 @@ def test_file_scope_reads_current_prepared_text_and_finds_it(tmp_path, monkeypat
         )
     finally:
         project.close()
-
-
-def test_semantic_hit_is_not_cited_with_new_reference_after_an_edit(
-    source, monkeypatch
-):
-    import frisket.server.services.project_qa_tools as module
-
-    project, store, _, turn, sheet, column, row = source
-    tools = ProjectQATools(project, turn, store)
-
-    def racing_search(*args, **kwargs):
-        project.apply_edits([{"row_id": row, "column_id": column, "value": "changed"}])
-        return {
-            "hits": [
-                {
-                    "row_id": row,
-                    "column_id": column,
-                    "column_name": "Text",
-                    "char_start": 0,
-                    "char_end": 7,
-                    "text": "opening",
-                    "semantic": True,
-                }
-            ],
-            "new_embeddings": 1,
-            "coverage": {"complete": True, "semantic": True},
-        }
-
-    monkeypatch.setattr(module, "semantic_passage_search", racing_search)
-    result = tools.search_cells("needle", sheet, mode="semantic")
-    assert result["hits"] == []
-    assert result["coverage"]["reason"] == "source_changed"

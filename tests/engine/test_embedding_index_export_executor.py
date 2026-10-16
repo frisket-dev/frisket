@@ -18,10 +18,22 @@ import pytest
 
 from executor_harness import CatalogEntry, ExecutorCase, Gate, case_env
 from frisket.ai.embeddings import build_batch_result
-from frisket.ai.embeddings.freshness import IndexFreshness
+from frisket.ai.embeddings import freshness as freshness_module
+from frisket.ai.embeddings.freshness import (
+    IndexFreshness,
+    freshness_reason,
+    index_freshness,
+)
+from frisket.ai.embeddings.scope import iter_scope_row_pages
 from frisket.engine.executor import ExecutorDeps, run_action_spec
-from frisket.engine.executor import embedding_read
+from frisket.engine.executor import embedding_export, embedding_read
+from frisket.engine.executor.embedding_read import (
+    AdmittedEmbeddingIndexReader,
+    TableReadRefused,
+)
+from frisket.ai.embeddings.store import EmbeddingStore
 from frisket.engine.store import Project
+from frisket.retrieval.store import RetrievalStore
 from helpers import replace_test_source_cell
 
 _VECTORS = {
@@ -362,7 +374,7 @@ def test_export_blocks_stale_source_without_writing_anything(
 
 
 def test_embedding_read_fails_closed_for_unknown_nonfresh_reason(monkeypatch) -> None:
-    freshness = IndexFreshness(ready_keys=set())
+    freshness = IndexFreshness()
     monkeypatch.setattr(embedding_read, "index_freshness", lambda *_args: freshness)
     monkeypatch.setattr(
         embedding_read, "freshness_reason", lambda *_args: "future_nonfresh_reason"
@@ -373,3 +385,241 @@ def test_embedding_read_fails_closed_for_unknown_nonfresh_reason(monkeypatch) ->
     assert error is not None
     assert error.code == "embedding_index_incomplete"
     assert error.details["freshness_reason"] == "future_nonfresh_reason"
+
+
+def test_ready_freshness_uses_bindings_without_rebuilding_payloads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = Project.create(tmp_path / "ready.frisket", name="ready")
+    try:
+        seeded = _seed(project, tmp_path)
+        index = EmbeddingStore(project).get_index(seeded["index_id"])
+
+        def unexpected_payload_read(*_args, **_kwargs):
+            raise AssertionError("ready members must use binding revision authority")
+
+        monkeypatch.setattr(
+            freshness_module, "build_source_payloads", unexpected_payload_read
+        )
+        fresh = index_freshness(project, index)
+        assert (fresh.ready_count, fresh.stale_count, fresh.missing_count) == (3, 0, 0)
+    finally:
+        project.close()
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "UPDATE parts SET recipe_id='unexpected-recipe'",
+        "UPDATE representations SET space_id='unexpected-space'",
+    ],
+)
+def test_freshness_requires_exact_recipe_and_space(
+    tmp_path: Path, statement: str
+) -> None:
+    project = Project.create(tmp_path / "identity.frisket", name="identity")
+    try:
+        seeded = _seed(project, tmp_path)
+        with RetrievalStore(project) as retrieval:
+            retrieval.db.execute(statement)
+            retrieval.db.commit()
+        index = EmbeddingStore(project).get_index(seeded["index_id"])
+        fresh = index_freshness(project, index)
+        assert fresh.ready_count == 0
+        assert fresh.stale_count == 3
+        assert fresh.surplus_count == 0
+        assert fresh.target_count == 3
+    finally:
+        project.close()
+
+
+@pytest.mark.parametrize("removed", ["blank", "hidden", "column_hidden"])
+def test_freshness_records_removed_member_without_staling_current_target(
+    tmp_path: Path, removed: str
+) -> None:
+    project = Project.create(tmp_path / f"{removed}.frisket", name=removed)
+    try:
+        seeded = _seed(project, tmp_path)
+        row_id = min(project.get_values(seeded["sheet_id"], seeded["column_id"]))
+        if removed == "blank":
+            replace_test_source_cell(
+                project,
+                row_id=row_id,
+                column_id=seeded["column_id"],
+                value=None,
+            )
+        elif removed == "hidden":
+            project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (row_id,))
+            project.db.commit()
+        else:
+            project.db.execute(
+                "UPDATE columns SET hidden=1 WHERE id=?", (seeded["column_id"],)
+            )
+            project.db.commit()
+        index = EmbeddingStore(project).get_index(seeded["index_id"])
+        fresh = index_freshness(project, index)
+        expected_current = 0 if removed == "column_hidden" else 2
+        expected_surplus = 3 if removed == "column_hidden" else 1
+        assert fresh.target_count == expected_current
+        assert fresh.ready_count == expected_current
+        assert fresh.stale_count == 0
+        assert fresh.surplus_count == expected_surplus
+        assert freshness_reason(index, fresh) == "fresh"
+    finally:
+        project.close()
+
+
+def test_freshness_records_member_that_exits_stored_filter(tmp_path: Path) -> None:
+    project = Project.create(tmp_path / "filter.frisket", name="filter")
+    try:
+        sheet = project.add_sheet("animals")
+        column = project.add_column(sheet, "headline")
+        row_id = project.add_rows(sheet, [{"headline": "cat"}], {"headline": column})[0]
+        action = _index_create_action(sheet, key="filtered")
+        action["params"]["source_query"] = {
+            "schema_version": "frisket.query.v1",
+            "kind": "sheet.filter",
+            "scope": {"kind": "sheet", "sheet_id": sheet},
+            "filter": {"headline": {"contains": "cat"}},
+        }
+        created = run_action_spec(project, action, project_id="p")
+        assert created.status == "completed", created.errors
+        index_id = created.outputs[0].ref["index_id"]
+        _refresh(project, index_id)
+        replace_test_source_cell(project, row_id=row_id, column_id=column, value="dog")
+        index = EmbeddingStore(project).get_index(index_id)
+        fresh = index_freshness(project, index)
+        assert fresh.target_count == 0
+        assert fresh.ready_count == fresh.stale_count == 0
+        assert fresh.surplus_count == 1
+        assert freshness_reason(index, fresh) == "fresh"
+    finally:
+        project.close()
+
+
+def test_scope_pages_keep_position_order_with_unique_tie_break(tmp_path: Path) -> None:
+    project = Project.create(tmp_path / "scope.frisket", name="scope")
+    try:
+        sheet = project.add_sheet("rows")
+        column = project.add_column(sheet, "value")
+        row_ids = project.add_rows(
+            sheet,
+            [{"value": str(value)} for value in range(5)],
+            {"value": column},
+        )
+        positions = (30, 10, 10, 20, 10)
+        project.db.executemany(
+            "UPDATE rows SET position=? WHERE id=?",
+            zip(positions, row_ids, strict=True),
+        )
+        project.db.commit()
+        actual = [
+            row_id
+            for page in iter_scope_row_pages(project, sheet, {}, page_size=2)
+            for row_id in page
+        ]
+        assert actual == [row_ids[1], row_ids[2], row_ids[4], row_ids[3], row_ids[0]]
+    finally:
+        project.close()
+
+
+def test_export_refuses_edit_between_preflight_and_pinned_pages(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = Project.create(tmp_path / "race.frisket", name="race")
+    try:
+        seeded = _seed(project, tmp_path)
+        original = embedding_export.iter_index_row_pages
+        edited = False
+
+        def edit_then_read(*args, **kwargs):
+            nonlocal edited
+            if not edited:
+                edited = True
+                row_id = min(
+                    project.get_values(seeded["sheet_id"], seeded["column_id"])
+                )
+                replace_test_source_cell(
+                    project,
+                    row_id=row_id,
+                    column_id=seeded["column_id"],
+                    value="changed during export",
+                )
+            yield from original(*args, **kwargs)
+
+        monkeypatch.setattr(embedding_export, "iter_index_row_pages", edit_then_read)
+        result = run_action_spec(
+            project,
+            _export_action(seeded["index_id"], seeded["out"], key="race"),
+            project_id="p",
+        )
+        assert result.status == "failed"
+        assert result.errors[0].code == "embedding_source_stale"
+        assert list(seeded["out"].iterdir()) == []
+    finally:
+        project.close()
+
+
+def test_admitted_reader_refuses_edit_after_freshness_preflight(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = Project.create(tmp_path / "read-race.frisket", name="read-race")
+    try:
+        seeded = _seed(project, tmp_path)
+        original = embedding_read.iter_index_row_pages
+        edited = False
+
+        def edit_then_read(*args, **kwargs):
+            nonlocal edited
+            if not edited:
+                edited = True
+                row_id = min(
+                    project.get_values(seeded["sheet_id"], seeded["column_id"])
+                )
+                replace_test_source_cell(
+                    project,
+                    row_id=row_id,
+                    column_id=seeded["column_id"],
+                    value="changed during analytical read",
+                )
+            yield from original(*args, **kwargs)
+
+        monkeypatch.setattr(embedding_read, "iter_index_row_pages", edit_then_read)
+        with pytest.raises(TableReadRefused) as refused:
+            AdmittedEmbeddingIndexReader(project, "embedding.cluster").read(
+                seeded["index_id"]
+            )
+        assert refused.value.error.code == "embedding_source_stale"
+    finally:
+        project.close()
+
+
+def test_export_writes_every_row_across_source_pages(tmp_path: Path) -> None:
+    project = Project.create(tmp_path / "paged-export.frisket", name="paged-export")
+    try:
+        sheet = project.add_sheet("documents")
+        column = project.add_column(sheet, "headline")
+        project.add_rows(
+            sheet,
+            [{"headline": f"document {offset}"} for offset in range(501)],
+            {"headline": column},
+        )
+        created = run_action_spec(
+            project, _index_create_action(sheet, key="paged"), project_id="p"
+        )
+        assert created.status == "completed", created.errors
+        index_id = created.outputs[0].ref["index_id"]
+        _refresh(project, index_id, key="paged-refresh")
+        out = tmp_path / "paged-out"
+        out.mkdir()
+        result = run_action_spec(
+            project,
+            _export_action(index_id, out, formats=["jsonl"], key="paged"),
+            project_id="p",
+        )
+        assert result.status == "completed", result.errors
+        artifact = result.outputs[0].ref
+        assert artifact["row_count"] == 501
+        assert len(Path(artifact["path"]).read_text().splitlines()) == 501
+    finally:
+        project.close()

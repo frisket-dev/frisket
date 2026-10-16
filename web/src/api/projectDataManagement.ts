@@ -4,6 +4,7 @@ import type {
   ProjectNetworkPolicy,
   ProjectRetentionPolicy,
   ProjectSettings,
+  ProjectSettingsPatch,
 } from './types';
 
 export interface ProjectDataManagementOptions {
@@ -24,7 +25,7 @@ export interface ProjectDataManagementApi {
   ): Promise<ProjectNetworkPolicy>;
   getProjectSettings(options?: ProjectDataManagementOptions): Promise<ProjectSettings>;
   updateProjectSettings(
-    input: Partial<ProjectSettings>,
+    input: ProjectSettingsPatch,
     options?: ProjectDataManagementOptions,
   ): Promise<ProjectSettings>;
   compactProject(options?: ProjectDataManagementOptions): Promise<Record<string, unknown>>;

@@ -1,39 +1,41 @@
-"""Hybrid keyword and vector search fused by Reciprocal Rank Fusion.
-
-The same query ``text`` drives BOTH a sheet-scoped FTS/BM25 keyword search and a vector
-search over the index (as a manual_text_query); the two ranked row-id lists fuse by RRF
-into one ranked row-set. RRF (rank-based) because BM25 (unbounded) and cosine (−1..1)
-scales are incompatible. Only the vector side egresses (one gateway call, egress-gated);
-FTS is local.
-"""
+"""Named-index hybrid retrieval through the unified query service."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
 
-from frisket.search import rrf_fuse, search_sheet
 from frisket.engine.store import Project
+from frisket.retrieval.contracts import (
+    RankingPolicy,
+    RetrievalScope,
+    SearchRequest,
+    SheetScope,
+    TextQuery,
+)
+from frisket.retrieval.query import RetrievalQueryError, RetrievalQueryService
+from frisket.retrieval.ranking import RankingError
+from frisket.retrieval.store import RetrievalStore
 
 from .similarity import (
     EmbeddingQueryBinding,
     QueryEmbeddingUse,
     SimilarityError,
-    resolve_embedding_similarity,
+    _embedding_query_binding,
+    _load_index,
+    _manual_query,
+    _require_semantic_available,
 )
-from .vector_backend import VectorBackend
 
 DEFAULT_RRF_K = 60
-# Over-fetch each side so RRF has enough candidates to fuse before the caller windows.
-_HYBRID_POOL = 200
 
 
 @dataclass(frozen=True)
 class HybridHit:
     row_id: int
-    score: float  # the fused RRF score (higher = better)
-    vector_rank: int | None  # 1-based rank on the vector side (None = absent)
-    keyword_rank: int | None  # 1-based rank on the keyword side (None = absent)
+    score: float
+    vector_rank: int | None
+    keyword_rank: int | None
 
 
 @dataclass(frozen=True)
@@ -41,7 +43,7 @@ class HybridResult:
     index_id: str
     sheet_id: int
     hits: list[HybridHit]
-    query_embedding_use: QueryEmbeddingUse
+    query_embedding_use: QueryEmbeddingUse | None
     binding: EmbeddingQueryBinding
 
 
@@ -50,13 +52,10 @@ def resolve_embedding_hybrid(
     query: dict[str, Any],
     *,
     gateway: Any = None,
-    backend: VectorBackend | None = None,
     effect_project: Project | None = None,
 ) -> HybridResult:
-    """Resolve an ``embedding_hybrid`` query into a fused, ranked row-set. The vector
-    side reuses resolve_embedding_similarity (so the SAME remote-egress gate fires before
-    any embed); the keyword side is a local sheet-scoped FTS. Hidden rows the FTS might
-    surface are dropped (the vector side already excludes them)."""
+    """Fuse whole-cell lexical matches with the index's semantic row composites."""
+
     if not isinstance(query, dict):
         raise SimilarityError("invalid_query_spec", "query must be an object")
     index_id = str(query.get("embedding_index_id") or "").strip()
@@ -83,72 +82,90 @@ def resolve_embedding_hybrid(
             field="text",
         )
     text = text.strip()
-    try:
-        k_rrf = int(query.get("k_rrf", DEFAULT_RRF_K))
-    except (TypeError, ValueError):
-        k_rrf = DEFAULT_RRF_K
-    if k_rrf < 1:
-        k_rrf = DEFAULT_RRF_K
-    # Over-fetch each side so RRF has candidates beyond the requested output window.
     raw_limit = query.get("limit", 50)
-    if isinstance(raw_limit, bool):
+    if isinstance(raw_limit, bool) or not isinstance(raw_limit, int) or raw_limit < 1:
         raise SimilarityError(
             "invalid_query_spec", "limit must be a positive integer", field="limit"
         )
-    try:
-        want = int(raw_limit)
-    except (TypeError, ValueError):
+    raw_k = query.get("k_rrf", DEFAULT_RRF_K)
+    if isinstance(raw_k, bool) or not isinstance(raw_k, int) or raw_k < 1:
         raise SimilarityError(
-            "invalid_query_spec", "limit must be a positive integer", field="limit"
-        ) from None
-    if want <= 0:
-        raise SimilarityError(
-            "invalid_query_spec", "limit must be a positive integer", field="limit"
+            "invalid_query_spec", "k_rrf must be a positive integer", field="k_rrf"
         )
-    available_rows = project.row_count(sheet_id)
-    pool = min(max(_HYBRID_POOL, want * 4), max(1, available_rows))
 
-    # Check the local index against this source snapshot before embedding. A
-    # snapshot retry must not repeat paid work merely because FTS was behind.
-    fts_ids = search_sheet(project, sheet_id, text, limit=pool)
-
-    # Vector execution retains its own remote-egress gate before any embed.
-    vec_query = {
-        "kind": "embedding_similarity",
-        "embedding_index_id": index_id,
-        "sheet_id": sheet_id,
-        "anchor": {"kind": "manual_text_query", "text": text},
-        "limit": pool,
-    }
-    vec_result = resolve_embedding_similarity(
-        project,
-        vec_query,
-        gateway=gateway,
-        backend=backend,
-        effect_project=effect_project,
+    index, space, descriptor, facade_space = _load_index(
+        project, {"embedding_index_id": index_id}
     )
-    vec_ids = [hit.row_id for hit in vec_result.hits]
-
-    fused = rrf_fuse([vec_ids, fts_ids], k=k_rrf)
-    vec_rank = {rid: i + 1 for i, rid in enumerate(vec_ids)}
-    fts_rank = {rid: i + 1 for i, rid in enumerate(fts_ids)}
-    visible = set(project.visible_row_ids(sheet_id))
-    hits = [
-        HybridHit(
-            row_id=rid,
-            score=score,
-            vector_rank=vec_rank.get(rid),
-            keyword_rank=fts_rank.get(rid),
+    if int(index["sheet_id"]) != sheet_id:
+        raise SimilarityError(
+            "embedding_space_mismatch",
+            "the requested sheet is not the embedding index sheet",
+            field="sheet_id",
         )
-        for rid, score in fused
-        if rid in visible
-    ][:want]
-    if vec_result.query_embedding_use is None:
-        raise RuntimeError("hybrid query did not produce a query embedding")
+    with RetrievalStore(project) as retrieval:
+        _semantic_query, vectors, query_use = _manual_query(
+            project,
+            retrieval,
+            index=index,
+            space=space,
+            descriptor=descriptor,
+            facade_space=facade_space,
+            anchor={"kind": "manual_text_query", "text": text},
+            maximum_distance=None,
+            gateway=gateway,
+            effect_project=effect_project,
+        )
+        request = SearchRequest(
+            scope=RetrievalScope((SheetScope(sheet_id=sheet_id),)),
+            query=TextQuery(text=text, lexical_syntax="fts"),
+            mode="hybrid",
+            group_by="row",
+            limit=raw_limit,
+            named_index_id=index_id,
+            space_id=str(space["id"]),
+            ranking=RankingPolicy(k_rrf=raw_k, rerank="off"),
+        )
+        try:
+            response = RetrievalQueryService(project).search(
+                request, semantic_vectors=vectors
+            )
+            _require_semantic_available(response)
+        except RetrievalQueryError as exc:
+            raise SimilarityError(exc.code, str(exc)) from exc
+        except RankingError as exc:
+            raise SimilarityError(
+                "embedding_composed_query_degenerate",
+                "the composed query vector cancels to zero; adjust the terms or weights",
+                field="text",
+            ) from exc
+        binding = _embedding_query_binding(index, space, retrieval)
+
+    hits: list[HybridHit] = []
+    for group in response.results:
+        vector_rank = None
+        keyword_rank = None
+        for located in (group.primary, *group.supporting):
+            for contribution in located.contributions:
+                if contribution.method == "semantic":
+                    vector_rank = min(
+                        vector_rank or contribution.rank, contribution.rank
+                    )
+                elif contribution.method == "lexical":
+                    keyword_rank = min(
+                        keyword_rank or contribution.rank, contribution.rank
+                    )
+        hits.append(
+            HybridHit(
+                row_id=group.primary.binding.row_id,
+                score=group.primary.rank_score,
+                vector_rank=vector_rank,
+                keyword_rank=keyword_rank,
+            )
+        )
     return HybridResult(
         index_id=index_id,
-        sheet_id=int(sheet_id),
+        sheet_id=sheet_id,
         hits=hits,
-        query_embedding_use=vec_result.query_embedding_use,
-        binding=vec_result.binding,
+        query_embedding_use=query_use,
+        binding=binding,
     )

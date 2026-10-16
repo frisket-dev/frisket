@@ -35,7 +35,7 @@ from frisket.execution.attempt import StaleAttemptWriter, set_attempt_state
 
 
 def _resolve(project, bound, spec, router, *, admission=True):
-    from frisket.semantic import embedder_is_remote, resolve_embedder
+    from frisket.ai.embeddings.backends import embedder_is_remote, resolve_embedder
     from frisket.engine.runner.validation import assert_provider_spend_cap
 
     existing = _receipt_for_idempotency(project, bound.request.idempotency_key)

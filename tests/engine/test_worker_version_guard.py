@@ -34,7 +34,11 @@ from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from frisket.server.services.action_runs import ActionRunService
 from frisket.server.workspace import Workspace
-from http_test_helpers import queued_python_run_spec, v1_action_from_canonical_run_spec
+from http_test_helpers import (
+    queued_python_run_spec,
+    run_worker_until_job_terminal,
+    v1_action_from_canonical_run_spec,
+)
 
 
 def _null_code_version(queue, job_id):
@@ -329,9 +333,8 @@ class TestRunRecordStamp:
         jid = int(launched.payload["job_id"])
         monkeypatch.setattr(runs_module, "code_version", lambda: "worker-commit-Z")
 
-        Worker(q, reg).run_once()
-
-        assert q.get(jid).status == "done"
+        job = run_worker_until_job_terminal(Worker(q, reg), q, jid)
+        assert job.status == "done"
         p2 = Project(workspace / "proj.frisket")
         run = RunResultStore(p2).get_run(run_id)
         assert run["worker_version"] == "worker-commit-Z"
@@ -383,7 +386,7 @@ class TestRunRecordStamp:
 
         monkeypatch.setattr(runs_module, "MapRunner", FailingRunner)
         monkeypatch.setattr(runs_module, "code_version", lambda: "worker-commit-Y")
-        Worker(q, reg).run_once()
+        run_worker_until_job_terminal(Worker(q, reg), q, jid)
 
         p2 = Project(workspace / "proj2.frisket")
         run = RunResultStore(p2).get_run(run_id)

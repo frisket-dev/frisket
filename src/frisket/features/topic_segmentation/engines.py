@@ -45,6 +45,15 @@ def get_segmenter(engine_id: str) -> DialogueSegmenter:
         ) from exc
 
 
+def runtime_segmenter(engine_id: str) -> DialogueSegmenter:
+    """Return an invocation-safe engine while retaining immutable catalog objects."""
+
+    segmenter = get_segmenter(engine_id)
+    if isinstance(segmenter, DeepTilingSegmenter):
+        return DeepTilingSegmenter()
+    return segmenter
+
+
 def engine_definitions() -> tuple[EngineDefinition, ...]:
     """Return current definitions; local dependency availability is live."""
 
@@ -89,5 +98,6 @@ __all__ = [
     "engine_catalog",
     "engine_definitions",
     "get_segmenter",
+    "runtime_segmenter",
     "static_engine_catalog",
 ]

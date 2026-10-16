@@ -64,7 +64,11 @@ def test_release_builds_and_smokes_exactly_two_native_platforms() -> None:
         "image": "${{ steps.publish.outputs.image }}",
         "digest": "${{ steps.publish.outputs.digest }}",
     }
-    assert workflow["jobs"]["server-smoke"]["needs"] == ["build", "container"]
+    assert workflow["jobs"]["server-smoke"]["needs"] == [
+        "build",
+        "assemble",
+        "container",
+    ]
     assert workflow["jobs"]["publish"]["needs"] == [
         "build",
         "container",

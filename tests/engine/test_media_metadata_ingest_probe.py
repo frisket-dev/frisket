@@ -18,6 +18,7 @@ from frisket.ops.media_probe import (
     probe_for_ingest,
 )
 from frisket.engine.runner import CostGate, MapRunner
+from frisket.engine.jobs.worker import Worker
 from frisket.server.app import create_app
 from frisket.engine.store import Project
 from frisket.engine.store.media_blobs import (
@@ -27,6 +28,7 @@ from frisket.engine.store.media_blobs import (
     update_blob_metadata,
 )
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
+from http_test_helpers import run_worker_until_job_terminal
 
 
 def _transcription_plan(sheet_id):
@@ -267,14 +269,20 @@ def test_file_import_stores_probe_metadata_and_identity_cell(tmp_path):
     project = client.app.state.workspace.get(pid)
     # Imported rows and identity cells are immediately available; optional
     # dimensions/pages/duration are filled by the durable background job.
-    from frisket.engine.jobs import JobHandlerContext
     from frisket.engine.jobs.blob_metadata import BLOB_METADATA_KIND
 
     assert MediaBlobStore(project).probe_metadata(cell["blob"]) == {}
     workspace = client.app.state.workspace
-    job = workspace.queue.claim("probe-test")
-    assert job.kind == BLOB_METADATA_KIND
-    workspace.registry.get(job.kind)(job.payload, JobHandlerContext.without_job_row())
+    job = next(
+        job
+        for job in workspace.queue.list_jobs()
+        if job.kind == BLOB_METADATA_KIND and job.project_id == pid
+    )
+    run_worker_until_job_terminal(
+        Worker(workspace.queue, workspace.registry, worker_id="probe-test"),
+        workspace.queue,
+        job.id,
+    )
     metadata = MediaBlobStore(project).probe_metadata(cell["blob"])
     assert metadata["kind"] == "image"
     assert metadata["width"] == 9

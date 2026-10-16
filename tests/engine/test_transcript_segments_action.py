@@ -30,6 +30,7 @@ from frisket.features.topic_segmentation.contracts import (
     TOPIC_ANALYSIS_SIDECAR_SCHEMA_VERSION,
 )
 from helpers import write_claimed_test_results
+from http_test_helpers import drain_queue, run_worker_until_job_terminal
 
 
 def _seed_timestamped_transcript(
@@ -597,7 +598,7 @@ def test_transcript_binding_runs_through_public_action_job_lifecycle(
             workspace.registry,
             worker_id="transcript-binding-lifecycle-worker",
         )
-        assert worker.run_once() is True
+        run_worker_until_job_terminal(worker, workspace.queue, launched.job_id)
 
         done_response = client.get(
             f"/api/projects/{project_id}/actions/jobs/{launched.job_id}"
@@ -727,6 +728,7 @@ def test_claimed_transcript_cancel_cannot_race_its_project_transaction(
         workspace = client.app.state.workspace
         project = workspace.get(project_id)
         seeded = _seed_timestamped_transcript(project)
+        drain_queue(client, worker_id="claimed-transcript-search-setup")
         target = "Claimed transcript segments"
         queued_response = client.post(
             f"/api/projects/{project_id}/actions/v1/run",

@@ -8,19 +8,31 @@ vi.mock('pluralize', () => ({
   }),
 }));
 
-import { createProjectSearchApi } from '../../src/api/projectSearch';
+import {
+  createProjectSearchApi,
+  type ProjectSearchRequestWire,
+} from '../../src/api/projectSearch';
 
-const hit = {
-  sheet_id: 3,
-  row_id: 7,
-  column_id: 11,
-  column_name: 'body',
-  ai_generated: false,
-  snip: '<b>budget</b>',
-  score: 0.9,
-  semantic: true,
-  rerank_score: 0.8,
-  producer_extension: { preserved: true },
+const request: ProjectSearchRequestWire = {
+  scope: { kind: 'project' },
+  query: { kind: 'text', text: 'a+b &/☃', lexical_syntax: 'fts' },
+  mode: 'hybrid',
+  group_by: 'source',
+  limit: 50,
+  ranking: { rerank: 'on' },
+};
+
+const response = {
+  groups: [],
+  coverage: {
+    requested_mode: 'hybrid',
+    effective_modes: ['lexical'],
+    state: 'partial',
+    searched_channels: ['text'],
+    channels: [],
+    is_top_k: true,
+    truncated: false,
+  },
 };
 
 function jsonResponse(payload: unknown, status = 200): Response {
@@ -35,38 +47,31 @@ afterEach(() => {
 });
 
 describe('project-search generated HTTP contract', () => {
-  it('sends exact browser URL bytes, defaults, overloads, headers, and abort signal', async () => {
-    const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+  it('posts the typed request to the encoded project URL with caller headers and cancellation', async () => {
+    const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      requests.push({ input, init });
-      return jsonResponse({ hits: [hit], indexing: true });
+      calls.push({ input, init });
+      return jsonResponse(response);
     }));
     const controller = new AbortController();
     const api = createProjectSearchApi(
       (status, payload) => new Error(`${status}:${String(payload)}`),
       'hostile /%25 ☃',
     );
-    await expect(api.searchProject('a+b &/☃')).resolves.toEqual({ hits: [hit], indexing: true });
-    await api.searchProject('numeric', 7);
-    await api.searchProject('loose', {
-      mode: 'lexical',
-      rerank: 'rerank-variant',
+
+    await expect(api.searchProject(request, {
       signal: controller.signal,
       headers: { Authorization: 'Bearer search', 'X-Trace-Id': 'search-contract' },
-    });
+    })).resolves.toEqual(response);
 
-    expect(requests.map(({ input }) => String(input))).toEqual([
-      '/api/projects/hostile%20%2F%2525%20%E2%98%83/search?q=a%2Bb+%26%2F%E2%98%83&limit=50&mode=keyword&rerank=off',
-      '/api/projects/hostile%20%2F%2525%20%E2%98%83/search?q=numeric&limit=7&mode=keyword&rerank=off',
-      '/api/projects/hostile%20%2F%2525%20%E2%98%83/search?q=loose&limit=50&mode=lexical&rerank=rerank-variant',
-    ]);
-    for (const request of requests) {
-      expect(request.init?.method).toBe('GET');
-      expect(request.init?.body).toBeUndefined();
-      expect(new Headers(request.init?.headers).get('content-type')).toBeNull();
-    }
-    expect(requests[2].init?.signal).toBe(controller.signal);
-    const headers = new Headers(requests[2].init?.headers);
+    expect(String(calls[0].input)).toBe(
+      '/api/projects/hostile%20%2F%2525%20%E2%98%83/search',
+    );
+    expect(calls[0].init?.method).toBe('POST');
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual(request);
+    expect(calls[0].init?.signal).toBe(controller.signal);
+    const headers = new Headers(calls[0].init?.headers);
+    expect(headers.get('content-type')).toContain('application/json');
     expect(headers.get('authorization')).toBe('Bearer search');
     expect(headers.get('x-trace-id')).toBe('search-contract');
   });
@@ -74,11 +79,11 @@ describe('project-search generated HTTP contract', () => {
   it('keeps generic error mapping, network rejection identity, and RealApi compatibility', async () => {
     const api = createProjectSearchApi(
       (status, payload) => Object.assign(new Error(`mapped-${status}`), { status, payload }),
-      'hostile /%25 ☃',
+      'project-1',
     );
     for (const status of [401, 403, 404, 422, 500]) {
       vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: `error-${status}` }, status)));
-      await expect(api.searchProject('budget')).rejects.toMatchObject({
+      await expect(api.searchProject(request)).rejects.toMatchObject({
         message: `mapped-${status}`,
         status,
         payload: { detail: `error-${status}` },
@@ -87,16 +92,14 @@ describe('project-search generated HTTP contract', () => {
 
     const network = new Error('network identity');
     vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(network)));
-    await expect(api.searchProject('budget')).rejects.toBe(network);
+    await expect(api.searchProject(request)).rejects.toBe(network);
 
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ hits: [hit], indexing: false })));
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(response)));
     const real = await import('../../src/api/real');
-    await expect(real.searchProject('hostile /%25 ☃', 'budget', {
-      mode: 'semantic', rerank: true,
-    })).resolves.toEqual({ hits: [hit], indexing: false });
+    await expect(real.searchProject('project-1', request)).resolves.toEqual(response);
 
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'unavailable' }, 500)));
-    await expect(real.searchProject('hostile /%25 ☃', 'budget')).rejects.toMatchObject({
+    await expect(real.searchProject('project-1', request)).rejects.toMatchObject({
       name: 'ApiError',
       status: 500,
       message: 'unavailable',

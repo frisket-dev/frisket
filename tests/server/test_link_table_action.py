@@ -17,7 +17,9 @@ def test_public_link_table_exact_scope_receipt_replay_and_current_project(
                 "completed match materialization has no provider calls"
             )
 
-        monkeypatch.setattr("frisket.semantic.resolve_embedder", forbidden)
+        monkeypatch.setattr(
+            "frisket.ai.embeddings.backends.resolve_embedder", forbidden
+        )
         request = _derive_link_action(
             seed["join_receipt_id"],
             source_sheet_id=seed["source_sheet_id"],

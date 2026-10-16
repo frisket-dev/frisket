@@ -8,7 +8,7 @@ import pytest
 
 from frisket.contracts.action import Receipt
 from frisket.ai.embeddings import build_batch_result
-from frisket.ai.embeddings.vector_backend import VectorBackend
+from frisket.retrieval.store import RetrievalStore
 from frisket.engine.executor import ExecutorDeps, run_action_spec
 from frisket.engine.store.materialization import (
     MaterializedColumnSpec,
@@ -257,19 +257,19 @@ def test_embedding_project_and_cluster_publish_standard_refs_with_lineage_eviden
         )
         assert materialized_rows["parent_row_ids"] == source_row_ids
 
-    backend = VectorBackend(project)
-    backend.ensure_schema()
-    vector = backend.db.execute(
-        "SELECT vector_id FROM embedding_items WHERE index_id=? AND status='ready' "
-        "LIMIT 1",
-        (index_id,),
-    ).fetchone()["vector_id"]
-    backend.db.execute(
-        "UPDATE embedding_vectors_f32 SET vec=? WHERE id=?",
-        (struct.pack("<3f", 1.0, 2.0, 3.0), vector),
-    )
-    backend.db.commit()
-    backend.close()
+    with RetrievalStore(project) as retrieval:
+        representation_id = retrieval.db.execute(
+            "SELECT representation.representation_id "
+            "FROM named_dataset_membership member "
+            "JOIN representations representation "
+            "ON representation.representation_key=member.representation_key "
+            "WHERE member.dataset_id=? LIMIT 1",
+            (index_id,),
+        ).fetchone()[0]
+        retrieval.db.execute(
+            "UPDATE representations SET vector=? WHERE representation_id=?",
+            (struct.pack("<3f", 1.0, 2.0, 3.0), representation_id),
+        )
     stale = run_action_spec(
         project,
         {

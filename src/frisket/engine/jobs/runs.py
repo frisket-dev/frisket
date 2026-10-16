@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 import os
 from collections.abc import Callable
 from dataclasses import replace
@@ -70,6 +71,7 @@ from frisket.project_identity import ProjectStorageKey
 from .ports import JobHandlerContext, WorkerPorts, coerce_worker_ports
 from .queue import (
     CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY,
+    JobQueue,
     claimed_project_location,
 )
 from .project_opener import ProjectOpener, open_claimed_project
@@ -77,6 +79,50 @@ from .worker import HandlerRegistration, HandlerRegistry
 
 RUN_PROJECT_KIND = "project.run"
 _RESPONSE_CACHE_UNSET = object()
+LOG = logging.getLogger(__name__)
+
+
+def _enqueue_search_index_after_completion(
+    project: Project,
+    *,
+    queue: JobQueue | None,
+    payload: Mapping[str, object],
+    context: JobHandlerContext,
+    project_id: str,
+    project_root: Path,
+) -> None:
+    """Wake retrieval only while this successful queue claim still owns work."""
+
+    if (
+        queue is None
+        or context.job_id is None
+        or context.job_attempt is None
+        or not context.handler_authority_id
+    ):
+        return
+    try:
+        current = queue.get(context.job_id)
+        if (
+            current is None
+            or current.status != "running"
+            or current.attempts != context.job_attempt
+        ):
+            return
+        continuation: dict[str, object] = {
+            "project_id": project_id,
+            "workspace_root": str(project_root),
+        }
+        claimed = payload.get(CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY)
+        if isinstance(claimed, ProjectStorageKey):
+            continuation["storage_org_id"] = claimed.storage_org_id
+        if isinstance(context.trusted_job_org_id, int):
+            continuation["org_id"] = context.trusted_job_org_id
+
+        from .search_index import enqueue_search_index
+
+        enqueue_search_index(project, queue, continuation)
+    except Exception:  # Retrieval wakeups must not retry a completed action.
+        LOG.warning("search_index_enqueue_failed", exc_info=True)
 
 
 def _queued_action_edition_error(
@@ -598,6 +644,7 @@ def register_project_run_handler(
     registry: HandlerRegistry,
     *,
     workspace_root: str | Path,
+    queue: JobQueue | None = None,
     router: ModelRouter | None = None,
     control_database_url: str | None = None,
     worker_ports: WorkerPorts | None = None,
@@ -628,7 +675,7 @@ def register_project_run_handler(
     uses_open_composition = execution_composition_factory is None
 
     def handle(payload: dict, handler_context: JobHandlerContext) -> dict:
-        project_id, _project_root, project_path = claimed_project_location(
+        project_id, project_root, project_path = claimed_project_location(
             payload,
             workspace_root=root,
             require_storage_identity=require_storage_identity,
@@ -714,6 +761,14 @@ def register_project_run_handler(
                 )
                 if action_result is not None:
                     result["action_result"] = action_result.model_dump(mode="json")
+                _enqueue_search_index_after_completion(
+                    project,
+                    queue=queue,
+                    payload=payload,
+                    context=handler_context,
+                    project_id=project_id,
+                    project_root=project_root,
+                )
                 return result
             raw_endpoint_bindings = payload["v1_local_endpoint_bindings"]
             if not isinstance(raw_endpoint_bindings, list):
@@ -796,6 +851,14 @@ def register_project_run_handler(
                     never_dispatched=True,
                 )
                 settle()
+                _enqueue_search_index_after_completion(
+                    project,
+                    queue=queue,
+                    payload=payload,
+                    context=handler_context,
+                    project_id=project_id,
+                    project_root=project_root,
+                )
                 return {
                     "project_id": project_id,
                     "run_id": run_id,
@@ -1042,6 +1105,14 @@ def register_project_run_handler(
                     claim_token=(claim_token if defer_attempt_close else None),
                 )
                 settle()
+                _enqueue_search_index_after_completion(
+                    project,
+                    queue=queue,
+                    payload=payload,
+                    context=handler_context,
+                    project_id=project_id,
+                    project_root=project_root,
+                )
                 return {
                     "project_id": project_id,
                     "run_id": progress.run_id,
@@ -1096,6 +1167,14 @@ def register_project_run_handler(
             }
             if action_result is not None:
                 result["action_result"] = action_result.model_dump(mode="json")
+            _enqueue_search_index_after_completion(
+                project,
+                queue=queue,
+                payload=payload,
+                context=handler_context,
+                project_id=project_id,
+                project_root=project_root,
+            )
             return result
         except StaleAttemptWriter as exc:
             # The provider may already have charged this losing invocation.
@@ -1225,6 +1304,7 @@ def register_action_run_handler(
     registry: HandlerRegistry,
     *,
     workspace_root: str | Path,
+    queue: JobQueue | None = None,
     router: ModelRouter | None = None,
     control_database_url: str | None = None,
     worker_ports: WorkerPorts | None = None,
@@ -1260,7 +1340,7 @@ def register_action_run_handler(
     settlement = ports.settlement_port
 
     def handle(payload: dict, handler_context: JobHandlerContext) -> dict:
-        project_id, _project_root, project_path = claimed_project_location(
+        project_id, project_root, project_path = claimed_project_location(
             payload,
             workspace_root=root,
             require_storage_identity=require_storage_identity,
@@ -1336,6 +1416,14 @@ def register_action_run_handler(
                             or os.environ.get("FRISKET_DATABASE_URL")
                         ),
                     )
+            _enqueue_search_index_after_completion(
+                project,
+                queue=queue,
+                payload=payload,
+                context=handler_context,
+                project_id=project_id,
+                project_root=project_root,
+            )
         finally:
             project.close()
         return action_job_result_payload(result)

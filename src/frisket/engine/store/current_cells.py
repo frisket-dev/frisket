@@ -13,12 +13,39 @@ import sqlite3
 from collections.abc import Collection, Iterator
 
 from frisket.authoring import column_types
-from frisket.engine.store.search_index_work import enqueue_dirty_scope
+from frisket.engine.store.search_index_work import enqueue_dirty_scope, latest_revision
 from frisket.engine.store.value_codec import decode_stored_value
 
 _SQLITE_BIND_LIMIT = 900
 _MAX_SEARCH_ROW_RANGES = 128
 INLINE_TEXT_BYTE_LIMIT = 128
+
+
+def stamp_retrieval_revision(
+    db: sqlite3.Connection,
+    revision: int,
+    *,
+    pairs: Collection[tuple[int, int]] | None = None,
+) -> None:
+    """Stamp source changes on exact live cells, or all cells during migration."""
+
+    _require_transaction(db)
+    if pairs is None:
+        db.execute("UPDATE current_cells SET retrieval_revision=?", (revision,))
+        return
+    targets = list(pairs)
+    chunk_size = (_SQLITE_BIND_LIMIT - 1) // 2
+    for start in range(0, len(targets), chunk_size):
+        chunk = targets[start : start + chunk_size]
+        values = ",".join("(?,?)" for _ in chunk)
+        params = [value for pair in chunk for value in pair]
+        db.execute(
+            f"WITH requested(row_id,column_id) AS (VALUES {values}) "
+            "UPDATE current_cells AS head SET retrieval_revision=? "
+            "FROM requested target WHERE head.column_id=target.column_id "
+            "AND head.row_id=target.row_id",
+            [*params, revision],
+        )
 
 
 def inline_scalar_eligibility_sql(
@@ -201,18 +228,47 @@ def _temp_key_table(name: str) -> str:
     return name
 
 
-def _delete_region(
-    db: sqlite3.Connection, *, column_ids: list[int], row_ids: list[int] | None
+def _delete_obsolete_heads(
+    db: sqlite3.Connection, *, target_sql: str, params: list[int]
 ) -> None:
-    column_placeholders = ",".join("?" for _ in column_ids)
-    params: list[int] = list(column_ids)
-    row_filter = ""
-    if row_ids is not None:
-        row_filter = f" AND row_id IN ({','.join('?' for _ in row_ids)})"
-        params.extend(row_ids)
+    """Delete targeted projection rows whose exact authority no longer exists."""
+
+    edit_precedence = live_edit_precedence_predicate(
+        edit_alias="source", op_alias="source_op"
+    )
+    descriptor_precedence = _descriptor_boundary_predicate(edit_alias="source")
     db.execute(
-        f"DELETE FROM current_cells WHERE column_id IN ({column_placeholders})"
-        f"{row_filter}",
+        "DELETE FROM current_cells AS head WHERE "
+        + target_sql
+        + " AND NOT ((head.origin_kind='source_cell' AND EXISTS ("
+        "SELECT 1 FROM cells source "
+        "JOIN rows source_row ON source_row.id=source.row_id "
+        "JOIN columns source_column ON source_column.id=source.column_id "
+        "AND source_column.sheet_id=source_row.sheet_id "
+        "WHERE source.column_id=head.column_id AND source.row_id=head.row_id "
+        "AND source.producer_id IS head.base_producer_id)) OR "
+        "(head.origin_kind='run_result' AND EXISTS ("
+        "SELECT 1 FROM cell_result_heads winner "
+        "JOIN results result ON result.run_id=winner.run_id "
+        "AND result.row_id=winner.row_id AND result.column_id=winner.column_id "
+        "JOIN runs run ON run.id=result.run_id "
+        "JOIN rows result_row ON result_row.id=result.row_id "
+        "JOIN columns result_column ON result_column.id=result.column_id "
+        "AND result_column.sheet_id=result_row.sheet_id "
+        "WHERE winner.column_id=head.column_id AND winner.row_id=head.row_id "
+        "AND winner.run_id=head.origin_run_id)) OR "
+        "(head.origin_kind='manual_edit' AND EXISTS ("
+        "SELECT 1 FROM edits source "
+        "JOIN ops source_op ON source_op.id=source.op_id "
+        "JOIN rows edit_row ON edit_row.id=source.row_id "
+        "JOIN columns edit_column ON edit_column.id=source.column_id "
+        "AND edit_column.sheet_id=edit_row.sheet_id "
+        "WHERE source.column_id=head.column_id AND source.row_id=head.row_id "
+        "AND source.op_id=head.origin_op_id AND source_op.status='applied' AND "
+        + descriptor_precedence
+        + " AND "
+        + edit_precedence
+        + ")))",
         params,
     )
 
@@ -225,6 +281,8 @@ def _insert_candidates(
     source_from: str,
     result_from: str,
     edit_from: str,
+    retrieval_revision: int | None,
+    source_values_changed: bool = False,
 ) -> int:
     typed_authorities = any(
         str(row[1]) == "value_kind" for row in db.execute("PRAGMA table_info(cells)")
@@ -237,6 +295,11 @@ def _insert_candidates(
         "inline_value_kind",
         "inline_value",
     } <= projection_columns
+    has_retrieval_revision = "retrieval_revision" in projection_columns
+    if has_retrieval_revision and (
+        retrieval_revision is None or retrieval_revision <= 0
+    ):
+        raise RuntimeError("retrieval-aware current-cell writes require a revision")
     if has_validity:
         if typed_authorities:
             db.create_function(
@@ -289,6 +352,43 @@ def _insert_candidates(
             f",CASE WHEN {eligible} THEN ranked.value_kind END"
             f",CASE WHEN {eligible} THEN ranked.value END"
         )
+    retrieval_column = ",retrieval_revision" if has_retrieval_revision else ""
+    retrieval_value = f",{int(retrieval_revision)}" if has_retrieval_revision else ""
+    update_columns = [
+        "origin_kind",
+        "origin_op_id",
+        "origin_run_id",
+        "base_producer_id",
+    ]
+    if not typed_authorities:
+        update_columns.insert(0, "value")
+    if has_validity:
+        update_columns.append("validity")
+    if has_inline_scalars:
+        update_columns.extend(("inline_value_kind", "inline_value"))
+    update_values = ",".join(f"{column}=excluded.{column}" for column in update_columns)
+    if has_retrieval_revision:
+        same_head = (
+            "current_cells.origin_kind=excluded.origin_kind "
+            "AND current_cells.origin_op_id IS excluded.origin_op_id "
+            "AND current_cells.origin_run_id IS excluded.origin_run_id "
+            "AND current_cells.base_producer_id IS excluded.base_producer_id"
+        )
+        if has_validity:
+            same_head += " AND current_cells.validity IS excluded.validity"
+        if has_inline_scalars:
+            same_head += (
+                " AND current_cells.inline_value_kind IS excluded.inline_value_kind"
+                " AND current_cells.inline_value IS excluded.inline_value"
+            )
+        if source_values_changed:
+            same_head += " AND excluded.origin_kind<>'source_cell'"
+        update_values += (
+            ",retrieval_revision=CASE WHEN "
+            + same_head
+            + " THEN current_cells.retrieval_revision "
+            "ELSE excluded.retrieval_revision END"
+        )
     edit_precedence = live_edit_precedence_predicate(
         edit_alias="source", op_alias="source_op"
     )
@@ -336,20 +436,25 @@ def _insert_candidates(
         "INSERT INTO current_cells "
         f"(column_id,row_id,{insert_payload_column}"
         "origin_kind,origin_op_id,origin_run_id,"
-        "base_producer_id" + validity_column + inline_columns + ") "
+        "base_producer_id" + validity_column + inline_columns + retrieval_column + ") "
         f"SELECT column_id,row_id,{select_payload_column}"
         "origin_kind,origin_op_id,origin_run_id,"
-        "base_producer_id" + validity_value + inline_values + " "
+        "base_producer_id" + validity_value + inline_values + retrieval_value + " "
         "FROM ranked CROSS JOIN columns descriptor "
         "ON descriptor.id=ranked.column_id "
-        "WHERE rank=1",
+        "WHERE rank=1 ON CONFLICT(column_id,row_id) DO UPDATE SET " + update_values,
         params,
     )
     return int(db.execute("SELECT changes()").fetchone()[0])
 
 
 def _insert_region(
-    db: sqlite3.Connection, *, column_ids: list[int], row_ids: list[int] | None
+    db: sqlite3.Connection,
+    *,
+    column_ids: list[int],
+    row_ids: list[int] | None,
+    retrieval_revision: int | None,
+    source_values_changed: bool = False,
 ) -> int:
     ctes = [_target_cte("target_columns", column_ids)]
     params: list[int] = list(column_ids)
@@ -398,7 +503,84 @@ def _insert_region(
         source_from=source_from,
         result_from=result_from,
         edit_from=edit_from,
+        retrieval_revision=retrieval_revision,
+        source_values_changed=source_values_changed,
     )
+
+
+def _enqueue_region(
+    db: sqlite3.Connection, *, column_ids: list[int], row_ids: list[int] | None
+) -> int:
+    ranges = None if row_ids is None else _search_row_ranges(row_ids)
+    for column_id in column_ids:
+        sheet = db.execute(
+            "SELECT sheet_id FROM columns WHERE id=?", (column_id,)
+        ).fetchone()
+        if sheet is None:
+            continue
+        sheet_id = int(sheet[0])
+        if ranges is None:
+            enqueue_dirty_scope(db, sheet_id=sheet_id, column_id=column_id)
+        else:
+            for start, end in ranges:
+                enqueue_dirty_scope(
+                    db,
+                    sheet_id=sheet_id,
+                    column_id=column_id,
+                    row_id_start=start,
+                    row_id_end=end,
+                )
+    return latest_revision(db)
+
+
+def _replace_region(
+    db: sqlite3.Connection,
+    *,
+    column_ids: list[int],
+    row_ids: list[int] | None,
+    retrieval_revision: int,
+    source_values_changed: bool,
+) -> int:
+    total = 0
+    if row_ids is None:
+        for column_chunk in _chunks(column_ids, _SQLITE_BIND_LIMIT):
+            total += _insert_region(
+                db,
+                column_ids=column_chunk,
+                row_ids=None,
+                retrieval_revision=retrieval_revision,
+                source_values_changed=source_values_changed,
+            )
+            placeholders = ",".join("?" for _ in column_chunk)
+            _delete_obsolete_heads(
+                db,
+                target_sql=f"head.column_id IN ({placeholders})",
+                params=list(column_chunk),
+            )
+        return total
+
+    column_chunk_size = min(len(column_ids), _SQLITE_BIND_LIMIT // 2)
+    for column_chunk in _chunks(column_ids, column_chunk_size):
+        row_chunk_size = _SQLITE_BIND_LIMIT - len(column_chunk)
+        for row_chunk in _chunks(row_ids, row_chunk_size):
+            total += _insert_region(
+                db,
+                column_ids=column_chunk,
+                row_ids=row_chunk,
+                retrieval_revision=retrieval_revision,
+                source_values_changed=source_values_changed,
+            )
+            column_marks = ",".join("?" for _ in column_chunk)
+            row_marks = ",".join("?" for _ in row_chunk)
+            _delete_obsolete_heads(
+                db,
+                target_sql=(
+                    f"head.column_id IN ({column_marks}) "
+                    f"AND head.row_id IN ({row_marks})"
+                ),
+                params=[*column_chunk, *row_chunk],
+            )
+    return total
 
 
 def refresh_current_cells_from_key_table(db: sqlite3.Connection, key_table: str) -> int:
@@ -406,32 +588,6 @@ def refresh_current_cells_from_key_table(db: sqlite3.Connection, key_table: str)
 
     _require_transaction(db)
     table = _temp_key_table(key_table)
-    db.execute(
-        "DELETE FROM current_cells WHERE (column_id,row_id) IN ("
-        f"SELECT column_id,row_id FROM {table})"
-    )
-    total = _insert_candidates(
-        db,
-        ctes=[
-            f"target_cells(row_id,column_id) AS (SELECT row_id,column_id FROM {table})"
-        ],
-        params=[],
-        source_from=(
-            "FROM target_cells target "
-            "CROSS JOIN cells source ON source.row_id=target.row_id "
-            "AND source.column_id=target.column_id "
-        ),
-        result_from=(
-            "FROM target_cells target "
-            "CROSS JOIN cell_result_heads head ON head.row_id=target.row_id "
-            "AND head.column_id=target.column_id "
-        ),
-        edit_from=(
-            "FROM target_cells target "
-            "CROSS JOIN edits source ON source.row_id=target.row_id "
-            "AND source.column_id=target.column_id "
-        ),
-    )
     columns = db.execute(
         f"SELECT DISTINCT target.column_id,column_meta.sheet_id FROM {table} target "
         "JOIN columns column_meta ON column_meta.id=target.column_id"
@@ -460,6 +616,37 @@ def refresh_current_cells_from_key_table(db: sqlite3.Connection, key_table: str)
                     row_id_start=int(row_range["row_start"]),
                     row_id_end=int(row_range["row_end"]),
                 )
+    retrieval_revision = latest_revision(db)
+    total = _insert_candidates(
+        db,
+        ctes=[
+            f"target_cells(row_id,column_id) AS (SELECT row_id,column_id FROM {table})"
+        ],
+        params=[],
+        source_from=(
+            "FROM target_cells target "
+            "CROSS JOIN cells source ON source.row_id=target.row_id "
+            "AND source.column_id=target.column_id "
+        ),
+        result_from=(
+            "FROM target_cells target "
+            "CROSS JOIN cell_result_heads head ON head.row_id=target.row_id "
+            "AND head.column_id=target.column_id "
+        ),
+        edit_from=(
+            "FROM target_cells target "
+            "CROSS JOIN edits source ON source.row_id=target.row_id "
+            "AND source.column_id=target.column_id "
+        ),
+        retrieval_revision=retrieval_revision,
+    )
+    _delete_obsolete_heads(
+        db,
+        target_sql=(
+            f"(head.column_id,head.row_id) IN (SELECT column_id,row_id FROM {table})"
+        ),
+        params=[],
+    )
     return total
 
 
@@ -468,12 +655,15 @@ def refresh_current_cells(
     *,
     column_ids: Collection[int],
     row_ids: Collection[int] | None = None,
+    source_values_changed: bool = False,
 ) -> int:
     """Refresh one column/row region inside the caller's transaction.
 
     ``row_ids=None`` means every row in the selected columns. Empty explicit
-    collections are no-ops. The return value is the number of projected rows
-    now present in the refreshed region.
+    collections are no-ops. ``source_values_changed`` is the narrow signal for
+    a canonical writer that replaced base-cell values under the same producer;
+    it forces revisions only where the final visible head is that source cell.
+    The return value is the number of projected rows now present in the region.
     """
 
     _require_transaction(db)
@@ -484,44 +674,15 @@ def refresh_current_cells(
     if rows == []:
         return 0
 
-    total = 0
-    if rows is None:
-        for column_chunk in _chunks(columns, _SQLITE_BIND_LIMIT):
-            _delete_region(db, column_ids=column_chunk, row_ids=None)
-            total += _insert_region(db, column_ids=column_chunk, row_ids=None)
-        for column_id in columns:
-            sheet = db.execute(
-                "SELECT sheet_id FROM columns WHERE id=?", (column_id,)
-            ).fetchone()
-            if sheet is not None:
-                enqueue_dirty_scope(db, sheet_id=int(sheet[0]), column_id=column_id)
-        return total
+    retrieval_revision = _enqueue_region(db, column_ids=columns, row_ids=rows)
 
-    # Keep the combined target CTE below SQLite's conservative bind budget.
-    column_chunk_size = min(len(columns), _SQLITE_BIND_LIMIT // 2)
-    for column_chunk in _chunks(columns, column_chunk_size):
-        row_chunk_size = _SQLITE_BIND_LIMIT - len(column_chunk)
-        for row_chunk in _chunks(rows, row_chunk_size):
-            _delete_region(db, column_ids=column_chunk, row_ids=row_chunk)
-            total += _insert_region(db, column_ids=column_chunk, row_ids=row_chunk)
-    search_ranges = _search_row_ranges(rows)
-    for column_id in columns:
-        sheet = db.execute(
-            "SELECT sheet_id FROM columns WHERE id=?", (column_id,)
-        ).fetchone()
-        if sheet is not None:
-            if search_ranges is None:
-                enqueue_dirty_scope(db, sheet_id=int(sheet[0]), column_id=column_id)
-            else:
-                for start, end in search_ranges:
-                    enqueue_dirty_scope(
-                        db,
-                        sheet_id=int(sheet[0]),
-                        column_id=column_id,
-                        row_id_start=start,
-                        row_id_end=end,
-                    )
-    return total
+    return _replace_region(
+        db,
+        column_ids=columns,
+        row_ids=rows,
+        retrieval_revision=retrieval_revision,
+        source_values_changed=source_values_changed,
+    )
 
 
 def refresh_current_cell_pairs(
@@ -540,10 +701,15 @@ def refresh_current_cell_pairs(
     columns_by_rows: dict[tuple[int, ...], list[int]] = {}
     for column_id, row_ids in rows_by_column.items():
         columns_by_rows.setdefault(tuple(sorted(row_ids)), []).append(column_id)
-    return sum(
-        refresh_current_cells(db, column_ids=sorted(column_ids), row_ids=row_ids)
+    groups = [
+        (row_ids, sorted(column_ids))
         for row_ids, column_ids in sorted(columns_by_rows.items())
+    ]
+    total = sum(
+        refresh_current_cells(db, column_ids=column_ids, row_ids=row_ids)
+        for row_ids, column_ids in groups
     )
+    return total
 
 
 def rebuild_current_cells(
@@ -556,7 +722,14 @@ def rebuild_current_cells(
     """
 
     _require_transaction(db)
-    db.execute("DELETE FROM current_cells")
+    retrieval_revision = None
+    if invalidate_search:
+        retrieval_revision = enqueue_dirty_scope(db)
+    elif any(
+        str(row[1]) == "retrieval_revision"
+        for row in db.execute("PRAGMA table_info(current_cells)")
+    ):
+        raise RuntimeError("retrieval-aware rebuilds must invalidate search")
     total = 0
     columns = db.execute("SELECT id FROM columns ORDER BY id")
     while batch := columns.fetchmany(_SQLITE_BIND_LIMIT):
@@ -564,7 +737,7 @@ def rebuild_current_cells(
             db,
             column_ids=[int(row[0]) for row in batch],
             row_ids=None,
+            retrieval_revision=retrieval_revision,
         )
-    if invalidate_search:
-        enqueue_dirty_scope(db)
+    _delete_obsolete_heads(db, target_sql="1", params=[])
     return total

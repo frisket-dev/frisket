@@ -37,6 +37,7 @@ from frisket.engine.store.evidence import (
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 from helpers import write_claimed_test_results
+from http_test_helpers import drain_queue, run_worker_until_job_terminal
 
 
 @dataclass(frozen=True)
@@ -623,7 +624,7 @@ def test_extract_range_binding_runs_through_http_queue_worker_and_exact_replay(
             workspace.registry,
             worker_id="extract-binding-lifecycle-worker",
         )
-        assert worker.run_once() is True
+        run_worker_until_job_terminal(worker, workspace.queue, launched.job_id)
 
         done = client.get(
             f"/api/projects/{project_id}/actions/jobs/{launched.job_id}"
@@ -740,6 +741,7 @@ def test_claimed_extract_cancel_finishes_its_deterministic_project_transaction(
         sheet_id, _source_column_id, row_ids, _blob_hashes = _seed_two_media_rows(
             project
         )
+        drain_queue(client, worker_id="claimed-extract-search-setup")
         action, _bound = _extract_action(
             sheet_id=sheet_id,
             row_ids=[row_ids[0]],

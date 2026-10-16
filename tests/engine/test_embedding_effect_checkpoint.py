@@ -15,9 +15,11 @@ from typing import Any
 
 import pytest
 
-from frisket.ai.embeddings import EmbeddingStore, VectorBackend, build_batch_result
+from frisket.ai.embeddings import EmbeddingStore, build_batch_result
+from unified_embedding_probe import UnifiedEmbeddingProbe
 from frisket.engine.executor import ExecutorDeps, run_action_spec
 from frisket.engine.store import Project
+from frisket.retrieval.store import RetrievalStore
 from frisket.team.security.secrets import encrypt_secret
 
 PROJECT_ID = "project-embedding-effects"
@@ -149,18 +151,20 @@ def test_returned_embedding_checkpoint_accounts_spend_before_result_commit(
     gateway = PaidRemoteGateway()
     index_id = _create_remote_index(project, gateway=gateway)
 
-    real_upsert = VectorBackend.upsert_item
+    real_put = RetrievalStore.put_representations
     crashes = [True]
 
-    def crash_once_before_vector_commit(self, **kwargs):
+    def crash_once_before_vector_commit(self, representations):
         if crashes[0]:
             crashes[0] = False
             raise RuntimeError("injected crash after accounted provider return")
-        return real_upsert(self, **kwargs)
+        return real_put(self, representations)
 
     # The exact vulnerable boundary: the provider has returned and charged,
     # but neither the sidecar vectors nor the terminal receipt exist yet.
-    monkeypatch.setattr(VectorBackend, "upsert_item", crash_once_before_vector_commit)
+    monkeypatch.setattr(
+        RetrievalStore, "put_representations", crash_once_before_vector_commit
+    )
 
     with pytest.raises(RuntimeError, match="after accounted provider return"):
         _run(
@@ -209,7 +213,7 @@ def test_returned_embedding_checkpoint_accounts_spend_before_result_commit(
     assert len(gateway.calls) == 1
     assert resumed.outputs[0].ref["refreshed"] == 3
     assert resumed.outputs[0].ref["ready_items"] == 3
-    backend = VectorBackend(project)
+    backend = UnifiedEmbeddingProbe(project)
     backend.ensure_schema()
     assert backend.item_counts(index_id) == {"ready": 3}
     backend.close()
@@ -640,7 +644,7 @@ def test_embedding_terminalizer_joins_caller_transaction(
         == 0
     )
 
-    backend = VectorBackend(project)
+    backend = UnifiedEmbeddingProbe(project)
     backend.ensure_schema()
     try:
         assert backend.item_counts(index_id) == {"ready": 3}

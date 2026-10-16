@@ -1,0 +1,9 @@
+# Exact experiment-only runtime used on Linux x86_64 / Python 3.12.
+# Install torch and torchvision from https://download.pytorch.org/whl/cpu.
+av==15.1.0
+numpy==2.4.3
+pillow==12.1.1
+psutil==7.1.0
+torch==2.14.1+cpu
+torchvision==0.29.1+cpu
+transformers==5.19.0

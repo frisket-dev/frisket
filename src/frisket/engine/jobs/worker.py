@@ -23,7 +23,10 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from frisket.ai.embeddings.runtime import EmbeddingRuntime
 
 from frisket.ai.llm import ResponseCache
 from frisket.authoring.workbench.plugin_runtime_shared import PluginCompositionPolicy
@@ -317,6 +320,7 @@ def register_production_handlers(
     | None = None,
     execution_composition_factory: ExecutionCompositionFactory | None = None,
     execution_composition_overlay: ExecutionCompositionOverlay | None = None,
+    embedding_runtime: EmbeddingRuntime | None = None,
 ) -> ProjectOpener | None:
     """Register the product handlers on the OPEN worker.
 
@@ -427,6 +431,7 @@ def register_production_handlers(
     project_run_registration = register_project_run_handler(
         registry,
         workspace_root=root,
+        queue=queue,
         router=router,
         control_database_url=control_database_url,
         worker_ports=ports,
@@ -442,6 +447,7 @@ def register_production_handlers(
     action_run_registration = register_action_run_handler(
         registry,
         workspace_root=root,
+        queue=queue,
         router=router,
         control_database_url=control_database_url,
         worker_ports=ports,
@@ -480,6 +486,7 @@ def register_production_handlers(
         queue=queue,
         workspace_root_storage_org_id=workspace_root_storage_org_id,
         project_opener=project_opener,
+        embedding_encoder=embedding_runtime,
     )
     source_poll_registration = register_source_poll_handler(
         registry,
@@ -502,6 +509,7 @@ def register_production_handlers(
         queue=queue,
         workspace_root_storage_org_id=workspace_root_storage_org_id,
         project_opener=project_opener,
+        embedding_encoder=embedding_runtime,
     )
     notification_delivery_registration = register_notification_handlers(
         registry,

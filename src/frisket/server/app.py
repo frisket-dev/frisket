@@ -15,7 +15,10 @@ import time
 from collections.abc import Callable, Mapping
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from frisket.ai.embeddings.runtime import EmbeddingRuntime
 
 from fastapi import FastAPI, Request
 from starlette.types import ASGIApp, Receive, Scope, Send
@@ -400,6 +403,7 @@ def create_app(
     cloud_profile_dir: str | Path | None = None,
     cloud_origin: str | None = None,
     cloud_execution_transport: CloudExecutionTransport | None = None,
+    embedding_runtime: EmbeddingRuntime | None = None,
 ) -> FastAPI:
     # The deployment's price list (frisket.execution.pricing_policy), installed
     # process-wide because the fourteen sites that mint a money confirmation
@@ -566,6 +570,7 @@ def create_app(
         cloud_connection_store=resolved_cloud_store,
         cloud_connection_client=resolved_cloud_client,
         cloud_execution_transport=resolved_cloud_transport,
+        embedding_runtime=embedding_runtime,
     )
     stale_run_grace_seconds = (
         DEFAULT_RUN_STATUS_GRACE_SECONDS
@@ -967,6 +972,7 @@ def create_app(
     register_project_search_routes(
         app,
         service=ProjectSearchService(ws),
+        capabilities_for=selector_capabilities_for,
     )
 
     register_project_provenance_routes(
@@ -1066,4 +1072,5 @@ def create_app(
         if resolved_static is not None:
             mount_spa_static(app, resolved_static)
 
+    app.router.add_event_handler("shutdown", ws.close_embedding_runtime)
     return app

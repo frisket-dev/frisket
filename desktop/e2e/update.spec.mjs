@@ -2,6 +2,7 @@ import { test, expect, _electron } from '@playwright/test';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import { handleFirstLaunchPrompts } from './onboarding.mjs';
 import {
   aliveProcesses, assertInstalledPlatform, descendants, installedExecutable, installedResources, listeningPorts, runningExecutable,
 } from './installed-platform.mjs';
@@ -76,11 +77,7 @@ async function launch(feed, testInfo, automaticChoice = 'Check automatically') {
     page.on('pageerror', (error) => rendererErrors.push(error.message));
     await page.waitForURL('frisket://app/**', { waitUntil: 'commit', timeout: 300_000 });
     await expect(page.getByTestId('home-screen')).toBeVisible();
-    const disclosure = page.getByTestId('product-telemetry-disclosure');
-    if (await disclosure.isVisible()) {
-      await disclosure.getByRole('checkbox').uncheck();
-      await disclosure.getByRole('button', { name: 'Continue' }).click();
-    }
+    await handleFirstLaunchPrompts(page);
     expect(await electron.evaluate(({ app }) => app.getPath('userData'))).toBe(profile);
     return { electron, page, rendererErrors };
   } catch (error) {

@@ -906,7 +906,7 @@ def _recipe_engines(
             CLOUDFLARE_CLEF_TARGET_ID,
             StaticExecutionTargetProvider,
         )
-        from frisket.semantic import (
+        from frisket.ai.embeddings.backends import (
             PROVIDERLESS_CLASSIFY_MODEL,
             local_embedder,
         )

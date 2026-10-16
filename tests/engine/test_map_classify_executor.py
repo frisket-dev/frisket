@@ -404,17 +404,17 @@ def _patch_local_semantic_embedding(
         for text in texts:
             lowered = text.lower()
             if "government contracts" in lowered:
-                vectors.append([1.0, 0.0])
+                vectors.append([1.0, *([0.0] * 383)])
             elif "roads and public infrastructure" in lowered:
-                vectors.append([0.0, 1.0])
+                vectors.append([0.0, 1.0, *([0.0] * 382)])
             elif "no clear topic" in lowered:
-                vectors.append([-1.0, 0.0])
+                vectors.append([-1.0, *([0.0] * 383)])
             elif "no-bid contract" in lowered:
-                vectors.append([0.95, 0.05])
+                vectors.append([0.95, 0.05, *([0.0] * 382)])
             elif "road work" in lowered:
-                vectors.append([0.1, 0.9])
+                vectors.append([0.1, 0.9, *([0.0] * 382)])
             else:
-                vectors.append([0.0, 0.0])
+                vectors.append([0.0] * 384)
         return build_batch_result(
             vectors,
             provider_id="fastembed",
@@ -685,8 +685,8 @@ def test_map_classify_providerless_work_stays_deterministically_bounded() -> Non
 def test_providerless_classifier_downloads_pinned_snapshot_once(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import frisket.semantic as semantic
     import huggingface_hub
+    from frisket.ai.embeddings import backends
     from frisket.ai.models import artifact_manifest
     from frisket.engine._workers import parakeet_artifacts
 
@@ -711,8 +711,8 @@ def test_providerless_classifier_downloads_pinned_snapshot_once(
 
     monkeypatch.setattr(huggingface_hub, "snapshot_download", download)
 
-    first = semantic.ensure_providerless_classifier_installed()
-    second = semantic.ensure_providerless_classifier_installed()
+    first = backends.ensure_providerless_classifier_installed()
+    second = backends.ensure_providerless_classifier_installed()
 
     assert first == second
     assert calls == [
@@ -728,10 +728,11 @@ def test_providerless_classifier_downloads_pinned_snapshot_once(
 
 @pytest.mark.asyncio
 async def test_providerless_classifier_reports_first_use_download_failure(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import frisket.engine.executor.classify_read as classify_read
-    from frisket.semantic import ProviderlessClassifierProvisionError
+    from frisket.ai.embeddings.backends import ProviderlessClassifierProvisionError
 
     def fail() -> None:
         raise ProviderlessClassifierProvisionError(
@@ -740,19 +741,24 @@ async def test_providerless_classifier_reports_first_use_download_failure(
         )
 
     monkeypatch.setattr(classify_read, "ensure_providerless_classifier_installed", fail)
-    classifier = AdmittedClassifier()
-    with pytest.raises(RowError) as raised:
-        await classifier.classify(
-            Row({}),
-            "A story requiring classification",
-            (ClassifyField(name="topic", labels=["news", "other"]),),
-        )
-    assert raised.value.code == "model_unavailable"
-    assert "could not be downloaded" in raised.value.message
+    project = Project.create(tmp_path / "classifier-provision.frisket")
+    try:
+        classifier = AdmittedClassifier(project=project)
+        with pytest.raises(RowError) as raised:
+            await classifier.classify(
+                Row({}),
+                "A story requiring classification",
+                (ClassifyField(name="topic", labels=["news", "other"]),),
+            )
+        assert raised.value.code == "model_unavailable"
+        assert "could not be downloaded" in raised.value.message
+    finally:
+        project.close()
 
 
 @pytest.mark.asyncio
 async def test_map_classify_global_fence_refuses_before_fastembed_without_opt_in(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from frisket.ai.embeddings import EmbeddingBackendUnavailable
@@ -772,12 +778,16 @@ async def test_map_classify_global_fence_refuses_before_fastembed_without_opt_in
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", no_fastembed_import)
-    with pytest.raises(EmbeddingBackendUnavailable):
-        await AdmittedClassifier().classify(
-            Row({}),
-            "A story requiring classification",
-            (ClassifyField(name="topic", labels=["news", "other"]),),
-        )
+    project = Project.create(tmp_path / "classifier-fence.frisket")
+    try:
+        with pytest.raises(EmbeddingBackendUnavailable):
+            await AdmittedClassifier(project=project).classify(
+                Row({}),
+                "A story requiring classification",
+                (ClassifyField(name="topic", labels=["news", "other"]),),
+            )
+    finally:
+        project.close()
 
 
 def test_map_classify_replay_and_refusals_never_reenter_the_router(

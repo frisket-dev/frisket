@@ -160,15 +160,14 @@ def test_python_base_image_matches_between_dockerfile_and_sidecar_dockerfile() -
 
 
 def test_dockerfile_warmup_model_ids_match_the_frisket_constants() -> None:
-    from frisket.search import RERANK_MODEL
-    from frisket.semantic import LOCAL_MODEL
+    from frisket.ai.embeddings.backends import LOCAL_MODEL, RERANK_MODEL
 
     # rule19: compare Docker warmup declarations with independent runtime model constants.
     dockerfile = (ROOT / "Dockerfile").read_text()
 
     assert f"TextEmbedding('{LOCAL_MODEL}')" in dockerfile, (
-        "Dockerfile warm-up embeddings model id differs from frisket.semantic.LOCAL_MODEL"
+        "Dockerfile warm-up embeddings model id differs from frisket.ai.embeddings.backends.LOCAL_MODEL"
     )
     assert f"TextCrossEncoder('{RERANK_MODEL}')" in dockerfile, (
-        "Dockerfile warm-up rerank model id differs from frisket.search.RERANK_MODEL"
+        "Dockerfile warm-up rerank model id differs from frisket.ai.embeddings.backends.RERANK_MODEL"
     )

@@ -4,6 +4,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
+from frisket.engine.store.artifact_timeline import canonical_json_hash
 from frisket.engine.store.grounding_contract import WordStream, WordToken
 
 
@@ -24,12 +25,16 @@ class ResolvedOcrEvidence:
     """One exact, current OCR grounding link and its addressable spans."""
 
     artifact_id: int
+    artifact_stable_id: str
     evidence_link_id: int
+    evidence_link_stable_id: str
     column_id: int
     column_name: str
     column_position: int
+    text_value: str
     value_ref: dict[str, Any]
     spans: tuple[dict[str, Any], ...]
+    snapshot_hash: str
 
 
 def _loads(value: Any, default: Any) -> Any:
@@ -117,8 +122,9 @@ def resolve_current_ocr_evidence(
         column_filter = " AND el.column_id=?"
         params.append(int(column_id))
     rows = project.db.execute(
-        "SELECT DISTINCT el.id, el.column_id, el.subject_ref_json, "
-        "sp.artifact_id, sa.blob_hash, c.name, c.position "
+        "SELECT DISTINCT el.id, el.stable_id AS evidence_link_stable_id, "
+        "el.column_id, el.subject_ref_json, sp.artifact_id, "
+        "sa.stable_id AS artifact_stable_id, sa.blob_hash, c.name, c.position "
         "FROM evidence_links el "
         "JOIN evidence_link_spans els ON els.link_id=el.id "
         "JOIN source_spans sp ON sp.id=els.span_id "
@@ -184,15 +190,52 @@ def resolve_current_ocr_evidence(
         )
         if not spans:
             continue
+        snapshot_spans = tuple(
+            {
+                "stable_id": str(span["stable_id"]),
+                "rank": int(span["rank"]),
+                "span_kind": str(span["span_kind"]),
+                "page_start": span["page_start"],
+                "page_end": span["page_end"],
+                "start_ms": span["start_ms"],
+                "end_ms": span["end_ms"],
+                "char_start": span["char_start"],
+                "char_end": span["char_end"],
+                "bbox_json": str(span["bbox_json"]),
+                "selector_json": str(span["selector_json"]),
+                "quote": span["quote"],
+                "snippet": span["snippet"],
+                "text_layer_hash": span["text_layer_hash"],
+                "text_surface_id": span["text_surface_id"],
+            }
+            for span in span_rows
+        )
+        artifact_stable_id = str(row["artifact_stable_id"])
+        evidence_link_stable_id = str(row["evidence_link_stable_id"])
+        snapshot_hash = canonical_json_hash(
+            {
+                "schema_version": "frisket.ocr-evidence-snapshot.v1",
+                "artifact_stable_id": artifact_stable_id,
+                "evidence_link_stable_id": evidence_link_stable_id,
+                "column_id": candidate_column_id,
+                "text_value": value,
+                "value_ref": value_ref,
+                "spans": snapshot_spans,
+            }
+        )
         resolved.append(
             ResolvedOcrEvidence(
                 artifact_id=int(row["artifact_id"]),
+                artifact_stable_id=artifact_stable_id,
                 evidence_link_id=int(row["id"]),
+                evidence_link_stable_id=evidence_link_stable_id,
                 column_id=candidate_column_id,
                 column_name=str(row["name"]),
                 column_position=int(row["position"]),
+                text_value=value,
                 value_ref=value_ref,
                 spans=spans,
+                snapshot_hash=snapshot_hash,
             )
         )
     return tuple(resolved)

@@ -11,8 +11,7 @@ refresh (`frisket.jobs.embeddings`) are built on top of these.
   all-modality picker contract. ``EmbeddingGateway`` (gateway.py) resolves a
   provider's embedder.
 - ``EmbeddingStore`` (store.py): canonical space/index definitions in project.db.
-- ``VectorBackend`` (vector_backend.py): raw vectors in the rebuildable
-  project.embeddings.db sidecar, with exact f32 cosine ranking.
+- Unified retrieval stores named-index vectors and performs scoped Vec1 ranking.
 - ``build_source_payloads`` / ``source_hash`` (source_payload.py): the canonical
   source payload + content hash, shared by index refresh and the similarity
   resolver (so staleness is judged the same way everywhere).
@@ -22,6 +21,17 @@ refresh (`frisket.jobs.embeddings`) are built on top of these.
 
 from __future__ import annotations
 
+from .analytics import (
+    cosine_similarity,
+    encode_legacy_texts,
+    encode_legacy_texts_async,
+    encode_project_legacy_texts,
+    encode_project_legacy_texts_async,
+    ensure_legacy_analytical_space,
+    existing_legacy_analytical_space,
+    legacy_analytical_descriptor,
+    legacy_analytical_space,
+)
 from .capabilities import (
     ALL_MODALITIES,
     EmbeddingBatchResult,
@@ -55,7 +65,6 @@ from .similarity import (
 )
 from .source_payload import build_source_payloads, source_hash, source_hash_for_row
 from .store import REMOTE_PROVIDER_KINDS, EmbeddingStore
-from .vector_backend import VectorBackend, pack_f32, unpack_f32
 
 __all__ = [
     "ALL_MODALITIES",
@@ -72,21 +81,27 @@ __all__ = [
     "SimilarityError",
     "SimilarityHit",
     "SimilarityResult",
-    "VectorBackend",
     "build_batch_result",
     "build_source_payloads",
     "resolve_embedding_similarity",
     "canonical_json",
     "descriptor_hash",
     "embedding_capabilities",
+    "cosine_similarity",
+    "encode_legacy_texts",
+    "encode_legacy_texts_async",
+    "encode_project_legacy_texts",
+    "encode_project_legacy_texts_async",
+    "ensure_legacy_analytical_space",
+    "existing_legacy_analytical_space",
+    "legacy_analytical_descriptor",
+    "legacy_analytical_space",
     "make_space_descriptor",
-    "pack_f32",
     "resolve_embedding_capability",
     "source_hash",
     "source_hash_for_row",
     "space_descriptor_from_result",
     "space_id_for",
-    "unpack_f32",
     "validate_descriptor",
     "vector_options_hash",
 ]

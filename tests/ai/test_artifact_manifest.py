@@ -7,7 +7,7 @@ import re
 
 from frisket.ai.models import artifact_manifest as am
 from frisket.ai.models.artifact_manifest import PinnedArtifact, PinnedFile
-from frisket.semantic import PROVIDERLESS_CLASSIFY_MODEL
+from frisket.ai.embeddings.backends import PROVIDERLESS_CLASSIFY_MODEL
 
 _SPDX_RE = re.compile(r"^[A-Za-z0-9.\-]+$")
 

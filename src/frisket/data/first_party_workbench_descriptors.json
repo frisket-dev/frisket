@@ -113,46 +113,6 @@
     },
     {
       "schemaVersion": "frisket.workbench.panel.v1",
-      "id": "frisket.core.panel.search",
-      "kind": "panel",
-      "ownerPluginId": "frisket.core",
-      "title": "Search",
-      "icon": "Search",
-      "placements": [
-        {
-          "host": "leftSidebar",
-          "mode": "panel",
-          "default": true,
-          "order": 10
-        },
-        {
-          "host": "modalOrPeek",
-          "mode": "peek",
-          "order": 10
-        }
-      ],
-      "requires": [
-        {
-          "kind": "hostCapability",
-          "id": "search.run"
-        },
-        {
-          "kind": "hostCapability",
-          "id": "host.navigation.openSheet"
-        },
-        {
-          "kind": "hostCapability",
-          "id": "grid.row.reveal"
-        },
-        {
-          "kind": "hostCapability",
-          "id": "watch.create",
-          "optional": true
-        }
-      ]
-    },
-    {
-      "schemaVersion": "frisket.workbench.panel.v1",
       "id": "frisket.core.panel.notifications",
       "kind": "panel",
       "ownerPluginId": "frisket.core",
@@ -318,23 +278,11 @@
         },
         {
           "kind": "hostCapability",
-          "id": "embedding.similarity.preview"
-        },
-        {
-          "kind": "hostCapability",
-          "id": "embedding.lens.save"
-        },
-        {
-          "kind": "hostCapability",
           "id": "embedding.lens.open"
         },
         {
           "kind": "hostCapability",
           "id": "embedding.analysis.run"
-        },
-        {
-          "kind": "hostCapability",
-          "id": "watch.create"
         },
         {
           "kind": "hostCapability",

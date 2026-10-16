@@ -52,7 +52,9 @@ def semantic_project(tmp_path, monkeypatch):
                 "link materialization must not repeat semantic compute"
             )
 
-        monkeypatch.setattr("frisket.semantic.resolve_embedder", forbidden)
+        monkeypatch.setattr(
+            "frisket.ai.embeddings.backends.resolve_embedder", forbidden
+        )
         yield project, seed
     finally:
         project.close()

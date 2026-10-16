@@ -41,6 +41,7 @@ import json
 from typing import Any
 
 from fastapi.testclient import TestClient
+from http_test_helpers import drain_queue
 
 from frisket.contracts.action import ActionResult
 from frisket.ai.llm import ModelRouter, ResponseCache
@@ -319,6 +320,7 @@ def test_connected_cloud_model_runs_through_queued_worker_composition(
         files={"file": ("rows.csv", b"text\nAlice arrived\n", "text/csv")},
     )
     assert imported.status_code == 200, imported.text
+    drain_queue(client, worker_id="llm-key-gate-setup")
     project = client.app.state.workspace.get(project_id)
     write_project_settings(
         project,

@@ -20,7 +20,7 @@ def embedding_call_id(ctx: OpContext, model_id: str, texts: list[str]) -> str:
 def refuse_missing_paid_vectors(
     ctx: OpContext, model_id: str, texts: list[str]
 ) -> None:
-    from frisket.semantic import embedder_is_remote
+    from frisket.ai.embeddings.backends import embedder_is_remote
 
     if not embedder_is_remote(model_id):
         return
@@ -51,7 +51,7 @@ def record_embedding_batch(
     from frisket.ai.models.metadata import ModelCallMeta, PROVIDER_KIND
     from frisket.engine.store.runs import RunResultStore
     from frisket.execution.attempt import attempt_in_scope
-    from frisket.semantic import embedder_is_remote
+    from frisket.ai.embeddings.backends import embedder_is_remote
 
     if not embedder_is_remote(model_id):
         return 0.0

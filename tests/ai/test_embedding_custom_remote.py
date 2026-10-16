@@ -584,14 +584,11 @@ def test_refresh_resends_requested_model_and_stores_probed_width(project):
         assert provider == "openrouter"
         assert model == _OPENROUTER_MODEL
     # all 3 rows are ready -> the probed-width vectors passed the space width check
-    # (embedding_items lives in the sidecar VectorBackend db, not project.db)
-    from frisket.ai.embeddings import VectorBackend
+    from unified_embedding_probe import UnifiedEmbeddingProbe
 
-    backend = VectorBackend(project)
+    backend = UnifiedEmbeddingProbe(project)
     try:
-        ready = backend.db.execute(
-            "SELECT COUNT(*) AS n FROM embedding_items WHERE status='ready'"
-        ).fetchone()["n"]
+        ready = sum(backend.item_counts(create.outputs[0].ref["index_id"]).values())
     finally:
         backend.close()
     assert ready == 3

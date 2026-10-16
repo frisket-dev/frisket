@@ -1,11 +1,11 @@
-"""Bounded maintenance of the disposable keyword index."""
+"""Bounded maintenance of the unified retrieval sidecar."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
 import sqlite3
 import threading
+from dataclasses import dataclass
 
 from frisket.engine.store import Project
 from frisket.engine.store.search_index_work import (
@@ -15,11 +15,33 @@ from frisket.engine.store.search_index_work import (
     latest_revision,
     read_dirty_scopes,
 )
-from frisket.search_hydration import searchable_text, source_hash
-from frisket.search_storage import (
-    keyword_schema_is_current,
-    keyword_storage_has_rows,
-    reset_keyword_storage,
+from frisket.retrieval.preparation import (
+    PreparationPolicy,
+    dispatch_resolved_blob_source,
+    dispatch_resolved_evidence_source,
+    dispatch_resolved_text_source,
+    retire_cell_binding,
+)
+from frisket.retrieval.preparation_policy import read_preparation_policy_db
+from frisket.retrieval.source_adapter import (
+    BLOB_SOURCE_COLUMN_TYPES,
+    RETRIEVAL_SOURCE_COLUMN_TYPES,
+    TEXT_SOURCE_COLUMN_TYPES,
+    ResolvedCellBlobSource,
+    ResolvedCellOcrTextSource,
+    ResolvedCellTextSource,
+    ResolvedCellTranscriptSource,
+    resolve_cell_blob_source,
+    resolve_cell_ocr_text_source,
+    resolve_cell_text_sources,
+    resolve_cell_transcript_source,
+)
+from frisket.retrieval.sources import cell_source_binding_id
+from frisket.retrieval.store import (
+    PROJECT_SIDECAR_META_KEY as RETRIEVAL_SIDECAR_META_KEY,
+    RETRIEVAL_DB_NAME,
+    RetrievalStore,
+    read_sidecar_id,
 )
 
 
@@ -43,37 +65,29 @@ class IndexProgress:
 _SQLITE_ROW_ID_CHUNK = 900
 
 
-def _state(db: sqlite3.Connection, key: str) -> str | None:
-    row = db.execute("SELECT value FROM fts_state WHERE key=?", (key,)).fetchone()
-    return None if row is None else str(row[0])
-
-
-def _set_state(db: sqlite3.Connection, key: str, value: object) -> None:
-    db.execute(
-        "INSERT INTO fts_state(key,value) VALUES (?,?) "
-        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-        (key, str(value)),
-    )
-
-
-def index_is_complete(db: sqlite3.Connection, project) -> bool:
-    from frisket.search import FTS_INDEX_CONTENT_VERSION
-
-    return _state(db, "index_content_version") == FTS_INDEX_CONTENT_VERSION and _state(
-        db, "complete_revision"
-    ) == str(latest_revision(project.db))
+def _raise_if_cancelled(cancel_event: threading.Event | None) -> None:
+    if cancel_event is not None and cancel_event.is_set():
+        raise InterruptedError("search was stopped")
 
 
 def index_needs_work(project: Project) -> bool:
-    """Cheap scheduling hint without creating or modifying the sidecar."""
-    path = project.path / "project.search.db"
-    if not path.is_file():
+    """Return a read-only scheduling hint for lexical source maintenance."""
+
+    if read_dirty_scopes(project.db, limit=1):
+        return True
+    path = project.path / RETRIEVAL_DB_NAME
+    sidecar_id = read_sidecar_id(path)
+    if sidecar_id is None or project.get_meta(RETRIEVAL_SIDECAR_META_KEY) != sidecar_id:
         return True
     db = None
     try:
         db = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=0)
-        db.execute("BEGIN")
-        return not index_is_complete(db, project)
+        return (
+            db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='sources'"
+            ).fetchone()
+            is None
+        )
     except sqlite3.DatabaseError:
         return True
     finally:
@@ -81,44 +95,74 @@ def index_needs_work(project: Project) -> bool:
             db.close()
 
 
-def _next_column(source, index, scope, after: int) -> int | None:
+def analyze_retrieval_store(project: Project) -> None:
+    """Refresh bounded planner statistics after a complete maintenance pass."""
+
+    with RetrievalStore(project).open() as retrieval:
+        # SQLite 3.45's PRAGMA optimize does not populate enough sidecar
+        # statistics after a fresh bulk build. The bounded sample teaches
+        # semantic joins to start from scoped bindings instead of the whole
+        # vector space without a full-table analysis.
+        retrieval.db.execute("PRAGMA analysis_limit=1000")
+        retrieval.db.execute("ANALYZE")
+
+
+def bind_retrieval_sidecar(project: Project) -> str:
+    """Bind the project to one sidecar incarnation and schedule its rebuild."""
+
+    with RetrievalStore(project).open() as retrieval:
+        sidecar_id = retrieval.sidecar_id()
+    with project.transaction_scope():
+        if project.get_meta(RETRIEVAL_SIDECAR_META_KEY) != sidecar_id:
+            enqueue_dirty_scope(project.db)
+            project.set_meta(RETRIEVAL_SIDECAR_META_KEY, sidecar_id, commit=False)
+    return sidecar_id
+
+
+def _next_column(source, retrieval: RetrievalStore, scope, after: int) -> int | None:
     if scope.column_id is not None:
         return scope.column_id if scope.column_id > after else None
-    params = [after]
-    where = (
-        "c.id>? AND c.hidden=0 AND s.hidden=0 "
-        "AND c.type IN ('text','category','json','link')"
-    )
+    live_params: list[int | str] = [after, *RETRIEVAL_SOURCE_COLUMN_TYPES]
+    indexed_params: list[int] = [after]
+    type_placeholders = ",".join("?" for _ in RETRIEVAL_SOURCE_COLUMN_TYPES)
+    where = f"c.id>? AND c.hidden=0 AND s.hidden=0 AND c.type IN ({type_placeholders})"
     indexed_where = "column_id>?"
     if scope.sheet_id is not None:
         where += " AND c.sheet_id=?"
         indexed_where += " AND sheet_id=?"
-        params.append(scope.sheet_id)
+        live_params.append(scope.sheet_id)
+        indexed_params.append(scope.sheet_id)
     live = source.execute(
         "SELECT c.id FROM columns c JOIN sheets s ON s.id=c.sheet_id "
         f"WHERE {where} ORDER BY c.id LIMIT 1",
-        params,
+        live_params,
     ).fetchone()
-    old = index.execute(
-        f"SELECT column_id FROM search_cells WHERE {indexed_where} "
+    old = retrieval.db.execute(
+        f"SELECT column_id FROM bindings WHERE {indexed_where} "
         "ORDER BY column_id LIMIT 1",
-        params,
+        indexed_params,
     ).fetchone()
     candidates = [int(row[0]) for row in (live, old) if row is not None]
     return min(candidates) if candidates else None
 
 
 def _column_page(
-    source, index, scope, column: int, after: int, limit: int, *, searchable: bool
+    source,
+    retrieval: RetrievalStore,
+    scope,
+    column: int,
+    after: int,
+    limit: int,
+    *,
+    searchable: bool,
 ):
     lower = max(after, (scope.row_id_start or 1) - 1)
     upper = scope.row_id_end or 9_223_372_036_854_775_807
     params = (column, lower, upper, limit)
     live = (
         source.execute(
-            # This column-first index covers the identity fields without loading
-            # potentially large values merely to discover the next candidate IDs.
-            "SELECT cc.row_id FROM current_cells cc INDEXED BY idx_current_cells_column_row "
+            "SELECT cc.row_id FROM current_cells cc "
+            "INDEXED BY idx_current_cells_column_row "
             "WHERE cc.column_id=? AND cc.row_id>? AND cc.row_id<=? "
             "ORDER BY cc.row_id LIMIT ?",
             params,
@@ -126,17 +170,18 @@ def _column_page(
         if searchable
         else []
     )
-    old = index.execute(
-        "SELECT id,row_id,sheet_id,column_name,source_hash FROM search_cells "
-        "WHERE column_id=? AND row_id>? AND row_id<=? ORDER BY row_id LIMIT ?",
+    old = retrieval.db.execute(
+        "SELECT row_id,min(sheet_id) AS sheet_id FROM bindings "
+        "WHERE column_id=? AND row_id>? AND row_id<=? "
+        "GROUP BY row_id ORDER BY row_id LIMIT ?",
         params,
     ).fetchall()
-    ids = sorted({int(row[0]) for row in live} | {int(row["row_id"]) for row in old})[
-        :limit
-    ]
+    ids = sorted(
+        {int(row["row_id"]) for row in live} | {int(row["row_id"]) for row in old}
+    )[:limit]
     return (
         ids,
-        {int(row[0]) for row in live},
+        {int(row["row_id"]) for row in live},
         {int(row["row_id"]): row for row in old},
     )
 
@@ -160,61 +205,91 @@ def _cell_sizes(source, column: int, rows: list[int]) -> dict[int, int]:
             if kind == "null":
                 size = 0
             elif kind == "boolean":
-                # SQLite stores booleans as 0/1, while searchable_text receives
-                # native False/True.
                 size = len(str(bool(cell["boolean_value"])))
             elif kind == "real":
                 size = len(str(cell["real_value"]).encode("utf-8"))
             else:
-                # Stored text length is its UTF-8 byte length. JSON/link text
-                # remains a conservative bound when decoding removes escapes.
                 size = int(cell["stored_bytes"])
             sizes[int(cell["row_id"])] = size
     return sizes
 
 
 def _column_descriptor(source, column: int):
+    placeholders = ",".join("?" for _ in RETRIEVAL_SOURCE_COLUMN_TYPES)
     return source.execute(
-        "SELECT c.sheet_id,c.name FROM columns c JOIN sheets s ON s.id=c.sheet_id "
+        "SELECT c.sheet_id,c.name,c.type FROM columns c "
+        "JOIN sheets s ON s.id=c.sheet_id "
         "WHERE c.id=? AND c.hidden=0 AND s.hidden=0 "
-        "AND c.type IN ('text','category','json','link')",
-        (column,),
+        f"AND c.type IN ({placeholders})",
+        (column, *RETRIEVAL_SOURCE_COLUMN_TYPES),
     ).fetchone()
 
 
-def _replace_cell(index, column: int, row_id: int, value, descriptor, old) -> None:
-    text = searchable_text(value) if descriptor is not None else None
-    digest = source_hash(text) if text is not None else None
-    if (
-        old is not None
-        and descriptor is not None
-        and digest is not None
-        and int(old["sheet_id"]) == int(descriptor["sheet_id"])
-        and old["column_name"] == descriptor["name"]
-        and old["source_hash"] == digest
-    ):
+def _replace_cell(
+    column: int,
+    row_id: int,
+    resolved: tuple[
+        ResolvedCellTextSource
+        | ResolvedCellTranscriptSource
+        | ResolvedCellOcrTextSource
+        | ResolvedCellBlobSource,
+        ...,
+    ],
+    descriptor,
+    old,
+    retrieval: RetrievalStore,
+    policy: PreparationPolicy,
+) -> None:
+    if descriptor is not None and resolved:
+        for source in resolved:
+            if isinstance(source, ResolvedCellTextSource):
+                dispatch_resolved_text_source(
+                    retrieval,
+                    source,
+                    recipe=policy.text_recipe,
+                )
+            elif isinstance(
+                source, ResolvedCellTranscriptSource | ResolvedCellOcrTextSource
+            ):
+                dispatch_resolved_evidence_source(
+                    retrieval,
+                    source,
+                    policy=policy,
+                )
+            else:
+                dispatch_resolved_blob_source(
+                    retrieval,
+                    source,
+                    policy=policy,
+                )
+        sheet_id = int(descriptor["sheet_id"])
+        retrieval.remove_cell_bindings_except(
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=column,
+            keep_binding_ids=tuple(
+                cell_source_binding_id(
+                    sheet_id=sheet_id,
+                    row_id=row_id,
+                    column_id=column,
+                    source_id=source.source.source_id,
+                )
+                for source in resolved
+            ),
+        )
         return
-    if old is not None:
-        # contentless-delete removes postings without retaining or replaying text.
-        index.execute("DELETE FROM cell_fts WHERE rowid=?", (old["id"],))
-        index.execute("DELETE FROM search_cells WHERE id=?", (old["id"],))
-    if text is None:
-        return
-    identity = index.execute(
-        "INSERT INTO search_cells"
-        "(sheet_id,column_id,row_id,column_name,source_hash) VALUES (?,?,?,?,?)",
-        (
-            descriptor["sheet_id"],
-            column,
-            row_id,
-            descriptor["name"],
-            digest,
-        ),
-    ).lastrowid
-    index.execute(
-        "INSERT INTO cell_fts(rowid,content) VALUES (?,?)",
-        (identity, text),
+    sheet_id = (
+        int(descriptor["sheet_id"])
+        if descriptor is not None
+        else (int(old["sheet_id"]) if old is not None else None)
     )
+    if sheet_id is not None:
+        retire_cell_binding(
+            retrieval,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=column,
+        )
 
 
 def index_batch(
@@ -224,53 +299,31 @@ def index_batch(
     max_bytes: int = 4 * 1024 * 1024,
     cancel_event: threading.Event | None = None,
 ) -> IndexProgress:
-    """Reconcile a bounded page; acknowledge only after durable index commit."""
-    from frisket.search import FTS_INDEX_CONTENT_VERSION, _raise_if_cancelled, _sidecar
+    """Reconcile one bounded dirty page and acknowledge only durable publication."""
 
     if batch_size < 1 or max_bytes < 1:
         raise ValueError("batch_size and max_bytes must be positive")
     if project.db.in_transaction:
         raise RuntimeError("index maintenance requires its own source transaction")
-    index = _sidecar(project)
+    bind_retrieval_sidecar(project)
     snapshot = None
+    retrieval = None
     try:
-        index.execute("BEGIN IMMEDIATE")
         _raise_if_cancelled(cancel_event)
-        if _state(index, "index_content_version") != FTS_INDEX_CONTENT_VERSION:
-            # This is an explicit maintenance operation, never a reader side effect.
-            project.db.execute("BEGIN IMMEDIATE")
-            try:
-                enqueue_dirty_scope(project.db)
-                project.db.commit()
-            except BaseException:
-                project.db.rollback()
-                raise
-            reclaim = keyword_storage_has_rows(index)
-            if not keyword_schema_is_current(index) or reclaim:
-                reset_keyword_storage(
-                    index,
-                    content_version=FTS_INDEX_CONTENT_VERSION,
-                    reclaim=reclaim,
-                )
-            else:
-                _set_state(index, "index_content_version", FTS_INDEX_CONTENT_VERSION)
-        # Acquire the source snapshot AFTER the sidecar writer lock. A second
-        # indexer may replay a page, but cannot publish an older snapshot over it.
         snapshot = project.read_snapshot()
+        policy = read_preparation_policy_db(snapshot.db)
         revision = latest_revision(snapshot.db)
-        # Every scope consumes at least one unit. The extra record proves
-        # whether the completed prefix really exhausted the worklist.
         scopes = read_dirty_scopes(snapshot.db, limit=batch_size + 1)
         processed = processed_bytes = 0
         checkpoints = []
         if scopes:
-            index.execute("DELETE FROM fts_state WHERE key='complete_revision'")
+            retrieval = RetrievalStore(project).open()
         for scope in scopes:
             if processed >= batch_size or processed_bytes >= max_bytes:
                 break
             column, row = json.loads(scope.scan_cursor)
             if column == 0:
-                column = _next_column(snapshot.db, index, scope, 0)
+                column = _next_column(snapshot.db, retrieval, scope, 0)
             before_scope = processed
             byte_limit_reached = False
             while column is not None and processed < batch_size:
@@ -279,7 +332,7 @@ def index_batch(
                 remaining = batch_size - processed
                 ids, live_ids, old_by_row = _column_page(
                     snapshot.db,
-                    index,
+                    retrieval,
                     scope,
                     column,
                     row,
@@ -292,8 +345,6 @@ def index_batch(
                 for row_id in ids:
                     _raise_if_cancelled(cancel_event)
                     size = sizes.get(row_id, 0)
-                    # One oversized cell can always make progress. Never load
-                    # a second cell that would exceed the quantum byte budget.
                     if processed_bytes and processed_bytes + size > max_bytes:
                         byte_limit_reached = True
                         break
@@ -302,50 +353,83 @@ def index_batch(
                 admitted_live = [
                     row_id for row_id, _size in admitted if row_id in live_ids
                 ]
-                values = (
-                    snapshot.get_values(
-                        int(descriptor["sheet_id"]), column, row_ids=admitted_live
+                column_type = str(descriptor["type"]) if descriptor is not None else ""
+                text_sources = (
+                    resolve_cell_text_sources(
+                        snapshot,
+                        sheet_id=int(descriptor["sheet_id"]),
+                        column_id=column,
+                        row_ids=admitted_live,
                     )
-                    if admitted_live
+                    if admitted_live and column_type in TEXT_SOURCE_COLUMN_TYPES
                     else {}
                 )
+                resolved_sources = {}
+                for row_id in admitted_live:
+                    sheet_id = int(descriptor["sheet_id"])
+                    sources = []
+                    transcript = resolve_cell_transcript_source(
+                        snapshot,
+                        sheet_id=sheet_id,
+                        row_id=row_id,
+                        column_id=column,
+                    )
+                    if transcript is not None:
+                        sources.append(transcript)
+                    ocr = resolve_cell_ocr_text_source(
+                        snapshot,
+                        sheet_id=sheet_id,
+                        row_id=row_id,
+                        column_id=column,
+                    )
+                    if ocr is not None:
+                        sources.append(ocr)
+                    if column_type in TEXT_SOURCE_COLUMN_TYPES:
+                        if text_source := text_sources.get(row_id):
+                            sources.append(text_source)
+                    elif column_type in BLOB_SOURCE_COLUMN_TYPES:
+                        blob = resolve_cell_blob_source(
+                            snapshot,
+                            sheet_id=sheet_id,
+                            row_id=row_id,
+                            column_id=column,
+                        )
+                        if blob is not None:
+                            sources.append(blob)
+                    resolved_sources[row_id] = tuple(sources)
                 for row_id, _size in admitted:
                     _raise_if_cancelled(cancel_event)
                     _replace_cell(
-                        index,
                         column,
                         row_id,
-                        values.get(row_id) if row_id in live_ids else None,
+                        resolved_sources.get(row_id, ()),
                         descriptor,
                         old_by_row.get(row_id),
+                        retrieval,
+                        policy,
                     )
                     processed += 1
                     row = row_id
-                del values
+                del resolved_sources, text_sources
                 if processed_bytes >= max_bytes:
                     byte_limit_reached = True
                 if byte_limit_reached:
                     break
                 if len(ids) < remaining:
-                    # Both identity scans are exhausted for this column.
                     if not ids:
                         processed += 1
-                    column = _next_column(snapshot.db, index, scope, column)
+                    column = _next_column(snapshot.db, retrieval, scope, column)
                     row = 0
             if processed == before_scope and column is None:
                 processed += 1
-            exhausted = column is None
-            cursor = None if exhausted else json.dumps([column, row])
+            cursor = None if column is None else json.dumps([column, row])
             checkpoints.append((scope, cursor))
-            if not exhausted:
+            if cursor is not None:
                 break
+
         complete = len(checkpoints) == len(scopes) and all(
             cursor is None for _, cursor in checkpoints
         )
-        if complete:
-            _set_state(index, "complete_revision", revision)
-            _set_state(index, "indexed_at_op", snapshot.op_cursor)
-        index.commit()
         snapshot.close()
         snapshot = None
         if checkpoints:
@@ -371,13 +455,11 @@ def index_batch(
                 raise
         complete = complete and latest_revision(project.db) == revision
         return IndexProgress(processed, not complete, complete, processed_bytes)
-    except BaseException:
-        index.rollback()
-        raise
     finally:
         if snapshot is not None:
             snapshot.close()
-        index.close()
+        if retrieval is not None:
+            retrieval.close()
 
 
 def drain_index(
@@ -386,15 +468,29 @@ def drain_index(
     batch_size: int = 500,
     cancel_event: threading.Event | None = None,
 ) -> int:
-    """Explicit synchronous maintenance for CLI/library use without a worker."""
+    """Synchronously publish lexical sources without starting an encoder."""
+
     while not index_batch(
         project, batch_size=batch_size, cancel_event=cancel_event
     ).complete:
         pass
-    from frisket.search import _sidecar
+    path = project.path / RETRIEVAL_DB_NAME
+    if not path.is_file():
+        return 0
+    with RetrievalStore(project).open() as store:
+        return int(
+            store.db.execute(
+                "SELECT count(DISTINCT binding.binding_id) FROM bindings binding "
+                "JOIN lexical_sources lexical "
+                "ON lexical.source_key=binding.source_key"
+            ).fetchone()[0]
+        )
 
-    db = _sidecar(project)
-    try:
-        return int(db.execute("SELECT COUNT(*) FROM search_cells").fetchone()[0])
-    finally:
-        db.close()
+
+__all__ = [
+    "IndexProgress",
+    "SearchIndexNotReady",
+    "drain_index",
+    "index_batch",
+    "index_needs_work",
+]
