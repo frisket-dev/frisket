@@ -127,6 +127,12 @@ class ImportSessionService:
                 )
                 write_import_header(directory, header)
                 ImportInventory(directory / "inventory.db").close()
+                if self._search_preparation is not None:
+                    self._search_preparation.reserve_import(
+                        project_id,
+                        receipt_id=envelope.receipt_id,
+                        import_ref=ref,
+                    )
                 return self._status(project, ref, directory, header)
             except BaseException:
                 shutil.rmtree(directory, ignore_errors=True)
@@ -296,12 +302,6 @@ class ImportSessionService:
             )
             if callable(schedule_metadata):
                 schedule_metadata(str(header.envelope["receipt_id"]))
-            if self._search_preparation is not None and session.sheet_id is not None:
-                self._search_preparation.create_after_import(
-                    project_id,
-                    receipt_id=str(header.envelope["receipt_id"]),
-                    sheet_id=session.sheet_id,
-                )
         if cleanup_failed:
             self._enqueue_terminal_cleanup(
                 project_id,
@@ -528,13 +528,26 @@ class ImportSessionService:
             and preparation_batch_id is None
             and self._search_preparation is not None
             and self._search_preparation.automatic_enabled(header.project_id)
+            and session is not None
+            and session.sheet_id is not None
         ):
-            page_job = self._latest_page_job(header.project_id, ref, through, sealed)
-            if page_job is not None and page_job.status in {"queued", "running"}:
-                # The import commit is already durable, but its worker publishes
-                # the preparation intent before finishing. Keep terminal state
-                # hidden during that bounded callback window so a reconnecting
-                # client cannot close before receiving the batch id.
+            try:
+                # CLI workers do not construct the server Workspace, so their
+                # optional terminal callback cannot publish this follow-up.
+                # Materialize it at the server's terminal response boundary;
+                # the receipt-backed trigger makes reconnects idempotent.
+                preparation_batch_id = self._search_preparation.create_after_import(
+                    header.project_id,
+                    receipt_id=receipt_id,
+                    sheet_id=session.sheet_id,
+                )
+            except Exception:
+                logger.warning(
+                    "terminal import search preparation could not be published",
+                    exc_info=True,
+                )
+                # The import is already committed. Keep its terminal response
+                # unpublished so the next poll retries the durable follow-up.
                 state = "running"
         return ImportSessionStatus(
             import_ref=ref,

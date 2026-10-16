@@ -75,6 +75,7 @@ class SearchPreparationModel(WireModel):
     required: bool
     ready: bool
     runtime_ready: bool
+    can_setup: bool
     download_bytes: int | None = Field(default=None, ge=0)
     additional_runtime_download: bool
     remediation: str | None

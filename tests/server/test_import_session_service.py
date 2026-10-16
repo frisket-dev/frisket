@@ -194,6 +194,26 @@ def test_create_allocates_around_existing_sheet_and_admitted_sessions(project):
     )
 
 
+def test_create_reserves_automatic_preparation_before_worker_admission(project):
+    calls = []
+
+    class Preparation:
+        def reserve_import(self, project_id, *, receipt_id, import_ref):
+            calls.append((project_id, receipt_id, import_ref))
+
+        def batch_for_receipt(self, _project_id, _receipt_id):
+            return None
+
+    service = ImportSessionService(
+        SimpleNamespace(get=lambda _project_id: project),
+        search_preparation=Preparation(),
+    )
+    created = service.create("project-1", "files")
+    header = read_import_header(import_intake_dir(project.path, created.import_ref))
+
+    assert calls == [("project-1", header.envelope["receipt_id"], created.import_ref)]
+
+
 def test_failure_before_first_page_is_paused_until_latest_retry_is_queued(project):
     class Queue:
         status = "failed"

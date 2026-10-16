@@ -116,6 +116,67 @@ def test_missing_ocr_setup_never_starts_before_exact_consent(
     assert setup_calls == [("engine-setup:rapidocr.local@1", "owner-1")]
 
 
+def test_eligible_ocr_consent_is_not_blocked_by_unavailable_transcription_runtime(
+    tmp_path, monkeypatch
+) -> None:
+    transcription = replace(
+        _Requirement(),
+        setup_ref="engine-setup:parakeet-tdt.local-onnx@1",
+        capability="transcription",
+        display_name="Parakeet",
+        runtime_ready=False,
+        runtime_remediation="Install the standard local audio runtime.",
+        artifact_refs=("hf:parakeet-fixture",),
+    )
+    monkeypatch.setattr(
+        preparation_module,
+        "_requirements",
+        lambda: (_Requirement(), transcription),
+    )
+    workspace = Workspace(tmp_path / "workspace")
+    project_id = workspace.create("Mixed media")["id"]
+    project = workspace.get(project_id)
+    sheet_id = project.add_sheet("Files")
+    image_column = project.add_column(sheet_id, "Image", type="image")
+    audio_column = project.add_column(sheet_id, "Audio", type="audio")
+    image = project.add_blob(b"image", filename="scan.png", mime="image/png")
+    audio = project.add_blob(b"audio", filename="clip.wav", mime="audio/wav")
+    project.add_rows(
+        sheet_id,
+        [
+            {
+                "Image": {"blob": image, "filename": "scan.png", "mime": "image/png"},
+                "Audio": {"blob": audio, "filename": "clip.wav", "mime": "audio/wav"},
+            }
+        ],
+        {"Image": image_column, "Audio": audio_column},
+    )
+    setup_calls = []
+    service = SearchPreparationService(
+        workspace,
+        setup_start=lambda ref, actor: setup_calls.append((ref, actor)) or 1,
+    )
+
+    batch = service.create(project_id, sheet_id=sheet_id, row_ids=None, force_ocr=False)
+    assert batch.status == "needs_consent"
+    assert batch.can_setup
+    assert {model.purpose: model.can_setup for model in batch.models} == {
+        "read_text": True,
+        "transcribe": False,
+    }
+    decided = service.decide(
+        project_id,
+        batch.id,
+        plan_hash=batch.plan_hash,
+        decision="prepare",
+        selected_setup_refs=[_Requirement.setup_ref],
+        may_setup_models=True,
+        initiated_by="owner-1",
+    )
+    assert decided.status == "preparing"
+    assert setup_calls == [(_Requirement.setup_ref, "owner-1")]
+
+
 def test_recovery_observes_setup_completed_by_another_process(
     tmp_path, monkeypatch
 ) -> None:

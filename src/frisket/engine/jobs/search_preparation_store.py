@@ -36,12 +36,13 @@ search_preparation_batches_table = sa.Table(
     sa.Column("project_id", sa.String, nullable=False),
     sa.Column("intent_key", sa.String, nullable=False),
     sa.Column("trigger_receipt_id", sa.String),
-    sa.Column("sheet_id", sa.Integer, nullable=False),
+    sa.Column("import_ref", sa.String),
+    sa.Column("sheet_id", sa.Integer),
     sa.Column("scope_json", sa.Text, nullable=False),
-    sa.Column("source_cutoff", sa.Integer, nullable=False),
+    sa.Column("source_cutoff", sa.Integer),
     sa.Column("force_ocr", sa.Boolean, nullable=False),
-    sa.Column("plan_hash", sa.String, nullable=False),
-    sa.Column("plan_json", sa.Text, nullable=False),
+    sa.Column("plan_hash", sa.String),
+    sa.Column("plan_json", sa.Text),
     sa.Column("decision", sa.String),
     sa.Column("selected_setup_refs_json", sa.Text),
     sa.Column("stop_requested_at", sa.DateTime(timezone=True)),
@@ -118,12 +119,13 @@ class SearchPreparationBatchRow:
     storage_org_id: int | None
     project_id: str
     trigger_receipt_id: str | None
-    sheet_id: int
+    import_ref: str | None
+    sheet_id: int | None
     row_ids: tuple[int, ...] | None
-    source_cutoff: int
+    source_cutoff: int | None
     force_ocr: bool
-    plan_hash: str
-    plan: dict[str, Any]
+    plan_hash: str | None
+    plan: dict[str, Any] | None
     decision: str | None
     selected_setup_refs: tuple[str, ...]
     stop_requested_at: datetime | None
@@ -175,16 +177,19 @@ class SearchPreparationStore:
             storage_org_id=row.storage_org_id,
             project_id=str(row.project_id),
             trigger_receipt_id=row.trigger_receipt_id,
-            sheet_id=int(row.sheet_id),
+            import_ref=row.import_ref,
+            sheet_id=None if row.sheet_id is None else int(row.sheet_id),
             row_ids=(
                 tuple(int(value) for value in scope["row_ids"])
                 if scope.get("row_ids") is not None
                 else None
             ),
-            source_cutoff=int(row.source_cutoff),
+            source_cutoff=(
+                None if row.source_cutoff is None else int(row.source_cutoff)
+            ),
             force_ocr=bool(row.force_ocr),
-            plan_hash=str(row.plan_hash),
-            plan=dict(json.loads(row.plan_json)),
+            plan_hash=None if row.plan_hash is None else str(row.plan_hash),
+            plan=(None if row.plan_json is None else dict(json.loads(row.plan_json))),
             decision=row.decision,
             selected_setup_refs=tuple(str(value) for value in selected),
             stop_requested_at=_parse(row.stop_requested_at),
@@ -207,6 +212,7 @@ class SearchPreparationStore:
         source_cutoff: int,
         force_ocr: bool,
         plan: Mapping[str, Any],
+        retry_terminal: bool = False,
     ) -> SearchPreparationBatchRow:
         now = _now()
         batch_id = "search-prep-" + uuid.uuid4().hex
@@ -214,7 +220,7 @@ class SearchPreparationStore:
             None if row_ids is None else sorted(set(int(v) for v in row_ids))
         )
         plan_body = dict(plan)
-        intent_key = (
+        base_intent_key = (
             f"import:{trigger_receipt_id}"
             if trigger_receipt_id is not None
             else "explicit:"
@@ -227,6 +233,17 @@ class SearchPreparationStore:
                 }
             )
         )
+        intent_key = base_intent_key
+        if trigger_receipt_id is None:
+            latest = self._latest_explicit_intent(
+                storage_org_id=storage_org_id,
+                project_id=project_id,
+                base_key=base_intent_key,
+            )
+            if latest is not None:
+                if not retry_terminal:
+                    return latest
+                intent_key = f"{base_intent_key}:retry:{latest.id}"
         values = dict(
             id=batch_id,
             workspace_root=workspace_root,
@@ -252,14 +269,116 @@ class SearchPreparationStore:
             with self._write() as cx:
                 cx.execute(search_preparation_batches_table.insert().values(**values))
         except sa.exc.IntegrityError:
-            existing = self._for_intent(
-                storage_org_id=storage_org_id,
-                project_id=project_id,
-                intent_key=intent_key,
+            existing = (
+                self._for_intent(
+                    storage_org_id=storage_org_id,
+                    project_id=project_id,
+                    intent_key=intent_key,
+                )
+                if trigger_receipt_id is not None
+                else self._latest_explicit_intent(
+                    storage_org_id=storage_org_id,
+                    project_id=project_id,
+                    base_key=base_intent_key,
+                )
             )
             if existing is None:
                 raise
             return existing
+        return self.get(batch_id, project_id=project_id, storage_org_id=storage_org_id)
+
+    def create_pending_import(
+        self,
+        *,
+        workspace_root: str,
+        storage_org_id: int | None,
+        project_id: str,
+        receipt_id: str,
+        import_ref: str,
+    ) -> SearchPreparationBatchRow:
+        """Reserve the import-triggered intent before a worker can finish it."""
+
+        now = _now()
+        batch_id = "search-prep-" + uuid.uuid4().hex
+        values = dict(
+            id=batch_id,
+            workspace_root=workspace_root,
+            storage_org_id=storage_org_id,
+            project_id=project_id,
+            intent_key=f"import:{receipt_id}",
+            trigger_receipt_id=receipt_id,
+            import_ref=import_ref,
+            sheet_id=None,
+            scope_json=json.dumps({"row_ids": None}, separators=(",", ":")),
+            source_cutoff=None,
+            force_ocr=False,
+            plan_hash=None,
+            plan_json=None,
+            cursor=0,
+            error_json="[]",
+            settled_at=None,
+            created_at=now,
+            updated_at=now,
+        )
+        if workspace_root != self.workspace_root:
+            raise ValueError("search preparation workspace root does not match store")
+        try:
+            with self._write() as cx:
+                cx.execute(search_preparation_batches_table.insert().values(**values))
+        except sa.exc.IntegrityError:
+            existing = self._for_intent(
+                storage_org_id=storage_org_id,
+                project_id=project_id,
+                intent_key=f"import:{receipt_id}",
+            )
+            if existing is None:
+                raise
+            if existing.import_ref not in {None, import_ref}:
+                raise ValueError("import preparation receipt names another session")
+            return existing
+        return self.get(batch_id, project_id=project_id, storage_org_id=storage_org_id)
+
+    def hydrate_pending_import(
+        self,
+        batch_id: str,
+        *,
+        project_id: str,
+        storage_org_id: int | None,
+        sheet_id: int,
+        source_cutoff: int,
+        plan: Mapping[str, Any],
+    ) -> SearchPreparationBatchRow:
+        """Atomically turn one pending import reservation into an ordinary plan."""
+
+        c = search_preparation_batches_table.c
+        predicate = (
+            c.storage_org_id.is_(None)
+            if storage_org_id is None
+            else c.storage_org_id == storage_org_id
+        )
+        body = dict(plan)
+        with self._write() as cx:
+            result = cx.execute(
+                search_preparation_batches_table.update()
+                .where(
+                    c.id == batch_id,
+                    c.workspace_root == self.workspace_root,
+                    c.project_id == project_id,
+                    predicate,
+                    c.sheet_id.is_(None),
+                    c.plan_json.is_(None),
+                    c.settled_at.is_(None),
+                )
+                .values(
+                    sheet_id=int(sheet_id),
+                    source_cutoff=int(source_cutoff),
+                    plan_hash=canonical_plan_hash(body),
+                    plan_json=json.dumps(body, sort_keys=True, separators=(",", ":")),
+                    updated_at=_now(),
+                )
+            )
+            if result.rowcount not in {0, 1}:
+                raise RuntimeError("import preparation hydration updated multiple rows")
         return self.get(batch_id, project_id=project_id, storage_org_id=storage_org_id)
 
     def _for_intent(
@@ -279,6 +398,32 @@ class SearchPreparationStore:
                     c.project_id == project_id,
                     c.intent_key == intent_key,
                 )
+            ).first()
+        return None if row is None else self._batch(row)
+
+    def _latest_explicit_intent(
+        self, *, storage_org_id: int | None, project_id: str, base_key: str
+    ) -> SearchPreparationBatchRow | None:
+        c = search_preparation_batches_table.c
+        predicate = (
+            c.storage_org_id.is_(None)
+            if storage_org_id is None
+            else c.storage_org_id == storage_org_id
+        )
+        with self.engine.connect() as cx:
+            row = cx.execute(
+                sa.select(search_preparation_batches_table)
+                .where(
+                    c.workspace_root == self.workspace_root,
+                    predicate,
+                    c.project_id == project_id,
+                    sa.or_(
+                        c.intent_key == base_key,
+                        c.intent_key.like(base_key + ":retry:%"),
+                    ),
+                )
+                .order_by(c.created_at.desc(), c.id.desc())
+                .limit(1)
             ).first()
         return None if row is None else self._batch(row)
 
@@ -308,6 +453,7 @@ class SearchPreparationStore:
         storage_org_id: int | None,
         project_id: str,
         receipt_id: str,
+        include_pending: bool = False,
     ) -> SearchPreparationBatchRow | None:
         c = search_preparation_batches_table.c
         predicate = (
@@ -316,14 +462,15 @@ class SearchPreparationStore:
             else c.storage_org_id == storage_org_id
         )
         with self.engine.connect() as cx:
-            row = cx.execute(
-                sa.select(search_preparation_batches_table).where(
-                    c.workspace_root == workspace_root,
-                    predicate,
-                    c.project_id == project_id,
-                    c.trigger_receipt_id == receipt_id,
-                )
-            ).first()
+            query = sa.select(search_preparation_batches_table).where(
+                c.workspace_root == workspace_root,
+                predicate,
+                c.project_id == project_id,
+                c.trigger_receipt_id == receipt_id,
+            )
+            if not include_pending:
+                query = query.where(c.plan_json.is_not(None))
+            row = cx.execute(query).first()
         return None if row is None else self._batch(row)
 
     def list_recent(
@@ -338,7 +485,7 @@ class SearchPreparationStore:
         with self.engine.connect() as cx:
             rows = cx.execute(
                 sa.select(search_preparation_batches_table)
-                .where(c.project_id == project_id, predicate)
+                .where(c.project_id == project_id, predicate, c.plan_json.is_not(None))
                 .where(c.workspace_root == self.workspace_root)
                 .order_by(c.created_at.desc())
                 .limit(limit)
@@ -401,7 +548,12 @@ class SearchPreparationStore:
         )
         with self._write() as cx:
             row = cx.execute(
-                sa.select(c.plan_hash, c.decision, c.selected_setup_refs_json).where(
+                sa.select(
+                    c.plan_hash,
+                    c.decision,
+                    c.selected_setup_refs_json,
+                    c.stop_requested_at,
+                ).where(
                     c.id == batch_id,
                     c.project_id == project_id,
                     predicate,
@@ -410,6 +562,8 @@ class SearchPreparationStore:
             ).first()
             if row is None:
                 raise KeyError(batch_id)
+            if row.stop_requested_at is not None:
+                raise ValueError("search preparation was stopped")
             if row.plan_hash != plan_hash:
                 raise ValueError("search preparation plan changed")
             refs = json.dumps(sorted(set(selected_setup_refs)), separators=(",", ":"))
@@ -424,7 +578,7 @@ class SearchPreparationStore:
                 .values(
                     decision=decision,
                     selected_setup_refs_json=refs,
-                    settled_at=_now() if decision == "not_now" else None,
+                    settled_at=None,
                     updated_at=_now(),
                 )
             )
@@ -501,7 +655,7 @@ class SearchPreparationStore:
         """Record a bounded terminal coordinator error for a scoped intent."""
 
         row = self.get(batch_id, project_id=project_id, storage_org_id=storage_org_id)
-        errors = [*row.errors, str(message).strip()[:500]]
+        errors = [*row.errors, str(message).strip()[:500]][-10:]
         c = search_preparation_batches_table.c
         predicate = (
             c.storage_org_id.is_(None)
@@ -593,7 +747,11 @@ class SearchPreparationStore:
                 ).one()
             update = cx.execute(
                 search_preparation_batches_table.update()
-                .where(b.id == batch_id, b.cursor == expected_cursor)
+                .where(
+                    b.id == batch_id,
+                    b.cursor == expected_cursor,
+                    b.stop_requested_at.is_(None),
+                )
                 .values(cursor=expected_cursor + 1, updated_at=now)
             )
             if update.rowcount != 1:
@@ -617,24 +775,40 @@ class SearchPreparationStore:
         *,
         job_id: int | None,
         receipt_id: str | None,
-    ) -> None:
+    ) -> bool:
         c = search_preparation_children_table.c
+        b = search_preparation_batches_table.c
         with self._write() as cx:
+            result = cx.execute(
+                search_preparation_children_table.update()
+                .where(
+                    c.id == child_id,
+                    c.job_id.is_(None),
+                    c.receipt_id.is_(None),
+                    sa.exists(
+                        sa.select(sa.literal(1)).where(
+                            b.id == c.batch_id,
+                            b.stop_requested_at.is_(None),
+                        )
+                    ),
+                )
+                .values(job_id=job_id, receipt_id=receipt_id)
+            )
+            if result.rowcount == 1:
+                return True
             row = cx.execute(
-                sa.select(c.job_id, c.receipt_id).where(c.id == child_id)
+                sa.select(c.job_id, c.receipt_id, c.batch_id).where(c.id == child_id)
             ).first()
             if row is None:
                 raise KeyError(child_id)
-            if row.job_id not in {None, job_id} or row.receipt_id not in {
-                None,
-                receipt_id,
-            }:
-                raise ValueError("search preparation child is already bound")
-            cx.execute(
-                search_preparation_children_table.update()
-                .where(c.id == child_id)
-                .values(job_id=job_id, receipt_id=receipt_id)
-            )
+            if row.job_id == job_id and row.receipt_id == receipt_id:
+                return True
+            stopped = cx.execute(
+                sa.select(b.stop_requested_at).where(b.id == row.batch_id)
+            ).scalar_one()
+            if stopped is not None and row.job_id is None and row.receipt_id is None:
+                return False
+            raise ValueError("search preparation child is already bound")
 
     def children(self, batch_id: str) -> list[SearchPreparationChildRow]:
         c = search_preparation_children_table.c
