@@ -108,6 +108,30 @@ def test_semantic_commit_errors_without_embedder(tmp_path, monkeypatch):
         project.close()
 
 
+def test_semantic_commit_reports_local_cache_miss_as_typed_unavailable(
+    tmp_path, monkeypatch
+):
+    from frisket.ai.embeddings.backends import LocalEmbeddingModelUnavailable
+
+    def missing(_texts):
+        raise LocalEmbeddingModelUnavailable("local model is not installed")
+
+    monkeypatch.setattr(
+        "frisket.ai.embeddings.backends.resolve_embedder",
+        lambda router=None, **_kw: (missing, "fastembed/missing"),
+    )
+    project, sid = _seed(tmp_path, ["Jon Smith", "Smith, Jon"])
+    try:
+        result = executor_actions.run_action_spec(
+            project, _commit(sid, method="semantic"), project_id=PROJECT_ID
+        )
+        assert result.status == "failed"
+        assert result.errors[0].code == "embedding_backend_unavailable"
+        assert "org_canonical" not in [c["name"] for c in project.columns(sid)]
+    finally:
+        project.close()
+
+
 def _fingerprint_key(surface: str) -> str:
     from frisket.ops.cluster_fingerprint import fingerprint
 

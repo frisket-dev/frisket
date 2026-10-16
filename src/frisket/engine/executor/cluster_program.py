@@ -331,15 +331,19 @@ class _ClusterProgram(_TypedMapBatchProgram):
                     if remote
                     else backend[0]
                 )
-                embedding_vectors.extend(
-                    await encode_project_legacy_texts_async(
+                try:
+                    batch_vectors = await encode_project_legacy_texts_async(
                         ctx.project,
                         batch_texts,
                         embed=embed,
                         model_id=model,
                         before_fresh_batch=before_batch,
                     )
-                )
+                except embedding_backends.LocalEmbeddingModelUnavailable as exc:
+                    raise RecipeInvocationHalt(
+                        "local_artifact_unavailable", str(exc)
+                    ) from exc
+                embedding_vectors.extend(batch_vectors)
                 if remote and embed.store.get(embed.id) is not None:
                     checkpoints.append(embed.id)
         computation = compute_reviewed_clusters(

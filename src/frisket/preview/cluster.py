@@ -214,18 +214,23 @@ def compute_method_clusters(
             embed, embed_id = backend
         if embed_id is None:
             embed_id = "injected/unknown"
-        clusters, distinct, considered = compute_semantic_clusters(
-            project,
-            sheet_id,
-            column,
-            embed,
-            embed_id,
-            threshold=thr,
-            min_size=min_size,
-            values=values,
-            derive_key=derive_key,
-            embedding_vectors=embedding_vectors,
-        )
+        try:
+            clusters, distinct, considered = compute_semantic_clusters(
+                project,
+                sheet_id,
+                column,
+                embed,
+                embed_id,
+                threshold=thr,
+                min_size=min_size,
+                values=values,
+                derive_key=derive_key,
+                embedding_vectors=embedding_vectors,
+            )
+        except embedding_backends.LocalEmbeddingModelUnavailable as exc:
+            raise ClusterPreviewError(
+                "embedding_backend_unavailable", str(exc), field="method"
+            ) from exc
         return clusters, {
             "method": "semantic",
             "semantic": True,

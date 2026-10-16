@@ -269,7 +269,13 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
             "An operator accepted this embedding as charged; no clustering result was produced.",
         )
     if halt := persisted_recipe_invocation_halt(run["params"]):
-        return abort(*halt)
+        code, detail = halt
+        if (
+            code == "local_artifact_unavailable"
+            and state["options"]["method"] == "semantic"
+        ):
+            code = "embedding_backend_unavailable"
+        return abort(code, detail)
     if run["status"] != "completed":
         return abort(
             "cluster_failed",
