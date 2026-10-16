@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import threading
+import time
 
 import pytest
 
@@ -187,3 +189,109 @@ def test_runtime_closes_failed_session_before_replacing_it():
 
     assert len(sessions) == 2
     assert [session.close_count for session in sessions] == [1, 1]
+
+
+def _wait_for_pending(runtime: EmbeddingRuntime, count: int) -> None:
+    deadline = time.monotonic() + 1
+    while time.monotonic() < deadline:
+        with runtime._state_lock:  # noqa: SLF001 - lifecycle boundary test
+            if len(runtime._pending) == count:  # noqa: SLF001
+                return
+        time.sleep(0.001)
+    pytest.fail(f"runtime did not register {count} pending requests")
+
+
+def test_close_cancels_active_and_queued_sync_callers_before_stopping_loop():
+    started = threading.Event()
+    sessions = []
+
+    class Session:
+        def __init__(self):
+            self.close_count = 0
+
+        async def encode(self, inputs, *, purpose, space):
+            started.set()
+            await asyncio.sleep(60)
+
+        async def aclose(self):
+            self.close_count += 1
+
+    def factory(*, cancelled=None):
+        session = Session()
+        sessions.append(session)
+        return session
+
+    runtime = EmbeddingRuntime(factory)
+    outcomes = []
+
+    def call(value):
+        try:
+            runtime.encode(
+                [TextEncodingInput(value)],
+                purpose=EncodingPurpose.QUERY,
+                space=EmbeddingGemma2Space(128),
+            )
+        except BaseException as exc:
+            outcomes.append(exc)
+
+    callers = [
+        threading.Thread(target=call, args=(value,), daemon=True)
+        for value in ("active", "queued")
+    ]
+    for caller in callers:
+        caller.start()
+    assert started.wait(1)
+    _wait_for_pending(runtime, 2)
+
+    runtime.close(timeout=1)
+    for caller in callers:
+        caller.join(1)
+
+    assert all(not caller.is_alive() for caller in callers)
+    assert len(outcomes) == 2
+    assert all(isinstance(error, concurrent.futures.CancelledError) for error in outcomes)
+    assert sessions[0].close_count == 1
+
+
+def test_aclose_cancels_active_and_queued_async_callers_before_stopping_loop():
+    started = threading.Event()
+    sessions = []
+
+    class Session:
+        def __init__(self):
+            self.close_count = 0
+
+        async def encode(self, inputs, *, purpose, space):
+            started.set()
+            await asyncio.sleep(60)
+
+        async def aclose(self):
+            self.close_count += 1
+
+    def factory(*, cancelled=None):
+        session = Session()
+        sessions.append(session)
+        return session
+
+    async def scenario():
+        runtime = EmbeddingRuntime(factory)
+        callers = [
+            asyncio.create_task(
+                runtime.encode_async(
+                    [TextEncodingInput(value)],
+                    purpose=EncodingPurpose.QUERY,
+                    space=EmbeddingGemma2Space(128),
+                )
+            )
+            for value in ("active", "queued")
+        ]
+        assert await asyncio.to_thread(started.wait, 1)
+        await asyncio.to_thread(_wait_for_pending, runtime, 2)
+        await runtime.aclose(timeout=1)
+        return await asyncio.gather(*callers, return_exceptions=True)
+
+    outcomes = asyncio.run(scenario())
+
+    assert len(outcomes) == 2
+    assert all(isinstance(error, asyncio.CancelledError) for error in outcomes)
+    assert sessions[0].close_count == 1

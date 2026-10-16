@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import threading
+import time
 from collections.abc import Callable, Sequence
 from typing import Protocol
 
@@ -71,6 +72,9 @@ class EmbeddingRuntime:
         self._request_lock: asyncio.Lock | None = None
         self._active_cancelled: Cancellation | None = None
         self._startup_error: BaseException | None = None
+        self._pending: set[
+            concurrent.futures.Future[list[EmbeddingVector]]
+        ] = set()
         self._closed = False
 
     def _cancelled(self) -> bool:
@@ -198,12 +202,26 @@ class EmbeddingRuntime:
             future.set_result([])
             return future
         loop = self._ensure_started()
-        return asyncio.run_coroutine_threadsafe(
-            self._encode_on_owner_loop(
-                values, purpose=purpose, space=space, cancelled=cancelled
-            ),
-            loop,
-        )
+        with self._state_lock:
+            if self._closed:
+                raise EncodingError(
+                    "encoding_runtime_closed", "The local embedding runtime is closed."
+                )
+            future = asyncio.run_coroutine_threadsafe(
+                self._encode_on_owner_loop(
+                    values, purpose=purpose, space=space, cancelled=cancelled
+                ),
+                loop,
+            )
+            self._pending.add(future)
+        future.add_done_callback(self._forget_request)
+        return future
+
+    def _forget_request(
+        self, future: concurrent.futures.Future[list[EmbeddingVector]]
+    ) -> None:
+        with self._state_lock:
+            self._pending.discard(future)
 
     def encode(
         self,
@@ -234,35 +252,53 @@ class EmbeddingRuntime:
         )
 
     async def _close_on_owner_loop(self) -> None:
-        if self._encoder is not None:
-            await self._encoder.aclose()
+        current = asyncio.current_task()
+        requests = [
+            task for task in asyncio.all_tasks() if task is not current and not task.done()
+        ]
+        for task in requests:
+            if not task.cancelling():
+                task.cancel()
+        if requests:
+            await asyncio.gather(*requests, return_exceptions=True)
+        if self._request_lock is None:
+            return
+        async with self._request_lock:
+            encoder = self._encoder
+            self._encoder = None
+            if encoder is not None:
+                await encoder.aclose()
 
     def close(self, *, timeout: float = 30.0) -> None:
         """Close the child and join the owner thread.  Safe to call repeatedly."""
 
         if timeout <= 0:
             raise ValueError("embedding runtime close timeout must be positive")
+        deadline = time.monotonic() + timeout
         with self._state_lock:
             if self._closed:
                 return
             self._closed = True
             thread = self._thread
             loop = self._loop
+            pending = tuple(self._pending)
         if thread is None:
             return
         if loop is None:
-            self._ready.wait(timeout)
+            self._ready.wait(max(0.0, deadline - time.monotonic()))
             loop = self._loop
+        for request in pending:
+            request.cancel()
         try:
             if loop is not None and not loop.is_closed():
                 future = asyncio.run_coroutine_threadsafe(
                     self._close_on_owner_loop(), loop
                 )
-                future.result(timeout=timeout)
+                future.result(timeout=max(0.0, deadline - time.monotonic()))
         finally:
             if loop is not None and not loop.is_closed():
                 loop.call_soon_threadsafe(loop.stop)
-            thread.join(timeout)
+            thread.join(max(0.0, deadline - time.monotonic()))
         if thread.is_alive():
             raise TimeoutError("local embedding runtime did not stop")
 
