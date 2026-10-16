@@ -1,44 +1,27 @@
-"""Project search never egresses the corpus to a remote embeddings API.
-
-Closure-sweep audit L6: ``ProjectSearchService.search`` used to pass a
-literal ``allow_remote=True`` into ``resolve_embedder``. With no local model
-installed that resolved the router's remote embedding API and shipped every
-indexed text cell in the project to a third party — through a plain GET
-``/search`` that has no cost gate, no estimate, and no consent dialog
-anywhere in front of it.
-
-The seam is now ``allow_remote=False``, so a project with no local embedder
-degrades to the lexical fallback instead of billing and egressing.
-"""
+"""Browser semantic search uses only the workspace-owned local runtime."""
 
 from __future__ import annotations
 
-import builtins
 from pathlib import Path
 
 import pytest
 
-import frisket.semantic as semantic_module
-import frisket.search as search_module
+import frisket.server.services.project_search as search_service
+from frisket.retrieval.contracts import (
+    ChannelCoverage,
+    IndexedPart,
+    LocatedHit,
+    ResultGroup,
+    RetrievalContribution,
+    ScopedBinding,
+    SearchCoverage,
+    SearchResponse,
+    SourceLocator,
+    SourceRevision,
+    TextQuery,
+)
 from frisket.server.services.project_search import ProjectSearchService
 from frisket.server.workspace import Workspace
-
-
-class _EgressTripwire:
-    """A router that HAS a remote embedding backend and screams if used."""
-
-    def __init__(self) -> None:
-        self.embed_calls: list[list[str]] = []
-
-    def has_embedding_backend(self) -> bool:
-        return True
-
-    async def embed(self, texts: list[str]) -> list[list[float]]:
-        self.embed_calls.append(list(texts))
-        raise AssertionError(
-            "project search embedded the corpus through the remote API — "
-            "that egress has no cost gate and no consent dialog (L6)"
-        )
 
 
 def _project_with_text(tmp_path: Path):
@@ -47,79 +30,86 @@ def _project_with_text(tmp_path: Path):
     project = workspace.get(info["id"])
     sheet_id = project.add_sheet("notes")
     columns = {"body": project.add_column(sheet_id, "body", type="text")}
-    project.add_rows(
+    [row_id] = project.add_rows(
         sheet_id,
-        [
-            {"body": "the mayor approved the stadium bond"},
-            {"body": "reporters questioned the stadium bond"},
-        ],
+        [{"body": "the mayor approved the stadium bond"}],
         columns,
     )
-    return workspace, info["id"]
+    return workspace, info["id"], sheet_id, row_id, columns["body"]
 
 
-def test_semantic_search_without_a_local_embedder_does_not_egress(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    # The ops escape hatch local_embedder() honors: no in-process model, which
-    # is exactly the condition under which the old code fell through to the
-    # router's remote API.
-    monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
-    monkeypatch.setenv("FRISKET_ENABLE_PROVIDERLESS_CLASSIFY", "1")
-    monkeypatch.setenv("FRISKET_PROVIDERLESS_CLASSIFY_THREADS", "2")
-    model_cache = tmp_path / "fastembed-cache"
-    monkeypatch.setenv("FASTEMBED_CACHE_PATH", str(model_cache))
-    monkeypatch.setattr(semantic_module, "_local_models", {})
-    monkeypatch.setattr(search_module, "_rerank_model", None)
-    real_import = builtins.__import__
-
-    def no_fastembed_import(name, *args, **kwargs):
-        if name == "fastembed" or name.startswith("fastembed."):
-            raise AssertionError("disabled semantic search imported FastEmbed")
-        return real_import(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "__import__", no_fastembed_import)
-
-    from frisket.ai.embeddings import EmbeddingBackendUnavailable, EmbeddingGateway
-
-    assert semantic_module.local_embedder() is None
-    assert semantic_module.local_image_embedder() is None
-    assert semantic_module.resolve_embedder() is None
-    assert search_module.local_reranker() is None
-    with pytest.raises(EmbeddingBackendUnavailable):
-        EmbeddingGateway().embed(
-            ["generic text"],
-            provider="fastembed",
-            model="BAAI/bge-small-en-v1.5",
-            modality="text",
-        )
-    with pytest.raises(EmbeddingBackendUnavailable):
-        EmbeddingGateway().embed(
-            ["/tmp/image.png"],
-            provider="fastembed",
-            model="Qdrant/clip-ViT-B-32-vision",
-            modality="image",
-        )
-
-    workspace, project_id = _project_with_text(tmp_path)
-    search_module.drain_index(workspace.get(project_id))
-    tripwire = _EgressTripwire()
-    monkeypatch.setattr(
-        Workspace, "router_for", lambda self, project: tripwire, raising=True
+def _lexical_fallback(sheet_id: int, row_id: int, column_id: int) -> SearchResponse:
+    hit = LocatedHit(
+        part=IndexedPart(
+            part_id="part:text",
+            source=SourceRevision(
+                source_id="source:text",
+                source_kind="text",
+                version_kind="retrieval_revision",
+                version_value=1,
+            ),
+            producer_recipe_id="recipe:text-v1",
+            part_kind="text",
+            locator=SourceLocator(kind="text"),
+        ),
+        binding=ScopedBinding(
+            binding_id="binding:text",
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=column_id,
+        ),
+        contributions=(
+            RetrievalContribution(method="lexical", channel="text", rank=1, score=1.0),
+        ),
+        rank_score=1.0,
+        precision="source_unit",
+        snippet="the mayor approved the stadium bond",
+    )
+    return SearchResponse(
+        results=(ResultGroup(group_key="source:text", primary=hit),),
+        coverage=SearchCoverage(
+            requested_mode="semantic",
+            effective_modes=("lexical",),
+            state="partial",
+            searched_channels=("text",),
+            is_top_k=True,
+            truncated=False,
+            channels=(
+                ChannelCoverage(
+                    channel="semantic",
+                    state="unavailable",
+                    reason="Install the local search model to use semantic search.",
+                ),
+            ),
+        ),
     )
 
+
+def test_semantic_search_uses_workspace_runtime_and_reports_local_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace, project_id, sheet_id, row_id, column_id = _project_with_text(tmp_path)
+    runtime = object()
+    calls = []
+
+    def search_with_encoding(project, request, **kwargs):
+        calls.append((project, request, kwargs))
+        return _lexical_fallback(sheet_id, row_id, column_id)
+
+    monkeypatch.setattr(search_service, "search_with_encoding", search_with_encoding)
+    monkeypatch.setattr(
+        Workspace, "embedding_runtime", property(lambda _self: runtime), raising=False
+    )
     page = ProjectSearchService(workspace).search(
         project_id, q="stadium bond", limit=10, mode="semantic", rerank="auto"
     )
-    assert page["indexing"] is False
-    hits = page["hits"]
 
-    # The request is still SERVED — degraded to lexical, not refused ...
-    assert len(hits) == 2 and all(hit["semantic"] is False for hit in hits)
-    assert all("rerank_score" not in hit for hit in hits)
-    # ... and not one cell left the machine.
-    assert tripwire.embed_calls == []
-    # Capability-disable must not initialize FastEmbed or create its model cache.
-    assert semantic_module._local_models == {}
-    assert search_module._rerank_model is None
-    assert not model_cache.exists()
+    assert len(calls) == 1
+    _project, request, kwargs = calls[0]
+    assert isinstance(request.query, TextQuery)
+    assert request.mode == "semantic"
+    assert kwargs == {"runtime": runtime}
+    assert page["indexing"] is False
+    assert page["coverage"]["state"] == "partial"
+    assert page["coverage"]["effective_modes"] == ["lexical"]
+    assert page["hits"][0]["semantic"] is False

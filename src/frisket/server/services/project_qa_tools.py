@@ -7,11 +7,18 @@ import heapq
 import json
 import threading
 from collections.abc import Callable, Mapping
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlsplit
 
 from frisket.engine.store import Project
 from frisket.engine.store.project_qa import ProjectQAStore
+from frisket.retrieval.contracts import (
+    LocatedHit,
+    RetrievalScope,
+    SearchRequest,
+    SheetScope,
+    TextQuery,
+)
 from frisket.actions.system import root_action_catalog_payload
 from frisket.features.watchlists.specs import canonical_json
 from frisket.server.services.project_qa_query import (
@@ -19,9 +26,6 @@ from frisket.server.services.project_qa_query import (
     evaluate_analytics,
     evaluate_query,
 )
-from frisket.search import SearchIndexNotReady, search_cells_scoped
-from frisket.engine.store.search_index_work import latest_revision
-from frisket.semantic import semantic_passage_search
 from frisket.authoring.project_ask_actions import (
     describe_project_ask_action,
     search_project_ask_actions,
@@ -36,19 +40,64 @@ from frisket.server.services.project_qa_sources import (
     find_source_text,
     read_prepared_passages,
     read_source_with_prepared,
-    resolve_prepared_source,
 )
 from frisket.server.services.project_qa_output_scope import (
     OutputGrantResolution,
     OutputReadGrant,
     output_grant_allows,
 )
+from frisket.server.services.project_search import (
+    _coverage_payload,
+    _search_hit_payload,
+)
+
+if TYPE_CHECKING:
+    from frisket.ai.embeddings.runtime import EmbeddingRuntime
 
 
 MAX_READ_ROWS = 50
 MAX_VALUE_CHARS = 2_000
 MAX_OBSERVATION_CHARS = 20_000
 MAX_SOURCE_CHARS = 8_000
+
+
+def _retrieval_scope(
+    sheet_id: int,
+    allowed_rows: set[int] | None,
+    file_cells: set[tuple[int, int]],
+    sheet_grants: tuple[OutputReadGrant, ...],
+) -> RetrievalScope:
+    """Translate Ask's authorized unions without widening row/column pairs."""
+
+    if allowed_rows is None or any(
+        grant.row_ids is None and grant.column_ids is None for grant in sheet_grants
+    ):
+        return RetrievalScope(sheets=(SheetScope(sheet_id=sheet_id),))
+    scopes: list[SheetScope] = []
+    if allowed_rows:
+        scopes.append(
+            SheetScope(sheet_id=sheet_id, row_ids=tuple(sorted(allowed_rows)))
+        )
+    for row_id, column_id in sorted(file_cells):
+        if row_id not in allowed_rows:
+            scopes.append(
+                SheetScope(
+                    sheet_id=sheet_id,
+                    row_ids=(row_id,),
+                    column_ids=(column_id,),
+                )
+            )
+    for grant in sheet_grants:
+        if grant.row_ids is None or grant.column_ids is None:
+            continue
+        scopes.append(
+            SheetScope(
+                sheet_id=sheet_id,
+                row_ids=tuple(sorted(grant.row_ids)),
+                column_ids=tuple(sorted(grant.column_ids)),
+            )
+        )
+    return RetrievalScope(sheets=tuple(dict.fromkeys(scopes)))
 
 
 class ProjectQAScopeError(ValueError):
@@ -121,6 +170,7 @@ class ProjectQATools:
         catalog_payload_provider: Callable[[], Mapping[str, Any]] | None = None,
         quote_provider: QuoteProvider | None = None,
         output_grants_provider: Callable[[], OutputGrantResolution] | None = None,
+        embedding_runtime: EmbeddingRuntime | None = None,
         research: bool = False,
     ) -> None:
         self.project = project
@@ -131,8 +181,8 @@ class ProjectQATools:
         self._action_references: set[str] = set()
         self._source_handles: dict[str, dict[str, Any]] = {}
         self._source_chars = 0
-        self._new_embeddings = 0
         self._output_grants_provider = output_grants_provider
+        self._embedding_runtime = embedding_runtime
         self._research = research
         self.cancel_event = threading.Event()
         self._project_action_catalog_payload = (
@@ -431,212 +481,106 @@ class ProjectQATools:
         )
         return result
 
-    def _search_hits(
-        self,
-        query: str,
-        sheet_id: int,
-        limit: int,
-        mode: Literal["keyword", "semantic"],
-        allowed_rows: set[int] | None,
-        target_cells: set[tuple[int, int]],
-    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-        schedule = getattr(self.project, "_frisket_schedule_search_index", None)
-        if schedule is not None:
-            schedule()
+    def _record_retrieval_hit(
+        self, query: str, hit: LocatedHit, column: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        """Mint a citation only while every retrieval dependency is current."""
+
+        binding = hit.binding
+        if binding.column_id is None or not binding.dependencies:
+            raise ValueError("source_changed")
+        cell = (binding.sheet_id, binding.row_id, binding.column_id)
+        current = read_source_text(
+            self.project, cell, limit=1, cancel=self.cancel_event
+        )
+        db = self.project.db
+        db.execute("BEGIN IMMEDIATE")
         try:
-            return self._ready_search_hits(
-                query, sheet_id, limit, mode, allowed_rows, target_cells
-            )
-        except SearchIndexNotReady:
-            return [], {"complete": False, "reason": "indexing", "semantic": False}
-
-    def _ready_search_hits(
-        self,
-        query: str,
-        sheet_id: int,
-        limit: int,
-        mode: Literal["keyword", "semantic"],
-        allowed_rows: set[int] | None,
-        target_cells: set[tuple[int, int]],
-    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-        if mode == "semantic":
-            searched = semantic_passage_search(
-                self.project,
-                sheet_id=sheet_id,
-                row_ids=allowed_rows,
-                file_cells=target_cells,
-                query=query,
-                limit=limit,
-                remaining_embeddings=64
-                if self._research
-                else 64 - self._new_embeddings,
-                cancel_event=self.cancel_event,
-            )
-            self._new_embeddings += searched["new_embeddings"]
-            return searched["hits"], searched["coverage"]
-        if mode == "keyword":
-            hits = search_cells_scoped(
-                self.project,
-                sheet_id,
-                query,
-                None if allowed_rows is None else sorted(allowed_rows),
-                target_cells,
-                limit,
-                cancel_event=self.cancel_event,
-            )
-            return hits, {
-                "semantic": False,
-                "complete": True,
-                "result_limit_reached": len(hits) >= limit,
-            }
-        raise ValueError("search mode must be keyword or semantic")
-
-    def _current_search_hit(
-        self,
-        sheet_id: int,
-        hit: Mapping[str, Any],
-        prepared_target: dict[str, Any] | None,
-        allowed_rows: set[int] | None,
-        file_cells: set[tuple[int, int]],
-    ) -> dict[str, Any] | None:
-        row_id, column_id = int(hit["row_id"]), int(hit["column_id"])
-        hit_cell = (sheet_id, row_id, column_id)
-        source_cell = (
-            prepared_target["source_cell"] if prepared_target is not None else hit_cell
-        )
-        if (
-            allowed_rows is not None
-            and source_cell[1] not in allowed_rows
-            and (source_cell[1], source_cell[2]) not in file_cells
-        ):
-            return None
-        semantic = bool(hit.get("semantic"))
-        indexed_revision = hit.get("_indexed_revision")
-        if not semantic and indexed_revision != latest_revision(self.project.db):
-            raise ValueError("source_changed")
-        if prepared_target is not None:
-            current_cell, original, current_prepared = read_source_with_prepared(
-                self.project,
-                source_cell,
-                evidence_link_id=prepared_target["evidence_link_id"],
-                cancel=self.cancel_event,
-            )
-            if current_prepared is None or current_cell != hit_cell:
-                raise ValueError("source_changed")
-        else:
-            original = read_source_text(
-                self.project,
-                source_cell,
-                limit=1,
-                cancel=self.cancel_event,
-            )
-            current_prepared = None
-        snippet = str(hit.get("text", hit.get("snip", "")))
-        start = int(hit.get("char_start", 0))
-        size = max(1, int(hit.get("char_end", start + 1)) - start)
-        source = read_source_text(
-            self.project,
-            hit_cell,
-            start=start,
-            limit=min(size, MAX_SOURCE_CHARS),
-            cancel=self.cancel_event,
-        )
-        if (
-            current_prepared is not None
-            and source["version"] != current_prepared["prepared_version"]
-        ):
-            raise ValueError("source_changed")
-        if current_prepared is not None:
-            confirmed_prepared = resolve_prepared_source(
-                self.project,
-                source_cell,
-                expected_version=original["version"],
-                evidence_link_id=current_prepared["evidence_link_id"],
-                cancel=self.cancel_event,
-            )
-            if (
-                confirmed_prepared is None
-                or confirmed_prepared["cell"] != hit_cell
-                or confirmed_prepared["prepared_version"] != source["version"]
+            for dependency in binding.dependencies:
+                if (
+                    db.execute(
+                        "SELECT 1 FROM current_cells WHERE row_id=? AND column_id=? "
+                        "AND retrieval_revision=?",
+                        (
+                            dependency.row_id,
+                            dependency.column_id,
+                            dependency.retrieval_revision,
+                        ),
+                    ).fetchone()
+                    is None
+                ):
+                    raise ValueError("source_changed")
+            evidence = self._retrieval_evidence(hit, cell)
+            if evidence is None and (
+                hit.part.locator.source_span_ids
+                or hit.part.locator.pages is not None
+                or hit.part.locator.time is not None
             ):
                 raise ValueError("source_changed")
-        if not semantic and indexed_revision != latest_revision(self.project.db):
-            raise ValueError("source_changed")
-        if semantic and source["text"] != snippet:
-            # Embedding may overlap an edit: never give old text a new value reference.
-            raise ValueError("source_changed")
-        return {
-            "source_cell": source_cell,
-            "original": original,
-            "source": source,
-            "prepared": current_prepared,
-            "snippet": snippet,
-        }
-
-    def _record_search_hit(
-        self,
-        query: str,
-        sheet_id: int,
-        hit: Mapping[str, Any],
-        current: Mapping[str, Any],
-    ) -> dict[str, Any]:
-        row_id, column_id = int(hit["row_id"]), int(hit["column_id"])
-        source_cell = current["source_cell"]
-        original = current["original"]
-        source = current["source"]
-        prepared = current["prepared"]
-        snippet = current["snippet"]
-        citation = self.store.add_citation(
-            self.turn_id,
-            label=(
-                f"Search hit · {self._sheet_name(sheet_id)} · row {row_id} "
-                f"· {hit['column_name']}"
-            ),
-            source_kind="cell",
-            locator={
-                "sheet_id": source_cell[0],
-                "row_id": source_cell[1],
-                "column_id": source_cell[2],
-                "value_ref": original["value_ref"] if prepared else source["value_ref"],
-                "source_version": source["version"],
-                **(
-                    {
-                        "prepared_cell": {
-                            "sheet_id": sheet_id,
-                            "row_id": row_id,
-                            "column_id": column_id,
-                        },
-                        "prepared_value_ref": source["value_ref"],
-                        "prepared_evidence_link_id": prepared["evidence_link_id"],
-                    }
-                    if prepared
-                    else {}
+            location = _search_hit_payload(hit, column=dict(column))["location"]
+            locator = {
+                "sheet_id": cell[0],
+                "row_id": cell[1],
+                "column_id": cell[2],
+                "value_ref": current["value_ref"],
+                "source_version": current["version"],
+                "retrieval_source": {
+                    "source_id": hit.part.source.source_id,
+                    "source_kind": hit.part.source.source_kind,
+                    "version_kind": hit.part.source.version_kind,
+                    "version_value": hit.part.source.version_value,
+                },
+                "location": location,
+                **(evidence or {}),
+            }
+            citation = self.store.add_citation(
+                self.turn_id,
+                label=(
+                    f"Search hit · {self._sheet_name(cell[0])} · row {cell[1]} "
+                    f"· {column['name']}"
                 ),
-                **(
-                    {"char_start": hit["char_start"], "char_end": hit["char_end"]}
-                    if hit.get("semantic")
-                    else {}
-                ),
-            },
-            excerpt=snippet,
-            metadata={
-                "search": query,
-                **(
-                    {"fts_anchor": hit["fts_anchor"]}
-                    if isinstance(hit.get("fts_anchor"), str)
-                    else {}
-                ),
-            },
-        )
+                source_kind="evidence" if evidence else "cell",
+                locator=locator,
+                excerpt=hit.snippet or "",
+                metadata={"search": query},
+            )
+            db.commit()
+        except BaseException:
+            db.rollback()
+            raise
         self._citation_ids.add(citation["id"])
+        payload = _search_hit_payload(hit, column=dict(column))
+        snippet = payload.pop("snip")
         return {
-            "sheet_id": source_cell[0],
-            "row_id": source_cell[1],
-            "column_id": source_cell[2],
+            **payload,
             "snippet": snippet,
-            "semantic": bool(hit.get("semantic")),
             "citation_id": citation["id"],
         }
+
+    def _retrieval_evidence(
+        self, hit: LocatedHit, cell: tuple[int, int, int]
+    ) -> dict[str, Any] | None:
+        for span_id in hit.part.locator.source_span_ids:
+            row = self.project.db.execute(
+                "SELECT l.stable_id AS evidence_link_id,"
+                "a.stable_id AS artifact_id,sp.stable_id AS span_id "
+                "FROM source_spans sp "
+                "JOIN source_artifacts a ON a.id=sp.artifact_id "
+                "JOIN evidence_link_spans els ON els.span_id=sp.id "
+                "JOIN evidence_links l ON l.id=els.link_id "
+                "WHERE sp.stable_id=? AND l.status='active' "
+                "AND ((a.source_sheet_id=? AND a.source_row_id=? "
+                "AND a.source_column_id=?) OR (l.sheet_id=? AND l.row_id=? "
+                "AND l.column_id=?)) ORDER BY els.rank,l.id LIMIT 1",
+                (span_id, *cell, *cell),
+            ).fetchone()
+            if row is not None:
+                return {
+                    "evidence_link_id": str(row["evidence_link_id"]),
+                    "artifact_id": str(row["artifact_id"]),
+                    "span_id": str(row["span_id"]),
+                }
+        return None
 
     def search_cells(
         self,
@@ -655,58 +599,57 @@ class ProjectQATools:
         ):
             raise ValueError(f"limit must be between 1 and {MAX_READ_ROWS}")
         output_grants = self._current_output_grants()
-        allowed_rows, file_cells, _sheet_grants = self._sheet_access(
+        allowed_rows, file_cells, sheet_grants = self._sheet_access(
             sheet_id, output_grants
         )
-        file_only_cells = (
-            set()
-            if allowed_rows is None
-            else {cell for cell in file_cells if cell[0] not in allowed_rows}
-        )
-        prepared_targets = self._prepared_file_targets(sheet_id, file_only_cells)
-        target_cells = file_cells | {
-            (target[1], target[2]) for target in prepared_targets
-        }
-        hits, coverage = self._search_hits(
-            query, sheet_id, limit, mode, allowed_rows, target_cells
-        )
-        out = []
-        for hit in hits:
-            hit_cell = (sheet_id, int(hit["row_id"]), int(hit["column_id"]))
-            try:
-                current = self._current_search_hit(
-                    sheet_id,
-                    hit,
-                    prepared_targets.get(hit_cell),
-                    allowed_rows,
-                    file_cells,
-                )
-            except ValueError:
-                coverage = {**coverage, "complete": False, "reason": "source_changed"}
-                continue
-            if current is not None:
-                out.append(self._record_search_hit(query, sheet_id, hit, current))
-        return {"query": query, "hits": out, "partial": True, "coverage": coverage}
+        from frisket.retrieval.service import search_with_encoding
 
-    def _prepared_file_targets(
-        self, sheet_id: int, file_cells: set[tuple[int, int]]
-    ) -> dict[tuple[int, int, int], dict[str, Any]]:
-        """Expose current OCR/transcript text to search without widening file scope."""
-        targets: dict[tuple[int, int, int], dict[str, Any]] = {}
-        # Admission already bounds the source selection to 100 entries.
-        for row_id, column_id in sorted(file_cells):
-            source_cell = (sheet_id, row_id, column_id)
-            _target, _source, prepared = read_source_with_prepared(
-                self.project,
-                source_cell,
-                cancel=self.cancel_event,
+        semantic = mode == "semantic"
+        response = search_with_encoding(
+            self.project,
+            SearchRequest(
+                scope=_retrieval_scope(
+                    sheet_id, allowed_rows, file_cells, sheet_grants
+                ),
+                query=TextQuery(query),
+                mode="semantic" if semantic else "lexical",
+                group_by="source",
+                limit=limit,
+            ),
+            runtime=self._embedding_runtime,
+            cancel_event=self.cancel_event,
+        )
+        columns = {
+            int(column["id"]): column for column in self.project.columns(sheet_id)
+        }
+        out: list[dict[str, Any]] = []
+        source_changed = False
+        for group in response.results:
+            hit = group.primary
+            column = (
+                columns.get(hit.binding.column_id)
+                if hit.binding.sheet_id == sheet_id
+                and hit.binding.column_id is not None
+                else None
             )
-            if prepared is not None:
-                targets.setdefault(
-                    prepared["cell"],
-                    {"source_cell": source_cell, **prepared},
-                )
-        return targets
+            if column is None:
+                source_changed = True
+                continue
+            try:
+                out.append(self._record_retrieval_hit(query, hit, column))
+            except ValueError as error:
+                if str(error) != "source_changed":
+                    raise
+                source_changed = True
+        coverage = _coverage_payload(response.coverage)
+        if source_changed:
+            coverage = {**coverage, "state": "partial", "reason": "source_changed"}
+        return {
+            "query": query,
+            "hits": out,
+            "partial": coverage["state"] != "complete",
+            "coverage": coverage,
+        }
 
     def record_web_search(self, search: Mapping[str, Any]) -> dict[str, Any]:
         """Persist safe public-search snippets as answer-citable receipts."""

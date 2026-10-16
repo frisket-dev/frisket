@@ -25,7 +25,75 @@ class _SearchService:
 
     def search(self, pid: str, **query: object) -> dict[str, object]:
         self.calls.append({"pid": pid, **query})
-        return {"hits": self.hits, "indexing": False}
+        return {"hits": self.hits, "indexing": False, "coverage": _coverage()}
+
+
+def _coverage() -> dict[str, object]:
+    return {
+        "requested_mode": "semantic",
+        "effective_modes": ["lexical"],
+        "state": "partial",
+        "searched_channels": ["text"],
+        "is_top_k": True,
+        "truncated": False,
+        "channels": [
+            {
+                "channel": "semantic",
+                "state": "unavailable",
+                "recipe_id": None,
+                "eligible_count": None,
+                "prepared_count": None,
+                "failed_count": None,
+                "reason": "local model unavailable",
+            }
+        ],
+    }
+
+
+def _hit(**overrides: object) -> dict[str, object]:
+    hit: dict[str, object] = {
+        "sheet_id": 1,
+        "row_id": 2,
+        "column_id": 3,
+        "column_name": "body",
+        "ai_generated": False,
+        "snip": "<b>budget</b>",
+        "score": 0.8,
+        "semantic": False,
+        "source": {
+            "source_id": "source:cell:2:3",
+            "source_kind": "text",
+            "version_kind": "retrieval_revision",
+            "version_value": 4,
+            "content_hash": None,
+        },
+        "part": {
+            "part_id": "part:cell:2:3",
+            "part_kind": "text",
+            "producer_recipe_id": "recipe:text-v1",
+        },
+        "location": {
+            "kind": "text",
+            "precision": "source_unit",
+            "text": None,
+            "pages": None,
+            "time": None,
+            "source_span_ids": [],
+        },
+        "contributions": [
+            {
+                "method": "lexical",
+                "channel": "text",
+                "rank": 1,
+                "representation_id": None,
+                "space_id": None,
+                "score": 1.0,
+            }
+        ],
+        "additional_binding_count": 0,
+    }
+    hit.update(overrides)
+    return hit
 
 
 def _route(service: _SearchService) -> APIRoute:
@@ -63,25 +131,17 @@ def test_project_search_route_declares_its_exact_generated_wire_truth() -> None:
     ]
 
 
-def test_project_search_hit_is_open_but_strict_and_sparse_optional_fields_are_non_null() -> (
-    None
-):
-    hit = ProjectSearchHit.model_validate(
-        {
-            "sheet_id": 1,
-            "row_id": 2,
-            "column_id": 3,
-            "column_name": "body",
-            "ai_generated": False,
-            "snip": "<b>budget</b>",
-            "producer_extension": {"preserved": True},
-        }
-    )
+def test_project_search_hit_is_open_but_strict_and_located() -> None:
+    hit = ProjectSearchHit.model_validate(_hit(producer_extension={"preserved": True}))
     assert hit.model_dump(exclude_unset=True)["producer_extension"] == {
         "preserved": True
     }
     assert ProjectSearchPage.model_validate(
-        {"hits": [hit.model_dump(exclude_unset=True)], "indexing": True}
+        {
+            "hits": [hit.model_dump(exclude_unset=True)],
+            "indexing": True,
+            "coverage": _coverage(),
+        }
     ).hits == [hit]
 
     for field in ("score", "semantic", "rerank_score"):
@@ -90,30 +150,13 @@ def test_project_search_hit_is_open_but_strict_and_sparse_optional_fields_are_no
     with pytest.raises(ValidationError):
         ProjectSearchHit.model_validate({**hit.model_dump(), "sheet_id": "1"})
     with pytest.raises(ValidationError):
-        ProjectSearchPage.model_validate({"hits": []})
+        ProjectSearchPage.model_validate({"hits": [], "indexing": False})
 
 
 def test_project_search_route_keeps_producer_order_and_omits_unset_fields() -> None:
     hits = [
-        {
-            "sheet_id": 5,
-            "row_id": 7,
-            "column_id": 11,
-            "column_name": "body",
-            "ai_generated": True,
-            "snip": "first",
-            "score": 0.9,
-            "producer_extension": "open",
-        },
-        {
-            "sheet_id": 5,
-            "row_id": 8,
-            "column_id": 11,
-            "column_name": "body",
-            "ai_generated": False,
-            "snip": "second",
-            "semantic": False,
-        },
+        _hit(row_id=7, snip="first", score=0.9, producer_extension="open"),
+        _hit(row_id=8, snip="second"),
     ]
     service = _SearchService(hits)
     response = TestClient(_app(service)).get(
@@ -122,7 +165,7 @@ def test_project_search_route_keeps_producer_order_and_omits_unset_fields() -> N
     )
 
     assert response.status_code == 200
-    assert response.json() == {"hits": hits, "indexing": False}
+    assert response.json() == {"hits": hits, "indexing": False, "coverage": _coverage()}
     assert service.calls == [
         {
             "pid": "project",
