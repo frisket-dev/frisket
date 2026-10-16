@@ -87,6 +87,11 @@ def _drop_later_schema(db: sqlite3.Connection) -> None:
         "WHERE type='trigger' AND name LIKE 'trg_search_%'"
     ).fetchall():
         db.execute(f'DROP TRIGGER "{row[0]}"')
+    # The historical table had a composite primary key. Our reconstructed
+    # rowid fixture must keep that uniqueness when removing the later index.
+    db.execute(
+        "CREATE UNIQUE INDEX legacy_current_cells_key ON current_cells(column_id,row_id)"
+    )
     db.execute("DROP INDEX idx_current_cells_column_row")
     db.execute("DROP TABLE search_dirty_scopes")
     db.execute("DROP TABLE import_sessions")
