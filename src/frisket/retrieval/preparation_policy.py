@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import logging
 from dataclasses import dataclass
 from typing import Any
 
@@ -21,6 +22,7 @@ DEFAULT_TEXT_RECIPE = TextChunkRecipe()
 DEFAULT_TRANSCRIPT_RECIPE = TranscriptChunkRecipe()
 DEFAULT_VIDEO_RECIPE = ShotClipRecipe()
 DEFAULT_AUDIO_RECIPE: AudioWindowRecipe | None = None
+LOG = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,13 +107,21 @@ def _optional_recipe(
     strategy = value.get("strategy")
     recipe_type = recipes.get(strategy) if isinstance(strategy, str) else None
     if recipe_type is None:
-        raise ValueError(f"{_knob(name)}.strategy is unsupported: {strategy!r}")
+        LOG.warning(
+            "Ignoring unsupported stored retrieval recipe strategy %s for %s",
+            strategy,
+            _knob(name),
+        )
+        return None
     allowed = {field.name for field in dataclasses.fields(recipe_type)}
     unexpected = sorted(set(value) - allowed)
     if unexpected:
-        raise ValueError(
-            f"unknown preparation policy knob {_knob(name)}.{unexpected[0]}"
+        LOG.warning(
+            "Ignoring unknown stored retrieval policy keys for %s: %s",
+            _knob(name),
+            ", ".join(unexpected),
         )
+        value = {key: item for key, item in value.items() if key in allowed}
     try:
         return recipe_type(**value)
     except (TypeError, ValueError) as exc:
@@ -127,7 +137,7 @@ def _boolean(name: str, value: object, default: bool) -> bool:
 
 
 def parse_preparation_policy(raw: str) -> PreparationPolicy:
-    """Parse stored JSON, refusing malformed or unknown configuration knobs."""
+    """Parse stored JSON while tolerating keys written by a newer version."""
 
     try:
         value = json.loads(raw)
@@ -137,7 +147,10 @@ def parse_preparation_policy(raw: str) -> PreparationPolicy:
         raise ValueError(f"{PREPARATION_POLICY_META_KEY} must be an object")
     unexpected = sorted(set(value) - _POLICY_KEYS)
     if unexpected:
-        raise ValueError(f"unknown preparation policy knob {_knob(unexpected[0])}")
+        LOG.warning(
+            "Ignoring unknown stored retrieval policy keys: %s",
+            ", ".join(unexpected),
+        )
     return PreparationPolicy(
         text_recipe=_optional_recipe(
             "text_recipe",
@@ -180,11 +193,20 @@ def parse_preparation_policy(raw: str) -> PreparationPolicy:
     )
 
 
-def read_preparation_policy(project) -> PreparationPolicy:
-    raw = project.get_meta(PREPARATION_POLICY_META_KEY)
+def read_preparation_policy_db(db) -> PreparationPolicy:
+    """Read policy from the caller's current project database snapshot."""
+
+    row = db.execute(
+        "SELECT value FROM meta WHERE key=?", (PREPARATION_POLICY_META_KEY,)
+    ).fetchone()
+    raw = None if row is None else str(row[0])
     if raw is None:
         return DEFAULT_PREPARATION_POLICY
     return parse_preparation_policy(raw)
+
+
+def read_preparation_policy(project) -> PreparationPolicy:
+    return read_preparation_policy_db(project.db)
 
 
 def write_preparation_policy(project, policy: PreparationPolicy) -> None:
@@ -208,5 +230,6 @@ __all__ = [
     "parse_preparation_policy",
     "preparation_policy_json",
     "read_preparation_policy",
+    "read_preparation_policy_db",
     "write_preparation_policy",
 ]

@@ -619,17 +619,17 @@ class ProjectLifecycleService:
                 f"({MEDIA_PRIVATE_HOSTS_ENV}=deny-locked)"
             )
         retrieval_patch = patch.pop("retrieval", None)
+        retrieval_policy = None
         try:
-            retrieval_policy = (
-                _updated_retrieval_policy(
-                    read_preparation_policy(project), retrieval_patch
-                )
-                if retrieval_patch is not None
-                else None
-            )
             with project.transaction_scope():
                 patch_project_settings(project, patch)
-                if retrieval_policy is not None:
+                if retrieval_patch is not None:
+                    # The existing BEGIN IMMEDIATE scope must precede the
+                    # read-modify-write merge so concurrent partial PATCHes
+                    # cannot both derive from the same stale policy.
+                    retrieval_policy = _updated_retrieval_policy(
+                        read_preparation_policy(project), retrieval_patch
+                    )
                     write_preparation_policy(project, retrieval_policy)
         except (TypeError, ValueError, ValidationError) as exc:
             raise ProjectSettingsError(str(exc)) from exc

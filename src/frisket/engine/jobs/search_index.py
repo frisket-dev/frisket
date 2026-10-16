@@ -16,7 +16,6 @@ from frisket.retrieval.preparation import (
     TRANSCRIPT_CHANNEL,
     VIDEO_CHANNEL,
     PreparationEncoder,
-    PreparationPolicy,
     preparation_work_marker,
     process_blob_image_preparation_batch,
     process_evidence_preparation_batch,
@@ -47,17 +46,11 @@ def process_index_batches(
     *,
     stopped=lambda: False,
     embedding_encoder: PreparationEncoder | None = None,
-    preparation_policy: PreparationPolicy | None = None,
 ) -> tuple[int, bool]:
     """Process one fair worker quantum of lexical and local preparation work."""
     processed = processed_bytes = 0
     complete = False
     preparation_started = False
-    policy = (
-        read_preparation_policy(project)
-        if preparation_policy is None
-        else preparation_policy
-    )
     for _ in range(BATCHES_PER_CLAIM):
         if stopped():
             break
@@ -65,12 +58,12 @@ def process_index_batches(
             project,
             batch_size=INDEX_BATCH_SIZE,
             max_bytes=INDEX_BATCH_MAX_BYTES,
-            preparation_policy=policy,
         )
         processed += progress.processed
         processed_bytes += progress.processed_bytes
         complete = progress.complete
         if complete and not stopped() and embedding_encoder is not None:
+            policy = read_preparation_policy(project)
             preparation_started = preparation_work_marker(project.path) is not None
             preparation_steps = (
                 lambda: process_text_preparation_batch(
@@ -186,7 +179,6 @@ def register_search_index_handler(
     workspace_root_storage_org_id: int | None = None,
     project_opener: ProjectOpener | None = None,
     embedding_encoder: PreparationEncoder | None = None,
-    preparation_policy: PreparationPolicy | None = None,
 ) -> HandlerRegistration:
     def handle(payload: dict, context: JobHandlerContext) -> dict:
         def stopped() -> bool:
@@ -213,7 +205,6 @@ def register_search_index_handler(
                 project,
                 stopped=stopped,
                 embedding_encoder=embedding_encoder,
-                preparation_policy=preparation_policy,
             )
             if not stopped():
                 continuation = {

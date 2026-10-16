@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import json
 
 from fastapi.testclient import TestClient
@@ -9,6 +10,12 @@ from pydantic import ValidationError
 import pytest
 
 from frisket.contracts.http.project_config import ProjectProviderKeyValidationResponse
+from frisket.engine.store import Project
+from frisket.retrieval.media import AudioWindowRecipe
+from frisket.retrieval.preparation_policy import (
+    PreparationPolicy,
+    write_preparation_policy,
+)
 from frisket.server import provider_config
 from frisket.server.app import create_app
 from frisket.team.app import TeamConfig, create_team_app
@@ -164,6 +171,12 @@ def test_project_settings_reject_invalid_video_knobs(tmp_path) -> None:
     )
     assert wrong_strategy_field.status_code == 422
 
+    unknown_retrieval_field = client.patch(
+        f"/api/projects/{pid}/settings",
+        json={"retrieval": {"future_paid_provider": True}},
+    )
+    assert unknown_retrieval_field.status_code == 422
+
     impossible_clip = client.patch(
         f"/api/projects/{pid}/settings",
         json={
@@ -177,6 +190,48 @@ def test_project_settings_reject_invalid_video_knobs(tmp_path) -> None:
         },
     )
     assert impossible_clip.status_code == 400
+
+
+def test_concurrent_partial_retrieval_patches_merge_after_writer_lock(
+    tmp_path, monkeypatch
+) -> None:
+    client = TestClient(create_app(tmp_path / "workspace"))
+    pid = client.post("/api/projects", json={"name": "Concurrent settings"}).json()[
+        "id"
+    ]
+    project = client.app.state.workspace.get(pid)
+    concurrent = Project(project.path)
+    original_transaction_scope = Project.transaction_scope
+    injected = False
+
+    @contextmanager
+    def transaction_after_concurrent_patch(self):
+        nonlocal injected
+        if self is project and not injected:
+            injected = True
+            write_preparation_policy(
+                concurrent,
+                PreparationPolicy(audio_recipe=AudioWindowRecipe()),
+            )
+        with original_transaction_scope(self):
+            yield
+
+    try:
+        monkeypatch.setattr(
+            Project, "transaction_scope", transaction_after_concurrent_patch
+        )
+
+        response = client.patch(
+            f"/api/projects/{pid}/settings",
+            json={"retrieval": {"text_enabled": False}},
+        )
+
+        assert response.status_code == 200, response.text
+        assert injected
+        assert response.json()["retrieval"]["text_enabled"] is False
+        assert response.json()["retrieval"]["audio_enabled"] is True
+    finally:
+        concurrent.close()
 
 
 def test_network_and_secret_conflict_responses_preserve_existing_wire_bytes(

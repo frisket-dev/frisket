@@ -200,7 +200,9 @@ def test_queued_watch_waits_for_complete_unified_index(tmp_path):
                 )
 
 
-def test_watch_index_drain_uses_the_worker_embedding_encoder(tmp_path, monkeypatch):
+def test_keyword_watch_index_drain_does_not_wait_for_embedding_encoder(
+    tmp_path, monkeypatch
+):
     _project(tmp_path)
     with closing(Project(tmp_path / "docs.frisket")) as project:
         watch_id = project.add_watch(
@@ -231,7 +233,7 @@ def test_watch_index_drain_uses_the_worker_embedding_encoder(tmp_path, monkeypat
 
         assert Worker(queue, registry).run_once()
 
-    assert seen == [encoder]
+    assert seen == [None]
 
 
 def test_edit_after_index_quantum_prevents_a_stale_watch_run(tmp_path, monkeypatch):

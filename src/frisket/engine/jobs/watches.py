@@ -260,8 +260,11 @@ def register_watch_evaluate_handler(
             if query_kind in {"fts", "search.fts"}:
                 from .search_index import index_work_marker, process_index_batches
 
+                # Keyword watches depend only on lexical publication. Running
+                # optional semantic preparation here could let contention for
+                # the shared encoder delay or exhaust an otherwise-ready watch.
                 processed, _complete = process_index_batches(
-                    project, embedding_encoder=embedding_encoder
+                    project, embedding_encoder=None
                 )
                 # A source write can enqueue a fresh scope after the indexer
                 # reports its quantum complete. Re-read durable work before

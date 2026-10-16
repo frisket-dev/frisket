@@ -21,8 +21,8 @@ from frisket.retrieval.preparation import (
     dispatch_resolved_evidence_source,
     dispatch_resolved_text_source,
     retire_cell_binding,
-    read_preparation_policy,
 )
+from frisket.retrieval.preparation_policy import read_preparation_policy_db
 from frisket.retrieval.source_adapter import (
     BLOB_SOURCE_COLUMN_TYPES,
     RETRIEVAL_SOURCE_COLUMN_TYPES,
@@ -298,7 +298,6 @@ def index_batch(
     batch_size: int = 500,
     max_bytes: int = 4 * 1024 * 1024,
     cancel_event: threading.Event | None = None,
-    preparation_policy: PreparationPolicy | None = None,
 ) -> IndexProgress:
     """Reconcile one bounded dirty page and acknowledge only durable publication."""
 
@@ -307,16 +306,12 @@ def index_batch(
     if project.db.in_transaction:
         raise RuntimeError("index maintenance requires its own source transaction")
     bind_retrieval_sidecar(project)
-    policy = (
-        read_preparation_policy(project)
-        if preparation_policy is None
-        else preparation_policy
-    )
     snapshot = None
     retrieval = None
     try:
         _raise_if_cancelled(cancel_event)
         snapshot = project.read_snapshot()
+        policy = read_preparation_policy_db(snapshot.db)
         revision = latest_revision(snapshot.db)
         scopes = read_dirty_scopes(snapshot.db, limit=batch_size + 1)
         processed = processed_bytes = 0

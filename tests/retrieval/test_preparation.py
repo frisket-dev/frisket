@@ -5,6 +5,7 @@ import io
 import json
 
 import pytest
+from PIL import Image
 from pypdf import PdfWriter
 
 from frisket.engine.jobs import search_index as search_index_job
@@ -143,6 +144,12 @@ def _three_blank_page_pdf() -> bytes:
     for _ in range(3):
         writer.add_blank_page(width=72, height=72)
     writer.write(output)
+    return output.getvalue()
+
+
+def _tiny_png() -> bytes:
+    output = io.BytesIO()
+    Image.new("RGB", (2, 2), "red").save(output, format="PNG")
     return output.getvalue()
 
 
@@ -553,6 +560,79 @@ def test_missing_canonical_blob_marks_native_preparation_failed(
         project.close()
 
 
+def test_repaired_corrupt_blob_requeues_on_next_authoritative_dispatch(
+    tmp_path,
+) -> None:
+    project = Project.create(tmp_path / "repaired-corrupt-image.frisket")
+    image_bytes = _tiny_png()
+    try:
+        sheet_id = project.add_sheet("Media")
+        column_id = project.add_column(sheet_id, "image", type="image")
+        digest = project.add_blob(image_bytes, mime="image/png")
+        row_id = project.add_rows(
+            sheet_id,
+            [{"image": {"blob": digest, "mime": "image/png"}}],
+            {"image": column_id},
+        )[0]
+        with project.read_snapshot() as snapshot:
+            resolved = resolve_cell_blob_source(
+                snapshot,
+                sheet_id=sheet_id,
+                row_id=row_id,
+                column_id=column_id,
+            )
+        assert resolved is not None
+        with RetrievalStore(project).open() as store:
+            dispatch_resolved_blob_source(store, resolved)
+
+        canonical = project.path / "blobs" / digest[:2] / digest
+        canonical.write_bytes(b"corrupt")
+        failed = process_blob_image_preparation_batch(
+            project, channel=IMAGE_CHANNEL, encoder=_Encoder()
+        )
+        assert failed.complete and failed.processed_parts == 0
+        with RetrievalStore(project).open() as store:
+            state = store.preparation_state(
+                resolved.source.source_id,
+                recipe_id="image-bytes-v1",
+                channel=IMAGE_CHANNEL,
+            )
+            assert state is not None
+            assert (state.status, state.error_code) == (
+                "failed",
+                "blob_integrity_failed",
+            )
+
+        # Repairing storage does not create a hot worker retry. The next
+        # authoritative source dispatch is the bounded retry trigger.
+        canonical.unlink()
+        assert project.add_blob(image_bytes, mime="image/png") == digest
+        with RetrievalStore(project).open() as store:
+            dispatch_resolved_blob_source(store, resolved)
+            state = store.preparation_state(
+                resolved.source.source_id,
+                recipe_id="image-bytes-v1",
+                channel=IMAGE_CHANNEL,
+            )
+            assert state is not None
+            assert (state.status, state.error_code) == ("preparing", None)
+
+        repaired = process_blob_image_preparation_batch(
+            project, channel=IMAGE_CHANNEL, encoder=_Encoder()
+        )
+        assert repaired.complete and repaired.processed_parts == 1
+        with RetrievalStore(project).open() as store:
+            state = store.preparation_state(
+                resolved.source.source_id,
+                recipe_id="image-bytes-v1",
+                channel=IMAGE_CHANNEL,
+            )
+            assert state is not None
+            assert (state.status, state.error_code) == ("ready", None)
+    finally:
+        project.close()
+
+
 def test_preparation_policy_persists_strategy_and_defaults_raw_audio_off(
     tmp_path,
 ) -> None:
@@ -598,15 +678,61 @@ def test_preparation_policy_partial_json_inherits_defaults_and_null_disables(
         project.close()
 
 
+def test_policy_edit_during_index_claim_is_not_acknowledged_under_stale_policy(
+    tmp_path, monkeypatch
+) -> None:
+    project = Project.create(tmp_path / "policy-edit-during-index.frisket")
+    concurrent = Project(project.path)
+    old_policy = PreparationPolicy(
+        text_recipe=TextChunkRecipe(max_codepoints=8, overlap_codepoints=0)
+    )
+    current_policy = PreparationPolicy(
+        text_recipe=TextChunkRecipe(max_codepoints=16, overlap_codepoints=0)
+    )
+    original_read_snapshot = Project.read_snapshot
+    injected = False
+
+    def read_snapshot_after_policy_edit(self):
+        nonlocal injected
+        if self is project and not injected:
+            injected = True
+            write_preparation_policy(concurrent, current_policy)
+        return original_read_snapshot(self)
+
+    try:
+        sheet_id = project.add_sheet("Documents")
+        column_id = project.add_column(sheet_id, "body")
+        project.add_rows(
+            sheet_id,
+            [{"body": "alpha beta gamma delta"}],
+            {"body": column_id},
+        )
+        write_preparation_policy(project, old_policy)
+        monkeypatch.setattr(Project, "read_snapshot", read_snapshot_after_policy_edit)
+
+        _processed, complete = search_index_job.process_index_batches(
+            project, embedding_encoder=_Encoder()
+        )
+
+        assert injected and complete
+        assert not index_needs_work(project)
+        with RetrievalStore(project).open() as store:
+            recipes = store.db.execute(
+                "SELECT recipe_id,status FROM preparation WHERE channel=?",
+                (TEXT_CHANNEL,),
+            ).fetchall()
+            assert [tuple(row) for row in recipes] == [
+                (current_policy.text_recipe.recipe_id, "ready")
+            ]
+    finally:
+        concurrent.close()
+        project.close()
+
+
 @pytest.mark.parametrize(
     ("payload", "knob"),
     [
         ("not-json", "retrieval_preparation_policy_v1"),
-        ('{"unknown":true}', "retrieval_preparation_policy_v1.unknown"),
-        (
-            '{"video_recipe":{"strategy":"surprise"}}',
-            "retrieval_preparation_policy_v1.video_recipe.strategy",
-        ),
         ('{"image_enabled":"yes"}', "retrieval_preparation_policy_v1.image_enabled"),
     ],
 )
@@ -618,6 +744,51 @@ def test_preparation_policy_refuses_malformed_named_knob(
         project.set_meta(PREPARATION_POLICY_META_KEY, payload)
         with pytest.raises(ValueError, match=knob.replace(".", r"\.")):
             read_preparation_policy(project)
+    finally:
+        project.close()
+
+
+def test_stored_future_policy_keys_are_ignored_without_enabling_paid_work(
+    tmp_path,
+) -> None:
+    project = Project.create(tmp_path / "future-preparation-policy.frisket")
+    try:
+        project.set_meta(
+            PREPARATION_POLICY_META_KEY,
+            json.dumps(
+                {
+                    "future_top_level": {"remote_provider": "paid"},
+                    "text_recipe": {
+                        "strategy": "text_codepoint_windows",
+                        "max_codepoints": 256,
+                        "overlap_codepoints": 32,
+                        "future_boundary_mode": "semantic",
+                    },
+                    "video_recipe": {
+                        "strategy": "future_remote_video",
+                        "remote_provider": "paid",
+                    },
+                    "audio_recipe": {
+                        "strategy": "future_remote_audio",
+                        "remote_provider": "paid",
+                    },
+                }
+            ),
+        )
+
+        policy = read_preparation_policy(project)
+
+        assert policy.text_recipe == TextChunkRecipe(
+            max_codepoints=256, overlap_codepoints=32
+        )
+        assert policy.video_recipe is None
+        assert policy.audio_recipe is None
+
+        sheet_id = project.add_sheet("Documents")
+        column_id = project.add_column(sheet_id, "body")
+        project.add_rows(sheet_id, [{"body": "future-safe"}], {"body": column_id})
+        assert drain_index(project, batch_size=10) == 1
+        assert not index_needs_work(project)
     finally:
         project.close()
 
@@ -1269,6 +1440,11 @@ def test_index_claim_runs_one_bounded_preparation_pass(monkeypatch) -> None:
     monkeypatch.setattr(search_index_job, "preparation_work_marker", lambda *_: "work")
     monkeypatch.setattr(
         search_index_job,
+        "read_preparation_policy",
+        lambda *_: DEFAULT_PREPARATION_POLICY,
+    )
+    monkeypatch.setattr(
+        search_index_job,
         "process_text_preparation_batch",
         lambda *_args, **_kwargs: (
             calls.append("text") or PreparationProgress(1, True, False)
@@ -1299,7 +1475,6 @@ def test_index_claim_runs_one_bounded_preparation_pass(monkeypatch) -> None:
     processed, complete = search_index_job.process_index_batches(
         ProjectStub(),
         embedding_encoder=_Encoder(),
-        preparation_policy=DEFAULT_PREPARATION_POLICY,
     )
 
     assert processed == 7
