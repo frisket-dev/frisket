@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 
 import pytest
 
@@ -235,3 +236,61 @@ def test_sync_facade_rejects_use_from_an_event_loop():
 
     asyncio.run(call())
     assert cache.gets == []
+
+
+def test_sync_facade_runs_cache_and_callbacks_on_the_caller_thread():
+    events = []
+    caller_thread = threading.get_ident()
+
+    class ThreadCache(Cache):
+        def get_representations(self, space_id, input_hashes):
+            events.append(("cache_get", threading.get_ident()))
+            return super().get_representations(space_id, input_hashes)
+
+        def put_representations(self, representations):
+            events.append(("cache_put", threading.get_ident()))
+            return super().put_representations(representations)
+
+    def record(name):
+        events.append((name, threading.get_ident()))
+
+    def encode(*_args, **_kwargs):
+        record("provider")
+        return [_unit(1)]
+
+    cache = ThreadCache()
+    vectors = EmbeddingFacade(cache).encode(
+        [TextEncodingInput("fresh")],
+        encoder=encode,
+        purpose=EncodingPurpose.DOCUMENT,
+        space=EmbeddingGemma2Space(128),
+        before_fresh_batch=lambda _inputs: record("admission"),
+        on_fresh_batch=lambda _result, _inputs: record("receipt"),
+    )
+
+    assert vectors == [_unit(1)]
+    assert [name for name, _thread in events] == [
+        "cache_get",
+        "admission",
+        "provider",
+        "receipt",
+        "cache_put",
+    ]
+    assert {thread for _name, thread in events} == {caller_thread}
+
+
+def test_sync_facade_rejects_an_async_encoder_without_publishing():
+    cache = Cache()
+
+    async def encode(*_args, **_kwargs):
+        return [_unit()]
+
+    with pytest.raises(TypeError, match="await encode_async"):
+        EmbeddingFacade(cache).encode(
+            [TextEncodingInput("fresh")],
+            encoder=encode,
+            purpose=EncodingPurpose.DOCUMENT,
+            space=EmbeddingGemma2Space(128),
+        )
+
+    assert cache.puts == []

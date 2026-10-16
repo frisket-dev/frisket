@@ -99,7 +99,7 @@ class EmbeddingGateway:
         """In-process CLIP image embedding via fastembed.ImageEmbedding. ``images``
         are resolved image inputs (file paths / PIL images). Vectors are L2-labeled
         like other fastembed engines (CLIP image embeddings are unit-normalized)."""
-        from .backends import local_image_embedder
+        from .backends import LocalEmbeddingModelUnavailable, local_image_embedder
 
         resolved = local_image_embedder(model if model else None)
         if resolved is None:
@@ -110,6 +110,8 @@ class EmbeddingGateway:
         embed_fn, model_id = resolved
         try:
             vectors = embed_fn(list(images))
+        except LocalEmbeddingModelUnavailable as exc:
+            raise EmbeddingBackendUnavailable(str(exc)) from exc
         except Exception as exc:  # noqa: BLE001 — provider/decoder failure is data
             raise EmbeddingProviderError(str(exc)) from exc
         return build_batch_result(
@@ -134,7 +136,7 @@ class EmbeddingGateway:
         *,
         local_capability: LocalEmbeddingCapability | None,
     ) -> EmbeddingBatchResult:
-        from .backends import local_embedder
+        from .backends import LocalEmbeddingModelUnavailable, local_embedder
 
         resolved = (
             local_embedder(model)
@@ -149,6 +151,8 @@ class EmbeddingGateway:
         embed_fn, model_id = resolved
         try:
             vectors = embed_fn(texts)
+        except LocalEmbeddingModelUnavailable as exc:
+            raise EmbeddingBackendUnavailable(str(exc)) from exc
         except Exception as exc:  # noqa: BLE001 — provider failure is data
             raise EmbeddingProviderError(str(exc)) from exc
         return build_batch_result(

@@ -7,6 +7,7 @@ import inspect
 import math
 import struct
 from collections.abc import Awaitable, Callable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any, Protocol, TypeAlias
 
 from frisket.retrieval.encoding import (
@@ -209,6 +210,106 @@ def _validated_fresh(
     return vectors
 
 
+@dataclass
+class _PreparedBatch:
+    hashes: list[str]
+    cached: dict[str, EmbeddingVector]
+    missing_hashes: list[str]
+    fresh_inputs: list[EncodingInput]
+    space: EmbeddingSpace
+    space_id: str
+
+
+def _prepare_batch(
+    cache: RepresentationCache,
+    inputs: Sequence[EncodingInput],
+    *,
+    purpose: EncodingPurpose,
+    space: EmbeddingSpace,
+    space_id: str | None,
+    cache_payloads: Sequence[bytes | str] | None,
+) -> _PreparedBatch:
+    values = list(inputs)
+    if not values:
+        return _PreparedBatch([], {}, [], [], space, "")
+    if len(values) > MAX_CACHED_BATCH:
+        raise ValueError(f"embedding batches are bounded to {MAX_CACHED_BATCH} inputs")
+    if not isinstance(purpose, EncodingPurpose):
+        raise TypeError("purpose must be EncodingPurpose.QUERY or DOCUMENT")
+    _validate_space(space)
+    resolved_space_id = space.identity if space_id is None else space_id
+    if not isinstance(resolved_space_id, str) or not resolved_space_id.strip():
+        raise ValueError("space_id must be non-empty")
+    if cache_payloads is not None and len(cache_payloads) != len(values):
+        raise ValueError("cache payloads must align with embedding inputs")
+    if cache_payloads is not None:
+        for value, payload in zip(values, cache_payloads, strict=True):
+            exact = payload.encode("utf-8") if isinstance(payload, str) else payload
+            if not isinstance(value, TextEncodingInput) or exact != value.text.encode(
+                "utf-8"
+            ):
+                raise ValueError(
+                    "cache payloads are only for exact legacy text encoder inputs"
+                )
+
+    hashes = [
+        embedding_input_hash(payload)
+        if cache_payloads is not None
+        else embedding_input_hash(value, purpose=purpose)
+        for value, payload in zip(
+            values,
+            cache_payloads if cache_payloads is not None else values,
+            strict=True,
+        )
+    ]
+    unique_hashes = list(dict.fromkeys(hashes))
+    cached_rows = cache.get_representations(resolved_space_id, unique_hashes)
+    cached = {key: _unpack_cached(row, space=space) for key, row in cached_rows.items()}
+    missing_hashes = [key for key in unique_hashes if key not in cached]
+    first_index = {key: hashes.index(key) for key in missing_hashes}
+    fresh_inputs = [values[first_index[key]] for key in missing_hashes]
+    return _PreparedBatch(
+        hashes,
+        cached,
+        missing_hashes,
+        fresh_inputs,
+        space,
+        resolved_space_id,
+    )
+
+
+def _complete_batch(
+    cache: RepresentationCache,
+    prepared: _PreparedBatch,
+    result: RawEmbeddingResult,
+    *,
+    on_fresh_batch: OnFreshBatch | None,
+) -> list[EmbeddingVector]:
+    if on_fresh_batch is not None:
+        on_fresh_batch(result, prepared.fresh_inputs)
+    fresh = _validated_fresh(
+        result,
+        expected=len(prepared.missing_hashes),
+        space=prepared.space,
+    )
+    publications: list[CachedRepresentation] = []
+    for key, vector in zip(prepared.missing_hashes, fresh, strict=True):
+        prepared.cached[key] = vector
+        publications.append(
+            CachedRepresentation(
+                representation_id=representation_id(
+                    space=prepared.space_id, input_hash=key
+                ),
+                space_id=prepared.space_id,
+                input_hash=key,
+                vector=_pack_vector(vector, space=prepared.space),
+                dimension=prepared.space.dimensions,
+            )
+        )
+    cache.put_representations(publications)
+    return [prepared.cached[key] for key in prepared.hashes]
+
+
 class EmbeddingFacade:
     """Resolve aligned vectors through one content-addressed project cache."""
 
@@ -233,78 +334,27 @@ class EmbeddingFacade:
         receipt callback, result validation, then cache publication.
         """
 
-        values = list(inputs)
-        if not values:
-            return []
-        if len(values) > MAX_CACHED_BATCH:
-            raise ValueError(
-                f"embedding batches are bounded to {MAX_CACHED_BATCH} inputs"
-            )
-        if not isinstance(purpose, EncodingPurpose):
-            raise TypeError("purpose must be EncodingPurpose.QUERY or DOCUMENT")
-        _validate_space(space)
-        resolved_space_id = space.identity if space_id is None else space_id
-        if not isinstance(resolved_space_id, str) or not resolved_space_id.strip():
-            raise ValueError("space_id must be non-empty")
-        if cache_payloads is not None and len(cache_payloads) != len(values):
-            raise ValueError("cache payloads must align with embedding inputs")
-        if cache_payloads is not None:
-            for value, payload in zip(values, cache_payloads, strict=True):
-                exact = payload.encode("utf-8") if isinstance(payload, str) else payload
-                if not isinstance(
-                    value, TextEncodingInput
-                ) or exact != value.text.encode("utf-8"):
-                    raise ValueError(
-                        "cache payloads are only for exact legacy text encoder inputs"
-                    )
-
-        hashes = [
-            embedding_input_hash(payload)
-            if cache_payloads is not None
-            else embedding_input_hash(value, purpose=purpose)
-            for value, payload in zip(
-                values,
-                cache_payloads if cache_payloads is not None else values,
-                strict=True,
-            )
-        ]
-        unique_hashes = list(dict.fromkeys(hashes))
-        cached_rows = self._cache.get_representations(resolved_space_id, unique_hashes)
-        cached: dict[str, EmbeddingVector] = {
-            key: _unpack_cached(row, space=space) for key, row in cached_rows.items()
-        }
-        missing_hashes = [key for key in unique_hashes if key not in cached]
-        if missing_hashes:
-            first_index = {key: hashes.index(key) for key in missing_hashes}
-            fresh_inputs = [values[first_index[key]] for key in missing_hashes]
-            if before_fresh_batch is not None:
-                before_fresh_batch(fresh_inputs)
-            result = encoder(fresh_inputs, purpose=purpose, space=space)
-            if inspect.isawaitable(result):
-                result = await result
-            if on_fresh_batch is not None:
-                on_fresh_batch(result, fresh_inputs)
-            fresh = _validated_fresh(
-                result,
-                expected=len(missing_hashes),
-                space=space,
-            )
-            publications: list[CachedRepresentation] = []
-            for key, vector in zip(missing_hashes, fresh, strict=True):
-                cached[key] = vector
-                publications.append(
-                    CachedRepresentation(
-                        representation_id=representation_id(
-                            space=resolved_space_id, input_hash=key
-                        ),
-                        space_id=resolved_space_id,
-                        input_hash=key,
-                        vector=_pack_vector(vector, space=space),
-                        dimension=space.dimensions,
-                    )
-                )
-            self._cache.put_representations(publications)
-        return [cached[key] for key in hashes]
+        prepared = _prepare_batch(
+            self._cache,
+            inputs,
+            purpose=purpose,
+            space=space,
+            space_id=space_id,
+            cache_payloads=cache_payloads,
+        )
+        if not prepared.missing_hashes:
+            return [prepared.cached[key] for key in prepared.hashes]
+        if before_fresh_batch is not None:
+            before_fresh_batch(prepared.fresh_inputs)
+        result = encoder(prepared.fresh_inputs, purpose=purpose, space=space)
+        if inspect.isawaitable(result):
+            result = await result
+        return _complete_batch(
+            self._cache,
+            prepared,
+            result,
+            on_fresh_batch=on_fresh_batch,
+        )
 
     def encode(
         self,
@@ -323,20 +373,37 @@ class EmbeddingFacade:
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            return asyncio.run(
-                self.encode_async(
-                    inputs,
-                    encoder=encoder,
-                    purpose=purpose,
-                    space=space,
-                    space_id=space_id,
-                    cache_payloads=cache_payloads,
-                    before_fresh_batch=before_fresh_batch,
-                    on_fresh_batch=on_fresh_batch,
-                )
+            pass
+        else:
+            raise RuntimeError(
+                "EmbeddingFacade.encode cannot run on an event loop; await encode_async"
             )
-        raise RuntimeError(
-            "EmbeddingFacade.encode cannot run on an event loop; await encode_async"
+        prepared = _prepare_batch(
+            self._cache,
+            inputs,
+            purpose=purpose,
+            space=space,
+            space_id=space_id,
+            cache_payloads=cache_payloads,
+        )
+        if not prepared.missing_hashes:
+            return [prepared.cached[key] for key in prepared.hashes]
+        if before_fresh_batch is not None:
+            before_fresh_batch(prepared.fresh_inputs)
+        result = encoder(prepared.fresh_inputs, purpose=purpose, space=space)
+        if inspect.isawaitable(result):
+            close = getattr(result, "close", None)
+            if callable(close):
+                close()
+            raise TypeError(
+                "EmbeddingFacade.encode received an async encoder result; "
+                "await encode_async instead"
+            )
+        return _complete_batch(
+            self._cache,
+            prepared,
+            result,
+            on_fresh_batch=on_fresh_batch,
         )
 
 

@@ -337,7 +337,7 @@ def test_remote_manual_preview_refuses_exhausted_project_key_before_egress(
         client,
         pid,
         kind,
-        _paid_preview_query(kind, index_id, sheet, "cat"),
+        _paid_preview_query(kind, index_id, sheet, "fresh cat query"),
     )
 
     assert response.status_code == 400, response.text
@@ -379,7 +379,7 @@ def test_remote_manual_preview_persists_paid_fact_and_project_key_spend(
         client,
         pid,
         kind,
-        _paid_preview_query(kind, index_id, sheet, "cat"),
+        _paid_preview_query(kind, index_id, sheet, "fresh cat query"),
     )
 
     assert response.status_code == 200, response.text
@@ -418,10 +418,12 @@ def test_remote_manual_preview_accounts_for_paid_malformed_provider_result(
     calls = []
     _install_paid_project_key_embed(monkeypatch, calls, dimension=8)
 
-    response = _preview(client, pid, _manual_query(index_id, "cat"))
+    response = _preview(client, pid, _manual_query(index_id, "fresh cat query"))
 
     assert response.status_code == 400, response.text
-    assert response.json()["detail"]["code"] == "embedding_space_mismatch"
+    assert response.json()["detail"]["code"] == "embedding_space_mismatch", (
+        response.text
+    )
     assert len(calls) == 1
     [fact] = project.db.execute(
         "SELECT * FROM model_calls WHERE run_id IS NULL AND provider='openai'"

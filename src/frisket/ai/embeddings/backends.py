@@ -35,6 +35,25 @@ class ProviderlessClassifierProvisionError(RuntimeError):
     """The pinned local classifier could not be installed on first use."""
 
 
+class LocalEmbeddingModelUnavailable(RuntimeError):
+    """A FastEmbed model is absent from the offline cache."""
+
+
+def _raise_if_fastembed_cache_miss(
+    error: ValueError, *, model_id: str, modality: str
+) -> None:
+    if not (
+        str(error).startswith("Could not load model ")
+        and str(error).endswith(" from any source.")
+    ):
+        return
+    raise LocalEmbeddingModelUnavailable(
+        f"Local {modality} embedding model {model_id!r} is not cached. "
+        "Run 'frisket doctor embeddings' to inspect the cache, then pre-populate "
+        "FastEmbed's FASTEMBED_CACHE_PATH with this model before retrying."
+    ) from error
+
+
 def _providerless_classify_snapshot() -> Path:
     from frisket.ai.models import artifact_manifest
     from frisket.engine._workers.parakeet_artifacts import huggingface_hub_cache
@@ -156,7 +175,13 @@ def local_embedder(
                 options.update(
                     specific_model_path=str(_providerless_classify_snapshot()),
                 )
-            model = TextEmbedding(resolved, **options)
+            try:
+                model = TextEmbedding(resolved, **options)
+            except ValueError as exc:
+                _raise_if_fastembed_cache_miss(
+                    exc, model_id=resolved, modality="text"
+                )
+                raise
             _local_models[cache_key] = model
         return [vector.tolist() for vector in model.embed(texts)]
 
@@ -183,7 +208,13 @@ def local_image_embedder(
     def embed(images: list[Any]) -> list[list[float]]:
         model = _local_image_models.get(resolved)
         if model is None:
-            model = ImageEmbedding(resolved, local_files_only=True)
+            try:
+                model = ImageEmbedding(resolved, local_files_only=True)
+            except ValueError as exc:
+                _raise_if_fastembed_cache_miss(
+                    exc, model_id=resolved, modality="image"
+                )
+                raise
             _local_image_models[resolved] = model
         return [vector.tolist() for vector in model.embed(images)]
 
@@ -265,6 +296,7 @@ __all__ = [
     "EmbeddingResult",
     "LOCAL_IMAGE_MODEL",
     "LOCAL_MODEL",
+    "LocalEmbeddingModelUnavailable",
     "LocalEmbeddingCapability",
     "PROVIDERLESS_CLASSIFY_CAPABILITY",
     "PROVIDERLESS_CLASSIFY_ENABLE_ENV",
