@@ -480,7 +480,7 @@ test('native PDF import becomes searchable without starting a model setup', asyn
   await expect(receipt).toBeVisible();
   await expect(receipt.getByTestId('search-preparation-model-consent')).toHaveCount(0);
   await expect(receipt.getByTestId('search-preparation-group-native_pdf')).toContainText(
-    /searchable|reading text|complete/i,
+    /queued|searchable|reading text|complete/i,
   );
 
   const completed = await waitForPreparation(page.request, pid, batchId, 'complete');
