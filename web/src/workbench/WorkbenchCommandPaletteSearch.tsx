@@ -1,4 +1,4 @@
-import { Bell, Bookmark, SearchCheck, X } from 'lucide-react';
+import { Bell, Bookmark, LoaderCircle, SearchCheck, X } from 'lucide-react';
 import { useState } from 'react';
 import type { EmbeddingIndexSummary } from '../api/open';
 import type {
@@ -259,6 +259,8 @@ export function PaletteSearchSection({
             type="button"
             className="mini-btn search-watch-btn"
             data-testid="watch-search-button"
+            aria-label={watchBusy ? 'Watching…' : 'Watch search'}
+            aria-busy={watchBusy}
             disabled={!canWatch}
             onClick={onCreateWatch}
             title={anchored && namedIndexId
@@ -267,17 +269,19 @@ export function PaletteSearchSection({
                 ? 'Watch this search'
                 : 'Watch a keyword search'}
           >
-            <Bell size={12} /> {watchBusy ? 'Watching…' : 'Watch search'}
+            {watchBusy ? <LoaderCircle size={12} className="spin" aria-hidden /> : <Bell size={12} aria-hidden />}
           </button>
           <button
             type="button"
             className="mini-btn search-save-btn"
             data-testid="save-search-lens-button"
+            aria-label={saveBusy ? 'Saving…' : 'Save view'}
+            aria-busy={saveBusy}
             disabled={!canSaveLens}
             onClick={onSaveLens}
             title="Save this named-index search as a view"
           >
-            <Bookmark size={12} /> {saveBusy ? 'Saving…' : 'Save view'}
+            {saveBusy ? <LoaderCircle size={12} className="spin" aria-hidden /> : <Bookmark size={12} aria-hidden />}
           </button>
           {watchStatus && (
             <span className="search-watch-status" data-testid="watch-search-status">
