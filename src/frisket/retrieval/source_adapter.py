@@ -20,7 +20,7 @@ from frisket.retrieval.content import (
     PreparedPageExtent,
     TextSurface,
 )
-from frisket.retrieval.contracts import SourceRevision
+from frisket.retrieval.contracts import BindingRevision, SourceRevision
 from frisket.search_hydration import searchable_text
 
 
@@ -41,20 +41,6 @@ def _positive_id(value: object, name: str) -> int:
     return value
 
 
-@dataclass(frozen=True, slots=True)
-class CellBindingRevision:
-    """The live project cell revision required by one contextual binding."""
-
-    row_id: int
-    column_id: int
-    retrieval_revision: int
-
-    def __post_init__(self) -> None:
-        _positive_id(self.row_id, "row_id")
-        _positive_id(self.column_id, "column_id")
-        _positive_id(self.retrieval_revision, "retrieval_revision")
-
-
 TextProducerSurface = TextSurface | PreparedDocumentSurface
 
 
@@ -63,14 +49,14 @@ class ResolvedCellTextSource:
     """One exact logical text value plus immutable producer provenance."""
 
     sheet_id: int
-    binding: CellBindingRevision
+    binding: BindingRevision
     lexical_text: str
     surface: TextProducerSurface
 
     def __post_init__(self) -> None:
         _positive_id(self.sheet_id, "sheet_id")
-        if not isinstance(self.binding, CellBindingRevision):
-            raise TypeError("binding must be a CellBindingRevision")
+        if not isinstance(self.binding, BindingRevision):
+            raise TypeError("binding must be a BindingRevision")
         if not isinstance(self.lexical_text, str) or not self.lexical_text.strip():
             raise ValueError("lexical_text must be nonblank")
         if not isinstance(self.surface, TextSurface | PreparedDocumentSurface):
@@ -235,7 +221,7 @@ def resolve_cell_text_sources(
             surface = _prepared_surface(prepared)
         resolved[row_id] = ResolvedCellTextSource(
             sheet_id=selected_sheet,
-            binding=CellBindingRevision(
+            binding=BindingRevision(
                 row_id=row_id,
                 column_id=selected_column,
                 retrieval_revision=retrieval_revision,
@@ -247,7 +233,6 @@ def resolve_cell_text_sources(
 
 
 __all__ = [
-    "CellBindingRevision",
     "ResolvedCellTextSource",
     "TextProducerSurface",
     "resolve_cell_text_sources",
