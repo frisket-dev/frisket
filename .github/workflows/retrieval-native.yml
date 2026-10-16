@@ -1,0 +1,52 @@
+name: retrieval-native
+
+on:
+  pull_request:
+    paths:
+      - 'vendor/sqlite-vec1/**'
+      - 'scripts/build_vec1.py'
+      - 'src/frisket/retrieval/native.py'
+      - 'tests/retrieval/test_native.py'
+      - 'pyproject.toml'
+      - '.github/workflows/retrieval-native.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: Vec1 ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x86_64
+            runner: ubuntu-24.04
+          - target: linux-aarch64
+            runner: ubuntu-24.04-arm
+          - target: macos-arm64
+            runner: macos-15
+          - target: windows-x86_64
+            runner: windows-2022
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+      - if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          version: '0.11.29'
+          enable-cache: false
+      - name: Build packaged Vec1
+        run: python scripts/build_vec1.py
+      - name: Verify native retrieval behavior
+        env:
+          PYTHONPATH: src
+        run: uv run --no-project --with pytest==9.0.3 python -m pytest -q tests/retrieval/test_native.py
