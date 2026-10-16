@@ -50,7 +50,7 @@ test('project search prepares the missing PDF sheet while a text sheet is open',
     .toBeVisible({ timeout: 30_000 });
 });
 
-test('semantic setup keeps download progress and errors visible after closing search', async ({ page }) => {
+test('semantic setup keeps download progress and errors visible after closing search', async ({ page }, testInfo) => {
   const pid = await createProject(page.request, uniqueName('search-download-progress'));
   const sheet = await importCsv(page.request, pid, 'stories.csv', 'story\nHarbor repair contract\n');
   let started = false;
@@ -86,6 +86,7 @@ test('semantic setup keeps download progress and errors visible after closing se
   const notice = page.getByTestId('search-preparation-banner');
   await expect(notice).toContainText('EmbeddingGemma 2');
   await expect(notice.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '25');
+  await page.screenshot({ path: testInfo.outputPath('download-progress@2x.png'), animations: 'disabled' });
   const reopened = await openPalette(page);
   await reopened.getByTestId('command-palette-input').fill('harbor');
   await expect(reopened.getByTestId('model-pull-progress')).toHaveAttribute('data-status', 'running');
@@ -95,6 +96,40 @@ test('semantic setup keeps download progress and errors visible after closing se
     capabilities: { cancel: false, retry: true, remove: false },
   };
   await expect(reopened.getByTestId('model-pull-error')).toContainText('interrupted');
+  await expect(reopened.getByTestId('search-setup-retry')).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(notice).toContainText('interrupted');
+  await page.screenshot({ path: testInfo.outputPath('download-failed@2x.png'), animations: 'disabled' });
+  const retryPalette = await openPalette(page);
+  await retryPalette.getByTestId('command-palette-input').fill('harbor');
+  pull = {
+    ...pull, status: 'running', phase: 'Downloading', error: null,
+    completed_bytes: 700_000_000,
+    capabilities: { cancel: true, retry: false, remove: false },
+  };
+  await retryPalette.getByTestId('search-setup-retry').click();
+  await expect(retryPalette.getByTestId('model-pull-progress')).toHaveAttribute('data-status', 'running');
+  await page.keyboard.press('Escape');
+  await expect(notice.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '50');
+
+  // Download bytes are simulated, so control only the resulting index lifecycle too.
+  // The preceding test proves real PDF preparation and search indexing end to end.
+  let indexing: { status: string; job_id: number | null; error: null } = {
+    status: 'running', job_id: 8765, error: null,
+  };
+  await page.route(`**/api/projects/${pid}/search-preparation`, async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({ response, json: { ...await response.json(), indexing } });
+  });
+  pull = {
+    ...pull, status: 'done', phase: 'Ready', completed_bytes: 1_400_000_000,
+    finished_at: new Date().toISOString(),
+  };
+  await expect(notice).toHaveAttribute('data-stage', 'index');
+  await expect(notice).toContainText('Indexing');
+  await page.screenshot({ path: testInfo.outputPath('indexing@2x.png'), animations: 'disabled' });
+  indexing = { status: 'idle', job_id: null, error: null };
+  await expect(notice).toHaveAttribute('data-stage', 'complete');
+  await expect(notice).toContainText('Search index ready');
+  await page.screenshot({ path: testInfo.outputPath('search-ready@2x.png'), animations: 'disabled' });
 });
