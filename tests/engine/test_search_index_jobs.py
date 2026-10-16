@@ -21,6 +21,7 @@ from frisket.engine.store import Project
 from frisket.retrieval.encoding import EncodingError
 from frisket.retrieval.store import RETRIEVAL_DB_NAME, RetrievalStore
 from frisket.search import search_project
+from frisket.server.workspace import Workspace
 
 
 def _project(root):
@@ -43,6 +44,107 @@ class _BusyOnceEncoder:
         if self.busy:
             raise EncodingError("engine_busy", "the shared encoder is occupied")
         return [tuple([1.0] + [0.0] * (space.dimensions - 1)) for _ in inputs]
+
+
+class _InstallableEncoder:
+    def __init__(self) -> None:
+        self.installed = False
+
+    def available(self) -> bool:
+        return self.installed
+
+    def encode(self, inputs, *, purpose, space, cancelled=None):
+        assert self.installed
+        return [tuple([1.0] + [0.0] * (space.dimensions - 1)) for _ in inputs]
+
+
+def test_unavailable_encoder_stops_continuations_until_setup_enqueues(tmp_path):
+    encoder = _InstallableEncoder()
+    workspace = Workspace(
+        tmp_path / "workspace",
+        embedding_runtime=encoder,
+        enable_local_model_pull=False,
+    )
+    project_id = workspace.create("Documents")["id"]
+    project = workspace.get(project_id)
+    try:
+        sheet = project.add_sheet("Documents")
+        column = project.add_column(sheet, "body")
+        project.add_rows(
+            sheet,
+            [{"body": f"needle {i}"} for i in range(9)],
+            {"body": column},
+        )
+
+        worker = Worker(workspace.queue, workspace.registry)
+        assert worker.run_once()
+        assert workspace.queue.counts()["queued"] == 0
+        with RetrievalStore(project).open() as store:
+            statuses = dict(
+                store.db.execute(
+                    "SELECT status, COUNT(*) FROM preparation "
+                    "WHERE space_id IS NOT NULL GROUP BY status"
+                ).fetchall()
+            )
+        assert statuses == {"pending": 8, "unavailable": 1}
+
+        encoder.installed = True
+        workspace._embedding_setup_completed()
+        assert workspace.queue.counts()["queued"] == 1
+        for _ in range(20):
+            if not worker.run_once():
+                break
+        else:
+            pytest.fail("semantic preparation never drained after setup")
+
+        with RetrievalStore(project).open() as store:
+            assert (
+                store.db.execute(
+                    "SELECT COUNT(*) FROM preparation WHERE status != 'ready'"
+                ).fetchone()[0]
+                == 0
+            )
+    finally:
+        project.close()
+        workspace.queue.close()
+
+
+def test_installed_encoder_does_not_continue_policy_disabled_work(tmp_path):
+    encoder = _InstallableEncoder()
+    encoder.installed = True
+    project_path = tmp_path / "docs.frisket"
+    with closing(Project.create(project_path)) as project:
+        sheet = project.add_sheet("Media")
+        column = project.add_column(sheet, "audio", type="audio")
+        digest = project.add_blob(b"audio", mime="audio/wav")
+        project.add_rows(
+            sheet,
+            [{"audio": {"blob": digest, "mime": "audio/wav"}}],
+            {"audio": column},
+        )
+
+    with closing(SqliteJobQueue(tmp_path / "queue.db")) as queue:
+        registry = HandlerRegistry()
+        search_index.register_search_index_handler(
+            registry,
+            workspace_root=tmp_path,
+            queue=queue,
+            embedding_encoder=encoder,
+        )
+        with closing(Project(project_path)) as project:
+            job_id = search_index.enqueue_search_index(
+                project, queue, {"project_id": "docs"}
+            )
+        assert job_id is not None
+
+        assert Worker(queue, registry).run_once()
+        assert queue.counts()["queued"] == 0
+
+    with RetrievalStore(project_path).open() as store:
+        disabled = store.db.execute(
+            "SELECT status,error_code FROM preparation WHERE channel='audio'"
+        ).fetchone()
+    assert tuple(disabled) == ("unavailable", "policy_disabled")
 
 
 def test_engine_busy_retries_job_and_resumes_without_source_edit(tmp_path):

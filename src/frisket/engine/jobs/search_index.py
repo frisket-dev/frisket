@@ -221,7 +221,13 @@ def register_search_index_handler(
                         project,
                         queue,
                         continuation,
-                        include_preparation=embedding_encoder is not None,
+                        # A composed runtime exists before its local model is
+                        # installed. Setup completion requeues unavailable work
+                        # and enqueues a fresh claim; do not hot-loop meanwhile.
+                        include_preparation=(
+                            embedding_encoder is not None
+                            and embedding_encoder.available()
+                        ),
                     )
                     is not None
                 ):
