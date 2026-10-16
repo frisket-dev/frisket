@@ -8,6 +8,7 @@ timestamps remain on the located part and are not guessed or embedded here.
 from __future__ import annotations
 
 import math
+import hashlib
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -174,11 +175,12 @@ class EmbeddingGemma2Space:
 
     @property
     def identity(self) -> str:
-        return (
+        descriptor = (
             f"{self.model_id}@{self.model_revision}:"
             f"{self.preprocessing_id}:dim={self.dimensions}:"
             f"{self.metric}:{self.precision}:normalized"
         )
+        return "emb_" + hashlib.sha256(descriptor.encode("utf-8")).hexdigest()
 
     @property
     def max_video_frames(self) -> int:

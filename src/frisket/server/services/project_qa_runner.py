@@ -7,7 +7,10 @@ import asyncio
 import re
 from contextlib import AbstractContextManager, nullcontext
 from collections.abc import Awaitable, Callable
-from typing import Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
+
+if TYPE_CHECKING:
+    from frisket.ai.embeddings.runtime import EmbeddingRuntime
 
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, ModelRetry
@@ -105,6 +108,7 @@ async def run_turn(
     execution: Any = None,
     selected_model: str | None = None,
     selected_egress_class: str | None = None,
+    embedding_runtime: EmbeddingRuntime | None = None,
 ) -> dict[str, Any]:
     """Investigate one admitted turn; the caller owns terminalization."""
 
@@ -127,6 +131,7 @@ async def run_turn(
         if research
         else None,
         research=research is not None,
+        embedding_runtime=embedding_runtime,
     )
     tool_lock = asyncio.Lock()
     model_id = selected_model or turn["model"] or default_project_ask_model(router)

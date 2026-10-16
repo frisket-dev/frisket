@@ -755,6 +755,7 @@ class ProjectQAService:
                         execution=execution,
                         selected_model=model,
                         selected_egress_class=selected_egress_class,
+                        embedding_runtime=self.workspace.embedding_runtime,
                         search_service=(
                             self._search_service_factory()
                             if self._search_service_factory

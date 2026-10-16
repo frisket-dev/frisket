@@ -72,6 +72,7 @@ from frisket.authoring.workbench.plugin_subprocess import (
 )
 
 if TYPE_CHECKING:
+    from frisket.ai.embeddings.runtime import EmbeddingRuntime
     from frisket.contracts.http.cloud_connection import CloudSessionResponse
 
 
@@ -189,12 +190,17 @@ class Workspace:
         cloud_connection_store: Any | None = None,
         cloud_connection_client: Any | None = None,
         cloud_execution_transport: Any | None = None,
+        embedding_runtime: EmbeddingRuntime | None = None,
     ):
         if project_qa_runtime_port is not None and not isinstance(
             project_qa_runtime_port, ProjectQARuntimePort
         ):
             raise TypeError("project QA runtime port must satisfy ProjectQARuntimePort")
         self.project_qa_runtime_port = project_qa_runtime_port
+        from frisket.ai.embeddings.runtime import EmbeddingRuntime
+
+        self.embedding_runtime = embedding_runtime or EmbeddingRuntime()
+        self._owns_embedding_runtime = embedding_runtime is None
         self.root = root
         self.edition = str(edition).strip().lower()
         self.root.mkdir(parents=True, exist_ok=True)
@@ -353,6 +359,11 @@ class Workspace:
             )
 
             self.project_qa_runtime_port = SoloCloudProjectQARuntimePort(self)
+
+    async def close_embedding_runtime(self) -> None:
+        """Close the owned local worker; injected runtimes belong to their host."""
+        if self._owns_embedding_runtime:
+            await self.embedding_runtime.aclose()
 
     def _derived_project_opener(self) -> ProjectOpener | None:
         """The opener implied by this workspace's own declared configuration.

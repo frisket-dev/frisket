@@ -64,8 +64,9 @@ def test_space_identity_includes_embedding_affecting_visual_budgets():
     )
 
     assert compact.identity != detailed.identity
-    assert "image-soft-tokens=70" in compact.identity
-    assert "video-soft-tokens-per-frame=140" in compact.identity
+    assert "image-soft-tokens=70" in compact.preprocessing_id
+    assert "video-soft-tokens-per-frame=140" in compact.preprocessing_id
+    assert len(compact.identity) == 68
     assert compact.max_video_frames == 32
     assert detailed.max_video_frames == 29
     with pytest.raises(ValueError, match="70, 140, or 280"):

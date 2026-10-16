@@ -51,8 +51,34 @@ def search_with_encoding(
 ) -> SearchResponse:
     """Search with an injected warm local runtime, or a bounded standalone one."""
 
+    if cancel_event is not None and cancel_event.is_set():
+        raise InterruptedError("retrieval search was stopped")
+    if reranker is None and request.ranking.rerank != "off":
+        from frisket.ai.embeddings.backends import local_reranker
+
+        reranker = local_reranker()
     query = RetrievalQueryService(project, reranker=reranker)
-    if request.mode == "lexical" or request.scope.is_empty:
+    if request.scope.is_empty:
+        return query.search(request, cancel_event=cancel_event)
+    if not (project.path / RETRIEVAL_DB_NAME).is_file():
+        channels = (
+            ("lexical", "semantic") if request.mode == "hybrid" else (request.mode,)
+        )
+        return SearchResponse(
+            results=(),
+            coverage=SearchCoverage(
+                requested_mode=request.mode,
+                effective_modes=(),
+                state="preparing",
+                searched_channels=(),
+                is_top_k=True,
+                truncated=False,
+                channels=tuple(
+                    ChannelCoverage(channel=c, state="pending") for c in channels
+                ),
+            ),
+        )
+    if request.mode == "lexical":
         return query.search(request, cancel_event=cancel_event)
     space = EmbeddingGemma2Space()
     if isinstance(request.query, SourceAnchor):
@@ -66,12 +92,6 @@ def search_with_encoding(
             "local_embedding_space_unavailable",
             "This search requires a different embedding model.",
         )
-    if not (project.path / RETRIEVAL_DB_NAME).is_file():
-        raise RetrievalQueryError(
-            "retrieval_not_prepared", "The project search index is not ready yet."
-        )
-    if cancel_event is not None and cancel_event.is_set():
-        raise InterruptedError("retrieval search was stopped")
 
     from frisket.ai.embeddings.facade import EmbeddingFacade
     from frisket.ai.embeddings.runtime import EmbeddingRuntime
@@ -137,12 +157,15 @@ def _without_local_model(
         lexical = query.search(
             replace(request, mode="lexical"), cancel_event=cancel_event
         )
+        available = any(c.state == "ready" for c in lexical.coverage.channels)
         return replace(
             lexical,
             coverage=replace(
                 lexical.coverage,
                 requested_mode=request.mode,
-                state="partial",
+                state="partial" if available else lexical.coverage.state,
+                effective_modes=("lexical",) if available else (),
+                searched_channels=("lexical",) if available else (),
                 channels=(*lexical.coverage.channels, missing),
             ),
         )

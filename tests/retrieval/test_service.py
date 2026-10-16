@@ -145,6 +145,23 @@ def test_weighted_query_is_not_silently_changed_to_keywords(indexed_project):
     assert result.coverage.effective_modes == ()
 
 
+def test_missing_model_and_empty_lexical_index_report_unavailable(
+    tmp_path, monkeypatch, built_native_root
+):
+    monkeypatch.setattr(native, "_NATIVE_ROOT", built_native_root)
+    project = Project.create(tmp_path / "empty-index.frisket", name="Empty")
+    try:
+        with RetrievalStore(project):
+            pass
+        result = search_with_encoding(project, request(), runtime=Encoder(unavailable=True))
+        assert not result.results
+        assert result.coverage.state == "unavailable"
+        assert result.coverage.effective_modes == ()
+        assert result.coverage.searched_channels == ()
+    finally:
+        project.close()
+
+
 def test_cancelled_or_wrong_space_does_not_call_model(indexed_project):
     project, _ = indexed_project
     encoder = Encoder()
@@ -157,3 +174,19 @@ def test_cancelled_or_wrong_space_does_not_call_model(indexed_project):
             project, replace(request(), space_id="paid-space"), runtime=encoder
         )
     assert encoder.calls == 0
+
+
+@pytest.mark.parametrize("mode", ["lexical", "semantic", "hybrid"])
+def test_unprepared_project_reports_readiness_without_starting_work(tmp_path, mode):
+    project = Project.create(tmp_path / "empty.frisket", name="Empty")
+    encoder = Encoder()
+    try:
+        result = search_with_encoding(
+            project, replace(request(), mode=mode), runtime=encoder
+        )
+        assert not result.results
+        assert result.coverage.state == "preparing"
+        assert encoder.calls == 0
+        assert not (project.path / "project.retrieval.db").exists()
+    finally:
+        project.close()
