@@ -19,6 +19,7 @@ from pydantic_core import SchemaValidator
 from frisket.actions.geospatial_types import Geocoder, CensusDemographics
 from frisket.actions.document_types import DocumentConverter
 from frisket.actions.media_types import OcrReader, Transcriber, TranscriptText, OcrText
+from frisket.actions.native_pdf_types import NativePdfTextReader
 from frisket.actions.temporal_types import TopicSectionsReader, VisualCutsReader
 from frisket.actions.pdf_table_types import PdfTablesReader
 from frisket.actions.python_types import PythonEvaluator
@@ -236,6 +237,7 @@ class _MapTerminalPolicy:
                     PdfTablesReader,
                     DocumentConverter,
                     OcrReader,
+                    NativePdfTextReader,
                     Transcriber,
                 )
             ),
@@ -311,6 +313,7 @@ class _TypedMapRowsProgram(Recipe):
                 TopicSectionsReader,
                 PdfTablesReader,
                 DocumentConverter,
+                NativePdfTextReader,
                 Transcriber,
                 NerExtractor,
                 Researcher,
@@ -345,6 +348,9 @@ class _TypedMapRowsProgram(Recipe):
         self._uses_transcriber = Transcriber in getattr(
             self._terminal, "capabilities", ()
         )
+        self._uses_native_pdf_text = NativePdfTextReader in getattr(
+            self._terminal, "capabilities", ()
+        )
         self._uses_translator = Translator in getattr(
             self._terminal, "capabilities", ()
         )
@@ -352,6 +358,7 @@ class _TypedMapRowsProgram(Recipe):
             self._uses_row_files
             or self._uses_document_converter
             or self._uses_transcriber
+            or self._uses_native_pdf_text
             or self._uses_translator
             or hasattr(self, "_pdf_evidence")
             or self._uses_ner
@@ -813,6 +820,21 @@ class _TypedMapRowsProgram(Recipe):
                     )
                     bindings.append(reader)
                     continue
+                elif capability is NativePdfTextReader:
+                    from frisket.engine.executor.native_pdf_text_read import (
+                        AdmittedNativePdfTextReader,
+                    )
+                    from frisket.execution.attempt import attempt_in_scope
+
+                    reader = AdmittedNativePdfTextReader(
+                        ctx.project,
+                        cancelled=ctx.extras.get("cancelled"),
+                        execution_limits=ctx.execution_limits,
+                    )
+                    attempt = attempt_in_scope(ctx.extras)
+                    self._media_writer = (
+                        attempt.attempt_id if attempt is not None else None
+                    )
                 elif capability is DocumentConverter:
                     from frisket.engine.executor.document_convert import (
                         AdmittedDocumentConverter,
@@ -947,6 +969,7 @@ class _TypedMapRowsProgram(Recipe):
                     VisualCutsReader,
                     TopicSectionsReader,
                     PdfTablesReader,
+                    NativePdfTextReader,
                     *self._file_capabilities,
                 )
                 else binding.bind_row(ctx)
@@ -1345,7 +1368,10 @@ class _TypedMapRowsProgram(Recipe):
                 },
                 **kwargs,
             )
-        if OcrReader in getattr(self._terminal, "capabilities", ()):
+        if any(
+            capability in getattr(self._terminal, "capabilities", ())
+            for capability in (OcrReader, NativePdfTextReader)
+        ):
             from frisket.engine.executor.ocr_evidence import write_ocr_evidence
 
             write_ocr_evidence(
@@ -3008,7 +3034,7 @@ def _typed_receipt(
             )
     if any(
         cap in getattr(plan.action.definition.run, "capabilities", ())
-        for cap in (Transcriber, OcrReader)
+        for cap in (Transcriber, OcrReader, NativePdfTextReader)
     ):
         from frisket.engine.store.receipts import ReceiptStore
 

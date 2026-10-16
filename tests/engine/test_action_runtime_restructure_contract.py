@@ -129,6 +129,7 @@ def test_queued_placement_is_source_and_registry_is_invariant() -> None:
         "media.extract_faces",
         "media.to_markdown",
         "media.ocr",
+        "media.read_pdf_text",
         "media.transcribe",
         "research.answer",
         "research.web_search",

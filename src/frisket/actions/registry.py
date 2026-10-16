@@ -68,6 +68,7 @@ from frisket.actions.media_metadata import EXTRACT_METADATA
 from frisket.actions.pdf_tables import EXTRACT_PDF_TABLES
 from frisket.actions.markdown import TO_MARKDOWN
 from frisket.actions.media import OCR, TRANSCRIBE
+from frisket.actions.native_pdf import READ_PDF_TEXT
 from frisket.actions.enclosures import MATERIALIZE
 from frisket.actions.file_fetch import FETCH_URL
 from frisket.actions.media_download import YTDLP_DOWNLOAD
@@ -213,6 +214,7 @@ MEDIA_ACTIONS = ActionNamespace(
         EXTRACT_PDF_TABLES,
         TO_MARKDOWN,
         OCR,
+        READ_PDF_TEXT,
         TRANSCRIBE,
         MATERIALIZE,
         FETCH_URL,

@@ -65,6 +65,7 @@ from frisket.actions.media_types import (
     Transcriber,
     TranscriptText,
 )
+from frisket.actions.native_pdf_types import NativePdfTextReader
 from frisket.execution.targets import (
     CAPABILITY_OCR,
     CAPABILITY_TO_MARKDOWN,
@@ -2291,6 +2292,7 @@ def _handler_hints(
             Researcher,
             WebSearcher,
             McpExtractor,
+            NativePdfTextReader,
             *ROUTED_CAPABILITIES,
             *((SemanticMatcher,) if kind == "semantic_join" else ()),
         )
@@ -2320,6 +2322,7 @@ def _handler_hints(
             FrameExtractor,
             FaceExtractor,
             WebSearcher,
+            NativePdfTextReader,
         )
         for cap in capabilities
     ):
