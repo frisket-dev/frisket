@@ -453,6 +453,13 @@ def index_batch(
                 project.db.rollback()
                 raise
         complete = complete and latest_revision(project.db) == revision
+        if complete and retrieval is not None:
+            # SQLite 3.45's PRAGMA optimize does not populate enough sidecar
+            # statistics after a fresh bulk build. A bounded ANALYZE here runs
+            # only when the dirty pass drains and teaches semantic joins to
+            # start from scoped bindings instead of the whole vector space.
+            retrieval.db.execute("PRAGMA analysis_limit=1000")
+            retrieval.db.execute("ANALYZE")
         return IndexProgress(processed, not complete, complete, processed_bytes)
     finally:
         if snapshot is not None:

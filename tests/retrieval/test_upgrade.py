@@ -17,7 +17,11 @@ from frisket.engine.store import Project
 from frisket.engine.store.evidence import record_source_artifact, record_source_span
 from frisket.retrieval.migration import legacy_cell_vector_key
 from frisket.retrieval.sources import input_hash
-from frisket.retrieval.store import RetrievalStore, read_sidecar_id
+from frisket.retrieval.store import (
+    RetrievalStore,
+    UnsupportedRetrievalSchema,
+    read_sidecar_id,
+)
 from frisket.retrieval.upgrade import (
     LEGACY_EMBEDDING_UPGRADE_META_KEY,
     prepare_retrieval_on_open,
@@ -543,7 +547,9 @@ def test_unsupported_sidecar_schema_is_rejected_before_ddl(
     db.close()
 
     store = RetrievalStore(path)
-    with pytest.raises(RuntimeError, match="unsupported retrieval schema version"):
+    with pytest.raises(
+        UnsupportedRetrievalSchema, match="unsupported retrieval schema version"
+    ):
         store.open()
     with pytest.raises(RuntimeError, match="retrieval store is not open"):
         _ = store.db
@@ -556,3 +562,16 @@ def test_unsupported_sidecar_schema_is_rejected_before_ddl(
         } == {"retrieval_meta"}
     finally:
         db.close()
+
+
+def test_sidecar_without_version_raises_typed_schema_error(tmp_path) -> None:
+    path = tmp_path / "foreign-sidecar"
+    path.mkdir()
+    sidecar = path / "project.retrieval.db"
+    db = sqlite3.connect(sidecar)
+    db.execute("CREATE TABLE foreign_data(value TEXT)")
+    db.commit()
+    db.close()
+
+    with pytest.raises(UnsupportedRetrievalSchema, match="schema version is missing"):
+        RetrievalStore(path).open()

@@ -324,20 +324,14 @@ def dispatch_resolved_evidence_source(
         replace_channel_recipes=True,
     )
     publish_lexical_source(store, resolved)
-    if recipe is None or not semantic_available:
+    if recipe is None:
         store.mark_preparation_unavailable(
             resolved.surface.source,
             recipe_id=recipe_id,
             channel=channel,
             space_id=space.identity,
-            error_code=(
-                POLICY_DISABLED_ERROR if recipe is None else ENCODER_UNAVAILABLE_ERROR
-            ),
-            reason=(
-                "this retrieval producer is disabled by project policy"
-                if recipe is None
-                else "the configured local retrieval encoder is unavailable"
-            ),
+            error_code=POLICY_DISABLED_ERROR,
+            reason="this retrieval producer is disabled by project policy",
         )
 
 
@@ -407,12 +401,11 @@ def dispatch_resolved_blob_source(
             replace_channel_recipes=True,
         )
         policy_disabled = recipe_id.startswith("policy-disabled-")
-        if unavailable_code is not None or policy_disabled or not semantic_available:
-            error_code = (
-                unavailable_code
-                or (POLICY_DISABLED_ERROR if policy_disabled else None)
-                or ENCODER_UNAVAILABLE_ERROR
+        if unavailable_code is not None or policy_disabled:
+            error_code = unavailable_code or (
+                POLICY_DISABLED_ERROR if policy_disabled else None
             )
+            assert error_code is not None
             store.mark_preparation_unavailable(
                 resolved.source,
                 recipe_id=recipe_id,
@@ -424,7 +417,7 @@ def dispatch_resolved_blob_source(
                     if unavailable_code == UNSUPPORTED_MEDIA_ERROR
                     else "this retrieval producer is disabled by project policy"
                     if policy_disabled
-                    else "the configured local retrieval encoder is unavailable"
+                    else "this retrieval source is unavailable"
                 ),
             )
 
@@ -450,20 +443,14 @@ def dispatch_resolved_text_source(
     else:
         queue_text_preparation(store, resolved, recipe=recipe, space=space)
     publish_lexical_source(store, resolved)
-    if recipe is None or not semantic_available:
+    if recipe is None:
         store.mark_preparation_unavailable(
             resolved.source,
             recipe_id=recipe_id,
             channel=TEXT_CHANNEL,
             space_id=space.identity,
-            error_code=(
-                POLICY_DISABLED_ERROR if recipe is None else ENCODER_UNAVAILABLE_ERROR
-            ),
-            reason=(
-                "this retrieval producer is disabled by project policy"
-                if recipe is None
-                else "the configured local retrieval encoder is unavailable"
-            ),
+            error_code=POLICY_DISABLED_ERROR,
+            reason="this retrieval producer is disabled by project policy",
         )
 
 
@@ -649,21 +636,24 @@ def _publication(
 ) -> SourcePublication:
     representations: list[CachedRepresentation] = []
     attachments: list[PartRepresentation] = []
+    represented: set[str] = set()
     for item, vector in zip(items, vectors, strict=True):
         hashed = embedding_input_hash(
             item.input,
             purpose=EncodingPurpose.DOCUMENT,
         )
         identity = representation_id(space=space.identity, input_hash=hashed)
-        representations.append(
-            CachedRepresentation(
-                representation_id=identity,
-                space_id=space.identity,
-                input_hash=hashed,
-                vector=pack_vector(vector, dimensions=space.dimensions),
-                dimension=space.dimensions,
+        if identity not in represented:
+            represented.add(identity)
+            representations.append(
+                CachedRepresentation(
+                    representation_id=identity,
+                    space_id=space.identity,
+                    input_hash=hashed,
+                    vector=pack_vector(vector, dimensions=space.dimensions),
+                    dimension=space.dimensions,
+                )
             )
-        )
         attachments.append(
             PartRepresentation(
                 part_id=item.part.part_id,
@@ -689,6 +679,41 @@ def _publication(
         attachments=tuple(attachments),
         complete=complete,
         space_id=space.identity,
+    )
+
+
+def _remaining_progress(
+    store: RetrievalStore,
+    *,
+    channel: str,
+    space_id: str,
+    processed_parts: int = 0,
+) -> PreparationProgress:
+    pending = store.next_preparation(channel=channel, space_id=space_id) is not None
+    return PreparationProgress(processed_parts, pending, not pending)
+
+
+def _record_encoding_error(
+    store: RetrievalStore,
+    work: PreparationWork,
+    error: EncodingError,
+) -> None:
+    if error.code == "model_unavailable":
+        store.mark_preparation_unavailable(
+            work.source_revision,
+            recipe_id=work.recipe_id,
+            channel=work.channel,
+            space_id=work.space_id,
+            reason=str(error),
+        )
+        return
+    store.fail_preparation(
+        work.source_revision,
+        recipe_id=work.recipe_id,
+        channel=work.channel,
+        space_id=work.space_id,
+        error_code=error.code,
+        error_message=str(error),
     )
 
 
@@ -738,10 +763,15 @@ def process_text_preparation_batch(
                 is not None
             )
             return PreparationProgress(0, pending, not pending)
+        if work.recipe_id != recipe.recipe_id:
+            # A policy edit can land after dirty dispatch but before this
+            # bounded channel pass. Leave the new target for the next claim,
+            # whose composition root reads the new policy.
+            return PreparationProgress(0, True, False)
 
         store.begin_preparation(
             resolved.source,
-            recipe_id=recipe.recipe_id,
+            recipe_id=work.recipe_id,
             channel=TEXT_CHANNEL,
             space_id=space.identity,
         )
@@ -766,20 +796,10 @@ def process_text_preparation_batch(
                 space=space,
             )
         except EncodingError as exc:
-            if exc.code != "model_unavailable":
-                raise
-            store.mark_preparation_unavailable(
-                resolved.source,
-                recipe_id=recipe.recipe_id,
-                channel=TEXT_CHANNEL,
-                space_id=space.identity,
-                reason=str(exc),
+            _record_encoding_error(store, work, exc)
+            return _remaining_progress(
+                store, channel=TEXT_CHANNEL, space_id=space.identity
             )
-            pending = (
-                store.next_preparation(channel=TEXT_CHANNEL, space_id=space.identity)
-                is not None
-            )
-            return PreparationProgress(0, pending, not pending)
         if len(encoded) != len(batch.items):
             raise ValueError("encoder returned the wrong vector count")
         vectors = [tuple(vector) for vector in encoded]
@@ -873,10 +893,8 @@ def process_evidence_preparation_batch(
         recipe: TextChunkRecipe | TranscriptChunkRecipe
         if isinstance(resolved, ResolvedCellTranscriptSource):
             recipe = policy.transcript_recipe
-            if recipe is None:
-                raise ValueError("disabled transcript work must not be pending")
-            if work.recipe_id != recipe.recipe_id:
-                raise ValueError("unsupported transcript preparation recipe")
+            if recipe is None or work.recipe_id != recipe.recipe_id:
+                return PreparationProgress(0, True, False)
             batch = produce_transcript(
                 resolved.surface,
                 recipe,
@@ -886,10 +904,8 @@ def process_evidence_preparation_batch(
             )
         else:
             recipe = policy.text_recipe
-            if recipe is None:
-                raise ValueError("disabled OCR text work must not be pending")
-            if work.recipe_id != recipe.recipe_id:
-                raise ValueError("unsupported OCR text preparation recipe")
+            if recipe is None or work.recipe_id != recipe.recipe_id:
+                return PreparationProgress(0, True, False)
             batch = produce_text(
                 resolved.surface,
                 recipe,
@@ -916,20 +932,8 @@ def process_evidence_preparation_batch(
                 space=space,
             )
         except EncodingError as exc:
-            if exc.code != "model_unavailable":
-                raise
-            store.mark_preparation_unavailable(
-                resolved.source,
-                recipe_id=work.recipe_id,
-                channel=channel,
-                space_id=space.identity,
-                reason=str(exc),
-            )
-            pending = (
-                store.next_preparation(channel=channel, space_id=space.identity)
-                is not None
-            )
-            return PreparationProgress(0, pending, not pending)
+            _record_encoding_error(store, work, exc)
+            return _remaining_progress(store, channel=channel, space_id=space.identity)
         vectors = [tuple(vector) for vector in encoded]
         if len(vectors) != len(batch.items):
             raise ValueError("encoder returned the wrong vector count")
@@ -1154,10 +1158,8 @@ def process_blob_image_preparation_batch(
             if channel == IMAGE_CHANNEL
             else policy.pdf_pages_enabled
         )
-        if not enabled:
-            raise ValueError("disabled blob-image work must not be pending")
-        if work.recipe_id != expected_recipe:
-            raise ValueError("unsupported blob image preparation recipe")
+        if not enabled or work.recipe_id != expected_recipe:
+            return PreparationProgress(0, True, False)
         store.begin_preparation(
             resolved.source,
             recipe_id=work.recipe_id,
@@ -1219,20 +1221,8 @@ def process_blob_image_preparation_batch(
                 space=space,
             )
         except EncodingError as exc:
-            if exc.code != "model_unavailable":
-                raise
-            store.mark_preparation_unavailable(
-                resolved.source,
-                recipe_id=work.recipe_id,
-                channel=channel,
-                space_id=space.identity,
-                reason=str(exc),
-            )
-            pending = (
-                store.next_preparation(channel=channel, space_id=space.identity)
-                is not None
-            )
-            return PreparationProgress(0, pending, not pending)
+            _record_encoding_error(store, work, exc)
+            return _remaining_progress(store, channel=channel, space_id=space.identity)
         vectors = [tuple(vector) for vector in encoded]
         if len(vectors) != len(items):
             raise ValueError("encoder returned the wrong vector count")
@@ -1402,10 +1392,8 @@ def process_timed_media_preparation_batch(
         base_recipe = (
             policy.video_recipe if channel == VIDEO_CHANNEL else policy.audio_recipe
         )
-        if base_recipe is None:
-            raise ValueError("disabled timed-media work must not be pending")
-        if work.recipe_id != base_recipe.recipe_id:
-            raise ValueError("unsupported timed media preparation recipe")
+        if base_recipe is None or work.recipe_id != base_recipe.recipe_id:
+            return PreparationProgress(0, True, False)
         start_index, start_seconds = _media_cursor(
             work.cursor_json, resolved, base_recipe.recipe_id
         )
@@ -1501,20 +1489,8 @@ def process_timed_media_preparation_batch(
                 space=space,
             )
         except EncodingError as exc:
-            if exc.code != "model_unavailable":
-                raise
-            store.mark_preparation_unavailable(
-                resolved.source,
-                recipe_id=work.recipe_id,
-                channel=channel,
-                space_id=space.identity,
-                reason=str(exc),
-            )
-            pending = (
-                store.next_preparation(channel=channel, space_id=space.identity)
-                is not None
-            )
-            return PreparationProgress(0, pending, not pending)
+            _record_encoding_error(store, work, exc)
+            return _remaining_progress(store, channel=channel, space_id=space.identity)
         vectors = [tuple(vector) for vector in encoded]
         if len(vectors) != len(items):
             raise ValueError("encoder returned the wrong vector count")

@@ -80,6 +80,27 @@ def test_store_uses_one_16k_contentless_sidecar_without_text_copy(tmp_path):
             "AND name='preparation_attention'"
         ).fetchone()[0]
         assert "WHERE status!='ready'" in attention_index
+        channel_plan = store.db.execute(
+            "EXPLAIN QUERY PLAN SELECT source_id FROM preparation "
+            "WHERE status IN ('pending','preparing') AND channel=? "
+            "AND space_id IS ? "
+            "ORDER BY CASE status WHEN 'preparing' THEN 0 ELSE 1 END,"
+            "source_id,recipe_id,channel LIMIT 1",
+            ("text", "space:demo"),
+        ).fetchall()
+        marker_plan = store.db.execute(
+            "EXPLAIN QUERY PLAN SELECT source_id FROM preparation "
+            "WHERE status IN ('pending','preparing') "
+            "ORDER BY CASE status WHEN 'preparing' THEN 0 ELSE 1 END,"
+            "source_id,recipe_id,channel LIMIT 1"
+        ).fetchall()
+        assert any(
+            "preparation_channel_work_order" in str(row[3]) for row in channel_plan
+        )
+        assert any("preparation_work_order" in str(row[3]) for row in marker_plan)
+        assert all(
+            "TEMP B-TREE" not in str(row[3]) for row in (*channel_plan, *marker_plan)
+        )
         assert (
             store.db.execute(
                 "SELECT count(*) FROM lexical_fts WHERE lexical_fts MATCH 'needle'"
@@ -95,6 +116,62 @@ def test_store_uses_one_16k_contentless_sidecar_without_text_copy(tmp_path):
         )
 
     assert (tmp_path / "project.retrieval.db").is_file()
+
+
+@pytest.mark.parametrize(
+    "error_code",
+    [
+        "encoding_failed",
+        "engine_busy",
+        "media_decode_failed",
+        "missing_blob",
+        "missing_media_tool",
+        "pdf_render_failed",
+        "stale_source",
+    ],
+)
+def test_source_event_requeues_only_retryable_failed_target(
+    tmp_path, error_code: str
+) -> None:
+    revision = SourceRevision("cell:2:3", "text", "cell_revision", 11)
+    with RetrievalStore(tmp_path).open() as store:
+        store.begin_preparation(revision, recipe_id="passages:v1", channel="text")
+        assert store.fail_preparation(
+            revision,
+            recipe_id="passages:v1",
+            channel="text",
+            error_code=error_code,
+            error_message="retry after a new source event",
+        )
+
+        store.queue_preparation(revision, recipe_id="passages:v1", channel="text")
+
+        state = store.preparation_state(
+            revision.source_id, recipe_id="passages:v1", channel="text"
+        )
+        assert state is not None
+        assert (state.status, state.error_code) == ("pending", None)
+
+
+def test_source_event_does_not_retry_invalid_input(tmp_path) -> None:
+    revision = SourceRevision("cell:2:3", "text", "cell_revision", 11)
+    with RetrievalStore(tmp_path).open() as store:
+        store.begin_preparation(revision, recipe_id="passages:v1", channel="text")
+        assert store.fail_preparation(
+            revision,
+            recipe_id="passages:v1",
+            channel="text",
+            error_code="invalid_input",
+            error_message="the source bytes are not decodable",
+        )
+
+        store.queue_preparation(revision, recipe_id="passages:v1", channel="text")
+
+        state = store.preparation_state(
+            revision.source_id, recipe_id="passages:v1", channel="text"
+        )
+        assert state is not None
+        assert (state.status, state.error_code) == ("failed", "invalid_input")
 
 
 def test_concurrent_fresh_store_open_serializes_schema_creation(tmp_path):

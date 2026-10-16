@@ -6,7 +6,7 @@ import pytest
 
 from frisket.engine.store import Project
 from frisket.engine.store.project import ProjectReadSnapshot
-from frisket.retrieval.store import RETRIEVAL_DB_NAME
+from frisket.retrieval.store import RETRIEVAL_DB_NAME, RetrievalStore
 from frisket.search import SearchIndexNotReady, drain_index, index_batch, search_project
 import frisket.search_index as maintenance
 
@@ -40,6 +40,18 @@ def test_readers_do_not_prepare_and_maintenance_batches_are_bounded(documents):
         pytest.fail("bounded indexing did not finish")
 
     assert len(search_project(project, "needle", rerank="off")) == 7
+
+
+def test_completed_dirty_pass_analyzes_the_retrieval_sidecar(documents):
+    project, *_ = documents
+
+    drain_index(project, batch_size=2)
+
+    with RetrievalStore(project).open() as store:
+        stats = {
+            str(row[0]) for row in store.db.execute("SELECT tbl FROM sqlite_stat1")
+        }
+    assert {"bindings", "lexical_sources", "sources"} <= stats
 
 
 def test_dirty_edit_is_not_reported_as_fresh_until_maintenance_finishes(documents):

@@ -26,6 +26,21 @@ MMAP_SIZE = 1024 * 1024 * 1024
 
 PreparationStatus = Literal["pending", "preparing", "ready", "unavailable", "failed"]
 
+# These failures become retryable only when authoritative dirty/evidence/policy
+# dispatch registers the same target again. The worker never requeues them
+# itself, so a broken input cannot create a hot retry loop.
+_EVENT_RETRYABLE_FAILURES = frozenset(
+    {
+        "encoding_failed",
+        "engine_busy",
+        "media_decode_failed",
+        "missing_blob",
+        "missing_media_tool",
+        "pdf_render_failed",
+        "stale_source",
+    }
+)
+
 
 @dataclass(frozen=True)
 class StoredPart:
@@ -340,6 +355,12 @@ class RetrievalStore:
         _require_nonempty(channel, "channel")
         _validate_space_id(space_id)
         encoded, value_type = _encode_version(version_value)
+        retryable = ",".join(f"'{code}'" for code in sorted(_EVENT_RETRYABLE_FAILURES))
+        preserve_terminal = (
+            "preparation.status IN ('ready','unavailable') OR "
+            "(preparation.status='failed' AND "
+            f"(preparation.error_code IS NULL OR preparation.error_code NOT IN ({retryable})))"
+        )
         self.db.execute(
             "INSERT INTO preparation("
             "source_id,recipe_id,channel,space_id,target_version_kind,target_version_value,"
@@ -350,8 +371,9 @@ class RetrievalStore:
             "AND preparation.target_version_kind="
             "excluded.target_version_kind AND preparation.target_version_value="
             "excluded.target_version_value AND preparation.target_version_type="
-            "excluded.target_version_type AND preparation.status IN "
-            "('ready','unavailable','failed') THEN preparation.status ELSE 'pending' END,"
+            "excluded.target_version_type AND ("
+            + preserve_terminal
+            + ") THEN preparation.status ELSE 'pending' END,"
             "prepared_parts=CASE WHEN preparation.space_id IS excluded.space_id "
             "AND preparation.target_version_kind="
             "excluded.target_version_kind AND preparation.target_version_value="
@@ -369,12 +391,16 @@ class RetrievalStore:
             "AND preparation.target_version_kind="
             "excluded.target_version_kind AND preparation.target_version_value="
             "excluded.target_version_value AND preparation.target_version_type="
-            "excluded.target_version_type THEN preparation.error_code ELSE NULL END,"
+            "excluded.target_version_type AND ("
+            + preserve_terminal
+            + ") THEN preparation.error_code ELSE NULL END,"
             "error_message=CASE WHEN preparation.space_id IS excluded.space_id "
             "AND preparation.target_version_kind="
             "excluded.target_version_kind AND preparation.target_version_value="
             "excluded.target_version_value AND preparation.target_version_type="
-            "excluded.target_version_type THEN preparation.error_message ELSE NULL END",
+            "excluded.target_version_type AND ("
+            + preserve_terminal
+            + ") THEN preparation.error_message ELSE NULL END",
             (
                 source_id,
                 recipe_id,
@@ -1469,6 +1495,17 @@ CREATE TABLE IF NOT EXISTS preparation (
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS preparation_counts
   ON preparation(recipe_id,channel,status);
+CREATE INDEX IF NOT EXISTS preparation_work_order
+  ON preparation(
+    CASE status WHEN 'preparing' THEN 0 ELSE 1 END,
+    source_id,recipe_id,channel
+  ) WHERE status IN ('pending','preparing');
+CREATE INDEX IF NOT EXISTS preparation_channel_work_order
+  ON preparation(
+    space_id,channel,
+    CASE status WHEN 'preparing' THEN 0 ELSE 1 END,
+    source_id,recipe_id
+  ) WHERE status IN ('pending','preparing');
 
 CREATE TABLE IF NOT EXISTS named_dataset_membership (
   dataset_id TEXT NOT NULL,

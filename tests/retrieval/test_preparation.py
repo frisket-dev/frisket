@@ -21,6 +21,7 @@ from frisket.retrieval.encoding import (
     EmbeddingGemma2Space,
     EncodingError,
     EncodingPurpose,
+    ImageEncodingInput,
 )
 from frisket.retrieval.preparation import (
     AUDIO_CHANNEL,
@@ -83,6 +84,23 @@ class _MissingAtStartEncoder(_Encoder):
         raise EncodingError("model_unavailable", "the installed model disappeared")
 
 
+class _RejectInvalidImageEncoder(_Encoder):
+    def __init__(self) -> None:
+        super().__init__()
+        self.batch_sizes: list[int] = []
+
+    def encode(self, inputs, *, purpose, space, cancelled=None):
+        self.batch_sizes.append(len(inputs))
+        if any(
+            isinstance(value, ImageEncodingInput)
+            and value.image_bytes.startswith(b"<svg")
+            for value in inputs
+        ):
+            self.calls += 1
+            raise EncodingError("invalid_input", "the encoded image is invalid")
+        return super().encode(inputs, purpose=purpose, space=space, cancelled=cancelled)
+
+
 def _source(project, sheet_id, column_id, row_id):
     with project.read_snapshot() as snapshot:
         return resolve_cell_text_sources(
@@ -115,6 +133,15 @@ def _two_page_pdf() -> bytes:
     writer = PdfWriter()
     writer.add_blank_page(width=72, height=72)
     writer.add_blank_page(width=144, height=72)
+    writer.write(output)
+    return output.getvalue()
+
+
+def _three_blank_page_pdf() -> bytes:
+    output = io.BytesIO()
+    writer = PdfWriter()
+    for _ in range(3):
+        writer.add_blank_page(width=72, height=72)
     writer.write(output)
     return output.getvalue()
 
@@ -514,6 +541,18 @@ def test_missing_canonical_blob_marks_native_preparation_failed(
                 (resolved.source.source_id, channel),
             ).fetchone()
             assert tuple(state) == ("failed", "missing_blob")
+
+        # Restoration itself does not create a worker retry loop. The next
+        # authoritative source event re-registers this exact target.
+        assert project.add_blob(b"placeholder", mime=mime_type) == digest
+        with RetrievalStore(project).open() as store:
+            dispatch_resolved_blob_source(store, resolved)
+            state = store.db.execute(
+                "SELECT status,error_code FROM preparation "
+                "WHERE source_id=? AND channel=?",
+                (resolved.source.source_id, channel),
+            ).fetchone()
+            assert tuple(state) == ("pending", None)
     finally:
         project.close()
 
@@ -1012,6 +1051,138 @@ def test_preparation_reuses_project_representation_cache(tmp_path) -> None:
         project.close()
 
 
+def test_repeated_chunks_share_one_representation_with_distinct_locations(
+    tmp_path,
+) -> None:
+    project = Project.create(tmp_path / "repeated-chunks.frisket")
+    recipe = TextChunkRecipe(max_codepoints=8, overlap_codepoints=0)
+    space = EmbeddingGemma2Space(dimensions=128)
+    encoder = _Encoder()
+    try:
+        sheet_id = project.add_sheet("Documents")
+        column_id = project.add_column(sheet_id, "body")
+        row_id = project.add_rows(
+            sheet_id,
+            [{"body": "repeat\n\nrepeat\n\n"}],
+            {"body": column_id},
+        )[0]
+        resolved = _source(project, sheet_id, column_id, row_id)
+        with RetrievalStore(project).open() as store:
+            dispatch_resolved_text_source(store, resolved, recipe=recipe, space=space)
+
+        progress = process_text_preparation_batch(
+            project,
+            encoder=encoder,
+            recipe=recipe,
+            space=space,
+        )
+
+        assert progress.complete and progress.processed_parts == 2
+        assert encoder.calls == 1
+        with RetrievalStore(project).open() as store:
+            assert store.db.execute("SELECT count(*) FROM parts").fetchone()[0] == 2
+            assert (
+                store.db.execute("SELECT count(*) FROM representations").fetchone()[0]
+                == 1
+            )
+            assert (
+                store.db.execute(
+                    "SELECT count(*) FROM part_representations"
+                ).fetchone()[0]
+                == 2
+            )
+    finally:
+        project.close()
+
+
+def test_invalid_image_does_not_block_later_blank_pdf_in_worker_quantum(
+    tmp_path,
+) -> None:
+    project = Project.create(tmp_path / "isolated-media-failure.frisket")
+    encoder = _RejectInvalidImageEncoder()
+    try:
+        sheet_id = project.add_sheet("Documents")
+        image_column = project.add_column(sheet_id, "image", type="image")
+        pdf_column = project.add_column(sheet_id, "document", type="file")
+        image_hash = project.add_blob(b"<svg>invalid</svg>", mime="image/svg+xml")
+        pdf_hash = project.add_blob(_three_blank_page_pdf(), mime="application/pdf")
+        image_row, pdf_row = project.add_rows(
+            sheet_id,
+            [
+                {"image": {"blob": image_hash, "mime": "image/svg+xml"}},
+                {"document": {"blob": pdf_hash, "mime": "application/pdf"}},
+            ],
+            {"image": image_column, "document": pdf_column},
+        )
+
+        processed, complete = search_index_job.process_index_batches(
+            project, embedding_encoder=encoder
+        )
+
+        assert complete and processed >= 5
+        assert encoder.batch_sizes == [1, 1]
+        with RetrievalStore(project).open() as store:
+            failures = store.db.execute(
+                "SELECT binding.row_id,work.status,work.error_code "
+                "FROM preparation work JOIN sources source "
+                "ON source.source_id=work.source_id "
+                "AND source.version_kind=work.target_version_kind "
+                "AND source.version_value=work.target_version_value "
+                "AND source.version_type=work.target_version_type "
+                "JOIN bindings binding ON binding.source_key=source.source_key "
+                "WHERE work.channel=?",
+                (IMAGE_CHANNEL,),
+            ).fetchall()
+            assert [tuple(row) for row in failures] == [
+                (image_row, "failed", "invalid_input")
+            ]
+            pdf_state = store.db.execute(
+                "SELECT binding.row_id,work.status,work.error_code "
+                "FROM preparation work JOIN sources source "
+                "ON source.source_id=work.source_id "
+                "AND source.version_kind=work.target_version_kind "
+                "AND source.version_value=work.target_version_value "
+                "AND source.version_type=work.target_version_type "
+                "JOIN bindings binding ON binding.source_key=source.source_key "
+                "WHERE work.channel=?",
+                (PDF_PAGE_CHANNEL,),
+            ).fetchone()
+            assert tuple(pdf_state) == (pdf_row, "ready", None)
+            assert store.db.execute("SELECT count(*) FROM parts").fetchone()[0] == 3
+            assert (
+                store.db.execute("SELECT count(*) FROM representations").fetchone()[0]
+                == 1
+            )
+            assert (
+                store.db.execute(
+                    "SELECT count(*) FROM part_representations"
+                ).fetchone()[0]
+                == 3
+            )
+    finally:
+        project.close()
+
+
+def test_lexical_drain_leaves_semantic_preparation_pending(tmp_path) -> None:
+    project = Project.create(tmp_path / "lexical-only.frisket")
+    try:
+        sheet_id = project.add_sheet("Documents")
+        column_id = project.add_column(sheet_id, "body")
+        project.add_rows(sheet_id, [{"body": "searchable"}], {"body": column_id})
+
+        assert drain_index(project) == 1
+
+        with RetrievalStore(project).open() as store:
+            state = store.db.execute(
+                "SELECT status,error_code FROM preparation WHERE channel=?",
+                (TEXT_CHANNEL,),
+            ).fetchone()
+            assert tuple(state) == ("pending", None)
+        assert preparation_work_marker(project.path) is not None
+    finally:
+        project.close()
+
+
 def test_edit_during_preparation_rejects_old_cursor_target(tmp_path) -> None:
     project = Project.create(tmp_path / "edit.frisket")
     recipe = TextChunkRecipe(max_codepoints=8, overlap_codepoints=2)
@@ -1130,7 +1301,9 @@ def test_index_claim_runs_one_bounded_preparation_pass(monkeypatch) -> None:
     )
 
     processed, complete = search_index_job.process_index_batches(
-        object(), preparation_policy=DEFAULT_PREPARATION_POLICY
+        object(),
+        embedding_encoder=_Encoder(),
+        preparation_policy=DEFAULT_PREPARATION_POLICY,
     )
 
     assert processed == 7

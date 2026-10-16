@@ -226,7 +226,7 @@ def register_watch_evaluate_handler(
                 continuation["storage_org_id"] = delivery_storage_org_id
             if isinstance(context.trusted_job_org_id, int):
                 continuation["org_id"] = context.trusted_job_org_id
-            marker = index_work_marker(project) or "repair"
+            marker = index_work_marker(project, include_preparation=False) or "repair"
             trigger_key = _watch_eval_dedupe_key(watch_id, continuation["trigger_ref"])
             queue.enqueue(
                 WATCH_EVALUATE_KIND,
@@ -266,7 +266,10 @@ def register_watch_evaluate_handler(
                 # A source write can enqueue a fresh scope after the indexer
                 # reports its quantum complete. Re-read durable work before
                 # evaluating so that run cannot advance past an unseen row.
-                if not complete or index_work_marker(project) is not None:
+                if (
+                    not complete
+                    or index_work_marker(project, include_preparation=False) is not None
+                ):
                     return continue_after_indexing(processed)
             try:
                 evaluation = run_watch_evaluation(project, row)

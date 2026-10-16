@@ -18,7 +18,7 @@ from frisket.engine.jobs.watches import (
     register_watch_evaluate_handler,
 )
 from frisket.engine.store import Project
-from frisket.retrieval.store import RETRIEVAL_DB_NAME
+from frisket.retrieval.store import RETRIEVAL_DB_NAME, RetrievalStore
 from frisket.search import search_project
 
 
@@ -62,7 +62,12 @@ def test_worker_yields_between_claims_and_recovers_deleted_sidecar(
 
         with closing(Project(tmp_path / "docs.frisket")) as project:
             assert len(search_project(project, "needle", rerank="off")) == 9
-            assert search_index.enqueue_search_index(project, queue, payload) is None
+            assert (
+                search_index.enqueue_search_index(
+                    project, queue, payload, include_preparation=False
+                )
+                is None
+            )
             (project.path / RETRIEVAL_DB_NAME).unlink()
             assert (
                 search_index.enqueue_search_index(project, queue, payload) is not None
@@ -121,6 +126,13 @@ def test_queued_watch_waits_for_complete_unified_index(tmp_path):
             assert run is not None
             assert run["status"] == "ok"
             assert run["matched_rows"] == 9
+            with RetrievalStore(project).open() as store:
+                assert (
+                    store.db.execute(
+                        "SELECT COUNT(*) FROM preparation WHERE status='pending'"
+                    ).fetchone()[0]
+                    == 9
+                )
 
 
 def test_watch_index_drain_uses_the_worker_embedding_encoder(tmp_path, monkeypatch):

@@ -72,7 +72,7 @@ def process_index_batches(
         processed += progress.processed
         processed_bytes += progress.processed_bytes
         complete = progress.complete
-        if complete and not stopped():
+        if complete and not stopped() and embedding_encoder is not None:
             preparation_steps = (
                 lambda: process_text_preparation_batch(
                     project,
@@ -146,10 +146,14 @@ def process_index_batches(
 
 
 def enqueue_search_index(
-    project: Project, queue: JobQueue, payload: dict
+    project: Project,
+    queue: JobQueue,
+    payload: dict,
+    *,
+    include_preparation: bool = True,
 ) -> int | None:
     """Schedule pending durable work; an enqueue failure cannot lose that work."""
-    marker = index_work_marker(project)
+    marker = index_work_marker(project, include_preparation=include_preparation)
     if marker is None:
         return None
     return queue.enqueue(
@@ -158,7 +162,9 @@ def enqueue_search_index(
     )
 
 
-def index_work_marker(project: Project) -> str | None:
+def index_work_marker(
+    project: Project, *, include_preparation: bool = True
+) -> str | None:
     """Stable identity for the next durable indexing position."""
     scopes = read_dirty_scopes(project.db, limit=1)
     if scopes:
@@ -166,7 +172,7 @@ def index_work_marker(project: Project) -> str | None:
         return f"{first.id}:{first.scan_cursor}"
     if index_needs_work(project):
         return f"repair:{latest_revision(project.db)}"
-    if marker := preparation_work_marker(project.path):
+    if include_preparation and (marker := preparation_work_marker(project.path)):
         return f"prepare:{marker}"
     return None
 
@@ -218,7 +224,15 @@ def register_search_index_handler(
                     continuation["storage_org_id"] = claimed.storage_org_id
                 if isinstance(context.trusted_job_org_id, int):
                     continuation["org_id"] = context.trusted_job_org_id
-                if enqueue_search_index(project, queue, continuation) is not None:
+                if (
+                    enqueue_search_index(
+                        project,
+                        queue,
+                        continuation,
+                        include_preparation=embedding_encoder is not None,
+                    )
+                    is not None
+                ):
                     complete = False
             return {
                 "project_id": project_id,
