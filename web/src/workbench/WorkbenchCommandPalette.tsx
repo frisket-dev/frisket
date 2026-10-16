@@ -214,6 +214,7 @@ export function WorkbenchCommandPalette({
     setupOperation,
     startSetup,
     finishSetup,
+    refreshSearch,
   } = usePaletteSearch(
     query,
     searchSheets,
@@ -223,6 +224,7 @@ export function WorkbenchCommandPalette({
   );
   const anchored = anchor !== null;
   const [preparationBatchId, setPreparationBatchId] = useState<string | null>(null);
+  const preparationRevision = useRef<string | null>(null);
   const [preparationBusy, setPreparationBusy] = useState(false);
   const [preparationError, setPreparationError] = useState<string | null>(null);
   useEffect(() => {
@@ -516,25 +518,35 @@ export function WorkbenchCommandPalette({
             canPrepareGap={Boolean(projectId)}
             activeSheetId={activeSearchSheetId}
             onPrepareGap={prepareSearchGap}
+            preparationReview={projectId && preparationBatchId ? (
+              <SearchPreparationReceipt
+                key={preparationBatchId}
+                projectId={projectId}
+                batchId={preparationBatchId}
+                onBatchChange={(batch) => {
+                  setPreparationBatchId(batch.id);
+                  const revision = JSON.stringify([
+                    batch.id, batch.status,
+                    batch.groups.map((group) => [group.kind, group.status, group.count]),
+                  ]);
+                  if (preparationRevision.current !== revision) {
+                    preparationRevision.current = revision;
+                    if (batch.status !== 'needs_consent') refreshSearch();
+                  }
+                }}
+                onDone={() => setPreparationBatchId(null)}
+                onError={setPreparationError}
+                onViewJobs={onOpenJobs == null ? undefined : () => {
+                  onOpenJobs();
+                  onClose();
+                }}
+              />
+            ) : null}
             onViewJobs={() => {
               onOpenJobs?.();
               onClose();
             }}
           />
-          {projectId && preparationBatchId && (
-            <SearchPreparationReceipt
-              key={preparationBatchId}
-              projectId={projectId}
-              batchId={preparationBatchId}
-              onBatchChange={(batch) => setPreparationBatchId(batch.id)}
-              onDone={() => setPreparationBatchId(null)}
-              onError={setPreparationError}
-              onViewJobs={onOpenJobs == null ? undefined : () => {
-                onOpenJobs();
-                onClose();
-              }}
-            />
-          )}
         </div>
 
         <div className="workbench-command-palette-footer">

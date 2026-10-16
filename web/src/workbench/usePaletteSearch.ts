@@ -58,6 +58,7 @@ export interface PaletteSearch {
   setupOperation: PaletteSearchSetupOperation | null;
   startSetup(setupRef: string, scope: 'workspace' | 'organization'): void;
   finishSetup(pull: ModelPullDto): void;
+  refreshSearch(): void;
 }
 
 export interface PaletteSearchSetupOperation {
@@ -374,7 +375,6 @@ export function usePaletteSearch(
           pull,
         });
         if (pull.status === 'done') {
-          setSearchResult(null);
           setSearchRevision((revision) => revision + 1);
         }
       }
@@ -427,7 +427,6 @@ export function usePaletteSearch(
       return matching ? { ...currentOperation, pull } : null;
     });
     if (matching && pull.status === 'done') {
-      setSearchResult(null);
       setSearchRevision((revision) => revision + 1);
     }
   };
@@ -481,5 +480,8 @@ export function usePaletteSearch(
     setupOperation,
     startSetup,
     finishSetup,
+    refreshSearch() {
+      setSearchRevision((revision) => revision + 1);
+    },
   };
 }

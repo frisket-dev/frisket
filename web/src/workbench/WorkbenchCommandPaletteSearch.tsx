@@ -1,5 +1,5 @@
 import { Bell, Bookmark, LoaderCircle, SearchCheck, X } from 'lucide-react';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   getModelPull,
   orgGetModelPull,
@@ -76,6 +76,17 @@ function coverageMessage(coverage: ProjectSearchResponseWire['coverage'] | null)
     : 'No indexed results are available for this search.';
 }
 
+function hitLocationLabel(hit: ProjectSearchHitWire): string | null {
+  const { pages, time } = hit.location;
+  if (pages) return pages.start === pages.end
+    ? `Page ${pages.start}`
+    : `Pages ${pages.start}–${pages.end}`;
+  if (time) return time.start_seconds === time.end_seconds
+    ? `${time.start_seconds.toFixed(1)}s`
+    : `${time.start_seconds.toFixed(1)}–${time.end_seconds.toFixed(1)}s`;
+  return null;
+}
+
 function hitKey(hit: ProjectSearchHitWire): string {
   return `${hit.part.part_id}:${hit.binding.binding_id}`;
 }
@@ -97,6 +108,7 @@ function SearchHitRow({
   onActivate(hit: ProjectSearchHitWire): void;
   onFindSimilar(hit: ProjectSearchHitWire): void;
 }) {
+  const locationLabel = hitLocationLabel(hit);
   return (
     <div
       className={`search-hit-row${supporting ? ' supporting' : ''}`}
@@ -108,9 +120,16 @@ function SearchHitRow({
         className={`search-hit${rowIndex === activeIndex ? ' active' : ''}`}
         onClick={() => onActivate(hit)}
       >
-        <span className="search-hit-col">{hit.column_name}</span>
-        <span className="search-hit-snip">
-          <Snip text={hit.snippet} decodeEscapes={hit.ai_generated} />
+        <span className="search-hit-content">
+          <span className="search-hit-heading">
+            <span className="search-hit-col">
+              {(hit as ProjectSearchHitWire & { source_name?: string | null }).source_name ?? hit.column_name}
+            </span>
+            {locationLabel && <span className="search-hit-location">{locationLabel}</span>}
+          </span>
+          <span className="search-hit-snip">
+            <Snip text={hit.snippet} decodeEscapes={hit.ai_generated} />
+          </span>
         </span>
       </button>
       <button
@@ -167,6 +186,7 @@ export function PaletteSearchSection({
   canPrepareGap,
   activeSheetId,
   onPrepareGap,
+  preparationReview,
   onViewJobs,
 }: {
   mode: 'lexical' | 'semantic' | 'hybrid';
@@ -208,6 +228,7 @@ export function PaletteSearchSection({
   canPrepareGap: boolean;
   activeSheetId: string | number | null | undefined;
   onPrepareGap(sheetId: number): void;
+  preparationReview: ReactNode;
   onViewJobs(): void;
 }) {
   const [setupConsentRef, setSetupConsentRef] = useState<string | null>(null);
@@ -341,7 +362,7 @@ export function PaletteSearchSection({
         </div>
       )}
       {searchError && <div className="picker-error">{searchError}</div>}
-      {!searchError && status && (
+      {!searchError && status && !preparationReview && (
         <div className="search-empty" role="status">
           {status}
           {setup && !operationForSetup && (
@@ -357,6 +378,7 @@ export function PaletteSearchSection({
           )}
         </div>
       )}
+      {preparationReview}
       {consentSetup && (
         <section className="search-setup-consent" data-testid="search-setup-consent">
           <div>
@@ -390,10 +412,12 @@ export function PaletteSearchSection({
           </div>
         </section>
       )}
-      {currentSetupOperation && (
+      {currentSetupOperation && currentSetupOperation.pull.status !== 'done' && (
         <section className="search-setup-consent" data-testid="search-setup-progress">
           <div>
-            <strong>Setting up semantic search</strong>
+            <strong>{currentSetupOperation.pull.status === 'failed' || currentSetupOperation.pull.status === 'cancelled'
+              ? 'Semantic search setup needs attention'
+              : 'Setting up semantic search'}</strong>
             <span>You can close Search and return here to check progress.</span>
           </div>
           <ModelPullProgress
@@ -440,7 +464,7 @@ export function PaletteSearchSection({
         </section>
       )}
       {setupError && <div className="picker-error">{setupError}</div>}
-      {materialGap && (
+      {materialGap && !preparationReview && (
         <div className="search-preparation-gap" data-testid="search-preparation-gap">
           <span>
             {materialGap.channel === 'search_preparation' && materialGapCount != null

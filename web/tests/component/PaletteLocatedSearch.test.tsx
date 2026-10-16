@@ -347,10 +347,9 @@ describe('located palette search', () => {
     expect(await screen.findByTestId('search-setup-progress')).toBeVisible();
     expect(screen.getByTestId('model-pull-progress')).toHaveAttribute('data-status', 'running');
     expect(searchProject).toHaveBeenCalledTimes(1);
-    await waitFor(() => expect(screen.getByTestId('model-pull-done')).toBeVisible(), {
-      timeout: 2_500,
-    });
-    await waitFor(() => expect(searchProject).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(searchProject).toHaveBeenCalledTimes(2), { timeout: 2_500 });
+    expect(screen.queryByTestId('search-setup-progress')).not.toBeInTheDocument();
+    expect(screen.queryByText('Setting up semantic search')).not.toBeInTheDocument();
   });
 
   it('restores a matching durable semantic setup pull when Search reopens', async () => {
@@ -596,6 +595,54 @@ describe('located palette search', () => {
       'project-1',
       'prep-awaiting-approval',
     );
+  });
+
+  it('labels source results with their file and exact page', async () => {
+    const documentHit = {
+      ...hit('document:2', '<b>budget</b> on second page'),
+      source_name: 'Council budget.pdf',
+      location: { ...location, kind: 'document_page', pages: { start: 2, end: 2 } },
+    };
+    searchProject.mockResolvedValue({
+      ...completeResponse,
+      groups: [{ group_key: 'document', primary: documentHit, supporting: [], additional_count: 0 }],
+    });
+    render(<PaletteHarness />);
+
+    const row = await screen.findByTestId('search-hit');
+    expect(row).toHaveTextContent('Council budget.pdf');
+    expect(row).toHaveTextContent('Page 2');
+    expect(row).toHaveTextContent('budget on second page');
+  });
+
+  it('puts preparation review before results and refreshes coverage when it completes', async () => {
+    const pending = {
+      schemaVersion: 'frisket.search_preparation.v1', id: 'prep-review', sheet_id: 1,
+      plan_hash: 'sha256:review', status: 'running',
+      groups: [{ kind: 'ocr', count: 1, status: 'running' }],
+      models: [], jobs: [], can_stop: false, can_setup: true, errors: [],
+    };
+    const finished = { ...pending, status: 'complete', groups: [{ kind: 'ocr', count: 1, status: 'complete' }] };
+    listSearchPreparations.mockResolvedValue({ batches: [{ ...pending, status: 'needs_consent' }] });
+    getSearchPreparation.mockResolvedValueOnce(pending).mockResolvedValue(finished);
+    searchProject.mockResolvedValueOnce({
+      ...completeResponse,
+      coverage: {
+        ...completeResponse.coverage, state: 'partial',
+        channels: [{ channel: 'search_preparation', state: 'unavailable', eligible_count: 1, prepared_count: 0, gap_sheet_ids: [1] }],
+      },
+    }).mockResolvedValue(completeResponse);
+    render(<PaletteHarness />);
+
+    const review = await screen.findByTestId('search-preparation-receipt');
+    const results = await screen.findByTestId('search-results');
+    expect(review.compareDocumentPosition(results) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByTestId('search-preparation-gap')).not.toBeInTheDocument();
+    await waitFor(() => expect(searchProject).toHaveBeenCalledTimes(2), { timeout: 2_500 });
+    expect(screen.queryByText('Showing available search results.')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('search-preparation-done'));
+    expect(screen.queryByTestId('search-preparation-receipt')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('search-preparation-gap')).not.toBeInTheDocument();
   });
 
   it('selects a named index for free-text search and saves its semantic view', async () => {
