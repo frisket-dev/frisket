@@ -107,7 +107,14 @@ def _compile_unix(source: Path, output: Path, workspace: Path, *, macos: bool) -
 
 
 def _compile_windows(source: Path, output: Path, workspace: Path) -> None:
-    compiler = os.environ.get("CC", "cl")
+    compiler_name = os.environ.get("CC", "cl")
+    compiler = shutil.which(compiler_name)
+    if compiler is None:
+        raise BuildError(f"native compiler not found: {compiler_name}")
+    # Git for Windows also ships a GNU `link.exe`.  Resolve LINK from the
+    # selected MSVC tool directory so PATH ordering cannot substitute that
+    # unrelated executable after CL has successfully compiled the objects.
+    linker = str(Path(compiler).with_name("link.exe"))
     scalar = workspace / "vec1-scalar.obj"
     avx2 = workspace / "vec1-avx2.obj"
     common = ["/nologo", "/O2", "/DNDEBUG", "/W4", f"/I{INCLUDE}"]
@@ -134,7 +141,7 @@ def _compile_windows(source: Path, output: Path, workspace: Path) -> None:
     )
     _run(
         [
-            "link",
+            linker,
             "/NOLOGO",
             "/DLL",
             f"/OUT:{output}",

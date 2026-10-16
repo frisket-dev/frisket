@@ -127,6 +127,27 @@ def test_macos_wheel_tag_matches_vec1_compiler_target(
     assert wheel_platform_tag() == expected == "macosx_14_0_arm64"
 
 
+def test_windows_builder_uses_linker_beside_selected_msvc_compiler(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    build = run_path(str(ROOT / "scripts" / "build_vec1.py"))
+    compiler = tmp_path / "msvc" / "bin" / "cl.exe"
+    commands: list[list[str]] = []
+    compile_windows = build["_compile_windows"]
+    monkeypatch.setattr(build["shutil"], "which", lambda _name: str(compiler))
+    compile_windows.__globals__["_run"] = commands.append
+
+    compile_windows(
+        ROOT / "vendor" / "sqlite-vec1" / "vec1.c",
+        tmp_path / "vec1.dll",
+        tmp_path,
+    )
+
+    assert commands[0][0] == str(compiler)
+    assert commands[1][0] == str(compiler)
+    assert commands[2][0] == str(compiler.with_name("link.exe"))
+
+
 def test_wheel_platform_reserves_override_for_matching_manylinux(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
