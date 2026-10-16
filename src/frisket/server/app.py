@@ -87,6 +87,7 @@ from frisket.server.routes.imports import (
     register_import_xlsx_routes,
 )
 from frisket.server.routes.import_sessions import register_import_session_routes
+from frisket.server.routes.search_preparation import register_search_preparation_routes
 from frisket.server.routes.pdf_packet_splits import register_pdf_packet_split_routes
 from frisket.server.routes.instance import (
     register_admin_pricing_routes,
@@ -128,6 +129,7 @@ from frisket.server.services.import_sessions import (
     ImportSessionService,
     import_page_dedupe_key,
 )
+from frisket.server.services.search_preparation import SearchPreparationService
 from frisket.ai.models.gateway_config import (
     InvalidModelsGatewayConfig,
     ModelsGatewayConnection,
@@ -779,6 +781,20 @@ def create_app(
         import_admission=import_admission,
     )
 
+    search_preparation_service = SearchPreparationService(ws)
+    ws.search_preparation_setup_completed = search_preparation_service.setup_completed
+    ws.search_preparation_import_completed = lambda project_id, receipt_id, sheet_id: (
+        search_preparation_service.create_after_import(
+            project_id, receipt_id=receipt_id, sheet_id=sheet_id
+        )
+    )
+    register_search_preparation_routes(
+        app,
+        service=search_preparation_service,
+        capabilities_for=selector_capabilities_for,
+    )
+    search_preparation_service.recover()
+
     # ---------- sheet data ----------
 
     register_sheet_grid_routes(app, service=SheetGridService(ws))
@@ -825,6 +841,7 @@ def create_app(
             ws,
             limits=bulk_limits,
             enqueue=enqueue_import_page,
+            search_preparation=search_preparation_service,
         ),
         max_rows_for_request=import_max_rows,
     )
@@ -849,7 +866,9 @@ def create_app(
 
     register_import_files_routes(
         app,
-        service=ImportFilesUploadService(ws),
+        service=ImportFilesUploadService(
+            ws, search_preparation=search_preparation_service
+        ),
         limits=bulk_limits,
     )
     register_pdf_packet_split_routes(

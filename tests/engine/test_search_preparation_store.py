@@ -23,7 +23,7 @@ def _create(store: SearchPreparationStore, *, receipt: str | None = "receipt-1")
 def test_import_receipt_is_idempotent_and_consent_is_exact(tmp_path) -> None:
     queue = open_queue(workspace=tmp_path)
     try:
-        store = SearchPreparationStore(queue)
+        store = SearchPreparationStore(queue, workspace_root="/workspace")
         batch = _create(store)
         assert batch.row_ids == (1, 3)
         assert _create(store).id == batch.id
@@ -64,7 +64,7 @@ def test_import_receipt_is_idempotent_and_consent_is_exact(tmp_path) -> None:
 def test_child_is_reserved_before_cursor_advance_and_retry_reuses_it(tmp_path) -> None:
     queue = open_queue(workspace=tmp_path)
     try:
-        store = SearchPreparationStore(queue)
+        store = SearchPreparationStore(queue, workspace_root="/workspace")
         batch = _create(store, receipt=None)
         first = store.reserve_child_and_advance(
             batch.id, expected_cursor=0, child_key="ocr:column-4", kind="ocr"
@@ -73,9 +73,9 @@ def test_child_is_reserved_before_cursor_advance_and_retry_reuses_it(tmp_path) -
             batch.id, expected_cursor=0, child_key="ocr:column-4", kind="ocr"
         )
         assert replay.id == first.id
-        assert store.get(
-            batch.id, project_id="project", storage_org_id=None
-        ).cursor == 1
+        assert (
+            store.get(batch.id, project_id="project", storage_org_id=None).cursor == 1
+        )
 
         store.bind_child(first.id, job_id=91, receipt_id="receipt-child")
         [bound] = store.children(batch.id)
@@ -89,7 +89,7 @@ def test_child_is_reserved_before_cursor_advance_and_retry_reuses_it(tmp_path) -
 def test_stop_is_durable_without_changing_completed_children(tmp_path) -> None:
     queue = open_queue(workspace=tmp_path)
     try:
-        store = SearchPreparationStore(queue)
+        store = SearchPreparationStore(queue, workspace_root="/workspace")
         batch = _create(store, receipt=None)
         child = store.reserve_child_and_advance(
             batch.id, expected_cursor=0, child_key="native:row-2", kind="native_pdf"

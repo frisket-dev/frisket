@@ -34,6 +34,7 @@ search_preparation_batches_table = sa.Table(
     sa.Column("workspace_root", sa.String, nullable=False),
     sa.Column("storage_org_id", sa.Integer),
     sa.Column("project_id", sa.String, nullable=False),
+    sa.Column("intent_key", sa.String, nullable=False),
     sa.Column("trigger_receipt_id", sa.String),
     sa.Column("sheet_id", sa.Integer, nullable=False),
     sa.Column("scope_json", sa.Text, nullable=False),
@@ -65,6 +66,14 @@ sa.Index(
     unique=True,
     sqlite_where=sa.text("trigger_receipt_id IS NOT NULL"),
     postgresql_where=sa.text("trigger_receipt_id IS NOT NULL"),
+)
+sa.Index(
+    "uq_search_preparation_intent",
+    search_preparation_batches_table.c.workspace_root,
+    sa.func.coalesce(search_preparation_batches_table.c.storage_org_id, -1),
+    search_preparation_batches_table.c.project_id,
+    search_preparation_batches_table.c.intent_key,
+    unique=True,
 )
 
 search_preparation_children_table = sa.Table(
@@ -127,12 +136,13 @@ class SearchPreparationChildRow:
 
 
 class SearchPreparationStore:
-    def __init__(self, queue: Any):
+    def __init__(self, queue: Any, *, workspace_root: str):
         engine = getattr(queue, "engine", None)
         if engine is None:
             raise TypeError("search preparation requires a SQL-backed job queue")
         self.engine: sa.engine.Engine = engine
         self._is_sqlite = engine.dialect.name == "sqlite"
+        self.workspace_root = workspace_root
 
     @contextmanager
     def _write(self) -> Iterator[sa.Connection]:
@@ -190,13 +200,29 @@ class SearchPreparationStore:
     ) -> SearchPreparationBatchRow:
         now = _now()
         batch_id = "search-prep-" + uuid.uuid4().hex
-        canonical_rows = None if row_ids is None else sorted(set(int(v) for v in row_ids))
+        canonical_rows = (
+            None if row_ids is None else sorted(set(int(v) for v in row_ids))
+        )
         plan_body = dict(plan)
+        intent_key = (
+            f"import:{trigger_receipt_id}"
+            if trigger_receipt_id is not None
+            else "explicit:"
+            + canonical_plan_hash(
+                {
+                    "sheet_id": sheet_id,
+                    "row_ids": canonical_rows,
+                    "source_cutoff": source_cutoff,
+                    "force_ocr": force_ocr,
+                }
+            )
+        )
         values = dict(
             id=batch_id,
             workspace_root=workspace_root,
             storage_org_id=storage_org_id,
             project_id=project_id,
+            intent_key=intent_key,
             trigger_receipt_id=trigger_receipt_id,
             sheet_id=sheet_id,
             scope_json=json.dumps({"row_ids": canonical_rows}, separators=(",", ":")),
@@ -209,22 +235,41 @@ class SearchPreparationStore:
             created_at=now,
             updated_at=now,
         )
+        if workspace_root != self.workspace_root:
+            raise ValueError("search preparation workspace root does not match store")
         try:
             with self._write() as cx:
                 cx.execute(search_preparation_batches_table.insert().values(**values))
         except sa.exc.IntegrityError:
-            if trigger_receipt_id is None:
-                raise
-            existing = self.for_receipt(
-                workspace_root=workspace_root,
+            existing = self._for_intent(
                 storage_org_id=storage_org_id,
                 project_id=project_id,
-                receipt_id=trigger_receipt_id,
+                intent_key=intent_key,
             )
             if existing is None:
                 raise
             return existing
         return self.get(batch_id, project_id=project_id, storage_org_id=storage_org_id)
+
+    def _for_intent(
+        self, *, storage_org_id: int | None, project_id: str, intent_key: str
+    ) -> SearchPreparationBatchRow | None:
+        c = search_preparation_batches_table.c
+        predicate = (
+            c.storage_org_id.is_(None)
+            if storage_org_id is None
+            else c.storage_org_id == storage_org_id
+        )
+        with self.engine.connect() as cx:
+            row = cx.execute(
+                sa.select(search_preparation_batches_table).where(
+                    c.workspace_root == self.workspace_root,
+                    predicate,
+                    c.project_id == project_id,
+                    c.intent_key == intent_key,
+                )
+            ).first()
+        return None if row is None else self._batch(row)
 
     def get(
         self, batch_id: str, *, project_id: str, storage_org_id: int | None
@@ -234,6 +279,7 @@ class SearchPreparationStore:
             row = cx.execute(
                 sa.select(search_preparation_batches_table).where(
                     c.id == batch_id,
+                    c.workspace_root == self.workspace_root,
                     c.project_id == project_id,
                     c.storage_org_id.is_(storage_org_id)
                     if storage_org_id is None
@@ -253,7 +299,11 @@ class SearchPreparationStore:
         receipt_id: str,
     ) -> SearchPreparationBatchRow | None:
         c = search_preparation_batches_table.c
-        predicate = c.storage_org_id.is_(None) if storage_org_id is None else c.storage_org_id == storage_org_id
+        predicate = (
+            c.storage_org_id.is_(None)
+            if storage_org_id is None
+            else c.storage_org_id == storage_org_id
+        )
         with self.engine.connect() as cx:
             row = cx.execute(
                 sa.select(search_preparation_batches_table).where(
@@ -269,11 +319,16 @@ class SearchPreparationStore:
         self, *, project_id: str, storage_org_id: int | None, limit: int = 20
     ) -> list[SearchPreparationBatchRow]:
         c = search_preparation_batches_table.c
-        predicate = c.storage_org_id.is_(None) if storage_org_id is None else c.storage_org_id == storage_org_id
+        predicate = (
+            c.storage_org_id.is_(None)
+            if storage_org_id is None
+            else c.storage_org_id == storage_org_id
+        )
         with self.engine.connect() as cx:
             rows = cx.execute(
                 sa.select(search_preparation_batches_table)
                 .where(c.project_id == project_id, predicate)
+                .where(c.workspace_root == self.workspace_root)
                 .order_by(c.created_at.desc())
                 .limit(limit)
             ).fetchall()
@@ -292,11 +347,18 @@ class SearchPreparationStore:
         if decision not in {"prepare", "not_now"}:
             raise ValueError("invalid search preparation decision")
         c = search_preparation_batches_table.c
-        predicate = c.storage_org_id.is_(None) if storage_org_id is None else c.storage_org_id == storage_org_id
+        predicate = (
+            c.storage_org_id.is_(None)
+            if storage_org_id is None
+            else c.storage_org_id == storage_org_id
+        )
         with self._write() as cx:
             row = cx.execute(
                 sa.select(c.plan_hash, c.decision, c.selected_setup_refs_json).where(
-                    c.id == batch_id, c.project_id == project_id, predicate
+                    c.id == batch_id,
+                    c.project_id == project_id,
+                    predicate,
+                    c.workspace_root == self.workspace_root,
                 )
             ).first()
             if row is None:
@@ -305,7 +367,8 @@ class SearchPreparationStore:
                 raise ValueError("search preparation plan changed")
             refs = json.dumps(sorted(set(selected_setup_refs)), separators=(",", ":"))
             if row.decision is not None and (
-                row.decision != decision or (row.selected_setup_refs_json or "[]") != refs
+                row.decision != decision
+                or (row.selected_setup_refs_json or "[]") != refs
             ):
                 raise ValueError("search preparation decision is already recorded")
             cx.execute(
@@ -323,11 +386,16 @@ class SearchPreparationStore:
         self, batch_id: str, *, project_id: str, storage_org_id: int | None
     ) -> SearchPreparationBatchRow:
         c = search_preparation_batches_table.c
-        predicate = c.storage_org_id.is_(None) if storage_org_id is None else c.storage_org_id == storage_org_id
+        predicate = (
+            c.storage_org_id.is_(None)
+            if storage_org_id is None
+            else c.storage_org_id == storage_org_id
+        )
         with self._write() as cx:
             result = cx.execute(
                 search_preparation_batches_table.update()
                 .where(c.id == batch_id, c.project_id == project_id, predicate)
+                .where(c.workspace_root == self.workspace_root)
                 .values(stop_requested_at=_now(), updated_at=_now())
             )
             if result.rowcount != 1:
@@ -364,7 +432,9 @@ class SearchPreparationStore:
                 )
                 child_id = int(result.inserted_primary_key[0])
                 existing = cx.execute(
-                    sa.select(search_preparation_children_table).where(ch.id == child_id)
+                    sa.select(search_preparation_children_table).where(
+                        ch.id == child_id
+                    )
                 ).one()
             update = cx.execute(
                 search_preparation_batches_table.update()
@@ -372,7 +442,9 @@ class SearchPreparationStore:
                 .values(cursor=expected_cursor + 1, updated_at=now)
             )
             if update.rowcount != 1:
-                current = cx.execute(sa.select(b.cursor).where(b.id == batch_id)).scalar_one_or_none()
+                current = cx.execute(
+                    sa.select(b.cursor).where(b.id == batch_id)
+                ).scalar_one_or_none()
                 if current != expected_cursor + 1:
                     raise ValueError("search preparation cursor changed")
         return SearchPreparationChildRow(
@@ -393,10 +465,15 @@ class SearchPreparationStore:
     ) -> None:
         c = search_preparation_children_table.c
         with self._write() as cx:
-            row = cx.execute(sa.select(c.job_id, c.receipt_id).where(c.id == child_id)).first()
+            row = cx.execute(
+                sa.select(c.job_id, c.receipt_id).where(c.id == child_id)
+            ).first()
             if row is None:
                 raise KeyError(child_id)
-            if row.job_id not in {None, job_id} or row.receipt_id not in {None, receipt_id}:
+            if row.job_id not in {None, job_id} or row.receipt_id not in {
+                None,
+                receipt_id,
+            }:
                 raise ValueError("search preparation child is already bound")
             cx.execute(
                 search_preparation_children_table.update()
@@ -414,8 +491,12 @@ class SearchPreparationStore:
             ).fetchall()
         return [
             SearchPreparationChildRow(
-                id=int(row.id), batch_id=str(row.batch_id), child_key=str(row.child_key),
-                kind=str(row.kind), job_id=row.job_id, receipt_id=row.receipt_id
+                id=int(row.id),
+                batch_id=str(row.batch_id),
+                child_key=str(row.child_key),
+                kind=str(row.kind),
+                job_id=row.job_id,
+                receipt_id=row.receipt_id,
             )
             for row in rows
         ]

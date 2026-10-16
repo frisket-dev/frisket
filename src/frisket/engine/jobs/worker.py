@@ -321,6 +321,7 @@ def register_production_handlers(
     execution_composition_factory: ExecutionCompositionFactory | None = None,
     execution_composition_overlay: ExecutionCompositionOverlay | None = None,
     embedding_runtime: EmbeddingRuntime | None = None,
+    on_terminal_file_import: Callable[[str, str, int], None] | None = None,
 ) -> ProjectOpener | None:
     """Register the product handlers on the OPEN worker.
 
@@ -479,6 +480,7 @@ def register_production_handlers(
         require_storage_identity=strict_hosted_storage,
         workspace_root_storage_org_id=workspace_root_storage_org_id,
         project_opener=project_opener,
+        on_terminal_import=on_terminal_file_import,
     )
     search_index_registration = register_search_index_handler(
         registry,

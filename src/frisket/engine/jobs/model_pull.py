@@ -454,6 +454,7 @@ def register_model_pull_handler(
     artifact_cache_root: Path | None = None,
     artifact_manifest_lookup: Callable[[str], Any] | None = None,
     on_embedding_setup_done: Callable[[], None] | None = None,
+    on_engine_setup_done: Callable[[str], None] | None = None,
 ) -> HandlerRegistration:
     """Register the ``model.pull`` handler.
 
@@ -542,16 +543,18 @@ def register_model_pull_handler(
                     should_cancel=should_cancel,
                     is_final_attempt=is_final_attempt,
                 )
-                if (
-                    result.get("status") == "done"
-                    and canonical_ref == EMBEDDINGGEMMA_SETUP_REF
-                    and on_embedding_setup_done is not None
-                ):
+                if result.get("status") == "done":
                     try:
-                        on_embedding_setup_done()
+                        if on_engine_setup_done is not None:
+                            on_engine_setup_done(canonical_ref)
+                        if (
+                            canonical_ref == EMBEDDINGGEMMA_SETUP_REF
+                            and on_embedding_setup_done is not None
+                        ):
+                            on_embedding_setup_done()
                     except Exception:
                         LOG.warning(
-                            "embedding_setup_completion_hook_failed", exc_info=True
+                            "engine_setup_completion_hook_failed", exc_info=True
                         )
                 return result
 

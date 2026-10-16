@@ -123,7 +123,9 @@ def test_import_files_route_preserves_transport_response_and_uses_typed_request(
     )
 
     assert response.status_code == 200, response.text
-    assert response.json() == {"sheet_id": 1, "rows": 2}
+    assert response.json()["sheet_id"] == 1
+    assert response.json()["rows"] == 2
+    assert response.json()["search_preparation_batch_id"].startswith("search-prep-")
     project = client.app.state.workspace.get(pid)
     receipt = project.db.execute("SELECT action_kind FROM receipts").fetchone()
     assert receipt is not None

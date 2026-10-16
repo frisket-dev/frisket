@@ -68,10 +68,12 @@ class ImportSessionService:
         *,
         limits: BulkImportLimits | None = None,
         enqueue: EnqueueImport | None = None,
+        search_preparation: Any = None,
     ) -> None:
         self._workspace = workspace
         self._limits = limits or BulkImportLimits()
         self._enqueue = enqueue
+        self._search_preparation = search_preparation
 
     def create(
         self, project_id: str, sheet_name: str, *, max_rows: int | None = None
@@ -294,6 +296,12 @@ class ImportSessionService:
             )
             if callable(schedule_metadata):
                 schedule_metadata(str(header.envelope["receipt_id"]))
+            if self._search_preparation is not None and session.sheet_id is not None:
+                self._search_preparation.create_after_import(
+                    project_id,
+                    receipt_id=str(header.envelope["receipt_id"]),
+                    sheet_id=session.sheet_id,
+                )
         if cleanup_failed:
             self._enqueue_terminal_cleanup(
                 project_id,
@@ -509,6 +517,12 @@ class ImportSessionService:
             state = (
                 "paused" if job is not None and job.status == "failed" else "admitting"
             )
+        receipt_id = str(header.envelope["receipt_id"])
+        preparation_batch_id = (
+            self._search_preparation.batch_for_receipt(header.project_id, receipt_id)
+            if self._search_preparation is not None
+            else None
+        )
         return ImportSessionStatus(
             import_ref=ref,
             state=state,
@@ -526,6 +540,7 @@ class ImportSessionService:
                 if session is None and state == "paused"
                 else None
             ),
+            search_preparation_batch_id=preparation_batch_id,
         )
 
     def _latest_page_job(self, project_id: str, ref: str, through: int, sealed: bool):
