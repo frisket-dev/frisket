@@ -1130,6 +1130,7 @@ export function useWorkspaceModel({
       if (navigation.kind === 'evidence') {
         openEvidenceViewerForWorkspace(navigation.evidence_link_id, 'modalOrPeek', {
           scopeSpanId: navigation.span_id,
+          scopeSpanIds: navigation.span_ids,
         });
         return;
       }

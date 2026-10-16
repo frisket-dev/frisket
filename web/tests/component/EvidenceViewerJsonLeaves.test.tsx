@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import '@testing-library/jest-dom/vitest';
-import { cleanup, screen } from '@testing-library/react';
+import { cleanup, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const getEvidenceViewer = vi.hoisted(() => vi.fn());
@@ -14,6 +14,13 @@ vi.mock('../../src/api/open', async (importOriginal) => {
   };
 });
 
+vi.mock('../../src/media/PdfViewer', () => ({
+  PdfViewer: ({ currentPage, renderPageOverlay }: { currentPage: number; renderPageOverlay(page: number): import('react').ReactNode }) => (
+    <div data-testid="native-pdf-viewer" data-current-page={currentPage}>{renderPageOverlay(currentPage)}</div>
+  ),
+}));
+
+import { blobRef } from '../support/evidenceFixtures';
 import { EvidenceViewer } from '../../src/components/EvidenceViewer';
 import type { EvidenceViewerPayload } from '../../src/api/types';
 import { createProjectApi } from '../../src/api/real';
@@ -323,7 +330,7 @@ describe('EvidenceViewer stale text recovery', () => {
     expect((await screen.findByTestId('evidence-text-recovery-located')).textContent)
       .toContain('Found two matches in the current source.');
     expect(screen.getAllByTestId('evidence-text-highlight')).toHaveLength(2);
-    expect(screen.getByText('support · stale')).not.toBeNull();
+    expect(screen.getByText('Source may have changed')).toBeVisible();
   });
 });
 
@@ -353,5 +360,45 @@ describe('Ask evidence locations', () => {
     expect(await screen.findByText('Page 2', { exact: true })).toBeVisible();
     expect(screen.getByText('Page 1', { exact: true })).toBeVisible();
     expect(screen.queryByTestId('evidence-region-highlight')).not.toBeInTheDocument();
+  });
+});
+
+
+describe('search evidence locations', () => {
+  function phrasePayload(): EvidenceViewerPayload {
+    const source = structuredClone(jsonLeafPayload.artifacts[0]);
+    const span = source.spans[0];
+    source.artifact_ref.blob = blobRef('/source.pdf');
+    source.spans = ['phrase:first', 'phrase:second', 'unrelated'].map((id, index) => ({
+      ...span, id: index + 1, stable_id: id, selector: { page_start: 2, page_end: 2 },
+    }));
+    source.pages = [{ ...source.pages[0], page: 2, regions: source.spans.map((selected) => ({
+      ...source.pages[0].regions[0], id: selected.id, stable_id: selected.stable_id,
+    })) }];
+    return { ...jsonLeafPayload, link: { ...jsonLeafPayload.link, role: 'media_ocr_grounding' }, artifacts: [source] };
+  }
+
+  it('highlights every selected phrase span on the primary PDF page, excluding unrelated regions', async () => {
+    getEvidenceViewer.mockResolvedValue(phrasePayload());
+    render(<EvidenceViewer evidenceLinkId="evidence-link:1" scopeSpanId="phrase:second"
+      scopeSpanIds={['phrase:first', 'phrase:second']} mode="pane" onClose={() => {}} />);
+    expect(await screen.findByTestId('native-pdf-viewer')).toHaveAttribute('data-current-page', '2');
+    expect(screen.getAllByTestId('evidence-region-highlight')).toHaveLength(2);
+    expect(within(screen.getByRole('heading', { name: 'Evidence' }).closest('header')!).queryByText(/media_ocr_grounding|active/)).not.toBeInTheDocument();
+  });
+
+  it('keeps a primary span selected even when a match list contains only its companions', async () => {
+    getEvidenceViewer.mockResolvedValue(phrasePayload());
+    render(<EvidenceViewer evidenceLinkId="evidence-link:1" scopeSpanId="phrase:second"
+      scopeSpanIds={['phrase:first']} mode="pane" onClose={() => {}} />);
+    expect(await screen.findByTestId('native-pdf-viewer')).toHaveAttribute('data-current-page', '2');
+    expect(screen.getAllByTestId('evidence-region-highlight')).toHaveLength(2);
+  });
+
+  it('preserves single-span PDF highlights for existing callers', async () => {
+    getEvidenceViewer.mockResolvedValue(phrasePayload());
+    render(<EvidenceViewer evidenceLinkId="evidence-link:1" scopeSpanId="phrase:second" mode="pane" onClose={() => {}} />);
+    expect(await screen.findByTestId('native-pdf-viewer')).toHaveAttribute('data-current-page', '2');
+    expect(screen.getAllByTestId('evidence-region-highlight')).toHaveLength(1);
   });
 });

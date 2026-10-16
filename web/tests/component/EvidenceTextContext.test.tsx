@@ -79,6 +79,18 @@ describe('saved evidence text context', () => {
     expect(screen.queryByTestId('evidence-text-highlight')).not.toBeInTheDocument();
   });
 
+  it('highlights all selected phrase ranges while retaining the primary span', () => {
+    const artifact = textArtifact('Phrase matches', 'First Second Other', [
+      { span_id: 'phrase:first', start: 0, end: 5 },
+      { span_id: 'phrase:second', start: 6, end: 12 },
+      { span_id: 'other', start: 13, end: 18 },
+    ]);
+    render(<TextArtifactSource artifact={artifact} scopeSpanId="phrase:second" scopeSpanIds={['phrase:first']} />);
+    const marks = screen.getAllByTestId('evidence-text-highlight');
+    expect(marks.map((mark) => mark.textContent)).toEqual(['First', 'Second']);
+    expect(vi.mocked(Element.prototype.scrollIntoView).mock.instances.at(-1)).toBe(marks[1]);
+  });
+
   it('keeps sources separate even when their passages have the same text', () => {
     const quote = 'Shared passage';
     const first = textArtifact('Correspondence', `A ${quote}.`, [

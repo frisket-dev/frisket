@@ -9,26 +9,30 @@ type EvidenceTextContext = NonNullable<EvidenceArtifact['text_context']>;
 function PlainTextContext({
   context,
   scopeSpanId,
+  scopeSpanIds,
   highlight,
   emphasizedSpanIds,
 }: {
   context: EvidenceTextContext;
   scopeSpanId?: string;
+  scopeSpanIds?: readonly string[];
   highlight: boolean;
   emphasizedSpanIds: readonly string[];
 }) {
-  const ranges = highlight
-    ? scopeSpanId === undefined
-      ? context.ranges
-      : context.ranges.filter((range) => range.span_id === scopeSpanId)
-    : [];
+  const ranges = highlight ? context.ranges.filter((range) =>
+    (!scopeSpanId && !scopeSpanIds?.length) || range.span_id === scopeSpanId || scopeSpanIds?.includes(range.span_id),
+  ) : [];
   const segments = textSegments(context.text, ranges);
   const emphasizedRanges = context.ranges.filter((range) => emphasizedSpanIds.includes(range.span_id));
+  const primaryRange = context.ranges.find((range) => range.span_id === scopeSpanId);
   const firstHighlightIndex = segments.findIndex((segment) => segment.highlighted);
+  const primaryHighlightIndex = primaryRange ? segments.findIndex((segment) => segment.highlighted
+    && primaryRange.start < segment.end && primaryRange.end > segment.start) : -1;
+  const scrollHighlightIndex = primaryHighlightIndex >= 0 ? primaryHighlightIndex : firstHighlightIndex;
   const firstMarkRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
-    if (firstHighlightIndex >= 0) firstMarkRef.current?.scrollIntoView({ block: 'nearest' });
-  }, [firstHighlightIndex]);
+    if (scrollHighlightIndex >= 0) firstMarkRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [scrollHighlightIndex]);
 
   return (
     <div className="evidence-text-source" data-testid="evidence-text-source" data-source-version="saved">
@@ -40,7 +44,7 @@ function PlainTextContext({
               className={`evidence-text-highlight${emphasizedRanges.some((range) => range.start < segment.end && range.end > segment.start) ? ' evidence-text-highlight-emphasized' : ''}`}
               data-testid="evidence-text-highlight"
               data-emphasized={emphasizedRanges.some((range) => range.start < segment.end && range.end > segment.start) ? 'true' : undefined}
-              ref={index === firstHighlightIndex ? firstMarkRef : undefined}
+              ref={index === scrollHighlightIndex ? firstMarkRef : undefined}
             >
               {segment.text}
             </mark>
@@ -64,7 +68,7 @@ export function SavedTextContext(props: Parameters<typeof PlainTextContext>[0]) 
     : <PlainTextContext {...props} />;
 }
 
-function TimestampedTextContext({ context, scopeSpanId, highlight, emphasizedSpanIds }: Parameters<typeof PlainTextContext>[0]) {
+function TimestampedTextContext({ context, scopeSpanId, scopeSpanIds, highlight, emphasizedSpanIds }: Parameters<typeof PlainTextContext>[0]) {
   const { projectApi } = useWorkspaceStores();
   const transcript = context.transcript!;
   const [source, setSource] = useState<{ key: string; artifact: EvidenceArtifact | null } | null>(null);
@@ -90,7 +94,9 @@ function TimestampedTextContext({ context, scopeSpanId, highlight, emphasizedSpa
     return () => player.removeEventListener('loadedmetadata', seek);
   }, [seekRequest, blob?.url]);
   const sourceSpans = new Map(artifact?.spans.map((span) => [span.stable_id, span]) ?? []);
-  const ranges = highlight ? context.ranges.filter((range) => !scopeSpanId || range.span_id === scopeSpanId) : [];
+  const ranges = highlight ? context.ranges.filter((range) =>
+    (!scopeSpanId && !scopeSpanIds?.length) || range.span_id === scopeSpanId || scopeSpanIds?.includes(range.span_id),
+  ) : [];
   const mediaProps = { controls: true, preload: 'metadata', src: blob?.url, ref: (node: HTMLMediaElement | null) => { playerRef.current = node; }, 'aria-label': artifact?.title || 'Source recording' };
   return <div className="evidence-annotated-transcript" data-testid="evidence-annotated-transcript">
     <div className="evidence-annotated-player">

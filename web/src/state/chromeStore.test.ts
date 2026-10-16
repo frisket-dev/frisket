@@ -172,11 +172,12 @@ describe('createChromeStore', () => {
     const { store, openEvidenceViewer, closeEvidenceViewer } = createChromeStore(PROJECT_ID);
     openEvidenceViewer('link-1');
     expect(store.get().evidenceViewerState).toEqual({ linkId: 'link-1', host: 'modalOrPeek' });
-    openEvidenceViewer('link-2', 'mainView', { scopeSpanId: 'span-7', highlight: false });
+    openEvidenceViewer('link-2', 'mainView', { scopeSpanId: 'span-7', scopeSpanIds: ['span-7', 'span-8'], highlight: false });
     expect(store.get().evidenceViewerState).toEqual({
       linkId: 'link-2',
       host: 'mainView',
       scopeSpanId: 'span-7',
+      scopeSpanIds: ['span-7', 'span-8'],
       highlight: false,
     });
     closeEvidenceViewer();
