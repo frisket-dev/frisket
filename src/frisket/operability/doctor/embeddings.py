@@ -19,10 +19,14 @@ tests. It never runs those tests itself.
 
 from __future__ import annotations
 
+import logging
 import os
 import sqlite3
 from pathlib import Path
 from typing import Any
+
+
+LOG = logging.getLogger(__name__)
 
 # Provider -> the key env var the live remote-embedding test gates on
 # (mirrors tests/ai/test_remote_embeddings_live.py _CASES + OpenRouter).
@@ -71,8 +75,12 @@ def local_retrieval_section() -> dict[str, Any]:
             "path": str(path),
             "version": version,
         }
-    except Exception as exc:  # noqa: BLE001 - doctor reports, never crashes
-        vec1 = {"available": False, "detail": str(exc)}
+    except Exception:  # noqa: BLE001 - doctor reports, never crashes
+        LOG.exception("Packaged Vec1 readiness check failed")
+        vec1 = {
+            "available": False,
+            "detail": "Packaged Vec1 readiness check failed; inspect server logs",
+        }
 
     try:
         from frisket.engine._workers.embeddinggemma_artifacts import (
@@ -94,12 +102,13 @@ def local_retrieval_section() -> dict[str, Any]:
             "revision": snapshot.revision if snapshot is not None else None,
             "cache_path": str(cached_path) if cached_path is not None else None,
         }
-    except Exception as exc:  # noqa: BLE001 - doctor reports, never crashes
+    except Exception:  # noqa: BLE001 - doctor reports, never crashes
+        LOG.exception("EmbeddingGemma readiness check failed")
         embeddinggemma = {
             "runtime_installed": False,
             "model_cached": False,
             "ready": False,
-            "detail": str(exc),
+            "detail": "EmbeddingGemma readiness check failed; inspect server logs",
         }
     return {"vec1": vec1, "embeddinggemma": embeddinggemma}
 

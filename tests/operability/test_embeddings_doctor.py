@@ -102,19 +102,49 @@ def test_local_retrieval_reports_vec1_and_pinned_model_without_starting_runtime(
     assert report["live_proofs"]["local_retrieval"]["status"] == "would_run"
 
 
-def test_local_retrieval_unavailable_is_reported_without_crashing(monkeypatch):
+def test_local_retrieval_unavailable_is_reported_without_leaking_exception(
+    monkeypatch, caplog
+):
     from frisket.operability.doctor import embeddings
 
     def unavailable():
-        raise RuntimeError("unsupported test platform")
+        raise RuntimeError("sensitive path: /private/operator/vec1.so")
 
     monkeypatch.setattr("frisket.retrieval.native.packaged_vec1_path", unavailable)
 
     report = embeddings.report_embeddings(env={}, router=_FakeRouter([]))
 
     assert report["local_retrieval"]["vec1"]["available"] is False
-    assert "unsupported test platform" in report["local_retrieval"]["vec1"]["detail"]
+    assert report["local_retrieval"]["vec1"]["detail"] == (
+        "Packaged Vec1 readiness check failed; inspect server logs"
+    )
+    assert "/private/operator/vec1.so" not in json.dumps(report)
+    assert "Packaged Vec1 readiness check failed" in caplog.text
     assert report["live_proofs"]["local_retrieval"]["status"] == "would_skip"
+
+
+def test_embeddinggemma_readiness_failure_does_not_leak_exception(monkeypatch, caplog):
+    from frisket.engine._workers import embeddinggemma_artifacts
+    from frisket.operability.doctor import embeddings
+
+    def unavailable():
+        raise RuntimeError("sensitive path: /private/operator/model-cache")
+
+    monkeypatch.setattr(
+        embeddinggemma_artifacts, "embeddinggemma_artifact", unavailable
+    )
+
+    report = embeddings.report_embeddings(env={}, router=_FakeRouter([]))
+
+    local = report["local_retrieval"]["embeddinggemma"]
+    assert local == {
+        "runtime_installed": False,
+        "model_cached": False,
+        "ready": False,
+        "detail": "EmbeddingGemma readiness check failed; inspect server logs",
+    }
+    assert "/private/operator/model-cache" not in json.dumps(report)
+    assert "EmbeddingGemma readiness check failed" in caplog.text
 
 
 def test_sidecar_unconfigured_when_url_unset(tmp_path):
