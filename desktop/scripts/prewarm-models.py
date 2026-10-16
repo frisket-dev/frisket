@@ -17,15 +17,16 @@ from frisket.engine._workers.parakeet_artifacts import (  # noqa: E402
     _snapshot_payload,
     huggingface_hub_cache,
 )
-from frisket.ops.ocr_engines_local import _rapidocr_model_root_dir  # noqa: E402
+from frisket.ops.ocr_engines_local import (  # noqa: E402
+    provision_rapidocr_default_models,
+)
 
 
 def main() -> None:
     if "--whisper-ref" in sys.argv[2:]:
         print(artifact_manifest.WHISPER_BASE_REF)
         return
-    if _rapidocr_model_root_dir() is None:
-        raise RuntimeError("the default RapidOCR model cache could not be prepared")
+    provision_rapidocr_default_models()
     cache_dir = huggingface_hub_cache()
     resolved: dict[str, str] = {"rapidocr": "ready"}
     entry = artifact_manifest.parakeet_vad_artifact()

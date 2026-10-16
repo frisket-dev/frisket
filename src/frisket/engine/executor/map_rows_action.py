@@ -19,6 +19,7 @@ from pydantic_core import SchemaValidator
 from frisket.actions.geospatial_types import Geocoder, CensusDemographics
 from frisket.actions.document_types import DocumentConverter
 from frisket.actions.media_types import OcrReader, Transcriber, TranscriptText, OcrText
+from frisket.actions.native_pdf_types import NativePdfTextReader
 from frisket.actions.temporal_types import TopicSectionsReader, VisualCutsReader
 from frisket.actions.pdf_table_types import PdfTablesReader
 from frisket.actions.python_types import PythonEvaluator
@@ -236,6 +237,7 @@ class _MapTerminalPolicy:
                     PdfTablesReader,
                     DocumentConverter,
                     OcrReader,
+                    NativePdfTextReader,
                     Transcriber,
                 )
             ),
@@ -311,6 +313,7 @@ class _TypedMapRowsProgram(Recipe):
                 TopicSectionsReader,
                 PdfTablesReader,
                 DocumentConverter,
+                NativePdfTextReader,
                 Transcriber,
                 NerExtractor,
                 Researcher,
@@ -345,6 +348,9 @@ class _TypedMapRowsProgram(Recipe):
         self._uses_transcriber = Transcriber in getattr(
             self._terminal, "capabilities", ()
         )
+        self._uses_native_pdf_text = NativePdfTextReader in getattr(
+            self._terminal, "capabilities", ()
+        )
         self._uses_translator = Translator in getattr(
             self._terminal, "capabilities", ()
         )
@@ -352,6 +358,7 @@ class _TypedMapRowsProgram(Recipe):
             self._uses_row_files
             or self._uses_document_converter
             or self._uses_transcriber
+            or self._uses_native_pdf_text
             or self._uses_translator
             or hasattr(self, "_pdf_evidence")
             or self._uses_ner
@@ -813,6 +820,21 @@ class _TypedMapRowsProgram(Recipe):
                     )
                     bindings.append(reader)
                     continue
+                elif capability is NativePdfTextReader:
+                    from frisket.engine.executor.native_pdf_text_read import (
+                        AdmittedNativePdfTextReader,
+                    )
+                    from frisket.execution.attempt import attempt_in_scope
+
+                    reader = AdmittedNativePdfTextReader(
+                        ctx.project,
+                        cancelled=ctx.extras.get("cancelled"),
+                        execution_limits=ctx.execution_limits,
+                    )
+                    attempt = attempt_in_scope(ctx.extras)
+                    self._media_writer = (
+                        attempt.attempt_id if attempt is not None else None
+                    )
                 elif capability is DocumentConverter:
                     from frisket.engine.executor.document_convert import (
                         AdmittedDocumentConverter,
@@ -947,6 +969,7 @@ class _TypedMapRowsProgram(Recipe):
                     VisualCutsReader,
                     TopicSectionsReader,
                     PdfTablesReader,
+                    NativePdfTextReader,
                     *self._file_capabilities,
                 )
                 else binding.bind_row(ctx)
@@ -1345,7 +1368,10 @@ class _TypedMapRowsProgram(Recipe):
                 },
                 **kwargs,
             )
-        if OcrReader in getattr(self._terminal, "capabilities", ()):
+        if any(
+            capability in getattr(self._terminal, "capabilities", ())
+            for capability in (OcrReader, NativePdfTextReader)
+        ):
             from frisket.engine.executor.ocr_evidence import write_ocr_evidence
 
             write_ocr_evidence(
@@ -1584,6 +1610,7 @@ def build_typed_map_rows_plan(
     *,
     _allow_existing_outputs: bool = False,
     _admit_output_targets: bool = True,
+    _enforce_expected_output_columns: bool = True,
 ) -> TypedMapRowsPlan:
     """Resolve a typed request into a registry-free MapRunner program."""
 
@@ -1632,7 +1659,8 @@ def build_typed_map_rows_plan(
             bound,
             allow_idempotent_outputs=_allow_existing_outputs,
         )
-        _require_expected_output_columns(request, output_target_preconditions)
+        if _enforce_expected_output_columns:
+            _require_expected_output_columns(request, output_target_preconditions)
     else:
         output_names = {
             field.key: field.materialized_name(bound.request.output_names)
@@ -3008,7 +3036,7 @@ def _typed_receipt(
             )
     if any(
         cap in getattr(plan.action.definition.run, "capabilities", ())
-        for cap in (Transcriber, OcrReader)
+        for cap in (Transcriber, OcrReader, NativePdfTextReader)
     ):
         from frisket.engine.store.receipts import ReceiptStore
 
@@ -3340,13 +3368,75 @@ def typed_queued_map_spec(
     ) -> dict[str, Any] | ActionError:
         try:
             existing = _receipt_for_idempotency(project, bound.request.idempotency_key)
+            recovering_queued = bool(
+                existing is not None and existing["status"] == "queued"
+            )
             plan = build_typed_map_rows_plan(
                 project,
                 bound,
-                _allow_existing_outputs=bool(
-                    existing is not None and existing["status"] == "queued"
-                ),
+                _allow_existing_outputs=recovering_queued,
+                _enforce_expected_output_columns=not recovering_queued,
             )
+            if recovering_queued and type(existing["run_id"]) is int:
+                run_id = int(existing["run_id"])
+                prepared_targets = {
+                    binding.output_role: binding.column_id
+                    for binding in ResultGenerationStore(project).bindings_for_run(
+                        run_id
+                    )
+                }
+                current_targets = {
+                    str(column["name"]): int(column["id"])
+                    for column in project.columns(
+                        bound.request.scope.sheet_id, include_hidden=True
+                    )
+                }
+                expected_names = set(plan.output_names.values())
+                if set(prepared_targets) != expected_names or any(
+                    current_targets.get(name) != column_id
+                    for name, column_id in prepared_targets.items()
+                ):
+                    raise TypedMapRowsPlanError(
+                        "output_target_changed",
+                        "output targets changed after this action was prepared",
+                        field="output_names",
+                    )
+                run = project.db.execute(
+                    "SELECT params FROM runs WHERE id=?", (run_id,)
+                ).fetchone()
+                try:
+                    admitted_spec = json.loads(run["params"])
+                    admitted_targets = admitted_spec["output_target_preconditions"]
+                except (KeyError, TypeError, ValueError):
+                    admitted_targets = None
+                if (
+                    not isinstance(admitted_targets, dict)
+                    or set(admitted_targets) != expected_names
+                    or any(
+                        value is not None and (type(value) is not int or value <= 0)
+                        for value in admitted_targets.values()
+                    )
+                    or any(
+                        type(value) is int and prepared_targets[name] != value
+                        for name, value in admitted_targets.items()
+                    )
+                ):
+                    raise TypedMapRowsPlanError(
+                        "output_target_changed",
+                        "prepared action lost its admitted output targets",
+                        field="output_names",
+                    )
+                # The run spec is the consented publication promise: a null
+                # means this output was absent at admission.  Materialized
+                # column ids live in ResultGenerationStore and fence worker
+                # publication, but must never replace that admitted identity.
+                recovered_spec = dict(plan.spec)
+                recovered_spec["output_target_preconditions"] = admitted_targets
+                plan = replace(
+                    plan,
+                    output_target_preconditions=MappingProxyType(admitted_targets),
+                    spec=MappingProxyType(recovered_spec),
+                )
         except (TypeError, ValueError, ValidationError) as exc:
             return _typed_plan_error(bound.action.action_id, exc)
         if (
@@ -3411,6 +3501,7 @@ def typed_queued_map_spec(
                 project,
                 bound,
                 _allow_existing_outputs=True,
+                _enforce_expected_output_columns=False,
             )
         except TypedMapRowsPlanError as exc:
             input_error = exc.code in {"invalid_input_ref", "column_not_ai_generated"}
@@ -3474,12 +3565,12 @@ def typed_queued_map_spec(
             if type(run_id) is int
             else {}
         )
-        target_drift = any(
-            (
-                current_columns.get(str(name)) != int(expected_id)
-                if type(expected_id) is int
-                else current_columns.get(str(name))
-                not in {None, prepared_targets.get(str(name))}
+        expected_target_names = {str(name) for name in expected_output_preconditions}
+        target_drift = set(prepared_targets) != expected_target_names or any(
+            current_columns.get(str(name)) != prepared_targets.get(str(name))
+            or (
+                type(expected_id) is int
+                and prepared_targets.get(str(name)) != expected_id
             )
             for name, expected_id in expected_output_preconditions.items()
         )

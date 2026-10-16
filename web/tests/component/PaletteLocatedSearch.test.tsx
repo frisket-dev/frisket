@@ -234,7 +234,7 @@ describe('located palette search', () => {
     expect(screen.getByTestId('search-anchor')).toHaveTextContent('budget approved');
   });
 
-  it('starts the structured setup action and retries the same request', async () => {
+  it('discloses the semantic model download before starting setup', async () => {
     searchProject.mockResolvedValue({
       groups: [],
       coverage: {
@@ -247,7 +247,15 @@ describe('located palette search', () => {
           state: 'unavailable',
           reason: 'model unavailable',
           recipe_id: null,
-          setup: { setup_ref: 'engine-setup:embeddinggemma-2.local@1', scope: 'workspace' },
+          setup: {
+            setup_ref: 'engine-setup:embeddinggemma-2.local@1',
+            scope: 'workspace',
+            display_name: 'EmbeddingGemma 2',
+            download_bytes: 1_525_784_180,
+            additional_runtime_download: true,
+            license: 'Apache-2.0',
+            source_url: 'https://example.test/embeddinggemma',
+          },
         }],
         is_top_k: true,
         truncated: false,
@@ -257,11 +265,74 @@ describe('located palette search', () => {
     render(<PaletteHarness />);
 
     fireEvent.click(await screen.findByTestId('search-setup'));
+    expect(startEngineSetup).not.toHaveBeenCalled();
+    const consent = screen.getByTestId('search-setup-consent');
+    expect(consent).toHaveTextContent('Download EmbeddingGemma 2?');
+    expect(consent).toHaveTextContent('About 1.4 GB');
+    fireEvent.click(screen.getByTestId('search-setup-confirm'));
     await waitFor(() => expect(startEngineSetup).toHaveBeenCalledWith(
       'workspace',
       'engine-setup:embeddinggemma-2.local@1',
     ));
     await waitFor(() => expect(searchProject).toHaveBeenCalledTimes(2));
+  });
+
+  it('dismisses semantic setup without starting a download', async () => {
+    searchProject.mockResolvedValue({
+      groups: [],
+      coverage: {
+        requested_mode: 'hybrid',
+        effective_modes: ['lexical'],
+        state: 'unavailable',
+        searched_channels: ['text'],
+        channels: [{
+          channel: 'semantic', state: 'unavailable', reason: 'model unavailable', recipe_id: null,
+          setup: {
+            setup_ref: 'engine-setup:embeddinggemma-2.local@1', scope: 'workspace',
+            display_name: 'EmbeddingGemma 2', download_bytes: 1_525_784_180,
+            additional_runtime_download: true, license: 'Apache-2.0',
+            source_url: 'https://example.test/embeddinggemma',
+          },
+        }],
+        is_top_k: true,
+        truncated: false,
+      },
+    });
+    render(<PaletteHarness />);
+
+    fireEvent.click(await screen.findByTestId('search-setup'));
+    fireEvent.click(screen.getByTestId('search-setup-not-now'));
+
+    expect(screen.queryByTestId('search-setup-consent')).not.toBeInTheDocument();
+    expect(startEngineSetup).not.toHaveBeenCalled();
+  });
+
+  it('offers preparation from exact current-media coverage without calling it searched', async () => {
+    searchProject.mockResolvedValue({
+      groups: [],
+      coverage: {
+        requested_mode: 'lexical',
+        effective_modes: ['lexical'],
+        state: 'partial',
+        searched_channels: ['lexical'],
+        channels: [{
+          channel: 'lexical', state: 'ready', recipe_id: null, reason: null,
+          eligible_count: null, prepared_count: null, failed_count: null, setup: null,
+        }, {
+          channel: 'search_preparation', state: 'unavailable', recipe_id: null,
+          reason: 'Current media needs search preparation.',
+          eligible_count: 1, prepared_count: 0, failed_count: null, setup: null,
+        }],
+        is_top_k: true,
+        truncated: false,
+      },
+    });
+    render(<PaletteHarness />);
+
+    const gap = await screen.findByTestId('search-preparation-gap');
+    expect(gap).toHaveTextContent('1 current media item needs search preparation.');
+    expect(screen.getByRole('status')).toHaveTextContent('Showing available search results.');
+    expect(screen.queryByText(/while more material is prepared/i)).not.toBeInTheDocument();
   });
 
   it('selects a named index for free-text search and saves its semantic view', async () => {

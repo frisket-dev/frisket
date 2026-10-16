@@ -39,6 +39,9 @@ import {
   type FailureCategory,
 } from '../telemetry/productTelemetry';
 
+const DOCK_ACTIVE_POLL_MS = 2_000;
+const DOCK_IDLE_POLL_MS = 5_000;
+
 export interface CostGateState {
   estimate: RunEstimate;
   message: string;
@@ -1282,7 +1285,7 @@ export function createJobStore(
       && dockSlot === slot
       && dockLane.isCurrent(job)
     );
-    let hasActiveJobs = false;
+    let hasActiveJobs = mergedJobs().some(actionJobIsActive);
     try {
       const jobs = await loadActionJobs(
         25,
@@ -1298,8 +1301,7 @@ export function createJobStore(
     } finally {
       if (dockSlot === slot) dockSlot = null;
       if (
-        hasActiveJobs
-        && isResourceCurrent(generation)
+        isResourceCurrent(generation)
         && dockInterested
         && dockLane.isCurrent(job)
       ) {
@@ -1307,7 +1309,7 @@ export function createJobStore(
         dockTimer = setTimeout(() => {
           dockTimer = null;
           void dockPollTick();
-        }, 2_000);
+        }, hasActiveJobs ? DOCK_ACTIVE_POLL_MS : DOCK_IDLE_POLL_MS);
       }
     }
   }

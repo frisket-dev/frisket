@@ -76,6 +76,36 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
     {
         (
             "tenant",
+            "create_search_preparation",
+            "POST",
+        ): "tenant.create_search_preparation.post",
+        (
+            "tenant",
+            "list_search_preparations",
+            "GET",
+        ): "tenant.list_search_preparations.get",
+        (
+            "tenant",
+            "get_search_preparation",
+            "GET",
+        ): "tenant.get_search_preparation.get",
+        (
+            "tenant",
+            "decide_search_preparation",
+            "POST",
+        ): "tenant.decide_search_preparation.post",
+        (
+            "tenant",
+            "stop_search_preparation",
+            "POST",
+        ): "tenant.stop_search_preparation.post",
+        (
+            "tenant",
+            "get_search_preparation_text_samples",
+            "GET",
+        ): "tenant.get_search_preparation_text_samples.get",
+        (
+            "tenant",
             "begin_cloud_authorization",
             "POST",
         ): "tenant.begin_cloud_authorization.post",

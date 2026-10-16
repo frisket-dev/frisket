@@ -21,6 +21,7 @@ from frisket.engine.executor.action_specs import (
 )
 from frisket.engine.executor.queue_policy import INTENTIONALLY_DIRECT_V1_ACTIONS
 from frisket.engine.jobs import RUN_PROJECT_KIND
+from frisket.engine.jobs.search_preparation_store import SearchPreparationStore
 from frisket.engine.jobs.projection import run_inline_job_id
 from frisket.engine.executor import file_fetch as fetch_url_recipe
 from frisket.actions.registry import ACTION_REGISTRY
@@ -145,6 +146,13 @@ def test_media_download_queued_launch_returns_before_yt_dlp_runs(
     assert job.payload["v1_input_column_ids"] == {"url": url_column["id"]}
     assert job.payload["v1_input_column_types"] == {"url": "link"}
     assert job.payload["v1_output_names"] == {"audio": "media"}
+    [pending] = SearchPreparationStore(
+        client.app.state.workspace.queue,
+        workspace_root=str(client.app.state.workspace.root),
+    ).list_active_page(storage_org_id=None)
+    assert pending.materialization_job_id == result.job_id
+    assert pending.sheet_id == sheet_id
+    assert pending.row_ids == tuple(project.visible_row_ids(sheet_id))
 
     # A real (positive) queue job id -- not the run.inline negative sentinel
     # the parity projection would otherwise synthesize.
@@ -285,6 +293,13 @@ def test_media_fetch_url_queued_launch_returns_before_download_and_worker_finali
     assert job.payload["action_kind"] == "media.fetch_url"
     assert job.payload["v1_input_column_ids"] == {"url": columns["url"]}
     assert job.payload["v1_output_names"] == {"media": "media"}
+    [pending] = SearchPreparationStore(
+        client.app.state.workspace.queue,
+        workspace_root=str(client.app.state.workspace.root),
+    ).list_active_page(storage_org_id=None)
+    assert pending.materialization_job_id == result.job_id
+    assert pending.sheet_id == sheet_id
+    assert pending.row_ids == tuple(project.visible_row_ids(sheet_id))
 
     drain_queue(client)
     assert calls == ["https://cdn.example/audio/episode.mp3"]

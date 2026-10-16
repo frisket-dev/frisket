@@ -168,6 +168,23 @@ def job_run_id(job: Job) -> int | None:
         return None
 
 
+def _with_search_preparation_origin(
+    job: Job, metadata: dict[str, str]
+) -> dict[str, str]:
+    action = job.payload.get("v1_action")
+    idempotency_key = (
+        action.get("idempotency_key") if isinstance(action, Mapping) else None
+    )
+    action_name = metadata.get("action_name")
+    if (
+        isinstance(idempotency_key, str)
+        and idempotency_key.startswith("search-preparation:")
+        and action_name is not None
+    ):
+        return {**metadata, "action_name": f"{action_name} (search preparation)"}
+    return metadata
+
+
 def action_metadata_for_job(job: Job) -> dict[str, str]:
     action_kind = job.action_kind
     spec = job.payload.get("spec")
@@ -179,10 +196,13 @@ def action_metadata_for_job(job: Job) -> dict[str, str]:
                 plugin_kind = snapshot.get("action_kind") or envelope.get("action_kind")
                 if isinstance(plugin_kind, str) and plugin_kind:
                     title = str(snapshot.get("title") or plugin_kind)
-                    return {
-                        "action_kind": plugin_kind,
-                        "action_name": title,
-                    }
+                    return _with_search_preparation_origin(
+                        job,
+                        {
+                            "action_kind": plugin_kind,
+                            "action_name": title,
+                        },
+                    )
     if action_kind is None and isinstance(spec, dict):
         action_kind = spec.get("kind") or spec.get("action_kind")
     action_kind = action_kind or job.payload.get("action_kind")
@@ -193,17 +213,24 @@ def action_metadata_for_job(job: Job) -> dict[str, str]:
             snapshot = envelope.get("resolved_snapshot")
             if isinstance(snapshot, Mapping) and isinstance(action_kind, str):
                 title = str(snapshot.get("title") or action_kind)
-                return {
-                    "action_kind": action_kind,
-                    "action_name": title,
-                }
+                return _with_search_preparation_origin(
+                    job,
+                    {
+                        "action_kind": action_kind,
+                        "action_name": title,
+                    },
+                )
     if job.kind != RUN_PROJECT_KIND and action_kind is None:
         return {}
     if action_kind is None and isinstance(spec, dict):
         action_kind = spec.get("action_kind")
     if action_kind is None:
-        return action_metadata_for_action_kind(None)
-    return action_metadata_for_action_kind(action_kind)
+        return _with_search_preparation_origin(
+            job, action_metadata_for_action_kind(None)
+        )
+    return _with_search_preparation_origin(
+        job, action_metadata_for_action_kind(action_kind)
+    )
 
 
 def job_queue_payload(job: Job, *, now: datetime) -> dict[str, Any]:

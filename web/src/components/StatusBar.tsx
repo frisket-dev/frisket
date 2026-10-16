@@ -8,6 +8,8 @@ import { RunFailureTriage } from './RunFailureTriage';
 import { useNativePopover } from '../hooks/useNativePopover';
 import { useAnchoredPosition } from '../hooks/useAnchoredPosition';
 import type { WorkbenchProjectionStatus } from '../workbench/WorkbenchBottomDock';
+import { listSearchPreparations, type SearchPreparationBatch } from '../api/searchPreparation';
+import { usePoll } from '../hooks/usePoll';
 
 // A queued run whose worker never showed up must not spin forever: the
 // reconciler flags no_live_worker so we can show a fix-it warning instead.
@@ -94,6 +96,27 @@ export function StatusBar({
   run, history, reviewCount, projectionStatus, onUndo, onRedo, onOpenReview, onCancelRun,
   onShowFailedRows, onRetryFailedRows,
 }: StatusBarProps) {
+  const { chromePreferences: { projectId } } = useWorkspaceStores();
+  const [searchPreparations, setSearchPreparations] = useState<SearchPreparationBatch[]>([]);
+  const refreshSearchPreparation = async () => {
+    const result = await listSearchPreparations(projectId);
+    setSearchPreparations(result.batches);
+  };
+  useEffect(() => {
+    let live = true;
+    void listSearchPreparations(projectId)
+      .then((result) => { if (live) setSearchPreparations(result.batches); })
+      .catch(() => undefined);
+    return () => { live = false; };
+  }, [projectId]);
+  const activeSearchPreparation = searchPreparations.find((batch) => (
+    batch.status === 'planning' || batch.status === 'needs_consent' || batch.status === 'preparing'
+  )) ?? searchPreparations.find((batch) => batch.status === 'failed') ?? null;
+  usePoll(refreshSearchPreparation, {
+    active: true,
+    intervalMs: activeSearchPreparation === null ? 5_000 : 2_000,
+    guardOverlap: true,
+  });
   const canUndo = history !== null && history.undoTarget !== null;
   const canRedo = history !== null && history.redoTarget !== null;
   // The op the buttons would act on, surfaced as hover tooltips.
@@ -237,6 +260,24 @@ export function StatusBar({
           <span className="run-label muted">idle</span>
         )}
         {projectionStatus && <ProjectionChip status={projectionStatus} />}
+        {activeSearchPreparation && (
+          <span
+            className="run-summary search-preparation-status"
+            data-testid="status-search-preparation"
+            data-status={activeSearchPreparation.status}
+          >
+            {activeSearchPreparation.status === 'needs_consent'
+              ? 'Search preparation needs approval'
+              : activeSearchPreparation.status === 'failed'
+                ? 'Search preparation needs attention'
+                : activeSearchPreparation.status === 'planning'
+                  ? 'Checking files for search'
+                  : `Preparing ${activeSearchPreparation.groups
+                    .filter((group) => group.status !== 'complete')
+                    .reduce((sum, group) => sum + group.count, 0)
+                    .toLocaleString()} files`}
+          </span>
+        )}
       </div>
 
       <div className="status-right">

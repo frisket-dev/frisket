@@ -200,7 +200,7 @@ def test_current_store_open_does_not_wait_for_existing_writer(tmp_path):
         writer.execute("BEGIN IMMEDIATE")
 
         started = time.monotonic()  # realtime: bound actual SQLite lock waiting
-        with RetrievalStore(tmp_path).open() as reader:
+        with RetrievalStore(tmp_path).open(busy_timeout_ms=0) as reader:
             assert reader.sidecar_id() == sidecar_id
         elapsed = time.monotonic() - started  # realtime: assert nonblocking open
 

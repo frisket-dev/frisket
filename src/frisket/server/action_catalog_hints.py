@@ -1294,6 +1294,7 @@ def _recipe_engines(
             per_target={MODELS_GATEWAY_TARGET_ID: {"models": turbo_models}},
         )
         from frisket.ai.models import artifact_manifest as _artifact_manifest
+        from frisket.engine.jobs.engine_setup import PARAKEET_TDT_SETUP_REF
 
         parakeet_downloadable = [
             {
@@ -1317,6 +1318,8 @@ def _recipe_engines(
         ]
         if parakeet_downloadable:
             parakeet_engine["downloadable_models"] = parakeet_downloadable
+            if parakeet_runtime_ok:
+                parakeet_engine["setup_ref"] = PARAKEET_TDT_SETUP_REF
         whisper_entry = _artifact_manifest.whisper_base_artifact()
         if whisper_entry is not None and whisper_entry.hf_snapshot is not None:
             faster_whisper_engine["downloadable_models"] = [
@@ -1408,6 +1411,9 @@ def _recipe_engines(
             rapidocr_available,
             tesseract_available,
         )
+        from frisket.ops.ocr_engines_local import rapidocr_setup_ready
+        from frisket.engine.jobs.engine_setup import RAPIDOCR_SETUP_REF
+        from frisket.ai.models.artifact_manifest import rapidocr_default_model_artifact
 
         dots_ok, dots_err, dots_models = _sidecar_engine(
             sidecar_capabilities, route="/ocr", name="dots.mocr"
@@ -1425,7 +1431,15 @@ def _recipe_engines(
             sidecar_capabilities, route="/ocr", name="pp-ocrv6"
         )
         tess_ok, tess_err = tesseract_available()
-        rapid_ok, rapid_err = rapidocr_available()
+        rapid_runtime_ok, rapid_runtime_err = rapidocr_available()
+        rapid_ok = rapid_runtime_ok and rapidocr_setup_ready()
+        rapid_err = (
+            rapid_runtime_err
+            if not rapid_runtime_ok
+            else None
+            if rapid_ok
+            else "Download the pinned RapidOCR default model before running local OCR."
+        )
         indra_ok, indra_err = indra_ocr_available()
         indra_artifact = indra_ocr_artifact()
         indra_snapshot = indra_artifact.hf_snapshot
@@ -1500,13 +1514,30 @@ def _recipe_engines(
                 ],
             }
         )
+        rapid_engine = _declared_engine(
+            decl["rapidocr"],
+            available=rapid_ok,
+            error=rapid_err,
+        )
+        rapid_artifact = rapidocr_default_model_artifact()
+        if rapid_artifact is not None:
+            rapid_engine.update(
+                {
+                    "setup_ref": RAPIDOCR_SETUP_REF,
+                    "downloadable_models": [
+                        {
+                            "ref": rapid_artifact.ref,
+                            "display_name": rapid_artifact.display_name,
+                            "revision": rapid_artifact.manifest_version,
+                            "size": rapid_artifact.total_size,
+                            "license": rapid_artifact.license,
+                        }
+                    ],
+                }
+            )
         # Projector parity pins ``dots.mocr`` at index 4.
         return [
-            _declared_engine(
-                decl["rapidocr"],
-                available=rapid_ok,
-                error=rapid_err,
-            ),
+            rapid_engine,
             _declared_engine(
                 decl["tesseract"],
                 available=tess_ok,

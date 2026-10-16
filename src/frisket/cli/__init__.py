@@ -628,6 +628,8 @@ def _run_worker(argv: list[str], *, hosted: bool) -> int:
 
         registration_options["worker_ports"] = team_worker_ports_from_env()
         control_database_url = team_database_url
+    if not hosted:
+        registration_options["prepare_enclosures_for_search"] = True
     # The composition's own project-open seam (None for the open worker).
     # Reused for the scheduler scans below so that EVERY project this process
     # opens — claimed job handlers and background scans alike — goes through

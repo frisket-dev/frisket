@@ -16,7 +16,11 @@ import pytest
 from frisket.engine.jobs import model_pull_store as store
 from frisket.engine.jobs.engine_setup import EMBEDDINGGEMMA_SETUP_REF
 from frisket.engine.jobs.ports import JobHandlerContext
-from frisket.engine.jobs.model_pull import register_model_pull_handler
+from frisket.engine.jobs.model_pull import (
+    ModelPullEnqueueError,
+    register_model_pull_handler,
+    schedule_model_pull,
+)
 from frisket.engine.jobs.queue import open_queue
 from frisket.engine.jobs.worker import HandlerRegistry
 from frisket.local_model_ids import format_local_model_id
@@ -105,6 +109,66 @@ def _run_handler(registry, queue, pull_id: int, job_id: int) -> dict:
         },
         JobHandlerContext.without_job_row(),
     )
+
+
+def test_shared_scheduler_reuses_pull_and_preserves_original_authority(
+    tmp_path,
+) -> None:
+    root, queue, _registry = _setup(tmp_path)
+    try:
+        first, created = schedule_model_pull(
+            queue,
+            workspace_root=root,
+            model_ref=EMBEDDINGGEMMA_SETUP_REF,
+            initiated_by="alice",
+            queue_payload_extra={"server_scoped": True},
+        )
+        replay, replay_created = schedule_model_pull(
+            queue,
+            workspace_root=root,
+            model_ref=EMBEDDINGGEMMA_SETUP_REF,
+            initiated_by="bob",
+        )
+
+        assert created is True
+        assert replay_created is False
+        assert replay.id == first.id
+        assert replay.job_id == first.job_id
+        assert replay.initiated_by == "alice"
+        assert first.job_id is not None
+        job = queue.get(first.job_id)
+        assert job is not None
+        assert job.payload == {
+            "pull_id": first.id,
+            "workspace_root": str(root),
+            "server_scoped": True,
+        }
+    finally:
+        queue.close()
+
+
+def test_shared_scheduler_terminalizes_enqueue_failure(tmp_path, monkeypatch) -> None:
+    root, queue, _registry = _setup(tmp_path)
+    try:
+
+        def fail_enqueue(*_args, **_kwargs):
+            raise RuntimeError("queue unavailable")
+
+        monkeypatch.setattr(queue, "enqueue", fail_enqueue)
+        with pytest.raises(ModelPullEnqueueError):
+            schedule_model_pull(
+                queue,
+                workspace_root=root,
+                model_ref=EMBEDDINGGEMMA_SETUP_REF,
+                initiated_by="alice",
+            )
+
+        [failed] = store.list_recent(queue.engine, str(root))
+        assert failed.status == store.STATUS_FAILED
+        assert failed.error_code == "enqueue_failed"
+        assert failed.initiated_by == "alice"
+    finally:
+        queue.close()
 
 
 def test_embedding_setup_success_calls_completion_hook(tmp_path, monkeypatch) -> None:

@@ -49,7 +49,7 @@ from frisket.server.action_enqueue import (
 )
 from frisket.server.run_status import action_run_status_payload
 from frisket.server.workspace import Workspace
-from frisket.execution.provider import ExecutionComposition
+from frisket.execution.provider import ExactExecutionMatch, ExecutionComposition
 from frisket.execution.targets import CAPABILITY_LLM
 from frisket.engine.store import Project
 from frisket.engine.store.receipts import FINISHED_RECEIPT_STATUSES, ReceiptStore
@@ -184,6 +184,75 @@ class ActionRunService:
         }
         return payload
 
+    def recover_prepared_action(
+        self,
+        project_id: str,
+        *,
+        receipt_id: str,
+        required_execution_target: ExactExecutionMatch | None = None,
+    ) -> ActionRunResponse | None:
+        """Resume ordinary queued admission from its durable prepared run.
+
+        The persisted runner spec owns the admitted output preconditions. A
+        caller rebuilding the request from current columns could change those
+        preconditions and turn recovery into an idempotency conflict.
+        """
+
+        project = self._workspace.get(project_id)
+        stored = ReceiptStore(project).find_by_id(receipt_id)
+        if (
+            stored is None
+            or stored.status != "queued"
+            or stored.run_id is None
+            or not stored.idempotency_key
+        ):
+            return None
+        row = project.db.execute(
+            "SELECT ops.spec FROM runs JOIN ops ON ops.id=runs.op_id WHERE runs.id=?",
+            (stored.run_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        try:
+            runner_spec = json.loads(row["spec"])
+            from frisket.engine.executor.map_rows_action import (
+                bound_typed_program_request_from_runner_spec,
+                normalized_typed_request_identity,
+            )
+
+            bound = bound_typed_program_request_from_runner_spec(
+                runner_spec,
+                project=project,
+            )
+            if bound is None or bound.action.action_id != stored.action_kind:
+                return None
+            body = normalized_typed_request_identity(bound)
+            body["idempotency_key"] = stored.idempotency_key
+        except (TypeError, ValueError):
+            return None
+        return self.run_action(
+            project_id,
+            body,
+            required_execution_target=required_execution_target,
+        )
+
+    def cancel_prepared_action(self, project_id: str, *, receipt_id: str) -> bool:
+        """Cancel a prepared queued action through its ordinary run authority."""
+
+        project = self._workspace.get(project_id)
+        stored = ReceiptStore(project).find_by_id(receipt_id)
+        if stored is None or stored.run_id is None:
+            return False
+        row = project.db.execute(
+            "SELECT status FROM runs WHERE id=?", (stored.run_id,)
+        ).fetchone()
+        if row is None or row["status"] not in {"running", "cancelled"}:
+            return False
+        from frisket.server.services.action_run_cancel import ActionRunCancelService
+
+        ActionRunCancelService(self._workspace).cancel_run(project_id, stored.run_id)
+        return True
+
     def _storage_org_id(self) -> int | None:
         return self._workspace.queue_storage_org_id
 
@@ -194,6 +263,7 @@ class ActionRunService:
         *,
         request_context: Any = None,
         admitted_sources: Mapping[str, BoundLocalFile] | None = None,
+        required_execution_target: ExactExecutionMatch | None = None,
     ) -> ActionRunResponse:
         # Payload-only gates FIRST, before the project is resolved. These two
         # read nothing but the action envelope and this process's environment,
@@ -249,6 +319,10 @@ class ActionRunService:
                     effective_router,
                     execution_context,
                 )
+                if required_execution_target is not None:
+                    request_composition = request_composition.restricted_to(
+                        required_execution_target
+                    )
             return request_composition
 
         # This is the same choke point, with the same choice of
@@ -322,6 +396,12 @@ class ActionRunService:
             execution_context=execution_context,
         )
         if queued_result is not None:
+            self._reserve_queued_media_search_preparation(
+                project,
+                project_id=project_id,
+                body=body,
+                result=queued_result,
+            )
             return _action_run_response(queued_result)
 
         execution_composition = request_execution_composition()
@@ -338,6 +418,59 @@ class ActionRunService:
             edition_run_context=execution_context.edition_snapshot,
         )
         return self._direct_result_response(project, project_id, result)
+
+    def _reserve_queued_media_search_preparation(
+        self,
+        project: Project,
+        *,
+        project_id: str,
+        body: Mapping[str, Any],
+        result: V1ActionResult,
+    ) -> None:
+        """Correlate the two file-producing URL actions with their exact job."""
+
+        if (
+            self._workspace.edition == "cloud"
+            or result.status != "queued"
+            or result.job_id is None
+            or result.action.kind not in {"media.fetch_url", "media.ytdlp_download"}
+        ):
+            return
+        from frisket.engine.jobs.search_preparation_store import SearchPreparationStore
+        from frisket.project_settings import read_project_settings
+
+        if not read_project_settings(project).prepare_new_files_automatically:
+            return
+        scope = body.get("scope")
+        if not isinstance(scope, Mapping) or scope.get("kind") != "sheet_rows":
+            return
+        try:
+            sheet_id = int(scope["sheet_id"])
+            selected = scope.get("row_ids")
+            row_ids = (
+                project.visible_row_ids(sheet_id)
+                if selected is None
+                else [int(value) for value in selected]
+            )
+        except (KeyError, TypeError, ValueError):
+            return
+        if not row_ids:
+            return
+        try:
+            SearchPreparationStore(
+                self._workspace.queue, workspace_root=str(self._workspace.root)
+            ).create_pending_materialization(
+                storage_org_id=self._workspace.queue_storage_org_id,
+                project_id=project_id,
+                job_id=int(result.job_id),
+                sheet_id=sheet_id,
+                row_ids=row_ids,
+            )
+        except Exception:  # noqa: BLE001 - admitted action remains authoritative
+            LOG.warning(
+                "failed to reserve automatic search preparation for media action",
+                exc_info=True,
+            )
 
     def _direct_result_response(
         self,
@@ -853,6 +986,7 @@ class ActionRunService:
                 source=source_data,
                 sheet_id=sheet_id,
                 row_ids=row_ids,
+                prepare_for_search=self._workspace.edition != "cloud",
             )
         )
 

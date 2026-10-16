@@ -38,6 +38,7 @@ function launch(actionKind: string, previews: unknown[]) {
         name: 'Name', column_type: 'text', format: null, hidden: false, overwrites_column_id: null,
       }], rows: [{ Name: { value: 'Ada' } }], sampled: 1, total: null },
     });
+    if (url.endsWith('/search-preparation')) return json({ batches: [] });
     if (url.endsWith('/sheets') || url.endsWith('/watches') || url.endsWith('/saved-actions')) return json([]);
     return json({});
   }));

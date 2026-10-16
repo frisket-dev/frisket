@@ -68,10 +68,12 @@ class ImportSessionService:
         *,
         limits: BulkImportLimits | None = None,
         enqueue: EnqueueImport | None = None,
+        search_preparation: Any = None,
     ) -> None:
         self._workspace = workspace
         self._limits = limits or BulkImportLimits()
         self._enqueue = enqueue
+        self._search_preparation = search_preparation
 
     def create(
         self, project_id: str, sheet_name: str, *, max_rows: int | None = None
@@ -125,6 +127,12 @@ class ImportSessionService:
                 )
                 write_import_header(directory, header)
                 ImportInventory(directory / "inventory.db").close()
+                if self._search_preparation is not None:
+                    self._search_preparation.reserve_import(
+                        project_id,
+                        receipt_id=envelope.receipt_id,
+                        import_ref=ref,
+                    )
                 return self._status(project, ref, directory, header)
             except BaseException:
                 shutil.rmtree(directory, ignore_errors=True)
@@ -509,6 +517,38 @@ class ImportSessionService:
             state = (
                 "paused" if job is not None and job.status == "failed" else "admitting"
             )
+        receipt_id = str(header.envelope["receipt_id"])
+        preparation_batch_id = (
+            self._search_preparation.batch_for_receipt(header.project_id, receipt_id)
+            if self._search_preparation is not None
+            else None
+        )
+        if (
+            state in {"completed", "kept"}
+            and preparation_batch_id is None
+            and self._search_preparation is not None
+            and self._search_preparation.automatic_enabled(header.project_id)
+            and session is not None
+            and session.sheet_id is not None
+        ):
+            try:
+                # CLI workers do not construct the server Workspace, so their
+                # optional terminal callback cannot publish this follow-up.
+                # Materialize it at the server's terminal response boundary;
+                # the receipt-backed trigger makes reconnects idempotent.
+                preparation_batch_id = self._search_preparation.create_after_import(
+                    header.project_id,
+                    receipt_id=receipt_id,
+                    sheet_id=session.sheet_id,
+                )
+            except Exception:
+                logger.warning(
+                    "terminal import search preparation could not be published",
+                    exc_info=True,
+                )
+                # The import is already committed. Keep its terminal response
+                # unpublished so the next poll retries the durable follow-up.
+                state = "running"
         return ImportSessionStatus(
             import_ref=ref,
             state=state,
@@ -526,6 +566,7 @@ class ImportSessionService:
                 if session is None and state == "paused"
                 else None
             ),
+            search_preparation_batch_id=preparation_batch_id,
         )
 
     def _latest_page_job(self, project_id: str, ref: str, through: int, sealed: bool):

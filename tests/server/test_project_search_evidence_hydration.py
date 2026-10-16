@@ -126,7 +126,7 @@ def test_search_route_hydrates_transcript_and_ocr_from_its_pinned_snapshot(
         assert drain_index(project) >= 2
 
         client = _client(project)
-        transcript = _search(client, "sentence")
+        transcript = _search(client, "Second sentence")
         ocr = _search(client, "China")
 
         transcript_hits = [
@@ -141,6 +141,11 @@ def test_search_route_hydrates_transcript_and_ocr_from_its_pinned_snapshot(
         ]
         assert len(transcript_hits) == 1
         assert "sentence" in transcript_hits[0]["snippet"].lower()
+        second_span = project.db.execute(
+            "SELECT stable_id FROM source_spans WHERE quote='Second sentence.'"
+        ).fetchone()
+        assert second_span is not None
+        assert transcript_hits[0]["navigation"]["span_id"] == second_span["stable_id"]
         assert len(ocr_hits) == 1
         assert "china" in ocr_hits[0]["snippet"].lower()
     finally:

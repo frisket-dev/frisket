@@ -179,6 +179,11 @@ class ProjectSearchContribution(WireModel):
 class ProjectSearchSetup(WireModel):
     setup_ref: str
     scope: Literal["workspace", "organization"]
+    display_name: str
+    download_bytes: int | None = Field(default=None, ge=0)
+    additional_runtime_download: bool
+    license: str | None = None
+    source_url: str | None = None
 
 
 class ProjectSearchChannelCoverage(WireModel):

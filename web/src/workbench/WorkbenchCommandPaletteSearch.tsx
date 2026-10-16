@@ -1,4 +1,5 @@
-import { Bell, Bookmark, SearchCheck, X } from 'lucide-react';
+import { Bell, Bookmark, LoaderCircle, SearchCheck, X } from 'lucide-react';
+import { useState } from 'react';
 import type { EmbeddingIndexSummary } from '../api/open';
 import type {
   ProjectSearchGroupWire,
@@ -7,6 +8,7 @@ import type {
 } from '../api/projectSearch';
 import { PanelSelect } from '../components/PanelSelect';
 import { decodeEscapedText } from '../displayText';
+import { formatNumberDisplay } from '../format';
 
 function splitSnippet(text: string): Array<{ key: string; text: string; bold: boolean }> {
   const parts: Array<{ key: string; text: string; bold: boolean }> = [];
@@ -52,6 +54,13 @@ function Snip({ text, decodeEscapes }: { text: string; decodeEscapes?: boolean }
 
 function coverageMessage(coverage: ProjectSearchResponseWire['coverage'] | null): string | null {
   if (!coverage || coverage.state === 'complete') return null;
+  const mediaGap = coverage.channels.find((channel) => (
+    channel.channel === 'search_preparation'
+    && channel.eligible_count != null
+    && channel.prepared_count != null
+    && channel.eligible_count > channel.prepared_count
+  ));
+  if (mediaGap && mediaGap.state !== 'pending') return 'Showing available search results.';
   if (coverage.state === 'preparing') return 'Preparing project search material…';
   if (coverage.state === 'partial') return 'Showing available results while more material is prepared.';
   if (coverage.state === 'failed') return 'Some project material could not be searched.';
@@ -144,6 +153,11 @@ export function PaletteSearchSection({
   setupBusy,
   setupError,
   onStartSetup,
+  preparationBusy,
+  preparationError,
+  canPrepareGap,
+  onPrepareGap,
+  onViewJobs,
 }: {
   mode: 'lexical' | 'semantic' | 'hybrid';
   onModeChange(mode: 'lexical' | 'semantic' | 'hybrid'): void;
@@ -177,10 +191,30 @@ export function PaletteSearchSection({
   setupBusy: boolean;
   setupError: string | null;
   onStartSetup(setupRef: string, scope: 'workspace' | 'organization'): void;
+  preparationBusy: boolean;
+  preparationError: string | null;
+  canPrepareGap: boolean;
+  onPrepareGap(): void;
+  onViewJobs(): void;
 }) {
+  const [setupConsentRef, setSetupConsentRef] = useState<string | null>(null);
   const status = coverageMessage(coverage);
   const setup = coverage?.channels.find((channel) => channel.setup)?.setup;
+  const consentSetup = setup?.setup_ref === setupConsentRef ? setup : null;
   const resultCount = groups?.length ?? 0;
+  const materialGap = coverage?.channels.find((channel) => (
+    channel.setup == null
+    && (
+      (channel.eligible_count != null
+        && channel.prepared_count != null
+        && channel.eligible_count > channel.prepared_count)
+      || channel.state === 'unavailable'
+      || channel.state === 'failed'
+    )
+  ));
+  const materialGapCount = materialGap?.eligible_count != null && materialGap.prepared_count != null
+    ? materialGap.eligible_count - materialGap.prepared_count
+    : null;
 
   return (
     <div className="palette-section palette-search-section" data-testid="palette-section-search">
@@ -225,6 +259,8 @@ export function PaletteSearchSection({
             type="button"
             className="mini-btn search-watch-btn"
             data-testid="watch-search-button"
+            aria-label={watchBusy ? 'Watching…' : 'Watch search'}
+            aria-busy={watchBusy}
             disabled={!canWatch}
             onClick={onCreateWatch}
             title={anchored && namedIndexId
@@ -233,17 +269,19 @@ export function PaletteSearchSection({
                 ? 'Watch this search'
                 : 'Watch a keyword search'}
           >
-            <Bell size={12} /> {watchBusy ? 'Watching…' : 'Watch search'}
+            {watchBusy ? <LoaderCircle size={12} className="spin" aria-hidden /> : <Bell size={12} aria-hidden />}
           </button>
           <button
             type="button"
             className="mini-btn search-save-btn"
             data-testid="save-search-lens-button"
+            aria-label={saveBusy ? 'Saving…' : 'Save view'}
+            aria-busy={saveBusy}
             disabled={!canSaveLens}
             onClick={onSaveLens}
             title="Save this named-index search as a view"
           >
-            <Bookmark size={12} /> {saveBusy ? 'Saving…' : 'Save view'}
+            {saveBusy ? <LoaderCircle size={12} className="spin" aria-hidden /> : <Bookmark size={12} aria-hidden />}
           </button>
           {watchStatus && (
             <span className="search-watch-status" data-testid="watch-search-status">
@@ -276,14 +314,79 @@ export function PaletteSearchSection({
               className="mini-btn"
               data-testid="search-setup"
               disabled={setupBusy}
-              onClick={() => onStartSetup(setup.setup_ref, setup.scope)}
+              onClick={() => setSetupConsentRef(setup.setup_ref)}
             >
-              {setupBusy ? 'Starting…' : 'Set up semantic search'}
+              Set up semantic search
             </button>
           )}
         </div>
       )}
+      {consentSetup && (
+        <section className="search-setup-consent" data-testid="search-setup-consent">
+          <div>
+            <strong>Download {consentSetup.display_name}?</strong>
+            <span>
+              Model download: {consentSetup.download_bytes == null
+                ? 'Size not measured'
+                : `About ${formatNumberDisplay(consentSetup.download_bytes, 'filesize')}`}
+            </span>
+          </div>
+          <p>Search by meaning.</p>
+          <div className="search-preparation-actions">
+            <button
+              type="button"
+              className="btn"
+              data-testid="search-setup-not-now"
+              disabled={setupBusy}
+              onClick={() => setSetupConsentRef(null)}
+            >
+              Not now
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              data-testid="search-setup-confirm"
+              disabled={setupBusy}
+              onClick={() => onStartSetup(consentSetup.setup_ref, consentSetup.scope)}
+            >
+              {setupBusy ? 'Starting…' : 'Download and set up'}
+            </button>
+          </div>
+        </section>
+      )}
       {setupError && <div className="picker-error">{setupError}</div>}
+      {materialGap && (
+        <div className="search-preparation-gap" data-testid="search-preparation-gap">
+          <span>
+            {materialGap.channel === 'search_preparation' && materialGapCount != null
+              ? `${materialGapCount.toLocaleString()} current media ${materialGapCount === 1 ? 'item needs' : 'items need'} search preparation.`
+              : materialGapCount == null
+              ? 'Some files need search preparation.'
+              : `${materialGapCount.toLocaleString()} ${materialGapCount === 1 ? 'file needs' : 'files need'} search preparation.`}
+          </span>
+          {materialGap.state === 'pending' ? (
+            <button
+              type="button"
+              className="mini-btn"
+              data-testid="search-preparation-view-jobs"
+              onClick={onViewJobs}
+            >
+              View Jobs
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="mini-btn"
+              data-testid="search-preparation-gap-action"
+              disabled={!canPrepareGap || preparationBusy}
+              onClick={onPrepareGap}
+            >
+              {preparationBusy ? 'Starting…' : 'Prepare this sheet'}
+            </button>
+          )}
+        </div>
+      )}
+      {preparationError && <div className="picker-error">{preparationError}</div>}
       {!searchError && groups !== null && (
         resultCount === 0 ? (
           coverage?.state !== 'preparing' && (

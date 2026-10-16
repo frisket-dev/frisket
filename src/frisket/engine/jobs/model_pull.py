@@ -25,7 +25,7 @@ import json
 import logging
 import re
 import time
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -45,6 +45,64 @@ LOG = logging.getLogger("frisket.jobs.model_pull")
 
 MODEL_PULL_MAX_ATTEMPTS = 3
 MODEL_PULL_HANDLER_ORIGIN = "frisket.model_pull.base"
+
+
+class ModelPullEnqueueError(RuntimeError):
+    """A durable pull row could not be bound to its ordinary queue job."""
+
+
+def schedule_model_pull(
+    queue: JobQueue,
+    *,
+    workspace_root: str | Path,
+    model_ref: str,
+    initiated_by: str | None = None,
+    endpoint_id: str | None = None,
+    endpoint_origin: str | None = None,
+    queue_payload_extra: Mapping[str, Any] | None = None,
+) -> tuple[model_pull_store.ModelPullRow, bool]:
+    """Admit a pull, enqueue it, and bind its durable job identity.
+
+    Busy-policy and HTTP error translation belong to callers. This function
+    owns the shared store/queue seam, including terminalizing an admitted row
+    when enqueue fails so the workspace setup slot is never orphaned.
+    """
+
+    root = str(workspace_root)
+    row, created = model_pull_store.create_or_get_active(
+        queue.engine,
+        workspace_root=root,
+        model_ref=model_ref,
+        initiated_by=initiated_by,
+        endpoint_id=endpoint_id,
+        endpoint_origin=endpoint_origin,
+    )
+    if not created:
+        return row, False
+    try:
+        job_id = queue.enqueue(
+            MODEL_PULL_KIND,
+            {
+                **dict(queue_payload_extra or {}),
+                "pull_id": row.id,
+                "workspace_root": root,
+            },
+            max_attempts=MODEL_PULL_MAX_ATTEMPTS,
+        )
+    except Exception as exc:  # noqa: BLE001 - durable slot must be released
+        model_pull_store.mark_failed(
+            queue.engine,
+            row.id,
+            error_code="enqueue_failed",
+            error_message=f"failed to enqueue the pull job ({type(exc).__name__})",
+        )
+        raise ModelPullEnqueueError("failed to enqueue the model pull") from exc
+    model_pull_store.set_job_id(queue.engine, row.id, job_id=job_id)
+    scheduled = model_pull_store.get(queue.engine, row.id)
+    if scheduled is None:  # pragma: no cover - set_job_id requires the row
+        raise RuntimeError("scheduled model pull disappeared")
+    return scheduled, True
+
 
 # Read timeout between chunks of the pull stream: Ollama can go quiet for a
 # while between progress lines (a slow layer), but a stall well past this is
@@ -454,6 +512,7 @@ def register_model_pull_handler(
     artifact_cache_root: Path | None = None,
     artifact_manifest_lookup: Callable[[str], Any] | None = None,
     on_embedding_setup_done: Callable[[], None] | None = None,
+    on_engine_setup_done: Callable[[str], None] | None = None,
 ) -> HandlerRegistration:
     """Register the ``model.pull`` handler.
 
@@ -536,23 +595,33 @@ def register_model_pull_handler(
 
             should_cancel = _make_cancel_checker(queue, job_id, engine, pull_id)
             if is_engine_setup_ref(canonical_ref):
-                result = run_engine_setup(
-                    engine=engine,
-                    pull_id=pull_id,
-                    should_cancel=should_cancel,
-                    is_final_attempt=is_final_attempt,
-                )
-                if (
-                    result.get("status") == "done"
-                    and canonical_ref == EMBEDDINGGEMMA_SETUP_REF
-                    and on_embedding_setup_done is not None
-                ):
+                try:
+                    result = run_engine_setup(
+                        engine=engine,
+                        pull_id=pull_id,
+                        should_cancel=should_cancel,
+                        is_final_attempt=is_final_attempt,
+                    )
+                except Exception:
+                    if is_final_attempt and on_engine_setup_done is not None:
+                        try:
+                            on_engine_setup_done(canonical_ref)
+                        except Exception:
+                            LOG.warning(
+                                "engine_setup_terminal_hook_failed", exc_info=True
+                            )
+                    raise
+                if result.get("status") in {"done", "cancelled"}:
                     try:
-                        on_embedding_setup_done()
+                        if on_engine_setup_done is not None:
+                            on_engine_setup_done(canonical_ref)
+                        if (
+                            canonical_ref == EMBEDDINGGEMMA_SETUP_REF
+                            and on_embedding_setup_done is not None
+                        ):
+                            on_embedding_setup_done()
                     except Exception:
-                        LOG.warning(
-                            "embedding_setup_completion_hook_failed", exc_info=True
-                        )
+                        LOG.warning("engine_setup_terminal_hook_failed", exc_info=True)
                 return result
 
             # Route by ref kind. A qualified local-model ref uses the native

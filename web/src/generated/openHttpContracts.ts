@@ -619,6 +619,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
+      "id": "tenant.create_search_preparation.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/search-preparation",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
       "id": "tenant.create_skill.post",
       "method": "POST",
       "path": "/api/skills",
@@ -640,6 +649,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "id": "tenant.create_watch.post",
       "method": "POST",
       "path": "/api/projects/{pid}/watches",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
+      "id": "tenant.decide_search_preparation.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/search-preparation/{batch_id}/decision",
       "request": {
         "mediaType": "application/json",
         "required": true
@@ -961,6 +979,18 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
+      "id": "tenant.get_search_preparation.get",
+      "method": "GET",
+      "path": "/api/projects/{pid}/search-preparation/{batch_id}",
+      "request": null
+    },
+    {
+      "id": "tenant.get_search_preparation_text_samples.get",
+      "method": "GET",
+      "path": "/api/projects/{pid}/search-preparation/{batch_id}/text-samples",
+      "request": null
+    },
+    {
       "id": "tenant.get_source_ep.get",
       "method": "GET",
       "path": "/api/projects/{pid}/sources/{source_id}",
@@ -1198,6 +1228,12 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "id": "tenant.list_providers.get",
       "method": "GET",
       "path": "/api/providers",
+      "request": null
+    },
+    {
+      "id": "tenant.list_search_preparations.get",
+      "method": "GET",
+      "path": "/api/projects/{pid}/search-preparation",
       "request": null
     },
     {
@@ -1778,6 +1814,12 @@ export const HTTP_CONTRACT_ARTIFACT = {
         "mediaType": "application/json",
         "required": true
       }
+    },
+    {
+      "id": "tenant.stop_search_preparation.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/search-preparation/{batch_id}/stop",
+      "request": null
     },
     {
       "id": "tenant.test_mcp_server.post",
@@ -5629,6 +5671,7 @@ export type HttpImportCsvResponse = ({
 
 export type HttpImportFilesResponse = ({
   "rows": (number);
+  "search_preparation_batch_id"?: (((string)) | ((null)));
   "sheet_id": (number);
 });
 
@@ -5720,6 +5763,7 @@ type HttpImportSessionList_ImportSessionStatus = ({
   "error"?: (((string)) | ((null)));
   "import_ref": (string);
   "sealed": (boolean);
+  "search_preparation_batch_id"?: (((string)) | ((null)));
   "sheet_id"?: (((number)) | ((null)));
   "sheet_name": (string);
   "state": ("admitting" | "running" | "paused" | "cancelling" | "cancelled" | "completed" | "kept" | "removed") & (string);
@@ -5743,6 +5787,7 @@ export type HttpImportSessionStatus = ({
   "error"?: (((string)) | ((null)));
   "import_ref": (string);
   "sealed": (boolean);
+  "search_preparation_batch_id"?: (((string)) | ((null)));
   "sheet_id"?: (((number)) | ((null)));
   "sheet_name": (string);
   "state": ("admitting" | "running" | "paused" | "cancelling" | "cancelled" | "completed" | "kept" | "removed") & (string);
@@ -6931,6 +6976,11 @@ export type HttpInline_b0c001af64fcca02 = ({
   "watch_id": (number);
 });
 
+export type HttpInline_b1e07c7c7e5c3960 = ({
+  "batch_id": (string);
+  "pid": (string);
+});
+
 type HttpInline_b365e6e4a7d24b06_ActionError = ({
   "action_kind"?: (((string)) | ((null)));
   "code": (string);
@@ -7111,6 +7161,11 @@ export type HttpInline_ca8048e52b1f7635 = ({
 export type HttpInline_cd5e2492515e7874 = ({
   "index_id": (string);
   "pid": (string);
+});
+
+export type HttpInline_d142ec994d395778 = ({
+  "page_number"?: (((number)) | ((null)));
+  "row_id"?: (((number)) | ((null)));
 });
 
 export type HttpInline_d746974fa9afd5e9 = (Record<string, never>);
@@ -9061,8 +9116,13 @@ type HttpProjectSearchResponse_ProjectSearchPart = ({
 });
 
 type HttpProjectSearchResponse_ProjectSearchSetup = ({
+  "additional_runtime_download": (boolean);
+  "display_name": (string);
+  "download_bytes"?: (((number)) | ((null)));
+  "license"?: (((string)) | ((null)));
   "scope": ("workspace" | "organization") & (string);
   "setup_ref": (string);
+  "source_url"?: (((string)) | ((null)));
 });
 
 type HttpProjectSearchResponse_ProjectSearchSource = ({
@@ -9135,6 +9195,7 @@ type HttpProjectSettingsRequest_ProjectRetrievalSettingsRequest = ({
   "audio_enabled"?: (boolean);
   "image_enabled"?: (boolean);
   "pdf_pages_enabled"?: (boolean);
+  "prepare_new_files_automatically"?: (boolean);
   "text_enabled"?: (boolean);
   "transcript_enabled"?: (boolean);
   "video"?: (HttpProjectSettingsRequest_ProjectRetrievalVideoRequest);
@@ -9157,6 +9218,7 @@ type HttpProjectSettingsResponse_ProjectRetrievalSettingsResponse = ({
   "audio_enabled": (boolean);
   "image_enabled": (boolean);
   "pdf_pages_enabled": (boolean);
+  "prepare_new_files_automatically": (boolean);
   "text_enabled": (boolean);
   "transcript_enabled": (boolean);
   "video": (HttpProjectSettingsResponse_ProjectRetrievalVideoResponse);
@@ -10011,6 +10073,125 @@ export type HttpSavedViewList = (Array<(HttpSavedViewList_SavedView)>);
 
 export type HttpSavedViewRenameRequest = ({
   "name": (string);
+});
+
+type HttpSearchPreparationBatch_SearchPreparationGroup = ({
+  "count": (number);
+  "kind": ("native_pdf" | "ocr" | "transcribe") & (string);
+  "status": ("planning" | "needs_consent" | "waiting_for_download" | "queued" | "running" | "complete" | "not_prepared" | "stopped" | "failed") & (string);
+});
+
+type HttpSearchPreparationBatch_SearchPreparationJob = ({
+  "action_kind"?: (((string)) | ((null)));
+  "job_id": (number);
+  "status": ("queued" | "running" | "done" | "failed" | "cancelled") & (string);
+});
+
+type HttpSearchPreparationBatch_SearchPreparationModel = ({
+  "additional_runtime_download": (boolean);
+  "can_setup": (boolean);
+  "display_name": (string);
+  "download_bytes"?: (((number)) | ((null)));
+  "license": (string);
+  "pull_id"?: (((number)) | ((null)));
+  "purpose": ("read_text" | "transcribe" | "search_by_meaning") & (string);
+  "ready": (boolean);
+  "remediation": (((string)) | ((null)));
+  "required": (boolean);
+  "runtime_ready": (boolean);
+  "setup_ref": (string);
+  "source_url": (string);
+});
+
+export type HttpSearchPreparationBatch = ({
+  "can_setup": (boolean);
+  "can_stop": (boolean);
+  "errors": (Array<(string)>);
+  "groups": (Array<(HttpSearchPreparationBatch_SearchPreparationGroup)>);
+  "id": (string);
+  "jobs": (Array<(HttpSearchPreparationBatch_SearchPreparationJob)>);
+  "models": (Array<(HttpSearchPreparationBatch_SearchPreparationModel)>);
+  "plan_hash": (string);
+  "schemaVersion"?: ("frisket.search_preparation.v1") & (string);
+  "sheet_id": (number);
+  "status": ("planning" | "needs_consent" | "preparing" | "complete" | "stopped" | "failed") & (string);
+});
+
+type HttpSearchPreparationBatchList_SearchPreparationBatch = ({
+  "can_setup": (boolean);
+  "can_stop": (boolean);
+  "errors": (Array<(string)>);
+  "groups": (Array<(HttpSearchPreparationBatchList_SearchPreparationGroup)>);
+  "id": (string);
+  "jobs": (Array<(HttpSearchPreparationBatchList_SearchPreparationJob)>);
+  "models": (Array<(HttpSearchPreparationBatchList_SearchPreparationModel)>);
+  "plan_hash": (string);
+  "schemaVersion"?: ("frisket.search_preparation.v1") & (string);
+  "sheet_id": (number);
+  "status": ("planning" | "needs_consent" | "preparing" | "complete" | "stopped" | "failed") & (string);
+});
+
+type HttpSearchPreparationBatchList_SearchPreparationGroup = ({
+  "count": (number);
+  "kind": ("native_pdf" | "ocr" | "transcribe") & (string);
+  "status": ("planning" | "needs_consent" | "waiting_for_download" | "queued" | "running" | "complete" | "not_prepared" | "stopped" | "failed") & (string);
+});
+
+type HttpSearchPreparationBatchList_SearchPreparationJob = ({
+  "action_kind"?: (((string)) | ((null)));
+  "job_id": (number);
+  "status": ("queued" | "running" | "done" | "failed" | "cancelled") & (string);
+});
+
+type HttpSearchPreparationBatchList_SearchPreparationModel = ({
+  "additional_runtime_download": (boolean);
+  "can_setup": (boolean);
+  "display_name": (string);
+  "download_bytes"?: (((number)) | ((null)));
+  "license": (string);
+  "pull_id"?: (((number)) | ((null)));
+  "purpose": ("read_text" | "transcribe" | "search_by_meaning") & (string);
+  "ready": (boolean);
+  "remediation": (((string)) | ((null)));
+  "required": (boolean);
+  "runtime_ready": (boolean);
+  "setup_ref": (string);
+  "source_url": (string);
+});
+
+export type HttpSearchPreparationBatchList = ({
+  "batches": (Array<(HttpSearchPreparationBatchList_SearchPreparationBatch)>);
+});
+
+export type HttpSearchPreparationCreateRequest = ({
+  "force_ocr"?: (boolean);
+  "row_ids"?: (((Array<(number)>)) | ((null)));
+  "sheet_id": (number);
+});
+
+export type HttpSearchPreparationDecisionRequest = ({
+  "decision": ("prepare" | "not_now") & (string);
+  "plan_hash": (string);
+  "selected_setup_refs"?: (Array<(string)>);
+});
+
+type HttpSearchPreparationTextSamples_SearchPreparationTextSample = ({
+  "column_id": (number);
+  "filename": (((string)) | ((null)));
+  "page_count": (number);
+  "page_number": (number);
+  "page_scoped": (boolean);
+  "preview_url": (string);
+  "row_id": (number);
+  "source": ("native" | "prepared") & (string);
+  "text": (string);
+  "truncated": (boolean);
+});
+
+export type HttpSearchPreparationTextSamples = ({
+  "batch_id": (string);
+  "samples": (Array<(HttpSearchPreparationTextSamples_SearchPreparationTextSample)>);
+  "schemaVersion"?: ("frisket.search_preparation_text_samples.v1") & (string);
 });
 
 export type HttpSeenResult = ({
@@ -12593,6 +12774,22 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
+  readonly "tenant.create_search_preparation.post": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpSearchPreparationCreateRequest;
+    readonly responses: {
+      readonly "200": HttpSearchPreparationBatch;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+      readonly "503": HttpError;
+    };
+  };
   readonly "tenant.create_skill.post": {
     readonly pathParams: HttpInline_d746974fa9afd5e9;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -12635,6 +12832,22 @@ export type HttpContractOperationMap = {
       readonly "409": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.decide_search_preparation.post": {
+    readonly pathParams: HttpInline_b1e07c7c7e5c3960;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpSearchPreparationDecisionRequest;
+    readonly responses: {
+      readonly "200": HttpSearchPreparationBatch;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+      readonly "503": HttpError;
     };
   };
   readonly "tenant.delete_cloud_connection.delete": {
@@ -13241,6 +13454,38 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
+  readonly "tenant.get_search_preparation.get": {
+    readonly pathParams: HttpInline_b1e07c7c7e5c3960;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpSearchPreparationBatch;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+      readonly "503": HttpError;
+    };
+  };
+  readonly "tenant.get_search_preparation_text_samples.get": {
+    readonly pathParams: HttpInline_b1e07c7c7e5c3960;
+    readonly query: HttpInline_d142ec994d395778;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpSearchPreparationTextSamples;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+      readonly "503": HttpError;
+    };
+  };
   readonly "tenant.get_source_ep.get": {
     readonly pathParams: HttpInline_120dda3b6fb473ac;
     readonly query: HttpInline_9d162aa16be8fbce;
@@ -13680,6 +13925,22 @@ export type HttpContractOperationMap = {
       readonly "409": HttpError;
       readonly "422": HttpHTTPValidationError;
       readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.list_search_preparations.get": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpSearchPreparationBatchList;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+      readonly "503": HttpError;
     };
   };
   readonly "tenant.list_sheets.get": {
@@ -14738,6 +14999,22 @@ export type HttpContractOperationMap = {
       readonly "404": HttpError;
       readonly "409": HttpError;
       readonly "413": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+      readonly "503": HttpError;
+    };
+  };
+  readonly "tenant.stop_search_preparation.post": {
+    readonly pathParams: HttpInline_b1e07c7c7e5c3960;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpSearchPreparationBatch;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;
       readonly "503": HttpError;

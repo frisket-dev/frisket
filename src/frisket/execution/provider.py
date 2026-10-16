@@ -48,6 +48,7 @@ from frisket.execution.credential_use import (
 from frisket.execution.targets import (
     EXECUTION_CAPABILITIES,
     ExecutionTarget,
+    TargetEngineSupport,
     require_clean,
 )
 from frisket.project_identity import ProjectStorageKey
@@ -216,6 +217,16 @@ class ExecutionTargetProvider(Protocol):
         ...
 
 
+def _support_matches(
+    support: TargetEngineSupport, *, capability: str, engine: str
+) -> bool:
+    return support.capability == capability and (
+        support.engine == engine
+        or support.engine.endswith("/*")
+        and engine.startswith(support.engine[:-1])
+    )
+
+
 @dataclass(frozen=True)
 class _ResolutionTargetProvider:
     """Request view containing only composition-selected target supports."""
@@ -245,11 +256,10 @@ class _ResolutionTargetProvider:
             target
             for target in self.rows
             if any(
-                support.capability == capability
-                and (
-                    support.engine == engine
-                    or support.engine.endswith("/*")
-                    and engine.startswith(support.engine[:-1])
+                _support_matches(
+                    support,
+                    capability=capability,
+                    engine=engine,
                 )
                 for support in target.engines
             )
@@ -441,13 +451,10 @@ class ExecutionComposition:
                     f"{match.target_id!r}"
                 )
             if not any(
-                support.capability == match.capability
-                and (
-                    support.engine == match.engine
-                    or (
-                        support.engine.endswith("/*")
-                        and match.engine.startswith(support.engine[:-1])
-                    )
+                _support_matches(
+                    support,
+                    capability=match.capability,
+                    engine=match.engine,
                 )
                 for support in target.engines
             ):
@@ -530,6 +537,45 @@ class ExecutionComposition:
             for match in self.included
         )
 
+    def restricted_to(self, match: ExactExecutionMatch) -> "ExecutionComposition":
+        """Return the same request world narrowed to one trusted exact target."""
+
+        source = self.provider_for_resolution()
+        rows: list[ExecutionTarget] = []
+        for target in source.targets():
+            if target.id != match.target_id:
+                continue
+            supports = tuple(
+                (
+                    replace(support, engine=match.engine)
+                    if support.engine.endswith("/*")
+                    else support
+                )
+                for support in target.engines
+                if _support_matches(
+                    support,
+                    capability=match.capability,
+                    engine=match.engine,
+                )
+            )
+            if supports:
+                rows.append(replace(target, engines=supports))
+        provider = _ResolutionTargetProvider(source, tuple(rows))
+        offerings = (
+            tuple(offering for offering in self.offerings if offering.match == match)
+            if rows
+            else ()
+        )
+        included = () if offerings or not rows else (match,)
+        return replace(
+            self,
+            provider=provider,
+            offerings=offerings,
+            included=included,
+            model_routes=None,
+            model_route_default=None,
+        )
+
     def resolution_targets(self) -> tuple[ExecutionTarget, ...]:
         """Targets that exist for this composition's resolution world.
 
@@ -562,12 +608,10 @@ class ExecutionComposition:
                 matching_matches = tuple(
                     match
                     for match in capability_matches
-                    if (
-                        match.engine == support.engine
-                        or (
-                            support.engine.endswith("/*")
-                            and match.engine.startswith(support.engine[:-1])
-                        )
+                    if _support_matches(
+                        support,
+                        capability=match.capability,
+                        engine=match.engine,
                     )
                 )
                 requires_exact_match = bool(capability_offers) or (
@@ -650,13 +694,10 @@ class ExecutionComposition:
         return any(
             target.id == target_id
             and any(
-                support.capability == capability
-                and (
-                    support.engine == engine
-                    or (
-                        support.engine.endswith("/*")
-                        and engine.startswith(support.engine[:-1])
-                    )
+                _support_matches(
+                    support,
+                    capability=capability,
+                    engine=engine,
                 )
                 for support in target.engines
             )

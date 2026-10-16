@@ -113,6 +113,7 @@ class ProjectRetrievalSettingsRequest(CoerciveProjectConfigRequest):
     pdf_pages_enabled: bool | None = None
     video: ProjectRetrievalVideoRequest | None = None
     audio_enabled: bool | None = None
+    prepare_new_files_automatically: bool | None = None
 
 
 class ProjectProviderKeyRequest(CoerciveProjectConfigRequest):
@@ -174,6 +175,7 @@ class ProjectRetrievalSettingsResponse(WireModel):
     pdf_pages_enabled: bool
     video: ProjectRetrievalVideoResponse
     audio_enabled: bool
+    prepare_new_files_automatically: bool
 
 
 class ProjectCompactResponse(WireModel):

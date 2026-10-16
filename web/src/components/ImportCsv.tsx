@@ -16,6 +16,7 @@ import {
   detectPastedRowsDraft,
   importCsv,
   createImportSession,
+  getImportSession,
   importFiles,
   importFollowTheMoney,
   importUrls,
@@ -32,6 +33,7 @@ import {
   type ImportDraft,
   type ImportDraftMappingColumn,
   type ImportCsvPreview,
+  type ImportSessionStatus,
   type ImportUpdatePreview,
   type BulkImportFailedOutput,
   type BulkImportPlan,
@@ -47,6 +49,7 @@ import {
   setImportSessionBrowserUploading,
 } from './importProgressSession';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
+import { usePoll } from '../hooks/usePoll';
 import { PanelSelect } from './PanelSelect';
 import { ImportDraftMappingPanel } from './importWorkspace/ImportDraftMappingPanel';
 import { ImportModeRail } from './importWorkspace/ImportModeRail';
@@ -57,6 +60,7 @@ import {
   type PdfPacketShellContext,
 } from './importWorkspace/pdfPacket/PdfPacketImportFlow';
 import { PDF_PACKET_STAGES } from './importWorkspace/pdfPacket/model';
+import { SearchPreparationReceipt } from './SearchPreparationReceipt';
 import {
   IMPORT_MODES,
   IMPORT_WORKSPACE_STAGES,
@@ -749,6 +753,12 @@ function resultRows(result: unknown): number | undefined {
   return typeof rows === 'number' && Number.isFinite(rows) ? rows : undefined;
 }
 
+interface FileImportCompletion {
+  sheetId: number | null;
+  searchPreparationBatchId: string | null;
+  importRef: string | null;
+}
+
 function useImportUpload({ onError }: ImportHandlers) {
   const { projectId } = useWorkspaceStores().chromePreferences;
   const [busy, setBusy] = useState(false);
@@ -763,7 +773,7 @@ function useImportUpload({ onError }: ImportHandlers) {
     columnMapping?: Record<string, string | null>,
     appendRequestKey?: string,
     preparedSelection?: PreparedFileSelection,
-  ): Promise<number | null> => {
+  ): Promise<FileImportCompletion | null> => {
     if (busy) return null;
     const list = Array.isArray(files) ? files : Array.from(files ?? []);
     if (!list.length) return null;
@@ -815,6 +825,8 @@ function useImportUpload({ onError }: ImportHandlers) {
                     sheet_id: status.sheet_id,
                     rows: status.committed_rows,
                     import_pending: true,
+                    import_ref: status.import_ref,
+                    search_preparation_batch_id: status.search_preparation_batch_id,
                   };
                 } catch (error) {
                   // The durable admitting session remains visible after a lost
@@ -827,7 +839,6 @@ function useImportUpload({ onError }: ImportHandlers) {
                 }
               })()
               : await importFiles(projectId, list);
-      if ('import_pending' in result && result.import_pending) return null;
       sendProductTelemetry({
         type: 'Import.finished',
         properties: {
@@ -845,9 +856,21 @@ function useImportUpload({ onError }: ImportHandlers) {
           failureCategory: 'none',
         },
       }, projectId);
-      return resolvedMode === 'ftm'
+      const sheetId = resolvedMode === 'ftm'
         ? firstMaterializedSheetId(result)
         : ('sheet_id' in result && typeof result.sheet_id === 'number' ? result.sheet_id : null);
+      const importRef = 'import_ref' in result && typeof result.import_ref === 'string'
+        ? result.import_ref
+        : null;
+      if (sheetId === null && importRef === null) return null;
+      return {
+        sheetId,
+        searchPreparationBatchId: 'search_preparation_batch_id' in result
+          && typeof result.search_preparation_batch_id === 'string'
+          ? result.search_preparation_batch_id
+          : null,
+        importRef,
+      };
     } catch (e) {
       sendProductTelemetry({
         type: 'Import.finished',
@@ -1020,6 +1043,12 @@ function OpenImportWorkspaceSession({
     launcherKind: string;
   } | null>(null);
   const [nerPrompt, setNerPrompt] = useState<NerImportOffer | null>(null);
+  const [preparationReceipt, setPreparationReceipt] = useState<{
+    sheetId: number | null;
+    batchId: string | null;
+    importRef: string | null;
+  } | null>(null);
+  const [preparationFollowupError, setPreparationFollowupError] = useState<string | null>(null);
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [singleFileFormat, setSingleFileFormat] = useState<SingleFileFormat>('csv');
   const [ftmDatasetName, setFtmDatasetName] = useState('');
@@ -1217,6 +1246,8 @@ function OpenImportWorkspaceSession({
     resetBulkPlan();
     setDownloadPrompt(null);
     setNerPrompt(null);
+    setPreparationReceipt(null);
+    setPreparationFollowupError(null);
     onClose();
   }, [onClose, resetBulkPlan, resetCsvPreview, resetDraft]);
   const closeWorkspaceFromUser = useCallback(() => {
@@ -1273,6 +1304,60 @@ function OpenImportWorkspaceSession({
     },
     [closeWorkspace, nerTemplate, onImported, projectApi],
   );
+
+  const finishFileImport = useCallback((completion: FileImportCompletion | null) => {
+    if (!completion) return;
+    if (completion.searchPreparationBatchId || completion.importRef) {
+      if (completion.sheetId !== null) onImported(completion.sheetId);
+      setPreparationFollowupError(null);
+      setPreparationReceipt({
+        sheetId: completion.sheetId,
+        batchId: completion.searchPreparationBatchId,
+        importRef: completion.importRef,
+      });
+      return;
+    }
+    if (completion.sheetId !== null) void finishImport(completion.sheetId);
+  }, [finishImport, onImported]);
+
+  usePoll(async () => {
+    if (!preparationReceipt?.importRef || preparationReceipt.batchId) return;
+    let status: ImportSessionStatus;
+    try {
+      status = await getImportSession(projectId, preparationReceipt.importRef);
+      setPreparationFollowupError(null);
+    } catch {
+      setPreparationFollowupError('Could not refresh import progress. Retrying…');
+      return;
+    }
+    if (status.search_preparation_batch_id) {
+      if (preparationReceipt.sheetId === null && status.sheet_id !== null) onImported(status.sheet_id);
+      setPreparationReceipt((current) => current ? {
+        ...current,
+        sheetId: current.sheetId ?? status.sheet_id,
+        batchId: status.search_preparation_batch_id,
+      } : current);
+      return;
+    }
+    if (['completed', 'kept', 'cancelled', 'removed'].includes(status.state)) {
+      setPreparationReceipt(null);
+      if (status.sheet_id !== null && preparationReceipt.sheetId === null) {
+        await finishImport(status.sheet_id);
+      } else {
+        closeWorkspace();
+      }
+      return;
+    }
+    if (preparationReceipt.sheetId === null && status.sheet_id !== null) {
+      onImported(status.sheet_id);
+      setPreparationReceipt((current) => current ? { ...current, sheetId: status.sheet_id } : current);
+    }
+  }, {
+    active: Boolean(preparationReceipt?.importRef && !preparationReceipt.batchId),
+    intervalMs: 1_000,
+    guardOverlap: true,
+    immediate: true,
+  });
 
   useEffect(() => {
     onCloseRef.current = closeWorkspace;
@@ -1586,7 +1671,7 @@ function OpenImportWorkspaceSession({
         onMouseDown={closeWorkspaceFromUser}
       />
       <section
-        className={`import-workspace${pdfPacketContext.active ? ' pdf-packet-workspace' : ''}`}
+        className={`import-workspace${pdfPacketContext.active ? ' pdf-packet-workspace' : ''}${preparationReceipt ? ' import-workspace-receipt' : ''}`}
         data-testid="import-workspace"
         aria-label="Import"
         tabIndex={-1}
@@ -1622,10 +1707,7 @@ function OpenImportWorkspaceSession({
                 void uploadFiles(
                   singleFileFormat === 'ftm' ? 'ftm' : fileMode,
                   files, undefined, ftmDatasetName, undefined, undefined, undefined, prepared,
-                ).then((sheetId) => {
-                  if (sheetId != null) void finishImport(sheetId);
-                  else if (prepared.usesAttachmentSession) closeWorkspace();
-                });
+                ).then(finishFileImport);
               }
             });
           }}
@@ -1650,10 +1732,7 @@ function OpenImportWorkspaceSession({
                 resetBulkPlan();
                 void uploadFiles(
                   'files', files, undefined, undefined, undefined, undefined, undefined, prepared,
-                ).then((sheetId) => {
-                  if (sheetId != null) void finishImport(sheetId);
-                  else closeWorkspace();
-                });
+                ).then(finishFileImport);
               } else {
                 startBulkPlan(files, false);
               }
@@ -1679,14 +1758,16 @@ function OpenImportWorkspaceSession({
             e.target.value = '';
           }}
         />
-        <header className="import-workspace-header">
-          <div>
-            <div className="import-workspace-title">Import</div>
-            <div className="import-workspace-kicker">
-              {pdfPacketContext.active ? pdfPacketContext.subtitle : 'Project data intake'}
+        <header className={`import-workspace-header${preparationReceipt ? ' import-workspace-header-receipt' : ''}`}>
+          {!preparationReceipt ? (
+            <div>
+              <div className="import-workspace-title">Import</div>
+              <div className="import-workspace-kicker">
+                {pdfPacketContext.active ? pdfPacketContext.subtitle : 'Project data intake'}
+              </div>
             </div>
-          </div>
-          {pdfPacketContext.active ? (
+          ) : null}
+          {pdfPacketContext.active && !preparationReceipt ? (
             <ImportStageStepper stages={[...PDF_PACKET_STAGES]} stage={pdfPacketContext.stage} />
           ) : null}
           <button
@@ -1700,8 +1781,8 @@ function OpenImportWorkspaceSession({
             <X size={16} />
           </button>
         </header>
-        <div className={`import-workspace-main${pdfPacketContext.active ? ' pdf-packet-workspace-main' : ''}`}>
-          {!pdfPacketContext.active ? (
+        <div className={`import-workspace-main${pdfPacketContext.active ? ' pdf-packet-workspace-main' : ''}${preparationReceipt ? ' import-workspace-main-receipt' : ''}`}>
+          {!pdfPacketContext.active && !preparationReceipt ? (
             <aside className="import-workspace-sidebar">
               <ImportModeRail modes={IMPORT_MODES} mode={railMode} onSelectMode={selectMode} />
             </aside>
@@ -1719,7 +1800,32 @@ function OpenImportWorkspaceSession({
             ) : null}
             <div className={`import-workspace-panel${mode === 'pdf_split' ? ' pdf-packet-workspace-panel' : ''}`}>
               {selectionPreparing ? <div role="status">Preparing selected files…</div> : null}
-              {downloadPrompt ? (
+              {preparationReceipt ? (
+                preparationReceipt.batchId ? (
+                  <SearchPreparationReceipt
+                    key={preparationReceipt.batchId}
+                    projectId={projectId}
+                    batchId={preparationReceipt.batchId}
+                    onBatchChange={(batch) => setPreparationReceipt((current) => current ? {
+                      ...current,
+                      batchId: batch.id,
+                    } : current)}
+                    onDone={closeWorkspace}
+                    onError={onError}
+                  />
+                ) : (
+                  <div className="search-preparation-receipt" data-testid="search-preparation-receipt">
+                    <div role="status"><span className="run-spinner" aria-hidden /> Finishing import…</div>
+                    <p>Files are saved. Frisket is checking what can be prepared for search.</p>
+                    {preparationFollowupError && (
+                      <div className="import-field-error" role="alert">{preparationFollowupError}</div>
+                    )}
+                    <button type="button" className="btn" data-testid="search-preparation-done" onClick={closeWorkspace}>
+                      Done
+                    </button>
+                  </div>
+                )
+              ) : downloadPrompt ? (
                 <MediaDownloadPrompt
                   columnName={downloadPrompt.columnName}
                   onRun={runDownloadPrompt}
@@ -2021,9 +2127,7 @@ function OpenImportWorkspaceSession({
                               appendDestinationSheetId ? csvColumnMapping : undefined,
                               appendRequestKey,
                             )
-                              .then((sheetId) => {
-                                if (sheetId != null) void finishImport(sheetId);
-                              });
+                              .then(finishFileImport);
                           }}
                         />
                       ) : null}
@@ -3049,7 +3153,7 @@ export function ImportDropzone(props: ImportHandlers & {
       if (ftmImportEnabled && files.length === 1 && /\.(?:json|jsonl)$/i.test(files[0].name)) {
         void rich.uploadFiles(
           'ftm', files, undefined, undefined, undefined, undefined, undefined, prepared,
-        ).then((sheetId) => { if (sheetId != null) handlers.onImported(sheetId); });
+        ).then((completion) => { if (completion?.sheetId != null) handlers.onImported(completion.sheetId); });
       } else if (prepared.directNeedsBulkPlan) {
         onOpenBulk(files);
       } else if (files.length === 1 && dropMode === 'csv') {
@@ -3063,7 +3167,7 @@ export function ImportDropzone(props: ImportHandlers & {
       } else if (dropMode) {
         void rich.uploadFiles(
           dropMode, files, undefined, undefined, undefined, undefined, undefined, prepared,
-        ).then((sheetId) => { if (sheetId != null) handlers.onImported(sheetId); });
+        ).then((completion) => { if (completion?.sheetId != null) handlers.onImported(completion.sheetId); });
       }
     }).finally(() => {
       if (generation === preparationGeneration.current) setPreparing(false);

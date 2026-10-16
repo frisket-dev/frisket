@@ -1221,6 +1221,12 @@ export type OcrParams = ({
   "engine"?: (OcrParams_EngineRef_OcrReader_);
 });
 
+type ReadPdfTextParams_PdfColumn = (string);
+
+export type ReadPdfTextParams = ({
+  "source": (ReadPdfTextParams_PdfColumn);
+});
+
 type ToMarkdownParams_DocumentColumn = (string);
 
 type ToMarkdownParams_EngineRef_DocumentConverter_ = (string);
@@ -1641,6 +1647,7 @@ export interface GeneratedActionParams {
   'media.extract_pdf_tables': PdfTablesParams;
   'media.fetch_url': FetchParams;
   'media.ocr': OcrParams;
+  'media.read_pdf_text': ReadPdfTextParams;
   'media.to_markdown': ToMarkdownParams;
   'media.transcribe': TranscribeParams;
   'media.video_frames': VideoFramesParams;

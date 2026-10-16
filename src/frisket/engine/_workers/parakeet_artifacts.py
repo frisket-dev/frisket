@@ -53,6 +53,7 @@ from .parakeet_model import (
 PARAKEET_VAD_MODEL = "silero"
 
 ARTIFACT_WALL_SECONDS = 1_800
+_ARTIFACT_DOWNLOAD_ENV = {"HF_HUB_DISABLE_XET": "1"}
 
 
 class ParakeetArtifactUnavailable(RuntimeError):
@@ -297,12 +298,45 @@ def parakeet_setup_ready() -> bool:
     )
 
 
+def parakeet_missing_download_bytes() -> int:
+    """Manifest estimate for only the Parakeet snapshots absent from cache."""
+
+    cache_dir = huggingface_hub_cache()
+    missing = 0
+    for getter, label in (
+        (artifact_manifest.parakeet_model_artifact, "Parakeet model"),
+        (artifact_manifest.parakeet_vad_artifact, "Parakeet VAD"),
+    ):
+        entry = getter()
+        if entry is None or entry.hf_snapshot is None:
+            raise ParakeetArtifactUnavailable(
+                f"the pinned {label} manifest entry is missing"
+            )
+        snapshot = entry.hf_snapshot
+        if (
+            _cached_snapshot(
+                cache_dir=cache_dir,
+                repo_id=snapshot.repo_id,
+                revision=snapshot.revision,
+                files=snapshot.files,
+            )
+            is None
+        ):
+            if entry.approx_size_bytes is None:
+                raise ParakeetArtifactUnavailable(
+                    f"the pinned {label} download size is missing"
+                )
+            missing += entry.approx_size_bytes
+    return missing
+
+
 async def resolve_parakeet_artifacts(
     *,
     vad: bool,
     should_cancel: Any = None,
+    allow_download: bool = False,
 ) -> ParakeetArtifacts:
-    """Resolve and verify the immutable model snapshots in a bounded child.
+    """Resolve and verify immutable model snapshots from the persistent cache.
 
     The repo/revision/file-list identity for both the model and (if
     requested) the VAD companion is looked up from the pinned manifest on
@@ -310,7 +344,8 @@ async def resolve_parakeet_artifacts(
     The manifest entry is NOT the re-pinning edit site, though: it is built
     from the ``parakeet_model.py`` constants, and the inference worker
     validates against those same constants (rejecting any other revision) --
-    an editor re-pins in ``parakeet_model.py``.
+    an editor re-pins in ``parakeet_model.py``. Only explicit engine setup may
+    set ``allow_download``; inference uses the cache-only default.
     """
 
     cache_dir = huggingface_hub_cache()
@@ -359,6 +394,11 @@ async def resolve_parakeet_artifacts(
             vad_revision=vad_revision if vad else None,
         )
 
+    if not allow_download:
+        raise ParakeetArtifactUnavailable(
+            "the pinned Parakeet artifacts are not cached; run explicit setup"
+        )
+
     try:
         result = await run_sandboxed(
             worker_argv("parakeet-artifacts"),
@@ -368,8 +408,10 @@ async def resolve_parakeet_artifacts(
                 memory_mb=1024,
                 allow_network=True,
                 env_passthrough=["VIRTUAL_ENV", "PYTHONPATH"],
+                allowed_extra_env=list(_ARTIFACT_DOWNLOAD_ENV),
             ),
             stdin_data=json.dumps(payload, separators=(",", ":")).encode(),
+            extra_env=_ARTIFACT_DOWNLOAD_ENV,
             should_cancel=should_cancel,
         )
     except (asyncio.CancelledError, SandboxTeardownError):
@@ -437,6 +479,7 @@ __all__ = [
     "ParakeetArtifacts",
     "huggingface_hub_cache",
     "parakeet_setup_ready",
+    "parakeet_missing_download_bytes",
     "whisper_setup_ready",
     "resolve_parakeet_artifacts",
     "resolver_main",

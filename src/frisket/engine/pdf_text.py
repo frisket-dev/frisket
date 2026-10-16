@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 import json
 from pathlib import Path
 
 from pydantic import TypeAdapter, ValidationError
 
-from frisket.actions.document_extraction_types import PositionedPage
+from frisket.actions.document_extraction_types import PositionedPage, PositionedToken
 from frisket.engine.sandbox import fence
 from frisket.engine.sandbox.shim import SandboxPolicy, run_sandboxed
 from frisket.runtime.launch import worker_argv
@@ -20,6 +20,29 @@ class PdfTextError(RuntimeError):
 
 class PdfTextCancelled(PdfTextError):
     pass
+
+
+def positioned_tokens_text(tokens: Iterable[PositionedToken]) -> str:
+    """Assemble positioned tokens into text while retaining inferred lines."""
+
+    parts: list[str] = []
+    previous: PositionedToken | None = None
+    for token in tokens:
+        if not token.text.strip():
+            continue
+        if previous is not None:
+            same_line = (
+                abs(token.box.y0 - previous.box.y0)
+                < max(
+                    token.box.y1 - token.box.y0,
+                    previous.box.y1 - previous.box.y0,
+                )
+                * 0.6
+            )
+            parts.append(" " if same_line else "\n")
+        parts.append(token.text)
+        previous = token
+    return "".join(parts).strip()
 
 
 async def extract_pdf_text(

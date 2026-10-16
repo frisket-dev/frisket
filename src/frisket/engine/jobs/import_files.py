@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from collections.abc import Callable
 
 from frisket.contracts.action import ActionResult
 from frisket.engine.executor.action_jobs import ActionJobEnvelope, bind_typed_action_job
@@ -35,6 +36,7 @@ from .queue import (
 from .worker import HandlerRegistration, HandlerRegistry
 
 _PAGES_PER_CLAIM = 4
+LOG = logging.getLogger(__name__)
 
 
 def register_import_files_handler(
@@ -45,7 +47,16 @@ def register_import_files_handler(
     require_storage_identity: bool = False,
     workspace_root_storage_org_id: int | None = None,
     project_opener: ProjectOpener | None = None,
+    on_terminal_import: Callable[[str, str, int], None] | None = None,
 ) -> HandlerRegistration:
+    def notify_terminal(project_id: str, receipt_id: str, sheet_id: int) -> None:
+        if on_terminal_import is None:
+            return
+        try:
+            on_terminal_import(project_id, receipt_id, sheet_id)
+        except Exception:  # preparation is follow-up work after a committed import
+            LOG.warning("search_preparation_import_hook_failed", exc_info=True)
+
     def handle(payload: dict, context: JobHandlerContext) -> dict:
         if (
             context.job_id is None
@@ -139,6 +150,10 @@ def register_import_files_handler(
                 }:
                     if terminal_state in {"completed", "kept"}:
                         schedule_metadata(envelope.receipt_id)
+                        if session is not None and session.sheet_id is not None:
+                            notify_terminal(
+                                project_id, envelope.receipt_id, session.sheet_id
+                            )
                     if terminal_state in {"completed", "kept", "removed"}:
                         compact_terminal(directory)
                     return {
@@ -252,6 +267,9 @@ def register_import_files_handler(
                         pages += 1
                         if session.state == "completed":
                             schedule_metadata(envelope.receipt_id)
+                            notify_terminal(
+                                project_id, envelope.receipt_id, session.sheet_id
+                            )
                             compact_terminal(directory)
                             return {
                                 "status": "completed",

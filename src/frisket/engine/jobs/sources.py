@@ -8,6 +8,7 @@ sources/source_runs remain the public monitoring surface.
 
 import hashlib
 import json
+import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -38,6 +39,7 @@ from .ports import JobHandlerContext
 from .worker import HandlerRegistration, HandlerRegistry
 
 SOURCE_POLL_KIND = "source.poll"
+LOG = logging.getLogger(__name__)
 
 
 def _source_dict(row: Any) -> dict[str, Any]:
@@ -58,6 +60,7 @@ def register_source_poll_handler(
     fetch: Callable[[str], str] | None = None,
     workspace_root_storage_org_id: int | None = None,
     project_opener: ProjectOpener | None = None,
+    prepare_enclosures_for_search: bool = False,
 ) -> HandlerRegistration:
     root = Path(workspace_root)
 
@@ -145,6 +148,7 @@ def register_source_poll_handler(
                 source=source_after,
                 sheet_id=int(summary["sheet_id"]),
                 row_ids=list(summary.get("enclosure_row_ids") or []),
+                prepare_for_search=prepare_enclosures_for_search,
             )
             enqueue_keyword_watches = None
             if queue is not None:
@@ -378,6 +382,7 @@ def enqueue_enclosure_downloads(
     source: dict[str, Any],
     sheet_id: int,
     row_ids: list[int],
+    prepare_for_search: bool = False,
 ) -> list[int]:
     if queue is None or not row_ids or not _download_enclosures_enabled(source):
         return []
@@ -397,24 +402,43 @@ def enqueue_enclosure_downloads(
         ):
             continue
         mark_enclosure_queued(project, sheet_id=sheet_id, row_id=row_id)
-        job_ids.append(
-            queue.enqueue(
-                ENCLOSURE_DOWNLOAD_KIND,
-                {
-                    "project_id": project_id,
-                    **(
-                        {"storage_org_id": storage_org_id}
-                        if storage_org_id is not None
-                        else {}
-                    ),
-                    "sheet_id": sheet_id,
-                    "row_id": row_id,
-                    "workspace_root": str(workspace_root),
-                    **correlation_log_payload(),
-                },
-                max_attempts=1,
-            )
+        job_id = queue.enqueue(
+            ENCLOSURE_DOWNLOAD_KIND,
+            {
+                "project_id": project_id,
+                **(
+                    {"storage_org_id": storage_org_id}
+                    if storage_org_id is not None
+                    else {}
+                ),
+                "sheet_id": sheet_id,
+                "row_id": row_id,
+                "workspace_root": str(workspace_root),
+                **correlation_log_payload(),
+            },
+            max_attempts=1,
         )
+        job_ids.append(job_id)
+        if prepare_for_search:
+            try:
+                from frisket.engine.jobs.search_preparation_store import (
+                    SearchPreparationStore,
+                )
+
+                SearchPreparationStore(
+                    queue, workspace_root=str(workspace_root)
+                ).create_pending_materialization(
+                    storage_org_id=storage_org_id,
+                    project_id=project_id,
+                    job_id=job_id,
+                    sheet_id=sheet_id,
+                    row_ids=[row_id],
+                )
+            except Exception:  # noqa: BLE001 - enclosure admission stays authoritative
+                LOG.warning(
+                    "failed to reserve automatic search preparation for enclosure",
+                    exc_info=True,
+                )
     return job_ids
 
 

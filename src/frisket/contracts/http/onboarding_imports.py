@@ -179,6 +179,7 @@ class ImportPdfResponse(WireModel):
 class ImportFilesResponse(WireModel):
     sheet_id: int
     rows: int
+    search_preparation_batch_id: str | None = None
 
 
 # The legacy bridge can return a normal ``{"detail": ...}`` route refusal at

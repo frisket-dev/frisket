@@ -1310,17 +1310,15 @@ def test_recipe_catalog_missing_sidecar_token_disables_quality_tiers(
 
 @requires_ocr_runtime
 def test_recipe_catalog_unconfigured_sidecar_keeps_local_engines(tmp_path, monkeypatch):
-    """The only test in this file that asserts real RapidOCR availability
-    (`ocr["rapidocr"]["available"] is True`, via
-    frisket.server.action_catalog_hints -> rapidocr_available()) -- every
-    other test here exercises the sidecar/gateway wiring only, not the local
-    RapidOCR runtime."""
+    """A missing sidecar must not disable a ready local RapidOCR runtime."""
     from fastapi.testclient import TestClient
 
+    from frisket.ops import ocr_engines_local
     from frisket.server.app import create_app
 
     monkeypatch.delenv("FRISKET_MODELS_URL", raising=False)
     monkeypatch.delenv("FRISKET_MODELS_TOKEN", raising=False)
+    monkeypatch.setattr(ocr_engines_local, "rapidocr_setup_ready", lambda: True)
 
     client = TestClient(create_app(tmp_path / "ws"))
     _, hints = _catalog_hints(client)

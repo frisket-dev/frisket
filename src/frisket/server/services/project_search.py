@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+import re
+from html import unescape
 from typing import Any, Literal
 
 from frisket.contracts.http.project_search import (
@@ -13,6 +16,7 @@ from frisket.contracts.http.project_search import (
     ProjectSearchTextQuery,
 )
 from frisket.engine._workers.embeddinggemma_model import SETUP_REF
+from frisket.engine.jobs.engine_setup import local_search_setup_requirements
 from frisket.retrieval.contracts import (
     BindingRevision,
     CellAnchor,
@@ -103,31 +107,108 @@ def _binding_payload(binding: ScopedBinding) -> dict[str, Any]:
     }
 
 
+def _contains_search_anchor(span_text: object, anchor: str) -> bool:
+    """Match highlighted search text without accepting partial word substrings."""
+
+    text = " ".join(str(span_text or "").split()).casefold()
+    if not text or not anchor:
+        return False
+    offset = 0
+    while (start := text.find(anchor, offset)) >= 0:
+        end = start + len(anchor)
+        left_ok = not (anchor[0].isalnum() or anchor[0] == "_") or (
+            start == 0 or not (text[start - 1].isalnum() or text[start - 1] == "_")
+        )
+        right_ok = not (anchor[-1].isalnum() or anchor[-1] == "_") or (
+            end == len(text) or not (text[end].isalnum() or text[end] == "_")
+        )
+        if left_ok and right_ok:
+            return True
+        offset = start + 1
+    return False
+
+
 def _evidence_navigation(project: Any, hit: LocatedHit) -> dict[str, Any] | None:
     binding = hit.binding
     if binding.column_id is None:
         return None
     cell = (binding.sheet_id, binding.row_id, binding.column_id)
-    for span_id in hit.part.locator.source_span_ids:
-        row = project.db.execute(
-            "SELECT l.stable_id AS evidence_link_id,sp.stable_id AS span_id "
-            "FROM source_spans sp "
-            "JOIN source_artifacts a ON a.id=sp.artifact_id "
-            "JOIN evidence_link_spans els ON els.span_id=sp.id "
-            "JOIN evidence_links l ON l.id=els.link_id "
-            "WHERE sp.stable_id=? AND l.status='active' "
-            "AND ((a.source_sheet_id=? AND a.source_row_id=? "
-            "AND a.source_column_id=?) OR (l.sheet_id=? AND l.row_id=? "
-            "AND l.column_id=?)) ORDER BY els.rank,l.id LIMIT 1",
-            (span_id, *cell, *cell),
-        ).fetchone()
-        if row is not None:
-            return {
-                "kind": "evidence",
-                "evidence_link_id": str(row["evidence_link_id"]),
-                "span_id": str(row["span_id"]),
-            }
-    return None
+    rows = project.db.execute(
+        "SELECT cast(requested.key AS INTEGER) AS requested_rank,"
+        "l.stable_id AS evidence_link_id,sp.stable_id AS span_id,"
+        "sp.page_start,sp.page_end,sp.start_ms,sp.end_ms,"
+        "coalesce(sp.quote,sp.snippet) AS span_text "
+        "FROM json_each(?) requested "
+        "JOIN source_spans sp ON sp.stable_id=requested.value "
+        "JOIN source_artifacts a ON a.id=sp.artifact_id "
+        "JOIN evidence_link_spans els ON els.span_id=sp.id "
+        "JOIN evidence_links l ON l.id=els.link_id "
+        "WHERE requested.type='text' AND l.status='active' "
+        "AND ((a.source_sheet_id=? AND a.source_row_id=? "
+        "AND a.source_column_id=?) OR (l.sheet_id=? AND l.row_id=? "
+        "AND l.column_id=?)) ORDER BY requested_rank,els.rank,l.id",
+        (json.dumps(hit.part.locator.source_span_ids), *cell, *cell),
+    ).fetchall()
+    candidates = []
+    prior_rank = None
+    for row in rows:
+        requested_rank = int(row["requested_rank"])
+        if requested_rank != prior_rank:
+            candidates.append(row)
+            prior_rank = requested_rank
+    if not candidates:
+        return None
+
+    locator = hit.part.locator
+    if locator.pages is not None:
+        located = [
+            row
+            for row in candidates
+            if row["page_start"] is not None
+            and row["page_end"] is not None
+            and int(row["page_start"]) <= locator.pages.end
+            and locator.pages.start <= int(row["page_end"])
+        ]
+        if located:
+            candidates = located
+    if locator.time is not None:
+        located = [
+            row
+            for row in candidates
+            if row["start_ms"] is not None
+            and row["end_ms"] is not None
+            and int(row["start_ms"]) <= locator.time.end_seconds * 1000
+            and locator.time.start_seconds * 1000 <= int(row["end_ms"])
+        ]
+        if located:
+            candidates = located
+
+    anchors = {
+        " ".join(unescape(value).split()).casefold()
+        for value in re.findall(r"<b>(.*?)</b>", hit.snippet or "", flags=re.DOTALL)
+        if value.strip()
+    }
+    if anchors:
+        scored = [
+            (
+                sum(
+                    _contains_search_anchor(row["span_text"], anchor)
+                    for anchor in anchors
+                ),
+                row,
+            )
+            for row in candidates
+        ]
+        best = max((score for score, _row in scored), default=0)
+        if best:
+            candidates = [row for score, row in scored if score == best]
+
+    row = candidates[0]
+    return {
+        "kind": "evidence",
+        "evidence_link_id": str(row["evidence_link_id"]),
+        "span_id": str(row["span_id"]),
+    }
 
 
 def _navigation_payload(
@@ -202,6 +283,19 @@ def _coverage_payload(
     *,
     setup_scope: Literal["workspace", "organization"] | None,
 ) -> dict[str, Any]:
+    setup_requirement = None
+    if setup_scope is not None and any(
+        channel.channel == "semantic" and channel.state == "unavailable"
+        for channel in coverage.channels
+    ):
+        setup_requirement = next(
+            (
+                item
+                for item in local_search_setup_requirements()
+                if item.setup_ref == SETUP_REF
+            ),
+            None,
+        )
     return {
         "requested_mode": coverage.requested_mode,
         "effective_modes": list(coverage.effective_modes),
@@ -219,8 +313,19 @@ def _coverage_payload(
                 "failed_count": channel.failed_count,
                 "reason": channel.reason,
                 "setup": (
-                    {"setup_ref": SETUP_REF, "scope": setup_scope}
-                    if setup_scope is not None
+                    {
+                        "setup_ref": SETUP_REF,
+                        "scope": setup_scope,
+                        "display_name": setup_requirement.display_name,
+                        "download_bytes": setup_requirement.download_bytes_if_missing,
+                        "additional_runtime_download": bool(
+                            setup_requirement.runtime_installable
+                            and not setup_requirement.runtime_ready
+                        ),
+                        "license": setup_requirement.license,
+                        "source_url": setup_requirement.source_url,
+                    }
+                    if setup_requirement is not None
                     and channel.channel == "semantic"
                     and channel.state == "unavailable"
                     else None
@@ -390,6 +495,10 @@ class ProjectSearchService:
             elif edition == "team":
                 setup_scope = "organization"
 
+        coverage = _coverage_payload(
+            response.coverage,
+            setup_scope=setup_scope,
+        )
         return {
             "response_anchor": (
                 {
@@ -413,10 +522,7 @@ class ProjectSearchService:
                 }
                 for group in response.results
             ],
-            "coverage": _coverage_payload(
-                response.coverage,
-                setup_scope=setup_scope,
-            ),
+            "coverage": coverage,
         }
 
 

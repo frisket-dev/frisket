@@ -121,19 +121,19 @@ def rapidocr_shared_model_cache_dir() -> Path:
     of frisket's existing model-weights cache (``ai.models.model_cache``,
     ``FRISKET_MODEL_CACHE_DIR`` -> ``~/.cache/frisket/models`` by default) —
     same env var, same root, one dev-cache story — under its own
-    ``rapidocr/`` subdirectory since these are unpinned pip-extra assets, not
-    manifest-tracked artifact-pull ones. ``scripts/dev/link_rapidocr_models.py``
-    seeds it from any venv that already has real models; the runtime resolver
-    passes a complete set through RapidOCR's ``Global.model_root_dir`` config
-    key so a populated cache is used without needing that script run first."""
+    ``rapidocr/`` subdirectory for the manifest-tracked default recognizer and
+    hash-verified detector/classifier copies from the installed package.
+    ``scripts/dev/link_rapidocr_models.py`` seeds it from any venv that already
+    has real models; the runtime resolver passes a complete set through
+    RapidOCR's ``Global.model_root_dir`` config key so a populated cache is
+    used without needing that script run first."""
     from frisket.ai.models.model_cache import default_cache_root
 
     return default_cache_root() / "rapidocr"
 
 
-@lru_cache(maxsize=1)
 def rapidocr_models_present() -> tuple[bool, str | None]:
-    """Whether the package contains one complete default det/cls/rec set.
+    """Whether a complete default det/cls/rec set is already local.
 
     ``rapidocr_available`` deliberately answers only whether the pip package
     is installed correctly. This probe additionally resolves filenames through
@@ -150,9 +150,18 @@ def rapidocr_models_present() -> tuple[bool, str | None]:
     if requirements is None:
         return False, RAPIDOCR_MODELS_NOT_PROVISIONED
     package_root, filenames = requirements
-    if not rapidocr_model_root_complete(package_root, filenames):
-        return False, RAPIDOCR_MODELS_NOT_PROVISIONED
-    return True, None
+    if rapidocr_model_root_complete(package_root, filenames):
+        return True, None
+    if rapidocr_model_root_complete(rapidocr_shared_model_cache_dir(), filenames):
+        return True, None
+    return False, RAPIDOCR_MODELS_NOT_PROVISIONED
+
+
+def rapidocr_setup_ready() -> bool:
+    """Passive runtime-and-weights readiness for catalogs and setup plans."""
+
+    ready, _error = rapidocr_models_present()
+    return ready
 
 
 def _rapidocr_model_root_dir(language: str | None = None) -> str | None:
@@ -180,14 +189,54 @@ def _rapidocr_model_root_dir(language: str | None = None) -> str | None:
         return None
     shared_dir = rapidocr_shared_model_cache_dir()
     _copy_bundled_rapidocr_aliases(package_root, filenames, shared_dir)
-    if language is None:
-        _provision_default_rapidocr_recognizer(shared_dir, filenames)
     if rapidocr_model_root_complete(shared_dir, filenames):
         return str(shared_dir)
     raise RecipeInvocationHalt(
         "local_artifact_unavailable",
         _RAPIDOCR_ARTIFACT_DETAIL,
     )
+
+
+def provision_rapidocr_default_models(
+    *, should_cancel: Any = None, progress: Any = None
+) -> Path:
+    """Explicitly provision the pinned default recognizer into shared cache.
+
+    This is the only application runtime path that may fetch RapidOCR weights.
+    Ordinary OCR resolution remains cache-only.
+    """
+
+    from frisket.ai.models.artifact_manifest import rapidocr_default_model_artifact
+
+    available, error = rapidocr_available()
+    if not available:
+        raise RuntimeError(error or RAPIDOCR_INSTALL_POINTER)
+    requirements = rapidocr_default_model_requirements()
+    artifact = rapidocr_default_model_artifact()
+    if requirements is None or artifact is None or len(artifact.files) != 1:
+        raise RuntimeError("the pinned RapidOCR setup manifest is unavailable")
+    package_root, filenames = requirements
+    pinned = artifact.files[0]
+    if (
+        pinned.repo_relpath != RAPIDOCR_DEFAULT_RECOGNIZER_FILENAME
+        or pinned.source != RAPIDOCR_DEFAULT_RECOGNIZER_URL
+        or pinned.sha256 != RAPIDOCR_DEFAULT_RECOGNIZER_SHA256
+    ):
+        raise RuntimeError("the RapidOCR runtime and setup manifest disagree")
+    shared_dir = rapidocr_shared_model_cache_dir()
+    _copy_bundled_rapidocr_aliases(package_root, filenames, shared_dir)
+    if should_cancel is not None and should_cancel():
+        raise OcrCancelled("RapidOCR setup was cancelled")
+    if progress is not None:
+        progress(0, pinned.size)
+    _provision_default_rapidocr_recognizer(shared_dir, filenames)
+    if should_cancel is not None and should_cancel():
+        raise OcrCancelled("RapidOCR setup was cancelled")
+    if not rapidocr_model_root_complete(shared_dir, filenames):
+        raise RuntimeError("the pinned RapidOCR model download is incomplete")
+    if progress is not None:
+        progress(pinned.size, pinned.size)
+    return shared_dir
 
 
 def _copy_bundled_rapidocr_aliases(

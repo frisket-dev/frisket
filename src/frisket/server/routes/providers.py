@@ -34,13 +34,11 @@ from frisket.contracts.http.local_providers import (
 from frisket.engine.jobs import model_pull_store
 from frisket.engine.jobs.artifact_ref import normalize_artifact_ref
 from frisket.engine.jobs.model_pull import (
-    MODEL_PULL_MAX_ATTEMPTS,
     InvalidModelRefError,
+    ModelPullEnqueueError,
+    schedule_model_pull,
 )
-from frisket.engine.jobs.queue import (
-    MODEL_PULL_KIND,
-    SERVER_SCOPED_JOB_PAYLOAD_KEY,
-)
+from frisket.engine.jobs.queue import SERVER_SCOPED_JOB_PAYLOAD_KEY
 from frisket.server import provider_config
 from frisket.server.route_errors import RouteError, http_error_responses
 from frisket.server.services.project_model_routes import (
@@ -379,15 +377,17 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
         endpoint_origin: str | None,
         payload_extra: dict,
     ) -> dict:
-        engine = workspace.queue.engine
-        root_str = str(root)
         try:
-            row, created = model_pull_store.create_or_get_active(
-                engine,
-                workspace_root=root_str,
+            row, created = schedule_model_pull(
+                workspace.queue,
+                workspace_root=root,
                 model_ref=canonical,
                 endpoint_id=endpoint_id,
                 endpoint_origin=endpoint_origin,
+                queue_payload_extra={
+                    SERVER_SCOPED_JOB_PAYLOAD_KEY: True,
+                    **payload_extra,
+                },
             )
         except model_pull_store.ModelPullBusyError as exc:
             raise RouteError(
@@ -400,28 +400,7 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
                     "active": _pull_dto(exc.active),
                 },
             ) from exc
-        if not created:
-            return {"pull": _pull_dto(row), "deduplicated": True}
-        try:
-            job_id = workspace.queue.enqueue(
-                MODEL_PULL_KIND,
-                {
-                    "pull_id": row.id,
-                    "workspace_root": root_str,
-                    # The artifact lands in this workspace's shared model
-                    # cache, owned by no tenant.
-                    SERVER_SCOPED_JOB_PAYLOAD_KEY: True,
-                    **payload_extra,
-                },
-                max_attempts=MODEL_PULL_MAX_ATTEMPTS,
-            )
-        except Exception as exc:  # noqa: BLE001 -- must not leave an orphan active row
-            model_pull_store.mark_failed(
-                engine,
-                row.id,
-                error_code="enqueue_failed",
-                error_message=f"failed to enqueue the pull job ({type(exc).__name__})",
-            )
+        except ModelPullEnqueueError as exc:
             raise RouteError(
                 503,
                 {
@@ -429,9 +408,7 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
                     "message": "failed to schedule the model pull",
                 },
             ) from exc
-        model_pull_store.set_job_id(engine, row.id, job_id=job_id)
-        row = model_pull_store.get(engine, row.id)
-        return {"pull": _pull_dto(row), "deduplicated": False}
+        return {"pull": _pull_dto(row), "deduplicated": not created}
 
     @app.post(
         "/api/providers/models/pull",
@@ -494,10 +471,12 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
             EMBEDDINGGEMMA_SETUP_REF,
             INDRA_OCR_SETUP_REF,
             PARAKEET_TDT_SETUP_REF,
+            RAPIDOCR_SETUP_REF,
         )
 
         if body.setup_ref not in {
             PARAKEET_TDT_SETUP_REF,
+            RAPIDOCR_SETUP_REF,
             DOCLING_SETUP_REF,
             INDRA_OCR_SETUP_REF,
             EMBEDDINGGEMMA_SETUP_REF,

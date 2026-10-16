@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from dataclasses import dataclass
 from typing import Any
 
@@ -18,6 +19,8 @@ from frisket.server.route_errors import RouteError
 from frisket.server.services.import_tabular import resolve_import_sheet_name
 from frisket.server.thread_worker import await_thread_worker
 
+LOG = logging.getLogger(__name__)
+
 
 @dataclass(frozen=True)
 class ImportUrlsResponse:
@@ -31,8 +34,9 @@ class ImportUrlsRouteError(RouteError):
 
 
 class ImportUrlsService:
-    def __init__(self, workspace: Workspace):
+    def __init__(self, workspace: Workspace, *, search_preparation: Any = None):
         self._workspace = workspace
+        self._search_preparation = search_preparation
 
     async def import_urls(
         self,
@@ -128,6 +132,16 @@ class ImportUrlsService:
         row_count = len(rows_output.row_ids or [])
         downloaded = int(input_ref.get("downloaded") or 0)
         failed = int(input_ref.get("failed") or 0)
+        if self._search_preparation is not None and result.receipt_id is not None:
+            try:
+                await await_thread_worker(
+                    self._search_preparation.create_after_import,
+                    project_id,
+                    receipt_id=result.receipt_id,
+                    sheet_id=sheet_output.sheet_id,
+                )
+            except Exception:
+                LOG.warning("search_preparation_import_hook_failed", exc_info=True)
         return ImportUrlsResponse(
             status_code=200,
             payload={

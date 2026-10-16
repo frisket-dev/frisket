@@ -10,6 +10,7 @@ from frisket.execution.definitions import StaticExecutionTargetProvider
 from frisket.execution.provider import (
     CompositionFacts,
     ConnectionConfig,
+    ExactExecutionMatch,
     ExecutionComposition,
 )
 from frisket.execution.resolver import (
@@ -25,6 +26,7 @@ from frisket.execution.targets import (
     CAPABILITY_LLM,
     CAPABILITY_OCR,
     CAPABILITY_TO_MARKDOWN,
+    CAPABILITY_TRANSCRIBE,
     CAPABILITY_TRANSLATE,
     ExecutionTarget,
     LLMOptionSupport,
@@ -33,6 +35,81 @@ from frisket.execution.targets import (
 )
 
 MODEL = "openai/gpt-5-mini"
+
+
+def test_exact_restriction_cannot_select_another_target_for_same_engine():
+    composition = ExecutionComposition(
+        facts=CompositionFacts(),
+        provider=StaticExecutionTargetProvider(),
+        credential_use_context=CredentialUseContext.open(),
+    ).restricted_to(
+        ExactExecutionMatch(
+            target_id="local-onnx",
+            capability=CAPABILITY_TRANSCRIBE,
+            engine="parakeet-tdt",
+        )
+    )
+
+    assert [target.id for target in composition.resolution_targets()] == ["local-onnx"]
+    outcome = resolve(
+        composition.resolution_request(
+            "parakeet-tdt", capability=CAPABILITY_TRANSCRIBE, options={}
+        ),
+        composition.provider_for_resolution(),
+        composition.facts,
+    )
+    assert getattr(outcome, "target_id", None) == "local-onnx" or (
+        isinstance(outcome, Resolution) and outcome.target.id == "local-onnx"
+    )
+
+
+def test_exact_restriction_materializes_matching_wildcard_support():
+    provider = _RoutesProvider()
+    provider.own = replace(
+        provider.own,
+        engines=(replace(provider.own.engines[0], engine="openai/*"),),
+    )
+    provider._targets = (provider.own, provider.cloud)
+    composition = _composition(provider).restricted_to(
+        ExactExecutionMatch(
+            target_id="own",
+            capability=CAPABILITY_LLM,
+            engine=MODEL,
+        )
+    )
+
+    targets = composition.resolution_targets()
+    assert [(target.id, target.engines[0].engine) for target in targets] == [
+        ("own", MODEL)
+    ]
+    outcome = resolve(
+        composition.resolution_request(MODEL, capability=CAPABILITY_LLM, options={}),
+        composition.provider_for_resolution(),
+        composition.facts,
+    )
+    assert isinstance(outcome, Resolution)
+    assert outcome.target.id == "own"
+
+
+def test_exact_restriction_with_missing_target_refuses_without_fallback():
+    provider = _RoutesProvider()
+    composition = _composition(provider).restricted_to(
+        ExactExecutionMatch(
+            target_id="missing",
+            capability=CAPABILITY_LLM,
+            engine=MODEL,
+        )
+    )
+
+    assert composition.resolution_targets() == ()
+    outcome = resolve(
+        composition.resolution_request(MODEL, capability=CAPABILITY_LLM, options={}),
+        composition.provider_for_resolution(),
+        composition.facts,
+    )
+    assert isinstance(outcome, Refusal)
+    assert outcome.family == "no_capable_target"
+    assert provider.connection_calls == []
 
 
 def _llm_target(target_id: str, *, cloud: bool) -> ExecutionTarget:

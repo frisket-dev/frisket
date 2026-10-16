@@ -24,6 +24,7 @@ from frisket.retrieval.content import (
 )
 from frisket.retrieval.contracts import (
     BindingRevision,
+    PageRange,
     ScopedBinding,
     SourceLocator,
     SourceRevision,
@@ -526,6 +527,52 @@ def _resolve_cell_lexical_text(
     return resolved.lexical_text
 
 
+def resolve_source_text_pages(
+    project: Any,
+    *,
+    source: SourceRevision,
+    locator: SourceLocator,
+    binding: ScopedBinding,
+) -> PageRange | None:
+    """Resolve the prepared pages intersecting an exact text location."""
+
+    if (
+        source.source_kind != "prepared_text"
+        or binding.column_id is None
+        or locator.text is None
+    ):
+        return None
+    resolved = resolve_cell_text_sources(
+        project,
+        sheet_id=binding.sheet_id,
+        column_id=binding.column_id,
+        row_ids=[binding.row_id],
+    ).get(binding.row_id)
+    if (
+        resolved is None
+        or resolved.source != source
+        or resolved.binding not in binding.dependencies
+        or not isinstance(resolved.surface, PreparedDocumentSurface)
+    ):
+        return None
+    text_range = locator.text
+    surface = resolved.surface.text
+    if (
+        text_range.text_surface_id != surface.text_surface_id
+        or text_range.content_hash != surface.content_hash
+        or text_range.end > len(surface.text)
+    ):
+        return None
+    pages = tuple(
+        page.page_number
+        for page in resolved.surface.pages
+        if page.start < text_range.end and text_range.start < page.end
+    )
+    if not pages:
+        return None
+    return PageRange(pages[0], pages[-1])
+
+
 def _resolve_transcript_lexical_text(
     project: Any,
     *,
@@ -653,5 +700,6 @@ __all__ = [
     "resolve_cell_text_sources",
     "resolve_cell_transcript_source",
     "resolve_source_text",
+    "resolve_source_text_pages",
     "UnsupportedLexicalSourceError",
 ]

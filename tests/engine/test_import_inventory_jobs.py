@@ -30,13 +30,15 @@ from frisket.engine.store.import_inventory import ImportInventory
 from frisket.engine.store.import_sessions import ImportSessionStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.server.services import import_sessions as import_sessions_module
+from frisket.server.services import search_preparation as preparation_module
 from frisket.server.services.import_sessions import ImportSessionService
+from frisket.server.services.search_preparation import SearchPreparationService
 from frisket.server.services.sheet_grid import SheetGridService
 
 REF = "import-" + "a" * 32
 
 
-def setup_import(root, *, count=5, sealed=False):
+def setup_import(root, *, count=5, sealed=False, mime="text/plain"):
     with closing(Project.create(root / "files.frisket")) as project:
         bound = typed_action_for_request(
             {
@@ -60,7 +62,7 @@ def setup_import(root, *, count=5, sealed=False):
             inventory.append(
                 {
                     "logical_path": f"{i}.txt",
-                    "mime": "text/plain",
+                    "mime": mime,
                     "sha256": digest,
                     "size": 8,
                     "kind": "files",
@@ -135,6 +137,83 @@ def test_worker_consumes_uploaded_cursor_then_seal_finalizes_same_receipt(tmp_pa
             assert (
                 project.db.execute("SELECT count(*) FROM receipts").fetchone()[0] == 1
             )
+
+
+@pytest.mark.asyncio
+async def test_server_reconciles_preparation_after_separate_worker_completion(
+    tmp_path, monkeypatch
+):
+    requirement = SimpleNamespace(
+        setup_ref="engine-setup:rapidocr.local@1",
+        capability="ocr",
+        display_name="RapidOCR",
+        runtime_ready=True,
+        weights_ready=False,
+        download_bytes_if_missing=123,
+        license="Apache-2.0",
+        source_url="https://example.invalid/rapidocr",
+        runtime_remediation=None,
+        artifact_refs=("sha256:fixture",),
+        download_size_basis="exact_checksum",
+        runtime_installable=False,
+    )
+    monkeypatch.setattr(preparation_module, "_requirements", lambda: (requirement,))
+    envelope, _directory = setup_import(tmp_path, count=1, mime="image/png")
+    with closing(SqliteJobQueue(tmp_path / "queue.db")) as queue:
+        with closing(Project(tmp_path / "files.frisket")) as project:
+            workspace = SimpleNamespace(
+                get=lambda _project_id: project,
+                queue=queue,
+                queue_storage_org_id=None,
+                queue_payload_extra={},
+                root=tmp_path,
+                edition="solo",
+            )
+            preparation = SearchPreparationService(workspace)
+            service = ImportSessionService(
+                workspace,
+                enqueue=lambda project_id, ref, through, sealed: queue.enqueue(
+                    IMPORT_FILES_PAGE_KIND,
+                    {
+                        "project_id": project_id,
+                        "import_ref": ref,
+                        "through": through,
+                        "sealed": sealed,
+                    },
+                ),
+                search_preparation=preparation,
+            )
+            # Admission owns the pending intent before a different process can
+            # claim and complete the import.
+            preparation.reserve_import(
+                "files", receipt_id=envelope.receipt_id, import_ref=REF
+            )
+            sealed = await service.seal("files", REF)
+            assert sealed.state == "admitting"
+            assert sealed.search_preparation_batch_id is None
+
+        [terminal_job] = queue.list_project_jobs("files", kind=IMPORT_FILES_PAGE_KIND)
+        # This registry has no server Workspace callback, matching the CLI
+        # worker process used by a deployed resumable import.
+        worker = Worker(queue, registry_for(tmp_path, queue))
+        run_until_settled(worker, queue, terminal_job.id)
+        assert queue.get(terminal_job.id).status == "done"
+
+        # The browser never polls between worker completion and this server
+        # reconciliation pass.
+        with closing(Project(tmp_path / "files.frisket")) as project:
+            preparation.recover()
+            published = service.status("files", REF)
+            replay = service.status("files", REF)
+
+        assert published.state == "completed"
+        assert published.search_preparation_batch_id is not None
+        assert (
+            replay.search_preparation_batch_id == published.search_preparation_batch_id
+        )
+        batch = preparation.get("files", published.search_preparation_batch_id)
+        assert batch.status == "needs_consent"
+        assert batch.groups[0].kind == "ocr"
 
 
 def test_worker_restart_reclaims_terminal_inventory_after_cleanup_failure(

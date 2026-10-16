@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator, Literal
 
+from filelock import FileLock, Timeout as FileLockTimeout
+
 from .contracts import SourceLocator, SourceRevision
 from .native import validate_vector_blob
 from .sources import canonical_json, input_hash
@@ -152,6 +154,18 @@ class UnsupportedRetrievalSchema(RuntimeError):
     """The derived retrieval sidecar cannot be read by this build."""
 
 
+@contextmanager
+def _initialization_lock(path: Path, *, busy_timeout_ms: int) -> Iterator[None]:
+    """Serialize cold WAL negotiation and schema setup across openers."""
+
+    lock_path = path.with_name(f"{path.name}.init.lock")
+    try:
+        with FileLock(str(lock_path), timeout=busy_timeout_ms / 1000):
+            yield
+    except FileLockTimeout as exc:
+        raise sqlite3.OperationalError("database is locked") from exc
+
+
 class RetrievalStore:
     """Single-writer repository for one project's derived retrieval records."""
 
@@ -177,21 +191,29 @@ class RetrievalStore:
         ):
             raise ValueError("busy_timeout_ms must be a non-negative integer")
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        creating = not self.path.exists()
         db = sqlite3.connect(
             self.path, isolation_level=None, timeout=busy_timeout_ms / 1000
         )
         db.row_factory = sqlite3.Row
         try:
             db.execute(f"PRAGMA busy_timeout={busy_timeout_ms}")
-            if creating:
-                db.execute(f"PRAGMA page_size={PAGE_SIZE}")
-            db.execute("PRAGMA journal_mode=WAL")
             db.execute("PRAGMA foreign_keys=ON")
             db.execute(f"PRAGMA cache_size=-{CACHE_KIB}")
             db.execute(f"PRAGMA mmap_size={MMAP_SIZE}")
             self._connection = db
-            self.ensure_schema()
+            mode = str(db.execute("PRAGMA journal_mode").fetchone()[0]).lower()
+            if mode != "wal" or self._schema_needs_write():
+                with _initialization_lock(self.path, busy_timeout_ms=busy_timeout_ms):
+                    mode = str(db.execute("PRAGMA journal_mode").fetchone()[0]).lower()
+                    if mode != "wal":
+                        creating = (
+                            db.execute("SELECT 1 FROM sqlite_schema LIMIT 1").fetchone()
+                            is None
+                        )
+                        if creating:
+                            db.execute(f"PRAGMA page_size={PAGE_SIZE}")
+                        db.execute("PRAGMA journal_mode=WAL")
+                    self.ensure_schema()
         except BaseException:
             self._connection = None
             db.close()

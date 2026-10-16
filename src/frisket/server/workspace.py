@@ -246,6 +246,8 @@ class Workspace:
         self.registry = registry or default_registry()
         self.queue_payload_extra = dict(queue_payload_extra or {})
         self.executor_deps_factory = executor_deps_factory
+        self.search_preparation_import_completed = None
+        self.search_preparation_enclosure_downloaded = None
         if direct_action_receipt_settlement_port is not None and not isinstance(
             direct_action_receipt_settlement_port,
             DirectActionReceiptSettlementPort,
@@ -316,6 +318,21 @@ class Workspace:
                 and self._cloud_connection_client is not None
                 else None
             ),
+            on_terminal_file_import=lambda project_id, receipt_id, sheet_id: (
+                self.search_preparation_import_completed(
+                    project_id, receipt_id, sheet_id
+                )
+                if callable(self.search_preparation_import_completed)
+                else None
+            ),
+            on_enclosure_downloaded=lambda project_id, sheet_id, row_id: (
+                self.search_preparation_enclosure_downloaded(
+                    project_id, sheet_id, row_id
+                )
+                if callable(self.search_preparation_enclosure_downloaded)
+                else None
+            ),
+            prepare_enclosures_for_search=self.edition != "cloud",
         )
         if enable_local_model_pull:
             # Local-tier-only: deliberately
@@ -331,7 +348,7 @@ class Workspace:
                 self.registry,
                 workspace_root=self.root,
                 queue=self.queue,
-                on_embedding_setup_done=self._embedding_setup_completed,
+                on_engine_setup_done=self._engine_setup_completed,
             )
         # This workspace OWNS the plugin package catalog
         # (<root>/.frisket/plugin_packages.db). Seed shipped bundled packages
@@ -376,6 +393,15 @@ class Workspace:
             retry = getattr(project, "_frisket_retry_retrieval_encoder", None)
             if callable(retry):
                 retry()
+
+    def _engine_setup_completed(self, setup_ref: str) -> None:
+        from frisket.engine.jobs.engine_setup import EMBEDDINGGEMMA_SETUP_REF
+
+        if setup_ref == EMBEDDINGGEMMA_SETUP_REF:
+            self._embedding_setup_completed()
+        resume = getattr(self, "search_preparation_setup_completed", None)
+        if callable(resume):
+            resume(setup_ref)
 
     def _derived_project_opener(self) -> ProjectOpener | None:
         """The opener implied by this workspace's own declared configuration.

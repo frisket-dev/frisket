@@ -128,3 +128,73 @@ def test_semantic_search_uses_workspace_runtime_and_reports_local_fallback(
         contribution["method"]
         for contribution in page["groups"][0]["primary"]["contributions"]
     } == {"lexical"}
+
+
+def test_search_serializes_retrieval_media_preparation_coverage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = Workspace(tmp_path / "ws")
+    project_id = workspace.create("media gaps")["id"]
+    project = workspace.get(project_id)
+    sheet_id = project.add_sheet("media")
+    image_column = project.add_column(sheet_id, "image", type="image")
+    digest = project.add_blob(b"image", filename="scan.png", mime="image/png")
+    project.add_rows(
+        sheet_id,
+        [{"image": {"blob": digest, "filename": "scan.png", "mime": "image/png"}}],
+        {"image": image_column},
+    )
+    monkeypatch.setattr(
+        search_service,
+        "search_with_encoding",
+        lambda *args, **kwargs: SearchResponse(
+            results=(),
+            coverage=SearchCoverage(
+                requested_mode="lexical",
+                effective_modes=("lexical",),
+                state="partial",
+                searched_channels=("text",),
+                is_top_k=True,
+                truncated=False,
+                channels=(
+                    ChannelCoverage(channel="text", state="ready"),
+                    ChannelCoverage(
+                        channel="search_preparation",
+                        state="unavailable",
+                        eligible_count=1,
+                        prepared_count=0,
+                        failed_count=0,
+                        reason="media_needs_preparation",
+                    ),
+                ),
+            ),
+        ),
+    )
+
+    page = ProjectSearchService(workspace).search(
+        project_id,
+        request=ProjectSearchRequest(
+            scope=ProjectSearchProjectScope(kind="project"),
+            query=ProjectSearchTextQuery(kind="text", text="invoice"),
+            limit=10,
+            mode="lexical",
+            ranking=ProjectSearchRanking(rerank="auto"),
+        ),
+    )
+
+    assert page["coverage"]["state"] == "partial"
+    gap = next(
+        channel
+        for channel in page["coverage"]["channels"]
+        if channel["channel"] == "search_preparation"
+    )
+    assert gap == {
+        "channel": "search_preparation",
+        "state": "unavailable",
+        "recipe_id": None,
+        "eligible_count": 1,
+        "prepared_count": 0,
+        "failed_count": 0,
+        "reason": "media_needs_preparation",
+        "setup": None,
+    }

@@ -45,7 +45,13 @@ def _db() -> sqlite3.Connection:
         CREATE TABLE source_spans(
             id INTEGER PRIMARY KEY,
             stable_id TEXT,
-            artifact_id INTEGER
+            artifact_id INTEGER,
+            page_start INTEGER,
+            page_end INTEGER,
+            start_ms INTEGER,
+            end_ms INTEGER,
+            quote TEXT,
+            snippet TEXT
         );
         CREATE TABLE evidence_links(
             id INTEGER PRIMARY KEY,
@@ -105,6 +111,7 @@ def _hit(
     column_id: int | None,
     locator: SourceLocator,
     score: float,
+    snippet: str | None = None,
 ) -> LocatedHit:
     dependencies = (
         (BindingRevision(row_id=2, column_id=column_id, retrieval_revision=1),)
@@ -134,7 +141,7 @@ def _hit(
         ),
         rank_score=score,
         precision="exact",
-        snippet=f"{name} result",
+        snippet=snippet or f"{name} result",
     )
 
 
@@ -151,6 +158,18 @@ def _request() -> ProjectSearchRequest:
     )
 
 
+def _semantic_setup_requirement() -> SimpleNamespace:
+    return SimpleNamespace(
+        setup_ref="engine-setup:embeddinggemma-2.local@1",
+        display_name="EmbeddingGemma 2",
+        download_bytes_if_missing=1_525_784_180,
+        runtime_installable=True,
+        runtime_ready=False,
+        license="Gemma",
+        source_url="https://example.test/embeddinggemma",
+    )
+
+
 def test_grouped_response_preserves_supporting_hits_and_real_navigation(
     monkeypatch,
 ) -> None:
@@ -158,7 +177,8 @@ def test_grouped_response_preserves_supporting_hits_and_real_navigation(
     db.executescript(
         """
         INSERT INTO source_artifacts VALUES (1, 'artifact-1', 1, 2, 3);
-        INSERT INTO source_spans VALUES (1, 'span-1', 1);
+        INSERT INTO source_spans(id,stable_id,artifact_id)
+        VALUES (1, 'span-1', 1);
         INSERT INTO evidence_links VALUES (1, 'link-1', 1, 2, 3, 'active');
         INSERT INTO evidence_link_spans VALUES (1, 1, 0);
         """
@@ -235,6 +255,65 @@ def test_grouped_response_preserves_supporting_hits_and_real_navigation(
     }
 
 
+def test_evidence_navigation_selects_span_for_located_page(monkeypatch) -> None:
+    db = _db()
+    db.executescript(
+        """
+        INSERT INTO source_artifacts VALUES (1, 'artifact-1', 1, 2, 3);
+        INSERT INTO source_spans(
+            id,stable_id,artifact_id,page_start,page_end,quote
+        ) VALUES
+            (1, 'page-1-span', 1, 1, 1, 'Harbor'),
+            (2, 'page-2-first-span', 1, 2, 2, 'Repair'),
+            (3, 'page-2-match-span', 1, 2, 2, 'bluewharf');
+        INSERT INTO evidence_links VALUES (1, 'link-1', 1, 2, 3, 'active');
+        INSERT INTO evidence_link_spans VALUES (1, 1, 0);
+        INSERT INTO evidence_link_spans VALUES (1, 2, 1);
+        INSERT INTO evidence_link_spans VALUES (1, 3, 2);
+        """
+    )
+    project = _Project(db)
+    primary = _hit(
+        "video",
+        column_id=3,
+        locator=SourceLocator(
+            kind="whole_source",
+            pages=PageRange(2, 2),
+            source_span_ids=(
+                "page-1-span",
+                "page-2-first-span",
+                "page-2-match-span",
+            ),
+        ),
+        score=0.9,
+        snippet="The council approved the <b>bluewharf</b> repair.",
+    )
+    response = SearchResponse(
+        results=(ResultGroup(group_key="source:video", primary=primary),),
+        coverage=SearchCoverage(
+            requested_mode="lexical",
+            effective_modes=("lexical",),
+            state="complete",
+            searched_channels=("lexical",),
+            is_top_k=True,
+            truncated=False,
+        ),
+    )
+    monkeypatch.setattr(
+        project_search, "search_with_encoding", lambda *a, **k: response
+    )
+
+    payload = ProjectSearchService(_Workspace(project)).search(
+        "project", request=_request()
+    )
+
+    assert payload["groups"][0]["primary"]["navigation"] == {
+        "kind": "evidence",
+        "evidence_link_id": "link-1",
+        "span_id": "page-2-match-span",
+    }
+
+
 def test_unlinked_media_uses_document_time_and_unavailable_model_has_setup(
     monkeypatch,
 ) -> None:
@@ -271,6 +350,11 @@ def test_unlinked_media_uses_document_time_and_unavailable_model_has_setup(
     monkeypatch.setattr(
         project_search, "search_with_encoding", lambda *a, **k: response
     )
+    monkeypatch.setattr(
+        project_search,
+        "local_search_setup_requirements",
+        lambda: (_semantic_setup_requirement(),),
+    )
 
     payload = ProjectSearchService(_Workspace(project)).search(
         "project", request=_request()
@@ -287,6 +371,11 @@ def test_unlinked_media_uses_document_time_and_unavailable_model_has_setup(
     assert payload["coverage"]["channels"][0]["setup"] == {
         "setup_ref": "engine-setup:embeddinggemma-2.local@1",
         "scope": "workspace",
+        "display_name": "EmbeddingGemma 2",
+        "download_bytes": 1_525_784_180,
+        "additional_runtime_download": True,
+        "license": "Gemma",
+        "source_url": "https://example.test/embeddinggemma",
     }
 
 
@@ -319,6 +408,16 @@ def test_semantic_setup_offer_respects_edition_and_capability(
     )
     workspace = _Workspace(project)
     workspace.edition = edition
+    requirement_calls = 0
+
+    def setup_requirements():
+        nonlocal requirement_calls
+        requirement_calls += 1
+        return (_semantic_setup_requirement(),)
+
+    monkeypatch.setattr(
+        project_search, "local_search_setup_requirements", setup_requirements
+    )
 
     payload = ProjectSearchService(workspace).search(
         "project", request=_request(), offer_setup=offer_setup
@@ -327,11 +426,18 @@ def test_semantic_setup_offer_respects_edition_and_capability(
     setup = payload["coverage"]["channels"][0]["setup"]
     if expected_scope is None:
         assert setup is None
+        assert requirement_calls == 0
     else:
         assert setup == {
             "setup_ref": "engine-setup:embeddinggemma-2.local@1",
             "scope": expected_scope,
+            "display_name": "EmbeddingGemma 2",
+            "download_bytes": 1_525_784_180,
+            "additional_runtime_download": True,
+            "license": "Gemma",
+            "source_url": "https://example.test/embeddinggemma",
         }
+        assert requirement_calls == 1
 
 
 def test_navigation_normalizes_sqlite_column_rows(monkeypatch) -> None:

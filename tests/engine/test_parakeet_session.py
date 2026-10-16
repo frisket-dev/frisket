@@ -121,9 +121,10 @@ def _install_fakes(
 ) -> dict[str, int]:
     calls = {"resolve": 0, "open": 0}
 
-    async def resolve(*, vad, should_cancel):
+    async def resolve(*, vad, should_cancel, allow_download):
         calls["resolve"] += 1
         assert vad is True
+        assert allow_download is False
         return artifacts
 
     async def open_process(*args, **kwargs):

@@ -4883,6 +4883,8 @@ const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
           activeSearchSheetId={sheet?.id}
           searchSeed={commandPaletteSearchSeed}
           onNavigateSearchHit={navigateToSearchHit}
+          projectId={project.id}
+          onOpenJobs={() => overlayChrome.setActiveBottomDockTab('jobs')}
           launcherCommands={paletteLauncherCommands}
         />
       )}

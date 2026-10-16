@@ -360,6 +360,7 @@ _QUEUED_PROJECT_RUN_KINDS: frozenset[str] = frozenset(
         "media.extract_pdf_tables",
         "media.fetch_url",
         "media.ocr",
+        "media.read_pdf_text",
         "media.to_markdown",
         "media.transcribe",
         "media.video_frames",

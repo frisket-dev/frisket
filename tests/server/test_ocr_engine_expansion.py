@@ -19,6 +19,9 @@ from frisket.ops.ocr_engines import (
     rapidocr_available,
     tesseract_available,
 )
+from frisket.ops.ocr_engines_local import rapidocr_setup_ready
+from frisket.ai.models.artifact_manifest import rapidocr_default_model_artifact
+from frisket.engine.jobs.engine_setup import RAPIDOCR_SETUP_REF
 from frisket.engine._workers.indra_ocr_artifacts import indra_ocr_artifact
 from frisket.engine._workers.indra_ocr_model import (
     MODEL_IDENTITY as INDRA_MODEL_IDENTITY,
@@ -112,15 +115,20 @@ def _run(project, spec):
 
 def test_rapidocr_catalog_matches_exact_runtime_probe():
     rapidocr_available.cache_clear()
-    available, error = rapidocr_available()
+    runtime_available, error = rapidocr_available()
     rapid = _by_id(_ocr_engines(), "rapidocr")
-    assert rapid["available"] is available
-    if available:
-        assert error is None
+    assert rapid["available"] is (runtime_available and rapidocr_setup_ready())
+    if rapid["available"]:
         assert "error" not in rapid
+    elif runtime_available:
+        assert "Download" in rapid["error"]
     else:
         assert error and "RapidOCR" in error and "ocr" in error.casefold()
         assert rapid["error"] == error
+    artifact = rapidocr_default_model_artifact()
+    assert artifact is not None
+    assert rapid["setup_ref"] == RAPIDOCR_SETUP_REF
+    assert rapid["downloadable_models"][0]["size"] == artifact.total_size
 
 
 def test_tesseract_availability_needs_binary_and_wrapper():

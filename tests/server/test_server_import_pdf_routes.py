@@ -13,6 +13,8 @@ from frisket.actions.types import PdfPage
 from frisket.engine.executor.pdf_page_read import AdmittedPdfPageRenderer
 from frisket.server.app import create_app
 from frisket.server.services import import_pdf as pdf_service
+from frisket.server.services import search_preparation as preparation_service
+from frisket.server.services import search_preparation_planning as planning
 from frisket.server.services.import_uploads import AdmittedUpload
 
 
@@ -143,6 +145,59 @@ def test_import_pdf_route_preserves_transport_response_and_uses_typed_request(
     assert requests[0] == requests[1]
     assert renders == [150]
     assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 1
+
+
+def test_import_pdf_creates_one_ocr_item_for_pdf_page_and_rendered_image(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    def render(self, document, *, dpi):
+        return {
+            1: self._blobs.stage(
+                io.BytesIO(PNG_1X1),
+                filename="scan-p0001.png",
+                mime="image/png",
+                role=PdfPage(document=document, page=1),
+            )
+        }
+
+    async def blank_page(_path):
+        return [SimpleNamespace(page=1, tokens=())]
+
+    requirement = SimpleNamespace(
+        setup_ref="engine-setup:rapidocr.local@1",
+        capability="ocr",
+        display_name="RapidOCR",
+        runtime_ready=True,
+        weights_ready=False,
+        download_bytes_if_missing=123,
+        runtime_remediation=None,
+        license="Apache-2.0",
+        source_url="https://example.invalid/rapidocr",
+        artifact_refs=("sha256:fixture",),
+        download_size_basis="exact_checksum",
+        runtime_installable=False,
+    )
+    monkeypatch.setattr(AdmittedPdfPageRenderer, "render", render)
+    monkeypatch.setattr(planning, "extract_pdf_text", blank_page)
+    monkeypatch.setattr(preparation_service, "_requirements", lambda: (requirement,))
+    client = TestClient(create_app(tmp_path / "workspace"))
+    pid = client.post("/api/projects", json={"name": "Scanned PDF"}).json()["id"]
+
+    response = client.post(
+        f"/api/projects/{pid}/import/pdf",
+        files={"file": ("scan.pdf", _pdf_bytes(""), "application/pdf")},
+    )
+
+    assert response.status_code == 200, response.text
+    listed = client.get(f"/api/projects/{pid}/search-preparation")
+    assert listed.status_code == 200, listed.text
+    batches = listed.json()["batches"]
+    assert len(batches) == 1
+    assert batches[0]["status"] == "needs_consent"
+    assert batches[0]["groups"] == [
+        {"kind": "ocr", "count": 1, "status": "needs_consent"}
+    ]
 
 
 def test_pdf_upload_cancellation_keeps_source_open_until_worker_exits(

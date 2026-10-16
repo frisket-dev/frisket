@@ -19,7 +19,7 @@ from frisket.ops.egress_policy import (
 )
 from frisket.provider_definitions import KeyScope, provider_definition, providers_for
 from frisket.project_identity import validate_project_slug
-from frisket.project_settings import patch_project_settings
+from frisket.project_settings import patch_project_settings, read_project_settings
 from frisket.retrieval.content import TextChunkRecipe, TranscriptChunkRecipe
 from frisket.retrieval.media import (
     AudioWindowRecipe,
@@ -122,11 +122,18 @@ def _project_settings_response(project: Any) -> dict[str, Any]:
     return {
         "media_allow_private_hosts": media_egress_policy(project).allow_private_hosts,
         "media_allow_private_hosts_locked": private_hosts_locked(),
-        "retrieval": _retrieval_settings_response(read_preparation_policy(project)),
+        "retrieval": _retrieval_settings_response(
+            read_preparation_policy(project),
+            prepare_new_files_automatically=(
+                read_project_settings(project).prepare_new_files_automatically
+            ),
+        ),
     }
 
 
-def _retrieval_settings_response(policy: PreparationPolicy) -> dict[str, Any]:
+def _retrieval_settings_response(
+    policy: PreparationPolicy, *, prepare_new_files_automatically: bool
+) -> dict[str, Any]:
     recipe = policy.video_recipe
     video: dict[str, Any] = {
         "strategy": "off",
@@ -157,6 +164,7 @@ def _retrieval_settings_response(policy: PreparationPolicy) -> dict[str, Any]:
         "pdf_pages_enabled": policy.pdf_pages_enabled,
         "video": video,
         "audio_enabled": policy.audio_recipe is not None,
+        "prepare_new_files_automatically": prepare_new_files_automatically,
     }
 
 
@@ -629,11 +637,16 @@ class ProjectLifecycleService:
                 f"({MEDIA_PRIVATE_HOSTS_ENV}=deny-locked)"
             )
         retrieval_patch = patch.pop("retrieval", None)
+        if retrieval_patch is not None:
+            retrieval_patch = dict(retrieval_patch)
+            automatic = retrieval_patch.pop("prepare_new_files_automatically", None)
+            if automatic is not None:
+                patch["prepare_new_files_automatically"] = automatic
         retrieval_policy = None
         try:
             with project.transaction_scope():
                 patch_project_settings(project, patch)
-                if retrieval_patch is not None:
+                if retrieval_patch:
                     # The existing BEGIN IMMEDIATE scope must precede the
                     # read-modify-write merge so concurrent partial PATCHes
                     # cannot both derive from the same stale policy.

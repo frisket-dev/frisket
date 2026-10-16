@@ -58,6 +58,11 @@ def _coverage() -> dict[str, object]:
                 "setup": {
                     "setup_ref": "engine-setup:embeddinggemma-2.local@1",
                     "scope": "workspace",
+                    "display_name": "EmbeddingGemma 2",
+                    "download_bytes": 1_525_784_180,
+                    "additional_runtime_download": True,
+                    "license": "Gemma",
+                    "source_url": "https://example.test/embeddinggemma",
                 },
             }
         ],

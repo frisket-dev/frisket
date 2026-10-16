@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shutil
 import time
+import logging
 from typing import Any
 
 from frisket.engine.executor import ExecutorDeps
@@ -17,6 +18,8 @@ from frisket.server.services.import_bulk_types import (
 )
 from frisket.server.workspace import Workspace
 
+LOG = logging.getLogger(__name__)
+
 
 class ImportBulkService:
     def __init__(
@@ -25,10 +28,12 @@ class ImportBulkService:
         *,
         limits: BulkImportLimits | None = None,
         clock=time.time,
+        search_preparation: Any = None,
     ):
         self.ws, self.limits = workspace, limits or BulkImportLimits()
         self.plan_lifecycle = BulkPlanLifecycle(clock)
         self.executor = BulkExecutor(workspace)
+        self.search_preparation = search_preparation
 
     def executor_deps_for_request(self, project_id: str, request: Any) -> ExecutorDeps:
         """Resolve the deployment composition once at the HTTP boundary."""
@@ -72,7 +77,7 @@ class ImportBulkService:
             # From the first post-claim instruction onward, cleanup owns the
             # claimed manifest, staged files, and claim lock.
             with open_lock_file(root / ".execute.lock"):
-                return self.executor.execute(
+                result = self.executor.execute(
                     project,
                     project_id,
                     plan,
@@ -82,6 +87,20 @@ class ImportBulkService:
                     deps=executor_deps,
                     max_rows=max_rows,
                 )
+                if self.search_preparation is not None:
+                    for created in result["created"]:
+                        sheet_id = int(created["sheet_id"])
+                        try:
+                            self.search_preparation.create_after_materialization(
+                                project_id,
+                                sheet_id=sheet_id,
+                                row_ids=project.visible_row_ids(sheet_id),
+                            )
+                        except Exception:
+                            LOG.warning(
+                                "search_preparation_import_hook_failed", exc_info=True
+                            )
+                return result
         finally:
             # Release before removing the plan: Windows does not allow deleting
             # a directory that contains an open lock file.

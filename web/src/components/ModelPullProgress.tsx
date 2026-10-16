@@ -175,15 +175,17 @@ export function ModelPullProgress({
             />
           </span>
           {sizeLabel && <span className="model-pull-progress-size">{sizeLabel}</span>}
-          <button
-            type="button"
-            className="btn btn-compact"
-            data-testid="model-pull-cancel"
-            disabled={readOnly || !pull.capabilities.cancel || cancelling || pull.cancel_requested}
-            onClick={() => void cancel()}
-          >
-            {pull.cancel_requested ? 'Cancelling…' : 'Cancel'}
-          </button>
+          {!readOnly && (
+            <button
+              type="button"
+              className="btn btn-compact"
+              data-testid="model-pull-cancel"
+              disabled={!pull.capabilities.cancel || cancelling || pull.cancel_requested}
+              onClick={() => void cancel()}
+            >
+              {pull.cancel_requested ? 'Cancelling…' : 'Cancel'}
+            </button>
+          )}
           {cancelError && (
             <p
               className="settings-inline-status settings-validation-message is-error"
@@ -208,12 +210,12 @@ export function ModelPullProgress({
         <p className="model-pull-progress-done" data-testid="model-pull-done">
           {pull.display_name} installed
           {pull.resolved_size != null ? ` (${humanBytes(pull.resolved_size)})` : ''}
-          {pull.capabilities.remove && (
+          {!readOnly && pull.capabilities.remove && (
             <button
               type="button"
               className="btn btn-compact"
               data-testid="model-pull-uninstall"
-              disabled={readOnly || uninstalling}
+              disabled={uninstalling}
               onClick={() => void doUninstall()}
             >
               {uninstalling ? 'Uninstalling…' : 'Uninstall'}

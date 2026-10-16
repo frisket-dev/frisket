@@ -8,11 +8,22 @@ from time import perf_counter
 import pytest
 
 from frisket.engine.store import Project
+from frisket.engine.store.evidence import (
+    record_evidence_link,
+    record_source_artifact,
+    record_source_span,
+)
+from frisket.engine.store.prepared_content import (
+    PreparedContentStore,
+    PreparedPageDraft,
+)
 from frisket.engine.store.retrieval_lifecycle import read_binding_revision
 from frisket.search_index import bind_retrieval_sidecar
 from frisket.retrieval import native
 from frisket.retrieval.contracts import (
     BindingRevision,
+    ChannelCoverage,
+    PageRange,
     RetrievalScope,
     RankingPolicy,
     SearchRequest,
@@ -341,6 +352,58 @@ def test_unique_long_lexical_match_reports_exact_original_text_range(tmp_path):
             len(prefix) + len(match),
         )
         assert text[location.text.start : location.text.end] == match
+    finally:
+        project.close()
+
+
+def test_unique_prepared_lexical_match_narrows_location_to_owning_page(tmp_path):
+    from frisket.search import drain_index
+
+    project = Project.create(tmp_path / "prepared-lexical-page.frisket")
+    try:
+        sheet = project.add_sheet("Documents")
+        column = project.add_column(sheet, "body")
+        project.db.execute("BEGIN IMMEDIATE")
+        op_id = project.append_op("prepare.test", commit=False)
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="document",
+            media_type="application/pdf",
+            page_count=2,
+        )
+        prepared = PreparedContentStore(project).stage_reference(
+            source_artifact_id=int(artifact["id"]),
+            producing_op_id=op_id,
+            pages=(
+                PreparedPageDraft(1, "Harbor minutes and attendance."),
+                PreparedPageDraft(2, "The council approved the bluewharf repair."),
+            ),
+        )
+        project.add_rows(sheet, [{"body": prepared}], {"body": column}, commit=False)
+        project.db.commit()
+        drain_index(project)
+
+        response = search(
+            project,
+            SearchRequest(
+                scope=RetrievalScope(sheets=(SheetScope(sheet),)),
+                query=TextQuery("bluewharf"),
+                mode="lexical",
+                ranking=RankingPolicy(rerank="off"),
+            ),
+        )
+
+        [result] = response.results
+        location = result.primary.part.locator
+        assert result.primary.precision == "exact"
+        assert location.pages == PageRange(2, 2)
+        assert location.text is not None
+        assert (
+            PreparedContentStore(project)
+            .resolve(prepared.ref_id)
+            .text[location.text.start : location.text.end]
+            == "bluewharf"
+        )
     finally:
         project.close()
 
@@ -1318,6 +1381,329 @@ def test_coverage_is_scoped_and_unavailable_without_eligible_records(tmp_path):
         assert response.coverage.channels[0].state == "unavailable"
         assert response.coverage.channels[0].prepared_count is None
         assert response.coverage.channels[0].failed_count is None
+    finally:
+        project.close()
+
+
+@pytest.mark.parametrize(
+    ("column_type", "mime_type"),
+    (("file", "application/pdf"), ("audio", "audio/wav")),
+)
+def test_lexical_coverage_reports_scoped_unprepared_media_without_intent(
+    tmp_path, column_type, mime_type
+):
+    from frisket.search import drain_index
+
+    project = Project.create(tmp_path / f"unprepared-{column_type}.frisket")
+    try:
+        sheet = project.add_sheet("Media")
+        status = project.add_column(sheet, "status", type="category")
+        media = project.add_column(sheet, "media", type=column_type)
+        digest = project.add_blob(b"media", mime=mime_type)
+        project.add_rows(
+            sheet,
+            [
+                {
+                    "status": "included",
+                    "media": {"blob": digest, "mime": mime_type},
+                },
+                {
+                    "status": "excluded",
+                    "media": {"blob": digest, "mime": mime_type},
+                },
+            ],
+            {"status": status, "media": media},
+        )
+        drain_index(project)
+
+        response = search(
+            project,
+            SearchRequest(
+                scope=RetrievalScope(
+                    sheets=(
+                        SheetScope(
+                            sheet,
+                            column_ids=(media,),
+                            filter_json='{"status":{"eq":"included"}}',
+                        ),
+                    )
+                ),
+                query=TextQuery("needle"),
+                mode="lexical",
+                ranking=RankingPolicy(rerank="off"),
+            ),
+        )
+
+        assert response.coverage.state == "partial"
+        assert response.coverage.searched_channels == ("lexical",)
+        gap = next(
+            item
+            for item in response.coverage.channels
+            if item.channel == "search_preparation"
+        )
+        assert gap == ChannelCoverage(
+            channel="search_preparation",
+            state="unavailable",
+            eligible_count=1,
+            prepared_count=0,
+            failed_count=0,
+            reason="media_needs_preparation",
+        )
+    finally:
+        project.close()
+
+
+def test_coverage_reports_new_media_before_its_sidecar_binding_is_indexed(tmp_path):
+    from frisket.search import drain_index
+
+    project = Project.create(tmp_path / "unindexed-media.frisket")
+    try:
+        seed_sheet = project.add_sheet("Seed")
+        seed = project.add_column(seed_sheet, "seed")
+        project.add_rows(seed_sheet, [{"seed": "indexed"}], {"seed": seed})
+        drain_index(project)
+
+        media_sheet = project.add_sheet("Media")
+        media = project.add_column(media_sheet, "media", type="file")
+        digest = project.add_blob(b"pdf", mime="application/pdf")
+        project.add_rows(
+            media_sheet,
+            [{"media": {"blob": digest, "mime": "application/pdf"}}],
+            {"media": media},
+        )
+
+        response = search(
+            project,
+            SearchRequest(
+                scope=RetrievalScope(),
+                query=TextQuery("not-yet-searchable"),
+                mode="lexical",
+                ranking=RankingPolicy(rerank="off"),
+            ),
+        )
+
+        gap = next(
+            item
+            for item in response.coverage.channels
+            if item.channel == "search_preparation"
+        )
+        assert (gap.eligible_count, gap.prepared_count) == (1, 0)
+        assert gap.state == "unavailable"
+    finally:
+        project.close()
+
+
+def test_coverage_counts_an_imported_pdf_page_instead_of_its_rendered_image(tmp_path):
+    from frisket.search import drain_index
+
+    project = Project.create(tmp_path / "imported-pdf-coverage.frisket")
+    try:
+        sheet = project.add_sheet("Imported PDF")
+        document = project.add_column(sheet, "source", type="file")
+        page_image = project.add_column(sheet, "page image", type="image")
+        unrelated_image = project.add_column(sheet, "other image", type="image")
+        prepared_text = project.add_column(sheet, "prepared text")
+        pdf_hash = project.add_blob(b"pdf", mime="application/pdf")
+        page_hash = project.add_blob(b"page", mime="image/png")
+        unrelated_hash = project.add_blob(b"other", mime="image/png")
+        row = project.add_rows(
+            sheet,
+            [
+                {
+                    "source": {
+                        "blob": pdf_hash,
+                        "mime": "application/pdf",
+                        "page": 1,
+                    },
+                    "page image": {"blob": page_hash, "mime": "image/png"},
+                    "other image": {
+                        "blob": unrelated_hash,
+                        "mime": "image/png",
+                    },
+                }
+            ],
+            {
+                "source": document,
+                "page image": page_image,
+                "other image": unrelated_image,
+            },
+        )[0]
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="document",
+            media_type="application/pdf",
+            blob_hash=pdf_hash,
+            page_count=1,
+        )
+        span = record_source_span(
+            project,
+            artifact_id=int(artifact["id"]),
+            span_kind="page",
+            page_start=1,
+            page_end=1,
+            preview={"blob_hash": page_hash, "mime": "image/png"},
+        )
+        record_evidence_link(
+            project,
+            subject_kind="cell_value",
+            subject_ref={
+                "kind": "source_cell",
+                "sheet_id": sheet,
+                "row_id": row,
+                "column_id": page_image,
+            },
+            spans=[{"span_id": int(span["id"])}],
+            sheet_id=sheet,
+            row_id=row,
+            column_id=page_image,
+            link_role="primary_support",
+        )
+        drain_index(project)
+
+        response = search(
+            project,
+            SearchRequest(
+                scope=RetrievalScope(),
+                query=TextQuery("needle"),
+                mode="lexical",
+                ranking=RankingPolicy(rerank="off"),
+            ),
+        )
+
+        gap = next(
+            item
+            for item in response.coverage.channels
+            if item.channel == "search_preparation"
+        )
+        assert (gap.eligible_count, gap.prepared_count) == (2, 0)
+
+        record_evidence_link(
+            project,
+            subject_kind="cell_value",
+            subject_ref={
+                "kind": "source_cell",
+                "sheet_id": sheet,
+                "row_id": row,
+                "column_id": document,
+            },
+            spans=[{"span_id": int(span["id"])}],
+            sheet_id=sheet,
+            row_id=row,
+            column_id=document,
+            link_role="primary_support",
+        )
+        project.db.execute("BEGIN IMMEDIATE")
+        op_id = project.append_op("import.pdf", commit=False)
+        prepared = PreparedContentStore(project).stage_reference(
+            source_artifact_id=int(artifact["id"]),
+            producing_op_id=op_id,
+            pages=(PreparedPageDraft(1, "native imported text"),),
+            page_number=1,
+        )
+        project.db.commit()
+        project.apply_edits(
+            [{"row_id": row, "column_id": prepared_text, "value": prepared}]
+        )
+
+        prepared_response = search(
+            project,
+            SearchRequest(
+                scope=RetrievalScope(),
+                query=TextQuery("needle"),
+                mode="lexical",
+                ranking=RankingPolicy(rerank="off"),
+            ),
+        )
+        prepared_gap = next(
+            item
+            for item in prepared_response.coverage.channels
+            if item.channel == "search_preparation"
+        )
+        assert (prepared_gap.eligible_count, prepared_gap.prepared_count) == (2, 1)
+    finally:
+        project.close()
+
+
+def test_material_coverage_counts_exact_current_prepared_binding_appearances(tmp_path):
+    from frisket.search import drain_index
+
+    project = Project.create(tmp_path / "prepared-media-coverage.frisket")
+    try:
+        sheet = project.add_sheet("Documents")
+        document = project.add_column(sheet, "document", type="file")
+        prepared_text = project.add_column(sheet, "prepared text")
+        digest = project.add_blob(b"pdf", mime="application/pdf")
+        rows = project.add_rows(
+            sheet,
+            [
+                {
+                    "document": {
+                        "blob": digest,
+                        "mime": "application/pdf",
+                        "page": 1,
+                    }
+                },
+                {
+                    "document": {
+                        "blob": digest,
+                        "mime": "application/pdf",
+                        "page": 2,
+                    }
+                },
+            ],
+            {"document": document},
+        )
+        # Pin the source media in the retrieval inventory before its ordinary
+        # prepared text result exists.
+        drain_index(project)
+        project.db.execute("BEGIN IMMEDIATE")
+        op_id = project.append_op("media.read_pdf_text", commit=False)
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="document",
+            media_type="application/pdf",
+            blob_hash=digest,
+            page_count=2,
+            source_sheet_id=sheet,
+            source_row_id=rows[0],
+            source_column_id=document,
+        )
+        prepared = PreparedContentStore(project).stage_reference(
+            source_artifact_id=int(artifact["id"]),
+            producing_op_id=op_id,
+            pages=(
+                PreparedPageDraft(1, "searchable prepared text"),
+                PreparedPageDraft(2, "different page text"),
+            ),
+        )
+        prepared = PreparedContentStore(project).stage_selector(
+            set_id=PreparedContentStore(project).resolve(prepared.ref_id).set_id,
+            page_number=1,
+        )
+        project.db.commit()
+        project.apply_edits(
+            [{"row_id": rows[0], "column_id": prepared_text, "value": prepared}]
+        )
+
+        response = search(
+            project,
+            SearchRequest(
+                scope=RetrievalScope(
+                    sheets=(SheetScope(sheet, column_ids=(document,)),)
+                ),
+                query=TextQuery("needle"),
+                mode="lexical",
+                ranking=RankingPolicy(rerank="off"),
+            ),
+        )
+
+        gap = next(
+            item
+            for item in response.coverage.channels
+            if item.channel == "search_preparation"
+        )
+        assert (gap.eligible_count, gap.prepared_count) == (2, 1)
+        assert gap.state == "unavailable"
     finally:
         project.close()
 

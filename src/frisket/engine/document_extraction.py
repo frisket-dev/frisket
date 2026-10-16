@@ -19,6 +19,7 @@ from frisket.actions.document_extraction_types import (
     PositionedDocument,
     PositionedToken,
 )
+from frisket.engine.pdf_text import positioned_tokens_text
 
 
 @dataclass(frozen=True)
@@ -133,22 +134,6 @@ def _region_tokens(
     return [token for token in tokens if _center_inside(token.box, region.box)], coarse
 
 
-def _text(tokens: list[PositionedToken]) -> str:
-    result: list[str] = []
-    previous: PositionedToken | None = None
-    for token in tokens:
-        if previous is not None:
-            same_line = (
-                abs(token.box.y0 - previous.box.y0)
-                < max(token.box.y1 - token.box.y0, previous.box.y1 - previous.box.y0)
-                * 0.6
-            )
-            result.append(" " if same_line else "\n")
-        result.append(token.text)
-        previous = token
-    return "".join(result).strip()
-
-
 def _inside_span(region: PageRegion, span: PageSpan) -> bool:
     return (span.start.page, span.start.y) <= (region.page, region.box.y0) and (
         region.page,
@@ -237,7 +222,7 @@ def compile_template(
         field_anchors.append(
             Anchor(
                 field.id,
-                _normalized(_text(tokens)),
+                _normalized(positioned_tokens_text(tokens)),
                 PageRegion(page=field.key.page, box=_union(tokens)),
                 field.section_id,
             )
@@ -582,7 +567,7 @@ def _read_regions(
             if expand_hint:
                 warning += " or enable Expand value areas"
             warnings.append(warning)
-        text = _text(tokens)
+        text = positioned_tokens_text(tokens)
         if text:
             pieces.append(text)
     text = "\n".join(pieces)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from dataclasses import dataclass
 from typing import Any
 
@@ -18,6 +19,8 @@ from frisket.server.services.import_uploads import (
 from frisket.server.workspace import Workspace
 from frisket.server.route_errors import RouteError
 
+LOG = logging.getLogger(__name__)
+
 
 @dataclass(frozen=True)
 class ImportPdfUploadResponse:
@@ -31,8 +34,9 @@ class ImportPdfRouteError(RouteError):
 
 
 class ImportPdfUploadService:
-    def __init__(self, workspace: Workspace):
+    def __init__(self, workspace: Workspace, *, search_preparation: Any = None):
         self._workspace = workspace
+        self._search_preparation = search_preparation
 
     def executor_deps_for_request(self, project_id: str, request: Any) -> ExecutorDeps:
         """Resolve the deployment composition once at the HTTP boundary."""
@@ -129,6 +133,16 @@ class ImportPdfUploadService:
         pages = sheet_output.ref.get("row_count")
         if not isinstance(pages, int) or isinstance(pages, bool) or pages < 0:
             raise ImportPdfRouteError(500, "import.pdf did not return a page count")
+        if self._search_preparation is not None and result.receipt_id is not None:
+            try:
+                await await_thread_worker(
+                    self._search_preparation.create_after_import,
+                    project_id,
+                    receipt_id=result.receipt_id,
+                    sheet_id=sheet_output.sheet_id,
+                )
+            except Exception:
+                LOG.warning("search_preparation_import_hook_failed", exc_info=True)
         return ImportPdfUploadResponse(
             status_code=200,
             payload={
