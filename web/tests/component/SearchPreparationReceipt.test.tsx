@@ -210,9 +210,10 @@ describe('SearchPreparationReceipt', () => {
         row_id: 42,
         column_id: 5,
         filename: 'native.pdf',
-        page_number: 1,
-        page_count: 2,
-        preview_url: '/api/projects/project-1/blobs/hash/pages/1/image',
+        page_number: 3,
+        page_count: 5,
+        page_scoped: true,
+        preview_url: '/api/projects/project-1/blobs/hash/pages/3/image',
         text: 'Native text from the PDF',
         source: 'native',
         truncated: false,
@@ -232,6 +233,9 @@ describe('SearchPreparationReceipt', () => {
     fireEvent.click(await screen.findByTestId('search-preparation-check-text'));
     expect(createSearchPreparation).not.toHaveBeenCalled();
     await screen.findByText('Native text from the PDF');
+    expect(screen.getByText('Page 3 of 5')).not.toBeNull();
+    expect(screen.queryByRole('button', { name: 'Page 1' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Refresh sample pages' })).toBeNull();
     expect(screen.getByText(/Your PDF stays unchanged/)).not.toBeNull();
     fireEvent.click(screen.getByTestId('search-preparation-force-ocr'));
     await waitFor(() => expect(createSearchPreparation).toHaveBeenCalledWith('project-1', {
@@ -239,5 +243,56 @@ describe('SearchPreparationReceipt', () => {
       row_ids: [42],
       force_ocr: true,
     }));
+  });
+
+  it('keeps page sampling controls for whole-PDF preparation items', async () => {
+    getSearchPreparation.mockResolvedValue({ ...consentBatch, status: 'complete' });
+    const wholePdfSample = {
+      row_id: 42,
+      column_id: 5,
+      filename: 'whole.pdf',
+      page_number: 1,
+      page_count: 4,
+      page_scoped: false,
+      preview_url: '/api/projects/project-1/blobs/hash/pages/1/image',
+      text: 'First page text',
+      source: 'native' as const,
+      truncated: false,
+    };
+    getSearchPreparationTextSamples
+      .mockResolvedValueOnce({
+        schemaVersion: 'frisket.search_preparation_text_samples.v1',
+        batch_id: 'prep-1',
+        samples: [wholePdfSample],
+      })
+      .mockResolvedValueOnce({
+        schemaVersion: 'frisket.search_preparation_text_samples.v1',
+        batch_id: 'prep-1',
+        samples: [{
+          ...wholePdfSample,
+          page_number: 2,
+          preview_url: '/api/projects/project-1/blobs/hash/pages/2/image',
+          text: 'Second page text',
+        }],
+      });
+
+    render(
+      <SearchPreparationReceipt
+        projectId="project-1"
+        batchId="prep-1"
+        onDone={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(await screen.findByTestId('search-preparation-check-text'));
+    await screen.findByText('First page text');
+    fireEvent.click(screen.getByRole('button', { name: 'Page 2' }));
+    await screen.findByText('Second page text');
+    expect(getSearchPreparationTextSamples).toHaveBeenLastCalledWith(
+      'project-1',
+      'prep-1',
+      { rowId: 42, pageNumber: 2 },
+    );
   });
 });

@@ -107,7 +107,11 @@ function TextCheck({
         && (pageNumber == null || item.page_number === pageNumber)
       )) ?? result.samples[0] ?? null;
       setSample(next);
-      if (next) setPages(samplePages(next.page_count ?? next.page_number));
+      if (next) {
+        setPages(next.page_scoped
+          ? [next.page_number]
+          : samplePages(next.page_count ?? next.page_number));
+      }
     } catch (error) {
       onError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -120,7 +124,7 @@ function TextCheck({
     if (!sample) void load();
   };
   const selectPage = (page: number) => {
-    if (!sample) return;
+    if (!sample || sample.page_scoped) return;
     void load(sample.row_id, page);
   };
   const forceOcr = async () => {
@@ -163,18 +167,20 @@ function TextCheck({
           {sample ? (
             <>
               <div className="search-preparation-sample-pages">
-                {pages.map((page) => (
-                  <button
-                    type="button"
-                    key={page}
-                    className={page === sample.page_number ? 'active' : ''}
-                    aria-pressed={page === sample.page_number}
-                    onClick={() => selectPage(page)}
-                  >
-                    Page {page}
-                  </button>
-                ))}
-                {(sample.page_count ?? 1) > 6 && (
+                {sample.page_scoped ? (
+                  <span>Page {sample.page_number} of {sample.page_count}</span>
+                ) : pages.map((page) => (
+                    <button
+                      type="button"
+                      key={page}
+                      className={page === sample.page_number ? 'active' : ''}
+                      aria-pressed={page === sample.page_number}
+                      onClick={() => selectPage(page)}
+                    >
+                      Page {page}
+                    </button>
+                  ))}
+                {!sample.page_scoped && (sample.page_count ?? 1) > 6 && (
                   <button
                     type="button"
                     className="icon-btn"
