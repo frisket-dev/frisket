@@ -1,17 +1,23 @@
 // @vitest-environment jsdom
 
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ModelPullDto } from '../../src/api/types';
 import type { SearchPreparationBatch } from '../../src/api/searchPreparation';
+import * as preparationApi from '../../src/api/searchPreparation';
+import * as openApi from '../../src/api/open';
 import { SearchPreparationNotice } from '../../src/components/SearchPreparationNotice';
 import {
   deriveSearchPreparationNotice,
+  useSearchPreparationNotice,
   type SearchPreparationSnapshot,
 } from '../../src/components/useSearchPreparationNotice';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 function pull(overrides: Partial<ModelPullDto> = {}): ModelPullDto {
   return {
@@ -146,6 +152,46 @@ describe('search preparation notice projection', () => {
       title: 'Model setup needs attention',
       detail: 'Model transport failed.',
     });
+  });
+
+  it('shows the runtime remedy for a preparation that could not start', () => {
+    const notice = deriveSearchPreparationNotice(snapshot({
+      batches: [batch({
+        status: 'failed',
+        groups: [{ kind: 'transcribe', count: 2, status: 'not_prepared' }],
+        models: [{
+          setup_ref: 'parakeet', display_name: 'Parakeet', purpose: 'transcribe',
+          required: true, ready: false, runtime_ready: false, can_setup: false,
+          remediation: 'Install the local audio runtime, then prepare these files again.',
+          download_bytes: null, additional_runtime_download: false,
+          license: null, source_url: null, pull_id: null,
+        }],
+      })],
+    }));
+    expect(notice?.detail).toContain('Install the local audio runtime');
+    expect(notice?.title).toBe('Some files need local setup');
+  });
+
+  it('restores an unavailable runtime explanation after reopening the project', async () => {
+    vi.spyOn(preparationApi, 'listSearchPreparations').mockResolvedValue({
+      schemaVersion: 'frisket.search_preparation_list.v1',
+      batches: [batch({
+        status: 'failed',
+        models: [{
+          setup_ref: 'parakeet', display_name: 'Parakeet', purpose: 'transcribe',
+          required: true, ready: false, runtime_ready: false, can_setup: false,
+          remediation: 'Install the local audio runtime.', download_bytes: null,
+          additional_runtime_download: false, license: null, source_url: null, pull_id: null,
+        }],
+      })],
+      indexing: { status: 'idle', job_id: null, error: null },
+    });
+    vi.spyOn(openApi, 'listModelPulls').mockResolvedValue({
+      schemaVersion: 'frisket.model_pull_list.v1', pulls: [],
+    });
+    const { result } = renderHook(() => useSearchPreparationNotice('project-1', false));
+
+    await waitFor(() => expect(result.current?.detail).toContain('Install the local audio runtime.'));
   });
 
   it('keeps a failed project index visible with its exact job error', () => {

@@ -271,7 +271,8 @@ def _current_prepared_result(
         f"{prepared_source_readiness_ctes(scope_relation='prepared_readiness_scope')} "
         "SELECT prepared_ref_id,page_count FROM current_prepared_sources "
         "WHERE source_sheet_id=? AND source_row_id=? AND source_column_id=? "
-        "AND blob_hash=? AND page_number IS ? LIMIT 1",
+        "AND blob_hash=? AND page_number IS ? "
+        "ORDER BY prepared_ref_id DESC LIMIT 1",
         (
             sheet_id,
             row_id,

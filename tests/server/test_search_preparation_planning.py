@@ -515,3 +515,70 @@ def test_transcript_result_requires_exact_current_output_value_ref(tmp_path) -> 
         assert not planning._has_current_result(project, source, "transcribe")
     finally:
         project.close()
+
+
+def test_pdf_preview_uses_latest_current_prepared_output(tmp_path, monkeypatch) -> None:
+    project = Project.create(tmp_path / "replacement-preview.frisket")
+    try:
+        sheet = project.add_sheet("Documents")
+        document = project.add_column(sheet, "document", type="file")
+        native_output = project.add_column(sheet, "native text")
+        ocr_output = project.add_column(sheet, "OCR text")
+        digest = project.add_blob(b"pdf", mime="application/pdf")
+        row = project.add_rows(
+            sheet,
+            [{"document": {"blob": digest, "mime": "application/pdf"}}],
+            {"document": document},
+        )[0]
+        item = {
+            "row_id": row,
+            "column_id": document,
+            "blob_hash": digest,
+            "page_number": None,
+            "page_count": 1,
+        }
+        project.db.execute("BEGIN IMMEDIATE")
+        op_id = project.append_op("media.read_pdf_text", commit=False)
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="document",
+            media_type="application/pdf",
+            blob_hash=digest,
+            page_count=1,
+            source_sheet_id=sheet,
+            source_row_id=row,
+            source_column_id=document,
+        )
+        store = PreparedContentStore(project)
+        original = store.stage_reference(
+            source_artifact_id=int(artifact["id"]),
+            producing_op_id=op_id,
+            pages=(PreparedPageDraft(1, "garbled native text"),),
+        )
+        positions = [{"text": "correct OCR", "bbox": [0.1, 0.2, 0.3, 0.4]}]
+        replacement = store.stage_reference(
+            source_artifact_id=int(artifact["id"]),
+            producing_op_id=op_id,
+            pages=(PreparedPageDraft(1, "correct OCR", positions=positions),),
+        )
+        project.db.commit()
+        project.apply_edits(
+            [
+                {"row_id": row, "column_id": native_output, "value": original},
+                {"row_id": row, "column_id": ocr_output, "value": replacement},
+            ]
+        )
+
+        async def forbidden_extract(_path):
+            raise AssertionError("the current prepared text should supply the preview")
+
+        monkeypatch.setattr(planning, "extract_pdf_text", forbidden_extract)
+
+        assert planning.sample_pdf(project, sheet, item, 1) == (
+            "correct OCR",
+            1,
+            "prepared",
+        )
+        assert store.resolve(replacement.ref_id).pins[0].positions == positions
+    finally:
+        project.close()
