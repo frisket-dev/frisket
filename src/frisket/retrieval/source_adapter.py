@@ -20,11 +20,20 @@ from frisket.retrieval.content import (
     PreparedPageExtent,
     TextSurface,
 )
-from frisket.retrieval.contracts import BindingRevision, SourceRevision
+from frisket.retrieval.contracts import (
+    BindingRevision,
+    ScopedBinding,
+    SourceLocator,
+    SourceRevision,
+)
 from frisket.search_hydration import searchable_text
 
 
 _SEARCHABLE_COLUMN_TYPES = ("text", "category", "json", "link")
+
+
+class UnsupportedLexicalSourceError(ValueError):
+    """The source kind has no authoritative text resolver."""
 
 
 def _sha256_bytes(value: bytes) -> str:
@@ -232,8 +241,145 @@ def resolve_cell_text_sources(
     return resolved
 
 
+def _resolved_surface_text(source: ResolvedCellTextSource) -> TextSurface:
+    if isinstance(source.surface, PreparedDocumentSurface):
+        return source.surface.text
+    return source.surface
+
+
+def _resolve_cell_lexical_text(
+    project: Any,
+    *,
+    source: SourceRevision,
+    locator: SourceLocator,
+    binding: ScopedBinding,
+) -> str | None:
+    if binding.column_id is None:
+        return None
+    resolved = resolve_cell_text_sources(
+        project,
+        sheet_id=binding.sheet_id,
+        column_id=binding.column_id,
+        row_ids=[binding.row_id],
+    ).get(binding.row_id)
+    if (
+        resolved is None
+        or resolved.source != source
+        or resolved.binding not in binding.dependencies
+    ):
+        return None
+    text_range = locator.text
+    if text_range is not None:
+        surface = _resolved_surface_text(resolved)
+        if (
+            text_range.text_surface_id != surface.text_surface_id
+            or text_range.content_hash != surface.content_hash
+            or text_range.end > len(surface.text)
+        ):
+            return None
+    return resolved.lexical_text
+
+
+def _resolve_transcript_lexical_text(
+    project: Any,
+    *,
+    source: SourceRevision,
+    locator: SourceLocator,
+    binding: ScopedBinding,
+) -> str | None:
+    if binding.column_id is None or not locator.source_span_ids:
+        return None
+    from frisket.engine.executor.temporal_transcripts import (
+        resolve_timestamped_transcript,
+    )
+    from frisket.retrieval.sources import transcript_source_revision
+
+    resolved = resolve_timestamped_transcript(
+        project,
+        sheet_id=binding.sheet_id,
+        row_id=binding.row_id,
+        column_id=binding.column_id,
+    )
+    if resolved is None:
+        return None
+    expected_source = transcript_source_revision(
+        evidence_link_stable_id=resolved.evidence_link_stable_id,
+        snapshot_hash=resolved.snapshot_hash,
+        text=resolved.transcript_value,
+    )
+    span_ids = tuple(str(span["stable_id"]) for span in resolved.spans)
+    if source != expected_source or locator.source_span_ids != span_ids:
+        return None
+    return resolved.transcript_value
+
+
+def _resolve_ocr_lexical_text(
+    project: Any,
+    *,
+    source: SourceRevision,
+    locator: SourceLocator,
+    binding: ScopedBinding,
+) -> str | None:
+    if binding.column_id is None or not locator.source_span_ids:
+        return None
+    from frisket.engine.store.ocr_word_stream import resolve_current_ocr_evidence
+    from frisket.retrieval.sources import ocr_source_revision
+
+    candidates = resolve_current_ocr_evidence(
+        project,
+        sheet_id=binding.sheet_id,
+        row_id=binding.row_id,
+        column_id=binding.column_id,
+    )
+    matches: list[str] = []
+    for resolved in candidates:
+        expected_source = ocr_source_revision(
+            evidence_link_stable_id=resolved.evidence_link_stable_id,
+            snapshot_hash=resolved.snapshot_hash,
+            text=resolved.text_value,
+        )
+        span_ids = tuple(str(span["stable_id"]) for span in resolved.spans)
+        if source == expected_source and locator.source_span_ids == span_ids:
+            matches.append(resolved.text_value)
+    return matches[0] if len(matches) == 1 else None
+
+
+def resolve_lexical_source_text(
+    project: Any,
+    *,
+    source: SourceRevision,
+    locator: SourceLocator,
+    binding: ScopedBinding,
+) -> str | None:
+    """Resolve one exact lexical surface from the query's pinned snapshot.
+
+    Authority selection lives here so query execution does not grow source-kind
+    conditionals or choose a newer artifact.  A known source whose exact
+    revision no longer resolves returns ``None``.  A source kind without a
+    resolver raises explicitly instead of silently pretending search coverage.
+    """
+
+    if source.source_kind in {"text", "prepared_text"}:
+        return _resolve_cell_lexical_text(
+            project, source=source, locator=locator, binding=binding
+        )
+    if source.source_kind == "transcript":
+        return _resolve_transcript_lexical_text(
+            project, source=source, locator=locator, binding=binding
+        )
+    if source.source_kind == "ocr_text":
+        return _resolve_ocr_lexical_text(
+            project, source=source, locator=locator, binding=binding
+        )
+    raise UnsupportedLexicalSourceError(
+        f"lexical hydration does not support source kind {source.source_kind!r}"
+    )
+
+
 __all__ = [
     "ResolvedCellTextSource",
     "TextProducerSurface",
     "resolve_cell_text_sources",
+    "resolve_lexical_source_text",
+    "UnsupportedLexicalSourceError",
 ]

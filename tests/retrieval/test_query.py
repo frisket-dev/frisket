@@ -10,6 +10,7 @@ from frisket.engine.store import Project
 from frisket.engine.store.retrieval_lifecycle import read_binding_revision
 from frisket.retrieval import native
 from frisket.retrieval.contracts import (
+    BindingRevision,
     RetrievalScope,
     RankingPolicy,
     SearchRequest,
@@ -262,6 +263,74 @@ def test_lexical_search_hydrates_authoritative_text_and_honors_named_membership(
         assert [group.primary.binding.row_id for group in response.results] == [rows[1]]
         assert "<b>target</b>" in (response.results[0].primary.snippet or "")
         assert response.results[0].primary.precision == "source_unit"
+    finally:
+        project.close()
+
+
+def test_lexical_search_hydrates_noncell_source_through_authority_adapter(
+    tmp_path, monkeypatch
+):
+    project = Project.create(tmp_path / "transcript.frisket", name="transcript")
+    try:
+        sheet = project.add_sheet("Media")
+        column = project.add_column(sheet, "media")
+        [row] = project.add_rows(
+            sheet, [{"media": "video blob handle"}], {"media": column}
+        )
+        revision = read_binding_revision(project.db, row_id=row, column_id=column)
+        assert revision is not None
+        text = "spoken needle"
+        source = SourceRevision(
+            "transcript-link:evidence",
+            "transcript",
+            "transcript_snapshot",
+            "sha256:snapshot",
+            input_hash(text),
+        )
+        locator = SourceLocator("transcript_chunk", source_span_ids=("span:spoken",))
+        with RetrievalStore(project).open() as store:
+            store.begin_preparation(
+                source, recipe_id="transcript:v1", channel="transcript"
+            )
+            assert store.publish_source(
+                SourcePublication(
+                    source,
+                    "transcript:v1",
+                    "transcript",
+                    parts=(),
+                    bindings=(
+                        StoredBinding(
+                            "binding:transcript",
+                            sheet,
+                            row,
+                            column,
+                            (BindingDependency(row, column, revision),),
+                        ),
+                    ),
+                    lexical=LexicalInput(text, locator),
+                )
+            )
+
+        def resolve(_reader, *, source: SourceRevision, locator, binding):
+            assert source.source_kind == "transcript"
+            assert locator.source_span_ids == ("span:spoken",)
+            assert binding.dependencies == (BindingRevision(row, column, revision),)
+            return text
+
+        monkeypatch.setattr(
+            "frisket.retrieval.query.resolve_lexical_source_text", resolve
+        )
+        response = search(
+            project,
+            SearchRequest(
+                scope=RetrievalScope(sheets=(SheetScope(sheet, column_ids=(column,)),)),
+                query=TextQuery("needle"),
+                mode="lexical",
+            ),
+        )
+
+        assert [result.primary.binding.row_id for result in response.results] == [row]
+        assert "<b>needle</b>" in (response.results[0].primary.snippet or "")
     finally:
         project.close()
 

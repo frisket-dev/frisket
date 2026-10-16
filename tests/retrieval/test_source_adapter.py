@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import replace
+from types import SimpleNamespace
+
+import pytest
 
 from frisket.engine.store import Project
 from frisket.engine.store.evidence import record_source_artifact
@@ -9,7 +13,18 @@ from frisket.engine.store.prepared_content import (
     PreparedPageDraft,
 )
 from frisket.retrieval.content import PreparedDocumentSurface, TextSurface
-from frisket.retrieval.source_adapter import resolve_cell_text_sources
+from frisket.retrieval.contracts import (
+    ScopedBinding,
+    SourceLocator,
+    SourceRevision,
+    TextRange,
+)
+from frisket.retrieval.source_adapter import (
+    UnsupportedLexicalSourceError,
+    resolve_cell_text_sources,
+    resolve_lexical_source_text,
+)
+from frisket.retrieval.sources import ocr_source_revision, transcript_source_revision
 
 
 def _sha256(text: str) -> str:
@@ -32,6 +47,40 @@ def test_resolves_plain_text_with_exact_binding_revision(tmp_path) -> None:
                 column_id=column_id,
                 row_ids=[row_id],
             ).values()
+            binding = ScopedBinding(
+                "binding:plain",
+                sheet_id,
+                row_id,
+                column_id,
+                (resolved.binding,),
+            )
+            locator = SourceLocator(
+                "text",
+                text=TextRange(
+                    resolved.surface.text_surface_id,
+                    resolved.surface.content_hash,
+                    0,
+                    len(resolved.surface.text),
+                ),
+            )
+            assert (
+                resolve_lexical_source_text(
+                    snapshot,
+                    source=resolved.source,
+                    locator=locator,
+                    binding=binding,
+                )
+                == "alpha beta"
+            )
+            assert (
+                resolve_lexical_source_text(
+                    snapshot,
+                    source=replace(resolved.source, version_value=999),
+                    locator=locator,
+                    binding=binding,
+                )
+                is None
+            )
 
         assert resolved.binding.row_id == row_id
         assert resolved.binding.column_id == column_id
@@ -89,6 +138,22 @@ def test_prepared_selector_uses_its_ordered_pins_not_newer_set(tmp_path) -> None
                 column_id=column_id,
                 row_ids=[row_id],
             )[row_id]
+            binding = ScopedBinding(
+                "binding:prepared",
+                sheet_id,
+                row_id,
+                column_id,
+                (resolved.binding,),
+            )
+            assert (
+                resolve_lexical_source_text(
+                    snapshot,
+                    source=resolved.source,
+                    locator=SourceLocator("prepared_text"),
+                    binding=binding,
+                )
+                == "selected one\n\nselected two"
+            )
 
         selected_text = store.resolve(selected.ref_id)
         assert resolved.lexical_text == "selected one\n\nselected two"
@@ -179,3 +244,106 @@ def test_batch_omits_blank_missing_and_nonsearchable_cells(tmp_path) -> None:
             )
     finally:
         project.close()
+
+
+def test_unknown_lexical_source_kind_fails_explicitly(tmp_path) -> None:
+    project = Project.create(tmp_path / "unsupported.frisket")
+    try:
+        with project.read_snapshot() as snapshot:
+            with pytest.raises(UnsupportedLexicalSourceError, match="image"):
+                resolve_lexical_source_text(
+                    snapshot,
+                    source=SourceRevision(
+                        "blob:one", "image", "blob_digest", "sha256:one"
+                    ),
+                    locator=SourceLocator("image"),
+                    binding=ScopedBinding("binding:image", 1, 1),
+                )
+    finally:
+        project.close()
+
+
+def test_transcript_lexical_text_requires_exact_snapshot_and_ordered_spans(
+    monkeypatch,
+) -> None:
+    from frisket.engine.executor import temporal_transcripts
+
+    resolved = SimpleNamespace(
+        evidence_link_stable_id="evidence-link:transcript",
+        snapshot_hash="sha256:transcript-snapshot",
+        transcript_value="first segment\nsecond segment",
+        spans=(
+            {"stable_id": "span:first"},
+            {"stable_id": "span:second"},
+        ),
+    )
+    monkeypatch.setattr(
+        temporal_transcripts,
+        "resolve_timestamped_transcript",
+        lambda *_args, **_kwargs: resolved,
+    )
+    source = transcript_source_revision(
+        evidence_link_stable_id=resolved.evidence_link_stable_id,
+        snapshot_hash=resolved.snapshot_hash,
+        text=resolved.transcript_value,
+    )
+    binding = ScopedBinding("binding:transcript", 2, 3, 4)
+    locator = SourceLocator(
+        "transcript",
+        source_span_ids=("span:first", "span:second"),
+    )
+
+    assert (
+        resolve_lexical_source_text(
+            object(), source=source, locator=locator, binding=binding
+        )
+        == resolved.transcript_value
+    )
+    assert (
+        resolve_lexical_source_text(
+            object(),
+            source=source,
+            locator=replace(locator, source_span_ids=("span:second", "span:first")),
+            binding=binding,
+        )
+        is None
+    )
+
+
+def test_ocr_lexical_text_requires_exact_current_evidence_link(monkeypatch) -> None:
+    from frisket.engine.store import ocr_word_stream
+
+    resolved = SimpleNamespace(
+        evidence_link_stable_id="evidence-link:ocr",
+        snapshot_hash="sha256:ocr-snapshot",
+        text_value="recognized page text",
+        spans=({"stable_id": "span:page"},),
+    )
+    monkeypatch.setattr(
+        ocr_word_stream,
+        "resolve_current_ocr_evidence",
+        lambda *_args, **_kwargs: (resolved,),
+    )
+    source = ocr_source_revision(
+        evidence_link_stable_id=resolved.evidence_link_stable_id,
+        snapshot_hash=resolved.snapshot_hash,
+        text=resolved.text_value,
+    )
+    binding = ScopedBinding("binding:ocr", 2, 3, 4)
+    locator = SourceLocator("ocr", source_span_ids=("span:page",))
+
+    assert (
+        resolve_lexical_source_text(
+            object(), source=source, locator=locator, binding=binding
+        )
+        == resolved.text_value
+    )
+    assert (
+        resolve_lexical_source_text(
+            object(),
+            source=replace(source, version_value="sha256:stale-snapshot"),
+            locator=locator,
+            binding=binding,
+        )
+        is None
+    )
