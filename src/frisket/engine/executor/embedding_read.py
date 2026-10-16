@@ -108,6 +108,14 @@ class AdmittedEmbeddingIndexReader:
                 action_kind=self.action_kind,
                 field="index_id",
             )
+        except (TypeError, ValueError):
+            return ActionError(
+                code="embedding_space_mismatch",
+                message="a ready vector does not match the index space dimension",
+                action_kind=self.action_kind,
+                field="index_id",
+                details={"expected_dimension": int(space["dimension"])},
+            )
         if not rows:
             return ActionError(
                 code="embedding_export_no_ready_vectors",
