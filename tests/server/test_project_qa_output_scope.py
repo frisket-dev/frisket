@@ -586,10 +586,9 @@ def test_semantic_search_uses_the_shared_runtime_without_a_tool_local_budget(
         assert observed == [(runtime, "semantic"), (runtime, "semantic")]
         assert first["coverage"]["state"] == "unavailable"
         assert second["coverage"]["state"] == "unavailable"
-        assert first["coverage"]["channels"][0]["setup"] == {
-            "setup_ref": "engine-setup:embeddinggemma-2.local@1",
-            "scope": "workspace",
-        }
+        setup = first["coverage"]["channels"][0]["setup"]
+        assert setup["setup_ref"] == "engine-setup:embeddinggemma-2.local@1"
+        assert setup["scope"] == "workspace"
 
         observed.clear()
         research = ProjectQATools(

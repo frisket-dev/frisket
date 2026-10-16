@@ -47,6 +47,7 @@ def test_import_session_routes_admit_status_and_enqueue_bounded_pages(tmp_path):
         "cancel_requested": False,
         "sealed": False,
         "error": None,
+        "search_preparation_batch_id": None,
     }
     assert client.get(base).json() == {"sessions": [status]}
     assert client.get(f"{base}/{ref}").json() == status
