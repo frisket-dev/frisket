@@ -27,6 +27,8 @@ from frisket.retrieval.media import (
     PeriodicFrameRecipe,
     MediaProductionError,
     ShotClipRecipe,
+    decode_audio_interval,
+    decode_video_frame,
     produce_media,
 )
 
@@ -540,6 +542,39 @@ def test_decoder_observed_shorter_audio_end_replaces_container_estimate(
 def test_recipe_rejects_a_clip_that_exceeds_native_frame_budget() -> None:
     with pytest.raises(ValueError, match="32"):
         FixedClipRecipe(duration_seconds=20, stride_seconds=10, sample_fps=2)
+
+
+def test_audio_recipe_rejects_windows_longer_than_runtime_limit() -> None:
+    with pytest.raises(ValueError, match="30 seconds"):
+        AudioWindowRecipe(duration_seconds=31, stride_seconds=1)
+
+
+def test_selected_video_frame_reports_actual_pts(tmp_path: Path) -> None:
+    source = tmp_path / "selected-frame.mkv"
+    _cfr_fixture(source)
+    source_ref, stream = _bound(source)
+    try:
+        frame = asyncio.run(decode_video_frame(source_ref, 0.6))
+    finally:
+        stream.close()
+
+    assert frame.point.seconds >= 0.6
+    assert frame.point.seconds == pytest.approx(0.75)
+    assert frame.input.image_bytes.startswith(b"\xff\xd8")
+
+
+def test_selected_audio_interval_reports_effective_tail(tmp_path: Path) -> None:
+    source = tmp_path / "selected-audio.mkv"
+    _offset_audio_fixture(source)
+    source_ref, stream = _bound(source)
+    try:
+        window = asyncio.run(decode_audio_interval(source_ref, 1.0, 1.75))
+    finally:
+        stream.close()
+
+    assert window.start_seconds == 1.0
+    assert window.end_seconds == pytest.approx(1.375, abs=1 / 16_000)
+    assert len(window.input.pcm16le_bytes) == pytest.approx(0.375 * 32_000, abs=2)
 
 
 def test_fixture_probe_confirms_audio_offset_is_real(tmp_path: Path) -> None:

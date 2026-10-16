@@ -39,6 +39,7 @@ from frisket.retrieval.encoding import (
 
 CancelCheck: TypeAlias = Callable[[], bool]
 _PCM_BYTES_PER_SAMPLE = 2
+_MAX_AUDIO_SECONDS = 30.0
 _COPY_CHUNK_BYTES = 1024 * 1024
 _SHOWINFO_FRAME = re.compile(r"\bn:\s*\d+\s+pts:\s*(\S+)\s+pts_time:\s*(\S+)")
 _SHOWINFO_TIME_BASE = re.compile(r"config in time_base:\s*(\d+)\s*/\s*(\d+)")
@@ -59,6 +60,15 @@ def _positive_number(value: object, name: str) -> float:
     checked = float(value)
     if not math.isfinite(checked) or checked <= 0:
         raise ValueError(f"{name} must be finite and greater than zero")
+    return checked
+
+
+def _nonnegative_number(value: object, name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(f"{name} must be a number")
+    checked = float(value)
+    if not math.isfinite(checked) or checked < 0:
+        raise ValueError(f"{name} must be finite and nonnegative")
     return checked
 
 
@@ -179,6 +189,8 @@ class AudioWindowRecipe:
         stride = _positive_number(self.stride_seconds, "stride_seconds")
         if stride > duration:
             raise ValueError("stride_seconds must not exceed duration_seconds")
+        if duration > _MAX_AUDIO_SECONDS:
+            raise ValueError("duration_seconds must not exceed 30 seconds")
         object.__setattr__(self, "duration_seconds", duration)
         object.__setattr__(self, "stride_seconds", stride)
         object.__setattr__(
@@ -590,6 +602,73 @@ async def _decode_video_frames(
     return tuple(frames)
 
 
+async def _decode_video_frame_at(
+    path: Path,
+    output: Path,
+    *,
+    at_seconds: float,
+    max_dimension: int,
+    fallback_time_base: tuple[int, int],
+    cancelled: CancelCheck | None,
+) -> LocatedFrame:
+    """Decode the first real frame at or after one source-timeline instant."""
+
+    ffmpeg = _binary("ffmpeg")
+    output.mkdir()
+    filter_chain = ",".join(
+        (
+            f"select='gte(t\\,{at_seconds:.12g})'",
+            _scale_filter(max_dimension),
+            "showinfo",
+        )
+    )
+    result = await _run_tool(
+        [
+            ffmpeg,
+            "-hide_banner",
+            "-nostdin",
+            "-copyts",
+            "-i",
+            str(path),
+            "-map",
+            "0:v:0",
+            "-vf",
+            filter_chain,
+            "-fps_mode",
+            "passthrough",
+            "-frames:v",
+            "1",
+            "-q:v",
+            "4",
+            "-y",
+            str(output / "frame.jpg"),
+        ],
+        op="retrieval.media.video_anchor_decode",
+        read=path,
+        write=output,
+        cancelled=cancelled,
+    )
+    frame_path = output / "frame.jpg"
+    points = _showinfo_points(result.stderr)
+    if not frame_path.is_file() or not points:
+        raise MediaProductionError(
+            "media_selection_out_of_range",
+            "no decoded video frame exists at or after the selected time",
+        )
+    time_base_match = _SHOWINFO_TIME_BASE.search(result.stderr)
+    if time_base_match is None:
+        numerator, denominator = fallback_time_base
+    else:
+        numerator, denominator = map(int, time_base_match.groups())
+    point = PresentationPoint(points[0][0], numerator, denominator)
+    if point.seconds + 1e-9 < at_seconds:
+        raise MediaProductionError(
+            "invalid_media_timeline",
+            "ffmpeg returned a video frame before the selected time",
+        )
+    return LocatedFrame(point, ImageEncodingInput(frame_path.read_bytes()))
+
+
 def _perceptual_sample(jpeg: bytes) -> tuple[int, ...]:
     from io import BytesIO
 
@@ -994,6 +1073,117 @@ async def _produce_audio(
     )
 
 
+async def decode_video_frame(
+    source: BoundLocalFile,
+    at_seconds: float,
+    *,
+    max_dimension: int = 448,
+    cancelled: CancelCheck | None = None,
+) -> LocatedFrame:
+    """Decode one selected frame and report its actual source-timeline PTS."""
+
+    selected = _nonnegative_number(at_seconds, "at_seconds")
+    dimension = _dimension(max_dimension)
+    _check_cancelled(cancelled)
+    with tempfile.TemporaryDirectory(
+        prefix="frisket-retrieval-video-anchor-"
+    ) as directory:
+        scratch = Path(directory)
+        staged = scratch / "source.media"
+        await _stage_source(source, staged, cancelled)
+        probe = await _probe(staged, "video", cancelled)
+        if not probe.start_seconds <= selected < probe.end_seconds:
+            raise MediaProductionError(
+                "media_selection_out_of_range",
+                "selected video time is outside the source timeline",
+            )
+        return await _decode_video_frame_at(
+            staged,
+            scratch / "frame",
+            at_seconds=selected,
+            max_dimension=dimension,
+            fallback_time_base=(probe.time_base_num, probe.time_base_den),
+            cancelled=cancelled,
+        )
+
+
+async def decode_audio_interval(
+    source: BoundLocalFile,
+    start_seconds: float,
+    end_seconds: float,
+    *,
+    cancelled: CancelCheck | None = None,
+) -> AudioWindow:
+    """Decode one explicit interval to signed mono PCM16LE at 16 kHz."""
+
+    start = _nonnegative_number(start_seconds, "start_seconds")
+    end = _nonnegative_number(end_seconds, "end_seconds")
+    if end <= start:
+        raise ValueError("selected audio interval must have positive duration")
+    if end - start > _MAX_AUDIO_SECONDS:
+        raise ValueError("selected audio interval must not exceed 30 seconds")
+    _check_cancelled(cancelled)
+    with tempfile.TemporaryDirectory(
+        prefix="frisket-retrieval-audio-anchor-"
+    ) as directory:
+        scratch = Path(directory)
+        staged = scratch / "source.media"
+        await _stage_source(source, staged, cancelled)
+        probe = await _probe(staged, "audio", cancelled)
+        if start < probe.start_seconds or start >= probe.end_seconds:
+            raise MediaProductionError(
+                "media_selection_out_of_range",
+                "selected audio interval starts outside the source timeline",
+            )
+        selected_end = min(end, probe.end_seconds)
+        output = scratch / "audio.pcm"
+        await _run_tool(
+            [
+                _binary("ffmpeg"),
+                "-hide_banner",
+                "-nostdin",
+                "-i",
+                str(staged),
+                "-ss",
+                f"{start - probe.start_seconds:.12g}",
+                "-t",
+                f"{selected_end - start:.12g}",
+                "-map",
+                "0:a:0",
+                "-af",
+                "asetpts=PTS-STARTPTS,aresample=16000:async=1:first_pts=0",
+                "-ac",
+                "1",
+                "-ar",
+                str(EMBEDDINGGEMMA2_AUDIO_SAMPLE_RATE),
+                "-c:a",
+                "pcm_s16le",
+                "-f",
+                "s16le",
+                "-y",
+                str(output),
+            ],
+            op="retrieval.media.audio_anchor_decode",
+            read=staged,
+            write=scratch,
+            cancelled=cancelled,
+        )
+        data = output.read_bytes()
+        if len(data) % _PCM_BYTES_PER_SAMPLE:
+            data = data[:-1]
+        max_samples = round((selected_end - start) * EMBEDDINGGEMMA2_AUDIO_SAMPLE_RATE)
+        data = data[: max_samples * _PCM_BYTES_PER_SAMPLE]
+        if not data:
+            raise MediaProductionError(
+                "media_selection_out_of_range",
+                "selected audio interval contains no decoded samples",
+            )
+        actual_end = start + (
+            len(data) / _PCM_BYTES_PER_SAMPLE / EMBEDDINGGEMMA2_AUDIO_SAMPLE_RATE
+        )
+        return AudioWindow(start, actual_end, AudioEncodingInput(data))
+
+
 async def produce_media(
     source: BoundLocalFile,
     recipe: MediaRecipe,
@@ -1021,6 +1211,8 @@ async def produce_media(
 __all__ = [
     "AudioWindow",
     "AudioWindowRecipe",
+    "decode_audio_interval",
+    "decode_video_frame",
     "FixedClipRecipe",
     "LocatedFrame",
     "LocatedMediaInput",
