@@ -289,7 +289,22 @@ class SourceAnchor:
     exclude_exact: bool = True
 
 
-SearchQuery: TypeAlias = TextQuery | WeightedSemanticQuery | SourceAnchor
+@dataclass(frozen=True, slots=True)
+class CellAnchor:
+    """A visible selected cell; the service resolves its current source."""
+
+    sheet_id: int
+    row_id: int
+    column_id: int
+    exclude_exact: bool = True
+
+    def __post_init__(self) -> None:
+        _positive(self.sheet_id, "sheet_id")
+        _positive(self.row_id, "row_id")
+        _positive(self.column_id, "column_id")
+
+
+SearchQuery: TypeAlias = TextQuery | WeightedSemanticQuery | SourceAnchor | CellAnchor
 
 
 @dataclass(frozen=True, slots=True)
