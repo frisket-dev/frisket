@@ -189,6 +189,8 @@ def _prepare_project(tmp_path):
                 vector=vector,
                 version=revision - 1 if row_id == rows[4] else revision,
             )
+    project.db.execute("DELETE FROM search_dirty_scopes")
+    project.db.commit()
     return project, sheet, status, body, rows
 
 

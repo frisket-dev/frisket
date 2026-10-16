@@ -1,7 +1,6 @@
 """``GeoProjectionBackend`` — the rebuildable ``project.geo.db`` map sidecar.
 
-Modeled on ``frisket.embeddings.vector_backend.VectorBackend``: a per-project
-SQLite sidecar that is rebuildable from
+A per-project SQLite sidecar that is rebuildable from
 ``project.db`` + canonical live values, never in an atomic transaction with
 ``project.db``, safe to delete, and excluded from default bundle export. Raw
 projected points live ONLY here; the canonical ``geo_point`` value stays in

@@ -558,10 +558,18 @@ class RetrievalQueryService:
         any_pending = False
         any_failed = False
         any_unavailable = False
+        dirty = request.named_index_id is None and _scoped_dirty_work(reader, scope)
         for channel in requested_channels:
             ready, pending, failed, unavailable = _scoped_coverage_state(
                 reader, request, scope, channel
             )
+            pending = pending or dirty
+            if (
+                channel == "lexical"
+                and request.named_index_id is None
+                and not (ready or pending or failed or unavailable)
+            ):
+                ready = True  # A fully maintained empty text corpus is searchable.
             any_ready = any_ready or ready
             any_pending = any_pending or pending
             any_failed = any_failed or failed
@@ -604,6 +612,27 @@ class RetrievalQueryService:
             truncated=False,
             channels=tuple(channel_coverage),
         )
+
+
+def _scoped_dirty_work(
+    reader: PinnedRetrievalReader, scope: CompiledRetrievalScope
+) -> bool:
+    return bool(
+        reader.db.execute(
+            f"""WITH {scope.cte_sql}
+        SELECT EXISTS (
+          SELECT 1 FROM search_dirty_scopes AS dirty
+          WHERE EXISTS (
+            SELECT 1 FROM scoped_bindings AS scoped
+            WHERE (dirty.sheet_id IS NULL OR dirty.sheet_id=scoped.sheet_id)
+              AND (dirty.column_id IS NULL OR scoped.column_id IS NULL
+                   OR dirty.column_id=scoped.column_id)
+              AND (dirty.row_id_start IS NULL OR scoped.row_id BETWEEN dirty.row_id_start AND dirty.row_id_end)
+          )
+        )""",
+            scope.params,
+        ).fetchone()[0]
+    )
 
 
 def _preparation_dataset_filter(request: SearchRequest) -> tuple[str, tuple[Any, ...]]:
@@ -695,6 +724,7 @@ def _scoped_coverage_state(
          AND preparation.target_version_value=retrieval_binding.version_value
          AND preparation.target_version_type=retrieval_binding.version_type
         WHERE {binding_where} AND preparation.space_id IS ?
+          AND preparation.status!='ready'
           {preparation_channel_sql} {preparation_dataset_sql}
         """,
         (
@@ -762,7 +792,7 @@ def _semantic_coverage_channels(
            AND preparation.target_version_type=retrieval_binding.version_type
           WHERE {_visible_column("retrieval_binding")}
             AND {_binding_is_current("retrieval_binding")}
-            AND preparation.status IN ('pending','preparing','failed','unavailable')
+            AND preparation.status!='ready'
             AND preparation.space_id=?
             {preparation_dataset_sql}
         )

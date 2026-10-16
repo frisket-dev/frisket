@@ -145,7 +145,7 @@ def test_weighted_query_is_not_silently_changed_to_keywords(indexed_project):
     assert result.coverage.effective_modes == ()
 
 
-def test_missing_model_and_empty_lexical_index_report_unavailable(
+def test_missing_model_keeps_empty_lexical_search_available(
     tmp_path, monkeypatch, built_native_root
 ):
     monkeypatch.setattr(native, "_NATIVE_ROOT", built_native_root)
@@ -155,9 +155,9 @@ def test_missing_model_and_empty_lexical_index_report_unavailable(
             pass
         result = search_with_encoding(project, request(), runtime=Encoder(unavailable=True))
         assert not result.results
-        assert result.coverage.state == "unavailable"
-        assert result.coverage.effective_modes == ()
-        assert result.coverage.searched_channels == ()
+        assert result.coverage.state == "partial"
+        assert result.coverage.effective_modes == ("lexical",)
+        assert result.coverage.searched_channels == ("lexical",)
     finally:
         project.close()
 
