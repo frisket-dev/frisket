@@ -107,7 +107,7 @@ def _publish(
     revision = SourceRevision(
         source_id=f"cell:{row_id}:{column_id}",
         source_kind="text",
-        version_kind="cell_revision",
+        version_kind="retrieval_revision",
         version_value=version,
         content_hash=input_hash(text),
     )
@@ -401,6 +401,49 @@ def test_source_anchor_uses_exact_authorized_part_and_excludes_only_that_part(tm
             group.primary.part.part_id != selected.part.part_id
             for group in response.results
         )
+    finally:
+        project.close()
+
+
+def test_source_anchor_accepts_an_explicit_vector_when_location_is_not_prepared(
+    tmp_path,
+):
+    project, sheet, _status, body, rows = _prepare_project(tmp_path)
+    try:
+        source = SourceRevision(
+            "resolved:external-anchor",
+            "text",
+            "resolved_snapshot",
+            "snapshot:one",
+            input_hash("an exact source chosen outside the retrieval index"),
+        )
+        locator = SourceLocator(
+            kind="text",
+            text=TextRange(
+                text_surface_id=source.source_id,
+                content_hash=source.content_hash or "missing",
+                start=0,
+                end=15,
+            ),
+        )
+
+        response = search(
+            project,
+            SearchRequest(
+                scope=_included_scope(sheet, body),
+                query=SourceAnchor(source=source, locator=locator),
+                mode="semantic",
+                group_by="source",
+                space_id="space:test",
+                limit=10,
+            ),
+            semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
+        )
+
+        assert [group.primary.binding.row_id for group in response.results] == [
+            rows[1],
+            rows[2],
+        ]
     finally:
         project.close()
 
@@ -711,5 +754,53 @@ def test_coverage_is_scoped_and_unavailable_without_eligible_records(tmp_path):
         assert response.coverage.channels[0].state == "unavailable"
         assert response.coverage.channels[0].prepared_count is None
         assert response.coverage.channels[0].failed_count is None
+    finally:
+        project.close()
+
+
+def test_coverage_includes_failed_channel_without_a_top_k_hit(tmp_path):
+    project, sheet, _status, body, rows = _prepare_project(tmp_path)
+    try:
+        revision = read_binding_revision(project.db, row_id=rows[1], column_id=body)
+        assert revision is not None
+        source = SourceRevision(
+            f"cell:{rows[1]}:{body}",
+            "text",
+            "retrieval_revision",
+            revision,
+            input_hash("target eligible second"),
+        )
+        with RetrievalStore(project).open() as store:
+            store.begin_preparation(
+                source, recipe_id="transcript:v1", channel="transcript"
+            )
+            assert store.fail_preparation(
+                source,
+                recipe_id="transcript:v1",
+                channel="transcript",
+                error_code="encoder_failed",
+                error_message="transcript preparation failed",
+            )
+
+        response = search(
+            project,
+            SearchRequest(
+                scope=_included_scope(sheet, body),
+                query=TextQuery("target"),
+                mode="semantic",
+                group_by="source",
+                space_id="space:test",
+                limit=1,
+            ),
+            semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
+        )
+
+        assert len(response.results) == 1
+        assert response.coverage.state == "partial"
+        assert response.coverage.searched_channels == ("text",)
+        assert {item.channel: item.state for item in response.coverage.channels} == {
+            "text": "ready",
+            "transcript": "failed",
+        }
     finally:
         project.close()

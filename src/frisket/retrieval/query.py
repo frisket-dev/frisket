@@ -45,6 +45,10 @@ from .native import (
 )
 from .ranking import compose_weighted_vectors, reciprocal_rank_fusion
 from .scope import CompiledRetrievalScope, compile_scope
+from .source_adapter import (
+    UnsupportedLexicalSourceError,
+    resolve_lexical_source_text,
+)
 from .sources import canonical_json, identity_digest, input_hash
 from .store import RETRIEVAL_DB_NAME
 
@@ -235,7 +239,7 @@ class RetrievalQueryService:
                         )
                         groups = _single_method_groups(lexical, request)
                         coverage = self._coverage(
-                            reader, request, scope, searched=("lexical",)
+                            reader, request, scope, channels=("lexical",)
                         )
                     elif request.mode == "semantic":
                         semantic = self._semantic_candidates(
@@ -246,12 +250,12 @@ class RetrievalQueryService:
                             limit=rerank_pool,
                         )
                         groups = _single_method_groups(semantic, request)
-                        channels = tuple(dict.fromkeys(row.channel for row in semantic))
+                        channels = _semantic_coverage_channels(reader, request, scope)
                         coverage = self._coverage(
                             reader,
                             request,
                             scope,
-                            searched=channels or ("semantic",),
+                            channels=channels or ("semantic",),
                         )
                     else:
                         pool = min(HYBRID_POOL, max(rerank_pool, request.limit * 4))
@@ -267,13 +271,12 @@ class RetrievalQueryService:
                             fusion=True,
                         )
                         groups = _hybrid_groups(lexical, semantic, request)
-                        channels = tuple(
-                            dict.fromkeys(
-                                ("lexical", *(row.channel for row in semantic))
-                            )
+                        channels = (
+                            "lexical",
+                            *_semantic_coverage_channels(reader, request, scope),
                         )
                         coverage = self._coverage(
-                            reader, request, scope, searched=channels
+                            reader, request, scope, channels=channels
                         )
                     groups = self._rerank(groups, request)
                 finally:
@@ -428,11 +431,25 @@ class RetrievalQueryService:
             raise RetrievalQueryError(
                 "embedding_space_required", "semantic retrieval requires space_id"
             )
-        anchor_part_id: str | None = None
+        anchor_exclusion: tuple[str, str, str, str, str] | None = None
         if isinstance(request.query, SourceAnchor):
-            query_blob, dimension, anchor_part_id = _resolve_anchor_vector(
-                reader, request, scope
-            )
+            if semantic_vectors is None:
+                query_blob, dimension, _ = _resolve_anchor_vector(
+                    reader, request, scope
+                )
+            else:
+                query_blob, dimension = _source_anchor_query_blob(semantic_vectors)
+            if request.query.exclude_exact:
+                version_value, version_type = _encode_version(
+                    request.query.source.version_value
+                )
+                anchor_exclusion = (
+                    request.query.source.source_id,
+                    request.query.source.version_kind,
+                    version_value,
+                    version_type,
+                    canonical_json(request.query.locator),
+                )
             exclusion_blobs: tuple[bytes, ...] = ()
             thresholds: tuple[float, ...] = ()
             minimum = None
@@ -491,7 +508,7 @@ class RetrievalQueryService:
             AND {_binding_is_current("retrieval_binding")}
             AND representation.space_id=? AND representation.dimension=?
             {dataset_where}
-            {"AND part.part_id<>?" if anchor_part_id is not None and request.query.exclude_exact else ""}
+            {"AND NOT (part.source_id=? AND part.version_kind=? AND part.version_value=? AND part.version_type=? AND part.locator_json=?)" if anchor_exclusion is not None else ""}
             {exclude_sql}
         ), accepted AS NOT MATERIALIZED (
           SELECT * FROM eligible WHERE 1=1{minimum_sql}
@@ -512,11 +529,7 @@ class RetrievalQueryService:
             request.space_id,
             dimension,
             *dataset_params,
-            *(
-                (anchor_part_id,)
-                if anchor_part_id is not None and request.query.exclude_exact
-                else ()
-            ),
+            *(anchor_exclusion or ()),
         ]
         for blob, threshold in zip(exclusion_blobs, thresholds, strict=True):
             params.extend((sqlite3.Binary(blob), threshold))
@@ -537,29 +550,41 @@ class RetrievalQueryService:
         request: SearchRequest,
         scope: CompiledRetrievalScope,
         *,
-        searched: tuple[str, ...],
+        channels: tuple[str, ...],
     ) -> SearchCoverage:
-        requested_channels = tuple(dict.fromkeys(searched or (request.mode,)))
-        channels: list[ChannelCoverage] = []
+        requested_channels = tuple(dict.fromkeys(channels or (request.mode,)))
+        channel_coverage: list[ChannelCoverage] = []
+        any_ready = False
+        any_pending = False
+        any_failed = False
+        any_unavailable = False
         for channel in requested_channels:
             ready, pending, failed = _scoped_coverage_state(
                 reader, request, scope, channel
             )
-            if failed:
+            any_ready = any_ready or ready
+            any_pending = any_pending or pending
+            any_failed = any_failed or failed
+            unavailable = not (ready or pending or failed)
+            any_unavailable = any_unavailable or unavailable
+            if ready:
+                state = "ready"
+            elif failed:
                 state = "failed"
             elif pending:
                 state = "pending"
-            elif ready:
-                state = "ready"
             else:
                 state = "unavailable"
-            channels.append(ChannelCoverage(channel=channel, state=state))
-        states = {channel.state for channel in channels}
-        if states == {"ready"}:
+            channel_coverage.append(ChannelCoverage(channel=channel, state=state))
+        if any_ready and not (any_pending or any_failed or any_unavailable):
             coverage_state = "complete"
-        elif states == {"failed"}:
+        elif any_ready:
+            coverage_state = "partial"
+        elif any_pending and not (any_failed or any_unavailable):
+            coverage_state = "preparing"
+        elif any_failed and not (any_pending or any_unavailable):
             coverage_state = "failed"
-        elif states == {"unavailable"}:
+        elif any_unavailable and not (any_pending or any_failed):
             coverage_state = "unavailable"
         else:
             coverage_state = "partial"
@@ -570,10 +595,14 @@ class RetrievalQueryService:
             requested_mode=request.mode,
             effective_modes=effective,
             state=coverage_state,
-            searched_channels=requested_channels,
+            searched_channels=tuple(
+                channel.channel
+                for channel in channel_coverage
+                if channel.state == "ready"
+            ),
             is_top_k=True,
             truncated=False,
-            channels=tuple(channels),
+            channels=tuple(channel_coverage),
         )
 
 
@@ -645,6 +674,9 @@ def _scoped_coverage_state(
           SELECT 1 {binding_join}
           JOIN idx.preparation AS preparation
             ON preparation.source_id=retrieval_binding.source_id
+           AND preparation.target_version_kind=retrieval_binding.version_kind
+           AND preparation.target_version_value=retrieval_binding.version_value
+           AND preparation.target_version_type=retrieval_binding.version_type
           WHERE {binding_where}
             AND preparation.status IN ('pending','preparing')
             {preparation_channel_sql} LIMIT 1
@@ -653,6 +685,9 @@ def _scoped_coverage_state(
           SELECT 1 {binding_join}
           JOIN idx.preparation AS preparation
             ON preparation.source_id=retrieval_binding.source_id
+           AND preparation.target_version_kind=retrieval_binding.version_kind
+           AND preparation.target_version_value=retrieval_binding.version_value
+           AND preparation.target_version_type=retrieval_binding.version_type
           WHERE {binding_where} AND preparation.status='failed'
             {preparation_channel_sql} LIMIT 1
         ) AS failed
@@ -660,6 +695,62 @@ def _scoped_coverage_state(
         params,
     ).fetchone()
     return bool(row["ready"]), bool(row["pending"]), bool(row["failed"])
+
+
+def _semantic_coverage_channels(
+    reader: PinnedRetrievalReader,
+    request: SearchRequest,
+    scope: CompiledRetrievalScope,
+) -> tuple[str, ...]:
+    """List scoped semantic channels independently of the returned top-k rows."""
+
+    dataset_join, dataset_where, dataset_params = _semantic_dataset_filter(request)
+    rows = reader.db.execute(
+        f"""
+        WITH {scope.cte_sql}, scoped_channels(channel) AS (
+          SELECT DISTINCT part_representation.channel
+          FROM scoped_bindings AS scoped
+          JOIN idx.bindings AS retrieval_binding
+            ON retrieval_binding.sheet_id=scoped.sheet_id
+           AND retrieval_binding.row_id=scoped.row_id
+           AND (scoped.column_id IS NULL
+                OR scoped.column_id=retrieval_binding.column_id)
+          JOIN idx.parts AS part
+            ON part.source_id=retrieval_binding.source_id
+           AND part.version_kind=retrieval_binding.version_kind
+           AND part.version_value=retrieval_binding.version_value
+           AND part.version_type=retrieval_binding.version_type
+          JOIN idx.part_representations AS part_representation
+            ON part_representation.part_id=part.part_id
+          JOIN idx.representations AS representation
+            ON representation.representation_id=part_representation.representation_id
+          {dataset_join}
+          WHERE {_visible_column("retrieval_binding")}
+            AND {_binding_is_current("retrieval_binding")}
+            AND representation.space_id=?
+            {dataset_where}
+          UNION
+          SELECT DISTINCT preparation.channel
+          FROM scoped_bindings AS scoped
+          JOIN idx.bindings AS retrieval_binding
+            ON retrieval_binding.sheet_id=scoped.sheet_id
+           AND retrieval_binding.row_id=scoped.row_id
+           AND (scoped.column_id IS NULL
+                OR scoped.column_id=retrieval_binding.column_id)
+          JOIN idx.preparation AS preparation
+            ON preparation.source_id=retrieval_binding.source_id
+           AND preparation.target_version_kind=retrieval_binding.version_kind
+           AND preparation.target_version_value=retrieval_binding.version_value
+           AND preparation.target_version_type=retrieval_binding.version_type
+          WHERE {_visible_column("retrieval_binding")}
+            AND {_binding_is_current("retrieval_binding")}
+            AND preparation.status IN ('pending','preparing','failed')
+        )
+        SELECT channel FROM scoped_channels ORDER BY channel
+        """,
+        (*scope.params, request.space_id, *dataset_params),
+    ).fetchall()
+    return tuple(str(row["channel"]) for row in rows)
 
 
 def search(
@@ -719,6 +810,19 @@ def _semantic_query_blob(
         for vector in vectors.exclusion_vectors
     )
     return query_blob, exclusion_blobs, thresholds, minimum, dimension
+
+
+def _source_anchor_query_blob(
+    vectors: SemanticQueryVectors,
+) -> tuple[bytes, int]:
+    if len(vectors.term_vectors) != 1 or vectors.exclusion_vectors:
+        raise RetrievalQueryError(
+            "query_embedding_mismatch",
+            "a source anchor requires exactly one source vector",
+        )
+    composed = compose_weighted_vectors(vectors.term_vectors, (1.0,))
+    dimension = len(composed)
+    return pack_vector(composed, dimensions=dimension), dimension
 
 
 def _resolve_anchor_vector(
@@ -841,15 +945,15 @@ def _hydrate_lexical(
 ) -> list[_Candidate]:
     hydrated: list[tuple[_Candidate, str]] = []
     for candidate in candidates:
-        column_id = candidate.binding.column_id
-        if column_id is None:
-            continue
-        values = reader.get_values(
-            candidate.binding.sheet_id,
-            column_id,
-            row_ids=[candidate.binding.row_id],
-        )
-        text = searchable_text(values.get(candidate.binding.row_id))
+        try:
+            text = resolve_lexical_source_text(
+                reader,
+                source=candidate.source,
+                locator=candidate.locator,
+                binding=candidate.binding,
+            )
+        except UnsupportedLexicalSourceError as exc:
+            raise RetrievalQueryError("lexical_source_unavailable", str(exc)) from exc
         if text is None or input_hash(text) != candidate.lexical_content_hash:
             continue
         hydrated.append((candidate, text))
