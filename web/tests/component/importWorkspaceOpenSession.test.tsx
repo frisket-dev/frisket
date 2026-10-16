@@ -9,8 +9,11 @@ const executeBulkImport = vi.hoisted(() => vi.fn());
 const importFollowTheMoney = vi.hoisted(() => vi.fn());
 const importCsv = vi.hoisted(() => vi.fn());
 const previewCsv = vi.hoisted(() => vi.fn());
+const importFiles = vi.hoisted(() => vi.fn());
+const getImportSession = vi.hoisted(() => vi.fn());
 const createImportSession = vi.hoisted(() => vi.fn());
 const uploadFilesToImportSession = vi.hoisted(() => vi.fn());
+const getSearchPreparation = vi.hoisted(() => vi.fn());
 const projectApi = vi.hoisted(() => ({ getSheetData: vi.fn(), listSheets: vi.fn() }));
 
 vi.mock('../../src/api/open', async (importOriginal) => {
@@ -22,6 +25,8 @@ vi.mock('../../src/api/open', async (importOriginal) => {
     importFollowTheMoney,
     importCsv,
     previewCsv,
+    importFiles,
+    getImportSession,
     createImportSession,
     uploadFilesToImportSession,
   };
@@ -32,6 +37,11 @@ vi.mock('../../src/bind/useWorkspaceStores', () => ({
     projectApi,
     chromePreferences: { projectId: 'open-session-project' },
   }),
+}));
+
+vi.mock('../../src/api/searchPreparation', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../src/api/searchPreparation')>(),
+  getSearchPreparation,
 }));
 
 import { ImportDropzone, ImportWorkspaceDialog } from '../../src/components/ImportCsv';
@@ -98,6 +108,15 @@ beforeEach(() => {
     through: 4_096, committed_rows: 0, committed_bytes: 0, sheet_id: null,
     sheet_name: 'Files', cancel_requested: false, sealed: true, error: null,
   });
+  getSearchPreparation.mockImplementation(async (_projectId: string, batchId: string) => ({
+    schemaVersion: 'frisket.search_preparation.v1',
+    id: batchId,
+    sheet_id: 91,
+    plan_hash: 'sha256:plan',
+    status: 'complete',
+    groups: [{ kind: 'native_pdf', count: 1, status: 'complete' }],
+    models: [], jobs: [], can_stop: false, can_setup: true, errors: [],
+  }));
   projectApi.getSheetData.mockResolvedValue({ columns: [], total: 0 });
   projectApi.listSheets.mockResolvedValue([]);
 });
@@ -108,6 +127,48 @@ afterEach(() => {
 });
 
 describe('ImportWorkspaceDialog controlled open session', () => {
+  it('opens the shared preparation receipt after a synchronous file import', async () => {
+    importFiles.mockResolvedValue({
+      sheet_id: 91,
+      rows: 1,
+      search_preparation_batch_id: 'sync-prep',
+    });
+    const onImported = vi.fn();
+    renderDialog(true, onImported);
+    fireEvent.click(screen.getByTestId('import-mode-files'));
+    fireEvent.change(screen.getByTestId('import-file-input'), {
+      target: { files: [new File(['report'], 'report.txt', { type: 'text/plain' })] },
+    });
+
+    await waitFor(() => expect(onImported).toHaveBeenCalledWith(91));
+    expect(await screen.findByTestId('search-preparation-receipt')).toHaveTextContent('Ready to search');
+    expect(getSearchPreparation).toHaveBeenCalledWith('open-session-project', 'sync-prep');
+  });
+
+  it('opens the same receipt after a resumable attachment session seals', async () => {
+    uploadFilesToImportSession.mockResolvedValue({
+      import_ref: 'large-selection', state: 'completed', admitted_files: 2, admitted_bytes: 2,
+      through: 2, committed_rows: 2, committed_bytes: 2, sheet_id: 91,
+      sheet_name: 'Files', cancel_requested: false, sealed: true, error: null,
+      search_preparation_batch_id: 'resumable-prep',
+    });
+    const onImported = vi.fn();
+    renderDialog(true, onImported);
+    fireEvent.click(screen.getByTestId('import-mode-files'));
+    fireEvent.change(screen.getByTestId('import-file-input'), {
+      target: {
+        files: [
+          new File(['a'], 'first.txt', { type: 'text/plain' }),
+          new File(['b'], 'second.txt', { type: 'text/plain' }),
+        ],
+      },
+    });
+
+    await waitFor(() => expect(onImported).toHaveBeenCalledWith(91));
+    expect(await screen.findByTestId('search-preparation-receipt')).toHaveTextContent('Ready to search');
+    expect(getSearchPreparation).toHaveBeenCalledWith('open-session-project', 'resumable-prep');
+  });
+
   it('gates FollowTheMoney and uploads the selected format to the first materialized sheet', async () => {
     const onImported = vi.fn();
     const view = render(

@@ -57,6 +57,9 @@ export function ProjectRetrievalSettings({
   canMutate,
   onPatch,
 }: ProjectRetrievalSettingsProps) {
+  const automaticPreparation = (
+    settings as ProjectRetrievalSettingsValue & { prepare_new_files_automatically?: boolean }
+  ).prepare_new_files_automatically ?? true;
   return (
     <section className="settings-subsection" data-testid="project-retrieval-settings">
       <div className="settings-section-subhead">
@@ -66,6 +69,26 @@ export function ProjectRetrievalSettings({
           affected search inputs in the background.
         </p>
       </div>
+      <label className="settings-check search-preparation-setting">
+        <input
+          type="checkbox"
+          data-testid="search-preparation-setting"
+          checked={automaticPreparation}
+          disabled={!canMutate}
+          onChange={(event) => void onPatch({
+            retrieval: {
+              prepare_new_files_automatically: event.currentTarget.checked,
+            },
+          } as ProjectSettingsPatch)}
+        />
+        <span>
+          Prepare new files automatically
+          <small className="settings-field-help">
+            Read PDFs and images and transcribe recordings after import. Missing local models
+            are downloaded only after you approve them.
+          </small>
+        </span>
+      </label>
       <div className="settings-grid-two" role="group" aria-label="Source types">
         {SOURCE_OPTIONS.map(({ field, label, help }) => (
           <label className="settings-check" key={field}>

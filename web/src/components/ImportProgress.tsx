@@ -18,6 +18,7 @@ import {
   setImportSessionBrowserUploading,
   subscribeImportSessions,
 } from './importProgressSession';
+import { SearchPreparationReceipt } from './SearchPreparationReceipt';
 
 const POLL_MS = 2_000;
 
@@ -50,6 +51,7 @@ export function ImportProgress({ projectId, onOpenSheet, onChanged, onError }: {
   const [busyRef, setBusyRef] = useState<string | null>(null);
   const [preparingRef, setPreparingRef] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [openPreparationBatchId, setOpenPreparationBatchId] = useState<string | null>(null);
   const browserUploadVersion = useSyncExternalStore(
     subscribeImportSessions,
     importSessionSnapshot,
@@ -70,7 +72,7 @@ export function ImportProgress({ projectId, onOpenSheet, onChanged, onError }: {
       if (!signal?.aborted) {
         const next = new Map(result.sessions.map((session) => [
           session.import_ref,
-          `${session.state}:${session.committed_rows}:${session.sheet_id ?? ''}`,
+          `${session.state}:${session.committed_rows}:${session.sheet_id ?? ''}:${session.search_preparation_batch_id ?? ''}`,
         ]));
         for (const session of result.sessions) {
           if (session.sealed || ['cancelled', 'completed', 'kept', 'removed'].includes(session.state)) {
@@ -201,6 +203,16 @@ export function ImportProgress({ projectId, onOpenSheet, onChanged, onError }: {
                   Open sheet
                 </button>
               ) : null}{' '}
+              {session.search_preparation_batch_id ? (
+                <button
+                  type="button"
+                  className="mini-btn"
+                  data-testid="import-progress-open-preparation"
+                  onClick={() => setOpenPreparationBatchId(session.search_preparation_batch_id)}
+                >
+                  Open preparation
+                </button>
+              ) : null}{' '}
               {browserUploading ? <span> · Uploading files… You can close the importer.</span> : null}
               {preparing ? <span> · Preparing files…</span> : null}
               {!preparing && !browserUploading && !session.sealed && !['cancelling', 'cancelled', 'kept', 'removed'].includes(session.state) ? (
@@ -245,6 +257,19 @@ export function ImportProgress({ projectId, onOpenSheet, onChanged, onError }: {
             </div>
           );
         })}
+        {openPreparationBatchId && (
+          <SearchPreparationReceipt
+            key={openPreparationBatchId}
+            projectId={projectId}
+            batchId={openPreparationBatchId}
+            onBatchChange={(batch) => setOpenPreparationBatchId(batch.id)}
+            onDone={() => setOpenPreparationBatchId(null)}
+            onError={(text) => {
+              setMessage(text);
+              onError?.(text);
+            }}
+          />
+        )}
         {message ? <div className="import-field-error" role="alert">{message}</div> : null}
       </div>
     </section>

@@ -6,7 +6,7 @@ import {
   useState,
   type Dispatch,
 } from 'react';
-import { FileText, LoaderCircle, RefreshCw } from 'lucide-react';
+import { FileText, RefreshCw } from 'lucide-react';
 import type { RunEstimate } from '../../../api/open';
 import type { SelectorChoice } from '../../../api/selectorChoices';
 import {
@@ -18,6 +18,7 @@ import {
   getPdfPacketPage,
   getPdfPacketSplit,
   matchPdfPacketCandidates,
+  pdfPacketThumbnailUrl,
   setPdfPacketTextSource,
   startPdfPacketOcr,
   type PdfPacketSplitSnapshot,
@@ -41,6 +42,7 @@ import {
 } from './model';
 import { PacketFindStep } from './PacketFindStep';
 import { PacketThumbnail } from './PacketThumbnail';
+import { PdfTextPagePreview } from './PdfTextPagePreview';
 
 export interface PdfPacketShellContext {
   active: boolean;
@@ -929,20 +931,14 @@ function PacketTextStep({
             />
           ) : null}
         </header>
-        <div className="pdf-packet-page-and-text">
-          <PacketThumbnail projectId={projectId} splitId={splitId} page={selectedPage} alt={`Page ${selectedPage}`} eager />
-          <div className="pdf-packet-text-card">
-            <strong>Extracted text</strong>
-            {extracting || loading ? (
-              <div className="pdf-packet-text-loading" role="status" aria-label={extracting ? 'Extracting text' : 'Reading page'}>
-                <LoaderCircle className="spin" size={24} aria-hidden />
-                <span>{extracting ? 'Extracting text…' : 'Reading page…'}</span>
-              </div>
-            ) : shownText ? <pre>{shownText}</pre> : (
-              <p>{source === 'ocr' ? 'Run OCR to read this page.' : 'No extracted text on this page.'}</p>
-            )}
-          </div>
-        </div>
+        <PdfTextPagePreview
+          page={selectedPage}
+          thumbnailUrl={pdfPacketThumbnailUrl(projectId, splitId, selectedPage)}
+          text={shownText}
+          loading={extracting || loading}
+          loadingCopy={extracting ? 'Extracting text…' : 'Reading page…'}
+          emptyCopy={source === 'ocr' ? 'Run OCR to read this page.' : 'No extracted text on this page.'}
+        />
         <footer>
           <button type="button" className="btn" onClick={onBack}>Back</button>
           <strong>Does this text look right?</strong>

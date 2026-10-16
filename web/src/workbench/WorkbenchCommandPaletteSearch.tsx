@@ -144,6 +144,11 @@ export function PaletteSearchSection({
   setupBusy,
   setupError,
   onStartSetup,
+  preparationBusy,
+  preparationError,
+  canPrepareGap,
+  onPrepareGap,
+  onViewJobs,
 }: {
   mode: 'lexical' | 'semantic' | 'hybrid';
   onModeChange(mode: 'lexical' | 'semantic' | 'hybrid'): void;
@@ -177,10 +182,28 @@ export function PaletteSearchSection({
   setupBusy: boolean;
   setupError: string | null;
   onStartSetup(setupRef: string, scope: 'workspace' | 'organization'): void;
+  preparationBusy: boolean;
+  preparationError: string | null;
+  canPrepareGap: boolean;
+  onPrepareGap(): void;
+  onViewJobs(): void;
 }) {
   const status = coverageMessage(coverage);
   const setup = coverage?.channels.find((channel) => channel.setup)?.setup;
   const resultCount = groups?.length ?? 0;
+  const materialGap = coverage?.channels.find((channel) => (
+    channel.setup == null
+    && (
+      (channel.eligible_count != null
+        && channel.prepared_count != null
+        && channel.eligible_count > channel.prepared_count)
+      || channel.state === 'unavailable'
+      || channel.state === 'failed'
+    )
+  ));
+  const materialGapCount = materialGap?.eligible_count != null && materialGap.prepared_count != null
+    ? materialGap.eligible_count - materialGap.prepared_count
+    : null;
 
   return (
     <div className="palette-section palette-search-section" data-testid="palette-section-search">
@@ -284,6 +307,36 @@ export function PaletteSearchSection({
         </div>
       )}
       {setupError && <div className="picker-error">{setupError}</div>}
+      {materialGap && (
+        <div className="search-preparation-gap" data-testid="search-preparation-gap">
+          <span>
+            {materialGapCount == null
+              ? 'Some files need search preparation.'
+              : `${materialGapCount.toLocaleString()} ${materialGapCount === 1 ? 'file needs' : 'files need'} search preparation.`}
+          </span>
+          {materialGap.state === 'pending' ? (
+            <button
+              type="button"
+              className="mini-btn"
+              data-testid="search-preparation-view-jobs"
+              onClick={onViewJobs}
+            >
+              View Jobs
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="mini-btn"
+              data-testid="search-preparation-gap-action"
+              disabled={!canPrepareGap || preparationBusy}
+              onClick={onPrepareGap}
+            >
+              {preparationBusy ? 'Starting…' : 'Prepare'}
+            </button>
+          )}
+        </div>
+      )}
+      {preparationError && <div className="picker-error">{preparationError}</div>}
       {!searchError && groups !== null && (
         resultCount === 0 ? (
           coverage?.state !== 'preparing' && (

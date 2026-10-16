@@ -8358,6 +8358,130 @@ dialog.import-workspace-layer::backdrop {
   border-radius: 8px;
   background: white;
 }
+
+/* Search preparation stays inside the existing Import/Search surfaces. The
+   receipt is one quiet summary rather than another stack of settings cards. */
+.search-preparation-receipt {
+  width: min(680px, 100%);
+  margin: 0 auto;
+  display: grid;
+  gap: 18px;
+  padding: 24px;
+}
+
+.search-preparation-receipt > header,
+.search-preparation-text-preview > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.search-preparation-receipt h2,
+.search-preparation-receipt h3 { margin: 0; }
+.search-preparation-eyebrow {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--muted, #756c66);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.search-preparation-groups { border-top: 1px solid var(--border, #ded9d4); }
+.search-preparation-group {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 44px;
+  border-bottom: 1px solid var(--border, #ded9d4);
+}
+.search-preparation-group > strong { font-size: 12px; font-weight: 600; color: #605852; }
+.search-preparation-group[data-status='complete'] > strong { color: #247143; }
+.search-preparation-group[data-status='failed'] > strong { color: var(--danger, #aa2b2b); }
+
+.search-preparation-consent {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--border, #ded9d4);
+  border-radius: 10px;
+  background: #fbfaf8;
+}
+.search-preparation-consent > p { margin: 0; color: #6d655f; }
+.search-preparation-model {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-top: 1px solid #e6e1dc;
+}
+.search-preparation-model > span { display: grid; gap: 2px; }
+.search-preparation-model small { color: #756c66; text-transform: capitalize; }
+.search-preparation-model > b { font-size: 12px; font-variant-numeric: tabular-nums; }
+.search-preparation-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.search-preparation-receipt > footer { padding-top: 4px; }
+.search-preparation-pulls { display: grid; gap: 8px; }
+
+.search-preparation-text-preview {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border, #ded9d4);
+  border-radius: 10px;
+  background: #fff;
+}
+.search-preparation-text-preview > header > div { display: grid; gap: 2px; }
+.search-preparation-text-preview > header span { color: #756c66; font-size: 12px; }
+.search-preparation-sample-pages { display: flex; align-items: center; gap: 6px; overflow-x: auto; }
+.search-preparation-sample-pages > button:not(.icon-btn) {
+  border: 1px solid #d7d1cb;
+  border-radius: 999px;
+  background: #fff;
+  padding: 4px 9px;
+  font: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.search-preparation-sample-pages > button.active { border-color: #4b4ddb; color: #3436b8; background: #f1f1ff; }
+.search-preparation-force-scope { display: flex; gap: 16px; padding: 0; border: 0; }
+.search-preparation-force-scope legend { margin-bottom: 6px; font-size: 12px; font-weight: 650; }
+.search-preparation-force-scope label { display: flex; gap: 6px; align-items: center; font-size: 12px; }
+.pdf-text-preview-placeholder {
+  min-height: 220px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #ddd7d1;
+  border-radius: 5px;
+  background: #f5f2ee;
+  color: #756c66;
+}
+
+.search-preparation-setting { margin-bottom: 14px; }
+.search-preparation-gap {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 7px 0;
+  padding: 8px 10px;
+  border: 1px solid #ddd7d1;
+  border-radius: 7px;
+  background: #fbfaf8;
+  color: #655d56;
+  font-size: 12px;
+}
+.search-preparation-status { padding: 0 7px; color: #5f5751; }
+
+@media (max-width: 700px) {
+  .search-preparation-receipt { padding: 16px; }
+  .search-preparation-group { align-items: flex-start; flex-direction: column; gap: 3px; padding: 8px 0; }
+  .search-preparation-text-preview .pdf-packet-page-and-text { grid-template-columns: 1fr; }
+  .search-preparation-force-scope { flex-direction: column; gap: 6px; }
+}
 .pdf-packet-text-card > strong { font-size: 12px; }
 .pdf-packet-text-loading {
   min-height: 180px;

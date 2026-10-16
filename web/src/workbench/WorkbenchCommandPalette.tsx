@@ -16,6 +16,9 @@ import {
 import { PaletteSearchSection } from './WorkbenchCommandPaletteSearch';
 import { useNativePopover } from '../hooks/useNativePopover';
 import { topLayerPortalRoot } from '../topLayerPortal';
+import { useWorkspaceStores } from '../bind/useWorkspaceStores';
+import { createSearchPreparation } from '../api/searchPreparation';
+import { SearchPreparationReceipt } from '../components/SearchPreparationReceipt';
 
 const EMPTY_LAUNCHER_COMMANDS: PaletteLauncherCommand[] = [];
 
@@ -106,6 +109,7 @@ export function WorkbenchCommandPalette({
   onNavigateSearchHit: (hit: ProjectSearchHitWire) => void;
   searchSeed?: PaletteSearchSeed | null;
 }) {
+  const { chrome, chromePreferences: { projectId } } = useWorkspaceStores();
   const backdropRef = useRef<HTMLDivElement>(null);
   useNativePopover(backdropRef, onClose, { escape: false, outside: false });
 
@@ -214,6 +218,19 @@ export function WorkbenchCommandPalette({
     searchSeed,
   );
   const anchored = anchor !== null;
+  const [preparationBatchId, setPreparationBatchId] = useState<string | null>(null);
+  const [preparationBusy, setPreparationBusy] = useState(false);
+  const [preparationError, setPreparationError] = useState<string | null>(null);
+  const prepareSearchGap = () => {
+    const sheetId = Number(activeSearchSheetId);
+    if (!Number.isInteger(sheetId) || sheetId <= 0 || preparationBusy) return;
+    setPreparationBusy(true);
+    setPreparationError(null);
+    void createSearchPreparation(projectId, { sheet_id: sheetId })
+      .then((batch) => setPreparationBatchId(batch.id))
+      .catch((error) => setPreparationError(error instanceof Error ? error.message : String(error)))
+      .finally(() => setPreparationBusy(false));
+  };
   const hasAnyFilteredResults =
     anchored
       ? (groups?.length ?? 0) > 0
@@ -474,7 +491,25 @@ export function WorkbenchCommandPalette({
             setupBusy={setupBusy}
             setupError={setupError}
             onStartSetup={startSetup}
+            preparationBusy={preparationBusy}
+            preparationError={preparationError}
+            canPrepareGap={Number.isInteger(Number(activeSearchSheetId)) && Number(activeSearchSheetId) > 0}
+            onPrepareGap={prepareSearchGap}
+            onViewJobs={() => {
+              chrome.setActiveBottomDockTab('jobs');
+              onClose();
+            }}
           />
+          {preparationBatchId && (
+            <SearchPreparationReceipt
+              key={preparationBatchId}
+              projectId={projectId}
+              batchId={preparationBatchId}
+              onBatchChange={(batch) => setPreparationBatchId(batch.id)}
+              onDone={() => setPreparationBatchId(null)}
+              onError={setPreparationError}
+            />
+          )}
         </div>
 
         <div className="workbench-command-palette-footer">
