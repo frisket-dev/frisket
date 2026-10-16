@@ -15,6 +15,7 @@ from frisket.retrieval.preparation import (
 )
 from frisket.retrieval.source_adapter import resolve_cell_text_sources
 from frisket.retrieval.store import RetrievalStore
+from frisket.search_index import drain_index, index_batch, index_needs_work
 
 
 class _Encoder:
@@ -237,5 +238,36 @@ def test_edit_during_preparation_rejects_old_cursor_target(tmp_path) -> None:
                 "failed",
                 "stale_source",
             )
+    finally:
+        project.close()
+
+
+def test_dirty_dispatch_uses_only_unified_sidecar_and_recovers_deletion(tmp_path):
+    project = Project.create(tmp_path / "unified-index.frisket")
+    try:
+        sheet_id = project.add_sheet("Documents")
+        column_id = project.add_column(sheet_id, "body")
+        project.add_rows(
+            sheet_id,
+            [{"body": "alpha one"}, {"body": "alpha two"}],
+            {"body": column_id},
+        )
+
+        first = index_batch(project, batch_size=1)
+        assert first.processed <= 1 and first.pending
+        assert drain_index(project, batch_size=1) == 2
+        assert not (project.path / "project.search.db").exists()
+        with RetrievalStore(project).open() as store:
+            assert (
+                store.db.execute(
+                    "SELECT count(*) FROM lexical_fts WHERE lexical_fts MATCH 'alpha'"
+                ).fetchone()[0]
+                == 2
+            )
+
+        (project.path / "project.retrieval.db").unlink()
+        assert index_needs_work(project)
+        assert drain_index(project, batch_size=1) == 2
+        assert not index_needs_work(project)
     finally:
         project.close()

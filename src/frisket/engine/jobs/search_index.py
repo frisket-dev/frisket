@@ -12,8 +12,7 @@ from frisket.retrieval.preparation import (
     preparation_work_marker,
     process_text_preparation_batch,
 )
-from frisket.search import index_batch, index_needs_work
-from frisket.search_storage import reclaim_is_pending, reclaim_search_storage
+from frisket.search_index import index_batch, index_needs_work
 
 from .ports import JobHandlerContext
 from .project_opener import ProjectOpener, open_claimed_project
@@ -88,8 +87,6 @@ def index_work_marker(project: Project) -> str | None:
         return f"{first.id}:{first.scan_cursor}"
     if index_needs_work(project):
         return f"repair:{latest_revision(project.db)}"
-    if reclaim_is_pending(project.path / "project.search.db"):
-        return "reclaim"
     if marker := preparation_work_marker(project.path):
         return f"prepare:{marker}"
     return None
@@ -130,9 +127,6 @@ def register_search_index_handler(
                 stopped=stopped,
                 embedding_encoder=embedding_encoder,
             )
-            if complete and not stopped():
-                if not reclaim_search_storage(project.path / "project.search.db"):
-                    raise RuntimeError("search index reclaim deferred")
             if not stopped():
                 continuation = {
                     "project_id": project_id,
