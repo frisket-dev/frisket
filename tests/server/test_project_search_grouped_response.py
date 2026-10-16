@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from types import SimpleNamespace
 
 import pytest
@@ -442,6 +442,38 @@ def test_semantic_setup_offer_respects_edition_and_capability(
             "source_url": "https://example.test/embeddinggemma",
         }
         assert requirement_calls == 1
+
+
+def test_installed_model_is_not_offered_again_for_unavailable_search_runtime(
+    monkeypatch,
+) -> None:
+    requirement = replace(
+        _semantic_setup_requirement(),
+        runtime_ready=True,
+        weights_ready=True,
+        download_bytes_if_missing=0,
+    )
+    monkeypatch.setattr(
+        project_search, "local_search_setup_requirements", lambda: (requirement,)
+    )
+    coverage = SearchCoverage(
+        requested_mode="semantic",
+        effective_modes=("lexical",),
+        state="partial",
+        searched_channels=("lexical",),
+        is_top_k=True,
+        truncated=False,
+        channels=(
+            ChannelCoverage(
+                channel="semantic",
+                state="unavailable",
+                reason="Semantic search is unavailable in this SQLite runtime.",
+            ),
+        ),
+    )
+    result = project_search._coverage_payload(coverage, setup_scope="workspace")
+    assert result["channels"][0]["setup"] is None
+    assert result["channels"][0]["reason"] == coverage.channels[0].reason
 
 
 def test_navigation_normalizes_sqlite_column_rows(monkeypatch) -> None:

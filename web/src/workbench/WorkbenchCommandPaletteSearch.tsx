@@ -123,7 +123,7 @@ function SearchHitRow({
         <span className="search-hit-content">
           <span className="search-hit-heading">
             <span className="search-hit-col">
-              {(hit as ProjectSearchHitWire & { source_name?: string | null }).source_name ?? hit.column_name}
+              {hit.source_name ?? hit.column_name}
             </span>
             {locationLabel && <span className="search-hit-location">{locationLabel}</span>}
           </span>

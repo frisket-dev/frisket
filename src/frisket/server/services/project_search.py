@@ -327,6 +327,7 @@ def _coverage_payload(
                 item
                 for item in local_search_setup_requirements()
                 if item.setup_ref == SETUP_REF
+                and not (item.runtime_ready and item.weights_ready)
             ),
             None,
         )
