@@ -832,36 +832,73 @@ def _material_preparation_coverage(
 
     row = reader.db.execute(
         f"""WITH {scope.cte_sql}, eligible_media AS MATERIALIZED (
-          SELECT retrieval_binding.sheet_id,retrieval_binding.row_id,
-                 retrieval_binding.column_id,retrieval_source.version_value AS blob_hash,
+          SELECT scoped.sheet_id,source_current.row_id,source_current.column_id,
+                 json_extract(source_current.value,'$.blob') AS blob_hash,
                  CASE WHEN json_valid(source_current.value)
                        AND json_type(source_current.value,'$.page')='integer'
                       THEN json_extract(source_current.value,'$.page') END AS page_number
           FROM scoped_bindings AS scoped
-          JOIN idx.bindings AS retrieval_binding
-            ON retrieval_binding.sheet_id=scoped.sheet_id
-           AND retrieval_binding.row_id=scoped.row_id
-           AND (scoped.column_id IS NULL
-                OR scoped.column_id=retrieval_binding.column_id)
-          JOIN idx.sources AS retrieval_source
-            ON retrieval_source.source_key=retrieval_binding.source_key
-          JOIN main.blobs AS blob
-            ON blob.hash=retrieval_source.version_value
           JOIN main.current_cell_values AS source_current
-            ON source_current.row_id=retrieval_binding.row_id
-           AND source_current.column_id=retrieval_binding.column_id
-          WHERE retrieval_source.source_kind='blob'
-            AND retrieval_source.version_kind='blob_digest'
-            AND {_visible_column("retrieval_binding")}
-            AND {_binding_is_current("retrieval_binding")}
+            ON source_current.row_id=scoped.row_id
+           AND (scoped.column_id IS NULL
+                OR scoped.column_id=source_current.column_id)
+          JOIN main.columns AS source_column
+            ON source_column.id=source_current.column_id
+           AND source_column.sheet_id=scoped.sheet_id
+           AND source_column.hidden=0 AND source_column.active=1
+          JOIN main.blobs AS blob
+            ON blob.hash=json_extract(source_current.value,'$.blob')
+          WHERE source_current.value_kind='json'
+            AND source_current.validity='valid'
+            AND source_column.type IN ('file','image','audio','video')
+            AND json_valid(source_current.value)
+            AND json_type(source_current.value,'$.blob')='text'
             AND (lower(blob.mime)='application/pdf'
                  OR lower(blob.mime) LIKE 'application/pdf;%'
                  OR lower(blob.mime) LIKE 'image/%'
                  OR lower(blob.mime) LIKE 'audio/%'
                  OR lower(blob.mime) LIKE 'video/%')
-          GROUP BY retrieval_binding.sheet_id,retrieval_binding.row_id,
-                   retrieval_binding.column_id,retrieval_source.version_value,
-                   page_number
+            AND NOT (lower(blob.mime) LIKE 'image/%' AND EXISTS (
+              SELECT 1
+              FROM main.evidence_links AS image_link
+              JOIN main.evidence_link_spans AS image_linked
+                ON image_linked.link_id=image_link.id
+              JOIN main.source_spans AS image_span
+                ON image_span.id=image_linked.span_id
+              JOIN main.source_artifacts AS pdf_artifact
+                ON pdf_artifact.id=image_span.artifact_id
+               AND pdf_artifact.media_type='application/pdf'
+              JOIN main.current_cell_values AS pdf_current
+                ON pdf_current.row_id=source_current.row_id
+               AND pdf_current.value_kind='json'
+               AND pdf_current.validity='valid'
+               AND json_valid(pdf_current.value)
+               AND json_extract(pdf_current.value,'$.blob')=pdf_artifact.blob_hash
+               AND json_extract(pdf_current.value,'$.page') IS image_span.page_start
+              JOIN main.columns AS pdf_column
+                ON pdf_column.id=pdf_current.column_id
+               AND pdf_column.sheet_id=scoped.sheet_id
+               AND pdf_column.hidden=0 AND pdf_column.active=1
+               AND pdf_column.type='file'
+              JOIN scoped_bindings AS pdf_scope
+                ON pdf_scope.sheet_id=scoped.sheet_id
+               AND pdf_scope.row_id=source_current.row_id
+               AND (pdf_scope.column_id IS NULL
+                    OR pdf_scope.column_id=pdf_current.column_id)
+              WHERE image_link.status='active'
+                AND image_link.link_role='primary_support'
+                AND image_link.subject_kind='cell_value'
+                AND image_link.sheet_id=scoped.sheet_id
+                AND image_link.row_id=source_current.row_id
+                AND image_link.column_id=source_current.column_id
+                AND image_span.span_kind='page'
+                AND image_span.page_start=image_span.page_end
+                AND json_extract(image_span.preview_json,'$.blob_hash')=
+                    json_extract(source_current.value,'$.blob')
+              LIMIT 1
+            ))
+          GROUP BY scoped.sheet_id,source_current.row_id,
+                   source_current.column_id,blob_hash,page_number
         )
         SELECT count(*) AS eligible_count,
                coalesce(sum(CASE WHEN
@@ -879,13 +916,32 @@ def _material_preparation_coverage(
                      ON output_column.id=current.column_id
                     AND output_column.sheet_id=eligible.sheet_id
                     AND output_column.hidden=0
-                   WHERE artifact.source_sheet_id=eligible.sheet_id
-                     AND current.value_kind='text'
+                   WHERE current.value_kind='text'
                      AND length(trim(current.value))>0
-                     AND artifact.source_row_id=eligible.row_id
-                     AND artifact.source_column_id=eligible.column_id
                      AND artifact.blob_hash=eligible.blob_hash
                      AND ref.page_number IS eligible.page_number
+                     AND ((artifact.source_sheet_id=eligible.sheet_id
+                           AND artifact.source_row_id=eligible.row_id
+                           AND artifact.source_column_id=eligible.column_id)
+                          OR EXISTS (
+                            SELECT 1
+                            FROM main.evidence_links AS source_link
+                            JOIN main.evidence_link_spans AS source_linked
+                              ON source_linked.link_id=source_link.id
+                            JOIN main.source_spans AS source_span
+                              ON source_span.id=source_linked.span_id
+                            WHERE source_link.status='active'
+                              AND source_link.link_role='primary_support'
+                              AND source_link.subject_kind='cell_value'
+                              AND source_link.sheet_id=eligible.sheet_id
+                              AND source_link.row_id=eligible.row_id
+                              AND source_link.column_id=eligible.column_id
+                              AND source_span.artifact_id=artifact.id
+                              AND source_span.span_kind='page'
+                              AND source_span.page_start IS ref.page_number
+                              AND source_span.page_end IS ref.page_number
+                            LIMIT 1
+                          ))
                    LIMIT 1
                  ) OR EXISTS (
                    SELECT 1

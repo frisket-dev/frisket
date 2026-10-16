@@ -8,7 +8,11 @@ from time import perf_counter
 import pytest
 
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import record_source_artifact
+from frisket.engine.store.evidence import (
+    record_evidence_link,
+    record_source_artifact,
+    record_source_span,
+)
 from frisket.engine.store.prepared_content import (
     PreparedContentStore,
     PreparedPageDraft,
@@ -1445,6 +1449,177 @@ def test_lexical_coverage_reports_scoped_unprepared_media_without_intent(
             failed_count=0,
             reason="media_needs_preparation",
         )
+    finally:
+        project.close()
+
+
+def test_coverage_reports_new_media_before_its_sidecar_binding_is_indexed(tmp_path):
+    from frisket.search import drain_index
+
+    project = Project.create(tmp_path / "unindexed-media.frisket")
+    try:
+        seed_sheet = project.add_sheet("Seed")
+        seed = project.add_column(seed_sheet, "seed")
+        project.add_rows(seed_sheet, [{"seed": "indexed"}], {"seed": seed})
+        drain_index(project)
+
+        media_sheet = project.add_sheet("Media")
+        media = project.add_column(media_sheet, "media", type="file")
+        digest = project.add_blob(b"pdf", mime="application/pdf")
+        project.add_rows(
+            media_sheet,
+            [{"media": {"blob": digest, "mime": "application/pdf"}}],
+            {"media": media},
+        )
+
+        response = search(
+            project,
+            SearchRequest(
+                scope=RetrievalScope(),
+                query=TextQuery("not-yet-searchable"),
+                mode="lexical",
+                ranking=RankingPolicy(rerank="off"),
+            ),
+        )
+
+        gap = next(
+            item
+            for item in response.coverage.channels
+            if item.channel == "search_preparation"
+        )
+        assert (gap.eligible_count, gap.prepared_count) == (1, 0)
+        assert gap.state == "unavailable"
+    finally:
+        project.close()
+
+
+def test_coverage_counts_an_imported_pdf_page_instead_of_its_rendered_image(tmp_path):
+    from frisket.search import drain_index
+
+    project = Project.create(tmp_path / "imported-pdf-coverage.frisket")
+    try:
+        sheet = project.add_sheet("Imported PDF")
+        document = project.add_column(sheet, "source", type="file")
+        page_image = project.add_column(sheet, "page image", type="image")
+        unrelated_image = project.add_column(sheet, "other image", type="image")
+        prepared_text = project.add_column(sheet, "prepared text")
+        pdf_hash = project.add_blob(b"pdf", mime="application/pdf")
+        page_hash = project.add_blob(b"page", mime="image/png")
+        unrelated_hash = project.add_blob(b"other", mime="image/png")
+        row = project.add_rows(
+            sheet,
+            [
+                {
+                    "source": {
+                        "blob": pdf_hash,
+                        "mime": "application/pdf",
+                        "page": 1,
+                    },
+                    "page image": {"blob": page_hash, "mime": "image/png"},
+                    "other image": {
+                        "blob": unrelated_hash,
+                        "mime": "image/png",
+                    },
+                }
+            ],
+            {
+                "source": document,
+                "page image": page_image,
+                "other image": unrelated_image,
+            },
+        )[0]
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="document",
+            media_type="application/pdf",
+            blob_hash=pdf_hash,
+            page_count=1,
+        )
+        span = record_source_span(
+            project,
+            artifact_id=int(artifact["id"]),
+            span_kind="page",
+            page_start=1,
+            page_end=1,
+            preview={"blob_hash": page_hash, "mime": "image/png"},
+        )
+        record_evidence_link(
+            project,
+            subject_kind="cell_value",
+            subject_ref={
+                "kind": "source_cell",
+                "sheet_id": sheet,
+                "row_id": row,
+                "column_id": page_image,
+            },
+            spans=[{"span_id": int(span["id"])}],
+            sheet_id=sheet,
+            row_id=row,
+            column_id=page_image,
+            link_role="primary_support",
+        )
+        drain_index(project)
+
+        response = search(
+            project,
+            SearchRequest(
+                scope=RetrievalScope(),
+                query=TextQuery("needle"),
+                mode="lexical",
+                ranking=RankingPolicy(rerank="off"),
+            ),
+        )
+
+        gap = next(
+            item
+            for item in response.coverage.channels
+            if item.channel == "search_preparation"
+        )
+        assert (gap.eligible_count, gap.prepared_count) == (2, 0)
+
+        record_evidence_link(
+            project,
+            subject_kind="cell_value",
+            subject_ref={
+                "kind": "source_cell",
+                "sheet_id": sheet,
+                "row_id": row,
+                "column_id": document,
+            },
+            spans=[{"span_id": int(span["id"])}],
+            sheet_id=sheet,
+            row_id=row,
+            column_id=document,
+            link_role="primary_support",
+        )
+        project.db.execute("BEGIN IMMEDIATE")
+        op_id = project.append_op("import.pdf", commit=False)
+        prepared = PreparedContentStore(project).stage_reference(
+            source_artifact_id=int(artifact["id"]),
+            producing_op_id=op_id,
+            pages=(PreparedPageDraft(1, "native imported text"),),
+            page_number=1,
+        )
+        project.db.commit()
+        project.apply_edits(
+            [{"row_id": row, "column_id": prepared_text, "value": prepared}]
+        )
+
+        prepared_response = search(
+            project,
+            SearchRequest(
+                scope=RetrievalScope(),
+                query=TextQuery("needle"),
+                mode="lexical",
+                ranking=RankingPolicy(rerank="off"),
+            ),
+        )
+        prepared_gap = next(
+            item
+            for item in prepared_response.coverage.channels
+            if item.channel == "search_preparation"
+        )
+        assert (prepared_gap.eligible_count, prepared_gap.prepared_count) == (2, 1)
     finally:
         project.close()
 
