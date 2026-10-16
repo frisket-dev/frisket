@@ -140,6 +140,7 @@ jobs:
             '
       - name: Build host-platform wheel
         if: matrix.manylinux == false
+        shell: bash
         run: uv build --wheel --out-dir dist "$WHEEL_SOURCE"
       - name: Verify wheel tag and native member
         shell: bash
