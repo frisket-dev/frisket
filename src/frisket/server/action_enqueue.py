@@ -857,6 +857,10 @@ def queue_v1_action_run(
         replay = typed_map_rows_replay_result(project, project_id, bound)
         if replay is not None:
             return replay
+        recovering_prepared = (
+            ReceiptStore(project).find_by_idempotency_key(bound.request.idempotency_key)
+            is not None
+        )
         from frisket.actions.cluster_types import ValueClusterer
 
         if getattr(bound.action.definition.run, "capabilities", ()) == (
@@ -871,12 +875,8 @@ def queue_v1_action_run(
             initial_typed_plan = build_typed_map_rows_plan(
                 project,
                 bound,
-                _allow_existing_outputs=(
-                    ReceiptStore(project).find_by_idempotency_key(
-                        bound.request.idempotency_key
-                    )
-                    is not None
-                ),
+                _allow_existing_outputs=recovering_prepared,
+                _enforce_expected_output_columns=not recovering_prepared,
             )
     except (KeyError, TypeError, ValueError, ValidationError) as exc:
         return _failed_result(
