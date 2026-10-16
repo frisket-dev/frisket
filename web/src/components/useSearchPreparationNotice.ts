@@ -40,9 +40,6 @@ export type SearchPreparationNotice = {
   tone: 'active' | 'warning' | 'error' | 'complete';
   title: string;
   detail: string;
-  batch: SearchPreparationBatch | null;
-  indexing: SearchIndexingProjection | null;
-  pull: ModelPullDto | null;
   progress: number | null;
   details: string[];
 };
@@ -129,9 +126,6 @@ export function deriveSearchPreparationNotice(
       tone: 'warning',
       title: 'Search preparation needs approval',
       detail: `${remainingFileCount(activeBatch).toLocaleString()} files are waiting for approval`,
-      batch: activeBatch,
-      indexing: null,
-      pull: null,
       progress: null,
       details: activeBatch.models.filter((model) => model.required && !model.ready).map((model) => model.display_name),
     };
@@ -141,18 +135,17 @@ export function deriveSearchPreparationNotice(
   const activePull = latestPull(enginePulls.filter(({ pull }) => (
     pull.status === 'pending' || pull.status === 'running'
   )));
-  if (activePull) {
-    const { pull } = activePull;
+  const newestEnginePull = latestPull(enginePulls);
+  if (newestEnginePull && (newestEnginePull.pull.status === 'failed' || newestEnginePull.pull.status === 'cancelled')) {
+    const { pull } = newestEnginePull;
+    const errorMessage = pull.error?.message || (pull.status === 'cancelled' ? 'Model download was cancelled.' : 'Model setup failed.');
     return {
-      stage: 'download',
-      tone: 'active',
-      title: 'Downloading model',
-      detail: pull.phase ? `Downloading ${pull.display_name} · ${pull.phase}` : `Downloading ${pull.display_name}`,
-      batch: null,
-      indexing: null,
-      pull,
-      progress: pullProgress(pull),
-      details: [`${activePull.scope === 'organization' ? 'Organization' : 'Workspace'} model setup`],
+      stage: 'failed',
+      tone: 'error',
+      title: 'Model setup needs attention',
+      detail: errorMessage,
+      progress: null,
+      details: [pull.error?.code, pull.display_name].filter((item): item is string => Boolean(item)),
     };
   }
 
@@ -162,13 +155,34 @@ export function deriveSearchPreparationNotice(
       tone: 'error',
       title: 'Search indexing needs attention',
       detail: indexingDetail(snapshot.indexing),
-      batch: null,
-      indexing: snapshot.indexing,
-      pull: null,
       progress: null,
       details: snapshot.indexing.job_id == null
         ? []
         : [`Index job ${snapshot.indexing.job_id.toLocaleString()}`],
+    };
+  }
+
+  const failedBatch = snapshot.batches.find((batch) => batch.status === 'failed') ?? null;
+  if (failedBatch) {
+    return {
+      stage: 'failed',
+      tone: 'error',
+      title: 'Search preparation needs attention',
+      detail: failedBatch.errors[0] || 'Search preparation failed.',
+      progress: null,
+      details: failedBatch.errors.length > 0 ? failedBatch.errors : [`Preparation ${failedBatch.id}`],
+    };
+  }
+
+  if (activePull) {
+    const { pull } = activePull;
+    return {
+      stage: 'download',
+      tone: 'active',
+      title: 'Downloading model',
+      detail: pull.phase ? `Downloading ${pull.display_name} · ${pull.phase}` : `Downloading ${pull.display_name}`,
+      progress: pullProgress(pull),
+      details: [`${activePull.scope === 'organization' ? 'Organization' : 'Workspace'} model setup`],
     };
   }
 
@@ -178,9 +192,6 @@ export function deriveSearchPreparationNotice(
       tone: 'active',
       title: 'Preparing search',
       detail: indexingDetail(snapshot.indexing),
-      batch: null,
-      indexing: snapshot.indexing,
-      pull: null,
       progress: null,
       details: snapshot.indexing.job_id == null
         ? ['The project has durable indexing work waiting to be queued.']
@@ -195,9 +206,6 @@ export function deriveSearchPreparationNotice(
         tone: 'active',
         title: 'Preparing search',
         detail: 'Checking imported files for search',
-        batch: activeBatch,
-        indexing: null,
-        pull: null,
         progress: null,
         details: [`Preparation ${activeBatch.id}`],
       };
@@ -207,43 +215,8 @@ export function deriveSearchPreparationNotice(
       tone: 'active',
       title: 'Preparing search',
       detail: preparationDetail(activeBatch),
-      batch: activeBatch,
-      indexing: null,
-      pull: null,
       progress: null,
       details: activeBatch.jobs.map((job) => `Job ${job.job_id.toLocaleString()} · ${job.status}`),
-    };
-  }
-
-  const newestEnginePull = latestPull(enginePulls);
-  if (newestEnginePull && (newestEnginePull.pull.status === 'failed' || newestEnginePull.pull.status === 'cancelled')) {
-    const { pull } = newestEnginePull;
-    const errorMessage = pull.error?.message || (pull.status === 'cancelled' ? 'Model download was cancelled.' : 'Model setup failed.');
-    return {
-      stage: 'failed',
-      tone: 'error',
-      title: 'Model setup needs attention',
-      detail: errorMessage,
-      batch: null,
-      indexing: null,
-      pull,
-      progress: null,
-      details: [pull.error?.code, pull.display_name].filter((item): item is string => Boolean(item)),
-    };
-  }
-
-  const failedBatch = snapshot.batches.find((batch) => batch.status === 'failed') ?? null;
-  if (failedBatch) {
-    return {
-      stage: 'failed',
-      tone: 'error',
-      title: 'Search preparation needs attention',
-      detail: failedBatch.errors[0] || 'Search preparation failed.',
-      batch: failedBatch,
-      indexing: null,
-      pull: null,
-      progress: null,
-      details: failedBatch.errors.length > 0 ? failedBatch.errors : [`Preparation ${failedBatch.id}`],
     };
   }
 
@@ -253,9 +226,6 @@ export function deriveSearchPreparationNotice(
       tone: 'complete',
       title: completion,
       detail: 'Search indexing finished.',
-      batch: null,
-      indexing: null,
-      pull: null,
       progress: 100,
       details: [],
     };

@@ -128,6 +128,26 @@ describe('search preparation notice projection', () => {
     expect(banner).toHaveTextContent('The model archive checksum did not match.');
   });
 
+  it('keeps an observed model failure ahead of indexing work that it blocks', () => {
+    const notice = deriveSearchPreparationNotice(snapshot({
+      indexing: { status: 'pending', job_id: null, error: null },
+      pulls: [{
+        scope: 'workspace',
+        pull: pull({
+          status: 'failed',
+          error: { code: 'download_failed', message: 'Model transport failed.' },
+          finished_at: '2026-10-16T12:02:00Z',
+        }),
+      }],
+    }));
+
+    expect(notice).toMatchObject({
+      stage: 'failed',
+      title: 'Model setup needs attention',
+      detail: 'Model transport failed.',
+    });
+  });
+
   it('keeps a failed project index visible with its exact job error', () => {
     const notice = deriveSearchPreparationNotice(snapshot({
       indexing: {
