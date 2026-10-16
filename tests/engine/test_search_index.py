@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from frisket.engine.jobs.search_index import process_index_batches
 from frisket.engine.store import Project
 from frisket.engine.store.project import ProjectReadSnapshot
 from frisket.retrieval.store import RETRIEVAL_DB_NAME, RetrievalStore
@@ -45,13 +46,34 @@ def test_readers_do_not_prepare_and_maintenance_batches_are_bounded(documents):
 def test_completed_dirty_pass_analyzes_the_retrieval_sidecar(documents):
     project, *_ = documents
 
-    drain_index(project, batch_size=2)
+    class Encoder:
+        def available(self):
+            return True
+
+        def encode(self, inputs, *, purpose, space, cancelled=None):
+            return [tuple([1.0] + [0.0] * (space.dimensions - 1)) for _ in inputs]
+
+    for _ in range(20):
+        _processed, complete = process_index_batches(
+            project, embedding_encoder=Encoder()
+        )
+        if complete:
+            break
+    else:
+        pytest.fail("retrieval maintenance never completed")
 
     with RetrievalStore(project).open() as store:
         stats = {
             str(row[0]) for row in store.db.execute("SELECT tbl FROM sqlite_stat1")
         }
-    assert {"bindings", "lexical_sources", "sources"} <= stats
+    assert {
+        "bindings",
+        "lexical_sources",
+        "part_representations",
+        "parts",
+        "representations",
+        "sources",
+    } <= stats
 
 
 def test_dirty_edit_is_not_reported_as_fresh_until_maintenance_finishes(documents):

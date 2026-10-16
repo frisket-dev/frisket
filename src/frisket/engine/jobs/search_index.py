@@ -24,7 +24,7 @@ from frisket.retrieval.preparation import (
     process_timed_media_preparation_batch,
     read_preparation_policy,
 )
-from frisket.search_index import index_batch, index_needs_work
+from frisket.search_index import analyze_retrieval_store, index_batch, index_needs_work
 
 from .ports import JobHandlerContext
 from .project_opener import ProjectOpener, open_claimed_project
@@ -52,6 +52,7 @@ def process_index_batches(
     """Process one fair worker quantum of lexical and local preparation work."""
     processed = processed_bytes = 0
     complete = False
+    preparation_started = False
     policy = (
         read_preparation_policy(project)
         if preparation_policy is None
@@ -73,6 +74,7 @@ def process_index_batches(
         processed_bytes += progress.processed_bytes
         complete = progress.complete
         if complete and not stopped() and embedding_encoder is not None:
+            preparation_started = preparation_work_marker(project.path) is not None
             preparation_steps = (
                 lambda: process_text_preparation_batch(
                     project,
@@ -142,6 +144,8 @@ def process_index_batches(
             break
         if complete or processed_bytes >= INDEX_BYTES_PER_CLAIM:
             break
+    if complete and not stopped() and (processed > 0 or preparation_started):
+        analyze_retrieval_store(project)
     return processed, complete
 
 

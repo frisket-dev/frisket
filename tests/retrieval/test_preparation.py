@@ -1266,11 +1266,15 @@ def test_dirty_dispatch_uses_only_unified_sidecar_and_recovers_deletion(tmp_path
 def test_index_claim_runs_one_bounded_preparation_pass(monkeypatch) -> None:
     calls: list[str] = []
 
+    class ProjectStub:
+        path = None
+
     monkeypatch.setattr(
         search_index_job,
         "index_batch",
         lambda *_args, **_kwargs: IndexProgress(0, False, True),
     )
+    monkeypatch.setattr(search_index_job, "preparation_work_marker", lambda *_: "work")
     monkeypatch.setattr(
         search_index_job,
         "process_text_preparation_batch",
@@ -1301,7 +1305,7 @@ def test_index_claim_runs_one_bounded_preparation_pass(monkeypatch) -> None:
     )
 
     processed, complete = search_index_job.process_index_batches(
-        object(),
+        ProjectStub(),
         embedding_encoder=_Encoder(),
         preparation_policy=DEFAULT_PREPARATION_POLICY,
     )
