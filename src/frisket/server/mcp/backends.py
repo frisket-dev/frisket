@@ -600,14 +600,24 @@ class HostedBackend:
         from frisket.search import SearchIndexNotReady
 
         page = await self._json(
-            await self._client.get(
+            await self._client.post(
                 f"/api/projects/{project_id}/search",
-                params={"q": query, "limit": limit},
+                json={
+                    "scope": {"kind": "project"},
+                    "query": {"kind": "text", "text": query, "lexical_syntax": "fts"},
+                    "mode": "lexical",
+                    "group_by": "source",
+                    "limit": limit,
+                    "ranking": {"rerank": "auto"},
+                },
             )
         )
-        if page["indexing"]:
+        coverage = page["coverage"]
+        if coverage["state"] in {"preparing", "unavailable", "failed"} or any(
+            channel["state"] == "pending" for channel in coverage["channels"]
+        ):
             raise SearchIndexNotReady()
-        return page["hits"]
+        return [group["primary"] for group in page["groups"]]
 
     async def run_action(
         self,
