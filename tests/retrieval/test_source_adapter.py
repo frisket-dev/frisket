@@ -21,6 +21,7 @@ from frisket.retrieval.contracts import (
 )
 from frisket.retrieval.source_adapter import (
     UnsupportedLexicalSourceError,
+    resolve_cell_blob_source,
     resolve_cell_text_sources,
     resolve_lexical_source_text,
 )
@@ -29,6 +30,111 @@ from frisket.retrieval.sources import ocr_source_revision, transcript_source_rev
 
 def _sha256(text: str) -> str:
     return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def test_resolves_current_blob_metadata_and_authored_page(tmp_path) -> None:
+    project = Project.create(tmp_path / "blob.frisket")
+    try:
+        sheet_id = project.add_sheet("Documents")
+        column_id = project.add_column(sheet_id, "document", type="file")
+        digest = project.add_blob(
+            b"pdf fixture",
+            filename="report.pdf",
+            mime="application/pdf",
+        )
+        row_id = project.add_rows(
+            sheet_id,
+            [
+                {
+                    "document": {
+                        "blob": digest,
+                        "filename": "client-name.pdf",
+                        "mime": "application/octet-stream",
+                        "page": 3,
+                    }
+                }
+            ],
+            {"document": column_id},
+        )[0]
+
+        with project.read_snapshot() as snapshot:
+            resolved = resolve_cell_blob_source(
+                snapshot,
+                sheet_id=sheet_id,
+                row_id=row_id,
+                column_id=column_id,
+            )
+
+        assert resolved is not None
+        assert resolved.sheet_id == sheet_id
+        assert resolved.binding.row_id == row_id
+        assert resolved.binding.column_id == column_id
+        assert resolved.binding.retrieval_revision > 0
+        assert resolved.blob_hash == digest
+        assert resolved.mime_type == "application/pdf"
+        assert resolved.page_number == 3
+        assert resolved.source.source_id == f"blob:{digest}"
+        assert resolved.source.source_kind == "blob"
+        assert resolved.source.version_kind == "blob_digest"
+        assert resolved.source.version_value == digest
+        assert resolved.source.content_hash == f"sha256:{digest}"
+    finally:
+        project.close()
+
+
+def test_blob_resolution_rejects_unowned_or_invalid_media_refs(tmp_path) -> None:
+    project = Project.create(tmp_path / "invalid-blob.frisket")
+    try:
+        sheet_id = project.add_sheet("Media")
+        image_column = project.add_column(sheet_id, "image", type="image")
+        file_column = project.add_column(sheet_id, "document", type="file")
+        no_mime = project.add_blob(b"no mime")
+        image = project.add_blob(b"image", mime="image/png")
+        rows = project.add_rows(
+            sheet_id,
+            [
+                {
+                    "image": {"blob": no_mime, "mime": "image/png"},
+                    "document": {"blob": "a" * 64, "mime": "application/pdf"},
+                },
+                {
+                    "image": {"blob": image, "mime": "image/png", "page": 1},
+                    "document": None,
+                },
+            ],
+            {"image": image_column, "document": file_column},
+        )
+
+        with project.read_snapshot() as snapshot:
+            assert (
+                resolve_cell_blob_source(
+                    snapshot,
+                    sheet_id=sheet_id,
+                    row_id=rows[0],
+                    column_id=image_column,
+                )
+                is None
+            )
+            assert (
+                resolve_cell_blob_source(
+                    snapshot,
+                    sheet_id=sheet_id,
+                    row_id=rows[0],
+                    column_id=file_column,
+                )
+                is None
+            )
+            assert (
+                resolve_cell_blob_source(
+                    snapshot,
+                    sheet_id=sheet_id,
+                    row_id=rows[1],
+                    column_id=image_column,
+                )
+                is None
+            )
+    finally:
+        project.close()
 
 
 def test_resolves_plain_text_with_exact_binding_revision(tmp_path) -> None:
