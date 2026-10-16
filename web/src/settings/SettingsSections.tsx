@@ -93,6 +93,7 @@ import {
   type ProjectProviderKeys,
   type ProjectRetentionPolicy,
   type ProjectSettings,
+  type ProjectSettingsPatch,
   type ProjectRole,
   type ProjectSecrets,
   type ProviderCatalog,
@@ -138,6 +139,7 @@ import {
   cloudConnectionApi,
   projectCloudRoutingApi,
 } from '../api/cloudConnection';
+import { ProjectRetrievalSettings } from './ProjectRetrievalSettings';
 import { fetchDiagnostics, type DiagnosticsReport } from '../api/diagnostics';
 import {
   sendProductTelemetry,
@@ -3028,7 +3030,7 @@ function ProjectDataManagementSettings({ project }: { project?: ProjectInfo | nu
       setMutationError(errMsg(caught));
     }
   };
-  const patchSettings = async (input: Partial<ProjectSettings>) => {
+  const patchSettings = async (input: ProjectSettingsPatch) => {
     if (!canMutate) return;
     setMutationError(null);
     try {
@@ -3195,6 +3197,13 @@ function ProjectDataManagementSettings({ project }: { project?: ProjectInfo | nu
             </small>
           </label>
         </section>
+      )}
+      {projectSettings?.retrieval && (
+        <ProjectRetrievalSettings
+          settings={projectSettings.retrieval}
+          canMutate={canMutate}
+          onPatch={patchSettings}
+        />
       )}
       {projectSettings && (
         <section className="settings-subsection" data-testid="project-media-downloads-section">

@@ -7,6 +7,8 @@ import type {
   HttpEvidenceViewerResponse,
   HttpLocalEndpointDiscoveryResponse,
   HttpModelPull,
+  HttpProjectSettingsRequest,
+  HttpProjectSettingsResponse,
   HttpReceipt,
 } from '../generated/openHttpContracts';
 
@@ -240,7 +242,11 @@ export interface ProjectNetworkPolicy {
   [key: string]: unknown;
 }
 
-export interface ProjectSettings {
+export type ProjectRetrievalSettings = HttpProjectSettingsResponse['retrieval'];
+export type ProjectRetrievalSettingsPatch = NonNullable<HttpProjectSettingsRequest['retrieval']>;
+export type ProjectSettingsPatch = HttpProjectSettingsRequest & Record<string, unknown>;
+
+export interface ProjectSettings extends HttpProjectSettingsResponse {
   /**
    * EFFECTIVE value: whether media downloads may reach loopback and RFC1918
    * addresses, after the server default (FRISKET_MEDIA_PRIVATE_HOSTS) and any
@@ -4921,7 +4927,7 @@ export interface FrisketApi {
   compactProject(): Promise<Record<string, unknown>>;
   getProjectSettings(): Promise<ProjectSettings>;
   updateProjectSettings(
-    input: Partial<ProjectSettings>,
+    input: ProjectSettingsPatch,
   ): Promise<ProjectSettings>;
   getProjectProviderKeys(): Promise<ProjectProviderKeys>;
   setProjectProviderKey(

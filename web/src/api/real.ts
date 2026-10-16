@@ -161,6 +161,7 @@ import type {
   ProjectProviderKeys,
   ProjectRetentionPolicy,
   ProjectSettings,
+  ProjectSettingsPatch,
   ProjectSecrets,
   ProviderCatalog,
   LocalProviderCatalog,
@@ -1219,7 +1220,7 @@ class RealApi implements FrisketApi {
   }
 
   async updateProjectSettings(
-    input: Partial<ProjectSettings>,
+    input: ProjectSettingsPatch,
   ): Promise<ProjectSettings> {
     return this.projectDataManagementApi.updateProjectSettings(input);
   }
