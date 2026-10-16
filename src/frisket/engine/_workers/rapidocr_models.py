@@ -122,6 +122,33 @@ def rapidocr_default_model_requirements() -> tuple[Path, tuple[str, ...]] | None
     return rapidocr_model_requirements()
 
 
+@lru_cache(maxsize=32)
+def _sha256_matches_file_identity(
+    filename: Path,
+    expected: str,
+    inode: int,
+    size: int,
+    mtime_ns: int,
+    ctime_ns: int,
+) -> bool:
+    """Verify one stat identity, bounded across repeated readiness polls."""
+
+    del inode, size, mtime_ns, ctime_ns
+    return _sha256_file(filename) == expected
+
+
+def _sha256_matches(filename: Path, expected: str) -> bool:
+    info = filename.stat()
+    return _sha256_matches_file_identity(
+        filename,
+        expected,
+        int(info.st_ino),
+        int(info.st_size),
+        int(info.st_mtime_ns),
+        int(info.st_ctime_ns),
+    )
+
+
 def rapidocr_model_root_complete(root: Path, filenames: tuple[str, ...]) -> bool:
     """Whether one model root contains every required regular file."""
 
@@ -131,7 +158,7 @@ def rapidocr_model_root_complete(root: Path, filenames: tuple[str, ...]) -> bool
             if not model.is_file():
                 return False
             if filename == RAPIDOCR_DEFAULT_RECOGNIZER_FILENAME:
-                if _sha256_file(model) != RAPIDOCR_DEFAULT_RECOGNIZER_SHA256:
+                if not _sha256_matches(model, RAPIDOCR_DEFAULT_RECOGNIZER_SHA256):
                     return False
         return True
     except OSError:

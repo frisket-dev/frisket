@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 from hashlib import sha256
+import os
 from pathlib import Path
 
 import pytest
 
 from frisket.engine._workers import rapidocr_models
-from frisket.engine._workers.rapidocr_models import rapidocr_bundled_model_aliases
+from frisket.engine._workers.rapidocr_models import (
+    rapidocr_bundled_model_aliases,
+    rapidocr_model_root_complete,
+)
 from frisket.ops import ocr_engines_local as ocr_local
 
 
@@ -17,6 +21,91 @@ _V5_REQUESTED = (
     "ch_ppocr_mobile_v2.0_cls_mobile.onnx",
     "ch_PP-OCRv5_rec_mobile.onnx",
 )
+
+
+def _write_complete_model_root(root: Path, recognizer: bytes) -> None:
+    root.mkdir(exist_ok=True)
+    for filename in _V5_REQUESTED[:2]:
+        (root / filename).write_bytes(b"bundled")
+    (root / _V5_REQUESTED[-1]).write_bytes(recognizer)
+
+
+def test_model_root_reuses_verified_recognizer_hash(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    recognizer = b"recognizer"
+    _write_complete_model_root(tmp_path, recognizer)
+    monkeypatch.setattr(
+        rapidocr_models,
+        "RAPIDOCR_DEFAULT_RECOGNIZER_SHA256",
+        sha256(recognizer).hexdigest(),
+    )
+    original = rapidocr_models._sha256_file
+    reads: list[Path] = []
+
+    def counted(path: Path) -> str:
+        reads.append(path)
+        return original(path)
+
+    monkeypatch.setattr(rapidocr_models, "_sha256_file", counted)
+
+    assert rapidocr_model_root_complete(tmp_path, _V5_REQUESTED) is True
+    assert rapidocr_model_root_complete(tmp_path, _V5_REQUESTED) is True
+    assert reads == [tmp_path / _V5_REQUESTED[-1]]
+
+
+def test_model_root_rehashes_changed_recognizer(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    recognizer = b"recognizer"
+    _write_complete_model_root(tmp_path, recognizer)
+    monkeypatch.setattr(
+        rapidocr_models,
+        "RAPIDOCR_DEFAULT_RECOGNIZER_SHA256",
+        sha256(recognizer).hexdigest(),
+    )
+    original = rapidocr_models._sha256_file
+    reads = 0
+
+    def counted(path: Path) -> str:
+        nonlocal reads
+        reads += 1
+        return original(path)
+
+    monkeypatch.setattr(rapidocr_models, "_sha256_file", counted)
+    assert rapidocr_model_root_complete(tmp_path, _V5_REQUESTED) is True
+
+    target = tmp_path / _V5_REQUESTED[-1]
+    before = target.stat()
+    target.write_bytes(
+        b"RecognizeR"
+    )  # same size; metadata, not size alone, invalidates
+    os.utime(
+        target,
+        ns=(before.st_atime_ns, before.st_mtime_ns + 1_000_000_000),
+    )
+    assert target.stat().st_mtime_ns != before.st_mtime_ns
+
+    assert rapidocr_model_root_complete(tmp_path, _V5_REQUESTED) is False
+    assert reads == 2
+
+
+def test_model_root_observes_missing_then_installed_recognizer(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    recognizer = b"recognizer"
+    tmp_path.mkdir(exist_ok=True)
+    for filename in _V5_REQUESTED[:2]:
+        (tmp_path / filename).write_bytes(b"bundled")
+    monkeypatch.setattr(
+        rapidocr_models,
+        "RAPIDOCR_DEFAULT_RECOGNIZER_SHA256",
+        sha256(recognizer).hexdigest(),
+    )
+
+    assert rapidocr_model_root_complete(tmp_path, _V5_REQUESTED) is False
+    (tmp_path / _V5_REQUESTED[-1]).write_bytes(recognizer)
+    assert rapidocr_model_root_complete(tmp_path, _V5_REQUESTED) is True
 
 
 def test_default_requirements_use_pinned_v5_but_explicit_language_stays_v4() -> None:
