@@ -530,6 +530,36 @@ class ExecutionComposition:
             for match in self.included
         )
 
+    def restricted_to(self, match: ExactExecutionMatch) -> "ExecutionComposition":
+        """Return the same request world narrowed to one trusted exact target."""
+
+        source = self.provider_for_resolution()
+        rows: list[ExecutionTarget] = []
+        for target in source.targets():
+            if target.id != match.target_id:
+                continue
+            supports = tuple(
+                support
+                for support in target.engines
+                if support.capability == match.capability
+                and support.engine == match.engine
+            )
+            if supports:
+                rows.append(replace(target, engines=supports))
+        provider = _ResolutionTargetProvider(source, tuple(rows))
+        offerings = tuple(
+            offering for offering in self.offerings if offering.match == match
+        )
+        included = () if offerings else (match,)
+        return replace(
+            self,
+            provider=provider,
+            offerings=offerings,
+            included=included,
+            model_routes=None,
+            model_route_default=None,
+        )
+
     def resolution_targets(self) -> tuple[ExecutionTarget, ...]:
         """Targets that exist for this composition's resolution world.
 

@@ -284,6 +284,41 @@ def test_server_reconciles_completed_enclosure_from_separate_worker(
     assert store.children(pending.id)[0].receipt_id is not None
 
 
+def test_recovery_retires_automatic_intent_with_invalid_page_selector(
+    tmp_path, monkeypatch
+) -> None:
+    workspace = Workspace(tmp_path / "workspace")
+    project_id = workspace.create("Invalid page")["id"]
+    project = workspace.get(project_id)
+    sheet_id = project.add_sheet("Files")
+    row_id = project.add_rows(sheet_id, [{}], {})[0]
+    job_id = workspace.queue.enqueue(
+        "enclosure.download",
+        {"project_id": project_id, "workspace_root": str(workspace.root)},
+    )
+    store = SearchPreparationStore(workspace.queue, workspace_root=str(workspace.root))
+    store.create_pending_materialization(
+        workspace_root=str(workspace.root),
+        storage_org_id=None,
+        project_id=project_id,
+        job_id=job_id,
+        sheet_id=sheet_id,
+        row_ids=[row_id],
+    )
+    service = SearchPreparationService(workspace)
+
+    class InvalidPageSelector(Exception):
+        status_code = 422
+
+    def reject_invalid_page(_row) -> None:
+        raise InvalidPageSelector
+
+    monkeypatch.setattr(service, "_recover_pending", reject_invalid_page)
+    service.recover()
+
+    assert store.list_active_page(storage_org_id=None) == []
+
+
 def test_eligible_ocr_consent_is_not_blocked_by_unavailable_transcription_runtime(
     tmp_path, monkeypatch
 ) -> None:

@@ -46,6 +46,7 @@ search_preparation_batches_table = sa.Table(
     sa.Column("plan_json", sa.Text),
     sa.Column("decision", sa.String),
     sa.Column("decision_at", sa.DateTime(timezone=True)),
+    sa.Column("decided_by", sa.String),
     sa.Column("selected_setup_refs_json", sa.Text),
     sa.Column("stop_requested_at", sa.DateTime(timezone=True)),
     sa.Column("settled_at", sa.DateTime(timezone=True)),
@@ -131,6 +132,7 @@ class SearchPreparationBatchRow:
     plan: dict[str, Any] | None
     decision: str | None
     decision_at: datetime | None
+    decided_by: str | None
     selected_setup_refs: tuple[str, ...]
     stop_requested_at: datetime | None
     settled_at: datetime | None
@@ -201,6 +203,7 @@ class SearchPreparationStore:
             plan=(None if row.plan_json is None else dict(json.loads(row.plan_json))),
             decision=row.decision,
             decision_at=_parse(row.decision_at),
+            decided_by=row.decided_by,
             selected_setup_refs=tuple(str(value) for value in selected),
             stop_requested_at=_parse(row.stop_requested_at),
             settled_at=_parse(row.settled_at),
@@ -682,6 +685,7 @@ class SearchPreparationStore:
         plan_hash: str,
         decision: str,
         selected_setup_refs: Sequence[str],
+        decided_by: str | None = None,
     ) -> SearchPreparationBatchRow:
         if decision not in {"prepare", "not_now"}:
             raise ValueError("invalid search preparation decision")
@@ -697,6 +701,7 @@ class SearchPreparationStore:
                     c.plan_hash,
                     c.decision,
                     c.decision_at,
+                    c.decided_by,
                     c.selected_setup_refs_json,
                     c.stop_requested_at,
                 ).where(
@@ -725,6 +730,7 @@ class SearchPreparationStore:
                 .values(
                     decision=decision,
                     decision_at=row.decision_at or now,
+                    decided_by=row.decided_by or decided_by,
                     selected_setup_refs_json=refs,
                     settled_at=None,
                     updated_at=now,

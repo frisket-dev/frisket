@@ -49,7 +49,7 @@ from frisket.server.action_enqueue import (
 )
 from frisket.server.run_status import action_run_status_payload
 from frisket.server.workspace import Workspace
-from frisket.execution.provider import ExecutionComposition
+from frisket.execution.provider import ExactExecutionMatch, ExecutionComposition
 from frisket.execution.targets import CAPABILITY_LLM
 from frisket.engine.store import Project
 from frisket.engine.store.receipts import FINISHED_RECEIPT_STATUSES, ReceiptStore
@@ -189,6 +189,7 @@ class ActionRunService:
         project_id: str,
         *,
         receipt_id: str,
+        required_execution_target: ExactExecutionMatch | None = None,
     ) -> ActionRunResponse | None:
         """Resume ordinary queued admission from its durable prepared run.
 
@@ -229,7 +230,11 @@ class ActionRunService:
             body["idempotency_key"] = stored.idempotency_key
         except (TypeError, ValueError):
             return None
-        return self.run_action(project_id, body)
+        return self.run_action(
+            project_id,
+            body,
+            required_execution_target=required_execution_target,
+        )
 
     def cancel_prepared_action(self, project_id: str, *, receipt_id: str) -> bool:
         """Cancel a prepared queued action through its ordinary run authority."""
@@ -258,6 +263,7 @@ class ActionRunService:
         *,
         request_context: Any = None,
         admitted_sources: Mapping[str, BoundLocalFile] | None = None,
+        required_execution_target: ExactExecutionMatch | None = None,
     ) -> ActionRunResponse:
         # Payload-only gates FIRST, before the project is resolved. These two
         # read nothing but the action envelope and this process's environment,
@@ -313,6 +319,10 @@ class ActionRunService:
                     effective_router,
                     execution_context,
                 )
+                if required_execution_target is not None:
+                    request_composition = request_composition.restricted_to(
+                        required_execution_target
+                    )
             return request_composition
 
         # This is the same choke point, with the same choice of

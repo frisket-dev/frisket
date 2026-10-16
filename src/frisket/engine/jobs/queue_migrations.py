@@ -110,6 +110,7 @@ _REQUIRED_SEARCH_PREPARATION_COLUMNS = (
     "import_ref",
     "materialization_job_id",
     "decision_at",
+    "decided_by",
     "sheet_id",
     "plan_json",
     "settled_at",

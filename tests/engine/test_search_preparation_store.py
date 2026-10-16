@@ -41,10 +41,12 @@ def test_import_receipt_is_idempotent_and_consent_is_exact(tmp_path) -> None:
             plan_hash=batch.plan_hash,
             decision="prepare",
             selected_setup_refs=["engine-setup:rapidocr.local@1"],
+            decided_by="alice",
         )
         assert decided.decision == "prepare"
         assert decided.selected_setup_refs == ("engine-setup:rapidocr.local@1",)
         assert decided.decision_at is not None
+        assert decided.decided_by == "alice"
 
         with pytest.raises(ValueError, match="plan changed"):
             store.decide(
@@ -71,8 +73,10 @@ def test_import_receipt_is_idempotent_and_consent_is_exact(tmp_path) -> None:
             plan_hash=batch.plan_hash,
             decision="prepare",
             selected_setup_refs=["engine-setup:rapidocr.local@1"],
+            decided_by="bob",
         )
         assert replayed.decision_at == decided.decision_at
+        assert replayed.decided_by == "alice"
     finally:
         queue.close()
 

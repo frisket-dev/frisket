@@ -24,6 +24,8 @@ from frisket.engine.jobs.search_preparation_store import (
     SearchPreparationChildRow,
     SearchPreparationStore,
 )
+from frisket.execution.provider import ExactExecutionMatch
+from frisket.execution.targets import CAPABILITY_TRANSCRIBE
 from frisket.engine.store.import_sessions import ImportSessionStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.project_settings import read_project_settings
@@ -35,6 +37,11 @@ from frisket.server.services.search_preparation_planning import build_plan, samp
 
 _OCR_REF = "engine-setup:rapidocr.local@1"
 _TRANSCRIBE_REF = "engine-setup:parakeet-tdt.local-onnx@1"
+_LOCAL_TRANSCRIBE_TARGET = ExactExecutionMatch(
+    target_id="local-onnx",
+    capability=CAPABILITY_TRANSCRIBE,
+    engine="parakeet-tdt",
+)
 _SEMANTIC_REF = "engine-setup:embeddinggemma-2.local@1"
 LOG = logging.getLogger(__name__)
 
@@ -439,13 +446,14 @@ class SearchPreparationService:
                 plan_hash=plan_hash,
                 decision=decision,
                 selected_setup_refs=selected_setup_refs,
+                decided_by=initiated_by,
             )
         except ValueError as exc:
             raise RouteError(409, str(exc)) from exc
         if decision == "prepare" and selected and self.setup_start is not None:
             # The model-pull store admits only one active workspace pull.
             # Required engines run before optional semantic setup.
-            self._start_next_setup(row, initiated_by=initiated_by)
+            self._start_next_setup(row)
         self._advance(row)
         return self.get(project_id, batch_id)
 
@@ -585,7 +593,7 @@ class SearchPreparationService:
                 except Exception as exc:
                     # One broken project or transient open must not starve the
                     # rest of this stable page. Leave it active for retry.
-                    if getattr(exc, "status_code", None) == 404:
+                    if getattr(exc, "status_code", None) in {404, 422}:
                         self.store.mark_settled(
                             row.id,
                             project_id=row.project_id,
@@ -732,7 +740,6 @@ class SearchPreparationService:
         force_ocr: bool,
         intersect_visible_rows: bool = False,
     ) -> dict[str, Any]:
-        options = {"intersect_visible_rows": True} if intersect_visible_rows else {}
         return build_plan(
             project,
             sheet_id=sheet_id,
@@ -740,7 +747,7 @@ class SearchPreparationService:
             force_ocr=force_ocr,
             requirements=_requirements(),
             requirement_dict=_requirement_dict,
-            **options,
+            intersect_visible_rows=intersect_visible_rows,
         )
 
     def _advance(self, row: SearchPreparationBatchRow) -> None:
@@ -813,7 +820,14 @@ class SearchPreparationService:
                 )
                 return
             body = self._action_body(project, row, kind, column_name, items, key)
-            response = self.action_runs.run_action(row.project_id, body)
+            if kind == "transcribe":
+                response = self.action_runs.run_action(
+                    row.project_id,
+                    body,
+                    required_execution_target=_LOCAL_TRANSCRIBE_TARGET,
+                )
+            else:
+                response = self.action_runs.run_action(row.project_id, body)
             receipt_id = response.payload.get("receipt_id")
             if not isinstance(receipt_id, str):
                 errors = response.payload.get("errors")
@@ -886,10 +900,17 @@ class SearchPreparationService:
             )
             if current.stop_requested_at is not None:
                 return True
-            response = self.action_runs.recover_prepared_action(
-                row.project_id,
-                receipt_id=receipt.id,
-            )
+            if child.kind == "transcribe":
+                response = self.action_runs.recover_prepared_action(
+                    row.project_id,
+                    receipt_id=receipt.id,
+                    required_execution_target=_LOCAL_TRANSCRIBE_TARGET,
+                )
+            else:
+                response = self.action_runs.recover_prepared_action(
+                    row.project_id,
+                    receipt_id=receipt.id,
+                )
             if response is None:
                 return True
             recovered_receipt_id = response.payload.get("receipt_id")
@@ -1149,9 +1170,7 @@ class SearchPreparationService:
             }
         )
 
-    def _start_next_setup(
-        self, row: SearchPreparationBatchRow, *, initiated_by: str | None = None
-    ) -> None:
+    def _start_next_setup(self, row: SearchPreparationBatchRow) -> None:
         from frisket.engine.jobs import model_pull_store
 
         if self.setup_start is None or row.decision != "prepare":
@@ -1166,16 +1185,6 @@ class SearchPreparationService:
         ):
             if self._pull_relevant(row, pull):
                 latest.setdefault(pull.model_ref, pull)
-        if initiated_by is None:
-            initiated_by = next(
-                (
-                    pull.initiated_by
-                    for pull in latest.values()
-                    if pull.model_ref in row.selected_setup_refs
-                    and pull.initiated_by is not None
-                ),
-                None,
-            )
         planned = {item["setup_ref"]: item for item in row.plan["models"]}
         ordered = sorted(
             row.selected_setup_refs,
@@ -1190,7 +1199,7 @@ class SearchPreparationService:
                 pull = latest.get(ref)
                 if pull is not None and pull.status in {"failed", "cancelled"}:
                     return
-                self.setup_start(ref, initiated_by)
+                self.setup_start(ref, row.decided_by)
                 return
 
     def _project(
