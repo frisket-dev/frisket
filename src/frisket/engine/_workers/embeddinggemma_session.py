@@ -54,6 +54,14 @@ def _snapshot_is_complete(snapshot: Path) -> bool:
     )
 
 
+def _snapshot_read_paths(snapshot: Path) -> tuple[str, ...]:
+    """Grant the snapshot names and every final blob reached through symlinks."""
+
+    paths = [snapshot, *(snapshot / relative for relative in REQUIRED_SNAPSHOT_FILES)]
+    resolved = (path.resolve(strict=True) for path in paths)
+    return tuple(dict.fromkeys(str(path) for path in resolved))
+
+
 class EmbeddingGemma2Session:
     """One cancellation-aware worker process shared across bounded batches."""
 
@@ -129,8 +137,11 @@ class EmbeddingGemma2Session:
             "OPENBLAS_NUM_THREADS": "2",
             "MKL_NUM_THREADS": "2",
         }
-        # Hugging Face snapshots symlink into the sibling blobs directory.
-        artifact_root = self._snapshot.parent.parent
+        # Snapshot entries may cross more than one content-addressed symlink.
+        # Landlock checks the final inode, so grant each pinned file's resolved
+        # target instead of assuming that every cache keeps blobs under the
+        # model repository directory.
+        snapshot_reads = _snapshot_read_paths(self._snapshot)
         self._handle = await shim.open_sandboxed_process(
             argv,
             policy=shim.SandboxPolicy(
@@ -142,7 +153,7 @@ class EmbeddingGemma2Session:
                 confine=fence.Confinement(
                     op="local multimodal embedding",
                     read=(
-                        str(artifact_root),
+                        *snapshot_reads,
                         str(self._staging),
                         "/proc/cpuinfo",
                         "/sys/devices/system/cpu",

@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
 
-from frisket.engine._workers.embeddinggemma_session import EmbeddingGemma2Session
+from frisket.engine._workers.embeddinggemma_model import REQUIRED_SNAPSHOT_FILES
+from frisket.engine._workers.embeddinggemma_session import (
+    EmbeddingGemma2Session,
+    _snapshot_read_paths,
+)
 from frisket.engine._workers.embeddinggemma_worker import SCHEMA_VERSION
+from frisket.engine.sandbox.shim import SandboxPolicy, open_sandboxed_process
 from frisket.retrieval.encoding import (
     EMBEDDINGGEMMA2_MODEL_REVISION,
     AudioEncodingInput,
@@ -21,6 +27,72 @@ from frisket.runtime.launch import PythonRuntime
 
 def _runtime(tmp_path: Path) -> PythonRuntime:
     return PythonRuntime(tmp_path / "missing-python", tmp_path)
+
+
+_CODEC_CHILD = r"""
+import sys
+
+from frisket.engine._workers.embeddinggemma_worker import CODEC, SCHEMA_VERSION
+
+source = sys.stdin.buffer
+sink = sys.stdout.buffer
+request = CODEC.read_frame(source)
+if request != {"schema_version": SCHEMA_VERSION, "type": "probe"}:
+    raise SystemExit(2)
+CODEC.write_frame(
+    sink,
+    {"schema_version": SCHEMA_VERSION, "type": "ack"},
+)
+close = CODEC.read_frame(source)
+if close != {"schema_version": SCHEMA_VERSION, "type": "close"}:
+    raise SystemExit(3)
+"""
+
+
+@pytest.mark.asyncio
+@pytest.mark.realtime
+async def test_session_json_uses_sandbox_length_framing_with_actual_child(tmp_path):
+    """Exercise the real session/transport/worker-codec boundary in both directions."""
+
+    session = EmbeddingGemma2Session(
+        tmp_path / EMBEDDINGGEMMA2_MODEL_REVISION, _runtime(tmp_path)
+    )
+    session._handle = await open_sandboxed_process(
+        [sys.executable, "-c", _CODEC_CHILD],
+        policy=SandboxPolicy(allowed_extra_env=["PYTHONPATH"]),
+        extra_env={"PYTHONPATH": str(Path(__file__).parents[2] / "src")},
+        should_cancel=session._cancelled,
+    )
+
+    response = await session._exchange(
+        {"schema_version": SCHEMA_VERSION, "type": "probe"}
+    )
+
+    assert response == {"schema_version": SCHEMA_VERSION, "type": "ack"}
+    await session.aclose()
+    assert session._handle.closed
+
+
+def test_snapshot_confinement_grants_final_content_store_blobs(tmp_path):
+    snapshot = tmp_path / "model-cache" / "models--google--embeddinggemma-2"
+    snapshot = snapshot / "snapshots" / EMBEDDINGGEMMA2_MODEL_REVISION
+    model_blobs = snapshot.parents[1] / "blobs"
+    shared_blobs = tmp_path / "model-cache" / "blobs" / "sha256"
+    snapshot.mkdir(parents=True)
+    model_blobs.mkdir()
+    shared_blobs.mkdir(parents=True)
+    expected = {str(snapshot.resolve())}
+    for index, relative in enumerate(REQUIRED_SNAPSHOT_FILES):
+        final = shared_blobs / str(index)
+        final.write_bytes(relative.encode())
+        intermediate = model_blobs / str(index)
+        intermediate.symlink_to(final)
+        entry = snapshot / relative
+        entry.parent.mkdir(parents=True, exist_ok=True)
+        entry.symlink_to(intermediate)
+        expected.add(str(final.resolve()))
+
+    assert set(_snapshot_read_paths(snapshot)) == expected
 
 
 @pytest.mark.asyncio
