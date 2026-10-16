@@ -43,14 +43,14 @@ from frisket.engine.executor.action_families.exports import (
     _rollback_export_delivery,
 )
 from frisket.engine.executor.embedding_read import (
-    collect_index_rows,
+    NamedItemEvidenceDigest,
+    iter_index_row_pages,
     index_read_freshness_error,
     _embedding_index_ref,
     _embedding_index_definition_replay_error,
     _embedding_sidecar_items_replay_error,
     _embedding_stale_replay_error,
     _json_obj,
-    _named_item_evidence,
 )
 from frisket.engine.store import Project
 from frisket.retrieval.store import RetrievalStore
@@ -116,10 +116,9 @@ def _export_provenance(index, space, ready_items: int, total_items: int) -> dict
 
 def _export_items_evidence(
     *,
-    project: Project,
     index,
     space,
-    rows: list[dict[str, Any]],
+    item_evidence: dict[str, Any],
 ) -> dict[str, Any]:
     evidence = {
         "kind": "embedding_index_export_items",
@@ -131,14 +130,7 @@ def _export_items_evidence(
         "source_columns": json.loads(index["source_columns_json"]),
         "source_policy_hash": index["source_policy_hash"],
     }
-    evidence.update(
-        _named_item_evidence(
-            project,
-            index=index,
-            space=space,
-            source_keys=[str(row["source_key"]) for row in rows],
-        )
-    )
+    evidence.update(item_evidence)
     return evidence
 
 
@@ -186,7 +178,7 @@ def _embedding_export_replay_error(
             "embedding export replay receipt lacks artifact row-count evidence",
         )
     if any(
-        count != provenance.get("ready_items") or count != len(fresh.ready_keys)
+        count != provenance.get("ready_items") or count != fresh.ready_count
         for count in output_row_counts
     ):
         return _embedding_stale_replay_error(
@@ -291,7 +283,7 @@ def _resolve_index_export(
     try:
         fresh = index_freshness(project, index)
         total_items = fresh.target_count
-        ready_items = len(fresh.ready_keys)
+        ready_items = fresh.ready_count
         if ready_items == 0:
             return ActionError(
                 code="embedding_export_no_ready_vectors",
@@ -305,22 +297,11 @@ def _resolve_index_export(
         # (embedding_source_stale), on missing/errored rows the export would silently
         # omit (embedding_index_incomplete), or an unresolvable scope
         # (embedding_index_scope_invalid). Never write a partial/stale artifact.
-        block = index_read_freshness_error(project, index, "embedding.index_export")
+        block = index_read_freshness_error(
+            project, index, "embedding.index_export", fresh=fresh
+        )
         if block is not None:
             return block
-        source_columns = json.loads(index["source_columns_json"])
-        rows = collect_index_rows(
-            project,
-            index,
-            source_columns,
-            include_vectors=params.include_vectors,
-        )
-        export_item_evidence = _export_items_evidence(
-            project=project,
-            index=index,
-            space=space,
-            rows=rows,
-        )
         base_name = f"{params.index_id}.embeddings"
         for fmt in params.formats:
             destination_error = _precheck_export_destination(
@@ -328,26 +309,53 @@ def _resolve_index_export(
             )
             if destination_error is not None:
                 return destination_error
-        artifact_rows = [
-            {
-                key: row[key]
-                for key in (
-                    "source_key",
-                    "row_id",
-                    "source_hash",
-                    "source_ref",
-                    "values",
-                    "vector",
-                )
-            }
-            for row in rows
-        ]
+        source_columns = json.loads(index["source_columns_json"])
+        evidence_digest = NamedItemEvidenceDigest()
+
+        def artifact_pages():
+            for page in iter_index_row_pages(
+                project,
+                index,
+                source_columns,
+                include_vectors=params.include_vectors,
+            ):
+                evidence_digest.add_page(page)
+                yield [
+                    {
+                        key: row[key]
+                        for key in (
+                            "source_key",
+                            "row_id",
+                            "source_hash",
+                            "source_ref",
+                            "values",
+                            "vector",
+                        )
+                    }
+                    for row in page
+                ]
+
         artifacts = _export.write_export_artifacts(
-            artifact_rows,
+            artifact_pages(),
             dest_dir=dest_dir,
             base_name=base_name,
             formats=params.formats,
             include_vectors=params.include_vectors,
+        )
+        exported_rows = artifacts[0].row_count if artifacts else 0
+        if exported_rows != ready_items:
+            for artifact in artifacts:
+                Path(artifact.tmp_path).unlink(missing_ok=True)
+            return ActionError(
+                code="embedding_source_stale",
+                message="the embedding index changed while the export was being staged",
+                action_kind="embedding.index_export",
+                field="params.index_id",
+            )
+        export_item_evidence = _export_items_evidence(
+            index=index,
+            space=space,
+            item_evidence=evidence_digest.evidence(),
         )
     except IndexScopeError as exc:
         return ActionError(
@@ -380,7 +388,7 @@ def _resolve_index_export(
         }
         for art in artifacts
     ]
-    provenance = _export_provenance(index, space, len(rows), total_items)
+    provenance = _export_provenance(index, space, exported_rows, total_items)
     return _IndexExportResolved(
         artifacts=artifacts,
         artifact_refs=artifact_refs,

@@ -96,9 +96,11 @@ def build_source_payloads(
         for c in project.columns(sheet_id, include_hidden=True)
     }
     col_meta = [(name, columns.get(name)) for name in source_columns]
-    # one whole-column fetch per source column, regardless of how many rows
+    # One bounded fetch per source column for this row page. Callers that need a
+    # complete scope page it rather than making every payload page re-read the
+    # entire column.
     values = {
-        meta[0]: project.get_values(sheet_id, meta[0])
+        meta[0]: project.get_values(sheet_id, meta[0], row_ids=row_ids)
         for _name, meta in col_meta
         if meta is not None
     }

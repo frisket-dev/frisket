@@ -456,7 +456,7 @@ def _embedding_refresh_counts_replay_error(
         from frisket.ai.embeddings.freshness import index_freshness
 
         fresh = index_freshness(project, index)
-        live_ready = len(fresh.ready_keys)
+        live_ready = fresh.ready_count
         if live_ready != expected_ready or fresh.target_count != expected_total:
             return _embedding_stale_replay_error(
                 receipt,
@@ -2680,8 +2680,10 @@ def repair_unfinalized_refresh(project: Any, index_id: str) -> dict[str, int] | 
     if index is None:
         return None
     fresh = index_freshness(project, index)
-    ready = len(fresh.ready_keys)
-    stale = len(fresh.stale_keys)
+    ready = fresh.ready_count
+    stale = fresh.stale_count + fresh.surplus_count
+    # Persisted counters describe the currently published sidecar membership.
+    # ``fresh.target_count`` separately describes the current embeddable scope.
     total = ready + stale
     error = int(index["error_items"] or 0)
     # Reconcile counts to the sidecar reality; do NOT touch last_refresh_receipt_id

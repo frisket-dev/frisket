@@ -111,13 +111,12 @@ def test_encoding_failure_cleans_prior_and_partial_current_staging(
         before_receipts = _receipt_count(env.project)
         encoding_failed = False
 
-        def fail_encoding(table, where, *args, **kwargs):
+        def fail_encoding(_writer, _batch, *args, **kwargs):
             nonlocal encoding_failed
             encoding_failed = True
-            Path(where).write_bytes(b"partial parquet")
             raise OSError("injected encoder failure after partial write")
 
-        monkeypatch.setattr(pq, "write_table", fail_encoding)
+        monkeypatch.setattr(pq.ParquetWriter, "write_batch", fail_encoding)
         result = env.run(_multi_action(env))
 
         assert encoding_failed

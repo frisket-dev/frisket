@@ -344,7 +344,7 @@ def resolve_named_cell_anchor(
     )
     item = items[0]
     with RetrievalStore(project) as retrieval:
-        stored = dataset_rows(retrieval, index_id)
+        stored = dataset_rows(retrieval, index_id, row_ids=(row_id,))
     if stored.get(row_id) != (item.part_id, item.representation_id):
         raise NamedIndexAnchorError(
             "embedding_source_stale",
@@ -401,23 +401,6 @@ def named_encoder_input(
     raise ValueError(
         f"embedding modality {modality!r} is not supported by named indexes"
     )
-
-
-def read_named_members(
-    store: RetrievalStore, *, dataset_id: str, space_id: str
-) -> tuple[NamedDatasetVector, ...]:
-    rows: list[NamedDatasetVector] = []
-    after: tuple[str, str] | None = None
-    while True:
-        page = store.read_named_dataset_vectors(
-            dataset_id, space_id=space_id, limit=1000, after=after
-        )
-        rows.extend(page)
-        if len(page) < 1000:
-            break
-        tail = page[-1]
-        after = (tail.part_id, tail.representation.representation_id)
-    return tuple(rows)
 
 
 def publish_named_index(
@@ -508,9 +491,29 @@ def member_pairs(rows: Iterable[NamedDatasetVector]) -> set[tuple[str, str]]:
     return {(row.part_id, row.representation.representation_id) for row in rows}
 
 
-def dataset_rows(store: RetrievalStore, dataset_id: str) -> dict[int, tuple[str, str]]:
-    """Return row bindings and member identities without loading vector blobs."""
+def dataset_rows(
+    store: RetrievalStore,
+    dataset_id: str,
+    *,
+    row_ids: Sequence[int] | None = None,
+) -> dict[int, tuple[str, str]]:
+    """Return member identities, optionally for one bounded row page.
 
+    ``row_ids=None`` remains the explicit whole-dataset action boundary used by
+    refresh. Read, anchor, and export paths pass bounded pages.
+    """
+
+    unique = tuple(dict.fromkeys(row_ids or ()))
+    if row_ids is not None and not unique:
+        return {}
+    if len(unique) > 1000:
+        raise ValueError("named dataset row lookup is bounded to 1000 rows")
+    restriction = ""
+    params: tuple[Any, ...] = (dataset_id,)
+    if row_ids is not None:
+        placeholders = ",".join("?" for _ in unique)
+        restriction = f" AND binding.row_id IN ({placeholders})"
+        params = (dataset_id, *unique)
     rows = store.db.execute(
         "SELECT binding.row_id,part.part_id,representation.representation_id "
         "FROM named_dataset_membership AS member "
@@ -518,9 +521,10 @@ def dataset_rows(store: RetrievalStore, dataset_id: str) -> dict[int, tuple[str,
         "JOIN representations AS representation "
         "ON representation.representation_key=member.representation_key "
         "JOIN bindings AS binding ON binding.source_key=part.source_key "
-        "WHERE member.dataset_id=? ORDER BY binding.row_id,part.part_id",
-        (dataset_id,),
-    ).fetchall()
+        "WHERE member.dataset_id=?" + restriction + " "
+        "ORDER BY binding.row_id,part.part_id",
+        params,
+    )
     return {
         int(row["row_id"]): (str(row["part_id"]), str(row["representation_id"]))
         for row in rows
@@ -574,7 +578,6 @@ __all__ = [
     "ordered_index_columns",
     "plan_named_index_items",
     "publish_named_index",
-    "read_named_members",
     "recipe_for_index",
     "resolve_named_cell_anchor",
     "vector_values",

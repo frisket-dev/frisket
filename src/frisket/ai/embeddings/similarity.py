@@ -445,7 +445,7 @@ def _row_anchor(
         project, index=index, space=space, payloads=payloads
     )
     item = items[0]
-    stored = dataset_rows(retrieval, str(index["id"]))
+    stored = dataset_rows(retrieval, str(index["id"]), row_ids=(row_id,))
     if row_id not in stored:
         raise SimilarityError(
             "embedding_anchor_not_found",

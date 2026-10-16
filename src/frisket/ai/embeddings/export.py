@@ -1,19 +1,11 @@
-"""Embedding index export artifact writers.
-
-Writes an index's ready source originals + raw vectors as JSONL, Parquet, or Arrow
-IPC. pyarrow backs Parquet/Arrow; JSONL is plain. Raw vectors are NEVER written to
-CSV or the default project bundle — this explicit export is the only path.
-
-Each writer goes to a tmp file in the destination dir (so the executor can move it
-into place inside the receipt transaction) and reports byte_count + sha256 of the
-exact bytes written, for replay validation.
-"""
+"""Streaming named-index export artifact writers."""
 
 from __future__ import annotations
 
 import hashlib
 import json
 import uuid
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -24,8 +16,8 @@ _FORMAT_SUFFIX = {"jsonl": "jsonl", "parquet": "parquet", "arrow": "arrow"}
 @dataclass(frozen=True)
 class ExportArtifact:
     format: str
-    path: str  # final destination path
-    tmp_path: str  # written here first; the caller moves it into place
+    path: str
+    tmp_path: str
     byte_count: int
     sha256: str
     row_count: int
@@ -36,89 +28,141 @@ def _sha256(data: bytes) -> str:
 
 
 def sha256_file(path: str) -> str | None:
-    """sha256 of an on-disk artifact, or None when it no longer exists — the seam
-    a replay uses to verify a prior export's artifacts still match."""
-    p = Path(path)
+    """Return a bounded-memory digest of an artifact, or None when absent."""
+
+    source = Path(path)
+    if not source.is_file():
+        return None
+    digest = hashlib.sha256()
     try:
-        return _sha256(p.read_bytes()) if p.is_file() else None
+        with source.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
     except OSError:
         return None
+    return "sha256:" + digest.hexdigest()
 
 
-def _jsonl_bytes(rows: list[dict[str, Any]]) -> bytes:
-    return (
-        "".join(
-            json.dumps(row, sort_keys=True, ensure_ascii=False) + "\n" for row in rows
-        )
-    ).encode("utf-8")
-
-
-def _arrow_table(rows: list[dict[str, Any]], include_vectors: bool):
+def _arrow_schema(include_vectors: bool):
     import pyarrow as pa
 
-    columns = {
-        "source_key": pa.array([r["source_key"] for r in rows], pa.string()),
-        "row_id": pa.array([r.get("row_id") for r in rows], pa.int64()),
-        "source_hash": pa.array([r["source_hash"] for r in rows], pa.string()),
-        "values_json": pa.array(
-            [json.dumps(r["values"], sort_keys=True, ensure_ascii=False) for r in rows],
-            pa.string(),
-        ),
-    }
+    fields = [
+        pa.field("source_key", pa.string()),
+        pa.field("row_id", pa.int64()),
+        pa.field("source_hash", pa.string()),
+        pa.field("values_json", pa.string()),
+    ]
     if include_vectors:
-        columns["vector"] = pa.array(
-            [r.get("vector") for r in rows], pa.list_(pa.float32())
-        )
-    return pa.table(columns)
+        fields.append(pa.field("vector", pa.list_(pa.float32())))
+    return pa.schema(fields)
+
+
+def _arrow_batch(rows: Sequence[dict[str, Any]], schema: Any):
+    import pyarrow as pa
+
+    values: dict[str, Any] = {
+        "source_key": [row["source_key"] for row in rows],
+        "row_id": [row.get("row_id") for row in rows],
+        "source_hash": [row["source_hash"] for row in rows],
+        "values_json": [
+            json.dumps(row["values"], sort_keys=True, ensure_ascii=False)
+            for row in rows
+        ],
+    }
+    if "vector" in schema.names:
+        values["vector"] = [row.get("vector") for row in rows]
+    return pa.RecordBatch.from_pylist(
+        [
+            {name: values[name][offset] for name in schema.names}
+            for offset in range(len(rows))
+        ],
+        schema=schema,
+    )
 
 
 def write_export_artifacts(
-    rows: list[dict[str, Any]],
+    row_pages: Iterable[Sequence[dict[str, Any]]],
     *,
     dest_dir: Path,
     base_name: str,
     formats: list[str],
     include_vectors: bool,
 ) -> list[ExportArtifact]:
-    """Write one tmp artifact per format into ``dest_dir``. Returns the artifacts
-    (with final path + tmp path + sha256); the caller commits the move."""
+    """Write every row page to all requested formats without retaining prior pages."""
+
     dest = Path(dest_dir)
-    out: list[ExportArtifact] = []
-    table = None  # built lazily, shared by parquet + arrow
-    staged: list[Path] = []
+    schema = _arrow_schema(include_vectors) if set(formats) - {"jsonl"} else None
+    staged: dict[str, Path] = {}
+    finals: dict[str, Path] = {}
+    jsonl_handle = None
+    parquet_writer = None
+    arrow_sink = None
+    arrow_writer = None
+    row_count = 0
     try:
         for fmt in formats:
-            final = dest / f"{base_name}.{_FORMAT_SUFFIX[fmt]}"
-            tmp = dest / f".{base_name}.{fmt}.{uuid.uuid4().hex}.tmp"
-            # Own the current path before a writer can partially create it.
-            staged.append(tmp)
-            if fmt == "jsonl":
-                data = _jsonl_bytes(rows)
-                tmp.write_bytes(data)
-            else:
-                if table is None:
-                    table = _arrow_table(rows, include_vectors)
-                if fmt == "parquet":
-                    import pyarrow.parquet as pq
+            finals[fmt] = dest / f"{base_name}.{_FORMAT_SUFFIX[fmt]}"
+            staged[fmt] = dest / f".{base_name}.{fmt}.{uuid.uuid4().hex}.tmp"
+        if "jsonl" in staged:
+            jsonl_handle = staged["jsonl"].open("wb")
+        if "parquet" in staged:
+            import pyarrow.parquet as pq
 
-                    pq.write_table(table, tmp)
-                else:  # arrow IPC (Feather v2)
-                    import pyarrow.feather as feather
+            parquet_writer = pq.ParquetWriter(staged["parquet"], schema)
+        if "arrow" in staged:
+            import pyarrow as pa
 
-                    feather.write_feather(table, tmp)
-                data = tmp.read_bytes()
-            out.append(
-                ExportArtifact(
-                    format=fmt,
-                    path=str(final),
-                    tmp_path=str(tmp),
-                    byte_count=len(data),
-                    sha256=_sha256(data),
-                    row_count=len(rows),
-                )
-            )
+            arrow_sink = pa.OSFile(str(staged["arrow"]), "wb")
+            arrow_writer = pa.ipc.new_file(arrow_sink, schema)
+
+        for page in row_pages:
+            if not page:
+                continue
+            row_count += len(page)
+            if jsonl_handle is not None:
+                for row in page:
+                    jsonl_handle.write(
+                        (
+                            json.dumps(row, sort_keys=True, ensure_ascii=False) + "\n"
+                        ).encode("utf-8")
+                    )
+            if parquet_writer is not None or arrow_writer is not None:
+                batch = _arrow_batch(page, schema)
+                if parquet_writer is not None:
+                    parquet_writer.write_batch(batch)
+                if arrow_writer is not None:
+                    arrow_writer.write_batch(batch)
+        if arrow_writer is not None:
+            arrow_writer.close()
+            arrow_writer = None
+        if arrow_sink is not None:
+            arrow_sink.close()
+            arrow_sink = None
+        if parquet_writer is not None:
+            parquet_writer.close()
+            parquet_writer = None
+        if jsonl_handle is not None:
+            jsonl_handle.close()
+            jsonl_handle = None
     except BaseException:
-        for tmp in staged:
-            tmp.unlink(missing_ok=True)
+        for writer in (arrow_writer, parquet_writer, jsonl_handle, arrow_sink):
+            if writer is not None:
+                try:
+                    writer.close()
+                except Exception:
+                    pass
+        for path in staged.values():
+            path.unlink(missing_ok=True)
         raise
-    return out
+
+    return [
+        ExportArtifact(
+            format=fmt,
+            path=str(finals[fmt]),
+            tmp_path=str(staged[fmt]),
+            byte_count=staged[fmt].stat().st_size,
+            sha256=sha256_file(str(staged[fmt])) or _sha256(b""),
+            row_count=row_count,
+        )
+        for fmt in formats
+    ]

@@ -159,9 +159,9 @@ def _index_payload(
     # edited after embedding leaves the item 'ready' with an old hash, and a newly
     # appended row is simply missing a vector.
     fresh = index_freshness(store.project, index)
-    stale_source = len(fresh.stale_keys)
-    missing_source = len(fresh.missing_keys)
-    ready_keys = len(fresh.ready_keys)
+    stale_source = fresh.stale_count + fresh.surplus_count
+    missing_source = fresh.missing_count
+    ready_keys = fresh.ready_count
     maintenance_mode = maintenance.get("mode", "manual")
     reason = freshness_reason(index, fresh)
     # First-class freshness STATE contract: counts + reason code +
@@ -171,7 +171,7 @@ def _index_payload(
         "reason": reason,
         "refresh_needed": reason != "fresh",
         # ready = have a vector; current = vector still matches source.
-        "ready": ready_keys + stale_source,
+        "ready": ready_keys + fresh.stale_count,
         "current": ready_keys,
         "missing": missing_source,
         "stale": stale_source,
