@@ -85,6 +85,62 @@ def input_hash(value: bytes | str) -> str:
     return f"sha256:{hashlib.sha256(raw).hexdigest()}"
 
 
+def _evidence_source_revision(
+    *,
+    prefix: str,
+    source_kind: str,
+    version_kind: str,
+    evidence_link_stable_id: str,
+    snapshot_hash: str,
+    text: str,
+) -> SourceRevision:
+    for value, name in (
+        (evidence_link_stable_id, "evidence_link_stable_id"),
+        (snapshot_hash, "snapshot_hash"),
+    ):
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"{name} must not be empty")
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError("evidence text must not be empty")
+    return SourceRevision(
+        source_id=f"{prefix}:{evidence_link_stable_id}",
+        source_kind=source_kind,
+        version_kind=version_kind,
+        version_value=snapshot_hash,
+        content_hash=input_hash(text),
+    )
+
+
+def transcript_source_revision(
+    *, evidence_link_stable_id: str, snapshot_hash: str, text: str
+) -> SourceRevision:
+    """Construct an immutable source identity for one exact transcript link."""
+
+    return _evidence_source_revision(
+        prefix="transcript-link",
+        source_kind="transcript",
+        version_kind="transcript_snapshot",
+        evidence_link_stable_id=evidence_link_stable_id,
+        snapshot_hash=snapshot_hash,
+        text=text,
+    )
+
+
+def ocr_source_revision(
+    *, evidence_link_stable_id: str, snapshot_hash: str, text: str
+) -> SourceRevision:
+    """Construct an immutable source identity for one exact current OCR link."""
+
+    return _evidence_source_revision(
+        prefix="ocr-link",
+        source_kind="ocr_text",
+        version_kind="ocr_snapshot",
+        evidence_link_stable_id=evidence_link_stable_id,
+        snapshot_hash=snapshot_hash,
+        text=text,
+    )
+
+
 def row_composite_revision(members: Sequence[Any], *, recipe: Any) -> str:
     """Identify an ordered row composite from member revisions and its recipe."""
 

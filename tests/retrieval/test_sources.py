@@ -6,10 +6,13 @@ import pytest
 
 from frisket.retrieval.sources import (
     canonical_json,
+    input_hash,
+    ocr_source_revision,
     part_id,
     representation_id,
     row_composite_revision,
     row_composite_source_revision,
+    transcript_source_revision,
 )
 
 
@@ -57,6 +60,31 @@ def test_row_composite_source_revision_centralizes_named_index_identity():
     assert revision.source_kind == "row_composite"
     assert revision.version_kind == "row_composite_revision"
     assert revision.content_hash == "sha256:payload"
+
+
+def test_evidence_source_revisions_bind_link_snapshot_and_exact_text():
+    transcript = transcript_source_revision(
+        evidence_link_stable_id="link-t",
+        snapshot_hash="sha256:transcript-snapshot",
+        text="speaker text",
+    )
+    ocr = ocr_source_revision(
+        evidence_link_stable_id="link-o",
+        snapshot_hash="sha256:ocr-snapshot",
+        text="page text",
+    )
+
+    assert transcript.source_id == "transcript-link:link-t"
+    assert (transcript.source_kind, transcript.version_kind) == (
+        "transcript",
+        "transcript_snapshot",
+    )
+    assert transcript.version_value == "sha256:transcript-snapshot"
+    assert transcript.content_hash == input_hash("speaker text")
+    assert ocr.source_id == "ocr-link:link-o"
+    assert (ocr.source_kind, ocr.version_kind) == ("ocr_text", "ocr_snapshot")
+    assert ocr.version_value == "sha256:ocr-snapshot"
+    assert ocr.content_hash == input_hash("page text")
 
 
 def test_representation_identity_uses_complete_space():

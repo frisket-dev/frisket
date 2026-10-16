@@ -365,6 +365,10 @@ def test_exhaustive_ocr_evidence_scans_each_block_once_in_source_order(
             column_id=text_column_id,
         )
         assert len(resolved) == 1
+        assert resolved[0].artifact_stable_id
+        assert resolved[0].evidence_link_stable_id
+        assert resolved[0].text_value == " ".join(block["text"] for block in blocks)
+        assert resolved[0].snapshot_hash.startswith("sha256:")
         assert [
             (span["span_kind"], span["quote"]) for span in resolved[0].spans
         ] == expected_addressed
