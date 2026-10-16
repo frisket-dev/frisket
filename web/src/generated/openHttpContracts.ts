@@ -10089,6 +10089,7 @@ type HttpSearchPreparationBatch_SearchPreparationJob = ({
 
 type HttpSearchPreparationBatch_SearchPreparationModel = ({
   "additional_runtime_download": (boolean);
+  "can_setup": (boolean);
   "display_name": (string);
   "download_bytes"?: (((number)) | ((null)));
   "license": (string);
@@ -10144,6 +10145,7 @@ type HttpSearchPreparationBatchList_SearchPreparationJob = ({
 
 type HttpSearchPreparationBatchList_SearchPreparationModel = ({
   "additional_runtime_download": (boolean);
+  "can_setup": (boolean);
   "display_name": (string);
   "download_bytes"?: (((number)) | ((null)));
   "license": (string);
