@@ -86,6 +86,7 @@ async function checkPython(resourcesPath, python, env, workspace) {
   await fs.writeFile(script, `
 import asyncio
 import json
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -96,10 +97,19 @@ from PIL import Image
 from pypdf import PdfWriter
 from frisket.ops.ocr_engines_local import ocr_rapidocr, rapidocr_execution_scope
 from frisket.engine.pdf_render import render_pdf_pages
+from frisket.retrieval.native import load_vec1, pack_vector
 from frisket.sample_content.lawsuits import SAMPLE_LAWSUITS, lawsuit_pdf_bytes
-from frisket.search_storage import ensure_search_runtime
 
-ensure_search_runtime()
+with sqlite3.connect(":memory:") as retrieval:
+    version = load_vec1(retrieval)
+    if not version.startswith("version 0.8 "):
+        raise RuntimeError(f"Packaged Vec1 reported an unexpected version: {version}")
+    unit = pack_vector([1.0, 0.0, 0.0], dimensions=3)
+    distance = retrieval.execute(
+        "SELECT vec1_cos_distance(?, ?)", (unit, unit)
+    ).fetchone()[0]
+    if abs(distance) > 1e-6:
+        raise RuntimeError(f"Packaged Vec1 returned an unexpected distance: {distance}")
 
 pdf = workspace / "native-check.pdf"
 writer = PdfWriter()

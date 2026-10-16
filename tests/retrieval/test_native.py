@@ -143,6 +143,15 @@ def test_loader_disables_extension_loading_after_load_failure(
 
 
 @pytest.mark.usefixtures("packaged_native")
+def test_configure_in_memory_connection_reports_unavailable_mmap() -> None:
+    with sqlite3.connect(":memory:") as connection:
+        settings = native.configure_retrieval_connection(connection)
+
+    assert settings.cache_size == -native.RETRIEVAL_CACHE_KIB
+    assert settings.mmap_size == 0
+
+
+@pytest.mark.usefixtures("packaged_native")
 def test_native_relation_first_query_fts_and_reopen(tmp_path: Path) -> None:
     database = tmp_path / "retrieval.db"
     query = native.pack_vector([1.0, 0.0, 0.0], dimensions=3)

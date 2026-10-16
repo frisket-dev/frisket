@@ -133,7 +133,8 @@ def configure_retrieval_connection(
     connection.execute(f"PRAGMA cache_size=-{RETRIEVAL_CACHE_KIB}")
     connection.execute(f"PRAGMA mmap_size={RETRIEVAL_MMAP_BYTES}")
     cache_size = int(connection.execute("PRAGMA cache_size").fetchone()[0])
-    mmap_size = int(connection.execute("PRAGMA mmap_size").fetchone()[0])
+    mmap_row = connection.execute("PRAGMA mmap_size").fetchone()
+    mmap_size = int(mmap_row[0]) if mmap_row is not None else 0
     return RetrievalSQLiteSettings(cache_size=cache_size, mmap_size=mmap_size)
 
 
