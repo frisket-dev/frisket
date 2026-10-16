@@ -8,11 +8,17 @@ from time import perf_counter
 import pytest
 
 from frisket.engine.store import Project
+from frisket.engine.store.evidence import record_source_artifact
+from frisket.engine.store.prepared_content import (
+    PreparedContentStore,
+    PreparedPageDraft,
+)
 from frisket.engine.store.retrieval_lifecycle import read_binding_revision
 from frisket.search_index import bind_retrieval_sidecar
 from frisket.retrieval import native
 from frisket.retrieval.contracts import (
     BindingRevision,
+    PageRange,
     RetrievalScope,
     RankingPolicy,
     SearchRequest,
@@ -341,6 +347,58 @@ def test_unique_long_lexical_match_reports_exact_original_text_range(tmp_path):
             len(prefix) + len(match),
         )
         assert text[location.text.start : location.text.end] == match
+    finally:
+        project.close()
+
+
+def test_unique_prepared_lexical_match_narrows_location_to_owning_page(tmp_path):
+    from frisket.search import drain_index
+
+    project = Project.create(tmp_path / "prepared-lexical-page.frisket")
+    try:
+        sheet = project.add_sheet("Documents")
+        column = project.add_column(sheet, "body")
+        project.db.execute("BEGIN IMMEDIATE")
+        op_id = project.append_op("prepare.test", commit=False)
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="document",
+            media_type="application/pdf",
+            page_count=2,
+        )
+        prepared = PreparedContentStore(project).stage_reference(
+            source_artifact_id=int(artifact["id"]),
+            producing_op_id=op_id,
+            pages=(
+                PreparedPageDraft(1, "Harbor minutes and attendance."),
+                PreparedPageDraft(2, "The council approved the bluewharf repair."),
+            ),
+        )
+        project.add_rows(sheet, [{"body": prepared}], {"body": column}, commit=False)
+        project.db.commit()
+        drain_index(project)
+
+        response = search(
+            project,
+            SearchRequest(
+                scope=RetrievalScope(sheets=(SheetScope(sheet),)),
+                query=TextQuery("bluewharf"),
+                mode="lexical",
+                ranking=RankingPolicy(rerank="off"),
+            ),
+        )
+
+        [result] = response.results
+        location = result.primary.part.locator
+        assert result.primary.precision == "exact"
+        assert location.pages == PageRange(2, 2)
+        assert location.text is not None
+        assert (
+            PreparedContentStore(project)
+            .resolve(prepared.ref_id)
+            .text[location.text.start : location.text.end]
+            == "bluewharf"
+        )
     finally:
         project.close()
 

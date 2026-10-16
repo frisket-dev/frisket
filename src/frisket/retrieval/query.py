@@ -50,6 +50,7 @@ from .scope import CompiledRetrievalScope, compile_scope
 from .source_adapter import (
     UnsupportedLexicalSourceError,
     resolve_source_text,
+    resolve_source_text_pages,
 )
 from .sources import canonical_json, identity_digest, input_hash
 from .store import PROJECT_SIDECAR_META_KEY, RETRIEVAL_DB_NAME, SIDECAR_ID_META_KEY
@@ -1226,6 +1227,14 @@ def _hydrate_lexical(
                     end=exact_range[1],
                 ),
             )
+            exact_pages = resolve_source_text_pages(
+                reader,
+                source=candidate.source,
+                locator=locator,
+                binding=candidate.binding,
+            )
+            if exact_pages is not None:
+                locator = replace(locator, pages=exact_pages)
         else:
             lexical_exact = False
         located.append(
