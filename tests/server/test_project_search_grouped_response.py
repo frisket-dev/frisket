@@ -288,6 +288,53 @@ def test_unlinked_media_uses_document_time_and_unavailable_model_has_setup(
     }
 
 
+def test_navigation_normalizes_sqlite_column_rows(monkeypatch) -> None:
+    class SqliteColumnProject(_Project):
+        def columns(self, sheet_id: int) -> list[sqlite3.Row]:
+            assert sheet_id == 1
+            return list(
+                self.db.execute(
+                    "SELECT 3 AS id,'source' AS name,'video' AS type,"
+                    "0 AS ai_generated"
+                )
+            )
+
+    project = SqliteColumnProject(_db())
+    primary = _hit(
+        "video",
+        column_id=3,
+        locator=SourceLocator(kind="video"),
+        score=0.8,
+    )
+    response = SearchResponse(
+        results=(ResultGroup(group_key="source:video", primary=primary),),
+        coverage=SearchCoverage(
+            requested_mode="semantic",
+            effective_modes=("semantic",),
+            state="complete",
+            searched_channels=("video",),
+            is_top_k=True,
+            truncated=False,
+        ),
+    )
+    monkeypatch.setattr(
+        project_search, "search_with_encoding", lambda *a, **k: response
+    )
+
+    payload = ProjectSearchService(_Workspace(project)).search(
+        "project", request=_request()
+    )
+
+    assert payload["groups"][0]["primary"]["navigation"] == {
+        "kind": "document",
+        "sheet_id": 1,
+        "row_id": 2,
+        "column_id": 3,
+        "page": None,
+        "time_seconds": None,
+    }
+
+
 def test_cell_similarity_is_passed_to_the_shared_service_with_named_index(
     monkeypatch,
 ) -> None:

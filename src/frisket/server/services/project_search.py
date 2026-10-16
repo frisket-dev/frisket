@@ -354,7 +354,7 @@ class ProjectSearchService:
             runtime=self._workspace.embedding_runtime,
         )
         columns: dict[tuple[int, int], dict[str, Any]] = {
-            (int(sheet["id"]), int(column["id"])): column
+            (int(sheet["id"]), int(column["id"])): dict(column)
             for sheet in project.sheets()
             for column in project.columns(int(sheet["id"]))
         }
