@@ -19,6 +19,7 @@ from frisket.engine.executor.map_rows_action import (
 )
 from frisket.engine.jobs.runs import RUN_PROJECT_KIND
 from frisket.engine.runner import OutputColumnExists
+from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.server.app import create_app
 from http_test_helpers import drain_queue
 
@@ -254,18 +255,25 @@ def test_queued_replacement_snapshots_new_sibling_output_after_prepare(
         for column in project.columns(sheet_id, include_hidden=True)
         if column["name"] == "Search positions"
     )
-    prepared_targets = {
+    admitted_targets = {
         "Search text": int(existing_text["id"]),
-        "Search positions": int(positions["id"]),
+        "Search positions": None,
     }
-    assert job.payload["v1_output_target_preconditions"] == prepared_targets
-    assert job.payload["spec"]["output_target_preconditions"] == prepared_targets
+    assert job.payload["v1_output_target_preconditions"] == admitted_targets
+    assert job.payload["spec"]["output_target_preconditions"] == admitted_targets
     persisted_spec = json.loads(
         project.db.execute(
             "SELECT params FROM runs WHERE id=?", (queued.run_id,)
         ).fetchone()["params"]
     )
     assert persisted_spec == job.payload["spec"]
+    assert {
+        binding.output_role: binding.column_id
+        for binding in ResultGenerationStore(project).bindings_for_run(queued.run_id)
+    } == {
+        "Search text": int(existing_text["id"]),
+        "Search positions": int(positions["id"]),
+    }
     envelope = queued_v1_payload_envelope(job.payload, project=project)
     assert envelope is not None
     assert envelope.pre_run_error(project) is None

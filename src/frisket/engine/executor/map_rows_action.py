@@ -3378,10 +3378,11 @@ def typed_queued_map_spec(
                 _enforce_expected_output_columns=not recovering_queued,
             )
             if recovering_queued and type(existing["run_id"]) is int:
+                run_id = int(existing["run_id"])
                 prepared_targets = {
                     binding.output_role: binding.column_id
                     for binding in ResultGenerationStore(project).bindings_for_run(
-                        int(existing["run_id"])
+                        run_id
                     )
                 }
                 current_targets = {
@@ -3400,12 +3401,41 @@ def typed_queued_map_spec(
                         "output targets changed after this action was prepared",
                         field="output_names",
                     )
-                prepared_spec = dict(plan.spec)
-                prepared_spec["output_target_preconditions"] = prepared_targets
+                run = project.db.execute(
+                    "SELECT params FROM runs WHERE id=?", (run_id,)
+                ).fetchone()
+                try:
+                    admitted_spec = json.loads(run["params"])
+                    admitted_targets = admitted_spec["output_target_preconditions"]
+                except (KeyError, TypeError, ValueError):
+                    admitted_targets = None
+                if (
+                    not isinstance(admitted_targets, dict)
+                    or set(admitted_targets) != expected_names
+                    or any(
+                        value is not None and (type(value) is not int or value <= 0)
+                        for value in admitted_targets.values()
+                    )
+                    or any(
+                        type(value) is int and prepared_targets[name] != value
+                        for name, value in admitted_targets.items()
+                    )
+                ):
+                    raise TypedMapRowsPlanError(
+                        "output_target_changed",
+                        "prepared action lost its admitted output targets",
+                        field="output_names",
+                    )
+                # The run spec is the consented publication promise: a null
+                # means this output was absent at admission.  Materialized
+                # column ids live in ResultGenerationStore and fence worker
+                # publication, but must never replace that admitted identity.
+                recovered_spec = dict(plan.spec)
+                recovered_spec["output_target_preconditions"] = admitted_targets
                 plan = replace(
                     plan,
-                    output_target_preconditions=MappingProxyType(prepared_targets),
-                    spec=MappingProxyType(prepared_spec),
+                    output_target_preconditions=MappingProxyType(admitted_targets),
+                    spec=MappingProxyType(recovered_spec),
                 )
         except (TypeError, ValueError, ValidationError) as exc:
             return _typed_plan_error(bound.action.action_id, exc)
@@ -3535,12 +3565,12 @@ def typed_queued_map_spec(
             if type(run_id) is int
             else {}
         )
-        target_drift = any(
-            (
-                current_columns.get(str(name)) != int(expected_id)
-                if type(expected_id) is int
-                else current_columns.get(str(name))
-                not in {None, prepared_targets.get(str(name))}
+        expected_target_names = {str(name) for name in expected_output_preconditions}
+        target_drift = set(prepared_targets) != expected_target_names or any(
+            current_columns.get(str(name)) != prepared_targets.get(str(name))
+            or (
+                type(expected_id) is int
+                and prepared_targets.get(str(name)) != expected_id
             )
             for name, expected_id in expected_output_preconditions.items()
         )

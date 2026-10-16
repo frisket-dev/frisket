@@ -605,20 +605,6 @@ def prepare_validated(
             out_cols[f["name"]] = cid
             created_columns.append(cid)
 
-    if raw_target_preconditions:
-        prepared_targets = {
-            name: int(out_cols[name]) for name in raw_target_preconditions
-        }
-        if set(prepared_targets) != field_names:
-            raise ValueError(
-                "prepared output targets must cover every output descriptor"
-            )
-        # Admission records absence as null. Once this preparation owns the
-        # newly materialized columns, persist their exact ids as the execution
-        # fence so the queued worker does not mistake its own reservation for
-        # external target drift.
-        spec["output_target_preconditions"] = prepared_targets
-
     if resume_run_id is not None:
         run_id = resume_run_id
         assert run_row is not None
