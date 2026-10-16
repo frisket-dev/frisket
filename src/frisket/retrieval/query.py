@@ -47,7 +47,7 @@ from .ranking import compose_weighted_vectors, reciprocal_rank_fusion
 from .scope import CompiledRetrievalScope, compile_scope
 from .source_adapter import (
     UnsupportedLexicalSourceError,
-    resolve_lexical_source_text,
+    resolve_source_text,
 )
 from .sources import canonical_json, identity_digest, input_hash
 from .store import RETRIEVAL_DB_NAME
@@ -957,7 +957,7 @@ def _hydrate_lexical(
     hydrated: list[tuple[_Candidate, str]] = []
     for candidate in candidates:
         try:
-            text = resolve_lexical_source_text(
+            text = resolve_source_text(
                 reader,
                 source=candidate.source,
                 locator=candidate.locator,
@@ -1031,7 +1031,7 @@ def _hydrate_semantic(
             hydrated.append(candidate)
             continue
         try:
-            text = resolve_lexical_source_text(
+            text = resolve_source_text(
                 reader,
                 source=candidate.source,
                 locator=candidate.locator,

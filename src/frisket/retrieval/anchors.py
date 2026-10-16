@@ -22,7 +22,7 @@ from frisket.engine.pdf_render import (
 from frisket.engine.sandbox.media_sync import run_media_sync
 from frisket.engine.store.blob_backend import BlobStoreError
 
-from .content import PreparedDocumentSurface
+from .content import PreparedDocumentSurface, TextChunkRecipe
 from .contracts import (
     CellAnchor,
     PageRange,
@@ -45,10 +45,11 @@ from .source_adapter import (
     resolve_cell_blob_source,
     resolve_cell_text_sources,
 )
-from .sources import identity_digest
+from .sources import cell_source_binding_id
 
 
 CancelCheck = Callable[[], bool]
+_MAX_TEXT_ANCHOR_CODEPOINTS = TextChunkRecipe().max_codepoints
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,15 +65,13 @@ class _BlobAnchor:
     selected: CellAnchor
 
 
-def _binding(selected: CellAnchor, dependency) -> ScopedBinding:
+def _binding(selected: CellAnchor, dependency, *, source_id: str) -> ScopedBinding:
     return ScopedBinding(
-        binding_id=identity_digest(
-            "cell_binding",
-            {
-                "sheet_id": selected.sheet_id,
-                "row_id": selected.row_id,
-                "column_id": selected.column_id,
-            },
+        binding_id=cell_source_binding_id(
+            sheet_id=selected.sheet_id,
+            row_id=selected.row_id,
+            column_id=selected.column_id,
+            source_id=source_id,
         ),
         sheet_id=selected.sheet_id,
         row_id=selected.row_id,
@@ -95,6 +94,13 @@ def _text_anchor(project: Any, selected: CellAnchor) -> ResolvedAnchor | None:
     text = surface.text if isinstance(surface, PreparedDocumentSurface) else surface
     locator = selected.locator
     if locator is None:
+        if len(text.text) > _MAX_TEXT_ANCHOR_CODEPOINTS:
+            raise RetrievalQueryError(
+                "source_location_required",
+                "Select a passage of at most "
+                f"{_MAX_TEXT_ANCHOR_CODEPOINTS} characters before searching for "
+                "similar content.",
+            )
         locator = SourceLocator(
             kind="text",
             text=TextRange(text.text_surface_id, text.content_hash, 0, len(text.text)),
@@ -108,11 +114,17 @@ def _text_anchor(project: Any, selected: CellAnchor) -> ResolvedAnchor | None:
             "source_anchor_changed", "The selected text has changed. Select it again."
         )
     value = text.text[locator.text.start : locator.text.end]
+    if not value or len(value) > _MAX_TEXT_ANCHOR_CODEPOINTS:
+        raise RetrievalQueryError(
+            "invalid_anchor",
+            "Text similarity requires a non-empty passage of at most "
+            f"{_MAX_TEXT_ANCHOR_CODEPOINTS} characters.",
+        )
     return ResolvedAnchor(
         SourceAnchor(
             resolved.source,
             locator,
-            _binding(selected, resolved.binding),
+            _binding(selected, resolved.binding, source_id=resolved.source.source_id),
             selected.exclude_exact,
         ),
         TextEncodingInput(value),
@@ -270,7 +282,7 @@ async def _decode_blob_anchor(
         raise asyncio.CancelledError
     resolved, selected = anchor.resolved, anchor.selected
     mime = resolved.mime_type.lower().split(";", 1)[0].strip()
-    binding = _binding(selected, resolved.binding)
+    binding = _binding(selected, resolved.binding, source_id=resolved.source.source_id)
     try:
         if mime.startswith("image/"):
             locator = _whole_image_locator(anchor)

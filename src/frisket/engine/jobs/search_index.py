@@ -8,9 +8,21 @@ from frisket.engine.store import Project
 from frisket.engine.store.search_index_work import latest_revision, read_dirty_scopes
 from frisket.project_identity import ProjectStorageKey
 from frisket.retrieval.preparation import (
+    AUDIO_CHANNEL,
+    DEFAULT_TEXT_RECIPE,
+    IMAGE_CHANNEL,
+    OCR_TEXT_CHANNEL,
+    PDF_PAGE_CHANNEL,
+    TRANSCRIPT_CHANNEL,
+    VIDEO_CHANNEL,
     PreparationEncoder,
+    PreparationPolicy,
     preparation_work_marker,
+    process_blob_image_preparation_batch,
+    process_evidence_preparation_batch,
     process_text_preparation_batch,
+    process_timed_media_preparation_batch,
+    read_preparation_policy,
 )
 from frisket.search_index import index_batch, index_needs_work
 
@@ -35,10 +47,16 @@ def process_index_batches(
     *,
     stopped=lambda: False,
     embedding_encoder: PreparationEncoder | None = None,
+    preparation_policy: PreparationPolicy | None = None,
 ) -> tuple[int, bool]:
     """Process one fair worker quantum of lexical and local preparation work."""
     processed = processed_bytes = 0
     complete = False
+    policy = (
+        read_preparation_policy(project)
+        if preparation_policy is None
+        else preparation_policy
+    )
     for _ in range(BATCHES_PER_CLAIM):
         if stopped():
             break
@@ -49,18 +67,66 @@ def process_index_batches(
             semantic_available=(
                 embedding_encoder is not None and embedding_encoder.available()
             ),
+            preparation_policy=policy,
         )
         processed += progress.processed
         processed_bytes += progress.processed_bytes
         complete = progress.complete
         if complete and not stopped():
-            prepared = process_text_preparation_batch(
-                project,
-                encoder=embedding_encoder,
-                cancelled=stopped,
+            preparation_steps = (
+                process_text_preparation_batch(
+                    project,
+                    encoder=embedding_encoder,
+                    recipe=policy.text_recipe
+                    if policy.text_recipe is not None
+                    else DEFAULT_TEXT_RECIPE,
+                    cancelled=stopped,
+                ),
+                process_evidence_preparation_batch(
+                    project,
+                    channel=TRANSCRIPT_CHANNEL,
+                    encoder=embedding_encoder,
+                    cancelled=stopped,
+                    policy=policy,
+                ),
+                process_evidence_preparation_batch(
+                    project,
+                    channel=OCR_TEXT_CHANNEL,
+                    encoder=embedding_encoder,
+                    cancelled=stopped,
+                    policy=policy,
+                ),
+                process_blob_image_preparation_batch(
+                    project,
+                    channel=IMAGE_CHANNEL,
+                    encoder=embedding_encoder,
+                    cancelled=stopped,
+                    policy=policy,
+                ),
+                process_blob_image_preparation_batch(
+                    project,
+                    channel=PDF_PAGE_CHANNEL,
+                    encoder=embedding_encoder,
+                    cancelled=stopped,
+                    policy=policy,
+                ),
+                process_timed_media_preparation_batch(
+                    project,
+                    channel=VIDEO_CHANNEL,
+                    encoder=embedding_encoder,
+                    cancelled=stopped,
+                    policy=policy,
+                ),
+                process_timed_media_preparation_batch(
+                    project,
+                    channel=AUDIO_CHANNEL,
+                    encoder=embedding_encoder,
+                    cancelled=stopped,
+                    policy=policy,
+                ),
             )
-            processed += prepared.processed_parts
-            complete = prepared.complete
+            processed += sum(step.processed_parts for step in preparation_steps)
+            complete = all(step.complete for step in preparation_steps)
         if complete or processed_bytes >= INDEX_BYTES_PER_CLAIM:
             break
     return processed, complete
@@ -100,6 +166,7 @@ def register_search_index_handler(
     workspace_root_storage_org_id: int | None = None,
     project_opener: ProjectOpener | None = None,
     embedding_encoder: PreparationEncoder | None = None,
+    preparation_policy: PreparationPolicy | None = None,
 ) -> HandlerRegistration:
     def handle(payload: dict, context: JobHandlerContext) -> dict:
         def stopped() -> bool:
@@ -126,6 +193,7 @@ def register_search_index_handler(
                 project,
                 stopped=stopped,
                 embedding_encoder=embedding_encoder,
+                preparation_policy=preparation_policy,
             )
             if not stopped():
                 continuation = {
@@ -137,7 +205,8 @@ def register_search_index_handler(
                     continuation["storage_org_id"] = claimed.storage_org_id
                 if isinstance(context.trusted_job_org_id, int):
                     continuation["org_id"] = context.trusted_job_org_id
-                enqueue_search_index(project, queue, continuation)
+                if enqueue_search_index(project, queue, continuation) is not None:
+                    complete = False
             return {
                 "project_id": project_id,
                 "processed": processed,

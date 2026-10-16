@@ -104,6 +104,36 @@ def blob_source_revision(*, blob_hash: str) -> SourceRevision:
     )
 
 
+def cell_source_binding_id(
+    *, sheet_id: int, row_id: int, column_id: int, source_id: str
+) -> str:
+    """Identify one source projection of a current cell scope.
+
+    One cell can fan out to its immutable blob plus derived transcript or OCR
+    sources. The source id keeps those bindings distinct while their stored
+    dependency revisions retain the live authority check.
+    """
+
+    for value, name in (
+        (sheet_id, "sheet_id"),
+        (row_id, "row_id"),
+        (column_id, "column_id"),
+    ):
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ValueError(f"{name} must be a positive integer")
+    if not isinstance(source_id, str) or not source_id.strip():
+        raise ValueError("source_id must not be empty")
+    return identity_digest(
+        "cell_source_binding",
+        {
+            "sheet_id": sheet_id,
+            "row_id": row_id,
+            "column_id": column_id,
+            "source_id": source_id,
+        },
+    )
+
+
 def _evidence_source_revision(
     *,
     prefix: str,

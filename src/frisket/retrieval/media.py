@@ -114,6 +114,13 @@ class PeriodicFrameRecipe:
                 raise ValueError("adjacent_dedup_threshold must be between 0 and 1")
             object.__setattr__(self, "adjacent_dedup_threshold", threshold)
 
+    @property
+    def recipe_id(self) -> str:
+        return (
+            f"{self.strategy}:interval={self.interval_seconds}:"
+            f"dedup={self.adjacent_dedup_threshold}:max-dimension={self.max_dimension}"
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class FixedClipRecipe:
@@ -140,12 +147,21 @@ class FixedClipRecipe:
         )
         object.__setattr__(self, "max_dimension", _dimension(self.max_dimension))
 
+    @property
+    def recipe_id(self) -> str:
+        return (
+            f"{self.strategy}:duration={self.duration_seconds}:"
+            f"stride={self.stride_seconds}:fps={self.sample_fps}:"
+            f"max-dimension={self.max_dimension}"
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class ShotClipRecipe:
     """Clip on ffmpeg's versioned 0..1 scene score, then split long shots."""
 
-    max_duration_seconds: float = 8.0
+    max_duration_seconds: float = 10.0
+    quantum_seconds: float = 120.0
     sample_fps: float = 1.0
     max_clips: int = 450
     scene_score_threshold: float = 0.1
@@ -155,6 +171,7 @@ class ShotClipRecipe:
 
     def __post_init__(self) -> None:
         duration = _positive_number(self.max_duration_seconds, "max_duration_seconds")
+        quantum = _positive_number(self.quantum_seconds, "quantum_seconds")
         fps = _positive_number(self.sample_fps, "sample_fps")
         threshold = _positive_number(
             self.scene_score_threshold, "scene_score_threshold"
@@ -164,6 +181,7 @@ class ShotClipRecipe:
         if math.ceil(duration * fps) > EMBEDDINGGEMMA2_MAX_VIDEO_FRAMES:
             raise ValueError("a shot recipe must produce at most 32 sampled frames")
         object.__setattr__(self, "max_duration_seconds", duration)
+        object.__setattr__(self, "quantum_seconds", quantum)
         object.__setattr__(self, "sample_fps", fps)
         object.__setattr__(
             self, "max_clips", _positive_count(self.max_clips, "max_clips")
@@ -175,6 +193,16 @@ class ShotClipRecipe:
             _positive_count(self.min_scene_len_frames, "min_scene_len_frames"),
         )
         object.__setattr__(self, "max_dimension", _dimension(self.max_dimension))
+
+    @property
+    def recipe_id(self) -> str:
+        return (
+            f"{self.strategy}:max-duration={self.max_duration_seconds}:"
+            f"quantum={self.quantum_seconds}:"
+            f"fps={self.sample_fps}:scene-score={self.scene_score_threshold}:"
+            f"min-scene-frames={self.min_scene_len_frames}:"
+            f"max-dimension={self.max_dimension}"
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,6 +223,13 @@ class AudioWindowRecipe:
         object.__setattr__(self, "stride_seconds", stride)
         object.__setattr__(
             self, "max_windows", _positive_count(self.max_windows, "max_windows")
+        )
+
+    @property
+    def recipe_id(self) -> str:
+        return (
+            f"{self.strategy}:duration={self.duration_seconds}:"
+            f"stride={self.stride_seconds}"
         )
 
 
@@ -247,7 +282,14 @@ class MediaCoverage:
     indexed_spans: tuple[tuple[float, float], ...]
     complete: bool
     truncation_reason: (
-        Literal["max_frames", "max_clips", "max_windows", "missing_samples"] | None
+        Literal[
+            "max_frames",
+            "max_clips",
+            "max_windows",
+            "missing_samples",
+            "timeline_quantum",
+        ]
+        | None
     ) = None
     timeline_estimated: bool = False
 
@@ -534,16 +576,15 @@ async def _decode_video_frames(
     fallback_time_base: tuple[int, int],
     cancelled: CancelCheck | None,
     cuts: Sequence[float] = (),
+    output_start_seconds: float | None = None,
 ) -> tuple[LocatedFrame, ...]:
     ffmpeg = _binary("ffmpeg")
     output.mkdir()
-    filter_chain = ",".join(
-        (
-            _select_filter(interval_seconds, cuts),
-            _scale_filter(max_dimension),
-            "showinfo",
-        )
-    )
+    filters = [_select_filter(interval_seconds, cuts)]
+    if output_start_seconds is not None:
+        filters.append(f"select='gte(t\\,{output_start_seconds:.12g})'")
+    filters.extend((_scale_filter(max_dimension), "showinfo"))
+    filter_chain = ",".join(filters)
     result = await _run_tool(
         [
             ffmpeg,
@@ -714,6 +755,45 @@ def _fixed_spans(
     return spans
 
 
+def _fixed_span_batch(
+    start: float,
+    end: float,
+    duration: float,
+    stride: float,
+    *,
+    start_index: int,
+    limit: int,
+) -> tuple[list[tuple[float, float]], int]:
+    """Calculate one fixed-window page without materializing the full timeline."""
+
+    if start_index < 0:
+        raise ValueError("media start_index must be nonnegative")
+    length = end - start
+    if length <= duration:
+        count = 1
+        regular_count = 1
+        tail_extra = False
+    else:
+        tolerance = 1e-9
+        regular_count = math.floor((length - duration + tolerance) / stride) + 1
+        last_regular = start + (regular_count - 1) * stride
+        tail_start = end - duration
+        tail_extra = not math.isclose(last_regular, tail_start, abs_tol=tolerance)
+        count = regular_count + int(tail_extra)
+    if start_index >= count:
+        raise ValueError("media continuation is beyond the source timeline")
+    spans: list[tuple[float, float]] = []
+    for index in range(start_index, min(start_index + limit, count)):
+        if tail_extra and index == regular_count:
+            span_start = end - duration
+        elif count == 1:
+            span_start = start
+        else:
+            span_start = start + index * stride
+        spans.append((span_start, min(span_start + duration, end)))
+    return spans, count
+
+
 def _shot_spans(
     start: float, end: float, cuts: Sequence[float], max_duration: float
 ) -> list[tuple[float, float]]:
@@ -736,6 +816,8 @@ async def _detect_shot_cuts(
     *,
     threshold: float,
     min_scene_len_frames: int,
+    start_seconds: float,
+    end_seconds: float,
     cancelled: CancelCheck | None,
 ) -> tuple[float, ...]:
     """Detect cuts inside the same confined, cancellable ffmpeg boundary."""
@@ -752,8 +834,12 @@ async def _detect_shot_cuts(
             "-hide_banner",
             "-nostdin",
             "-copyts",
+            "-ss",
+            f"{start_seconds:.12g}",
             "-i",
             str(path),
+            "-t",
+            f"{end_seconds - start_seconds:.12g}",
             "-map",
             "0:v:0",
             "-vf",
@@ -798,7 +884,14 @@ def _coverage(
     spans: Sequence[tuple[float, float]],
     *,
     complete: bool,
-    reason: Literal["max_frames", "max_clips", "max_windows", "missing_samples"] | None,
+    reason: Literal[
+        "max_frames",
+        "max_clips",
+        "max_windows",
+        "missing_samples",
+        "timeline_quantum",
+    ]
+    | None,
 ) -> MediaCoverage:
     return MediaCoverage(
         source_start_seconds=probe.start_seconds,
@@ -815,23 +908,29 @@ async def _produce_frames(
     scratch: Path,
     recipe: PeriodicFrameRecipe,
     cancelled: CancelCheck | None,
+    start_index: int = 0,
 ) -> ProducedMedia:
     probe = await _probe(path, "video", cancelled)
     planned = max(
         1,
         math.ceil((probe.end_seconds - probe.start_seconds) / recipe.interval_seconds),
     )
-    complete = planned <= recipe.max_frames
+    if start_index >= planned:
+        raise ValueError("media continuation is beyond the source timeline")
+    requested = min(planned - start_index, recipe.max_frames)
+    complete = start_index + requested >= planned
+    output_start = probe.start_seconds + start_index * recipe.interval_seconds
     frames = await _decode_video_frames(
         path,
         scratch / "frames",
         interval_seconds=recipe.interval_seconds,
-        max_frames=min(planned, recipe.max_frames),
+        max_frames=requested,
         max_dimension=recipe.max_dimension,
         fallback_time_base=(probe.time_base_num, probe.time_base_den),
         cancelled=cancelled,
+        output_start_seconds=output_start,
     )
-    missing_samples = len(frames) < min(planned, recipe.max_frames)
+    missing_samples = len(frames) < requested
     frames = _deduplicate(frames, recipe.adjacent_dedup_threshold)
     spans = tuple((frame.point.seconds, frame.point.seconds) for frame in frames)
     return ProducedMedia(
@@ -856,16 +955,18 @@ async def _produce_fixed_clips(
     scratch: Path,
     recipe: FixedClipRecipe,
     cancelled: CancelCheck | None,
+    start_index: int = 0,
 ) -> ProducedMedia:
     probe = await _probe(path, "video", cancelled)
-    planned = _fixed_spans(
+    spans, total = _fixed_span_batch(
         probe.start_seconds,
         probe.end_seconds,
         recipe.duration_seconds,
         recipe.stride_seconds,
+        start_index=start_index,
+        limit=recipe.max_clips,
     )
-    complete = len(planned) <= recipe.max_clips
-    spans = planned[: recipe.max_clips]
+    complete = start_index + len(spans) >= total
     coverage_end = spans[-1][1]
     decoded_limit = min(
         recipe.max_clips * EMBEDDINGGEMMA2_MAX_VIDEO_FRAMES,
@@ -879,11 +980,16 @@ async def _produce_fixed_clips(
         max_dimension=recipe.max_dimension,
         fallback_time_base=(probe.time_base_num, probe.time_base_den),
         cancelled=cancelled,
+        output_start_seconds=spans[0][0],
     )
     clips = _clip_items(spans, frames)
-    reason = None if complete else "max_clips"
-    if len(clips) != len(spans) and reason is None:
-        reason = "missing_samples"
+    reason = (
+        "missing_samples"
+        if len(clips) != len(spans)
+        else None
+        if complete
+        else "max_clips"
+    )
     return ProducedMedia(
         items=clips,
         coverage=_coverage(
@@ -900,30 +1006,39 @@ async def _produce_shot_clips(
     scratch: Path,
     recipe: ShotClipRecipe,
     cancelled: CancelCheck | None,
+    start_seconds: float | None = None,
 ) -> ProducedMedia:
     probe = await _probe(path, "video", cancelled)
+    quantum_start = probe.start_seconds if start_seconds is None else start_seconds
+    if not math.isfinite(quantum_start) or not (
+        probe.start_seconds <= quantum_start < probe.end_seconds
+    ):
+        raise ValueError("shot continuation is beyond the source timeline")
+    quantum_end = min(probe.end_seconds, quantum_start + recipe.quantum_seconds)
     _check_cancelled(cancelled)
     cut_seconds = await _detect_shot_cuts(
         path,
         threshold=recipe.scene_score_threshold,
         min_scene_len_frames=recipe.min_scene_len_frames,
+        start_seconds=quantum_start,
+        end_seconds=quantum_end,
         cancelled=cancelled,
     )
     _check_cancelled(cancelled)
     planned = _shot_spans(
-        probe.start_seconds,
-        probe.end_seconds,
+        quantum_start,
+        quantum_end,
         cut_seconds,
         recipe.max_duration_seconds,
     )
-    complete = len(planned) <= recipe.max_clips
+    complete = quantum_end >= probe.end_seconds and len(planned) <= recipe.max_clips
     spans = planned[: recipe.max_clips]
     coverage_end = spans[-1][1]
     decoded_limit = min(
         recipe.max_clips * EMBEDDINGGEMMA2_MAX_VIDEO_FRAMES,
         max(
             1,
-            math.ceil((coverage_end - probe.start_seconds) * recipe.sample_fps)
+            math.ceil((coverage_end - quantum_start) * recipe.sample_fps)
             + len(spans)
             + 1,
         ),
@@ -937,11 +1052,18 @@ async def _produce_shot_clips(
         fallback_time_base=(probe.time_base_num, probe.time_base_den),
         cancelled=cancelled,
         cuts=tuple(start for start, _end in spans[1:]),
+        output_start_seconds=quantum_start,
     )
     clips = _clip_items(spans, frames)
-    reason = None if complete else "max_clips"
-    if len(clips) != len(spans) and reason is None:
-        reason = "missing_samples"
+    reason = (
+        "missing_samples"
+        if len(clips) != len(spans)
+        else None
+        if complete
+        else "max_clips"
+        if len(planned) > recipe.max_clips
+        else "timeline_quantum"
+    )
     return ProducedMedia(
         items=clips,
         coverage=_coverage(
@@ -958,16 +1080,19 @@ async def _produce_audio(
     scratch: Path,
     recipe: AudioWindowRecipe,
     cancelled: CancelCheck | None,
+    start_index: int = 0,
 ) -> ProducedMedia:
     probe = await _probe(path, "audio", cancelled)
-    planned = _fixed_spans(
+    spans, total = _fixed_span_batch(
         probe.start_seconds,
         probe.end_seconds,
         recipe.duration_seconds,
         recipe.stride_seconds,
+        start_index=start_index,
+        limit=recipe.max_windows,
     )
-    complete = len(planned) <= recipe.max_windows
-    spans = planned[: recipe.max_windows]
+    complete = start_index + len(spans) >= total
+    coverage_start = spans[0][0]
     coverage_end = spans[-1][1]
     output = scratch / "audio.pcm"
     ffmpeg = _binary("ffmpeg")
@@ -978,12 +1103,14 @@ async def _produce_audio(
             "-nostdin",
             "-i",
             str(path),
+            "-ss",
+            f"{coverage_start - probe.start_seconds:.12g}",
             "-map",
             "0:a:0",
             "-af",
             "asetpts=PTS-STARTPTS,aresample=16000:async=1:first_pts=0",
             "-t",
-            f"{coverage_end - probe.start_seconds:.12g}",
+            f"{coverage_end - coverage_start:.12g}",
             "-ac",
             "1",
             "-ar",
@@ -1011,7 +1138,7 @@ async def _produce_audio(
         raise MediaProductionError(
             "media_decode_failed", "ffmpeg returned no decodable audio samples"
         )
-    decoded_end = probe.start_seconds + decoded_duration
+    decoded_end = coverage_start + decoded_duration
     if decoded_end + sample_tolerance < coverage_end:
         probe = _StreamProbe(
             start_seconds=probe.start_seconds,
@@ -1020,21 +1147,19 @@ async def _produce_audio(
             time_base_den=probe.time_base_den,
             estimated=False,
         )
-        planned = _fixed_spans(
-            probe.start_seconds,
-            probe.end_seconds,
-            recipe.duration_seconds,
-            recipe.stride_seconds,
-        )
-        complete = len(planned) <= recipe.max_windows
-        spans = planned[: recipe.max_windows]
+        spans = [
+            (start, min(end, decoded_end))
+            for start, end in spans
+            if start < decoded_end
+        ]
+        complete = True
     windows: list[AudioWindow] = []
     missing_samples = False
     with output.open("rb") as pcm:
         for start, end in spans:
             _check_cancelled(cancelled)
             first_sample = round(
-                (start - probe.start_seconds) * EMBEDDINGGEMMA2_AUDIO_SAMPLE_RATE
+                (start - coverage_start) * EMBEDDINGGEMMA2_AUDIO_SAMPLE_RATE
             )
             sample_count = round((end - start) * EMBEDDINGGEMMA2_AUDIO_SAMPLE_RATE)
             pcm.seek(first_sample * _PCM_BYTES_PER_SAMPLE)
@@ -1059,9 +1184,13 @@ async def _produce_audio(
                     input=AudioEncodingInput(data),
                 )
             )
-    reason = None if complete else "max_windows"
-    if (missing_samples or len(windows) != len(spans)) and reason is None:
-        reason = "missing_samples"
+    reason = (
+        "missing_samples"
+        if missing_samples or len(windows) != len(spans)
+        else None
+        if complete
+        else "max_windows"
+    )
     return ProducedMedia(
         items=tuple(windows),
         coverage=_coverage(
@@ -1189,6 +1318,8 @@ async def produce_media(
     recipe: MediaRecipe,
     *,
     cancelled: CancelCheck | None = None,
+    start_index: int = 0,
+    start_seconds: float | None = None,
 ) -> ProducedMedia:
     """Produce bounded, located native-encoder inputs from admitted media."""
 
@@ -1197,14 +1328,32 @@ async def produce_media(
         scratch = Path(directory)
         staged = scratch / "source.media"
         await _stage_source(source, staged, cancelled)
+        if isinstance(start_index, bool) or not isinstance(start_index, int):
+            raise TypeError("start_index must be an integer")
+        if start_index < 0:
+            raise ValueError("start_index must be nonnegative")
         if isinstance(recipe, PeriodicFrameRecipe):
-            return await _produce_frames(staged, scratch, recipe, cancelled)
+            if start_seconds is not None:
+                raise ValueError("periodic frame continuation uses start_index")
+            return await _produce_frames(
+                staged, scratch, recipe, cancelled, start_index
+            )
         if isinstance(recipe, FixedClipRecipe):
-            return await _produce_fixed_clips(staged, scratch, recipe, cancelled)
+            if start_seconds is not None:
+                raise ValueError("fixed clip continuation uses start_index")
+            return await _produce_fixed_clips(
+                staged, scratch, recipe, cancelled, start_index
+            )
         if isinstance(recipe, ShotClipRecipe):
-            return await _produce_shot_clips(staged, scratch, recipe, cancelled)
+            if start_index:
+                raise ValueError("shot clip continuation uses start_seconds")
+            return await _produce_shot_clips(
+                staged, scratch, recipe, cancelled, start_seconds
+            )
         if isinstance(recipe, AudioWindowRecipe):
-            return await _produce_audio(staged, scratch, recipe, cancelled)
+            if start_seconds is not None:
+                raise ValueError("audio continuation uses start_index")
+            return await _produce_audio(staged, scratch, recipe, cancelled, start_index)
         raise TypeError("recipe must be a supported media producer recipe")
 
 

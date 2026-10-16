@@ -16,13 +16,24 @@ from frisket.engine.store.search_index_work import (
     read_dirty_scopes,
 )
 from frisket.retrieval.preparation import (
+    PreparationPolicy,
+    dispatch_resolved_blob_source,
+    dispatch_resolved_evidence_source,
     dispatch_resolved_text_source,
     retire_cell_binding,
+    read_preparation_policy,
 )
 from frisket.retrieval.source_adapter import (
+    ResolvedCellBlobSource,
+    ResolvedCellOcrTextSource,
     ResolvedCellTextSource,
+    ResolvedCellTranscriptSource,
+    resolve_cell_blob_source,
+    resolve_cell_ocr_text_source,
     resolve_cell_text_sources,
+    resolve_cell_transcript_source,
 )
+from frisket.retrieval.sources import cell_source_binding_id
 from frisket.retrieval.store import RETRIEVAL_DB_NAME, RetrievalStore
 
 
@@ -44,6 +55,8 @@ class IndexProgress:
 
 
 _SQLITE_ROW_ID_CHUNK = 900
+_TEXT_COLUMN_TYPES = ("text", "category", "json", "link")
+_MEDIA_COLUMN_TYPES = ("file", "image", "audio", "video")
 
 
 def _raise_if_cancelled(cancel_event: threading.Event | None) -> None:
@@ -95,7 +108,8 @@ def _next_column(source, retrieval: RetrievalStore, scope, after: int) -> int | 
     params: list[int] = [after]
     where = (
         "c.id>? AND c.hidden=0 AND s.hidden=0 "
-        "AND c.type IN ('text','category','json','link')"
+        "AND c.type IN "
+        "('text','category','json','link','file','image','audio','video')"
     )
     indexed_where = "column_id>?"
     if scope.sheet_id is not None:
@@ -186,9 +200,11 @@ def _cell_sizes(source, column: int, rows: list[int]) -> dict[int, int]:
 
 def _column_descriptor(source, column: int):
     return source.execute(
-        "SELECT c.sheet_id,c.name FROM columns c JOIN sheets s ON s.id=c.sheet_id "
+        "SELECT c.sheet_id,c.name,c.type FROM columns c "
+        "JOIN sheets s ON s.id=c.sheet_id "
         "WHERE c.id=? AND c.hidden=0 AND s.hidden=0 "
-        "AND c.type IN ('text','category','json','link')",
+        "AND c.type IN "
+        "('text','category','json','link','file','image','audio','video')",
         (column,),
     ).fetchone()
 
@@ -196,17 +212,58 @@ def _column_descriptor(source, column: int):
 def _replace_cell(
     column: int,
     row_id: int,
-    resolved: ResolvedCellTextSource | None,
+    resolved: tuple[
+        ResolvedCellTextSource
+        | ResolvedCellTranscriptSource
+        | ResolvedCellOcrTextSource
+        | ResolvedCellBlobSource,
+        ...,
+    ],
     descriptor,
     old,
     retrieval: RetrievalStore,
     semantic_available: bool,
+    policy: PreparationPolicy,
 ) -> None:
-    if descriptor is not None and resolved is not None:
-        dispatch_resolved_text_source(
-            retrieval,
-            resolved,
-            semantic_available=semantic_available,
+    if descriptor is not None and resolved:
+        for source in resolved:
+            if isinstance(source, ResolvedCellTextSource):
+                dispatch_resolved_text_source(
+                    retrieval,
+                    source,
+                    semantic_available=semantic_available,
+                    recipe=policy.text_recipe,
+                )
+            elif isinstance(
+                source, ResolvedCellTranscriptSource | ResolvedCellOcrTextSource
+            ):
+                dispatch_resolved_evidence_source(
+                    retrieval,
+                    source,
+                    semantic_available=semantic_available,
+                    policy=policy,
+                )
+            else:
+                dispatch_resolved_blob_source(
+                    retrieval,
+                    source,
+                    semantic_available=semantic_available,
+                    policy=policy,
+                )
+        sheet_id = int(descriptor["sheet_id"])
+        retrieval.remove_cell_bindings_except(
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=column,
+            keep_binding_ids=tuple(
+                cell_source_binding_id(
+                    sheet_id=sheet_id,
+                    row_id=row_id,
+                    column_id=column,
+                    source_id=source.source.source_id,
+                )
+                for source in resolved
+            ),
         )
         return
     sheet_id = (
@@ -230,6 +287,7 @@ def index_batch(
     max_bytes: int = 4 * 1024 * 1024,
     cancel_event: threading.Event | None = None,
     semantic_available: bool = False,
+    preparation_policy: PreparationPolicy | None = None,
 ) -> IndexProgress:
     """Reconcile one bounded dirty page and acknowledge only durable publication."""
 
@@ -238,6 +296,11 @@ def index_batch(
     if project.db.in_transaction:
         raise RuntimeError("index maintenance requires its own source transaction")
     _ensure_rebuild_scope(project)
+    policy = (
+        read_preparation_policy(project)
+        if preparation_policy is None
+        else preparation_policy
+    )
     snapshot = None
     retrieval = None
     try:
@@ -284,30 +347,65 @@ def index_batch(
                 admitted_live = [
                     row_id for row_id, _size in admitted if row_id in live_ids
                 ]
-                resolved_sources = (
+                column_type = str(descriptor["type"]) if descriptor is not None else ""
+                text_sources = (
                     resolve_cell_text_sources(
                         snapshot,
                         sheet_id=int(descriptor["sheet_id"]),
                         column_id=column,
                         row_ids=admitted_live,
                     )
-                    if admitted_live
+                    if admitted_live and column_type in _TEXT_COLUMN_TYPES
                     else {}
                 )
+                resolved_sources = {}
+                for row_id in admitted_live:
+                    sheet_id = int(descriptor["sheet_id"])
+                    sources = []
+                    transcript = resolve_cell_transcript_source(
+                        snapshot,
+                        sheet_id=sheet_id,
+                        row_id=row_id,
+                        column_id=column,
+                    )
+                    if transcript is not None:
+                        sources.append(transcript)
+                    ocr = resolve_cell_ocr_text_source(
+                        snapshot,
+                        sheet_id=sheet_id,
+                        row_id=row_id,
+                        column_id=column,
+                    )
+                    if ocr is not None:
+                        sources.append(ocr)
+                    if column_type in _TEXT_COLUMN_TYPES:
+                        if text_source := text_sources.get(row_id):
+                            sources.append(text_source)
+                    elif column_type in _MEDIA_COLUMN_TYPES:
+                        blob = resolve_cell_blob_source(
+                            snapshot,
+                            sheet_id=sheet_id,
+                            row_id=row_id,
+                            column_id=column,
+                        )
+                        if blob is not None:
+                            sources.append(blob)
+                    resolved_sources[row_id] = tuple(sources)
                 for row_id, _size in admitted:
                     _raise_if_cancelled(cancel_event)
                     _replace_cell(
                         column,
                         row_id,
-                        resolved_sources.get(row_id),
+                        resolved_sources.get(row_id, ()),
                         descriptor,
                         old_by_row.get(row_id),
                         retrieval,
                         semantic_available,
+                        policy,
                     )
                     processed += 1
                     row = row_id
-                del resolved_sources
+                del resolved_sources, text_sources
                 if processed_bytes >= max_bytes:
                     byte_limit_reached = True
                 if byte_limit_reached:

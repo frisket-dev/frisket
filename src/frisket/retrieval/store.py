@@ -192,6 +192,10 @@ class RetrievalStore:
             "CREATE INDEX IF NOT EXISTS preparation_space_counts "
             "ON preparation(recipe_id,channel,space_id,status)"
         )
+        self.db.execute(
+            "CREATE INDEX IF NOT EXISTS preparation_attention "
+            "ON preparation(space_id,channel,status) WHERE status!='ready'"
+        )
         row = self.db.execute(
             "SELECT value FROM retrieval_meta WHERE key='schema_version'"
         ).fetchone()
@@ -325,6 +329,7 @@ class RetrievalStore:
         recipe_id: str,
         channel: str,
         space_id: str | None = None,
+        replace_channel_recipes: bool = False,
     ) -> None:
         """Atomically make a queued source visible to scoped coverage.
 
@@ -345,6 +350,28 @@ class RetrievalStore:
         encoded_version, version_type = _encode_version(version_value)
         source_key = (source_id, version_kind, encoded_version, version_type)
         with self._write_transaction():
+            if replace_channel_recipes:
+                old_recipes = tuple(
+                    str(row[0])
+                    for row in self.db.execute(
+                        "SELECT recipe_id FROM preparation "
+                        "WHERE source_id=? AND channel=? AND recipe_id<>?",
+                        (source_id, channel, recipe_id),
+                    )
+                )
+                if old_recipes:
+                    placeholders = ",".join("?" for _ in old_recipes)
+                    self.db.execute(
+                        "DELETE FROM parts WHERE source_id=? "
+                        "AND publication_channel=? "
+                        f"AND recipe_id IN ({placeholders})",
+                        (source_id, channel, *old_recipes),
+                    )
+                    self.db.execute(
+                        "DELETE FROM preparation WHERE source_id=? AND channel=? "
+                        f"AND recipe_id IN ({placeholders})",
+                        (source_id, channel, *old_recipes),
+                    )
             self.db.execute(
                 "INSERT INTO sources("
                 "source_id,source_kind,version_kind,version_value,version_type,"
@@ -621,6 +648,58 @@ class RetrievalStore:
             placeholders = ",".join("?" for _ in unique)
             cursor = self.db.execute(
                 f"DELETE FROM bindings WHERE binding_id IN ({placeholders})", unique
+            )
+        return cursor.rowcount
+
+    def remove_cell_bindings(
+        self, *, sheet_id: int, row_id: int, column_id: int
+    ) -> int:
+        """Retire every source projection attached to one cell scope."""
+
+        for value, name in (
+            (sheet_id, "sheet_id"),
+            (row_id, "row_id"),
+            (column_id, "column_id"),
+        ):
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise ValueError(f"{name} must be a positive integer")
+        with self._write_transaction():
+            cursor = self.db.execute(
+                "DELETE FROM bindings WHERE sheet_id=? AND row_id=? AND column_id=?",
+                (sheet_id, row_id, column_id),
+            )
+        return cursor.rowcount
+
+    def remove_cell_bindings_except(
+        self,
+        *,
+        sheet_id: int,
+        row_id: int,
+        column_id: int,
+        keep_binding_ids: Sequence[str],
+    ) -> int:
+        """Retire stale projections after all current cell sources publish."""
+
+        for value, name in (
+            (sheet_id, "sheet_id"),
+            (row_id, "row_id"),
+            (column_id, "column_id"),
+        ):
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise ValueError(f"{name} must be a positive integer")
+        unique = tuple(dict.fromkeys(keep_binding_ids))
+        if not unique:
+            return self.remove_cell_bindings(
+                sheet_id=sheet_id, row_id=row_id, column_id=column_id
+            )
+        for binding_id in unique:
+            _require_nonempty(binding_id, "binding_id")
+        placeholders = ",".join("?" for _ in unique)
+        with self._write_transaction():
+            cursor = self.db.execute(
+                "DELETE FROM bindings WHERE sheet_id=? AND row_id=? AND column_id=? "
+                f"AND binding_id NOT IN ({placeholders})",
+                (sheet_id, row_id, column_id, *unique),
             )
         return cursor.rowcount
 

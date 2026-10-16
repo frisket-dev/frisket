@@ -23,7 +23,8 @@ from frisket.retrieval.source_adapter import (
     UnsupportedLexicalSourceError,
     resolve_cell_blob_source,
     resolve_cell_text_sources,
-    resolve_lexical_source_text,
+    resolve_source_text,
+    resolve_source_text,
 )
 from frisket.retrieval.sources import ocr_source_revision, transcript_source_revision
 
@@ -170,7 +171,7 @@ def test_resolves_plain_text_with_exact_binding_revision(tmp_path) -> None:
                 ),
             )
             assert (
-                resolve_lexical_source_text(
+                resolve_source_text(
                     snapshot,
                     source=resolved.source,
                     locator=locator,
@@ -179,7 +180,7 @@ def test_resolves_plain_text_with_exact_binding_revision(tmp_path) -> None:
                 == "alpha beta"
             )
             assert (
-                resolve_lexical_source_text(
+                resolve_source_text(
                     snapshot,
                     source=replace(resolved.source, version_value=999),
                     locator=locator,
@@ -252,7 +253,7 @@ def test_prepared_selector_uses_its_ordered_pins_not_newer_set(tmp_path) -> None
                 (resolved.binding,),
             )
             assert (
-                resolve_lexical_source_text(
+                resolve_source_text(
                     snapshot,
                     source=resolved.source,
                     locator=SourceLocator("prepared_text"),
@@ -357,7 +358,7 @@ def test_unknown_lexical_source_kind_fails_explicitly(tmp_path) -> None:
     try:
         with project.read_snapshot() as snapshot:
             with pytest.raises(UnsupportedLexicalSourceError, match="image"):
-                resolve_lexical_source_text(
+                resolve_source_text(
                     snapshot,
                     source=SourceRevision(
                         "blob:one", "image", "blob_digest", "sha256:one"
@@ -400,13 +401,20 @@ def test_transcript_lexical_text_requires_exact_snapshot_and_ordered_spans(
     )
 
     assert (
-        resolve_lexical_source_text(
-            object(), source=source, locator=locator, binding=binding
+        resolve_source_text(object(), source=source, locator=locator, binding=binding)
+        == resolved.transcript_value
+    )
+    assert (
+        resolve_source_text(
+            object(),
+            source=source,
+            locator=replace(locator, source_span_ids=("span:second",)),
+            binding=binding,
         )
         == resolved.transcript_value
     )
     assert (
-        resolve_lexical_source_text(
+        resolve_source_text(
             object(),
             source=source,
             locator=replace(locator, source_span_ids=("span:second", "span:first")),
@@ -439,13 +447,11 @@ def test_ocr_lexical_text_requires_exact_current_evidence_link(monkeypatch) -> N
     locator = SourceLocator("ocr", source_span_ids=("span:page",))
 
     assert (
-        resolve_lexical_source_text(
-            object(), source=source, locator=locator, binding=binding
-        )
+        resolve_source_text(object(), source=source, locator=locator, binding=binding)
         == resolved.text_value
     )
     assert (
-        resolve_lexical_source_text(
+        resolve_source_text(
             object(),
             source=replace(source, version_value="sha256:stale-snapshot"),
             locator=locator,

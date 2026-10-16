@@ -10,10 +10,21 @@ from frisket.retrieval.anchors import (
     resolve_cell_anchor,
     resolve_cell_anchor_async,
 )
-from frisket.retrieval.contracts import CellAnchor, PageRange, SourceLocator, TimeRange
-from frisket.retrieval.encoding import AudioEncodingInput, ImageEncodingInput
+from frisket.retrieval.contracts import (
+    CellAnchor,
+    PageRange,
+    SourceLocator,
+    TextRange,
+    TimeRange,
+)
+from frisket.retrieval.encoding import (
+    AudioEncodingInput,
+    ImageEncodingInput,
+    TextEncodingInput,
+)
 from frisket.retrieval.media import AudioWindow, LocatedFrame, PresentationPoint
 from frisket.retrieval.query import RetrievalQueryError
+from frisket.retrieval.source_adapter import resolve_cell_text_sources
 
 
 def _blob_cell(
@@ -32,6 +43,66 @@ def _blob_cell(
         value["page"] = page
     row_id = project.add_rows(sheet_id, [{"source": value}], {"source": column_id})[0]
     return sheet_id, row_id, column_id
+
+
+def test_long_text_anchor_requires_a_bounded_passage(tmp_path: Path) -> None:
+    project = Project.create(tmp_path / "long-text.frisket")
+    try:
+        sheet_id = project.add_sheet("Sources")
+        column_id = project.add_column(sheet_id, "source")
+        row_id = project.add_rows(
+            sheet_id, [{"source": "x" * 2049}], {"source": column_id}
+        )[0]
+
+        with pytest.raises(RetrievalQueryError) as caught:
+            resolve_cell_anchor(project, CellAnchor(sheet_id, row_id, column_id))
+
+        assert caught.value.code == "source_location_required"
+        assert "at most 2048" in str(caught.value)
+    finally:
+        project.close()
+
+
+def test_text_anchor_encodes_the_exact_bounded_selection(tmp_path: Path) -> None:
+    project = Project.create(tmp_path / "selected-text.frisket")
+    try:
+        sheet_id = project.add_sheet("Sources")
+        column_id = project.add_column(sheet_id, "source")
+        value = "prefix selected passage suffix"
+        row_id = project.add_rows(sheet_id, [{"source": value}], {"source": column_id})[
+            0
+        ]
+        with project.read_snapshot() as snapshot:
+            source = resolve_cell_text_sources(
+                snapshot,
+                sheet_id=sheet_id,
+                column_id=column_id,
+                row_ids=[row_id],
+            )[row_id]
+        surface = source.surface
+        start = value.index("selected")
+        end = start + len("selected passage")
+        selected = CellAnchor(
+            sheet_id,
+            row_id,
+            column_id,
+            locator=SourceLocator(
+                kind="text",
+                text=TextRange(
+                    surface.text_surface_id,
+                    surface.content_hash,
+                    start,
+                    end,
+                ),
+            ),
+        )
+
+        resolved = resolve_cell_anchor(project, selected)
+
+        assert resolved.anchor.locator == selected.locator
+        assert resolved.input == TextEncodingInput("selected passage")
+    finally:
+        project.close()
 
 
 def test_image_anchor_uses_exact_current_blob_bytes(tmp_path: Path) -> None:

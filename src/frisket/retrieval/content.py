@@ -121,6 +121,7 @@ class TextSurface:
     text_surface_id: str
     content_hash: str
     text: str
+    source_span_ids: tuple[str, ...] = ()
     _identity: str = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -131,10 +132,14 @@ class TextSurface:
         content_hash = _verify_content_hash(
             self.text.encode("utf-8"), self.content_hash, "content_hash"
         )
+        spans = _span_ids(self.source_span_ids)
+        object.__setattr__(self, "source_span_ids", spans)
         object.__setattr__(
             self,
             "_identity",
-            _source_identity(source, surface_id, content_hash),
+            _source_identity(source, surface_id, content_hash)
+            if not spans
+            else _source_identity(source, surface_id, content_hash, spans),
         )
 
 
@@ -280,6 +285,7 @@ class ImageSurface:
     image_bytes: bytes
     content_hash: str
     source_span_ids: tuple[str, ...] = ()
+    pages: PageRange | None = None
     _identity: str = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -290,12 +296,16 @@ class ImageSurface:
             self.image_bytes, self.content_hash, "content_hash"
         )
         spans = _span_ids(self.source_span_ids)
+        if self.pages is not None and not isinstance(self.pages, PageRange):
+            raise TypeError("pages must be a PageRange or None")
         ImageEncodingInput(self.image_bytes)
         object.__setattr__(self, "source_span_ids", spans)
         object.__setattr__(
             self,
             "_identity",
-            _source_identity(source, content_hash, spans),
+            _source_identity(source, content_hash, spans)
+            if self.pages is None
+            else _source_identity(source, content_hash, spans, self.pages),
         )
 
 
@@ -540,6 +550,7 @@ def _text_batch(
                 end=end,
             ),
             pages=page_range,
+            source_span_ids=surface.source_span_ids,
         )
         items.append(
             _part(
@@ -771,26 +782,35 @@ def produce_transcript(
 
 
 def produce_image(
-    surface: ImageSurface, *, cancelled: CancelCheck | None = None
+    surface: ImageSurface,
+    *,
+    recipe_id: str = IMAGE_BYTES_RECIPE_ID,
+    cancelled: CancelCheck | None = None,
 ) -> ProducedBatch:
     """Produce the selected encoded image bytes without decoding or rewriting."""
 
     if not isinstance(surface, ImageSurface):
         raise TypeError("surface must be an ImageSurface")
+    _nonblank(recipe_id, "recipe_id")
     _check_cancelled(cancelled)
     input = ImageEncodingInput(surface.image_bytes)
+    part_kind = "pdf_page_image" if surface.pages is not None else "image"
     item = _part(
         source=surface.source,
-        recipe_id=IMAGE_BYTES_RECIPE_ID,
-        part_kind="image",
-        locator=SourceLocator(kind="image", source_span_ids=surface.source_span_ids),
+        recipe_id=recipe_id,
+        part_kind=part_kind,
+        locator=SourceLocator(
+            kind=part_kind,
+            pages=surface.pages,
+            source_span_ids=surface.source_span_ids,
+        ),
         input=input,
     )
     return ProducedBatch(
         items=(item,),
         coverage=_coverage(
             channel="image",
-            recipe_id=IMAGE_BYTES_RECIPE_ID,
+            recipe_id=recipe_id,
             count=1,
             continuation=None,
         ),

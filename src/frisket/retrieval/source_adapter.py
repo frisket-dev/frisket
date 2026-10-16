@@ -19,6 +19,8 @@ from frisket.retrieval.content import (
     PreparedDocumentSurface,
     PreparedPageExtent,
     TextSurface,
+    TranscriptSegment,
+    TranscriptSurface,
 )
 from frisket.retrieval.contracts import (
     BindingRevision,
@@ -183,6 +185,126 @@ def resolve_cell_blob_source(
         blob_hash=blob_hash,
         mime_type=str(blob["mime"]),
         page_number=page_number,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedCellTranscriptSource:
+    sheet_id: int
+    binding: BindingRevision
+    lexical_text: str
+    surface: TranscriptSurface
+
+    @property
+    def source(self) -> SourceRevision:
+        return self.surface.source
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedCellOcrTextSource:
+    sheet_id: int
+    binding: BindingRevision
+    lexical_text: str
+    surface: TextSurface
+
+    @property
+    def source(self) -> SourceRevision:
+        return self.surface.source
+
+
+def _binding_revision(
+    project: Any, *, row_id: int, column_id: int
+) -> BindingRevision | None:
+    row = project.db.execute(
+        "SELECT retrieval_revision FROM current_cells WHERE row_id=? AND column_id=?",
+        (row_id, column_id),
+    ).fetchone()
+    if row is None:
+        return None
+    return BindingRevision(row_id, column_id, int(row["retrieval_revision"]))
+
+
+def resolve_cell_transcript_source(
+    project: Any, *, sheet_id: int, row_id: int, column_id: int
+) -> ResolvedCellTranscriptSource | None:
+    """Resolve one exact current timestamped transcript producer surface."""
+
+    from frisket.engine.executor.temporal_transcripts import (
+        resolve_timestamped_transcript,
+    )
+    from frisket.retrieval.sources import transcript_source_revision
+
+    resolved = resolve_timestamped_transcript(
+        project, sheet_id=sheet_id, row_id=row_id, column_id=column_id
+    )
+    binding = _binding_revision(project, row_id=row_id, column_id=column_id)
+    if resolved is None or binding is None:
+        return None
+    source = transcript_source_revision(
+        evidence_link_stable_id=resolved.evidence_link_stable_id,
+        snapshot_hash=resolved.snapshot_hash,
+        text=resolved.transcript_value,
+    )
+    segments = tuple(
+        TranscriptSegment(
+            source_span_id=str(span["stable_id"]),
+            start_ms=int(span["start_ms"]),
+            end_ms=int(span["end_ms"]),
+            text=str(span["quote"]),
+            segment_index=index,
+        )
+        for index, span in enumerate(resolved.spans)
+    )
+    if not segments:
+        return None
+    return ResolvedCellTranscriptSource(
+        sheet_id=sheet_id,
+        binding=binding,
+        lexical_text=resolved.transcript_value,
+        surface=TranscriptSurface(source, segments),
+    )
+
+
+def resolve_cell_ocr_text_source(
+    project: Any, *, sheet_id: int, row_id: int, column_id: int
+) -> ResolvedCellOcrTextSource | None:
+    """Resolve one unambiguous exact current OCR text producer surface."""
+
+    from frisket.engine.store.ocr_word_stream import resolve_current_ocr_evidence
+    from frisket.retrieval.sources import identity_digest, ocr_source_revision
+
+    candidates = resolve_current_ocr_evidence(
+        project, sheet_id=sheet_id, row_id=row_id, column_id=column_id
+    )
+    binding = _binding_revision(project, row_id=row_id, column_id=column_id)
+    if len(candidates) != 1 or binding is None:
+        return None
+    resolved = candidates[0]
+    source = ocr_source_revision(
+        evidence_link_stable_id=resolved.evidence_link_stable_id,
+        snapshot_hash=resolved.snapshot_hash,
+        text=resolved.text_value,
+    )
+    span_ids = tuple(str(span["stable_id"]) for span in resolved.spans)
+    if not span_ids:
+        return None
+    return ResolvedCellOcrTextSource(
+        sheet_id=sheet_id,
+        binding=binding,
+        lexical_text=resolved.text_value,
+        surface=TextSurface(
+            source=source,
+            text_surface_id=identity_digest(
+                "ocr_text_surface",
+                {
+                    "evidence_link": resolved.evidence_link_stable_id,
+                    "snapshot": resolved.snapshot_hash,
+                },
+            ),
+            content_hash=_sha256_text(resolved.text_value),
+            text=resolved.text_value,
+            source_span_ids=span_ids,
+        ),
     )
 
 
@@ -409,7 +531,9 @@ def _resolve_transcript_lexical_text(
         text=resolved.transcript_value,
     )
     span_ids = tuple(str(span["stable_id"]) for span in resolved.spans)
-    if source != expected_source or locator.source_span_ids != span_ids:
+    if source != expected_source or not _is_ordered_span_subset(
+        locator.source_span_ids, span_ids
+    ):
         return None
     return resolved.transcript_value
 
@@ -440,12 +564,30 @@ def _resolve_ocr_lexical_text(
             text=resolved.text_value,
         )
         span_ids = tuple(str(span["stable_id"]) for span in resolved.spans)
-        if source == expected_source and locator.source_span_ids == span_ids:
+        if source == expected_source and _is_ordered_span_subset(
+            locator.source_span_ids, span_ids
+        ):
             matches.append(resolved.text_value)
     return matches[0] if len(matches) == 1 else None
 
 
-def resolve_lexical_source_text(
+def _is_ordered_span_subset(requested: tuple[str, ...], owned: tuple[str, ...]) -> bool:
+    """Accept exact producer subsets without inventing evidence membership."""
+
+    if not requested or len(set(requested)) != len(requested):
+        return False
+    positions = {stable_id: index for index, stable_id in enumerate(owned)}
+    try:
+        requested_positions = tuple(positions[stable_id] for stable_id in requested)
+    except KeyError:
+        return False
+    return all(
+        current < following
+        for current, following in zip(requested_positions, requested_positions[1:])
+    )
+
+
+def resolve_source_text(
     project: Any,
     *,
     source: SourceRevision,
@@ -479,10 +621,14 @@ def resolve_lexical_source_text(
 
 __all__ = [
     "ResolvedCellBlobSource",
+    "ResolvedCellOcrTextSource",
     "ResolvedCellTextSource",
+    "ResolvedCellTranscriptSource",
     "TextProducerSurface",
     "resolve_cell_blob_source",
+    "resolve_cell_ocr_text_source",
     "resolve_cell_text_sources",
-    "resolve_lexical_source_text",
+    "resolve_cell_transcript_source",
+    "resolve_source_text",
     "UnsupportedLexicalSourceError",
 ]

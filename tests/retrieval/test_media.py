@@ -7,6 +7,7 @@ import io
 import json
 import shutil
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -182,10 +183,25 @@ def _bound(path: Path) -> tuple[BoundLocalFile, object]:
     return BoundLocalFile(stream=stream, sha256=f"sha256:{digest}"), stream
 
 
-def _produce(path: Path, recipe, *, cancelled=None):
+def _produce(
+    path: Path,
+    recipe,
+    *,
+    cancelled=None,
+    start_index: int = 0,
+    start_seconds: float | None = None,
+):
     source, stream = _bound(path)
     try:
-        return asyncio.run(produce_media(source, recipe, cancelled=cancelled))
+        return asyncio.run(
+            produce_media(
+                source,
+                recipe,
+                cancelled=cancelled,
+                start_index=start_index,
+                start_seconds=start_seconds,
+            )
+        )
     finally:
         stream.close()
 
@@ -297,6 +313,26 @@ def test_fixed_clip_cap_is_reported_as_partial_coverage(tmp_path: Path) -> None:
     )
 
 
+def test_fixed_clip_continuation_resumes_at_the_next_window(tmp_path: Path) -> None:
+    source = tmp_path / "continued.mkv"
+    _cfr_fixture(source)
+    recipe = FixedClipRecipe(
+        duration_seconds=0.5,
+        stride_seconds=0.25,
+        sample_fps=2,
+        max_clips=2,
+    )
+
+    first = _produce(source, recipe)
+    second = _produce(source, recipe, start_index=len(first.items))
+    complete = _produce(source, replace(recipe, max_clips=20))
+
+    resumed_spans = first.coverage.indexed_spans + second.coverage.indexed_spans
+    assert resumed_spans == complete.coverage.indexed_spans[: len(resumed_spans)]
+    assert first.coverage.truncation_reason == "max_clips"
+    assert second.coverage.indexed_spans[0][0] > first.coverage.indexed_spans[0][0]
+
+
 def test_shot_clips_split_long_shots_and_cover_the_tail(tmp_path: Path) -> None:
     source = tmp_path / "shots.mkv"
     _cfr_fixture(source)
@@ -320,6 +356,30 @@ def test_shot_clips_split_long_shots_and_cover_the_tail(tmp_path: Path) -> None:
         item.end_seconds - item.start_seconds <= 0.6 + 1e-6 for item in produced.items
     )
     assert any(item.end_seconds == pytest.approx(1.0) for item in produced.items)
+
+
+def test_shot_clip_continuation_advances_by_bounded_timeline_quantum(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "shot-quantum.mkv"
+    _cfr_fixture(source)
+    recipe = ShotClipRecipe(
+        max_duration_seconds=0.5,
+        quantum_seconds=0.9,
+        sample_fps=2,
+        max_clips=20,
+        scene_score_threshold=0.1,
+        min_scene_len_frames=1,
+    )
+
+    first = _produce(source, recipe)
+    assert not first.coverage.complete
+    assert first.coverage.truncation_reason == "timeline_quantum"
+    next_seconds = first.coverage.indexed_spans[-1][1]
+    second = _produce(source, recipe, start_seconds=next_seconds)
+
+    assert second.coverage.indexed_spans[0][0] == pytest.approx(next_seconds)
+    assert second.coverage.indexed_spans[-1][1] > next_seconds
 
 
 def test_audio_windows_are_pcm16_mono_16khz_and_keep_track_offset(
@@ -351,6 +411,27 @@ def test_audio_windows_are_pcm16_mono_16khz_and_keep_track_offset(
             expected_samples * 2, abs=2
         )
         assert window.input.sample_rate == 16_000
+
+
+def test_audio_window_continuation_resumes_at_the_next_window(tmp_path: Path) -> None:
+    source = tmp_path / "continued-audio.mkv"
+    _offset_audio_fixture(source)
+    recipe = AudioWindowRecipe(
+        duration_seconds=0.4,
+        stride_seconds=0.2,
+        max_windows=2,
+    )
+
+    first = _produce(source, recipe)
+    second = _produce(source, recipe, start_index=len(first.items))
+    complete = _produce(source, replace(recipe, max_windows=20))
+
+    resumed_spans = first.coverage.indexed_spans + second.coverage.indexed_spans
+    expected = complete.coverage.indexed_spans[: len(resumed_spans)]
+    assert len(resumed_spans) == len(expected)
+    for resumed, whole in zip(resumed_spans, expected, strict=True):
+        assert resumed == pytest.approx(whole)
+    assert first.coverage.truncation_reason == "max_windows"
 
 
 def test_delayed_av_audio_keeps_the_full_track_tail(tmp_path: Path) -> None:

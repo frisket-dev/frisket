@@ -73,6 +73,11 @@ def test_store_uses_one_16k_contentless_sidecar_without_text_copy(tmp_path):
         ).fetchone()[0]
         assert "contentless_delete=1" in schema.replace(" ", "")
         assert store.db.execute("SELECT content FROM lexical_fts").fetchone()[0] is None
+        attention_index = store.db.execute(
+            "SELECT sql FROM sqlite_master WHERE type='index' "
+            "AND name='preparation_attention'"
+        ).fetchone()[0]
+        assert "WHERE status!='ready'" in attention_index
         assert (
             store.db.execute(
                 "SELECT count(*) FROM lexical_fts WHERE lexical_fts MATCH 'needle'"

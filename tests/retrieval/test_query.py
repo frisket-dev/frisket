@@ -320,7 +320,7 @@ def test_lexical_search_hydrates_noncell_source_through_authority_adapter(
             return text
 
         monkeypatch.setattr(
-            "frisket.retrieval.query.resolve_lexical_source_text", resolve
+            "frisket.retrieval.query.resolve_source_text", resolve
         )
         response = search(
             project,
