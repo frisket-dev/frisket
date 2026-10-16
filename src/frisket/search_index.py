@@ -24,6 +24,9 @@ from frisket.retrieval.preparation import (
     read_preparation_policy,
 )
 from frisket.retrieval.source_adapter import (
+    BLOB_SOURCE_COLUMN_TYPES,
+    RETRIEVAL_SOURCE_COLUMN_TYPES,
+    TEXT_SOURCE_COLUMN_TYPES,
     ResolvedCellBlobSource,
     ResolvedCellOcrTextSource,
     ResolvedCellTextSource,
@@ -55,8 +58,6 @@ class IndexProgress:
 
 
 _SQLITE_ROW_ID_CHUNK = 900
-_TEXT_COLUMN_TYPES = ("text", "category", "json", "link")
-_MEDIA_COLUMN_TYPES = ("file", "image", "audio", "video")
 
 
 def _raise_if_cancelled(cancel_event: threading.Event | None) -> None:
@@ -105,26 +106,25 @@ def _ensure_rebuild_scope(project: Project) -> None:
 def _next_column(source, retrieval: RetrievalStore, scope, after: int) -> int | None:
     if scope.column_id is not None:
         return scope.column_id if scope.column_id > after else None
-    params: list[int] = [after]
-    where = (
-        "c.id>? AND c.hidden=0 AND s.hidden=0 "
-        "AND c.type IN "
-        "('text','category','json','link','file','image','audio','video')"
-    )
+    live_params: list[int | str] = [after, *RETRIEVAL_SOURCE_COLUMN_TYPES]
+    indexed_params: list[int] = [after]
+    type_placeholders = ",".join("?" for _ in RETRIEVAL_SOURCE_COLUMN_TYPES)
+    where = f"c.id>? AND c.hidden=0 AND s.hidden=0 AND c.type IN ({type_placeholders})"
     indexed_where = "column_id>?"
     if scope.sheet_id is not None:
         where += " AND c.sheet_id=?"
         indexed_where += " AND sheet_id=?"
-        params.append(scope.sheet_id)
+        live_params.append(scope.sheet_id)
+        indexed_params.append(scope.sheet_id)
     live = source.execute(
         "SELECT c.id FROM columns c JOIN sheets s ON s.id=c.sheet_id "
         f"WHERE {where} ORDER BY c.id LIMIT 1",
-        params,
+        live_params,
     ).fetchone()
     old = retrieval.db.execute(
         f"SELECT column_id FROM bindings WHERE {indexed_where} "
         "ORDER BY column_id LIMIT 1",
-        params,
+        indexed_params,
     ).fetchone()
     candidates = [int(row[0]) for row in (live, old) if row is not None]
     return min(candidates) if candidates else None
@@ -199,13 +199,13 @@ def _cell_sizes(source, column: int, rows: list[int]) -> dict[int, int]:
 
 
 def _column_descriptor(source, column: int):
+    placeholders = ",".join("?" for _ in RETRIEVAL_SOURCE_COLUMN_TYPES)
     return source.execute(
         "SELECT c.sheet_id,c.name,c.type FROM columns c "
         "JOIN sheets s ON s.id=c.sheet_id "
         "WHERE c.id=? AND c.hidden=0 AND s.hidden=0 "
-        "AND c.type IN "
-        "('text','category','json','link','file','image','audio','video')",
-        (column,),
+        f"AND c.type IN ({placeholders})",
+        (column, *RETRIEVAL_SOURCE_COLUMN_TYPES),
     ).fetchone()
 
 
@@ -355,7 +355,7 @@ def index_batch(
                         column_id=column,
                         row_ids=admitted_live,
                     )
-                    if admitted_live and column_type in _TEXT_COLUMN_TYPES
+                    if admitted_live and column_type in TEXT_SOURCE_COLUMN_TYPES
                     else {}
                 )
                 resolved_sources = {}
@@ -378,10 +378,10 @@ def index_batch(
                     )
                     if ocr is not None:
                         sources.append(ocr)
-                    if column_type in _TEXT_COLUMN_TYPES:
+                    if column_type in TEXT_SOURCE_COLUMN_TYPES:
                         if text_source := text_sources.get(row_id):
                             sources.append(text_source)
-                    elif column_type in _MEDIA_COLUMN_TYPES:
+                    elif column_type in BLOB_SOURCE_COLUMN_TYPES:
                         blob = resolve_cell_blob_source(
                             snapshot,
                             sheet_id=sheet_id,

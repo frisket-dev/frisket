@@ -743,6 +743,55 @@ def test_transcript_preparation_resumes_derived_segments(tmp_path, monkeypatch) 
         project.close()
 
 
+def test_dirty_dispatch_prepares_real_timestamped_transcript_column(tmp_path) -> None:
+    from tests.engine.test_temporal_transcript_inheritance import _seed_source
+
+    project = Project.create(tmp_path / "typed-transcript-dispatch.frisket")
+    try:
+        _source, transcript_column_id, _link = _seed_source(project)
+
+        while not index_batch(
+            project,
+            batch_size=10,
+            semantic_available=True,
+        ).complete:
+            pass
+
+        with RetrievalStore(project).open() as store:
+            work = store.next_preparation(channel=TRANSCRIPT_CHANNEL)
+            assert work is not None
+            binding = store.db.execute(
+                "SELECT binding.column_id FROM bindings binding "
+                "WHERE binding.source_id=?",
+                (work.source_revision.source_id,),
+            ).fetchone()
+            assert int(binding["column_id"]) == transcript_column_id
+
+        progress = process_evidence_preparation_batch(
+            project,
+            channel=TRANSCRIPT_CHANNEL,
+            encoder=_Encoder(),
+        )
+        assert progress.processed_parts == 1
+        with RetrievalStore(project).open() as store:
+            state = store.preparation_state(
+                work.source_revision.source_id,
+                recipe_id=DEFAULT_TRANSCRIPT_RECIPE.recipe_id,
+                channel=TRANSCRIPT_CHANNEL,
+            )
+            assert state is not None and state.status == "ready"
+            locator = json.loads(
+                store.db.execute(
+                    "SELECT locator_json FROM parts WHERE source_id=?",
+                    (work.source_revision.source_id,),
+                ).fetchone()[0]
+            )
+            assert locator["time"] == {"end_seconds": 6.0, "start_seconds": 1.0}
+            assert len(locator["source_span_ids"]) == 2
+    finally:
+        project.close()
+
+
 def test_ocr_preparation_keeps_authoritative_span_ids(tmp_path, monkeypatch) -> None:
     project = Project.create(tmp_path / "ocr-preparation.frisket")
     sheet_id, binding = _current_binding(project)

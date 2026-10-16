@@ -31,8 +31,14 @@ from frisket.retrieval.contracts import (
 from frisket.search_hydration import searchable_text
 
 
-_SEARCHABLE_COLUMN_TYPES = ("text", "category", "json", "link")
-_BLOB_COLUMN_TYPES = ("file", "image", "audio", "video")
+TEXT_SOURCE_COLUMN_TYPES = ("text", "category", "json", "link")
+BLOB_SOURCE_COLUMN_TYPES = ("file", "image", "audio", "video")
+EVIDENCE_SOURCE_COLUMN_TYPES = ("timestamped_transcript",)
+RETRIEVAL_SOURCE_COLUMN_TYPES = (
+    *TEXT_SOURCE_COLUMN_TYPES,
+    *BLOB_SOURCE_COLUMN_TYPES,
+    *EVIDENCE_SOURCE_COLUMN_TYPES,
+)
 
 
 class UnsupportedLexicalSourceError(ValueError):
@@ -156,7 +162,7 @@ def resolve_cell_blob_source(
         "WHERE current.column_id=? AND current.row_id=? "
         "AND c.sheet_id=? AND c.hidden=0 AND s.hidden=0 "
         "AND c.type IN (?,?,?,?)",
-        (selected_column, selected_row, selected_sheet, *_BLOB_COLUMN_TYPES),
+        (selected_column, selected_row, selected_sheet, *BLOB_SOURCE_COLUMN_TYPES),
     ).fetchone()
     if current is None:
         return None
@@ -410,7 +416,7 @@ def resolve_cell_text_sources(
         "SELECT 1 FROM columns c JOIN sheets s ON s.id=c.sheet_id "
         "WHERE c.id=? AND c.sheet_id=? AND c.hidden=0 AND s.hidden=0 "
         "AND c.type IN (?,?,?,?)",
-        (selected_column, selected_sheet, *_SEARCHABLE_COLUMN_TYPES),
+        (selected_column, selected_sheet, *TEXT_SOURCE_COLUMN_TYPES),
     ).fetchone()
     if descriptor is None:
         return {}
