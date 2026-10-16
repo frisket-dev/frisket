@@ -446,9 +446,14 @@ class SearchPreparationService:
             )
         except KeyError as exc:
             raise RouteError(404, "search preparation batch was not found") from exc
+        project = self.workspace.get(row.project_id)
         for child in self.store.children(row.id):
-            if child.receipt_id is not None:
-                self._cancel_action_receipt(row, child.receipt_id)
+            receipt_id = child.receipt_id
+            if receipt_id is None:
+                receipt = self._child_action_receipt(project, row=row, child=child)
+                receipt_id = receipt.id if receipt is not None else None
+            if receipt_id is not None:
+                self._cancel_action_receipt(row, receipt_id)
         return self._project(row)
 
     def _cancel_action_receipt(
@@ -752,8 +757,6 @@ class SearchPreparationService:
                 project,
                 row=row,
                 child=child,
-                kind=kind,
-                child_key=key,
             ):
                 continue
             if any(
@@ -814,8 +817,6 @@ class SearchPreparationService:
         *,
         row: SearchPreparationBatchRow,
         child: SearchPreparationChildRow,
-        kind: str,
-        child_key: str,
     ) -> bool:
         """Bind an ordinary action reservation created by a concurrent advance.
 
@@ -825,17 +826,7 @@ class SearchPreparationService:
         durable job identity.
         """
 
-        action_kind = {
-            "native_pdf": "media.read_pdf_text",
-            "ocr": "media.ocr",
-            "transcribe": "media.transcribe",
-        }.get(kind)
-        if action_kind is None:
-            return False
-        receipt = ReceiptStore(project).find_by_action_kind_and_idempotency_key(
-            action_kind=action_kind,
-            key=f"search-preparation:{row.id}:{child_key}",
-        )
+        receipt = self._child_action_receipt(project, row=row, child=child)
         if receipt is None:
             return False
         if receipt.run_id is None:
@@ -895,6 +886,25 @@ class SearchPreparationService:
         if not bound:
             self._cancel_action_receipt(row, receipt.id)
         return True
+
+    @staticmethod
+    def _child_action_receipt(
+        project: Any,
+        *,
+        row: SearchPreparationBatchRow,
+        child: SearchPreparationChildRow,
+    ) -> Any | None:
+        action_kind = {
+            "native_pdf": "media.read_pdf_text",
+            "ocr": "media.ocr",
+            "transcribe": "media.transcribe",
+        }.get(child.kind)
+        if action_kind is None:
+            return None
+        return ReceiptStore(project).find_by_action_kind_and_idempotency_key(
+            action_kind=action_kind,
+            key=f"search-preparation:{row.id}:{child.child_key}",
+        )
 
     @staticmethod
     def _retryable_action_errors(errors: object) -> bool:

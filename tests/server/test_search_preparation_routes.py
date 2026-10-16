@@ -400,7 +400,8 @@ def test_stop_uses_action_run_cancellation_and_releases_output_claims(
     workspace = Workspace(tmp_path / "workspace")
     project_id, service, batch, body = _unbound_ocr_action(workspace)
     queued = service.action_runs.run_action(project_id, body)
-    service._advance(batch)
+    [unbound] = service.store.children(batch.id)
+    assert unbound.receipt_id is None and unbound.job_id is None
     project = workspace.get(project_id)
     receipt_id = str(queued.payload["receipt_id"])
     run_id = int(queued.payload["run_id"])
