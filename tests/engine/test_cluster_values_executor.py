@@ -26,7 +26,7 @@ class _RemoteEmbeddingAdapter:
 
     @staticmethod
     def _vectors(texts: list[str]) -> list[list[float]]:
-        return [[1.0, 0.0, 0.0] for _ in texts]
+        return [[1.0, *([0.0] * 1535)] for _ in texts]
 
     async def embed(self, texts, model, client):  # noqa: ANN001
         del model, client
@@ -43,7 +43,7 @@ class _RemoteEmbeddingAdapter:
         return self._vectors(batch), {
             "requested_model": model,
             "actual_model_id": model,
-            "dimension": 3,
+            "dimension": 1536,
             "usage": {"input_count": len(batch)},
             "provider_cost_usd": self.COST_USD,
         }
@@ -747,24 +747,9 @@ def test_semantic_cluster_sidecar_commit_failure_reconciles_without_second_call(
     project state, not buy it again. The failed materialization has no completed
     receipt or canonical output to make the first attempt look successful.
     """
-    from frisket import semantic
     from frisket.engine.executor.actions import run_action_spec
+    from frisket.retrieval.store import RetrievalStore
     from frisket.team.security.secrets import encrypt_secret, key_hint
-
-    class _FailFirstCommit:
-        def __init__(self, db: sqlite3.Connection) -> None:
-            self._db = db
-
-        def __getattr__(self, name: str) -> Any:
-            return getattr(self._db, name)
-
-        def commit(self) -> None:
-            if sidecar_commit_landed:
-                self._db.commit()
-            else:
-                self._db.rollback()
-            self._db.close()
-            raise sqlite3.OperationalError("injected vector sidecar commit failure")
 
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
     project = Project.create(
@@ -793,18 +778,19 @@ def test_semantic_cluster_sidecar_commit_failure_reconciles_without_second_call(
         confirmed = copy.deepcopy(action)
         confirmed["confirmation"] = quote.errors[0].details["promise_set_hash"]
 
-        real_sidecar = semantic._vector_cache  # noqa: SLF001
+        real_put = RetrievalStore.put_representations
         fail_next = True
 
-        def _sidecar_with_one_failed_commit(project_: Project):
+        def fail_first_put(self, representations):
             nonlocal fail_next
-            db = real_sidecar(project_)
             if not fail_next:
-                return db
+                return real_put(self, representations)
             fail_next = False
-            return _FailFirstCommit(db)
+            if sidecar_commit_landed:
+                real_put(self, representations)
+            raise sqlite3.OperationalError("injected vector sidecar commit failure")
 
-        monkeypatch.setattr(semantic, "_vector_cache", _sidecar_with_one_failed_commit)
+        monkeypatch.setattr(RetrievalStore, "put_representations", fail_first_put)
         original_context = {
             "funding_account_id": 17,
             "reservation_id": "embedding-reservation",
@@ -905,9 +891,11 @@ def test_semantic_cluster_retry_matches_checkpoints_to_stable_batches(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Partial cache warming must not renumber paid embedding checkpoints."""
-    from frisket import semantic
+    from frisket.ai.embeddings.analytics import ensure_legacy_analytical_space
+    from frisket.ai.embeddings.backends import REMOTE_EMBED_MODEL
     from frisket.engine.executor.actions import run_action_spec
-    from frisket.semantic import _vec_key
+    from frisket.retrieval.sources import input_hash, representation_id
+    from frisket.retrieval.store import CachedRepresentation, RetrievalStore
     from frisket.team.security.secrets import encrypt_secret, key_hint
 
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
@@ -942,32 +930,19 @@ def test_semantic_cluster_retry_matches_checkpoints_to_stable_batches(
         confirmed = copy.deepcopy(action)
         confirmed["confirmation"] = quote.errors[0].details["promise_set_hash"]
 
-        real_sidecar = semantic._vector_cache  # noqa: SLF001
+        real_put = RetrievalStore.put_representations
         fail_next = True
 
-        class _FailAfterBothBatches:
-            def __init__(self, db: sqlite3.Connection) -> None:
-                self._db = db
+        def fail_second_put(self, representations):
+            nonlocal fail_next
+            if fail_next and len(adapter.calls) >= 2:
+                fail_next = False
+                raise sqlite3.OperationalError(
+                    "injected second semantic batch sidecar failure"
+                )
+            return real_put(self, representations)
 
-            def __getattr__(self, name: str) -> Any:
-                return getattr(self._db, name)
-
-            def commit(self) -> None:
-                nonlocal fail_next
-                if fail_next and len(adapter.calls) >= 2:
-                    fail_next = False
-                    self._db.rollback()
-                    self._db.close()
-                    raise sqlite3.OperationalError(
-                        "injected second semantic batch sidecar failure"
-                    )
-                self._db.commit()
-
-        monkeypatch.setattr(
-            semantic,
-            "_vector_cache",
-            lambda project_: _FailAfterBothBatches(real_sidecar(project_)),
-        )
+        monkeypatch.setattr(RetrievalStore, "put_representations", fail_second_put)
         with pytest.raises(
             sqlite3.OperationalError,
             match="injected second semantic batch sidecar failure",
@@ -988,21 +963,26 @@ def test_semantic_cluster_retry_matches_checkpoints_to_stable_batches(
 
         # Reproduce an arbitrary partial sidecar landing: only the first 250
         # values from planned batch 0 are cached before the exact retry.
-        monkeypatch.setattr(semantic, "_vector_cache", real_sidecar)
-        sidecar = real_sidecar(project)
-        sidecar.execute("DELETE FROM cell_vec")
-        sidecar.executemany(
-            "INSERT INTO cell_vec (key, vec) VALUES (?, ?)",
-            [
-                (
-                    _vec_key("openai/text-embedding-3-small", value),
-                    array("f", [1.0, 0.0, 0.0]).tobytes(),
-                )
-                for value in values[:250]
-            ],
-        )
-        sidecar.commit()
-        sidecar.close()
+        monkeypatch.setattr(RetrievalStore, "put_representations", real_put)
+        space = ensure_legacy_analytical_space(project, REMOTE_EMBED_MODEL)
+        with RetrievalStore(project) as sidecar:
+            sidecar.db.execute(
+                "DELETE FROM representations WHERE space_id=?", (space.identity,)
+            )
+            sidecar.put_representations(
+                [
+                    CachedRepresentation(
+                        representation_id=representation_id(
+                            space=space.identity, input_hash=input_hash(value)
+                        ),
+                        space_id=space.identity,
+                        input_hash=input_hash(value),
+                        vector=array("f", [1.0, *([0.0] * 1535)]).tobytes(),
+                        dimension=1536,
+                    )
+                    for value in values[:250]
+                ]
+            )
 
         _recover_abandoned_cluster(
             project,
@@ -1278,8 +1258,8 @@ def test_recovery_binds_returned_vectors_to_actual_admitted_operation(
     tmp_path, monkeypatch, tamper
 ):
     """A different action/run or malformed response cannot authorize recovery."""
-    from frisket import semantic
     from frisket.engine.executor.actions import run_action_spec
+    from frisket.retrieval.store import RetrievalStore
 
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
     project = Project.create(tmp_path / "cluster-checkpoint-binding.frisket")
@@ -1289,23 +1269,13 @@ def test_recovery_binds_returned_vectors_to_actual_admitted_operation(
         action = _cluster_action(seeded["sheet_id"], method="semantic")
         quote = run_action_spec(project, action, project_id="binding", router=router)
         action["confirmation"] = quote.errors[0].details["promise_set_hash"]
-        original_sidecar = semantic._vector_cache
+        original_put = RetrievalStore.put_representations
 
-        class FailedCommit:
-            def __init__(self, db):
-                self.db = db
+        def fail_put(self, representations):
+            del self, representations
+            raise sqlite3.OperationalError("interrupted vector-cache commit")
 
-            def __getattr__(self, name):
-                return getattr(self.db, name)
-
-            def commit(self):
-                self.db.rollback()
-                self.db.close()
-                raise sqlite3.OperationalError("interrupted vector-cache commit")
-
-        monkeypatch.setattr(
-            semantic, "_vector_cache", lambda p: FailedCommit(original_sidecar(p))
-        )
+        monkeypatch.setattr(RetrievalStore, "put_representations", fail_put)
         with pytest.raises(sqlite3.OperationalError, match="interrupted vector-cache"):
             run_action_spec(project, action, project_id="binding", router=router)
         assert len(adapter.calls) == 1
@@ -1331,7 +1301,7 @@ def test_recovery_binds_returned_vectors_to_actual_admitted_operation(
                 (json.dumps(payload), checkpoint["id"]),
             )
         project.db.commit()
-        monkeypatch.setattr(semantic, "_vector_cache", original_sidecar)
+        monkeypatch.setattr(RetrievalStore, "put_representations", original_put)
         _recover_abandoned_cluster(project, action, router=router, project_id="binding")
         retried = run_action_spec(project, action, project_id="binding", router=router)
         assert len(adapter.calls) == 1

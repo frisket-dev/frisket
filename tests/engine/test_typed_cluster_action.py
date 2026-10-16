@@ -108,9 +108,13 @@ def test_remote_cluster_exact_consent_accounting_and_cache(
 def test_network_off_keeps_local_clustering(cluster_project, monkeypatch, method):
     project, sheet, source, execute = cluster_project
     monkeypatch.setattr(project, "effective_network_policy", lambda: "off")
+    def embed(texts):
+        return [[1.0, 0.0] for _ in texts]
+
+    embed.embedding_dimension = 2
     monkeypatch.setattr(
-        "frisket.semantic.resolve_embedder",
-        lambda *a, **kw: (lambda texts: [[1.0, 0.0] for _ in texts], "fastembed/test"),
+        "frisket.ai.embeddings.backends.resolve_embedder",
+        lambda *a, **kw: (embed, "fastembed/test"),
     )
     result = execute(options={"method": method})
     assert result.status == "completed", result.model_dump()
@@ -176,7 +180,10 @@ def test_partial_vector_cache_loss_recovers_paid_full_batch(
 ):
     import sqlite3
     from array import array
-    from frisket import semantic
+    from frisket.ai.embeddings.analytics import ensure_legacy_analytical_space
+    from frisket.ai.embeddings.backends import REMOTE_EMBED_MODEL
+    from frisket.retrieval.sources import input_hash, representation_id
+    from frisket.retrieval.store import CachedRepresentation, RetrievalStore
     from test_cluster_values_executor import _remote_embedding_router
 
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
@@ -184,20 +191,13 @@ def test_partial_vector_cache_loss_recovers_paid_full_batch(
     router, adapter = _remote_embedding_router()
     quote = execute(router=router, options={"method": "semantic"})
     confirmation = quote.errors[0].details["promise_set_hash"]
-    original = semantic._vector_cache
+    original = RetrievalStore.put_representations
 
-    class BrokenCache:
-        def __init__(self, db):
-            self.db = db
+    def broken_cache(self, representations):
+        del self, representations
+        raise sqlite3.OperationalError("cache write failed")
 
-        def __getattr__(self, name):
-            return getattr(self.db, name)
-
-        def commit(self):
-            self.db.rollback()
-            raise sqlite3.OperationalError("cache write failed")
-
-    monkeypatch.setattr(semantic, "_vector_cache", lambda p: BrokenCache(original(p)))
+    monkeypatch.setattr(RetrievalStore, "put_representations", broken_cache)
     with pytest.raises(sqlite3.OperationalError, match="cache write failed"):
         execute(
             router=router, options={"method": "semantic"}, confirmation=confirmation
@@ -207,17 +207,23 @@ def test_partial_vector_cache_loss_recovers_paid_full_batch(
         project.db.execute("SELECT state FROM effect_checkpoints").fetchone()[0]
         == "returned"
     )
-    monkeypatch.setattr(semantic, "_vector_cache", original)
-    db = original(project)
-    db.execute(
-        "INSERT INTO cell_vec(key,vec) VALUES (?,?)",
-        (
-            semantic._vec_key("openai/text-embedding-3-small", adapter.calls[0][0]),
-            array("f", [1.0, 0.0, 0.0]).tobytes(),
-        ),
-    )
-    db.commit()
-    db.close()
+    monkeypatch.setattr(RetrievalStore, "put_representations", original)
+    space = ensure_legacy_analytical_space(project, REMOTE_EMBED_MODEL)
+    cached_hash = input_hash(adapter.calls[0][0])
+    with RetrievalStore(project) as retrieval:
+        retrieval.put_representations(
+            [
+                CachedRepresentation(
+                    representation_id=representation_id(
+                        space=space.identity, input_hash=cached_hash
+                    ),
+                    space_id=space.identity,
+                    input_hash=cached_hash,
+                    vector=array("f", [1.0, *([0.0] * 1535)]).tobytes(),
+                    dimension=1536,
+                )
+            ]
+        )
     project.db.execute(
         "UPDATE receipts SET created_at='2000-01-01T00:00:00Z' WHERE status='running'"
     )
