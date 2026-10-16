@@ -5629,6 +5629,7 @@ export type HttpImportCsvResponse = ({
 
 export type HttpImportFilesResponse = ({
   "rows": (number);
+  "search_preparation_batch_id"?: (((string)) | ((null)));
   "sheet_id": (number);
 });
 
@@ -5720,6 +5721,7 @@ type HttpImportSessionList_ImportSessionStatus = ({
   "error"?: (((string)) | ((null)));
   "import_ref": (string);
   "sealed": (boolean);
+  "search_preparation_batch_id"?: (((string)) | ((null)));
   "sheet_id"?: (((number)) | ((null)));
   "sheet_name": (string);
   "state": ("admitting" | "running" | "paused" | "cancelling" | "cancelled" | "completed" | "kept" | "removed") & (string);
@@ -5743,6 +5745,7 @@ export type HttpImportSessionStatus = ({
   "error"?: (((string)) | ((null)));
   "import_ref": (string);
   "sealed": (boolean);
+  "search_preparation_batch_id"?: (((string)) | ((null)));
   "sheet_id"?: (((number)) | ((null)));
   "sheet_name": (string);
   "state": ("admitting" | "running" | "paused" | "cancelling" | "cancelled" | "completed" | "kept" | "removed") & (string);
@@ -9135,6 +9138,7 @@ type HttpProjectSettingsRequest_ProjectRetrievalSettingsRequest = ({
   "audio_enabled"?: (boolean);
   "image_enabled"?: (boolean);
   "pdf_pages_enabled"?: (boolean);
+  "prepare_new_files_automatically"?: (boolean);
   "text_enabled"?: (boolean);
   "transcript_enabled"?: (boolean);
   "video"?: (HttpProjectSettingsRequest_ProjectRetrievalVideoRequest);
@@ -9157,6 +9161,7 @@ type HttpProjectSettingsResponse_ProjectRetrievalSettingsResponse = ({
   "audio_enabled": (boolean);
   "image_enabled": (boolean);
   "pdf_pages_enabled": (boolean);
+  "prepare_new_files_automatically": (boolean);
   "text_enabled": (boolean);
   "transcript_enabled": (boolean);
   "video": (HttpProjectSettingsResponse_ProjectRetrievalVideoResponse);
