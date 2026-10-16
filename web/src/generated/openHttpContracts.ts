@@ -9116,8 +9116,13 @@ type HttpProjectSearchResponse_ProjectSearchPart = ({
 });
 
 type HttpProjectSearchResponse_ProjectSearchSetup = ({
+  "additional_runtime_download": (boolean);
+  "display_name": (string);
+  "download_bytes"?: (((number)) | ((null)));
+  "license"?: (((string)) | ((null)));
   "scope": ("workspace" | "organization") & (string);
   "setup_ref": (string);
+  "source_url"?: (((string)) | ((null)));
 });
 
 type HttpProjectSearchResponse_ProjectSearchSource = ({
