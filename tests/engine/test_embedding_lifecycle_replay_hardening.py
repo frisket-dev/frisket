@@ -7,7 +7,6 @@ the stale live state instead of returning the stored receipt.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import sqlite3
 from pathlib import Path
@@ -18,7 +17,6 @@ import pytest
 from frisket.ai.embeddings import (
     EmbeddingStore,
     build_batch_result,
-    canonical_json,
 )
 from frisket.engine.executor import ExecutorDeps, run_action_spec
 from frisket.engine.store import Project
@@ -859,42 +857,50 @@ def test_export_replay_rejects_backend_provenance_mismatch(project):
     _assert_stale(_run(project, action))
 
 
-def test_export_replay_rejects_digest_evidence_without_source_keys(project):
+@pytest.mark.parametrize(
+    ("field", "mutation"),
+    [
+        ("item_count", "missing"),
+        ("item_count", "tampered"),
+        ("items_digest", "missing"),
+        ("items_digest", "tampered"),
+    ],
+)
+def test_export_replay_rejects_invalid_v3_item_evidence(project, field, mutation):
     project, sheet, _cols, tmp_path = project
     out = tmp_path / "out"
     out.mkdir()
     index_id = _create(project, sheet)
     _refresh(project, index_id)
-    action = _export_action(index_id, out, key="export-digest-no-keys")
+    action = _export_action(index_id, out, key=f"export-v3-{field}-{mutation}")
     result = _run(project, action)
     assert result.status == "completed", result.errors
+
+    valid_replay = _run(project, action)
+    assert valid_replay.status == "completed", valid_replay.errors
+    assert valid_replay.receipt_id == result.receipt_id
 
     body = json.loads(
         project.db.execute(
             "SELECT body FROM receipts WHERE id=?", (result.receipt_id,)
         ).fetchone()["body"]
     )
+    found = False
     for evidence in body["evidence"]:
         ref = evidence.get("ref", {})
         if ref.get("kind") != "embedding_index_export_items":
             continue
-        tuples = [
-            [
-                item["source_key"],
-                item["source_hash"],
-                canonical_json(item["source_ref"]),
-                item["vector_id"],
-                item["vector_sha256"],
-                item["dimension"],
-            ]
-            for item in ref.pop("items")
-        ]
-        ref.pop("source_keys", None)
-        ref["item_count"] = len(tuples)
-        ref["items_digest"] = (
-            "sha256:"
-            + hashlib.sha256(canonical_json(tuples).encode("utf-8")).hexdigest()
-        )
+        assert ref["evidence_version"] == 3
+        assert isinstance(ref["item_count"], int)
+        assert isinstance(ref["items_digest"], str)
+        found = True
+        if mutation == "missing":
+            ref.pop(field)
+        elif field == "item_count":
+            ref[field] += 1
+        else:
+            ref[field] = "sha256:tampered"
+    assert found
     project.db.execute(
         "UPDATE receipts SET body=? WHERE id=?",
         (json.dumps(body, sort_keys=True), result.receipt_id),
