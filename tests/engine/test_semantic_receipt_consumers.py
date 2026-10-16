@@ -23,9 +23,13 @@ def completed_custom_join(tmp_path, monkeypatch):
             "custom.match": RegisteredAction("custom.match", definition),
         },
     )
+    def embed(texts):
+        return [[1.0, 0.0] for _ in texts]
+
+    embed.embedding_dimension = 2
     monkeypatch.setattr(
-        "frisket.semantic.resolve_embedder",
-        lambda *a, **kw: (lambda texts: [[1.0, 0.0] for _ in texts], "fastembed/test"),
+        "frisket.ai.embeddings.backends.resolve_embedder",
+        lambda *a, **kw: (embed, "fastembed/test"),
     )
     project = Project.create(tmp_path / "semantic-consumer.frisket")
     try:

@@ -24,6 +24,7 @@ def _fake_embed(calls: list[list[str]]):
         calls.append(list(texts))
         return [VECS[text] for text in texts]
 
+    embed.embedding_dimension = 3
     return embed
 
 
@@ -240,7 +241,7 @@ def test_derive_link_table_writes_canonical_edge_membership_and_replays_it(
     )
     embed_calls: list[list[str]] = []
     monkeypatch.setattr(
-        "frisket.semantic.resolve_embedder",
+        "frisket.ai.embeddings.backends.resolve_embedder",
         lambda router=None, **_kw: (_fake_embed(embed_calls), "stub/edge-materializer"),
     )
 

@@ -61,10 +61,13 @@ def _fake_embed(texts: list[str]) -> list[list[float]]:
     return [VECS[t] for t in texts]
 
 
+_fake_embed.embedding_dimension = 3
+
+
 @pytest.fixture(autouse=True)
 def _stub_embedder(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "frisket.semantic.resolve_embedder",
+        "frisket.ai.embeddings.backends.resolve_embedder",
         lambda router=None, **_kw: (_fake_embed, "stub/test-v1"),
     )
 
@@ -349,7 +352,7 @@ def test_queued_provider_failure_uses_join_terminal_writer_fence(
     """A promoted provider error terminalizes only through the live writer."""
 
     from frisket.ai.llm import LLMError
-    from frisket.semantic import REMOTE_EMBED_MODEL
+    from frisket.ai.embeddings.backends import REMOTE_EMBED_MODEL
     from frisket.team.security.secrets import encrypt_secret
 
     class FailingRemoteEmbedder:
@@ -357,7 +360,7 @@ def test_queued_provider_failure_uses_join_terminal_writer_fence(
             raise LLMError("semantic embed rate limited", status=429, retryable=True)
 
     monkeypatch.setattr(
-        "frisket.semantic.resolve_embedder",
+        "frisket.ai.embeddings.backends.resolve_embedder",
         lambda router=None, **_kw: (FailingRemoteEmbedder(), REMOTE_EMBED_MODEL),
     )
     client = _client(tmp_path)
@@ -543,7 +546,7 @@ def test_join_semantic_queued_cost_gate_fires_before_any_run_is_created(
 
     monkeypatch.setattr(MapRunner, "prepare_run", gated_prepare_run)
     monkeypatch.setattr(
-        "frisket.semantic.embedder_is_remote",
+        "frisket.ai.embeddings.backends.embedder_is_remote",
         lambda model_id: False,
     )
 
@@ -715,7 +718,7 @@ def test_queued_semantic_join_refuses_changed_inputs_before_embedding(
         pytest.fail("stale queued inputs must refuse before embedding")
 
     monkeypatch.setattr(
-        "frisket.semantic.resolve_embedder",
+        "frisket.ai.embeddings.backends.resolve_embedder",
         lambda *args, **kwargs: (forbid_embedding, "stub/test-v1"),
     )
     drain_queue(client)

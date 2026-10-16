@@ -10,12 +10,13 @@ from http_test_helpers import drain_queue
 
 @pytest.mark.parametrize("mutation", [None, "unhide", "type", "created_ids", "marker"])
 def test_semantic_join_real_http_queue_to_worker(tmp_path, monkeypatch, mutation):
+    def embed(texts):
+        return [[1.0, 0.0] for _ in texts]
+
+    embed.embedding_dimension = 2
     monkeypatch.setattr(
-        "frisket.semantic.resolve_embedder",
-        lambda *args, **kwargs: (
-            lambda texts: [[1.0, 0.0] for _ in texts],
-            "fastembed/test",
-        ),
+        "frisket.ai.embeddings.backends.resolve_embedder",
+        lambda *args, **kwargs: (embed, "fastembed/test"),
     )
     with TestClient(
         create_app(tmp_path / "workspace", run_status_grace_seconds=3600)

@@ -23,8 +23,10 @@ def semantic_workspace(tmp_path, monkeypatch):
         calls.append(list(texts))
         return [vectors[text] for text in texts]
 
+    embed.embedding_dimension = 2
+
     monkeypatch.setattr(
-        "frisket.semantic.resolve_embedder",
+        "frisket.ai.embeddings.backends.resolve_embedder",
         lambda *args, **kwargs: (embed, "fastembed/test"),
     )
     router = ModelRouter(cache=None, cache_mode="off")
@@ -104,7 +106,7 @@ def test_served_semantic_receipt_replay_checks_child_without_rerunning(
     before = _counts(project)
     calls.clear()
     monkeypatch.setattr(
-        "frisket.semantic.resolve_embedder", lambda *args, **kwargs: None
+        "frisket.ai.embeddings.backends.resolve_embedder", lambda *args, **kwargs: None
     )
     replay = ActionRunService._typed_receipt_replay_result(project, pid, request)
     assert replay.receipt_id == original.receipt_id

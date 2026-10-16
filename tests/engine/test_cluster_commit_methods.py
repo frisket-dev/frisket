@@ -70,7 +70,7 @@ def test_semantic_commit_with_injected_embedder(tmp_path, monkeypatch):
     # Resolve the embedder before the transaction so provider setup cannot
     # hold the write lock while doing external initialization.
     monkeypatch.setattr(
-        "frisket.semantic.resolve_embedder",
+        "frisket.ai.embeddings.backends.resolve_embedder",
         lambda router=None, **_kw: (StubEmbedder(), "fastembed/test"),
     )
     project, sid = _seed(
@@ -92,7 +92,7 @@ def test_semantic_commit_with_injected_embedder(tmp_path, monkeypatch):
 
 def test_semantic_commit_errors_without_embedder(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        "frisket.semantic.resolve_embedder",
+        "frisket.ai.embeddings.backends.resolve_embedder",
         lambda router=None, **_kw: None,
     )
     project, sid = _seed(tmp_path, ["Jon Smith", "Smith, Jon"])
@@ -213,7 +213,7 @@ def test_semantic_commit_uses_router_and_embeds_pre_txn(tmp_path, monkeypatch):
         return (stub, "fastembed/test")
 
     monkeypatch.setattr(
-        "frisket.semantic.resolve_embedder",
+        "frisket.ai.embeddings.backends.resolve_embedder",
         fake_resolve,
     )
     project, sid = _seed(

@@ -32,11 +32,14 @@ def _fake_embed(texts: list[str]) -> list[list[float]]:
     return [VECS[text] for text in texts]
 
 
+_fake_embed.embedding_dimension = 3
+
+
 def _patch_embedder(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     _EMBED_CALLS.clear()
     _BACKEND["available"] = True
     monkeypatch.setattr(
-        "frisket.semantic.resolve_embedder",
+        "frisket.ai.embeddings.backends.resolve_embedder",
         lambda router=None, **_kw: (
             (_fake_embed, "stub/semantic-join") if _BACKEND["available"] else None
         ),
