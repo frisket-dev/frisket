@@ -142,6 +142,7 @@ def pack_vector(
     *,
     dimensions: int = VECTOR_DIMENSIONS,
     norm_tolerance: float = VECTOR_NORM_TOLERANCE,
+    require_unit_norm: bool = True,
 ) -> bytes:
     """Validate and encode one finite, unit-normalized little-endian f32 vector."""
 
@@ -169,7 +170,7 @@ def pack_vector(
     if count != dimensions:
         raise ValueError(f"expected {dimensions} vector dimensions, got {count}")
     norm = math.sqrt(squared_norm)
-    if abs(norm - 1.0) > norm_tolerance:
+    if require_unit_norm and abs(norm - 1.0) > norm_tolerance:
         raise ValueError(
             "vector must be unit-normalized: "
             f"norm {norm:.8g} is outside tolerance {norm_tolerance:.8g}"
@@ -182,6 +183,7 @@ def validate_vector_blob(
     *,
     dimensions: int = VECTOR_DIMENSIONS,
     norm_tolerance: float = VECTOR_NORM_TOLERANCE,
+    require_unit_norm: bool = True,
 ) -> bytes:
     """Validate an existing portable f32 BLOB with the same write contract."""
 
@@ -194,4 +196,5 @@ def validate_vector_blob(
         (value[0] for value in _F32.iter_unpack(blob)),
         dimensions=dimensions,
         norm_tolerance=norm_tolerance,
+        require_unit_norm=require_unit_norm,
     )

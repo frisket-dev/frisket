@@ -222,3 +222,12 @@ def test_vector_blob_round_trip_is_little_endian() -> None:
     blob = native.pack_vector([1.0, 0.0, 0.0], dimensions=3)
     assert blob == b"\x00\x00\x80?" + b"\x00" * 8
     assert native.validate_vector_blob(blob, dimensions=3) == blob
+
+
+def test_generic_cache_keeps_nonunit_vectors_without_weakening_model_validation() -> None:
+    blob = native.pack_vector([3.0, 4.0], dimensions=2, require_unit_norm=False)
+    assert native.validate_vector_blob(blob, dimensions=2, require_unit_norm=False) == blob
+    with pytest.raises(ValueError, match="unit-normalized"):
+        native.validate_vector_blob(blob, dimensions=2)
+    with pytest.raises(ValueError, match="finite"):
+        native.pack_vector([math.nan, 4.0], dimensions=2, require_unit_norm=False)
