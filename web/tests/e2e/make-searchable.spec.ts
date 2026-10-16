@@ -78,9 +78,10 @@ async function expectSearchHitOpensPage(
   expected: { sheetId: number; page: number; pageCount: number },
 ): Promise<void> {
   expect(hit.binding.sheet_id).toBe(expected.sheetId);
-  if (hit.navigation.kind === 'evidence') {
+  const navigation = hit.navigation;
+  if (navigation.kind === 'evidence') {
     const evidence = await page.request.get(
-      `/api/projects/${projectId}/evidence/links/${encodeURIComponent(hit.navigation.evidence_link_id)}/viewer`,
+      `/api/projects/${projectId}/evidence/links/${encodeURIComponent(navigation.evidence_link_id)}/viewer`,
     );
     expect(evidence.ok()).toBeTruthy();
     const payload = await evidence.json() as {
@@ -93,10 +94,10 @@ async function expectSearchHitOpensPage(
       }>;
     };
     const artifact = payload.artifacts.find((candidate) => (
-      candidate.spans.some((span) => span.stable_id === hit.navigation.span_id)
+      candidate.spans.some((span) => span.stable_id === navigation.span_id)
     ));
     expect(artifact?.source_cell?.sheet_id).toBe(expected.sheetId);
-    const citedSpan = artifact?.spans.find((span) => span.stable_id === hit.navigation.span_id);
+    const citedSpan = artifact?.spans.find((span) => span.stable_id === navigation.span_id);
     expect(citedSpan?.selector).toMatchObject({
       page_start: expected.page,
       page_end: expected.page,
@@ -118,7 +119,7 @@ async function expectSearchHitOpensPage(
     return;
   }
 
-  expect(hit.navigation).toMatchObject({
+  expect(navigation).toMatchObject({
     kind: 'document',
     sheet_id: expected.sheetId,
     page: expected.page,
