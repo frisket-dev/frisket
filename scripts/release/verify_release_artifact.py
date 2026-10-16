@@ -26,6 +26,9 @@ IMPORT_PACKAGE_ROOT = "frisket"
 DISTRIBUTION_METADATA_PREFIX = "frisket_data-"
 MODEL_SERVER_FILES = (
     "frisket/data/model-server/pyproject.toml",
+    "frisket/data/model-server/classify-constraints.txt",
+    "frisket/data/model-server/indra-ocr-constraints.txt",
+    "frisket/data/model-server/retrieval-constraints.txt",
     "frisket/data/model-server/README.md",
     "frisket/data/model-server/src/frisket_models/__init__.py",
     "frisket/data/model-server/src/frisket_models/local.py",

@@ -65,10 +65,10 @@ class ModelInstallCancelled(Exception):
 
 @dataclass(frozen=True)
 class _InstallProfile:
-    """One fixed optional environment installed from the bundled sidecar."""
+    """One fixed environment installed from bundled dependency metadata."""
 
     root: Path
-    extra: str
+    extra: str | None
     probe: Callable[[], bool]
     already_installed_message: str
     create_message: str
@@ -76,6 +76,7 @@ class _InstallProfile:
     installed_message: str
     probe_failure_message: str
     constraint_file: str | None = None
+    requirements_file: str | None = None
 
 
 def model_child_environment(
@@ -248,9 +249,13 @@ def _install_profile(
     should_cancel: Callable[[], bool],
     progress: Callable[[str], None],
 ) -> None:
-    """Install one immutable optional sidecar extra in its owned environment."""
+    """Install one immutable dependency profile in its owned environment."""
     if should_cancel():
         raise ModelInstallCancelled
+    if (profile.extra is None) == (profile.requirements_file is None):
+        raise ValueError("install profile requires exactly one dependency source")
+    if profile.constraint_file is not None and profile.requirements_file is not None:
+        raise ValueError("a locked requirements profile cannot use constraints")
     profile.root.mkdir(parents=True, exist_ok=True)
     lock = _acquire_install_lock(
         root=profile.root, should_cancel=should_cancel, progress=progress
@@ -265,9 +270,18 @@ def _install_profile(
             if profile.constraint_file is not None
             else None
         )
+        requirements = (
+            source / profile.requirements_file
+            if profile.requirements_file is not None
+            else None
+        )
         if constraint is not None and not constraint.is_file():
             raise RuntimeError(
                 "bundled dependency constraints are missing; reinstall Frisket"
+            )
+        if requirements is not None and not requirements.is_file():
+            raise RuntimeError(
+                "bundled dependency requirements are missing; reinstall Frisket"
             )
         (profile.root / _READY_MARKER).unlink(missing_ok=True)
         uv = _uv_command()
@@ -288,6 +302,7 @@ def _install_profile(
         )
         install_argv = [
             *uv,
+            *(["--no-config"] if requirements is not None else []),
             "pip",
             "install",
             "--python",
@@ -297,7 +312,10 @@ def _install_profile(
             install_argv.extend(["--torch-backend", "cpu"])
         if constraint is not None:
             install_argv.extend(["--constraint", str(constraint)])
-        install_argv.append(f"{source}[{profile.extra}]")
+        if requirements is not None:
+            install_argv.extend(["--requirement", str(requirements)])
+        else:
+            install_argv.append(f"{source}[{profile.extra}]")
         progress(profile.install_message)
         _run_uv(install_argv, should_cancel=should_cancel, progress=progress)
         if not profile.probe():

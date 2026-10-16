@@ -1,0 +1,35 @@
+[project]
+name = "frisket-retrieval-runtime"
+version = "0.1.0"
+description = "Frozen third-party runtime for Frisket multimodal retrieval"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy==2.4.3",
+    "pillow==12.1.1",
+    "safetensors==0.8.0",
+    "tokenizers==0.23.3",
+    "torch==2.14.1",
+    "torchvision==0.29.1",
+    "transformers==5.19.0",
+]
+
+[tool.uv]
+# Keep the evaluated runtime independent from the shared sidecar's optional
+# extras. The tokenizers release is newer than the repository quarantine.
+exclude-newer = "1 week"
+exclude-newer-package = { tokenizers = "2026-10-10" }
+
+# Linux and Windows use CPU-only PyTorch wheels. macOS PyTorch wheels remain
+# on PyPI because the CPU index does not publish macOS artifacts.
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cpu", marker = "sys_platform != 'darwin'" },
+]
+torchvision = [
+    { index = "pytorch-cpu", marker = "sys_platform != 'darwin'" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true

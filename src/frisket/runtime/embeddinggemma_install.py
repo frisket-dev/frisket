@@ -7,7 +7,6 @@ from pathlib import Path
 
 from frisket.engine._workers.embeddinggemma_model import (
     PILLOW_VERSION,
-    RUNTIME_EXTRA,
     RUNTIME_PROFILE,
     TORCH_VERSION,
     TORCHVISION_VERSION,
@@ -47,14 +46,14 @@ def install_embeddinggemma(
     model_install._install_profile(
         model_install._InstallProfile(
             root=runtime_dir(),
-            extra=RUNTIME_EXTRA,
+            extra=None,
             probe=_probe_install,
             already_installed_message="Multimodal search is already installed",
             create_message="Creating the private multimodal search environment",
             install_message="Installing the multimodal search runtime",
             installed_message="Multimodal search installed",
             probe_failure_message="installed search runtime failed its import check",
-            constraint_file="retrieval-constraints.txt",
+            requirements_file="retrieval-constraints.txt",
         ),
         should_cancel=should_cancel,
         progress=progress,
