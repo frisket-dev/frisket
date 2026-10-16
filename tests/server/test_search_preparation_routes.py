@@ -159,6 +159,80 @@ def test_missing_ocr_setup_never_starts_before_exact_consent(
     assert setup_calls == [("engine-setup:rapidocr.local@1", "owner-1")]
 
 
+def test_identical_decision_replays_after_setup_facts_change(
+    tmp_path, monkeypatch
+) -> None:
+    requirements = [_Requirement()]
+    monkeypatch.setattr(
+        preparation_module, "_requirements", lambda: tuple(requirements)
+    )
+    workspace = Workspace(tmp_path / "workspace")
+    project_id = workspace.create("Decision replay")["id"]
+    project = workspace.get(project_id)
+    sheet_id = project.add_sheet("Files")
+    image_column = project.add_column(sheet_id, "Image", type="image")
+    digest = project.add_blob(b"image", filename="scan.png", mime="image/png")
+    project.add_rows(
+        sheet_id,
+        [{"Image": {"blob": digest, "filename": "scan.png", "mime": "image/png"}}],
+        {"Image": image_column},
+    )
+    service = SearchPreparationService(workspace)
+    batch = service.create(project_id, sheet_id=sheet_id, row_ids=None, force_ocr=False)
+    first = service.decide(
+        project_id,
+        batch.id,
+        plan_hash=batch.plan_hash,
+        decision="not_now",
+        selected_setup_refs=[],
+        may_setup_models=True,
+        initiated_by="owner-1",
+    )
+    requirements[0] = replace(requirements[0], weights_ready=True)
+
+    replay = service.decide(
+        project_id,
+        batch.id,
+        plan_hash=batch.plan_hash,
+        decision="not_now",
+        selected_setup_refs=[],
+        may_setup_models=True,
+        initiated_by="owner-1",
+    )
+
+    assert replay.id == first.id
+    assert replay.errors == []
+
+
+def test_undecided_batch_recovers_when_required_engine_becomes_ready(
+    tmp_path, monkeypatch
+) -> None:
+    requirements = [_Requirement()]
+    monkeypatch.setattr(
+        preparation_module, "_requirements", lambda: tuple(requirements)
+    )
+    workspace = Workspace(tmp_path / "workspace")
+    project_id = workspace.create("Ready elsewhere")["id"]
+    project = workspace.get(project_id)
+    sheet_id = project.add_sheet("Files")
+    image_column = project.add_column(sheet_id, "Image", type="image")
+    digest = project.add_blob(b"image", filename="scan.png", mime="image/png")
+    project.add_rows(
+        sheet_id,
+        [{"Image": {"blob": digest, "filename": "scan.png", "mime": "image/png"}}],
+        {"Image": image_column},
+    )
+    service = SearchPreparationService(workspace)
+    batch = service.create(project_id, sheet_id=sheet_id, row_ids=None, force_ocr=False)
+    assert service.store.list_active_page(storage_org_id=None)[0].id == batch.id
+
+    requirements[0] = replace(requirements[0], weights_ready=True)
+    service.recover()
+
+    [child] = service.store.children(batch.id)
+    assert child.receipt_id is not None and child.job_id is not None
+
+
 def test_server_reconciles_completed_enclosure_from_separate_worker(
     tmp_path, monkeypatch
 ) -> None:
@@ -405,29 +479,43 @@ def test_stop_uses_action_run_cancellation_and_releases_output_claims(
     project = workspace.get(project_id)
     receipt_id = str(queued.payload["receipt_id"])
     run_id = int(queued.payload["run_id"])
-    assert project.db.execute(
-        "SELECT COUNT(*) FROM output_column_claims "
-        "WHERE receipt_id=? AND status='active'",
-        (receipt_id,),
-    ).fetchone()[0] == 2
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM output_column_claims "
+            "WHERE receipt_id=? AND status='active'",
+            (receipt_id,),
+        ).fetchone()[0]
+        == 2
+    )
 
     stopped = service.stop(project_id, batch.id)
 
     assert stopped.status == "stopped"
-    assert project.db.execute(
-        "SELECT status FROM runs WHERE id=?", (run_id,)
-    ).fetchone()["status"] == "cancelled"
-    assert project.db.execute(
-        "SELECT status FROM receipts WHERE id=?", (receipt_id,)
-    ).fetchone()["status"] == "cancelled"
-    assert project.db.execute(
-        "SELECT COUNT(*) FROM output_column_claims "
-        "WHERE receipt_id=? AND status='active'",
-        (receipt_id,),
-    ).fetchone()[0] == 0
+    assert (
+        project.db.execute("SELECT status FROM runs WHERE id=?", (run_id,)).fetchone()[
+            "status"
+        ]
+        == "cancelled"
+    )
+    assert (
+        project.db.execute(
+            "SELECT status FROM receipts WHERE id=?", (receipt_id,)
+        ).fetchone()["status"]
+        == "cancelled"
+    )
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM output_column_claims "
+            "WHERE receipt_id=? AND status='active'",
+            (receipt_id,),
+        ).fetchone()[0]
+        == 0
+    )
 
 
-@pytest.mark.parametrize("error_code", ["idempotency_in_progress", "output_column_busy"])
+@pytest.mark.parametrize(
+    "error_code", ["idempotency_in_progress", "output_column_busy"]
+)
 def test_raced_action_reservation_defers_without_poisoning_batch(
     tmp_path, monkeypatch, error_code
 ) -> None:

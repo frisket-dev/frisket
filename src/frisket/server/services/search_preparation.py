@@ -181,7 +181,13 @@ class SearchPreparationService:
         project = self.workspace.get(project_id)
         if existing is not None and existing.plan is not None:
             return existing.id
-        plan = self._plan(project, sheet_id=sheet_id, row_ids=row_ids, force_ocr=False)
+        plan = self._plan(
+            project,
+            sheet_id=sheet_id,
+            row_ids=row_ids,
+            force_ocr=False,
+            intersect_visible_rows=True,
+        )
         if not plan["items"]:
             if existing is not None:
                 self.store.mark_settled(
@@ -240,14 +246,26 @@ class SearchPreparationService:
         return None if row is None else row.id
 
     def create_after_materialization(
-        self, project_id: str, *, sheet_id: int, row_ids: Sequence[int]
+        self,
+        project_id: str,
+        *,
+        sheet_id: int,
+        row_ids: Sequence[int],
+        materialization_job_id: int | None = None,
     ) -> str | None:
-        pending = self.store.pending_materialization(
-            project_id=project_id,
-            storage_org_id=self.workspace.queue_storage_org_id,
-            sheet_id=sheet_id,
-            row_ids=row_ids,
+        pending = (
+            None
+            if materialization_job_id is None
+            else self.store.pending_materialization(
+                project_id=project_id,
+                storage_org_id=self.workspace.queue_storage_org_id,
+                job_id=materialization_job_id,
+                sheet_id=sheet_id,
+                row_ids=row_ids,
+            )
         )
+        if materialization_job_id is not None and pending is None:
+            return None
         if not self.automatic_enabled(project_id):
             if pending is not None:
                 self.store.mark_settled(
@@ -257,7 +275,13 @@ class SearchPreparationService:
                 )
             return None
         project = self.workspace.get(project_id)
-        plan = self._plan(project, sheet_id=sheet_id, row_ids=row_ids, force_ocr=False)
+        plan = self._plan(
+            project,
+            sheet_id=sheet_id,
+            row_ids=row_ids,
+            force_ocr=False,
+            intersect_visible_rows=True,
+        )
         if not plan["items"]:
             if pending is not None:
                 self.store.mark_settled(
@@ -339,6 +363,19 @@ class SearchPreparationService:
             raise RouteError(404, "search preparation batch was not found") from exc
         if row.plan is None or row.sheet_id is None or row.plan_hash is None:
             raise RouteError(404, "search preparation batch was not found")
+        if row.stop_requested_at is not None:
+            raise RouteError(409, "search preparation was stopped")
+        if row.errors:
+            raise RouteError(409, "failed search preparation cannot be decided")
+        replay_refs = tuple(sorted(set(selected_setup_refs)))
+        if row.decision is not None:
+            if (
+                plan_hash == row.plan_hash
+                and row.decision == decision
+                and row.selected_setup_refs == replay_refs
+            ):
+                return self.get(project_id, batch_id)
+            raise RouteError(409, "search preparation decision is already recorded")
         project = self.workspace.get(project_id)
         if plan_hash != row.plan_hash or not self._consent_facts_current(project, row):
             current = self._plan(
@@ -592,6 +629,7 @@ class SearchPreparationService:
             row.project_id,
             sheet_id=row.sheet_id,
             row_ids=row.row_ids,
+            materialization_job_id=row.materialization_job_id,
         )
 
     def _recover_pending_import(self, row: SearchPreparationBatchRow) -> None:
@@ -675,6 +713,7 @@ class SearchPreparationService:
                     ),
                     text=text[:12000],
                     source=source,
+                    page_scoped=item.get("page_number") is not None,
                     truncated=len(text) > 12000,
                 )
             )
@@ -691,7 +730,9 @@ class SearchPreparationService:
         sheet_id: int,
         row_ids: Sequence[int] | None,
         force_ocr: bool,
+        intersect_visible_rows: bool = False,
     ) -> dict[str, Any]:
+        options = {"intersect_visible_rows": True} if intersect_visible_rows else {}
         return build_plan(
             project,
             sheet_id=sheet_id,
@@ -699,6 +740,7 @@ class SearchPreparationService:
             force_ocr=force_ocr,
             requirements=_requirements(),
             requirement_dict=_requirement_dict,
+            **options,
         )
 
     def _advance(self, row: SearchPreparationBatchRow) -> None:
@@ -910,9 +952,17 @@ class SearchPreparationService:
     def _retryable_action_errors(errors: object) -> bool:
         return isinstance(errors, list) and any(
             isinstance(error, dict)
-            and error.get("code")
-            in {"idempotency_in_progress", "output_column_busy"}
+            and error.get("code") in {"idempotency_in_progress", "output_column_busy"}
             for error in errors
+        )
+
+    @staticmethod
+    def _pull_relevant(row: SearchPreparationBatchRow, pull: Any) -> bool:
+        epoch = row.decision_at or row.created_at
+        return (
+            pull.created_at >= epoch
+            or pull.status in {"pending", "running"}
+            or (pull.finished_at is not None and pull.finished_at >= epoch)
         )
 
     def _settle_if_coordinated(self, row: SearchPreparationBatchRow) -> None:
@@ -926,7 +976,7 @@ class SearchPreparationService:
             limit=100,
             persist=False,
         ):
-            if pull.created_at >= (row.decision_at or row.created_at):
+            if self._pull_relevant(row, pull):
                 latest.setdefault(pull.model_ref, pull)
         for planned in row.plan["models"]:
             requirement = live.get(planned["setup_ref"])
@@ -944,6 +994,10 @@ class SearchPreparationService:
             )
             if ready:
                 continue
+            if planned["required"] and row.decision is None:
+                # Keep an undecided automatic intent recoverable. The model
+                # may become ready through another explicitly consented pull.
+                return
             if requirement is not None and (
                 not requirement.runtime_ready and not requirement.runtime_installable
             ):
@@ -1110,8 +1164,18 @@ class SearchPreparationService:
             limit=100,
             persist=False,
         ):
-            if pull.created_at >= (row.decision_at or row.created_at):
+            if self._pull_relevant(row, pull):
                 latest.setdefault(pull.model_ref, pull)
+        if initiated_by is None:
+            initiated_by = next(
+                (
+                    pull.initiated_by
+                    for pull in latest.values()
+                    if pull.model_ref in row.selected_setup_refs
+                    and pull.initiated_by is not None
+                ),
+                None,
+            )
         planned = {item["setup_ref"]: item for item in row.plan["models"]}
         ordered = sorted(
             row.selected_setup_refs,
@@ -1200,7 +1264,7 @@ class SearchPreparationService:
             persist=False,
         ):
             if (
-                pull.created_at >= (row.decision_at or row.created_at)
+                self._pull_relevant(row, pull)
                 and pull.model_ref in row.selected_setup_refs
                 and pull.model_ref not in pulls
             ):

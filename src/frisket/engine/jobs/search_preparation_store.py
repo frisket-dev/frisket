@@ -404,6 +404,7 @@ class SearchPreparationStore:
         *,
         project_id: str,
         storage_org_id: int | None,
+        job_id: int,
         sheet_id: int,
         row_ids: Sequence[int],
     ) -> SearchPreparationBatchRow | None:
@@ -421,8 +422,8 @@ class SearchPreparationStore:
                     c.workspace_root == self.workspace_root,
                     c.project_id == project_id,
                     predicate,
+                    c.materialization_job_id == int(job_id),
                     c.sheet_id == int(sheet_id),
-                    c.materialization_job_id.is_not(None),
                     c.plan_json.is_(None),
                     c.settled_at.is_(None),
                 )

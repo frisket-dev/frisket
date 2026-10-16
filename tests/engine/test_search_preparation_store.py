@@ -143,11 +143,30 @@ def test_pending_materialization_is_internal_until_exact_job_is_hydrated(
         assert pending.materialization_job_id == 41
         assert pending.row_ids == (3,)
         assert pending.plan is None
+        later = store.create_pending_materialization(
+            workspace_root="/workspace",
+            storage_org_id=None,
+            project_id="project",
+            job_id=42,
+            sheet_id=7,
+            row_ids=[3],
+        )
+        assert (
+            store.pending_materialization(
+                project_id="project",
+                storage_org_id=None,
+                job_id=42,
+                sheet_id=7,
+                row_ids=[3],
+            ).id
+            == later.id
+        )
         assert store.list_recent(project_id="project", storage_org_id=None) == []
         assert (
             store.pending_materialization(
                 project_id="project",
                 storage_org_id=None,
+                job_id=41,
                 sheet_id=7,
                 row_ids=[3],
             ).id
@@ -166,6 +185,7 @@ def test_pending_materialization_is_internal_until_exact_job_is_hydrated(
             store.pending_materialization(
                 project_id="project",
                 storage_org_id=None,
+                job_id=41,
                 sheet_id=7,
                 row_ids=[3],
             )

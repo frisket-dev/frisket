@@ -790,10 +790,11 @@ def create_app(
             project_id, receipt_id=receipt_id, sheet_id=sheet_id
         )
     )
-    ws.search_preparation_enclosure_downloaded = lambda project_id, sheet_id, row_id: (
-        search_preparation_service.create_after_materialization(
-            project_id, sheet_id=sheet_id, row_ids=[row_id]
-        )
+    # The callback is only a latency wake. Durable pending intents retain the
+    # exact materialization job id, and recovery correlates that identity
+    # before hydrating a plan.
+    ws.search_preparation_enclosure_downloaded = (
+        lambda _project_id, _sheet_id, _row_id: search_preparation_service.recover()
     )
     register_search_preparation_routes(
         app,
