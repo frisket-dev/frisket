@@ -13,15 +13,17 @@ def _create(
     retry_terminal: bool = False,
 ):
     return store.create(
-        workspace_root="/workspace",
         storage_org_id=None,
         project_id="project",
         trigger_receipt_id=receipt,
         sheet_id=7,
         row_ids=[3, 1, 3],
-        source_cutoff=14,
         force_ocr=False,
-        plan={"groups": [{"kind": "ocr", "count": 2}], "models": []},
+        plan={
+            "source_cutoff": 14,
+            "groups": [{"kind": "ocr", "count": 2}],
+            "models": [],
+        },
         retry_terminal=retry_terminal,
     )
 
@@ -86,7 +88,6 @@ def test_pending_import_is_internal_until_atomically_hydrated(tmp_path) -> None:
     try:
         store = SearchPreparationStore(queue, workspace_root="/workspace")
         pending = store.create_pending_import(
-            workspace_root="/workspace",
             storage_org_id=None,
             project_id="project",
             receipt_id="receipt-pending",
@@ -97,7 +98,6 @@ def test_pending_import_is_internal_until_atomically_hydrated(tmp_path) -> None:
         assert store.list_recent(project_id="project", storage_org_id=None) == []
         assert (
             store.for_receipt(
-                workspace_root="/workspace",
                 storage_org_id=None,
                 project_id="project",
                 receipt_id="receipt-pending",
@@ -111,7 +111,6 @@ def test_pending_import_is_internal_until_atomically_hydrated(tmp_path) -> None:
             project_id="project",
             storage_org_id=None,
             sheet_id=7,
-            source_cutoff=14,
             plan={"groups": [], "models": [], "items": []},
         )
         assert hydrated.sheet_id == 7
@@ -119,7 +118,6 @@ def test_pending_import_is_internal_until_atomically_hydrated(tmp_path) -> None:
         assert hydrated.plan == {"groups": [], "models": [], "items": []}
         assert (
             store.for_receipt(
-                workspace_root="/workspace",
                 storage_org_id=None,
                 project_id="project",
                 receipt_id="receipt-pending",
@@ -137,7 +135,6 @@ def test_pending_materialization_is_internal_until_exact_job_is_hydrated(
     try:
         store = SearchPreparationStore(queue, workspace_root="/workspace")
         pending = store.create_pending_materialization(
-            workspace_root="/workspace",
             storage_org_id=None,
             project_id="project",
             job_id=41,
@@ -148,7 +145,6 @@ def test_pending_materialization_is_internal_until_exact_job_is_hydrated(
         assert pending.row_ids == (3,)
         assert pending.plan is None
         later = store.create_pending_materialization(
-            workspace_root="/workspace",
             storage_org_id=None,
             project_id="project",
             job_id=42,
@@ -181,7 +177,6 @@ def test_pending_materialization_is_internal_until_exact_job_is_hydrated(
             pending.id,
             project_id="project",
             storage_org_id=None,
-            source_cutoff=14,
             plan={"groups": [], "models": [], "items": []},
         )
         assert hydrated.plan == {"groups": [], "models": [], "items": []}
@@ -199,21 +194,14 @@ def test_pending_materialization_is_internal_until_exact_job_is_hydrated(
         queue.close()
 
 
-def test_child_is_reserved_before_cursor_advance_and_retry_reuses_it(tmp_path) -> None:
+def test_child_reservation_is_idempotent(tmp_path) -> None:
     queue = open_queue(workspace=tmp_path)
     try:
         store = SearchPreparationStore(queue, workspace_root="/workspace")
         batch = _create(store, receipt=None)
-        first = store.reserve_child_and_advance(
-            batch.id, expected_cursor=0, child_key="ocr:column-4", kind="ocr"
-        )
-        replay = store.reserve_child_and_advance(
-            batch.id, expected_cursor=0, child_key="ocr:column-4", kind="ocr"
-        )
+        first = store.reserve_child(batch.id, child_key="ocr:column-4", kind="ocr")
+        replay = store.reserve_child(batch.id, child_key="ocr:column-4", kind="ocr")
         assert replay.id == first.id
-        assert (
-            store.get(batch.id, project_id="project", storage_org_id=None).cursor == 1
-        )
 
         store.bind_child(first.id, job_id=91, receipt_id="receipt-child")
         [bound] = store.children(batch.id)
@@ -229,8 +217,8 @@ def test_stop_is_durable_without_changing_completed_children(tmp_path) -> None:
     try:
         store = SearchPreparationStore(queue, workspace_root="/workspace")
         batch = _create(store, receipt=None)
-        child = store.reserve_child_and_advance(
-            batch.id, expected_cursor=0, child_key="native:row-2", kind="native_pdf"
+        child = store.reserve_child(
+            batch.id, child_key="native:row-2", kind="native_pdf"
         )
         store.bind_child(child.id, job_id=4, receipt_id="native-receipt")
         stopped = store.request_stop(
@@ -257,14 +245,16 @@ def test_stop_racing_action_enqueue_refuses_late_child_binding(tmp_path) -> None
     try:
         store = SearchPreparationStore(queue, workspace_root="/workspace")
         batch = _create(store, receipt=None)
-        child = store.reserve_child_and_advance(
-            batch.id, expected_cursor=0, child_key="native:row-2", kind="native_pdf"
+        child = store.reserve_child(
+            batch.id, child_key="native:row-2", kind="native_pdf"
         )
         store.request_stop(batch.id, project_id="project", storage_org_id=None)
 
         assert not store.bind_child(child.id, job_id=4, receipt_id="native-receipt")
         [unbound] = store.children(batch.id)
         assert unbound.job_id is None and unbound.receipt_id is None
+        with pytest.raises(ValueError, match="stopped"):
+            store.reserve_child(batch.id, child_key="ocr:column-4", kind="ocr")
     finally:
         queue.close()
 

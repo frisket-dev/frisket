@@ -428,7 +428,6 @@ def enqueue_enclosure_downloads(
                 SearchPreparationStore(
                     queue, workspace_root=str(workspace_root)
                 ).create_pending_materialization(
-                    workspace_root=str(workspace_root),
                     storage_org_id=storage_org_id,
                     project_id=project_id,
                     job_id=job_id,

@@ -460,7 +460,6 @@ class ActionRunService:
             SearchPreparationStore(
                 self._workspace.queue, workspace_root=str(self._workspace.root)
             ).create_pending_materialization(
-                workspace_root=str(self._workspace.root),
                 storage_org_id=self._workspace.queue_storage_org_id,
                 project_id=project_id,
                 job_id=int(result.job_id),

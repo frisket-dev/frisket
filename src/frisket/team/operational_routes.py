@@ -17,8 +17,9 @@ from pydantic import BaseModel
 from frisket.engine.jobs import model_pull_store
 from frisket.engine.jobs.artifact_ref import normalize_artifact_ref
 from frisket.engine.jobs.model_pull import (
-    MODEL_PULL_MAX_ATTEMPTS,
     InvalidModelRefError,
+    ModelPullEnqueueError,
+    schedule_model_pull,
 )
 from frisket.engine.jobs.queue import MODEL_PULL_KIND
 from frisket.server import provider_config
@@ -400,16 +401,18 @@ def register_operational_routes(
             target = f"{canonical}@{endpoint_origin}" if endpoint_origin else canonical
             audit(cx, actor=actor, action=audit_action, target=target)
 
-        queue_engine = workspace.queue.engine
-        root_str = str(workspace.root)
         try:
-            row, created = model_pull_store.create_or_get_active(
-                queue_engine,
-                workspace_root=root_str,
+            row, created = schedule_model_pull(
+                workspace.queue,
+                workspace_root=workspace.root,
                 model_ref=canonical,
                 initiated_by=str(actor["id"]),
                 endpoint_id=endpoint_id,
                 endpoint_origin=endpoint_origin,
+                queue_payload_extra={
+                    **payload_extra,
+                    **workspace.queue_payload_extra,
+                },
             )
         except model_pull_store.ModelPullBusyError as exc:
             active = getattr(exc, "active", None)
@@ -424,29 +427,7 @@ def register_operational_routes(
             if active is not None:
                 detail["active"] = model_pull_store.to_dto(active, allow_remove=False)
             raise HTTPException(409, detail) from exc
-        if not created:
-            return {
-                "pull": model_pull_store.to_dto(row, allow_remove=False),
-                "deduplicated": True,
-            }
-        try:
-            job_id = workspace.queue.enqueue(
-                MODEL_PULL_KIND,
-                {
-                    "pull_id": row.id,
-                    "workspace_root": root_str,
-                    **payload_extra,
-                    **workspace.queue_payload_extra,
-                },
-                max_attempts=MODEL_PULL_MAX_ATTEMPTS,
-            )
-        except Exception as exc:  # noqa: BLE001 -- must not leave an orphan active row
-            model_pull_store.mark_failed(
-                queue_engine,
-                row.id,
-                error_code="enqueue_failed",
-                error_message=f"failed to enqueue the pull job ({type(exc).__name__})",
-            )
+        except ModelPullEnqueueError as exc:
             raise HTTPException(
                 503,
                 {
@@ -454,11 +435,9 @@ def register_operational_routes(
                     "message": "failed to schedule the model pull",
                 },
             ) from exc
-        model_pull_store.set_job_id(queue_engine, row.id, job_id=job_id)
-        row = model_pull_store.get(queue_engine, row.id)
         return {
             "pull": model_pull_store.to_dto(row, allow_remove=False),
-            "deduplicated": False,
+            "deduplicated": not created,
         }
 
     @app.post(

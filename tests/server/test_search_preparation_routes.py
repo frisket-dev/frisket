@@ -43,21 +43,17 @@ def _unbound_ocr_action(workspace: Workspace):
     service = SearchPreparationService(workspace)
     plan = service._plan(project, sheet_id=sheet_id, row_ids=None, force_ocr=False)
     batch = service.store.create(
-        workspace_root=str(workspace.root),
         storage_org_id=None,
         project_id=project_id,
         trigger_receipt_id=None,
         sheet_id=sheet_id,
         row_ids=None,
-        source_cutoff=int(project.op_cursor),
         force_ocr=False,
         plan=plan,
     )
     [item] = plan["items"]
-    child_key = service._child_key("ocr", item["column_id"], [item])
-    service.store.reserve_child_and_advance(
-        batch.id, expected_cursor=0, child_key=child_key, kind="ocr"
-    )
+    child_key = preparation_module._planned_child_key("ocr", item["column_id"], [item])
+    service.store.reserve_child(batch.id, child_key=child_key, kind="ocr")
     body = service._action_body(
         project,
         batch,
@@ -260,7 +256,6 @@ def test_server_reconciles_completed_enclosure_from_separate_worker(
     )
     store = SearchPreparationStore(workspace.queue, workspace_root=str(workspace.root))
     pending = store.create_pending_materialization(
-        workspace_root=str(workspace.root),
         storage_org_id=None,
         project_id=project_id,
         job_id=job_id,
@@ -298,7 +293,6 @@ def test_recovery_retires_automatic_intent_with_invalid_page_selector(
     )
     store = SearchPreparationStore(workspace.queue, workspace_root=str(workspace.root))
     store.create_pending_materialization(
-        workspace_root=str(workspace.root),
         storage_org_id=None,
         project_id=project_id,
         job_id=job_id,

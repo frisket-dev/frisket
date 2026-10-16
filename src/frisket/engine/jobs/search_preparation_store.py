@@ -40,7 +40,6 @@ search_preparation_batches_table = sa.Table(
     sa.Column("materialization_job_id", sa.Integer),
     sa.Column("sheet_id", sa.Integer),
     sa.Column("scope_json", sa.Text, nullable=False),
-    sa.Column("source_cutoff", sa.Integer),
     sa.Column("force_ocr", sa.Boolean, nullable=False),
     sa.Column("plan_hash", sa.String),
     sa.Column("plan_json", sa.Text),
@@ -50,7 +49,6 @@ search_preparation_batches_table = sa.Table(
     sa.Column("selected_setup_refs_json", sa.Text),
     sa.Column("stop_requested_at", sa.DateTime(timezone=True)),
     sa.Column("settled_at", sa.DateTime(timezone=True)),
-    sa.Column("cursor", sa.Integer, nullable=False, server_default="0"),
     sa.Column("error_json", sa.Text, nullable=False, server_default="[]"),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
@@ -126,7 +124,6 @@ class SearchPreparationBatchRow:
     materialization_job_id: int | None
     sheet_id: int | None
     row_ids: tuple[int, ...] | None
-    source_cutoff: int | None
     force_ocr: bool
     plan_hash: str | None
     plan: dict[str, Any] | None
@@ -136,7 +133,6 @@ class SearchPreparationBatchRow:
     selected_setup_refs: tuple[str, ...]
     stop_requested_at: datetime | None
     settled_at: datetime | None
-    cursor: int
     errors: tuple[str, ...]
     created_at: datetime
     updated_at: datetime
@@ -195,9 +191,6 @@ class SearchPreparationStore:
                 if scope.get("row_ids") is not None
                 else None
             ),
-            source_cutoff=(
-                None if row.source_cutoff is None else int(row.source_cutoff)
-            ),
             force_ocr=bool(row.force_ocr),
             plan_hash=None if row.plan_hash is None else str(row.plan_hash),
             plan=(None if row.plan_json is None else dict(json.loads(row.plan_json))),
@@ -207,7 +200,6 @@ class SearchPreparationStore:
             selected_setup_refs=tuple(str(value) for value in selected),
             stop_requested_at=_parse(row.stop_requested_at),
             settled_at=_parse(row.settled_at),
-            cursor=int(row.cursor),
             errors=tuple(str(value) for value in errors),
             created_at=_parse(row.created_at),
             updated_at=_parse(row.updated_at),
@@ -216,13 +208,11 @@ class SearchPreparationStore:
     def create(
         self,
         *,
-        workspace_root: str,
         storage_org_id: int | None,
         project_id: str,
         trigger_receipt_id: str | None,
         sheet_id: int,
         row_ids: Sequence[int] | None,
-        source_cutoff: int,
         force_ocr: bool,
         plan: Mapping[str, Any],
         retry_terminal: bool = False,
@@ -241,7 +231,7 @@ class SearchPreparationStore:
                 {
                     "sheet_id": sheet_id,
                     "row_ids": canonical_rows,
-                    "source_cutoff": source_cutoff,
+                    "source_cutoff": int(plan_body["source_cutoff"]),
                     "force_ocr": force_ocr,
                 }
             )
@@ -259,25 +249,21 @@ class SearchPreparationStore:
                 intent_key = f"{base_intent_key}:retry:{latest.id}"
         values = dict(
             id=batch_id,
-            workspace_root=workspace_root,
+            workspace_root=self.workspace_root,
             storage_org_id=storage_org_id,
             project_id=project_id,
             intent_key=intent_key,
             trigger_receipt_id=trigger_receipt_id,
             sheet_id=sheet_id,
             scope_json=json.dumps({"row_ids": canonical_rows}, separators=(",", ":")),
-            source_cutoff=source_cutoff,
             force_ocr=force_ocr,
             plan_hash=canonical_plan_hash(plan_body),
             plan_json=json.dumps(plan_body, sort_keys=True, separators=(",", ":")),
-            cursor=0,
             error_json="[]",
             settled_at=None,
             created_at=now,
             updated_at=now,
         )
-        if workspace_root != self.workspace_root:
-            raise ValueError("search preparation workspace root does not match store")
         try:
             with self._write() as cx:
                 cx.execute(search_preparation_batches_table.insert().values(**values))
@@ -303,7 +289,6 @@ class SearchPreparationStore:
     def create_pending_import(
         self,
         *,
-        workspace_root: str,
         storage_org_id: int | None,
         project_id: str,
         receipt_id: str,
@@ -315,7 +300,7 @@ class SearchPreparationStore:
         batch_id = "search-prep-" + uuid.uuid4().hex
         values = dict(
             id=batch_id,
-            workspace_root=workspace_root,
+            workspace_root=self.workspace_root,
             storage_org_id=storage_org_id,
             project_id=project_id,
             intent_key=f"import:{receipt_id}",
@@ -323,18 +308,14 @@ class SearchPreparationStore:
             import_ref=import_ref,
             sheet_id=None,
             scope_json=json.dumps({"row_ids": None}, separators=(",", ":")),
-            source_cutoff=None,
             force_ocr=False,
             plan_hash=None,
             plan_json=None,
-            cursor=0,
             error_json="[]",
             settled_at=None,
             created_at=now,
             updated_at=now,
         )
-        if workspace_root != self.workspace_root:
-            raise ValueError("search preparation workspace root does not match store")
         try:
             with self._write() as cx:
                 cx.execute(search_preparation_batches_table.insert().values(**values))
@@ -354,7 +335,6 @@ class SearchPreparationStore:
     def create_pending_materialization(
         self,
         *,
-        workspace_root: str,
         storage_org_id: int | None,
         project_id: str,
         job_id: int,
@@ -368,7 +348,7 @@ class SearchPreparationStore:
         intent_key = f"materialization:{int(job_id)}"
         values = dict(
             id=batch_id,
-            workspace_root=workspace_root,
+            workspace_root=self.workspace_root,
             storage_org_id=storage_org_id,
             project_id=project_id,
             intent_key=intent_key,
@@ -380,14 +360,11 @@ class SearchPreparationStore:
             ),
             force_ocr=False,
             plan_json=None,
-            cursor=0,
             error_json="[]",
             settled_at=None,
             created_at=now,
             updated_at=now,
         )
-        if workspace_root != self.workspace_root:
-            raise ValueError("search preparation workspace root does not match store")
         try:
             with self._write() as cx:
                 cx.execute(search_preparation_batches_table.insert().values(**values))
@@ -448,7 +425,6 @@ class SearchPreparationStore:
         project_id: str,
         storage_org_id: int | None,
         sheet_id: int,
-        source_cutoff: int,
         plan: Mapping[str, Any],
     ) -> SearchPreparationBatchRow:
         """Atomically turn one pending import reservation into an ordinary plan."""
@@ -474,7 +450,6 @@ class SearchPreparationStore:
                 )
                 .values(
                     sheet_id=int(sheet_id),
-                    source_cutoff=int(source_cutoff),
                     plan_hash=canonical_plan_hash(body),
                     plan_json=json.dumps(body, sort_keys=True, separators=(",", ":")),
                     settled_at=None,
@@ -491,7 +466,6 @@ class SearchPreparationStore:
         *,
         project_id: str,
         storage_org_id: int | None,
-        source_cutoff: int,
         plan: Mapping[str, Any],
     ) -> SearchPreparationBatchRow:
         """Atomically attach a plan after the recorded materialization finishes."""
@@ -516,7 +490,6 @@ class SearchPreparationStore:
                     c.stop_requested_at.is_(None),
                 )
                 .values(
-                    source_cutoff=int(source_cutoff),
                     plan_hash=canonical_plan_hash(body),
                     plan_json=json.dumps(body, sort_keys=True, separators=(",", ":")),
                     settled_at=None,
@@ -597,7 +570,6 @@ class SearchPreparationStore:
     def for_receipt(
         self,
         *,
-        workspace_root: str,
         storage_org_id: int | None,
         project_id: str,
         receipt_id: str,
@@ -611,7 +583,7 @@ class SearchPreparationStore:
         )
         with self.engine.connect() as cx:
             query = sa.select(search_preparation_batches_table).where(
-                c.workspace_root == workspace_root,
+                c.workspace_root == self.workspace_root,
                 predicate,
                 c.project_id == project_id,
                 c.trigger_receipt_id == receipt_id,
@@ -744,7 +716,6 @@ class SearchPreparationStore:
         *,
         project_id: str,
         storage_org_id: int | None,
-        source_cutoff: int,
         plan: Mapping[str, Any],
     ) -> SearchPreparationBatchRow:
         """Replace an undecided stale plan while retaining completed children."""
@@ -767,7 +738,6 @@ class SearchPreparationStore:
                     c.decision.is_(None),
                 )
                 .values(
-                    source_cutoff=source_cutoff,
                     plan_hash=canonical_plan_hash(body),
                     plan_json=json.dumps(body, sort_keys=True, separators=(",", ":")),
                     settled_at=None,
@@ -865,20 +835,31 @@ class SearchPreparationStore:
                     "search preparation settlement updated multiple rows"
                 )
 
-    def reserve_child_and_advance(
+    def reserve_child(
         self,
         batch_id: str,
         *,
-        expected_cursor: int,
         child_key: str,
         kind: str,
     ) -> SearchPreparationChildRow:
-        """Atomically reserve one deterministic child before cursor advancement."""
+        """Reserve one deterministic child while fencing a concurrent stop."""
 
         b = search_preparation_batches_table.c
         ch = search_preparation_children_table.c
         now = _now()
         with self._write() as cx:
+            batch = cx.execute(
+                sa.select(b.stop_requested_at)
+                .where(
+                    b.id == batch_id,
+                    b.workspace_root == self.workspace_root,
+                )
+                .with_for_update()
+            ).first()
+            if batch is None:
+                raise KeyError(batch_id)
+            if batch.stop_requested_at is not None:
+                raise ValueError("search preparation was stopped")
             existing = cx.execute(
                 sa.select(search_preparation_children_table).where(
                     ch.batch_id == batch_id, ch.child_key == child_key
@@ -899,21 +880,6 @@ class SearchPreparationStore:
                         ch.id == child_id
                     )
                 ).one()
-            update = cx.execute(
-                search_preparation_batches_table.update()
-                .where(
-                    b.id == batch_id,
-                    b.cursor == expected_cursor,
-                    b.stop_requested_at.is_(None),
-                )
-                .values(cursor=expected_cursor + 1, updated_at=now)
-            )
-            if update.rowcount != 1:
-                current = cx.execute(
-                    sa.select(b.cursor).where(b.id == batch_id)
-                ).scalar_one_or_none()
-                if current != expected_cursor + 1:
-                    raise ValueError("search preparation cursor changed")
         return SearchPreparationChildRow(
             id=int(existing.id),
             batch_id=str(existing.batch_id),
