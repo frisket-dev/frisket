@@ -131,40 +131,36 @@ class EmbeddingGemma2Session:
         }
         # Hugging Face snapshots symlink into the sibling blobs directory.
         artifact_root = self._snapshot.parent.parent
-        try:
-            self._handle = await shim.open_sandboxed_process(
-                argv,
-                policy=shim.SandboxPolicy(
-                    cpu_seconds=86400,
-                    memory_mb=8192,
-                    wall_seconds=600,
-                    trusted_python_netwall=True,
-                    allowed_extra_env=list(environment),
-                    confine=fence.Confinement(
-                        op="local multimodal embedding",
-                        read=(
-                            str(artifact_root),
-                            str(self._staging),
-                            "/proc/cpuinfo",
-                            "/sys/devices/system/cpu",
-                        ),
+        self._handle = await shim.open_sandboxed_process(
+            argv,
+            policy=shim.SandboxPolicy(
+                cpu_seconds=86400,
+                memory_mb=8192,
+                wall_seconds=600,
+                trusted_python_netwall=True,
+                allowed_extra_env=list(environment),
+                confine=fence.Confinement(
+                    op="local multimodal embedding",
+                    read=(
+                        str(artifact_root),
+                        str(self._staging),
+                        "/proc/cpuinfo",
+                        "/sys/devices/system/cpu",
                     ),
                 ),
-                extra_env=environment,
-                should_cancel=self._cancelled,
-            )
-            ready = await self._exchange(
-                {
-                    "schema_version": SCHEMA_VERSION,
-                    "type": "init",
-                    "model_revision": MODEL_REVISION,
-                    "snapshot": str(self._snapshot),
-                    "staging_root": str(self._staging),
-                }
-            )
-        except Exception:
-            await self._close(abort=True)
-            raise
+            ),
+            extra_env=environment,
+            should_cancel=self._cancelled,
+        )
+        ready = await self._exchange(
+            {
+                "schema_version": SCHEMA_VERSION,
+                "type": "init",
+                "model_revision": MODEL_REVISION,
+                "snapshot": str(self._snapshot),
+                "staging_root": str(self._staging),
+            }
+        )
         expected = {
             "schema_version": SCHEMA_VERSION,
             "type": "ready",
@@ -172,7 +168,6 @@ class EmbeddingGemma2Session:
             "preprocessing_base_id": EMBEDDINGGEMMA2_PREPROCESSING_BASE_ID,
         }
         if ready != expected:
-            await self._close(abort=True)
             raise EncodingError(
                 "model_unavailable",
                 "The EmbeddingGemma 2 runtime has an incompatible preprocessing contract.",
