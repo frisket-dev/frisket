@@ -9,6 +9,7 @@ from frisket.engine.executor import ExecutorDeps
 from frisket.engine.jobs.worker import Worker
 from frisket.server.app import create_app
 from frisket.engine.store.receipts import ReceiptStore
+from http_test_helpers import drain_queue, run_worker_until_job_terminal
 
 
 class FakeGoogleSheetsClient:
@@ -79,6 +80,7 @@ def test_create_app_executor_deps_factory_wires_google_sheets_action(tmp_path) -
     )
     assert imported.status_code == 200, imported.text
     sheet_id = imported.json()["sheet_id"]
+    drain_queue(client, worker_id="hosted-sheets-search-setup")
 
     action = {
         "action_id": "export.google_sheets",
@@ -117,7 +119,11 @@ def test_create_app_executor_deps_factory_wires_google_sheets_action(tmp_path) -
     ]
 
     ws = client.app.state.workspace
-    assert Worker(ws.queue, ws.registry, worker_id="sheets-test").run_once() is True
+    run_worker_until_job_terminal(
+        Worker(ws.queue, ws.registry, worker_id="sheets-test"),
+        ws.queue,
+        int(body["job_id"]),
+    )
     project = ws.get(pid)
     stored = ReceiptStore(project).find_by_id(body["receipt_id"])
     assert stored is not None

@@ -15,7 +15,11 @@ from frisket.engine.jobs.worker import HandlerRegistry, Worker
 from frisket.ai.llm import ModelRouter
 from frisket.server.app import create_app
 from frisket.server import provider_config
-from http_test_helpers import queued_python_run_spec, v1_action_from_canonical_run_spec
+from http_test_helpers import (
+    drain_queue,
+    queued_python_run_spec,
+    v1_action_from_canonical_run_spec,
+)
 
 
 CSV = "note\nCall 212-555-0123\nNo phone\n"
@@ -30,6 +34,7 @@ def _seed_project(client: TestClient) -> tuple[str, int]:
         files={"file": ("calls.csv", CSV, "text/csv")},
     )
     assert imported.status_code == 200, imported.text
+    drain_queue(client, worker_id="queued-receipt-setup")
     return project_id, imported.json()["sheet_id"]
 
 

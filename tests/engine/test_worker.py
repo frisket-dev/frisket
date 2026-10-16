@@ -33,7 +33,11 @@ from frisket.engine.store.sources import SourceStore
 from frisket.execution.provider import open_execution_composition
 from frisket.server.services.action_runs import ActionRunService
 from frisket.server.workspace import Workspace
-from http_test_helpers import queued_python_run_spec, v1_action_from_canonical_run_spec
+from http_test_helpers import (
+    queued_python_run_spec,
+    run_worker_until_job_terminal,
+    v1_action_from_canonical_run_spec,
+)
 
 
 @pytest.fixture
@@ -317,9 +321,7 @@ class TestExecution:
             registry=reg,
         )
 
-        Worker(q, reg).run_once()
-
-        job = q.get(jid)
+        job = run_worker_until_job_terminal(Worker(q, reg), q, jid)
         assert job.status == "done"
         p2 = Project(workspace / f"{project_id}.frisket")
         run = p2.db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
@@ -431,10 +433,12 @@ class TestExecution:
 
         try:
             worker = Worker(queue, registry)
-            assert worker.run_once()
-            assert worker.run_once()
             for result in launched:
-                job = queue.get(int(result["job_id"]))
+                job = run_worker_until_job_terminal(
+                    worker,
+                    queue,
+                    int(result["job_id"]),
+                )
                 assert job is not None and job.status == "done", job.error
             assert len(bases) == 2
             assert bases[0] is not bases[1]
@@ -580,9 +584,11 @@ class TestExecution:
             return project_run_handler(mutate_payload_org(payload), context)
 
         registry.register(RUN_PROJECT_KIND, interposed_project_run)
-        assert Worker(queue, registry, worker_id="settlement-org-seam").run_once()
-
-        job = queue.get(job_id)
+        job = run_worker_until_job_terminal(
+            Worker(queue, registry, worker_id="settlement-org-seam"),
+            queue,
+            job_id,
+        )
         assert job.status == "done", job.error
         assert len(settlement.calls) == 1
         call = settlement.calls[0]
@@ -627,9 +633,7 @@ class TestExecution:
         reg = default_registry()
         register_project_run_handler(reg, workspace_root=workspace)
 
-        Worker(q, reg).run_once()
-
-        job = q.get(jid)
+        job = run_worker_until_job_terminal(Worker(q, reg), q, jid)
         assert job.status == "failed"
         assert job.error == "worker_exception: original failure"
         # Exception notes are traceback metadata and are not persisted.
@@ -885,9 +889,7 @@ class TestCli:
             workspace_root=projects_root,
         )
 
-        assert Worker(queue, registry).run_once()
-
-        job = queue.get(job_id)
+        job = run_worker_until_job_terminal(Worker(queue, registry), queue, job_id)
         assert job is not None and job.status == "done"
         assert job.result is not None
         errors = job.result["action_result"]["errors"]

@@ -555,6 +555,7 @@ class TestRuns:
 
     def test_run_status_reconciles_terminal_queue_failure(self, client):
         pid, sheet_id = make_project_with_data(client)
+        drain_queue(client)
         spec = queued_python_run_spec(sheet_id, "snippet", "copied_snippet")
         r = post_canonical_run_spec_as_v1_action(client, pid, spec)
         assert r.status_code == 200, r.text
@@ -934,6 +935,7 @@ class TestCancelRun:
             files={"file": ("s.csv", self.SLOW_CSV, "text/csv")},
         )
         sheet_id = r.json()["sheet_id"]
+        drain_queue(client)
         ws = client.app.state.workspace
         worker = Worker(
             ws.queue,

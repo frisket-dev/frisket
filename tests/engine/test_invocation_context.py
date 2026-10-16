@@ -43,6 +43,7 @@ from frisket.ops.base import OpContext
 from frisket.plugins.sdk import Plugin
 from frisket.sdk import InvocationContext as ExportedContext
 from runner_test_helpers import run_with_output_claim
+from http_test_helpers import run_worker_until_job_terminal
 
 
 class Params(ActionParams):
@@ -460,9 +461,11 @@ def test_queued_context_cancellation_finalizes_receipt_attempt_and_claims(
         assert response.status_code == 200, response.text
         queued = response.json()
         assert queued["status"] == "queued", queued
-        assert Worker(
-            workspace.queue, workspace.registry, worker_id="context"
-        ).run_once()
+        run_worker_until_job_terminal(
+            Worker(workspace.queue, workspace.registry, worker_id="context"),
+            workspace.queue,
+            int(queued["job_id"]),
+        )
         job = workspace.queue.get(queued["job_id"])
         assert observed == [True]
         assert job.status == "done", job

@@ -23,6 +23,7 @@ from frisket.engine.jobs.ports import JobHandlerContext
 from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
 from frisket.server.app import create_app
 from frisket.engine.store.receipts import ReceiptStore
+from http_test_helpers import drain_queue
 
 
 class FakeGoogleSheetsClient:
@@ -109,6 +110,7 @@ def _seed_sheet(client: TestClient) -> tuple[str, int]:
         files={"file": ("rows.csv", "name,status\nAda,ready\n", "text/csv")},
     )
     assert imported.status_code == 200, imported.text
+    drain_queue(client, worker_id="sheets-export-setup")
     return pid, int(imported.json()["sheet_id"])
 
 

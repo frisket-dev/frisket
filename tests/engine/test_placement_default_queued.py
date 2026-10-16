@@ -76,7 +76,7 @@ from frisket.execution.pricing_policy import (
     install_pricing_policy,
 )
 from frisket.server.app import create_app
-from http_test_helpers import drain_queue
+from http_test_helpers import drain_queue, run_worker_until_job_terminal
 
 
 MOVED_KINDS = ("enrich.census_demographics", "enrich.geocode", "map.python")
@@ -440,11 +440,15 @@ def test_hosted_admission_refuses_map_python_before_lookup_or_runner(
         router=ModelRouter(cache=None, cache_mode="off"),
         worker_ports=WorkerPorts(admission_port=admission),
     )
-    assert Worker(
+    run_worker_until_job_terminal(
+        Worker(
+            client.app.state.workspace.queue,
+            registry,
+            worker_id="hosted-map-python-refusal",
+        ),
         client.app.state.workspace.queue,
-        registry,
-        worker_id="hosted-map-python-refusal",
-    ).run_once()
+        result.job_id,
+    )
 
     project = client.app.state.workspace.get(project_id)
     receipt = project.db.execute(

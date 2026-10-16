@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from frisket.engine.jobs import RUN_PROJECT_KIND, Worker
 from frisket.server.app import create_app
 from http_test_helpers import (
+    drain_queue,
     post_canonical_run_spec_as_v1_action,
     queued_python_run_spec,
 )
@@ -31,6 +32,7 @@ def _seed_queued_action_run(client: TestClient) -> tuple[str, int, int, int]:
     )
     assert imported.status_code == 200, imported.text
     sheet_id = imported.json()["sheet_id"]
+    drain_queue(client, worker_id="timing-search-setup")
     spec = queued_python_run_spec(sheet_id, "first", "display")
     run = post_canonical_run_spec_as_v1_action(client, pid, spec, confirmed=True)
     assert run.status_code == 200, run.text
@@ -186,12 +188,8 @@ def test_project_timing_summarizes_run_and_job_history(tmp_path):
     assert action["count"] == 1
     assert action["duration_seconds"]["p90_seconds"] == pytest.approx(10, abs=0.5)
 
-    assert body["jobs"]["count"] == 1
-    assert body["jobs"]["queue_wait_seconds"]["p50_seconds"] == pytest.approx(
-        3, abs=0.5
-    )
-    assert body["jobs"]["duration_seconds"]["p50_seconds"] == pytest.approx(10, abs=0.5)
     kind = body["jobs"]["by_kind"][RUN_PROJECT_KIND]
     assert kind["count"] == 1
+    assert kind["queue_wait_seconds"]["p50_seconds"] == pytest.approx(3, abs=0.5)
     assert kind["duration_seconds"]["p90_seconds"] == pytest.approx(10, abs=0.5)
     assert body["active_runs"] == []

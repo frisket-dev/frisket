@@ -24,6 +24,7 @@ from frisket.server.routes.document_extraction import (
 )
 from frisket.server.services.document_extraction import DocumentExtractionService
 from frisket.server.workspace import Workspace
+from http_test_helpers import run_worker_until_job_terminal
 
 
 def seed(project, count=2, *, repeats=False, engine="tesseract", granularity=None):
@@ -1401,7 +1402,9 @@ def test_public_queued_run_rejects_layout_changed_after_submission(tmp_path):
         worker = Worker(
             workspace.queue, workspace.registry, worker_id="visual-extraction-test"
         )
-        assert worker.run_once()
+        run_worker_until_job_terminal(
+            worker, workspace.queue, int(launched.json()["job_id"])
+        )
         receipt = client.get(
             f"/api/projects/{pid}/actions/v1/receipts/{launched.json()['receipt_id']}"
         )

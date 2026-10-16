@@ -141,7 +141,7 @@ def test_project_run_status_jobs_and_timing_use_indexed_queue_refs(
     timing = client.get(f"/api/projects/{project_id}/timing")
     assert timing.status_code == 200, timing.text
     timing_body = timing.json()
-    assert timing_body["jobs"]["count"] == 1
+    assert timing_body["jobs"]["by_kind"][RUN_PROJECT_KIND]["count"] == 1
     assert timing_body["active_runs"][0]["run_id"] == result.run_id
     assert timing_body["active_runs"][0]["status"] == "queued"
 
