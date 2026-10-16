@@ -394,7 +394,6 @@ export function SearchPreparationReceipt({
             : batch.status === 'complete' || batch.status === 'stopped'
               ? 'Files imported'
               : 'Make these files searchable'}</h2>
-          {fullyPrepared && <p className="form-hint">Search by meaning may still be preparing.</p>}
         </div>
       </header>
 

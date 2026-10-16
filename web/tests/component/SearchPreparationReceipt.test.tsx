@@ -156,7 +156,6 @@ describe('SearchPreparationReceipt', () => {
     render(<SearchPreparationReceipt projectId="project-1" batchId="prep-1" onDone={vi.fn()} onError={vi.fn()} />);
 
     expect(await screen.findByRole('heading', { name: 'Text ready for keyword search' })).not.toBeNull();
-    expect(screen.getByText('Search by meaning may still be preparing.')).not.toBeNull();
   });
 
   it('refreshes a visible preview on batch completion without repeatedly reading settled samples', async () => {

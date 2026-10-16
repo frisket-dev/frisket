@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { X } from 'lucide-react';
 import {
   cancelImportSession,
   listImportSessions,
@@ -57,6 +58,7 @@ export function ImportProgress({ projectId, onOpenSheet, onChanged, onError }: {
     importSessionSnapshot,
     importSessionSnapshot,
   );
+  const preparationDialogRef = useRef<HTMLDialogElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const continueRef = useRef<ImportSessionStatus | null>(null);
   const preparationGeneration = useRef(0);
@@ -65,6 +67,11 @@ export function ImportProgress({ projectId, onOpenSheet, onChanged, onError }: {
   useEffect(() => () => {
     preparationGeneration.current += 1;
   }, [projectId]);
+
+  useEffect(() => {
+    const dialog = preparationDialogRef.current;
+    if (openPreparationBatchId && dialog && !dialog.open) dialog.showModal();
+  }, [openPreparationBatchId]);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -148,7 +155,7 @@ export function ImportProgress({ projectId, onOpenSheet, onChanged, onError }: {
   };
 
   if (!sessions.length) return null;
-  return (
+  const banner = (
     <section className="notification-settings-notice" aria-label="Import progress" data-testid="import-progress">
       <input
         ref={fileInputRef}
@@ -257,21 +264,61 @@ export function ImportProgress({ projectId, onOpenSheet, onChanged, onError }: {
             </div>
           );
         })}
-        {openPreparationBatchId && (
-          <SearchPreparationReceipt
-            key={openPreparationBatchId}
-            projectId={projectId}
-            batchId={openPreparationBatchId}
-            onBatchChange={(batch) => setOpenPreparationBatchId(batch.id)}
-            onDone={() => setOpenPreparationBatchId(null)}
-            onError={(text) => {
-              setMessage(text);
-              onError?.(text);
-            }}
-          />
-        )}
         {message ? <div className="import-field-error" role="alert">{message}</div> : null}
       </div>
     </section>
+  );
+  return (
+    <>
+      {banner}
+      {openPreparationBatchId && (
+        <dialog
+          ref={preparationDialogRef}
+          className="import-workspace-layer"
+          aria-label="Search preparation"
+          onCancel={(event) => {
+            event.preventDefault();
+            setOpenPreparationBatchId(null);
+          }}
+          onClose={() => setOpenPreparationBatchId(null)}
+        >
+          <button
+            type="button"
+            className="import-workspace-backdrop"
+            aria-label="Close preparation backdrop"
+            onMouseDown={() => setOpenPreparationBatchId(null)}
+          />
+          <section className="import-workspace import-workspace-receipt">
+            <header className="import-workspace-header import-workspace-header-receipt">
+              <button
+                type="button"
+                className="icon-btn"
+                aria-label="Close preparation"
+                onClick={() => setOpenPreparationBatchId(null)}
+              >
+                <X size={16} />
+              </button>
+            </header>
+            <div className="import-workspace-main import-workspace-main-receipt">
+              <div className="import-workspace-content">
+                <div className="import-workspace-panel">
+                  <SearchPreparationReceipt
+                    key={openPreparationBatchId}
+                    projectId={projectId}
+                    batchId={openPreparationBatchId}
+                    onBatchChange={(batch) => setOpenPreparationBatchId(batch.id)}
+                    onDone={() => setOpenPreparationBatchId(null)}
+                    onError={(text) => {
+                      setMessage(text);
+                      onError?.(text);
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+          </section>
+        </dialog>
+      )}
+    </>
   );
 }
