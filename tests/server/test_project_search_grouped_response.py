@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from types import SimpleNamespace
 
 import pytest
