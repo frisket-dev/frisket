@@ -9131,13 +9131,49 @@ export type HttpProjectSecretRequest = ({
   [key: string]: JsonValue | (string);
 });
 
+type HttpProjectSettingsRequest_ProjectRetrievalSettingsRequest = ({
+  "audio_enabled"?: (boolean);
+  "image_enabled"?: (boolean);
+  "pdf_pages_enabled"?: (boolean);
+  "text_enabled"?: (boolean);
+  "transcript_enabled"?: (boolean);
+  "video"?: (HttpProjectSettingsRequest_ProjectRetrievalVideoRequest);
+});
+
+type HttpProjectSettingsRequest_ProjectRetrievalVideoRequest = ({
+  "duration_seconds"?: (number);
+  "interval_seconds"?: (number);
+  "sample_fps"?: (number);
+  "strategy": ("off" | "frames" | "fixed_clips" | "shot_clips") & (string);
+  "stride_seconds"?: (number);
+});
+
 export type HttpProjectSettingsRequest = ({
   "media_allow_private_hosts"?: (boolean);
+  "retrieval"?: (HttpProjectSettingsRequest_ProjectRetrievalSettingsRequest);
+});
+
+type HttpProjectSettingsResponse_ProjectRetrievalSettingsResponse = ({
+  "audio_enabled": (boolean);
+  "image_enabled": (boolean);
+  "pdf_pages_enabled": (boolean);
+  "text_enabled": (boolean);
+  "transcript_enabled": (boolean);
+  "video": (HttpProjectSettingsResponse_ProjectRetrievalVideoResponse);
+});
+
+type HttpProjectSettingsResponse_ProjectRetrievalVideoResponse = ({
+  "duration_seconds": (((number)) | ((null)));
+  "interval_seconds": (((number)) | ((null)));
+  "sample_fps": (((number)) | ((null)));
+  "strategy": ("off" | "frames" | "fixed_clips" | "shot_clips") & (string);
+  "stride_seconds": (((number)) | ((null)));
 });
 
 export type HttpProjectSettingsResponse = ({
   "media_allow_private_hosts": (boolean);
   "media_allow_private_hosts_locked": (boolean);
+  "retrieval": (HttpProjectSettingsResponse_ProjectRetrievalSettingsResponse);
 });
 
 type HttpProjectSourceDetail_JsonValue = JsonValue;
