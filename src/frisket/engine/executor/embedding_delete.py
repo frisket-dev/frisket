@@ -6,7 +6,7 @@ from typing import Any
 
 from frisket.actions.core import _ProjectAction
 from frisket.actions.types import DeletedEmbeddingIndex
-from frisket.ai.embeddings import EmbeddingStore, VectorBackend
+from frisket.ai.embeddings import EmbeddingStore
 from frisket.contracts.action import (
     ActionError,
     ActionResult,
@@ -22,6 +22,7 @@ from frisket.engine.executor.action_receipts import _result_from_receipt
 from frisket.engine.executor.action_support import _failed_result
 from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
+from frisket.retrieval.store import RetrievalStore
 
 
 class _DeleteRefused(Exception):
@@ -52,12 +53,14 @@ class _IndexDeleter:
                 "embedding_index_not_found", f"no embedding index {index_id!r}"
             )
         space_id = index["space_id"]
-        backend = VectorBackend(self._project)
-        try:
-            backend.ensure_schema()
-            deleted_items = backend.delete_index(index_id)
-        finally:
-            backend.close()
+        with RetrievalStore(self._project) as retrieval:
+            deleted_items = int(
+                retrieval.db.execute(
+                    "SELECT count(*) FROM named_dataset_membership WHERE dataset_id=?",
+                    (index_id,),
+                ).fetchone()[0]
+            )
+            retrieval.replace_named_dataset_members(index_id, ())
         # The sidecar above and filesystem cleanup below are independent writes.
         # A later project/receipt rollback does not restore either of them.
         store.delete_index(index_id, commit=False)

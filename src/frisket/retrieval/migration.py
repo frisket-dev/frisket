@@ -22,6 +22,12 @@ from pathlib import Path
 from typing import Any
 
 from frisket.ai.embeddings.source_payload import build_source_payloads
+from frisket.ai.embeddings.unified_index import (
+    ROW_CHANNEL,
+    ROW_RECIPE_CONTRACT,
+    named_encoder_input,
+    named_index_recipe,
+)
 from frisket.ai.embeddings.spaces import (
     STRICT_FIELDS,
     canonical_json as embedding_canonical_json,
@@ -41,7 +47,6 @@ from .sources import (
     identity_digest,
     input_hash,
     part_id,
-    producer_recipe_id,
     representation_id,
     row_composite_source_revision,
 )
@@ -57,8 +62,7 @@ from .store import (
 )
 
 
-LEGACY_ROW_RECIPE = "frisket.legacy-row-composite.v1"
-ROW_CHANNEL = "row"
+LEGACY_ROW_RECIPE = ROW_RECIPE_CONTRACT
 _F32 = struct.Struct("<f")
 _NAMED_TABLES = {
     "embedding_items": {
@@ -417,7 +421,7 @@ def _migrate_named_batch(
             misses["named_binding_revision_missing"] += 1
             continue
         try:
-            encoder_input = _named_encoder_input(project, payload, plan.space)
+            encoder_input = named_encoder_input(project, payload, plan.space.descriptor)
         except (LookupError, OSError, TypeError, ValueError):
             misses["named_input_unprovable"] += 1
             continue
@@ -585,23 +589,20 @@ def _index_plan(
     if expected_policy_hash != str(index["source_policy_hash"]):
         raise ValueError("source policy hash mismatch")
     query_spec = _json_object(index["source_query_json"])
-    recipe = {
-        "contract": LEGACY_ROW_RECIPE,
-        "source_payload_contract": space.descriptor["source_payload_contract"],
-        "modality": space.modality,
-        "ordered_source_columns": [
-            {"name": name, "column_id": column_id} for name, column_id in columns
-        ],
-        "source_policy": source_policy,
-        "source_policy_hash": expected_policy_hash,
-    }
+    named_recipe = named_index_recipe(
+        descriptor=space.descriptor,
+        ordered_columns=columns,
+        source_policy=source_policy,
+        source_policy_hash=expected_policy_hash,
+    )
+    recipe = named_recipe.value
     return _IndexPlan(
         index=index,
         space=space,
         sheet_id=sheet_id,
         columns=columns,
         recipe=recipe,
-        recipe_id=producer_recipe_id(recipe),
+        recipe_id=named_recipe.recipe_id,
         query_spec=query_spec,
     )
 
@@ -661,30 +662,6 @@ def _legacy_named_row_error(
     if source_ref != payload["source_ref"]:
         return "named_source_ref_stale"
     return None
-
-
-def _named_encoder_input(
-    project: Any, payload: Mapping[str, Any], space: _VerifiedSpace
-) -> str | bytes:
-    if space.modality in {"text", "row"}:
-        value = payload["payload"]
-        if not isinstance(value, str):
-            raise TypeError("text payload is not a string")
-        return value
-    if space.modality == "image":
-        media = payload["source_ref"].get("media") or []
-        if len(media) != 1:
-            raise ValueError("image input requires one immutable blob")
-        blob_hash = media[0].get("blob_hash")
-        if not isinstance(blob_hash, str) or not media[0].get("materializable"):
-            raise ValueError("image blob is not materializable")
-        data = project.read_blob(blob_hash)
-        if hashlib.sha256(data).hexdigest() != blob_hash:
-            raise ValueError("image blob digest mismatch")
-        if data.startswith(b"%PDF-"):
-            raise ValueError("PDF was not a legacy image input")
-        return data
-    raise ValueError("legacy modality input cannot be proven")
 
 
 def _verified_spaces(

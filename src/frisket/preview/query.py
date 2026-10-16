@@ -218,28 +218,20 @@ def _resolve_embedding_similarity_preview(
         SimilarityError,
         resolve_embedding_similarity,
     )
-    from frisket.ai.embeddings.vector_backend import VectorBackend
 
     # Freshness gate (product path, NOT the resolver): never silently search a
     # partial/stale index. Runs before resolution so an appended-but-unembedded row
     # or a changed ready row blocks with a typed, refresh-needed code.
-    backend = VectorBackend(project)
     try:
-        backend.ensure_schema()
-        backend.begin_read_snapshot()
         gate = embedding_search_freshness_error(
-            project, normalized.get("embedding_index_id"), backend=backend
+            project, normalized.get("embedding_index_id")
         )
         if gate is not None:
             code, message = gate
             raise QueryPreviewError(code, message, field="query.embedding_index_id")
-        result = resolve_embedding_similarity(
-            project, normalized, gateway=None, backend=backend
-        )
+        result = resolve_embedding_similarity(project, normalized, gateway=None)
     except SimilarityError as exc:
         raise QueryPreviewError(exc.code, exc.message, field=exc.field) from exc
-    finally:
-        backend.close()
     hits = list(result.hits)
     total = len(hits)
     # limit=0 is an EMPTY window (total preserved) — not "return all".
@@ -289,26 +281,18 @@ def _resolve_embedding_hybrid_preview(
     from frisket.ai.embeddings.freshness import embedding_search_freshness_error
     from frisket.ai.embeddings.hybrid import resolve_embedding_hybrid
     from frisket.ai.embeddings.similarity import SimilarityError
-    from frisket.ai.embeddings.vector_backend import VectorBackend
 
-    backend = VectorBackend(project)
     try:
-        backend.ensure_schema()
-        backend.begin_read_snapshot()
         gate = embedding_search_freshness_error(
-            project, normalized.get("embedding_index_id"), backend=backend
+            project, normalized.get("embedding_index_id")
         )
         if gate is not None:
             code, message = gate
             raise QueryPreviewError(code, message, field="query.embedding_index_id")
-        result = resolve_embedding_hybrid(
-            project, normalized, gateway=None, backend=backend
-        )
+        result = resolve_embedding_hybrid(project, normalized, gateway=None)
     except SimilarityError as exc:
         field = "text" if exc.field == "anchor.text" else exc.field
         raise QueryPreviewError(exc.code, exc.message, field=field) from exc
-    finally:
-        backend.close()
     hits = list(result.hits)
     total = len(hits)
     window = hits[offset : offset + limit]

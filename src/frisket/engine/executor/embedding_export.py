@@ -13,7 +13,11 @@ from pydantic import ValidationError
 from frisket.actions.core import _ProjectAction
 from frisket.actions.embeddings import IndexExportParams
 from frisket.actions.types import IndexExport, IndexExportFormat
-from frisket.ai.embeddings import EmbeddingStore, VectorBackend
+from frisket.ai.embeddings import EmbeddingStore
+from frisket.ai.embeddings.unified_index import (
+    UNIFIED_BACKEND_ID,
+    UNIFIED_BACKEND_VERSION,
+)
 from frisket.ai.embeddings import export as _export
 from frisket.ai.embeddings.freshness import (
     FRESHNESS_FRESH,
@@ -46,9 +50,10 @@ from frisket.engine.executor.embedding_read import (
     _embedding_sidecar_items_replay_error,
     _embedding_stale_replay_error,
     _json_obj,
-    _sidecar_item_evidence,
+    _named_item_evidence,
 )
 from frisket.engine.store import Project
+from frisket.retrieval.store import RetrievalStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.sdk.plain import build_plain_action_run_fn
 
@@ -102,8 +107,8 @@ def _export_provenance(index, space, ready_items: int, total_items: int) -> dict
         "source_query": _json_obj(index["source_query_json"]),
         "source_columns": json.loads(index["source_columns_json"]),
         "source_policy_hash": index["source_policy_hash"],
-        "vector_backend_id": VectorBackend.BACKEND_ID,
-        "vector_backend_version": VectorBackend.BACKEND_VERSION,
+        "vector_backend_id": UNIFIED_BACKEND_ID,
+        "vector_backend_version": UNIFIED_BACKEND_VERSION,
         "total_items": total_items,
         "ready_items": ready_items,
     }
@@ -111,7 +116,7 @@ def _export_provenance(index, space, ready_items: int, total_items: int) -> dict
 
 def _export_items_evidence(
     *,
-    backend: VectorBackend,
+    project: Project,
     index,
     space,
     rows: list[dict[str, Any]],
@@ -120,17 +125,17 @@ def _export_items_evidence(
         "kind": "embedding_index_export_items",
         "index_id": index["id"],
         "space_id": space["id"],
-        "backend_id": VectorBackend.BACKEND_ID,
-        "backend_version": VectorBackend.BACKEND_VERSION,
+        "backend_id": UNIFIED_BACKEND_ID,
+        "backend_version": UNIFIED_BACKEND_VERSION,
         "source_query": _json_obj(index["source_query_json"]),
         "source_columns": json.loads(index["source_columns_json"]),
         "source_policy_hash": index["source_policy_hash"],
     }
     evidence.update(
-        _sidecar_item_evidence(
-            backend,
-            index_id=index["id"],
-            space_id=space["id"],
+        _named_item_evidence(
+            project,
+            index=index,
+            space=space,
             source_keys=[str(row["source_key"]) for row in rows],
         )
     )
@@ -260,10 +265,10 @@ def _resolve_index_export(
             field="params.index_id",
         )
 
-    if not (project.path / "project.embeddings.db").exists():
+    if not RetrievalStore(project).path.exists():
         return ActionError(
             code="embedding_export_sidecar_missing",
-            message="project.embeddings.db sidecar does not exist; refresh the index first",
+            message="project.retrieval.db sidecar does not exist; refresh the index first",
             action_kind="embedding.index_export",
             field="params.index_id",
         )
@@ -280,12 +285,10 @@ def _resolve_index_export(
         )
     dest_dir = dest_dir.resolve()
 
-    backend = VectorBackend(project)
-    backend.ensure_schema()
     try:
-        counts = backend.item_counts(params.index_id)
-        total_items = sum(counts.values())
-        ready_items = counts.get("ready", 0)
+        fresh = index_freshness(project, index)
+        total_items = fresh.target_count
+        ready_items = len(fresh.ready_keys)
         if ready_items == 0:
             return ActionError(
                 code="embedding_export_no_ready_vectors",
@@ -305,13 +308,12 @@ def _resolve_index_export(
         source_columns = json.loads(index["source_columns_json"])
         rows = collect_index_rows(
             project,
-            backend,
             index,
             source_columns,
             include_vectors=params.include_vectors,
         )
         export_item_evidence = _export_items_evidence(
-            backend=backend,
+            project=project,
             index=index,
             space=space,
             rows=rows,
@@ -323,8 +325,22 @@ def _resolve_index_export(
             )
             if destination_error is not None:
                 return destination_error
+        artifact_rows = [
+            {
+                key: row[key]
+                for key in (
+                    "source_key",
+                    "row_id",
+                    "source_hash",
+                    "source_ref",
+                    "values",
+                    "vector",
+                )
+            }
+            for row in rows
+        ]
         artifacts = _export.write_export_artifacts(
-            rows,
+            artifact_rows,
             dest_dir=dest_dir,
             base_name=base_name,
             formats=params.formats,
@@ -348,8 +364,6 @@ def _resolve_index_export(
             message="embedding export artifacts could not be written",
             action_kind="embedding.index_export",
         )
-    finally:
-        backend.close()
 
     artifact_refs = [
         {
