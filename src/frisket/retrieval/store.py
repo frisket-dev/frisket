@@ -17,7 +17,7 @@ from .sources import canonical_json, input_hash
 
 
 RETRIEVAL_DB_NAME = "project.retrieval.db"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 SIDECAR_ID_META_KEY = "sidecar_id"
 PROJECT_SIDECAR_META_KEY = "retrieval_sidecar_id"
 PAGE_SIZE = 16 * 1024
@@ -183,79 +183,80 @@ class RetrievalStore:
         self.close()
 
     def ensure_schema(self) -> None:
-        """Create the version-one sidecar without storing authoritative source text."""
+        """Create the current sidecar without storing authoritative source text."""
 
-        tables = {
-            str(row[0])
-            for row in self.db.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            tables = {
+                str(row[0])
+                for row in self.db.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                )
+            }
+            if "retrieval_meta" in tables:
+                row = self.db.execute(
+                    "SELECT value FROM retrieval_meta WHERE key='schema_version'"
+                ).fetchone()
+                try:
+                    version = None if row is None else int(row[0])
+                except (TypeError, ValueError):
+                    version = None
+                if version != SCHEMA_VERSION:
+                    raise RuntimeError(
+                        f"unsupported retrieval schema version "
+                        f"{None if row is None else row[0]!r}; "
+                        f"expected {SCHEMA_VERSION}"
+                    )
+            elif tables:
+                raise RuntimeError(
+                    "unsupported retrieval schema: schema version is missing"
+                )
+
+            for statement in _schema_statements(_SCHEMA):
+                self.db.execute(statement)
+            self.db.execute(
+                "CREATE INDEX IF NOT EXISTS preparation_space_counts "
+                "ON preparation(recipe_id,channel,space_id,status)"
             )
-        }
-        if "retrieval_meta" in tables:
+            self.db.execute(
+                "CREATE INDEX IF NOT EXISTS preparation_attention "
+                "ON preparation(space_id,channel,status) WHERE status!='ready'"
+            )
             row = self.db.execute(
                 "SELECT value FROM retrieval_meta WHERE key='schema_version'"
             ).fetchone()
+            if row is None:
+                self.db.execute(
+                    "INSERT INTO retrieval_meta(key,value) VALUES ('schema_version',?)",
+                    (str(SCHEMA_VERSION),),
+                )
+            sidecar = self.db.execute(
+                "SELECT value FROM retrieval_meta WHERE key=?",
+                (SIDECAR_ID_META_KEY,),
+            ).fetchone()
             try:
-                version = None if row is None else int(row[0])
-            except (TypeError, ValueError):
-                version = None
-            if version != SCHEMA_VERSION:
-                raise RuntimeError(
-                    f"unsupported retrieval schema version "
-                    f"{None if row is None else row[0]!r}; expected {SCHEMA_VERSION}"
+                sidecar_id = (
+                    None if sidecar is None else str(uuid.UUID(str(sidecar[0])))
                 )
-        elif tables:
-            raise RuntimeError(
-                "unsupported retrieval schema: schema version is missing"
-            )
-
-        self.db.executescript(_SCHEMA)
-        preparation_columns = {
-            str(row["name"])
-            for row in self.db.execute("PRAGMA table_info(preparation)")
-        }
-        if "space_id" not in preparation_columns:
-            self.db.execute("ALTER TABLE preparation ADD COLUMN space_id TEXT")
-        self.db.execute(
-            "CREATE INDEX IF NOT EXISTS preparation_space_counts "
-            "ON preparation(recipe_id,channel,space_id,status)"
-        )
-        self.db.execute(
-            "CREATE INDEX IF NOT EXISTS preparation_attention "
-            "ON preparation(space_id,channel,status) WHERE status!='ready'"
-        )
-        row = self.db.execute(
-            "SELECT value FROM retrieval_meta WHERE key='schema_version'"
-        ).fetchone()
-        if row is None:
-            self.db.execute(
-                "INSERT INTO retrieval_meta(key,value) VALUES ('schema_version',?)",
-                (str(SCHEMA_VERSION),),
-            )
-        elif int(row[0]) != SCHEMA_VERSION:
-            raise RuntimeError(
-                f"unsupported retrieval schema version {row[0]!r}; "
-                f"expected {SCHEMA_VERSION}"
-            )
-        sidecar = self.db.execute(
-            "SELECT value FROM retrieval_meta WHERE key=?", (SIDECAR_ID_META_KEY,)
-        ).fetchone()
-        try:
-            sidecar_id = None if sidecar is None else str(uuid.UUID(str(sidecar[0])))
-        except (TypeError, ValueError, AttributeError):
-            sidecar_id = None
-        if sidecar_id is None:
-            generated = str(uuid.uuid4())
-            if sidecar is None:
-                self.db.execute(
-                    "INSERT OR IGNORE INTO retrieval_meta(key,value) VALUES (?,?)",
-                    (SIDECAR_ID_META_KEY, generated),
-                )
-            else:
-                self.db.execute(
-                    "UPDATE retrieval_meta SET value=? WHERE key=?",
-                    (generated, SIDECAR_ID_META_KEY),
-                )
+            except (TypeError, ValueError, AttributeError):
+                sidecar_id = None
+            if sidecar_id is None:
+                generated = str(uuid.uuid4())
+                if sidecar is None:
+                    self.db.execute(
+                        "INSERT INTO retrieval_meta(key,value) VALUES (?,?)",
+                        (SIDECAR_ID_META_KEY, generated),
+                    )
+                else:
+                    self.db.execute(
+                        "UPDATE retrieval_meta SET value=? WHERE key=?",
+                        (generated, SIDECAR_ID_META_KEY),
+                    )
+            self.db.commit()
+        except BaseException:
+            if self.db.in_transaction:
+                self.db.rollback()
+            raise
 
     def sidecar_id(self) -> str:
         """Return this disposable sidecar incarnation's stable UUID."""
@@ -422,8 +423,9 @@ class RetrievalStore:
                 if old_recipes:
                     placeholders = ",".join("?" for _ in old_recipes)
                     self.db.execute(
-                        "DELETE FROM parts WHERE source_id=? "
-                        "AND publication_channel=? "
+                        "DELETE FROM parts WHERE source_key IN ("
+                        "SELECT source_key FROM sources WHERE source_id=?"
+                        ") AND publication_channel=? "
                         f"AND recipe_id IN ({placeholders})",
                         (source_id, channel, *old_recipes),
                     )
@@ -448,7 +450,7 @@ class RetrievalStore:
                     content_hash,
                 ),
             )
-            self._upsert_binding_records(bindings, source_key)
+            self._upsert_binding_records(bindings, self._source_key(source_key))
             self.queue_preparation(
                 source_revision,
                 recipe_id=recipe_id,
@@ -674,7 +676,13 @@ class RetrievalStore:
                     content_hash,
                 ),
             )
-            source_key = (source_id, version_kind, encoded_version, version_type)
+            source_identity = (
+                source_id,
+                version_kind,
+                encoded_version,
+                version_type,
+            )
+            source_key = self._source_key(source_identity)
             self._upsert_parts(publication, source_key)
             self._upsert_bindings(publication, source_key)
             self._upsert_representations(publication.representations)
@@ -683,10 +691,9 @@ class RetrievalStore:
             self._upsert_memberships(publication)
             prepared_parts = int(
                 self.db.execute(
-                    "SELECT count(*) FROM parts WHERE source_id=? AND version_kind=? "
-                    "AND version_value=? AND version_type=? AND recipe_id=? "
+                    "SELECT count(*) FROM parts WHERE source_key=? AND recipe_id=? "
                     "AND publication_channel=?",
-                    (*source_key, publication.recipe_id, publication.channel),
+                    (source_key, publication.recipe_id, publication.channel),
                 ).fetchone()[0]
             )
             changed = self.db.execute(
@@ -786,16 +793,9 @@ class RetrievalStore:
         )
         encoded_version, version_type = _encode_version(version_value)
         _validate_bindings(bindings)
-        source_key = (source_id, version_kind, encoded_version, version_type)
+        source_identity = (source_id, version_kind, encoded_version, version_type)
         with self._write_transaction():
-            exists = self.db.execute(
-                "SELECT 1 FROM sources WHERE source_id=? AND version_kind=? "
-                "AND version_value=? AND version_type=?",
-                source_key,
-            ).fetchone()
-            if exists is None:
-                raise ValueError("binding source revision has not been published")
-            self._upsert_binding_records(bindings, source_key)
+            self._upsert_binding_records(bindings, self._source_key(source_identity))
 
     def replace_named_dataset_members(
         self, dataset_id: str, members: Iterable[NamedDatasetMember]
@@ -817,7 +817,10 @@ class RetrievalStore:
             )
             self.db.executemany(
                 "INSERT INTO named_dataset_membership("
-                "dataset_id,part_id,representation_id) VALUES (?,?,?)",
+                "dataset_id,part_key,representation_key) VALUES (?,"
+                "(SELECT part_key FROM parts WHERE part_id=?),"
+                "(SELECT representation_key FROM representations "
+                "WHERE representation_id=?))",
                 rows(),
             )
 
@@ -914,17 +917,18 @@ class RetrievalStore:
         ):
             raise ValueError("named dataset vector limit must be in [1, 1000]")
         rows = self.db.execute(
-            "SELECT member.part_id,attachment.channel,representation.* "
+            "SELECT part.part_id,attachment.channel,representation.* "
             "FROM named_dataset_membership AS member "
             "JOIN part_representations AS attachment "
-            "ON attachment.part_id=member.part_id "
-            "AND attachment.representation_id=member.representation_id "
+            "ON attachment.part_key=member.part_key "
+            "AND attachment.representation_key=member.representation_key "
+            "JOIN parts AS part ON part.part_key=member.part_key "
             "JOIN representations AS representation "
-            "ON representation.representation_id=member.representation_id "
+            "ON representation.representation_key=member.representation_key "
             "WHERE member.dataset_id=? AND representation.space_id=? "
-            "AND (member.part_id>? OR "
-            "(member.part_id=? AND member.representation_id>?)) "
-            "ORDER BY member.part_id,member.representation_id LIMIT ?",
+            "AND (part.part_id>? OR "
+            "(part.part_id=? AND representation.representation_id>?)) "
+            "ORDER BY part.part_id,representation.representation_id LIMIT ?",
             (
                 dataset_id,
                 space_id,
@@ -956,29 +960,30 @@ class RetrievalStore:
         else:
             self.db.commit()
 
-    def _upsert_parts(
-        self, publication: SourcePublication, source_key: tuple[str, str, str, str]
-    ) -> None:
-        source_id, version_kind, version_value, version_type = source_key
+    def _source_key(self, identity: tuple[str, str, str, str]) -> int:
+        row = self.db.execute(
+            "SELECT source_key FROM sources WHERE source_id=? AND version_kind=? "
+            "AND version_value=? AND version_type=?",
+            identity,
+        ).fetchone()
+        if row is None:
+            raise ValueError("source revision has not been published")
+        return int(row[0])
+
+    def _upsert_parts(self, publication: SourcePublication, source_key: int) -> None:
         self.db.executemany(
             "INSERT INTO parts("
-            "part_id,source_id,version_kind,version_value,version_type,recipe_id,"
-            "publication_channel,part_kind,locator_json,group_key) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?) "
+            "part_id,source_key,recipe_id,publication_channel,part_kind,"
+            "locator_json,group_key) VALUES (?,?,?,?,?,?,?) "
             "ON CONFLICT(part_id) DO UPDATE SET "
-            "source_id=excluded.source_id,version_kind=excluded.version_kind,"
-            "version_value=excluded.version_value,version_type=excluded.version_type,"
-            "recipe_id=excluded.recipe_id,"
+            "source_key=excluded.source_key,recipe_id=excluded.recipe_id,"
             "publication_channel=excluded.publication_channel,"
             "part_kind=excluded.part_kind,locator_json=excluded.locator_json,"
             "group_key=excluded.group_key",
             [
                 (
                     part.part_id,
-                    source_id,
-                    version_kind,
-                    version_value,
-                    version_type,
+                    source_key,
                     publication.recipe_id,
                     publication.channel,
                     part.kind,
@@ -989,29 +994,25 @@ class RetrievalStore:
             ],
         )
 
-    def _upsert_bindings(
-        self, publication: SourcePublication, source_key: tuple[str, str, str, str]
-    ) -> None:
+    def _upsert_bindings(self, publication: SourcePublication, source_key: int) -> None:
         self._upsert_binding_records(publication.bindings, source_key)
 
     def _upsert_binding_records(
         self,
         bindings: Sequence[StoredBinding],
-        source_key: tuple[str, str, str, str],
+        source_key: int,
     ) -> None:
         self.db.executemany(
             "INSERT INTO bindings("
-            "binding_id,source_id,version_kind,version_value,version_type,"
-            "sheet_id,row_id,column_id) VALUES (?,?,?,?,?,?,?,?) "
+            "binding_id,source_key,sheet_id,row_id,column_id) VALUES (?,?,?,?,?) "
             "ON CONFLICT(binding_id) DO UPDATE SET "
-            "source_id=excluded.source_id,version_kind=excluded.version_kind,"
-            "version_value=excluded.version_value,version_type=excluded.version_type,"
+            "source_key=excluded.source_key,"
             "sheet_id=excluded.sheet_id,row_id=excluded.row_id,"
             "column_id=excluded.column_id",
             [
                 (
                     binding.binding_id,
-                    *source_key,
+                    source_key,
                     binding.sheet_id,
                     binding.row_id,
                     binding.column_id,
@@ -1023,12 +1024,15 @@ class RetrievalStore:
         if binding_ids:
             placeholders = ",".join("?" for _ in binding_ids)
             self.db.execute(
-                f"DELETE FROM binding_dependencies WHERE binding_id IN ({placeholders})",
+                "DELETE FROM binding_dependencies WHERE binding_key IN ("
+                "SELECT binding_key FROM bindings "
+                f"WHERE binding_id IN ({placeholders}))",
                 binding_ids,
             )
         self.db.executemany(
             "INSERT INTO binding_dependencies("
-            "binding_id,row_id,column_id,retrieval_revision) VALUES (?,?,?,?)",
+            "binding_key,row_id,column_id,retrieval_revision) "
+            "VALUES ((SELECT binding_key FROM bindings WHERE binding_id=?),?,?,?)",
             [
                 (
                     binding.binding_id,
@@ -1072,9 +1076,12 @@ class RetrievalStore:
     ) -> None:
         for attachment in attachments:
             self.db.execute(
-                "INSERT OR IGNORE INTO part_representations("
-                "part_id,representation_id,channel) "
-                "VALUES (?,?,?)",
+                "INSERT INTO part_representations("
+                "part_key,representation_key,channel) VALUES ("
+                "(SELECT part_key FROM parts WHERE part_id=?),"
+                "(SELECT representation_key FROM representations "
+                "WHERE representation_id=?),?) "
+                "ON CONFLICT(part_key,representation_key,channel) DO NOTHING",
                 (
                     attachment.part_id,
                     attachment.representation_id,
@@ -1082,29 +1089,20 @@ class RetrievalStore:
                 ),
             )
 
-    def _replace_lexical(
-        self, publication: SourcePublication, source_key: tuple[str, str, str, str]
-    ) -> None:
-        source_id, version_kind, version_value, version_type = source_key
+    def _replace_lexical(self, publication: SourcePublication, source_key: int) -> None:
         if publication.lexical is None:
             return
         old = self.db.execute(
-            "SELECT rowid FROM lexical_sources WHERE source_id=? AND version_kind=? "
-            "AND version_value=? AND version_type=?",
-            source_key,
+            "SELECT rowid FROM lexical_sources WHERE source_key=?", (source_key,)
         ).fetchone()
         if old is not None:
             self.db.execute("DELETE FROM lexical_fts WHERE rowid=?", (int(old[0]),))
             self.db.execute("DELETE FROM lexical_sources WHERE rowid=?", (int(old[0]),))
         cursor = self.db.execute(
             "INSERT INTO lexical_sources("
-            "source_id,version_kind,version_value,version_type,content_hash,locator_json"
-            ") VALUES (?,?,?,?,?,?)",
+            "source_key,content_hash,locator_json) VALUES (?,?,?)",
             (
-                source_id,
-                version_kind,
-                version_value,
-                version_type,
+                source_key,
                 "pending",
                 canonical_json(publication.lexical.locator),
             ),
@@ -1126,8 +1124,12 @@ class RetrievalStore:
 
     def _upsert_memberships(self, publication: SourcePublication) -> None:
         self.db.executemany(
-            "INSERT OR IGNORE INTO named_dataset_membership("
-            "dataset_id,part_id,representation_id) VALUES (?,?,?)",
+            "INSERT INTO named_dataset_membership("
+            "dataset_id,part_key,representation_key) VALUES (?,"
+            "(SELECT part_key FROM parts WHERE part_id=?),"
+            "(SELECT representation_key FROM representations "
+            "WHERE representation_id=?)) "
+            "ON CONFLICT(dataset_id,part_key,representation_key) DO NOTHING",
             [
                 (member.dataset_id, member.part_id, member.representation_id)
                 for member in publication.named_memberships
@@ -1349,6 +1351,17 @@ def _validate_bindings(bindings: Sequence[StoredBinding]) -> None:
                 )
 
 
+def _schema_statements(script: str) -> Iterable[str]:
+    statement = ""
+    for line in script.splitlines(keepends=True):
+        statement += line
+        if sqlite3.complete_statement(statement):
+            yield statement
+            statement = ""
+    if statement.strip():
+        raise RuntimeError("retrieval schema contains an incomplete SQL statement")
+
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS retrieval_meta (
   key TEXT PRIMARY KEY,
@@ -1356,62 +1369,55 @@ CREATE TABLE IF NOT EXISTS retrieval_meta (
 ) WITHOUT ROWID;
 
 CREATE TABLE IF NOT EXISTS sources (
+  source_key INTEGER PRIMARY KEY,
   source_id TEXT NOT NULL,
   source_kind TEXT NOT NULL,
   version_kind TEXT NOT NULL,
   version_value TEXT NOT NULL,
   version_type TEXT NOT NULL CHECK(version_type IN ('integer','text')),
   content_hash TEXT,
-  PRIMARY KEY(source_id,version_kind,version_value,version_type)
-) WITHOUT ROWID;
+  UNIQUE(source_id,version_kind,version_value,version_type)
+);
 
 CREATE TABLE IF NOT EXISTS parts (
-  part_id TEXT PRIMARY KEY,
-  source_id TEXT NOT NULL,
-  version_kind TEXT NOT NULL,
-  version_value TEXT NOT NULL,
-  version_type TEXT NOT NULL,
+  part_key INTEGER PRIMARY KEY,
+  part_id TEXT NOT NULL UNIQUE,
+  source_key INTEGER NOT NULL REFERENCES sources(source_key) ON DELETE CASCADE,
   recipe_id TEXT NOT NULL,
   publication_channel TEXT NOT NULL,
   part_kind TEXT NOT NULL,
   locator_json TEXT NOT NULL CHECK(json_valid(locator_json)),
-  group_key TEXT,
-  FOREIGN KEY(source_id,version_kind,version_value,version_type)
-    REFERENCES sources(source_id,version_kind,version_value,version_type)
-    ON DELETE CASCADE
+  group_key TEXT
 );
 CREATE INDEX IF NOT EXISTS parts_source_recipe
-  ON parts(source_id,version_kind,version_value,version_type,recipe_id,
-           publication_channel,part_id);
+  ON parts(source_key,recipe_id,publication_channel,part_key);
 
 CREATE TABLE IF NOT EXISTS bindings (
-  binding_id TEXT PRIMARY KEY,
-  source_id TEXT NOT NULL,
-  version_kind TEXT NOT NULL,
-  version_value TEXT NOT NULL,
-  version_type TEXT NOT NULL,
+  binding_key INTEGER PRIMARY KEY,
+  binding_id TEXT NOT NULL UNIQUE,
+  source_key INTEGER NOT NULL REFERENCES sources(source_key) ON DELETE CASCADE,
   sheet_id INTEGER NOT NULL,
   row_id INTEGER NOT NULL,
-  column_id INTEGER,
-  FOREIGN KEY(source_id,version_kind,version_value,version_type)
-    REFERENCES sources(source_id,version_kind,version_value,version_type)
-    ON DELETE CASCADE
+  column_id INTEGER
 );
 CREATE INDEX IF NOT EXISTS bindings_scope
-  ON bindings(sheet_id,row_id,column_id,source_id,version_kind,version_value,version_type);
+  ON bindings(sheet_id,row_id,column_id,source_key,binding_key);
+CREATE INDEX IF NOT EXISTS bindings_source
+  ON bindings(source_key,binding_key);
 
 CREATE TABLE IF NOT EXISTS binding_dependencies (
-  binding_id TEXT NOT NULL REFERENCES bindings(binding_id) ON DELETE CASCADE,
+  binding_key INTEGER NOT NULL REFERENCES bindings(binding_key) ON DELETE CASCADE,
   row_id INTEGER NOT NULL,
   column_id INTEGER NOT NULL,
   retrieval_revision INTEGER NOT NULL CHECK(retrieval_revision>=0),
-  PRIMARY KEY(binding_id,column_id,row_id)
+  PRIMARY KEY(binding_key,column_id,row_id)
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS binding_dependencies_cell
-  ON binding_dependencies(column_id,row_id,retrieval_revision,binding_id);
+  ON binding_dependencies(column_id,row_id,retrieval_revision,binding_key);
 
 CREATE TABLE IF NOT EXISTS representations (
-  representation_id TEXT PRIMARY KEY,
+  representation_key INTEGER PRIMARY KEY,
+  representation_id TEXT NOT NULL UNIQUE,
   space_id TEXT NOT NULL,
   input_hash TEXT NOT NULL,
   vector BLOB NOT NULL,
@@ -1421,27 +1427,20 @@ CREATE TABLE IF NOT EXISTS representations (
 );
 
 CREATE TABLE IF NOT EXISTS part_representations (
-  part_id TEXT NOT NULL REFERENCES parts(part_id) ON DELETE CASCADE,
-  representation_id TEXT NOT NULL REFERENCES representations(representation_id)
+  part_key INTEGER NOT NULL REFERENCES parts(part_key) ON DELETE CASCADE,
+  representation_key INTEGER NOT NULL REFERENCES representations(representation_key)
     ON DELETE RESTRICT,
   channel TEXT NOT NULL,
-  PRIMARY KEY(part_id,representation_id,channel)
+  PRIMARY KEY(part_key,representation_key,channel)
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS part_representations_space
-  ON part_representations(representation_id,part_id,channel);
+  ON part_representations(representation_key,part_key,channel);
 
 CREATE TABLE IF NOT EXISTS lexical_sources (
   rowid INTEGER PRIMARY KEY,
-  source_id TEXT NOT NULL,
-  version_kind TEXT NOT NULL,
-  version_value TEXT NOT NULL,
-  version_type TEXT NOT NULL,
+  source_key INTEGER NOT NULL UNIQUE REFERENCES sources(source_key) ON DELETE CASCADE,
   content_hash TEXT NOT NULL,
-  locator_json TEXT NOT NULL CHECK(json_valid(locator_json)),
-  UNIQUE(source_id,version_kind,version_value,version_type),
-  FOREIGN KEY(source_id,version_kind,version_value,version_type)
-    REFERENCES sources(source_id,version_kind,version_value,version_type)
-    ON DELETE CASCADE
+  locator_json TEXT NOT NULL CHECK(json_valid(locator_json))
 );
 CREATE VIRTUAL TABLE IF NOT EXISTS lexical_fts USING fts5(
   content,content='',contentless_delete=1
@@ -1469,11 +1468,11 @@ CREATE INDEX IF NOT EXISTS preparation_counts
 
 CREATE TABLE IF NOT EXISTS named_dataset_membership (
   dataset_id TEXT NOT NULL,
-  part_id TEXT NOT NULL REFERENCES parts(part_id) ON DELETE CASCADE,
-  representation_id TEXT NOT NULL REFERENCES representations(representation_id)
+  part_key INTEGER NOT NULL REFERENCES parts(part_key) ON DELETE CASCADE,
+  representation_key INTEGER NOT NULL REFERENCES representations(representation_key)
     ON DELETE RESTRICT,
-  PRIMARY KEY(dataset_id,part_id,representation_id)
+  PRIMARY KEY(dataset_id,part_key,representation_key)
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS named_dataset_part
-  ON named_dataset_membership(part_id,dataset_id,representation_id);
+  ON named_dataset_membership(part_key,dataset_id,representation_key);
 """

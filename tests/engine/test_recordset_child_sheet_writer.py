@@ -259,8 +259,11 @@ def test_embedding_project_and_cluster_publish_standard_refs_with_lineage_eviden
 
     with RetrievalStore(project) as retrieval:
         representation_id = retrieval.db.execute(
-            "SELECT representation_id FROM named_dataset_membership "
-            "WHERE dataset_id=? LIMIT 1",
+            "SELECT representation.representation_id "
+            "FROM named_dataset_membership member "
+            "JOIN representations representation "
+            "ON representation.representation_key=member.representation_key "
+            "WHERE member.dataset_id=? LIMIT 1",
             (index_id,),
         ).fetchone()[0]
         retrieval.db.execute(

@@ -763,12 +763,12 @@ def test_row_anchor_wrong_stored_dimension_is_space_mismatch(env):
     cat = _row(project, sheet, cols, "cat")
     with RetrievalStore(project) as retrieval:
         representation_id = retrieval.db.execute(
-            "SELECT member.representation_id FROM named_dataset_membership member "
-            "JOIN parts part ON part.part_id=member.part_id "
-            "JOIN bindings binding ON binding.source_id=part.source_id "
-            "AND binding.version_kind=part.version_kind "
-            "AND binding.version_value=part.version_value "
-            "AND binding.version_type=part.version_type "
+            "SELECT representation.representation_id "
+            "FROM named_dataset_membership member "
+            "JOIN parts part ON part.part_key=member.part_key "
+            "JOIN bindings binding ON binding.source_key=part.source_key "
+            "JOIN representations representation "
+            "ON representation.representation_key=member.representation_key "
             "WHERE member.dataset_id=? AND binding.row_id=?",
             (index_id, cat),
         ).fetchone()[0]
@@ -845,16 +845,16 @@ def test_query_preview_rejects_concurrent_named_membership_swap(env, monkeypatch
         result = original(*args, **kwargs)
         with RetrievalStore(project) as retrieval:
             member = retrieval.db.execute(
-                "SELECT part_id,representation_id "
+                "SELECT part_key,representation_key "
                 "FROM named_dataset_membership WHERE dataset_id=? "
-                "ORDER BY part_id,representation_id LIMIT 1",
+                "ORDER BY part_key,representation_key LIMIT 1",
                 (index_id,),
             ).fetchone()
             assert member is not None
             retrieval.db.execute(
                 "DELETE FROM named_dataset_membership "
-                "WHERE dataset_id=? AND part_id=? AND representation_id=?",
-                (index_id, member["part_id"], member["representation_id"]),
+                "WHERE dataset_id=? AND part_key=? AND representation_key=?",
+                (index_id, member["part_key"], member["representation_key"]),
             )
         return result
 

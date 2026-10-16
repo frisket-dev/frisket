@@ -512,14 +512,13 @@ def dataset_rows(store: RetrievalStore, dataset_id: str) -> dict[int, tuple[str,
     """Return row bindings and member identities without loading vector blobs."""
 
     rows = store.db.execute(
-        "SELECT binding.row_id,member.part_id,member.representation_id "
+        "SELECT binding.row_id,part.part_id,representation.representation_id "
         "FROM named_dataset_membership AS member "
-        "JOIN parts AS part ON part.part_id=member.part_id "
-        "JOIN bindings AS binding ON binding.source_id=part.source_id "
-        "AND binding.version_kind=part.version_kind "
-        "AND binding.version_value=part.version_value "
-        "AND binding.version_type=part.version_type "
-        "WHERE member.dataset_id=? ORDER BY binding.row_id,member.part_id",
+        "JOIN parts AS part ON part.part_key=member.part_key "
+        "JOIN representations AS representation "
+        "ON representation.representation_key=member.representation_key "
+        "JOIN bindings AS binding ON binding.source_key=part.source_key "
+        "WHERE member.dataset_id=? ORDER BY binding.row_id,part.part_id",
         (dataset_id,),
     ).fetchall()
     return {
@@ -533,18 +532,17 @@ def dataset_binding_hash(store: RetrievalStore, dataset_id: str) -> str:
 
     digest = hashlib.sha256()
     for row in store.db.execute(
-        "SELECT member.part_id,member.representation_id,dependency.row_id,"
+        "SELECT part.part_id,representation.representation_id,dependency.row_id,"
         "dependency.column_id,dependency.retrieval_revision "
         "FROM named_dataset_membership AS member "
-        "JOIN parts AS part ON part.part_id=member.part_id "
-        "JOIN bindings AS binding ON binding.source_id=part.source_id "
-        "AND binding.version_kind=part.version_kind "
-        "AND binding.version_value=part.version_value "
-        "AND binding.version_type=part.version_type "
+        "JOIN parts AS part ON part.part_key=member.part_key "
+        "JOIN representations AS representation "
+        "ON representation.representation_key=member.representation_key "
+        "JOIN bindings AS binding ON binding.source_key=part.source_key "
         "JOIN binding_dependencies AS dependency "
-        "ON dependency.binding_id=binding.binding_id "
+        "ON dependency.binding_key=binding.binding_key "
         "WHERE member.dataset_id=? "
-        "ORDER BY member.part_id,member.representation_id,dependency.column_id,"
+        "ORDER BY part.part_id,representation.representation_id,dependency.column_id,"
         "dependency.row_id",
         (dataset_id,),
     ):

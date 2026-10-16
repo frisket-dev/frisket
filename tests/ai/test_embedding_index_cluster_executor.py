@@ -152,8 +152,11 @@ def _make_stale_source(project: Project, seeded: dict[str, Any]) -> None:
 def _corrupt_vector_width(project: Project, seeded: dict[str, Any]) -> None:
     with RetrievalStore(project) as retrieval:
         representation_id = retrieval.db.execute(
-            "SELECT representation_id FROM named_dataset_membership "
-            "WHERE dataset_id=? LIMIT 1",
+            "SELECT representation.representation_id "
+            "FROM named_dataset_membership member "
+            "JOIN representations representation "
+            "ON representation.representation_key=member.representation_key "
+            "WHERE member.dataset_id=? LIMIT 1",
             (seeded["index_id"],),
         ).fetchone()[0]
         retrieval.db.execute(

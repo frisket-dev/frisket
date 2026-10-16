@@ -476,13 +476,19 @@ def test_open_skips_upgrade_while_another_process_lock_is_held(tmp_path) -> None
         project.close()
 
 
-def test_unknown_sidecar_schema_is_rejected_before_ddl(tmp_path) -> None:
+@pytest.mark.parametrize("version", ["1", "999"])
+def test_unsupported_sidecar_schema_is_rejected_before_ddl(
+    tmp_path, version: str
+) -> None:
     path = tmp_path / "unknown-sidecar"
     path.mkdir()
     sidecar = path / "project.retrieval.db"
     db = sqlite3.connect(sidecar)
     db.execute("CREATE TABLE retrieval_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL)")
-    db.execute("INSERT INTO retrieval_meta(key,value) VALUES ('schema_version','999')")
+    db.execute(
+        "INSERT INTO retrieval_meta(key,value) VALUES ('schema_version',?)",
+        (version,),
+    )
     db.commit()
     db.close()
 

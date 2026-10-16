@@ -481,10 +481,7 @@ def drain_index(
             store.db.execute(
                 "SELECT count(DISTINCT binding.binding_id) FROM bindings binding "
                 "JOIN lexical_sources lexical "
-                "ON lexical.source_id=binding.source_id "
-                "AND lexical.version_kind=binding.version_kind "
-                "AND lexical.version_value=binding.version_value "
-                "AND lexical.version_type=binding.version_type"
+                "ON lexical.source_key=binding.source_key"
             ).fetchone()[0]
         )
 

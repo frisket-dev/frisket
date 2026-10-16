@@ -312,12 +312,10 @@ def test_hybrid_keyword_channel_searches_whole_sheet(env):
     keyword_only = _row(project, sheet, cols, "drone bee colony")
     with RetrievalStore(project) as retrieval:
         retrieval.db.execute(
-            "DELETE FROM named_dataset_membership WHERE dataset_id=? AND part_id IN ("
-            "SELECT part.part_id FROM parts AS part JOIN bindings AS binding "
-            "ON binding.source_id=part.source_id "
-            "AND binding.version_kind=part.version_kind "
-            "AND binding.version_value=part.version_value "
-            "AND binding.version_type=part.version_type WHERE binding.row_id=?"
+            "DELETE FROM named_dataset_membership "
+            "WHERE dataset_id=? AND part_key IN ("
+            "SELECT part.part_key FROM parts AS part JOIN bindings AS binding "
+            "ON binding.source_key=part.source_key WHERE binding.row_id=?"
             ")",
             (index_id, keyword_only),
         )

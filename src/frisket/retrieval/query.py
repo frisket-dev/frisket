@@ -426,14 +426,14 @@ class RetrievalQueryService:
         group_sql = (
             "printf('row:%d:%d',retrieval_binding.sheet_id,retrieval_binding.row_id)"
             if grouping == "row"
-            else _sql_source_key("lexical_source")
+            else _sql_source_key("source")
         )
         dataset_join, dataset_where, dataset_params = _lexical_dataset_filter(request)
         sql = f"""
         WITH {scope.cte_sql}, matched AS NOT MATERIALIZED (
           SELECT DISTINCT lexical_source.rowid AS lexical_rowid,
-                 lexical_source.source_id,lexical_source.version_kind,
-                 lexical_source.version_value,lexical_source.version_type,
+                 source.source_id,source.version_kind,
+                 source.version_value,source.version_type,
                  lexical_source.content_hash AS lexical_content_hash,
                  lexical_source.locator_json,source.source_kind,source.content_hash,
                  retrieval_binding.binding_id,retrieval_binding.sheet_id,
@@ -443,15 +443,9 @@ class RetrievalQueryService:
           JOIN idx.lexical_sources AS lexical_source
             ON lexical_source.rowid=lexical_fts.rowid
           JOIN idx.sources AS source
-            ON source.source_id=lexical_source.source_id
-           AND source.version_kind=lexical_source.version_kind
-           AND source.version_value=lexical_source.version_value
-           AND source.version_type=lexical_source.version_type
+            ON source.source_key=lexical_source.source_key
           JOIN idx.bindings AS retrieval_binding
-            ON retrieval_binding.source_id=lexical_source.source_id
-           AND retrieval_binding.version_kind=lexical_source.version_kind
-           AND retrieval_binding.version_value=lexical_source.version_value
-           AND retrieval_binding.version_type=lexical_source.version_type
+            ON retrieval_binding.source_key=lexical_source.source_key
           JOIN scoped_bindings AS scoped
             ON scoped.sheet_id=retrieval_binding.sheet_id
            AND scoped.row_id=retrieval_binding.row_id
@@ -539,9 +533,14 @@ class RetrievalQueryService:
             if request.group_by == "row"
             else ("source" if fusion or request.group_by == "source" else "part")
         )
-        group_sql = {
+        group_partition_sql = {
             "row": "printf('row:%d:%d',retrieval_binding.sheet_id,retrieval_binding.row_id)",
-            "source": _sql_source_key("part"),
+            "source": "part.source_key",
+            "part": "part.part_key",
+        }[grouping]
+        group_sort_sql = {
+            "row": "printf('row:%d:%d',retrieval_binding.sheet_id,retrieval_binding.row_id)",
+            "source": _sql_source_key("source"),
             "part": "part.part_id",
         }[grouping]
         dataset_join, dataset_where, dataset_params = _semantic_dataset_filter(request)
@@ -551,54 +550,95 @@ class RetrievalQueryService:
         )
         minimum_sql = "" if minimum is None else " AND similarity>=?"
         sql = f"""
-        WITH {scope.cte_sql}, eligible AS NOT MATERIALIZED (
-          SELECT DISTINCT part.part_id,part.source_id,part.version_kind,part.version_value,
-                 part.version_type,part.recipe_id,part.part_kind,part.locator_json,
-                 source.source_kind,source.content_hash,
-                 retrieval_binding.binding_id,retrieval_binding.sheet_id,
-                 retrieval_binding.row_id,retrieval_binding.column_id,
-                 part_representation.channel,representation.representation_id,
-                 representation.space_id,{group_sql} AS group_key,
-                 1.0-vec1_cos_distance(representation.vector,?) AS similarity
+        WITH {scope.cte_sql}, scoped_binding_keys AS MATERIALIZED (
+          SELECT DISTINCT retrieval_binding.binding_key
           FROM scoped_bindings AS scoped
           JOIN idx.bindings AS retrieval_binding
             ON retrieval_binding.sheet_id=scoped.sheet_id
            AND retrieval_binding.row_id=scoped.row_id
            AND (scoped.column_id IS NULL
                 OR scoped.column_id=retrieval_binding.column_id)
+        ), current_bindings AS MATERIALIZED (
+          SELECT retrieval_binding.binding_key,retrieval_binding.binding_id,
+                 retrieval_binding.source_key,retrieval_binding.sheet_id,
+                 retrieval_binding.row_id,retrieval_binding.column_id
+          FROM scoped_binding_keys AS scoped
+          JOIN idx.bindings AS retrieval_binding
+            ON retrieval_binding.binding_key=scoped.binding_key
+          JOIN idx.binding_dependencies AS dependency
+            ON dependency.binding_key=retrieval_binding.binding_key
+          LEFT JOIN main.current_cells AS current_head
+            ON current_head.column_id=dependency.column_id
+           AND current_head.row_id=dependency.row_id
+          LEFT JOIN main.columns AS dependency_column
+            ON dependency_column.id=dependency.column_id
+           AND dependency_column.sheet_id=retrieval_binding.sheet_id
+           AND dependency_column.hidden=0
+          LEFT JOIN main.columns AS binding_column
+            ON binding_column.id=retrieval_binding.column_id
+           AND binding_column.sheet_id=retrieval_binding.sheet_id
+           AND binding_column.hidden=0
+          GROUP BY retrieval_binding.binding_key
+          HAVING MAX(dependency.retrieval_revision !=
+                     COALESCE(current_head.retrieval_revision,0))=0
+             AND ((retrieval_binding.column_id IS NOT NULL
+                   AND MAX(binding_column.id IS NOT NULL)=1)
+               OR (retrieval_binding.column_id IS NULL
+                   AND COUNT(dependency_column.id)=COUNT(*)))
+        ), eligible AS NOT MATERIALIZED (
+          SELECT part.part_key,part.part_id,retrieval_binding.binding_key,
+                 retrieval_binding.binding_id,retrieval_binding.sheet_id,
+                 retrieval_binding.row_id,retrieval_binding.column_id,
+                 part_representation.representation_key,
+                 part_representation.channel,representation.representation_id,
+                 {group_partition_sql} AS group_partition,
+                 {group_sort_sql} AS group_sort,
+                 1.0-vec1_cos_distance(representation.vector,?) AS similarity
+          FROM current_bindings AS retrieval_binding
           JOIN idx.parts AS part
-            ON part.source_id=retrieval_binding.source_id
-           AND part.version_kind=retrieval_binding.version_kind
-           AND part.version_value=retrieval_binding.version_value
-           AND part.version_type=retrieval_binding.version_type
+            ON part.source_key=retrieval_binding.source_key
           JOIN idx.sources AS source
-            ON source.source_id=part.source_id
-           AND source.version_kind=part.version_kind
-           AND source.version_value=part.version_value
-           AND source.version_type=part.version_type
+            ON source.source_key=part.source_key
           JOIN idx.part_representations AS part_representation
-            ON part_representation.part_id=part.part_id
+            ON part_representation.part_key=part.part_key
           JOIN idx.representations AS representation
-            ON representation.representation_id=part_representation.representation_id
+            ON representation.representation_key=
+               part_representation.representation_key
           {dataset_join}
-          WHERE {_visible_column("retrieval_binding")}
-            AND {_binding_is_current("retrieval_binding")}
-            AND representation.space_id=? AND representation.dimension=?
+          WHERE representation.space_id=? AND representation.dimension=?
             {dataset_where}
-            {"AND NOT (part.source_id=? AND part.version_kind=? AND part.version_value=? AND part.version_type=? AND part.locator_json=?)" if anchor_exclusion is not None else ""}
+            {"AND NOT (source.source_id=? AND source.version_kind=? AND source.version_value=? AND source.version_type=? AND part.locator_json=?)" if anchor_exclusion is not None else ""}
             {exclude_sql}
         ), accepted AS NOT MATERIALIZED (
           SELECT * FROM eligible WHERE 1=1{minimum_sql}
         ), grouped AS (
           SELECT *,ROW_NUMBER() OVER (
-            PARTITION BY group_key
+            PARTITION BY group_partition
             ORDER BY similarity DESC,binding_id,part_id,representation_id
           ) AS group_rank
           FROM accepted
+        ), chosen AS MATERIALIZED (
+          SELECT * FROM grouped WHERE group_rank=1
+          ORDER BY similarity DESC,group_sort,binding_id,part_id,representation_id
+          LIMIT ?
         )
-        SELECT * FROM grouped WHERE group_rank=1
-        ORDER BY similarity DESC,group_key,binding_id,part_id,representation_id
-        LIMIT ?
+        SELECT part.part_id,source.source_id,source.version_kind,
+               source.version_value,source.version_type,part.recipe_id,
+               part.part_kind,part.locator_json,source.source_kind,
+               source.content_hash,retrieval_binding.binding_id,
+               retrieval_binding.sheet_id,retrieval_binding.row_id,
+               retrieval_binding.column_id,chosen.channel,
+               representation.representation_id,representation.space_id,
+               chosen.similarity
+        FROM chosen
+        JOIN idx.parts AS part ON part.part_key=chosen.part_key
+        JOIN idx.sources AS source ON source.source_key=part.source_key
+        JOIN idx.bindings AS retrieval_binding
+          ON retrieval_binding.binding_key=chosen.binding_key
+        JOIN idx.representations AS representation
+          ON representation.representation_key=chosen.representation_key
+        ORDER BY chosen.similarity DESC,chosen.group_sort,chosen.binding_id,
+                 chosen.part_id,chosen.representation_id
         """
         params: list[Any] = [
             *scope.params,
@@ -721,11 +761,14 @@ def _preparation_dataset_filter(request: SearchRequest) -> tuple[str, tuple[Any,
     return (
         """AND EXISTS (
           SELECT 1 FROM idx.parts AS member_part
-          JOIN idx.named_dataset_membership AS member ON member.part_id=member_part.part_id
-          WHERE member.dataset_id=? AND member_part.source_id=preparation.source_id
-            AND member_part.version_kind=preparation.target_version_kind
-            AND member_part.version_value=preparation.target_version_value
-            AND member_part.version_type=preparation.target_version_type
+          JOIN idx.sources AS member_source
+            ON member_source.source_key=member_part.source_key
+          JOIN idx.named_dataset_membership AS member
+            ON member.part_key=member_part.part_key
+          WHERE member.dataset_id=? AND member_source.source_id=preparation.source_id
+            AND member_source.version_kind=preparation.target_version_kind
+            AND member_source.version_value=preparation.target_version_value
+            AND member_source.version_type=preparation.target_version_type
         )""",
         (request.named_index_id,),
     )
@@ -744,6 +787,8 @@ def _scoped_coverage_state(
         "AND retrieval_binding.row_id=scoped.row_id "
         "AND (scoped.column_id IS NULL "
         "OR scoped.column_id=retrieval_binding.column_id) "
+        "JOIN idx.sources AS retrieval_source "
+        "ON retrieval_source.source_key=retrieval_binding.source_key "
     )
     binding_where = (
         _visible_column("retrieval_binding")
@@ -755,24 +800,19 @@ def _scoped_coverage_state(
         dataset_join, dataset_where, dataset_params = _lexical_dataset_filter(request)
         ready_join = """
           JOIN idx.lexical_sources AS lexical_source
-            ON lexical_source.source_id=retrieval_binding.source_id
-           AND lexical_source.version_kind=retrieval_binding.version_kind
-           AND lexical_source.version_value=retrieval_binding.version_value
-           AND lexical_source.version_type=retrieval_binding.version_type
+            ON lexical_source.source_key=retrieval_binding.source_key
         """
         ready_where = ""
     else:
         dataset_join, dataset_where, dataset_params = _semantic_dataset_filter(request)
         ready_join = """
           JOIN idx.parts AS part
-            ON part.source_id=retrieval_binding.source_id
-           AND part.version_kind=retrieval_binding.version_kind
-           AND part.version_value=retrieval_binding.version_value
-           AND part.version_type=retrieval_binding.version_type
+            ON part.source_key=retrieval_binding.source_key
           JOIN idx.part_representations AS part_representation
-            ON part_representation.part_id=part.part_id
+            ON part_representation.part_key=part.part_key
           JOIN idx.representations AS representation
-            ON representation.representation_id=part_representation.representation_id
+            ON representation.representation_key=
+               part_representation.representation_key
         """
         ready_where = "AND representation.space_id=?"
         params.append(request.space_id)
@@ -799,10 +839,10 @@ def _scoped_coverage_state(
                MAX(preparation.status='unavailable') AS unavailable
         {binding_join}
         JOIN idx.preparation AS preparation
-          ON preparation.source_id=retrieval_binding.source_id
-         AND preparation.target_version_kind=retrieval_binding.version_kind
-         AND preparation.target_version_value=retrieval_binding.version_value
-         AND preparation.target_version_type=retrieval_binding.version_type
+          ON preparation.source_id=retrieval_source.source_id
+         AND preparation.target_version_kind=retrieval_source.version_kind
+         AND preparation.target_version_value=retrieval_source.version_value
+         AND preparation.target_version_type=retrieval_source.version_type
         WHERE {binding_where} AND preparation.space_id IS ?
           AND preparation.status!='ready'
           {preparation_channel_sql} {preparation_dataset_sql}
@@ -949,18 +989,16 @@ def _resolve_anchor_vector(
      AND (scoped.column_id IS NULL
           OR scoped.column_id=retrieval_binding.column_id)
     JOIN idx.parts AS part
-      ON part.source_id=retrieval_binding.source_id
-     AND part.version_kind=retrieval_binding.version_kind
-     AND part.version_value=retrieval_binding.version_value
-     AND part.version_type=retrieval_binding.version_type
+      ON part.source_key=retrieval_binding.source_key
+    JOIN idx.sources AS source ON source.source_key=part.source_key
     JOIN idx.part_representations AS part_representation
-      ON part_representation.part_id=part.part_id
+      ON part_representation.part_key=part.part_key
     JOIN idx.representations AS representation
-      ON representation.representation_id=part_representation.representation_id
+      ON representation.representation_key=part_representation.representation_key
     WHERE {_visible_column("retrieval_binding")}
       AND {_binding_is_current("retrieval_binding")}
-      AND part.source_id=? AND part.version_kind=?
-      AND part.version_value=? AND part.version_type=?
+      AND source.source_id=? AND source.version_kind=?
+      AND source.version_value=? AND source.version_type=?
       AND part.locator_json=? AND representation.space_id=?
       {binding_sql}
     ORDER BY retrieval_binding.binding_id,part.part_id,representation.representation_id
@@ -1082,12 +1120,13 @@ def _attach_binding_dependencies(
     if not binding_ids:
         return candidates
     rows = reader.db.execute(
-        "SELECT dependency.binding_id,dependency.row_id,dependency.column_id,"
+        "SELECT binding.binding_id,dependency.row_id,dependency.column_id,"
         "dependency.retrieval_revision "
         "FROM idx.binding_dependencies AS dependency "
+        "JOIN idx.bindings AS binding ON binding.binding_key=dependency.binding_key "
         "JOIN json_each(?) AS selected "
-        "ON selected.type='text' AND selected.value=dependency.binding_id "
-        "ORDER BY dependency.binding_id,dependency.column_id,dependency.row_id",
+        "ON selected.type='text' AND selected.value=binding.binding_id "
+        "ORDER BY binding.binding_id,dependency.column_id,dependency.row_id",
         (json.dumps(binding_ids),),
     ).fetchall()
     by_binding: dict[str, list[BindingRevision]] = defaultdict(list)
@@ -1287,10 +1326,10 @@ def _locator_from_json(raw: str) -> SourceLocator:
 def _binding_is_current(binding: str) -> str:
     return (
         "EXISTS (SELECT 1 FROM idx.binding_dependencies AS required_dependency "
-        f"WHERE required_dependency.binding_id={binding}.binding_id) AND NOT EXISTS ("
+        f"WHERE required_dependency.binding_key={binding}.binding_key) AND NOT EXISTS ("
         "SELECT 1 FROM idx.binding_dependencies AS dependency "
-        "WHERE dependency.binding_id="
-        f"{binding}.binding_id AND dependency.retrieval_revision != COALESCE(("
+        "WHERE dependency.binding_key="
+        f"{binding}.binding_key AND dependency.retrieval_revision != COALESCE(("
         "SELECT current_head.retrieval_revision FROM main.current_cells AS current_head "
         "WHERE current_head.column_id=dependency.column_id "
         "AND current_head.row_id=dependency.row_id),0))"
@@ -1309,7 +1348,7 @@ def _visible_column(binding: str) -> str:
         "LEFT JOIN main.columns AS dependency_column "
         "ON dependency_column.id=dependency.column_id "
         f"AND dependency_column.sheet_id={binding}.sheet_id "
-        f"WHERE dependency.binding_id={binding}.binding_id "
+        f"WHERE dependency.binding_key={binding}.binding_key "
         "AND (dependency_column.id IS NULL OR dependency_column.hidden!=0))))"
     )
 
@@ -1332,8 +1371,8 @@ def _semantic_dataset_filter(
         return "", "", ()
     return (
         "JOIN idx.named_dataset_membership AS dataset_member "
-        "ON dataset_member.part_id=part.part_id "
-        "AND dataset_member.representation_id=representation.representation_id",
+        "ON dataset_member.part_key=part.part_key "
+        "AND dataset_member.representation_key=representation.representation_key",
         "AND dataset_member.dataset_id=?",
         (request.named_index_id,),
     )
@@ -1348,12 +1387,10 @@ def _lexical_dataset_filter(request: SearchRequest) -> tuple[str, str, tuple[Any
         "",
         f"""AND EXISTS (
           SELECT 1 FROM idx.named_dataset_membership AS dataset_member
-          JOIN idx.parts AS dataset_part ON dataset_part.part_id=dataset_member.part_id
+          JOIN idx.parts AS dataset_part
+            ON dataset_part.part_key=dataset_member.part_key
           JOIN idx.bindings AS dataset_binding
-            ON dataset_binding.source_id=dataset_part.source_id
-           AND dataset_binding.version_kind=dataset_part.version_kind
-           AND dataset_binding.version_value=dataset_part.version_value
-           AND dataset_binding.version_type=dataset_part.version_type
+            ON dataset_binding.source_key=dataset_part.source_key
           WHERE dataset_member.dataset_id=?
             AND dataset_binding.sheet_id=retrieval_binding.sheet_id
             AND dataset_binding.row_id=retrieval_binding.row_id

@@ -548,9 +548,10 @@ def _resolve_work_source(
         "SELECT binding.sheet_id,dependency.row_id,dependency.column_id,"
         "dependency.retrieval_revision FROM bindings binding "
         "JOIN binding_dependencies dependency "
-        "ON dependency.binding_id=binding.binding_id "
-        "WHERE binding.source_id=? AND binding.version_kind=? "
-        "AND binding.version_value=? AND binding.version_type=? "
+        "ON dependency.binding_key=binding.binding_key "
+        "JOIN sources source ON source.source_key=binding.source_key "
+        "WHERE source.source_id=? AND source.version_kind=? "
+        "AND source.version_value=? AND source.version_type=? "
         "ORDER BY binding.binding_id,dependency.column_id,dependency.row_id",
         (
             target.source_id,

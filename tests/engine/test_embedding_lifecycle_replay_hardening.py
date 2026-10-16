@@ -294,8 +294,12 @@ def _insert_row(project: Project, table: str, row: dict[str, Any]) -> None:
 def _first_named_member(project: Project, index_id: str) -> tuple[str, str]:
     with sqlite3.connect(project.path / "project.retrieval.db") as db:
         row = db.execute(
-            "SELECT part_id,representation_id FROM named_dataset_membership "
-            "WHERE dataset_id=? ORDER BY part_id LIMIT 1",
+            "SELECT part.part_id,representation.representation_id "
+            "FROM named_dataset_membership member "
+            "JOIN parts part ON part.part_key=member.part_key "
+            "JOIN representations representation "
+            "ON representation.representation_key=member.representation_key "
+            "WHERE member.dataset_id=? ORDER BY part.part_id LIMIT 1",
             (index_id,),
         ).fetchone()
     assert row is not None
@@ -317,7 +321,10 @@ def _delete_first_named_member(project: Project, index_id: str) -> None:
     with sqlite3.connect(project.path / "project.retrieval.db") as db:
         db.execute(
             "DELETE FROM named_dataset_membership "
-            "WHERE dataset_id=? AND part_id=? AND representation_id=?",
+            "WHERE dataset_id=? "
+            "AND part_key=(SELECT part_key FROM parts WHERE part_id=?) "
+            "AND representation_key=(SELECT representation_key "
+            "FROM representations WHERE representation_id=?)",
             (index_id, part_id, representation_id),
         )
 
@@ -580,7 +587,10 @@ def test_delete_replay_rejects_recreated_index_sidecar_and_artifact(project):
     with sqlite3.connect(project.path / "project.retrieval.db") as db:
         db.execute(
             "INSERT INTO named_dataset_membership("
-            "dataset_id,part_id,representation_id) VALUES (?,?,?)",
+            "dataset_id,part_key,representation_key) VALUES (?,"
+            "(SELECT part_key FROM parts WHERE part_id=?),"
+            "(SELECT representation_key FROM representations "
+            "WHERE representation_id=?))",
             (index_id, *original_member),
         )
     _assert_stale(_run(project, action))

@@ -219,7 +219,9 @@ def test_same_source_lexical_dispatch_replay_is_idempotent(tmp_path) -> None:
             dispatch_resolved_text_source(store, resolved)
             assert (
                 store.db.execute(
-                    "SELECT count(*) FROM lexical_sources WHERE source_id=?",
+                    "SELECT count(*) FROM lexical_sources lexical "
+                    "JOIN sources source ON source.source_key=lexical.source_key "
+                    "WHERE source.source_id=?",
                     (resolved.source.source_id,),
                 ).fetchone()[0]
                 == 1
@@ -348,14 +350,8 @@ def test_pdf_page_views_prepare_independently_and_follow_selector_edits(
             active = store.db.execute(
                 "SELECT binding.row_id,source.source_id,part.locator_json "
                 "FROM bindings binding JOIN sources source "
-                "ON source.source_id=binding.source_id "
-                "AND source.version_kind=binding.version_kind "
-                "AND source.version_value=binding.version_value "
-                "AND source.version_type=binding.version_type "
-                "JOIN parts part ON part.source_id=source.source_id "
-                "AND part.version_kind=source.version_kind "
-                "AND part.version_value=source.version_value "
-                "AND part.version_type=source.version_type "
+                "ON source.source_key=binding.source_key "
+                "JOIN parts part ON part.source_key=source.source_key "
                 "WHERE binding.column_id=? ORDER BY binding.row_id,part.part_id",
                 (column_id,),
             ).fetchall()
@@ -405,14 +401,8 @@ def test_pdf_page_views_prepare_independently_and_follow_selector_edits(
             active = store.db.execute(
                 "SELECT binding.row_id,source.source_id,part.locator_json "
                 "FROM bindings binding JOIN sources source "
-                "ON source.source_id=binding.source_id "
-                "AND source.version_kind=binding.version_kind "
-                "AND source.version_value=binding.version_value "
-                "AND source.version_type=binding.version_type "
-                "JOIN parts part ON part.source_id=source.source_id "
-                "AND part.version_kind=source.version_kind "
-                "AND part.version_value=source.version_value "
-                "AND part.version_type=source.version_type "
+                "ON source.source_key=binding.source_key "
+                "JOIN parts part ON part.source_key=source.source_key "
                 "WHERE binding.column_id=? AND binding.row_id=?",
                 (column_id, page_one_row),
             ).fetchall()
@@ -762,7 +752,8 @@ def test_dirty_dispatch_prepares_real_timestamped_transcript_column(tmp_path) ->
             assert work is not None
             binding = store.db.execute(
                 "SELECT binding.column_id FROM bindings binding "
-                "WHERE binding.source_id=?",
+                "JOIN sources source ON source.source_key=binding.source_key "
+                "WHERE source.source_id=?",
                 (work.source_revision.source_id,),
             ).fetchone()
             assert int(binding["column_id"]) == transcript_column_id
@@ -782,7 +773,8 @@ def test_dirty_dispatch_prepares_real_timestamped_transcript_column(tmp_path) ->
             assert state is not None and state.status == "ready"
             locator = json.loads(
                 store.db.execute(
-                    "SELECT locator_json FROM parts WHERE source_id=?",
+                    "SELECT part.locator_json FROM parts part JOIN sources source "
+                    "ON source.source_key=part.source_key WHERE source.source_id=?",
                     (work.source_revision.source_id,),
                 ).fetchone()[0]
             )
@@ -830,7 +822,8 @@ def test_ocr_preparation_keeps_authoritative_span_ids(tmp_path, monkeypatch) -> 
         assert progress.complete and progress.processed_parts == 1
         with RetrievalStore(project).open() as store:
             locator = store.db.execute(
-                "SELECT locator_json FROM parts WHERE source_id=?",
+                "SELECT part.locator_json FROM parts part JOIN sources source "
+                "ON source.source_key=part.source_key WHERE source.source_id=?",
                 (source.source_id,),
             ).fetchone()[0]
             assert "span:page" in locator
@@ -891,10 +884,7 @@ def test_media_cell_dispatches_native_blob_and_derived_ocr(
             rows = store.db.execute(
                 "SELECT source.source_kind,binding.binding_id "
                 "FROM bindings binding JOIN sources source "
-                "ON source.source_id=binding.source_id "
-                "AND source.version_kind=binding.version_kind "
-                "AND source.version_value=binding.version_value "
-                "AND source.version_type=binding.version_type "
+                "ON source.source_key=binding.source_key "
                 "WHERE binding.sheet_id=? AND binding.row_id=? "
                 "AND binding.column_id=? ORDER BY source.source_kind",
                 (sheet_id, row_id, column_id),

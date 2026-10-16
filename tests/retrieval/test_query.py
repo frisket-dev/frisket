@@ -49,7 +49,9 @@ def query_native_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
         native.packaged_vec1_path()
     except native.Vec1Unavailable:
         output = tmp_path_factory.mktemp("query-vec1")
-        subprocess.run(
+        # Exercise the real native boundary with the repository-owned builder;
+        # every argument is fixed or a pytest-created path, with no shell.
+        subprocess.run(  # noqa: S603
             [
                 sys.executable,
                 str(ROOT / "scripts" / "build_vec1.py"),

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import sqlite3
 import struct
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
+from threading import Barrier
 
 import pytest
 
@@ -93,6 +95,55 @@ def test_store_uses_one_16k_contentless_sidecar_without_text_copy(tmp_path):
         )
 
     assert (tmp_path / "project.retrieval.db").is_file()
+
+
+def test_concurrent_fresh_store_open_serializes_schema_creation(tmp_path):
+    workers = 12
+    ready = Barrier(workers)
+
+    def open_store() -> str:
+        ready.wait()
+        with RetrievalStore(tmp_path).open() as store:
+            return store.sidecar_id()
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        sidecar_ids = tuple(executor.map(lambda _index: open_store(), range(workers)))
+
+    assert len(set(sidecar_ids)) == 1
+
+
+def test_relations_use_numeric_keys_while_public_ids_remain_unique(tmp_path):
+    with RetrievalStore(tmp_path).open() as store:
+        columns = {
+            table: {
+                row["name"] for row in store.db.execute(f"PRAGMA table_info({table})")
+            }
+            for table in (
+                "sources",
+                "parts",
+                "bindings",
+                "binding_dependencies",
+                "representations",
+                "part_representations",
+                "named_dataset_membership",
+            )
+        }
+
+        assert {"source_key", "source_id"} <= columns["sources"]
+        assert {"part_key", "part_id", "source_key"} <= columns["parts"]
+        assert {"binding_key", "binding_id", "source_key"} <= columns["bindings"]
+        assert columns["binding_dependencies"] >= {"binding_key"}
+        assert {"representation_key", "representation_id"} <= columns["representations"]
+        assert columns["part_representations"] >= {
+            "part_key",
+            "representation_key",
+        }
+        assert columns["named_dataset_membership"] >= {
+            "part_key",
+            "representation_key",
+        }
+        assert "source_id" not in columns["parts"] | columns["bindings"]
+        assert "part_id" not in columns["part_representations"]
 
 
 def test_stale_worker_cannot_publish_over_new_target(tmp_path):
