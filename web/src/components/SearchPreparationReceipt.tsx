@@ -99,6 +99,7 @@ function TextReview({
 }) {
   const [dismissed, setDismissed] = useState(false);
   const [sample, setSample] = useState<SearchPreparationTextSample | null>(null);
+  const [requestedStatus, setRequestedStatus] = useState<SearchPreparationBatch['status'] | null>(null);
   const [pages, setPages] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
   const [forcing, setForcing] = useState(false);
@@ -111,6 +112,7 @@ function TextReview({
   }, [batch.id, projectId]);
 
   const load = async (rowId?: number, pageNumber?: number, background = false) => {
+    setRequestedStatus(batch.status);
     if (background && loadController.current !== null) return;
     loadController.current?.abort();
     const controller = new AbortController();
@@ -148,9 +150,10 @@ function TextReview({
   };
 
   usePoll(() => load(sample?.row_id, sample?.page_number, sample !== null), {
-    active: !dismissed,
-    intervalMs: 5_000,
+    active: !dismissed && requestedStatus !== batch.status,
+    intervalMs: 1_000,
     guardOverlap: true,
+    maxAttempts: 1,
     immediate: true,
   });
 

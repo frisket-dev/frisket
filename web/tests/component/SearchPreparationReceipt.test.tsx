@@ -159,9 +159,11 @@ describe('SearchPreparationReceipt', () => {
     expect(screen.getByText('Search by meaning may still be preparing.')).not.toBeNull();
   });
 
-  it('refreshes a visible original receipt after replacement OCR publishes', async () => {
+  it('refreshes a visible preview on batch completion without repeatedly reading settled samples', async () => {
     vi.useFakeTimers();
-    getSearchPreparation.mockResolvedValue({ ...consentBatch, status: 'complete' });
+    getSearchPreparation
+      .mockResolvedValueOnce({ ...consentBatch, status: 'preparing' })
+      .mockResolvedValue({ ...consentBatch, status: 'complete' });
     const sample = {
       row_id: 42, column_id: 5, filename: 'bad-layer.pdf', page_number: 1,
       page_count: 1, page_scoped: true, preview_url: '/preview',
@@ -175,13 +177,38 @@ describe('SearchPreparationReceipt', () => {
     await act(async () => { await Promise.resolve(); });
     expect(screen.getByText('Garbled original text')).not.toBeNull();
 
-    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(getSearchPreparationTextSamples).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_500); });
+    expect(getSearchPreparationTextSamples).toHaveBeenCalledTimes(2);
     expect(screen.getByText('Garbled original text')).not.toBeNull();
     await act(async () => {
       refresh.resolve({ batch_id: 'prep-1', samples: [{ ...sample, text: 'Correct replacement text' }] });
     });
     expect(screen.getByText('Correct replacement text')).not.toBeNull();
     expect(screen.queryByText('Garbled original text')).toBeNull();
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    expect(getSearchPreparationTextSamples).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps a dismissed text review closed when the batch completes', async () => {
+    vi.useFakeTimers();
+    getSearchPreparation
+      .mockResolvedValueOnce({ ...consentBatch, status: 'preparing' })
+      .mockResolvedValue({ ...consentBatch, status: 'complete' });
+    getSearchPreparationTextSamples.mockResolvedValue({
+      batch_id: 'prep-1', samples: [{
+        row_id: 42, column_id: 5, filename: 'native.pdf', page_number: 1,
+        page_count: 1, page_scoped: true, preview_url: '/preview',
+        text: 'Correct native text', source: 'prepared', truncated: false,
+      }],
+    });
+    render(<SearchPreparationReceipt projectId="project-1" batchId="prep-1" onDone={vi.fn()} onError={vi.fn()} />);
+    await act(async () => { await Promise.resolve(); });
+    fireEvent.click(screen.getByTestId('search-preparation-keep-text'));
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    expect(screen.queryByTestId('search-preparation-text-preview')).toBeNull();
+    expect(getSearchPreparationTextSamples).toHaveBeenCalledTimes(1);
   });
 
   it('checks semantic search by default without authorizing downloads and allows opting out', async () => {
