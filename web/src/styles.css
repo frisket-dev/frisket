@@ -5092,7 +5092,7 @@ li.panel-empty { list-style: none; }
 
 .active-run-banner {
   position: fixed;
-  left: var(--sidebar-width);
+  left: calc(var(--sidebar-width) + 10px);
   bottom: 44px;
   z-index: 45;
   display: grid;
@@ -5107,7 +5107,7 @@ li.panel-empty { list-style: none; }
 }
 .status-notice-stack {
   position: fixed;
-  left: var(--sidebar-width);
+  left: calc(var(--sidebar-width) + 10px);
   bottom: 44px;
   z-index: 45;
   display: grid;

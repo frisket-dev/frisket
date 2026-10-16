@@ -103,7 +103,7 @@ function preparationDetail(batch: SearchPreparationBatch): string {
 function indexingDetail(indexing: SearchIndexingProjection): string {
   switch (indexing.status) {
     case 'pending':
-      return 'Preparing the search indexing job';
+      return 'Waiting to index';
     case 'queued':
       return 'Search indexing queued';
     case 'running':
@@ -194,7 +194,7 @@ export function deriveSearchPreparationNotice(
       detail: indexingDetail(snapshot.indexing),
       progress: null,
       details: snapshot.indexing.job_id == null
-        ? ['The project has durable indexing work waiting to be queued.']
+        ? []
         : [`Job ${snapshot.indexing.job_id.toLocaleString()}`],
     };
   }

@@ -473,6 +473,11 @@ class ProjectSearchService:
             retry_encoder = getattr(project, "_frisket_retry_retrieval_encoder", None)
             if callable(retry_encoder):
                 retry_encoder()
+        # Recover a lost enqueue after a source write without making status
+        # polling or merely opening a project create background work.
+        schedule_index = getattr(project, "_frisket_schedule_search_index", None)
+        if callable(schedule_index):
+            schedule_index()
         search_request = _request_from_wire(request)
         response = search_with_encoding(
             project,
