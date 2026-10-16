@@ -53,7 +53,7 @@ jobs:
           - target: macos-arm64
             runner: macos-15
             manylinux: false
-            platform: macosx_*_arm64
+            platform: macosx_14_0_arm64
             native: frisket/retrieval/_native/macos-arm64/vec1.dylib
           - target: windows-x86_64
             runner: windows-2022

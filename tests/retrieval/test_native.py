@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import platform
 import sqlite3
 import subprocess
 import sys
@@ -91,6 +92,35 @@ def test_wheel_platform_defaults_to_generic_host_tag(
     assert wheel_platform_tag() == expected
     if sys.platform.startswith("linux"):
         assert not wheel_platform_tag().startswith("manylinux_")
+
+
+def test_macos_wheel_tag_matches_vec1_compiler_target(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("FRISKET_WHEEL_PLATFORM_TAG", raising=False)
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(platform, "machine", lambda: "arm64")
+    wheel_platform_tag = _load_wheel_platform_tag(monkeypatch)
+
+    build = run_path(str(ROOT / "scripts" / "build_vec1.py"))
+    commands: list[list[str]] = []
+    compile_unix = build["_compile_unix"]
+    compile_unix.__globals__["_run"] = commands.append
+    compile_unix(
+        ROOT / "vendor" / "sqlite-vec1" / "vec1.c",
+        tmp_path / "vec1.dylib",
+        tmp_path,
+        macos=True,
+    )
+    compile_command = next(command for command in commands if "-c" in command)
+    architecture = compile_command[compile_command.index("-arch") + 1]
+    deployment = next(
+        value.removeprefix("-mmacosx-version-min=")
+        for value in compile_command
+        if value.startswith("-mmacosx-version-min=")
+    )
+    expected = f"macosx_{deployment.replace('.', '_')}_{architecture}"
+    assert wheel_platform_tag() == expected == "macosx_14_0_arm64"
 
 
 def test_wheel_platform_reserves_override_for_matching_manylinux(

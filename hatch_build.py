@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import platform
 import re
 import subprocess
 import sys
@@ -21,6 +22,15 @@ _MANYLINUX_TAG = re.compile(r"manylinux_[0-9]+_[0-9]+_(?:x86_64|aarch64)")
 def _host_platform_tag() -> str:
     """Return the build host platform without claiming portable Linux ABI."""
 
+    # build_vec1.py emits one arm64 dylib with a macOS 14 deployment target.
+    # setup-python's sysconfig tag can instead describe the interpreter
+    # (including universal2 or its own deployment target), which is not the
+    # binary this hook puts in the wheel.
+    if sys.platform == "darwin" and platform.machine().lower() in {
+        "arm64",
+        "aarch64",
+    }:
+        return "macosx_14_0_arm64"
     return sysconfig.get_platform().replace("-", "_").replace(".", "_")
 
 
