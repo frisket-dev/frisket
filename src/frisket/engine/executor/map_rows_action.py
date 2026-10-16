@@ -1610,6 +1610,7 @@ def build_typed_map_rows_plan(
     *,
     _allow_existing_outputs: bool = False,
     _admit_output_targets: bool = True,
+    _enforce_expected_output_columns: bool = True,
 ) -> TypedMapRowsPlan:
     """Resolve a typed request into a registry-free MapRunner program."""
 
@@ -1658,7 +1659,8 @@ def build_typed_map_rows_plan(
             bound,
             allow_idempotent_outputs=_allow_existing_outputs,
         )
-        _require_expected_output_columns(request, output_target_preconditions)
+        if _enforce_expected_output_columns:
+            _require_expected_output_columns(request, output_target_preconditions)
     else:
         output_names = {
             field.key: field.materialized_name(bound.request.output_names)
@@ -3366,13 +3368,45 @@ def typed_queued_map_spec(
     ) -> dict[str, Any] | ActionError:
         try:
             existing = _receipt_for_idempotency(project, bound.request.idempotency_key)
+            recovering_queued = bool(
+                existing is not None and existing["status"] == "queued"
+            )
             plan = build_typed_map_rows_plan(
                 project,
                 bound,
-                _allow_existing_outputs=bool(
-                    existing is not None and existing["status"] == "queued"
-                ),
+                _allow_existing_outputs=recovering_queued,
+                _enforce_expected_output_columns=not recovering_queued,
             )
+            if recovering_queued and type(existing["run_id"]) is int:
+                prepared_targets = {
+                    binding.output_role: binding.column_id
+                    for binding in ResultGenerationStore(project).bindings_for_run(
+                        int(existing["run_id"])
+                    )
+                }
+                current_targets = {
+                    str(column["name"]): int(column["id"])
+                    for column in project.columns(
+                        bound.request.scope.sheet_id, include_hidden=True
+                    )
+                }
+                expected_names = set(plan.output_names.values())
+                if set(prepared_targets) != expected_names or any(
+                    current_targets.get(name) != column_id
+                    for name, column_id in prepared_targets.items()
+                ):
+                    raise TypedMapRowsPlanError(
+                        "output_target_changed",
+                        "output targets changed after this action was prepared",
+                        field="output_names",
+                    )
+                prepared_spec = dict(plan.spec)
+                prepared_spec["output_target_preconditions"] = prepared_targets
+                plan = replace(
+                    plan,
+                    output_target_preconditions=MappingProxyType(prepared_targets),
+                    spec=MappingProxyType(prepared_spec),
+                )
         except (TypeError, ValueError, ValidationError) as exc:
             return _typed_plan_error(bound.action.action_id, exc)
         if (
@@ -3437,6 +3471,7 @@ def typed_queued_map_spec(
                 project,
                 bound,
                 _allow_existing_outputs=True,
+                _enforce_expected_output_columns=False,
             )
         except TypedMapRowsPlanError as exc:
             input_error = exc.code in {"invalid_input_ref", "column_not_ai_generated"}

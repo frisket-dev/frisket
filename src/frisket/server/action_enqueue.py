@@ -293,6 +293,35 @@ def _prepared_run_progress(project: Project, run_id: int) -> RunProgress:
     return RunProgress(run_id=run_id, total=total)
 
 
+def _snapshot_prepared_output_targets(
+    *,
+    runner_spec: MutableMapping[str, Any],
+    reservation: MutableMapping[str, Any],
+) -> None:
+    """Copy MapRunner's persisted output fence into queued action metadata."""
+
+    admitted = reservation.get("output_target_preconditions")
+    if not isinstance(admitted, Mapping) or not admitted:
+        return
+    raw_prepared = runner_spec.get("output_target_preconditions")
+    if not isinstance(raw_prepared, Mapping):
+        raise RuntimeError("prepared output targets were not fully materialized")
+    if any(
+        type(column_id) is not int or column_id <= 0
+        for column_id in raw_prepared.values()
+    ):
+        raise RuntimeError("prepared output targets were not fully materialized")
+    prepared = {str(name): int(column_id) for name, column_id in raw_prepared.items()}
+    if set(prepared) != {str(name) for name in admitted}:
+        raise RuntimeError("prepared output targets were not fully materialized")
+    if any(
+        type(expected) is int and prepared[name] != expected
+        for name, expected in admitted.items()
+    ):
+        raise RuntimeError("a prepared replacement output changed identity")
+    reservation["output_target_preconditions"] = prepared
+
+
 def _queue_v1_project_run_request(
     project: Project,
     project_id: str,
@@ -386,11 +415,6 @@ def _queue_v1_project_run_request(
     runner_spec.pop("deferred_publication", None)
     if getattr(request.program, "defer_generation_seal", False) is True:
         runner_spec["deferred_publication"] = True
-    reservation_snapshot = (
-        {codec.key: reservation[codec.key] for codec in request.entry.payload_codecs}
-        if request.program is not None
-        else None
-    )
 
     def abort_prepare(
         error: ActionError,
@@ -469,6 +493,18 @@ def _queue_v1_project_run_request(
                     **program_kwargs,
                     confirmed=bool(reservation.get("confirmed", False)),
                 )
+            _snapshot_prepared_output_targets(
+                runner_spec=runner_spec,
+                reservation=reservation,
+            )
+            reservation_snapshot = (
+                {
+                    codec.key: reservation[codec.key]
+                    for codec in request.entry.payload_codecs
+                }
+                if request.program is not None
+                else None
+            )
             request.entry.mark_prepared(
                 project,
                 receipt_id=reservation["receipt_id"],
@@ -571,6 +607,18 @@ def _queue_v1_project_run_request(
             raise
     if isinstance(prepared_run_id, int) and not isinstance(prepared_run_id, bool):
         try:
+            _snapshot_prepared_output_targets(
+                runner_spec=runner_spec,
+                reservation=reservation,
+            )
+            reservation_snapshot = (
+                {
+                    codec.key: reservation[codec.key]
+                    for codec in request.entry.payload_codecs
+                }
+                if request.program is not None
+                else None
+            )
             if atomic_publication and reservation.get("replace_abandoned_attempt"):
                 runner = MapRunner(
                     project,

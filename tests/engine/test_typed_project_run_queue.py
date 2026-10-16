@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import copy
+from io import BytesIO
 import json
 from pathlib import Path
 from typing import Any
 
 from fastapi.testclient import TestClient
 import pytest
+from pypdf import PdfWriter
+from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
 from frisket.contracts.action import ActionResult, Receipt
 from frisket.engine.executor.queued_actions import queued_v1_payload_envelope
@@ -48,6 +51,28 @@ def _regex_request(sheet_id: int) -> dict[str, Any]:
         "output_names": {"extracted": "phone"},
         "idempotency_key": "typed-regex-queue@1",
     }
+
+
+def _native_text_pdf(text: str) -> bytes:
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=612, height=792)
+    font = DictionaryObject(
+        {
+            NameObject("/Type"): NameObject("/Font"),
+            NameObject("/Subtype"): NameObject("/Type1"),
+            NameObject("/BaseFont"): NameObject("/Helvetica"),
+        }
+    )
+    page[NameObject("/Resources")] = DictionaryObject(
+        {NameObject("/Font"): DictionaryObject({NameObject("/F1"): font})}
+    )
+    content = DecodedStreamObject()
+    content.set_data(f"BT /F1 24 Tf 72 700 Td ({text}) Tj ET".encode("ascii"))
+    page[NameObject("/Contents")] = writer._add_object(content)
+    output = BytesIO()
+    writer.write(output)
+    writer.close()
+    return output.getvalue()
 
 
 def test_typed_regex_queues_canonical_request_and_worker_finishes(
@@ -142,6 +167,117 @@ def test_queued_worker_preserves_expected_output_columns(tmp_path: Path) -> None
         row_ids[0]: "212-555-0123",
         row_ids[1]: None,
     }
+
+
+def test_queued_replacement_snapshots_new_sibling_output_after_prepare(
+    tmp_path: Path,
+) -> None:
+    client = _client(tmp_path)
+    project_id = client.post(
+        "/api/projects", json={"name": "Mixed replacement outputs"}
+    ).json()["id"]
+    project = client.app.state.workspace.get(project_id)
+    sheet_id = project.add_sheet("Documents")
+    source_id = project.add_column(sheet_id, "media", type="file")
+    pdf = _native_text_pdf("existing native text")
+    digest = project.add_blob(pdf, filename="source.pdf", mime="application/pdf")
+    row_id = project.add_rows(
+        sheet_id,
+        [
+            {
+                "media": {
+                    "blob": digest,
+                    "filename": "source.pdf",
+                    "mime": "application/pdf",
+                }
+            }
+        ],
+        {"media": source_id},
+    )[0]
+
+    native = client.post(
+        f"/api/projects/{project_id}/actions/v1/run",
+        json={
+            "action_id": "media.read_pdf_text",
+            "scope": {
+                "kind": "sheet_rows",
+                "sheet_id": sheet_id,
+                "row_ids": [row_id],
+            },
+            "params": {"source": "media"},
+            "output_names": {"text": "Search text"},
+            "idempotency_key": "mixed-replacement-native@1",
+        },
+    )
+    assert native.status_code == 200, native.text
+    drain_queue(client)
+    existing_text = next(
+        column
+        for column in project.columns(sheet_id)
+        if column["name"] == "Search text"
+    )
+    assert project.get_values(sheet_id, int(existing_text["id"]), row_ids=[row_id]) == {
+        row_id: "existing native text"
+    }
+
+    body = {
+        "action_id": "media.ocr",
+        "scope": {
+            "kind": "sheet_rows",
+            "sheet_id": sheet_id,
+            "row_ids": [row_id],
+        },
+        "params": {"source": "media", "engine": "rapidocr", "language": "en"},
+        "output_names": {
+            "text": "Search text",
+            "blocks": "Search positions",
+        },
+        "replace_existing": True,
+        "expected_output_columns": {
+            "Search text": int(existing_text["id"]),
+            "Search positions": None,
+        },
+        "idempotency_key": "mixed-replacement-ocr@1",
+    }
+    response = client.post(
+        f"/api/projects/{project_id}/actions/v1/run",
+        json=body,
+    )
+    assert response.status_code == 200, response.text
+    queued = ActionResult.model_validate(response.json())
+    assert queued.status == "queued"
+    assert queued.job_id is not None
+    job = client.app.state.workspace.queue.get(queued.job_id)
+    assert job is not None
+    positions = next(
+        column
+        for column in project.columns(sheet_id, include_hidden=True)
+        if column["name"] == "Search positions"
+    )
+    prepared_targets = {
+        "Search text": int(existing_text["id"]),
+        "Search positions": int(positions["id"]),
+    }
+    assert job.payload["v1_output_target_preconditions"] == prepared_targets
+    assert job.payload["spec"]["output_target_preconditions"] == prepared_targets
+    persisted_spec = json.loads(
+        project.db.execute(
+            "SELECT params FROM runs WHERE id=?", (queued.run_id,)
+        ).fetchone()["params"]
+    )
+    assert persisted_spec == job.payload["spec"]
+    envelope = queued_v1_payload_envelope(job.payload, project=project)
+    assert envelope is not None
+    assert envelope.pre_run_error(project) is None
+
+    project.db.execute(
+        "UPDATE columns SET name='Externally moved positions' WHERE id=?",
+        (int(positions["id"]),),
+    )
+    project.db.commit()
+    stale = envelope.pre_run_error(project)
+    assert stale is not None
+    assert stale.code == "stale_input"
 
 
 def test_typed_queue_rejects_hash_spec_and_source_drift(tmp_path: Path) -> None:
