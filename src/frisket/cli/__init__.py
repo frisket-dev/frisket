@@ -628,7 +628,14 @@ def _run_worker(argv: list[str], *, hosted: bool) -> int:
 
         registration_options["worker_ports"] = team_worker_ports_from_env()
         control_database_url = team_database_url
+    embedding_runtime = None
     if not hosted:
+        from frisket.ai.embeddings.runtime import EmbeddingRuntime
+
+        # The open local/team worker owns one encoder runtime for all claims.
+        # Managed editions retain explicit authority over their own runtime.
+        embedding_runtime = EmbeddingRuntime()
+        registration_options["embedding_runtime"] = embedding_runtime
         registration_options["prepare_enclosures_for_search"] = True
     # The composition's own project-open seam (None for the open worker).
     # Reused for the scheduler scans below so that EVERY project this process
@@ -736,7 +743,11 @@ def _run_worker(argv: list[str], *, hosted: bool) -> int:
             embedding_scheduler.join(timeout=5)
         if notification_digest_scheduler is not None:
             notification_digest_scheduler.join(timeout=5)
-        queue.close()
+        try:
+            if embedding_runtime is not None:
+                embedding_runtime.close()
+        finally:
+            queue.close()
     return 0
 
 
