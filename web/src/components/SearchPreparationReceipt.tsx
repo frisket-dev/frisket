@@ -1,4 +1,4 @@
-import { Check, CircleAlert, LoaderCircle, Square } from 'lucide-react';
+import { CircleAlert, LoaderCircle, Square } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   createSearchPreparation,
@@ -384,7 +384,6 @@ export function SearchPreparationReceipt({
               ? 'Files imported'
               : 'Make these files searchable'}</h2>
         </div>
-        {fullyPrepared && <Check size={22} aria-hidden />}
       </header>
 
       <div className="search-preparation-groups">
