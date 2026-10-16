@@ -19,6 +19,7 @@ from .contracts import SourceRevision
 
 
 IDENTITY_VERSION = "frisket-retrieval-id-v1"
+_LOWER_HEX = frozenset("0123456789abcdef")
 
 
 def canonical_json(value: Any) -> str:
@@ -83,6 +84,24 @@ def input_hash(value: bytes | str) -> str:
 
     raw = value.encode("utf-8") if isinstance(value, str) else bytes(value)
     return f"sha256:{hashlib.sha256(raw).hexdigest()}"
+
+
+def blob_source_revision(*, blob_hash: str) -> SourceRevision:
+    """Construct the canonical identity of one content-addressed project blob."""
+
+    if (
+        not isinstance(blob_hash, str)
+        or len(blob_hash) != 64
+        or any(char not in _LOWER_HEX for char in blob_hash)
+    ):
+        raise ValueError("blob_hash must be 64 lowercase hexadecimal characters")
+    return SourceRevision(
+        source_id=f"blob:{blob_hash}",
+        source_kind="blob",
+        version_kind="blob_digest",
+        version_value=blob_hash,
+        content_hash=f"sha256:{blob_hash}",
+    )
 
 
 def _evidence_source_revision(

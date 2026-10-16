@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import pytest
 
 from frisket.retrieval.sources import (
+    blob_source_revision,
     canonical_json,
     input_hash,
     ocr_source_revision,
@@ -85,6 +86,19 @@ def test_evidence_source_revisions_bind_link_snapshot_and_exact_text():
     assert (ocr.source_kind, ocr.version_kind) == ("ocr_text", "ocr_snapshot")
     assert ocr.version_value == "sha256:ocr-snapshot"
     assert ocr.content_hash == input_hash("page text")
+
+
+def test_blob_source_revision_uses_canonical_content_digest():
+    digest = "ab" * 32
+    revision = blob_source_revision(blob_hash=digest)
+
+    assert revision.source_id == f"blob:{digest}"
+    assert (revision.source_kind, revision.version_kind) == ("blob", "blob_digest")
+    assert revision.version_value == digest
+    assert revision.content_hash == f"sha256:{digest}"
+
+    with pytest.raises(ValueError, match="64 lowercase hexadecimal"):
+        blob_source_revision(blob_hash=digest.upper())
 
 
 def test_representation_identity_uses_complete_space():
