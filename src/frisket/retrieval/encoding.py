@@ -114,10 +114,7 @@ class AudioEncodingInput:
 
 
 EncodingInput: TypeAlias = (
-    TextEncodingInput
-    | ImageEncodingInput
-    | VideoClipEncodingInput
-    | AudioEncodingInput
+    TextEncodingInput | ImageEncodingInput | VideoClipEncodingInput | AudioEncodingInput
 )
 EmbeddingVector: TypeAlias = tuple[float, ...]
 
@@ -128,13 +125,9 @@ class EmbeddingGemma2Space:
 
     dimensions: int = 768
     image_soft_tokens: int = EMBEDDINGGEMMA2_IMAGE_SOFT_TOKENS
-    video_soft_tokens_per_frame: int = (
-        EMBEDDINGGEMMA2_VIDEO_SOFT_TOKENS_PER_FRAME
-    )
+    video_soft_tokens_per_frame: int = EMBEDDINGGEMMA2_VIDEO_SOFT_TOKENS_PER_FRAME
     model_id: str = field(default=EMBEDDINGGEMMA2_MODEL_ID, init=False)
-    model_revision: str = field(
-        default=EMBEDDINGGEMMA2_MODEL_REVISION, init=False
-    )
+    model_revision: str = field(default=EMBEDDINGGEMMA2_MODEL_REVISION, init=False)
     metric: str = field(default="cosine", init=False)
     normalized: bool = field(default=True, init=False)
     precision: str = field(default="float32", init=False)
@@ -230,9 +223,7 @@ class EmbeddingGemma2Encoder:
             ):
                 end += 1
             batch = values[offset:end]
-            encoded = await self._session.encode(
-                batch, purpose=purpose, space=space
-            )
+            encoded = await self._session.encode(batch, purpose=purpose, space=space)
             self._validate_vectors(encoded, expected=len(batch), space=space)
             vectors.extend(encoded)
             offset = end

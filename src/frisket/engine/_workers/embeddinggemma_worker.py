@@ -171,7 +171,9 @@ class EmbeddingGemma2Runtime:
             images = []
             for item in items:
                 _exact_fields(item, {"kind", "path"}, kind="image item")
-                images.append(self._read_image(_staged_file(staging_root, item["path"])))
+                images.append(
+                    self._read_image(_staged_file(staging_root, item["path"]))
+                )
             return self._processor(
                 images=images,
                 images_kwargs={"max_soft_tokens": image_soft_tokens},
@@ -365,9 +367,7 @@ def framed_main() -> int:
                     dimensions=request["dimensions"],
                     staging_root=staging_root,
                     image_soft_tokens=request["image_soft_tokens"],
-                    video_soft_tokens_per_frame=request[
-                        "video_soft_tokens_per_frame"
-                    ],
+                    video_soft_tokens_per_frame=request["video_soft_tokens_per_frame"],
                 )
             except WorkerProtocolError:
                 CODEC.write_frame(
