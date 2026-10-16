@@ -14,6 +14,7 @@ from frisket.contracts.http.project_search import ProjectSearchRequest
 
 import inspect
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -86,7 +87,14 @@ async def _call(fn: Any, /, *args: Any, **kwargs: Any) -> Any:
 
 
 def create_mcp_server(backend: LocalBackend | HostedBackend) -> FastMCP:
-    server = FastMCP("frisket", instructions=_INSTRUCTIONS)
+    @asynccontextmanager
+    async def lifespan(_server: FastMCP):
+        try:
+            yield None
+        finally:
+            await backend.aclose()
+
+    server = FastMCP("frisket", instructions=_INSTRUCTIONS, lifespan=lifespan)
 
     @server.tool()
     async def list_projects() -> dict:

@@ -12,6 +12,7 @@ live server or network.
 import asyncio
 import json
 import sys
+import threading
 
 import httpx
 import pytest
@@ -767,6 +768,50 @@ def test_hosted_backfill_named_refusal_is_structured_not_an_exception() -> None:
 
 
 class TestToolSurface:
+    def test_server_lifespan_closes_local_backend_runtime(self, tmp_path):
+        backend = LocalBackend(tmp_path / "ws")
+        closed = False
+
+        class Runtime:
+            async def aclose(self):
+                nonlocal closed
+                closed = True
+
+        backend.ws.embedding_runtime = Runtime()
+        backend.ws._owns_embedding_runtime = True
+
+        async def go():
+            async with session_for(backend) as session:
+                await session.list_tools()
+
+        asyncio.run(go())
+
+        assert closed is True
+
+    def test_local_backend_shutdown_stops_and_cancels_drain_workers(self, tmp_path):
+        backend = LocalBackend(tmp_path / "ws")
+        stop = threading.Event()
+        runtime_closed = False
+
+        class Runtime:
+            async def aclose(self):
+                nonlocal runtime_closed
+                runtime_closed = True
+
+        backend.ws.embedding_runtime = Runtime()
+        backend.ws._owns_embedding_runtime = True
+
+        async def go():
+            task = asyncio.create_task(asyncio.Event().wait())
+            backend._tasks.add(task)
+            backend._worker_stops[task] = stop
+            await backend.aclose()
+            return task.cancelled()
+
+        assert asyncio.run(go()) is True
+        assert stop.is_set()
+        assert runtime_closed is True
+
     def test_tools_with_typed_schemas(self, tmp_path):
         backend = LocalBackend(tmp_path / "ws")
 

@@ -208,6 +208,42 @@ def test_runtime_closes_failed_session_before_replacing_it():
     assert [session.close_count for session in sessions] == [1, 1]
 
 
+def test_runtime_leaves_session_owned_cleanup_tasks_alive_until_session_close():
+    sessions = []
+
+    class Session:
+        def __init__(self):
+            self.helper = None
+            self.closed_cleanly = False
+
+        async def encode(self, inputs, *, purpose, space):
+            self.helper = asyncio.create_task(asyncio.Event().wait())
+            return [_unit(space.dimensions) for _ in inputs]
+
+        async def aclose(self):
+            assert self.helper is not None
+            assert not self.helper.cancelled()
+            self.helper.cancel()
+            await asyncio.gather(self.helper, return_exceptions=True)
+            self.closed_cleanly = True
+
+    def factory(*, cancelled=None):
+        session = Session()
+        sessions.append(session)
+        return session
+
+    runtime = EmbeddingRuntime(factory)
+    assert runtime.encode(
+        [TextEncodingInput("start")],
+        purpose=EncodingPurpose.QUERY,
+        space=EmbeddingGemma2Space(128),
+    ) == [_unit(128)]
+
+    runtime.close(timeout=1)
+
+    assert sessions[0].closed_cleanly is True
+
+
 def _wait_for_pending(runtime: EmbeddingRuntime, count: int) -> None:
     deadline = time.monotonic() + 1
     while time.monotonic() < deadline:

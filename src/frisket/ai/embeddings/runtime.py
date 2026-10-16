@@ -266,17 +266,6 @@ class EmbeddingRuntime:
         )
 
     async def _close_on_owner_loop(self) -> None:
-        current = asyncio.current_task()
-        requests = [
-            task
-            for task in asyncio.all_tasks()
-            if task is not current and not task.done()
-        ]
-        for task in requests:
-            if not task.cancelling():
-                task.cancel()
-        if requests:
-            await asyncio.gather(*requests, return_exceptions=True)
         if self._request_lock is None:
             return
         async with self._request_lock:

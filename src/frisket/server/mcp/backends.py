@@ -31,6 +31,7 @@ import asyncio
 import hashlib
 import json
 import os
+import threading
 import uuid
 from pathlib import Path
 from typing import Any
@@ -357,6 +358,7 @@ class LocalBackend:
     def __init__(self, root: str | Path, router: ModelRouter | None = None):
         self.ws = Workspace(Path(root), router)
         self._tasks: set[asyncio.Task[Any]] = set()
+        self._worker_stops: dict[asyncio.Task[Any], threading.Event] = {}
 
     def list_projects(self) -> list[dict]:
         return self.ws.list()
@@ -452,17 +454,33 @@ class LocalBackend:
         started = _started_from_action_result(body)
         if body.get("status") == "queued":
             worker = Worker(self.ws.queue, self.ws.registry)
+            stop = threading.Event()
             task = asyncio.create_task(
-                asyncio.to_thread(worker.run_forever, drain=True)
+                asyncio.to_thread(worker.run_forever, stop, drain=True)
             )
             self._tasks.add(task)
+            self._worker_stops[task] = stop
             task.add_done_callback(self._reap)
         return started
 
     def _reap(self, task: asyncio.Task[Any]) -> None:
         self._tasks.discard(task)
+        self._worker_stops.pop(task, None)
         if not task.cancelled():
             task.exception()
+
+    async def aclose(self) -> None:
+        """Stop backend-owned work and the workspace's local model runtime."""
+
+        tasks = tuple(self._tasks)
+        for task in tasks:
+            stop = self._worker_stops.get(task)
+            if stop is not None:
+                stop.set()
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        await self.ws.close_embedding_runtime()
 
     async def backfill_run(
         self,
@@ -529,6 +547,7 @@ class HostedBackend:
     ):
         if client is not None:
             self._client = client
+            self._owns_client = False
             return
         base_url = base_url or os.environ.get("FRISKET_BASE_URL")
         pat = pat or os.environ.get("FRISKET_PAT")
@@ -542,6 +561,7 @@ class HostedBackend:
             headers={"Authorization": f"Bearer {pat}"},
             timeout=30.0,
         )
+        self._owns_client = True
 
     async def _json(self, resp: httpx.Response) -> Any:
         if resp.status_code >= 400:
@@ -551,6 +571,10 @@ class HostedBackend:
                 detail = resp.text
             raise ValueError(f"frisket API error {resp.status_code}: {detail}")
         return resp.json()
+
+    async def aclose(self) -> None:
+        if self._owns_client:
+            await self._client.aclose()
 
     async def list_projects(self) -> list[dict]:
         return await self._json(await self._client.get("/api/projects"))
