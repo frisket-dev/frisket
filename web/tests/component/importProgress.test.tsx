@@ -76,6 +76,7 @@ describe('persistent import progress', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Open preparation' }));
 
     const dialog = await screen.findByRole('dialog', { name: 'Search preparation' });
+    expect(within(dialog).getByRole('button', { name: 'Close preparation' })).toHaveFocus();
     expect(await within(dialog).findByText('Automatically previewed PDF text')).toBeVisible();
     const banner = screen.getByRole('region', { name: 'Import progress' });
     expect(within(banner).queryByTestId('search-preparation-receipt')).not.toBeInTheDocument();
@@ -101,6 +102,35 @@ describe('persistent import progress', () => {
     fireEvent(await screen.findByRole('dialog', { name: 'Search preparation' }), new Event('cancel', { cancelable: true }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Open preparation' })).toBeVisible();
+  });
+
+  it('closes preparation before a changed project can read or poll the old batch', async () => {
+    vi.useFakeTimers();
+    listImportSessions.mockResolvedValue({ sessions: [{
+      ...running, state: 'completed', search_preparation_batch_id: 'prep-1',
+    }] });
+    getSearchPreparation.mockResolvedValue({
+      schemaVersion: 'frisket.search_preparation.v1', id: 'prep-1', sheet_id: 9,
+      plan_hash: 'sha256:plan', status: 'preparing', groups: [], models: [],
+      jobs: [], can_stop: true, can_setup: false, errors: [],
+    });
+    const onOpenSheet = vi.fn();
+    const { rerender } = render(<ImportProgress projectId="project-1" onOpenSheet={onOpenSheet} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    fireEvent.click(screen.getByRole('button', { name: 'Open preparation' }));
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.getByRole('dialog', { name: 'Search preparation' })).toBeVisible();
+    expect(getSearchPreparation).toHaveBeenCalledTimes(1);
+
+    rerender(<ImportProgress projectId="project-2" onOpenSheet={onOpenSheet} />);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    expect(getSearchPreparation).toHaveBeenCalledTimes(1);
+    expect(getSearchPreparation).toHaveBeenCalledWith('project-1', 'prep-1');
+
+    rerender(<ImportProgress projectId="project-1" onOpenSheet={onOpenSheet} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it('restores running progress, opens committed rows read-only, and offers cancellation', async () => {

@@ -52,13 +52,19 @@ export function ImportProgress({ projectId, onOpenSheet, onChanged, onError }: {
   const [busyRef, setBusyRef] = useState<string | null>(null);
   const [preparingRef, setPreparingRef] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [openPreparationBatchId, setOpenPreparationBatchId] = useState<string | null>(null);
+  const [preparation, setPreparation] = useState<{ projectId: string; batchId: string | null }>({
+    projectId, batchId: null,
+  });
+  if (preparation.projectId !== projectId) setPreparation({ projectId, batchId: null });
+  const openPreparationBatchId = preparation.projectId === projectId ? preparation.batchId : null;
+  const setOpenPreparationBatchId = (batchId: string | null) => setPreparation({ projectId, batchId });
   const browserUploadVersion = useSyncExternalStore(
     subscribeImportSessions,
     importSessionSnapshot,
     importSessionSnapshot,
   );
   const preparationDialogRef = useRef<HTMLDialogElement | null>(null);
+  const preparationCloseRef = useRef<HTMLButtonElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const continueRef = useRef<ImportSessionStatus | null>(null);
   const preparationGeneration = useRef(0);
@@ -70,7 +76,10 @@ export function ImportProgress({ projectId, onOpenSheet, onChanged, onError }: {
 
   useEffect(() => {
     const dialog = preparationDialogRef.current;
-    if (openPreparationBatchId && dialog && !dialog.open) dialog.showModal();
+    if (openPreparationBatchId && dialog && !dialog.open) {
+      dialog.showModal();
+      preparationCloseRef.current?.focus();
+    }
   }, [openPreparationBatchId]);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
@@ -285,6 +294,7 @@ export function ImportProgress({ projectId, onOpenSheet, onChanged, onError }: {
           <button
             type="button"
             className="import-workspace-backdrop"
+            tabIndex={-1}
             aria-label="Close preparation backdrop"
             onMouseDown={() => setOpenPreparationBatchId(null)}
           />
@@ -293,6 +303,7 @@ export function ImportProgress({ projectId, onOpenSheet, onChanged, onError }: {
               <button
                 type="button"
                 className="icon-btn"
+                ref={preparationCloseRef}
                 aria-label="Close preparation"
                 onClick={() => setOpenPreparationBatchId(null)}
               >
