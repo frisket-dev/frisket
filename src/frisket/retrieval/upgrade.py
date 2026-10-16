@@ -13,6 +13,7 @@ import logging
 import re
 import sqlite3
 import tempfile
+import uuid
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -37,7 +38,7 @@ from .migration import (
     legacy_cell_vector_key,
     migrate_legacy_embedding_caches,
 )
-from .store import RetrievalStore
+from .store import RetrievalStore, UnsupportedRetrievalSchema
 
 
 LEGACY_EMBEDDING_UPGRADE_META_KEY = "retrieval_legacy_embedding_upgrade_v1"
@@ -78,15 +79,13 @@ def prepare_retrieval_on_open(project: Any) -> None:
     project_path = Path(project.path)
     sidecar_exists = (project_path / "project.retrieval.db").is_file()
     legacy_exists = any((project_path / name).is_file() for name in _LEGACY_FILENAMES)
-    if sidecar_exists or legacy_exists:
-        # Existing derived state must be bound before readers can consider it
-        # current. A legacy import also needs a sidecar to receive its rows.
-        bind_retrieval_sidecar(project)
-    else:
+    if not sidecar_exists and not legacy_exists:
         # Opening a project remains read-only with respect to derived storage.
         # Persist the repair intent in the authoritative database; the bounded
         # maintenance writer creates and binds the sidecar on its first batch.
         with project.transaction_scope():
+            if not project.db.execute("SELECT 1 FROM current_cells LIMIT 1").fetchone():
+                return
             global_scope = project.db.execute(
                 "SELECT 1 FROM search_dirty_scopes WHERE sheet_id IS NULL "
                 "AND scan_cursor='[0,0]' LIMIT 1"
@@ -94,11 +93,24 @@ def prepare_retrieval_on_open(project: Any) -> None:
             if global_scope is None:
                 enqueue_dirty_scope(project.db)
         return
-    if not legacy_exists:
-        return
     lock = FileLock(str(project_path / _UPGRADE_LOCK_NAME), timeout=0)
     try:
         with lock:
+            try:
+                bind_retrieval_sidecar(project)
+            except UnsupportedRetrievalSchema:
+                _preserve_unusable_sidecar(project_path)
+                bind_retrieval_sidecar(project)
+            except sqlite3.DatabaseError as exc:
+                if getattr(exc, "sqlite_errorcode", None) not in {
+                    sqlite3.SQLITE_CORRUPT,
+                    sqlite3.SQLITE_NOTADB,
+                }:
+                    raise
+                _preserve_unusable_sidecar(project_path)
+                bind_retrieval_sidecar(project)
+            if not legacy_exists:
+                return
             try:
                 _upgrade_legacy_embedding_caches(project, batch_size=250)
             except Exception:
@@ -109,6 +121,18 @@ def prepare_retrieval_on_open(project: Any) -> None:
         # Another opener owns the same idempotent attempt. It will persist the
         # report; this opener must not wait on derived-cache recovery.
         return
+
+
+def _preserve_unusable_sidecar(project_path: Path) -> None:
+    """Keep incompatible cached work intact while a new index is prepared."""
+
+    destination = project_path / f"retrieval-unusable-{uuid.uuid4().hex}"
+    destination.mkdir()
+    for suffix in ("", "-wal", "-shm", "-journal"):
+        path = project_path / f"project.retrieval.db{suffix}"
+        if path.exists():
+            path.replace(destination / path.name)
+    _LOG.warning("Preserved unusable retrieval cache at %s", destination)
 
 
 def upgrade_legacy_embedding_caches(

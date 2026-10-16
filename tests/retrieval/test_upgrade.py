@@ -4,6 +4,7 @@ import sqlite3
 import struct
 import json
 from array import array
+from contextlib import closing
 
 import pytest
 from filelock import FileLock
@@ -452,6 +453,55 @@ def test_corrupt_legacy_cache_records_attempt_without_blocking_open(tmp_path) ->
         assert _misses(report) == {"analytical_sidecar_unreadable": 1}
     finally:
         reopened.close()
+
+
+def test_empty_project_open_does_not_queue_a_global_search_rebuild(tmp_path):
+    from frisket.search import drain_index
+
+    path = tmp_path / "empty.frisket"
+    with closing(Project.create(path)) as project:
+        drain_index(project)
+    (path / "project.retrieval.db").unlink()
+    with closing(Project(path)) as project:
+        assert not project.db.execute("SELECT 1 FROM search_dirty_scopes").fetchone()
+
+
+@pytest.mark.parametrize("kind", ["garbage", "foreign", "old_version"])
+def test_unusable_retrieval_cache_is_preserved_and_rebuilt_on_open(tmp_path, kind):
+    from frisket.search import drain_index, search_project
+
+    path = tmp_path / f"recover-{kind}.frisket"
+    with closing(Project.create(path)) as project:
+        sheet = project.add_sheet("Notes")
+        column = project.add_column(sheet, "body")
+        project.add_rows(sheet, [{"body": "recoverable needle"}], {"body": column})
+    sidecar = path / "project.retrieval.db"
+    if kind == "garbage":
+        sidecar.write_bytes(b"not a sqlite database")
+    else:
+        with sqlite3.connect(sidecar) as db:
+            db.execute("CREATE TABLE preserved_work(value TEXT)")
+            db.execute("INSERT INTO preserved_work VALUES ('paid vector remains')")
+            if kind == "old_version":
+                db.execute(
+                    "CREATE TABLE retrieval_meta(key TEXT PRIMARY KEY,value TEXT)"
+                )
+                db.execute("INSERT INTO retrieval_meta VALUES ('schema_version','1')")
+    with closing(Project(path)) as project:
+        archives = list(path.glob("retrieval-unusable-*/project.retrieval.db"))
+        assert len(archives) == 1
+        if kind == "garbage":
+            assert archives[0].read_bytes() == b"not a sqlite database"
+        else:
+            with sqlite3.connect(archives[0]) as db:
+                assert db.execute("SELECT value FROM preserved_work").fetchone() == (
+                    "paid vector remains",
+                )
+        assert project.db.execute("SELECT 1 FROM search_dirty_scopes").fetchone()
+        drain_index(project)
+        assert search_project(project, "needle")
+    with closing(Project(path)):
+        assert len(list(path.glob("retrieval-unusable-*"))) == 1
 
 
 def test_open_skips_upgrade_while_another_process_lock_is_held(tmp_path) -> None:
