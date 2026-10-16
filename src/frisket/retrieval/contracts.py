@@ -345,12 +345,9 @@ class SearchRequest:
             raise ValueError("mode must be lexical, semantic, or hybrid")
         if self.group_by not in {"part", "source", "row"}:
             raise ValueError("group_by must be part, source, or row")
-        if (
-            isinstance(self.limit, bool)
-            or not isinstance(self.limit, int)
-            or not 1 <= self.limit <= MAX_SEARCH_LIMIT
-        ):
-            raise ValueError(f"limit must be in [1, {MAX_SEARCH_LIMIT}]")
+        # HTTP previews cap their result windows. Persisted analytical queries
+        # may request more rows and must not silently truncate to that UI cap.
+        _positive(self.limit, "limit")
         if self.mode in {"lexical", "hybrid"} and not isinstance(self.query, TextQuery):
             raise ValueError(f"{self.mode} mode requires a text query")
 

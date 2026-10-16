@@ -928,3 +928,57 @@ def test_named_scope_does_not_claim_readiness_from_other_membership(tmp_path):
         assert not response.coverage.searched_channels
     finally:
         project.close()
+
+
+def test_hybrid_reranks_context_before_limiting_results(tmp_path):
+    project = Project.create(tmp_path / "rerank.frisket", name="rerank")
+    try:
+        sheet = project.add_sheet("Documents")
+        body = project.add_column(sheet, "body")
+        texts = [
+            "target " + "context " * 25 + ending
+            for ending in ("ordinary", "other", "winner & details")
+        ]
+        rows = project.add_rows(
+            sheet, [{"body": text} for text in texts], {"body": body}
+        )
+        with RetrievalStore(project).open() as store:
+            for row, text in zip(rows, texts, strict=True):
+                _publish(
+                    store,
+                    row_id=row,
+                    sheet_id=sheet,
+                    column_id=body,
+                    text=text,
+                    vector=(1.0, 0.0, 0.0),
+                    version=read_binding_revision(
+                        project.db, row_id=row, column_id=body
+                    ),
+                )
+        request = SearchRequest(
+            scope=RetrievalScope((SheetScope(sheet),)),
+            query=TextQuery("target"),
+            mode="hybrid",
+            limit=1,
+            space_id="space:test",
+            ranking=RankingPolicy(rerank="on"),
+        )
+        seen = []
+
+        def reranker(query, documents):
+            assert query == "target"
+            seen.extend(documents)
+            assert all("<b>" not in doc and "&amp;" not in doc for doc in documents)
+            return [10.0 if "winner & details" in doc else 0.0 for doc in documents]
+
+        result = search(
+            project,
+            request,
+            semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
+            reranker=reranker,
+        )
+        assert len(seen) == 3
+        assert [group.primary.binding.row_id for group in result.results] == [rows[2]]
+        assert "&amp;" not in result.results[0].primary.snippet
+    finally:
+        project.close()

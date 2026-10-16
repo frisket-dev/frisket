@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import math
 import sqlite3
-from html import escape
 from collections import defaultdict
 from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager
@@ -15,7 +14,7 @@ from threading import Event
 from typing import Any, Literal
 
 from frisket.engine.store import cells
-from frisket.search_hydration import native_snippets
+from frisket.search_hydration import MAX_SNIPPET_CANDIDATES, native_snippets
 
 from .contracts import (
     BindingRevision,
@@ -92,6 +91,7 @@ class _Candidate:
     lexical_rowid: int | None = None
     lexical_content_hash: str | None = None
     snippet: str | None = None
+    rerank_text: str | None = None
 
     def fusion_key(self, grouping: Literal["source", "row"]) -> str:
         if grouping == "row":
@@ -240,6 +240,7 @@ class RetrievalQueryService:
                             reader, request, scope, limit=rerank_pool
                         )
                         groups = _single_method_groups(lexical, request)
+                        candidates = lexical
                         coverage = self._coverage(
                             reader, request, scope, channels=("lexical",)
                         )
@@ -252,6 +253,7 @@ class RetrievalQueryService:
                             limit=rerank_pool,
                         )
                         groups = _single_method_groups(semantic, request)
+                        candidates = semantic
                         channels = _semantic_coverage_channels(reader, request, scope)
                         coverage = self._coverage(
                             reader,
@@ -273,6 +275,7 @@ class RetrievalQueryService:
                             fusion=True,
                         )
                         groups = _hybrid_groups(lexical, semantic, request)
+                        candidates = [*lexical, *semantic]
                         channels = (
                             "lexical",
                             *_semantic_coverage_channels(reader, request, scope),
@@ -280,7 +283,7 @@ class RetrievalQueryService:
                         coverage = self._coverage(
                             reader, request, scope, channels=channels
                         )
-                    groups = self._rerank(groups, request)
+                    groups = self._rerank(groups, request, candidates)
                 finally:
                     if cancel_event is not None:
                         reader.db.set_progress_handler(None, 0)
@@ -340,24 +343,39 @@ class RetrievalQueryService:
         )
 
     def _rerank(
-        self, groups: list[ResultGroup], request: SearchRequest
+        self,
+        groups: list[ResultGroup],
+        request: SearchRequest,
+        candidates: list[_Candidate],
     ) -> list[ResultGroup]:
         if request.ranking.rerank == "off" or self.reranker is None or not groups:
             return groups
         query_text = _rerank_query_text(request)
-        documents = [group.primary.snippet or "" for group in groups]
-        if query_text is None or not any(documents):
+        contexts = {
+            candidate.part_id: candidate.rerank_text
+            for candidate in candidates
+            if candidate.rerank_text
+        }
+        positions = [
+            index
+            for index, group in enumerate(groups)
+            if group.primary.part.part_id in contexts
+        ]
+        if query_text is None or not positions:
             if request.ranking.rerank == "on":
                 raise RetrievalQueryError(
                     "reranker_input_unavailable",
                     "reranking requires a textual query and hydrated candidate text",
                 )
             return groups
+        documents = [
+            contexts[groups[index].primary.part.part_id] for index in positions
+        ]
         try:
             scores = tuple(
                 float(score) for score in self.reranker(query_text, documents)
             )
-            if len(scores) != len(groups) or any(
+            if len(scores) != len(positions) or any(
                 not math.isfinite(score) for score in scores
             ):
                 raise ValueError("reranker returned invalid scores")
@@ -365,13 +383,26 @@ class RetrievalQueryService:
             if request.ranking.rerank == "on":
                 raise RetrievalQueryError("reranker_failed", str(exc)) from exc
             return groups
+        # The local cross-encoder's near-flat logits are uninformative (notably
+        # outside its training languages). Preserve first-stage ordering.
+        if request.ranking.rerank == "auto" and max(scores) - min(scores) < 1.0:
+            return groups
         ranked = sorted(
-            zip(groups, scores, strict=True), key=lambda item: item[1], reverse=True
+            (
+                (groups[index], score)
+                for index, score in zip(positions, scores, strict=True)
+            ),
+            key=lambda item: item[1],
+            reverse=True,
         )
-        return [
-            replace(group, primary=replace(group.primary, rank_score=score))
-            for group, score in ranked
-        ]
+        result = list(groups)
+        # Visual/audio-only hits have no text to rerank. Keep their positions
+        # instead of inventing empty-text scores that compete with real evidence.
+        for index, (group, score) in zip(positions, ranked, strict=True):
+            result[index] = replace(
+                group, primary=replace(group.primary, rank_score=score)
+            )
+        return result
 
     def _lexical_candidates(
         self,
@@ -1014,17 +1045,28 @@ def _hydrate_lexical(
         if text is None or input_hash(text) != candidate.lexical_content_hash:
             continue
         hydrated.append((candidate, text))
-    snippets = native_snippets(
-        reader.db,
-        query,
-        [
-            {"index_id": index, "content": text}
-            for index, (_candidate, text) in enumerate(hydrated, start=1)
-        ],
-        include_rerank=False,
-    )
+    snippets: dict[int, tuple[str, str | None]] = {}
+    for offset in range(0, len(hydrated), MAX_SNIPPET_CANDIDATES):
+        snippets.update(
+            native_snippets(
+                reader.db,
+                query,
+                [
+                    {"index_id": index, "content": text}
+                    for index, (_candidate, text) in enumerate(
+                        hydrated[offset : offset + MAX_SNIPPET_CANDIDATES],
+                        start=offset + 1,
+                    )
+                ],
+                include_rerank=True,
+            )
+        )
     return [
-        replace(candidate, snippet=snippets[index][0])
+        replace(
+            candidate,
+            snippet=snippets[index][0],
+            rerank_text=(snippets[index][1] or "")[:1024],
+        )
         for index, (candidate, _text) in enumerate(hydrated, start=1)
         if index in snippets
     ]
@@ -1092,13 +1134,19 @@ def _hydrate_semantic(
         context_start = max(0, text_range.start - 100)
         context_end = min(len(text), text_range.end + 100)
         snippet = (
-            escape(text[context_start : text_range.start])
+            text[context_start : text_range.start]
             + "<b>"
-            + escape(text[text_range.start : text_range.end])
+            + text[text_range.start : text_range.end]
             + "</b>"
-            + escape(text[text_range.end : context_end])
+            + text[text_range.end : context_end]
         )
-        hydrated.append(replace(candidate, snippet=snippet))
+        hydrated.append(
+            replace(
+                candidate,
+                snippet=snippet,
+                rerank_text=text[context_start:context_end][:1024],
+            )
+        )
     return hydrated
 
 
@@ -1143,8 +1191,6 @@ def _hybrid_groups(
                 hit = replace(hit, snippet=lexical_candidate.snippet)
         hit = replace(hit, contributions=tuple(contributions))
         groups.append(ResultGroup(group_key=key, primary=hit))
-        if len(groups) == request.limit:
-            break
     return groups
 
 
@@ -1291,7 +1337,9 @@ def _semantic_dataset_filter(
 
 
 def _lexical_dataset_filter(request: SearchRequest) -> tuple[str, str, tuple[Any, ...]]:
-    if request.named_index_id is None:
+    # A saved hybrid query combines sheet keywords with a named semantic index.
+    # Its keyword arm is not restricted to rows having a vector in that index.
+    if request.named_index_id is None or request.mode == "hybrid":
         return "", "", ()
     return (
         "",
