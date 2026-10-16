@@ -26,6 +26,7 @@ from frisket.retrieval.preparation import (
     AUDIO_CHANNEL,
     DEFAULT_TRANSCRIPT_RECIPE,
     DEFAULT_PREPARATION_POLICY,
+    IMAGE_CHANNEL,
     OCR_TEXT_CHANNEL,
     PDF_PAGE_CHANNEL,
     PreparationPolicy,
@@ -33,6 +34,7 @@ from frisket.retrieval.preparation import (
     TRANSCRIPT_CHANNEL,
     UNSUPPORTED_MEDIA_CHANNEL,
     TEXT_CHANNEL,
+    VIDEO_CHANNEL,
     dispatch_resolved_blob_source,
     dispatch_resolved_evidence_source,
     dispatch_resolved_text_source,
@@ -40,6 +42,7 @@ from frisket.retrieval.preparation import (
     process_blob_image_preparation_batch,
     process_text_preparation_batch,
     process_evidence_preparation_batch,
+    process_timed_media_preparation_batch,
     read_preparation_policy,
     write_preparation_policy,
 )
@@ -468,6 +471,59 @@ def test_pdf_render_failure_marks_target_failed_and_releases_queue(
                 "failed",
                 "pdf_render_failed",
             )
+    finally:
+        project.close()
+
+
+@pytest.mark.parametrize(
+    ("mime_type", "column_type", "channel"),
+    [
+        ("image/png", "image", IMAGE_CHANNEL),
+        ("video/mp4", "video", VIDEO_CHANNEL),
+    ],
+)
+def test_missing_canonical_blob_marks_native_preparation_failed(
+    tmp_path, mime_type: str, column_type: str, channel: str
+) -> None:
+    project = Project.create(tmp_path / f"missing-{column_type}.frisket")
+    try:
+        sheet_id = project.add_sheet("Media")
+        column_id = project.add_column(sheet_id, "media", type=column_type)
+        digest = project.add_blob(b"placeholder", mime=mime_type)
+        row_id = project.add_rows(
+            sheet_id,
+            [{"media": {"blob": digest, "mime": mime_type}}],
+            {"media": column_id},
+        )[0]
+        with project.read_snapshot() as snapshot:
+            resolved = resolve_cell_blob_source(
+                snapshot,
+                sheet_id=sheet_id,
+                row_id=row_id,
+                column_id=column_id,
+            )
+        assert resolved is not None
+        with RetrievalStore(project).open() as store:
+            dispatch_resolved_blob_source(store, resolved)
+        (project.path / "blobs" / digest[:2] / digest).unlink()
+
+        if channel == IMAGE_CHANNEL:
+            progress = process_blob_image_preparation_batch(
+                project, channel=channel, encoder=_Encoder()
+            )
+        else:
+            progress = process_timed_media_preparation_batch(
+                project, channel=channel, encoder=_Encoder()
+            )
+
+        assert progress.complete and progress.processed_parts == 0
+        with RetrievalStore(project).open() as store:
+            state = store.db.execute(
+                "SELECT status,error_code FROM preparation "
+                "WHERE source_id=? AND channel=?",
+                (resolved.source.source_id, channel),
+            ).fetchone()
+            assert tuple(state) == ("failed", "missing_blob")
     finally:
         project.close()
 

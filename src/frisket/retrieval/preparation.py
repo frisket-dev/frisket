@@ -27,6 +27,7 @@ from frisket.engine.pdf_render import (
     render_pdf_pages,
 )
 from frisket.engine.sandbox.media_sync import run_media_sync
+from frisket.engine.store.blob_backend import BlobIntegrityError, BlobNotFoundError
 from frisket.retrieval.content import (
     IMAGE_BYTES_RECIPE_ID,
     ImageSurface,
@@ -1173,9 +1174,19 @@ def process_blob_image_preparation_batch(
             )
         except PdfRenderCancelled as exc:
             raise asyncio.CancelledError from exc
-        except (PdfPageOutOfRange, PdfRenderError, ValueError) as exc:
+        except (
+            BlobIntegrityError,
+            BlobNotFoundError,
+            PdfPageOutOfRange,
+            PdfRenderError,
+            ValueError,
+        ) as exc:
             error_code = (
-                "pdf_page_out_of_range"
+                "missing_blob"
+                if isinstance(exc, BlobNotFoundError)
+                else "blob_integrity_failed"
+                if isinstance(exc, BlobIntegrityError)
+                else "pdf_page_out_of_range"
                 if isinstance(exc, PdfPageOutOfRange)
                 else "pdf_render_failed"
                 if isinstance(exc, PdfRenderError)
@@ -1432,6 +1443,24 @@ def process_timed_media_preparation_batch(
                 channel=channel,
                 space_id=space.identity,
                 error_code=exc.code,
+                error_message=str(exc),
+            )
+            pending = (
+                store.next_preparation(channel=channel, space_id=space.identity)
+                is not None
+            )
+            return PreparationProgress(0, pending, not pending)
+        except (BlobIntegrityError, BlobNotFoundError) as exc:
+            store.fail_preparation(
+                resolved.source,
+                recipe_id=work.recipe_id,
+                channel=channel,
+                space_id=space.identity,
+                error_code=(
+                    "missing_blob"
+                    if isinstance(exc, BlobNotFoundError)
+                    else "blob_integrity_failed"
+                ),
                 error_message=str(exc),
             )
             pending = (
