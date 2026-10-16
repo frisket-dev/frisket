@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import sqlite3
 from collections import defaultdict
 from collections.abc import Callable, Sequence
@@ -97,6 +98,7 @@ class _Candidate:
     lexical_content_hash: str | None = None
     snippet: str | None = None
     rerank_text: str | None = None
+    lexical_exact: bool = False
 
 
 class PinnedRetrievalReader(AbstractContextManager["PinnedRetrievalReader"]):
@@ -527,7 +529,12 @@ class RetrievalQueryService:
         candidates = _attach_binding_dependencies(
             reader, [_lexical_candidate(row) for row in rows]
         )
-        candidates = _hydrate_lexical(reader, candidates, effective_query)
+        candidates = _hydrate_lexical(
+            reader,
+            candidates,
+            effective_query,
+            literal_query=request.query.text,
+        )
         return candidates, effective_query
 
     def _semantic_candidates(
@@ -1137,7 +1144,11 @@ def _semantic_candidate(row: sqlite3.Row) -> _Candidate:
 
 
 def _hydrate_lexical(
-    reader: PinnedRetrievalReader, candidates: list[_Candidate], query: str
+    reader: PinnedRetrievalReader,
+    candidates: list[_Candidate],
+    query: str,
+    *,
+    literal_query: str,
 ) -> list[_Candidate]:
     hydrated: list[tuple[_Candidate, str]] = []
     for candidate in candidates:
@@ -1169,15 +1180,70 @@ def _hydrate_lexical(
                 include_rerank=True,
             )
         )
-    return [
-        replace(
-            candidate,
-            snippet=snippets[index][0],
-            rerank_text=(snippets[index][1] or "")[:1024],
+    located: list[_Candidate] = []
+    for index, (candidate, text) in enumerate(hydrated, start=1):
+        if index not in snippets:
+            continue
+        snippet, rerank_text = snippets[index]
+        exact_range = _unique_lexical_range(text, literal_query, snippet)
+        locator = candidate.locator
+        text_range = locator.text
+        if (
+            exact_range is not None
+            and text_range is not None
+            and text_range.start <= exact_range[0]
+            and exact_range[1] <= text_range.end
+        ):
+            lexical_exact = True
+            locator = replace(
+                locator,
+                text=replace(
+                    text_range,
+                    start=exact_range[0],
+                    end=exact_range[1],
+                ),
+            )
+        else:
+            lexical_exact = False
+        located.append(
+            replace(
+                candidate,
+                locator=locator,
+                snippet=snippet,
+                rerank_text=(rerank_text or "")[:1024],
+                lexical_exact=lexical_exact,
+            )
         )
-        for index, (candidate, _text) in enumerate(hydrated, start=1)
-        if index in snippets
-    ]
+    return located
+
+
+def _unique_lexical_range(
+    text: str, literal_query: str, snippet: str
+) -> tuple[int, int] | None:
+    """Locate one SQLite-selected lexical anchor without interpreting FTS syntax."""
+
+    literal = literal_query.strip()
+    snippet_text = snippet.replace("<b>", "").replace("</b>", "")
+    anchors = (
+        [literal]
+        if literal and re.search(re.escape(literal), snippet_text, re.IGNORECASE)
+        else []
+    )
+    marker_start = 0
+    while (start := snippet.find("<b>", marker_start)) >= 0:
+        end = snippet.find("</b>", start + 3)
+        if end < 0:
+            break
+        anchors.append(snippet[start + 3 : end])
+        marker_start = end + 4
+    for anchor in dict.fromkeys(anchor for anchor in anchors if anchor):
+        pattern = re.compile(re.escape(anchor), re.IGNORECASE)
+        first = pattern.search(text)
+        if first is None:
+            continue
+        if pattern.search(text, first.start() + 1) is None:
+            return first.span()
+    return None
 
 
 def _attach_binding_dependencies(
@@ -1372,7 +1438,7 @@ def _located_hit(candidate: _Candidate, *, rank: int, rank_score: float) -> Loca
         rank_score=rank_score,
         precision=(
             "source_unit"
-            if candidate.method == "lexical"
+            if (candidate.method == "lexical" and not candidate.lexical_exact)
             or candidate.part_kind == "transcript_chunk"
             else "exact"
         ),

@@ -233,6 +233,76 @@ def test_keyword_search_treats_identifiers_as_text_when_fts_rejects_them(
         project.close()
 
 
+def test_unique_long_lexical_match_reports_exact_original_text_range(tmp_path):
+    from frisket.search import drain_index
+
+    project = Project.create(tmp_path / "unique-lexical-range.frisket")
+    try:
+        sheet = project.add_sheet("Contracts")
+        column = project.add_column(sheet, "body")
+        prefix = "Background material. " * 3_800
+        query = "ORCHID-79"
+        match = "Orchid-79"
+        text = f"{prefix}{match} approved a $4,200 roof repair."
+        project.add_rows(sheet, [{"body": text}], {"body": column})
+        drain_index(project)
+
+        response = search(
+            project,
+            SearchRequest(
+                scope=RetrievalScope(sheets=(SheetScope(sheet),)),
+                query=TextQuery(query),
+                mode="lexical",
+                ranking=RankingPolicy(rerank="off"),
+            ),
+        )
+
+        [result] = response.results
+        location = result.primary.part.locator
+        assert result.primary.precision == "exact"
+        assert location.kind == "whole_source"
+        assert location.text is not None
+        assert (location.text.start, location.text.end) == (
+            len(prefix),
+            len(prefix) + len(match),
+        )
+        assert text[location.text.start : location.text.end] == match
+    finally:
+        project.close()
+
+
+def test_repeated_lexical_anchor_keeps_whole_source_location(tmp_path):
+    from frisket.search import drain_index
+
+    project = Project.create(tmp_path / "repeated-lexical-anchor.frisket")
+    try:
+        sheet = project.add_sheet("Contracts")
+        column = project.add_column(sheet, "body")
+        query = "ORCHID-79"
+        text = "Orchid-79 opened the file. " + "Background. " * 800 + "orchid-79"
+        project.add_rows(sheet, [{"body": text}], {"body": column})
+        drain_index(project)
+
+        response = search(
+            project,
+            SearchRequest(
+                scope=RetrievalScope(sheets=(SheetScope(sheet),)),
+                query=TextQuery(query),
+                mode="lexical",
+                ranking=RankingPolicy(rerank="off"),
+            ),
+        )
+
+        [result] = response.results
+        location = result.primary.part.locator
+        assert result.primary.precision == "source_unit"
+        assert location.kind == "whole_source"
+        assert location.text is not None
+        assert (location.text.start, location.text.end) == (0, len(text))
+    finally:
+        project.close()
+
+
 def test_semantic_scope_and_freshness_are_applied_before_top_k(tmp_path):
     project, sheet, _status, body, rows = _prepare_project(tmp_path)
     try:
