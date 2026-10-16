@@ -18,6 +18,7 @@ from frisket.engine.store.prepared_content import (
     PreparedPageDraft,
 )
 from frisket.engine.store.retrieval_lifecycle import read_binding_revision
+from frisket.engine.store.runs import RunResultStore
 from frisket.search_index import bind_retrieval_sidecar
 from frisket.retrieval import native
 from frisket.retrieval.contracts import (
@@ -50,6 +51,7 @@ from frisket.retrieval.store import (
     StoredBinding,
     StoredPart,
 )
+from tests.helpers import write_claimed_test_results
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -404,6 +406,124 @@ def test_unique_prepared_lexical_match_narrows_location_to_owning_page(tmp_path)
             .text[location.text.start : location.text.end]
             == "bluewharf"
         )
+    finally:
+        project.close()
+
+
+def test_prepared_ocr_indexes_one_text_source_and_skips_positions_metadata(tmp_path):
+    from frisket.search import drain_index
+
+    project = Project.create(tmp_path / "prepared-ocr-canonical.frisket")
+    try:
+        sheet = project.add_sheet("Scans")
+        ocr_text = project.add_column(sheet, "OCR text", ai_generated=True)
+        positions = project.add_column(
+            sheet, "OCR positions", type="json", ai_generated=True
+        )
+        notes = project.add_column(sheet, "notes", type="json")
+        phrase = "Inspection of the western pier"
+        row = project.add_rows(
+            sheet,
+            [{"notes": {"description": f"User JSON: {phrase}"}}],
+            {"notes": notes},
+        )[0]
+        output_names = {"text": "OCR text", "blocks": "OCR positions"}
+        op_id = project.append_op(
+            "media.ocr", {"output_names": output_names}, label="OCR fixture"
+        )
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="document",
+            media_type="application/pdf",
+            page_count=1,
+        )
+        project.db.execute("BEGIN IMMEDIATE")
+        prepared = PreparedContentStore(project).stage_reference(
+            source_artifact_id=int(artifact["id"]),
+            producing_op_id=op_id,
+            pages=(PreparedPageDraft(1, phrase),),
+        )
+        project.db.commit()
+        run_id = RunResultStore(project).start_run(
+            op_id,
+            sheet,
+            "media.ocr",
+            params={"output_names": output_names},
+            row_ids=[row],
+            total_rows=1,
+        )
+        write_claimed_test_results(
+            project,
+            run_id,
+            [
+                {"row_id": row, "column_id": ocr_text, "value": prepared},
+                {
+                    "row_id": row,
+                    "column_id": positions,
+                    "value": {
+                        "blocks": [
+                            {
+                                "bbox": [[10, 20], [90, 20], [90, 40], [10, 40]],
+                                "text": phrase,
+                            }
+                        ]
+                    },
+                },
+            ],
+        )
+        region = record_source_span(
+            project,
+            artifact_id=int(artifact["id"]),
+            span_kind="region",
+            page_start=1,
+            page_end=1,
+            quote=phrase,
+            bbox=[{"x0": 0.1, "y0": 0.2, "x1": 0.9, "y1": 0.4}],
+        )
+        _values, refs = project.get_values_with_refs(sheet, ocr_text, row_ids=[row])
+        record_evidence_link(
+            project,
+            subject_kind="cell",
+            subject_ref=refs[row],
+            spans=[{"span_id": int(region["id"])}],
+            sheet_id=sheet,
+            row_id=row,
+            column_id=ocr_text,
+            op_id=op_id,
+            link_role="media_ocr_grounding",
+            producer={"action_kind": "media.ocr", "engine": "fixture"},
+        )
+
+        drain_index(project)
+        response = search(
+            project,
+            SearchRequest(
+                scope=RetrievalScope(sheets=(SheetScope(sheet),)),
+                query=TextQuery(phrase),
+                mode="lexical",
+                group_by="source",
+                limit=10,
+                ranking=RankingPolicy(rerank="off"),
+            ),
+        )
+
+        assert {
+            (result.primary.part.source.source_kind, result.primary.binding.column_id)
+            for result in response.results
+        } == {("prepared_text", ocr_text), ("text", notes)}
+        with RetrievalStore(project).open() as store:
+            bound = store.db.execute(
+                "SELECT source.source_kind,binding.column_id "
+                "FROM bindings binding JOIN sources source "
+                "ON source.source_key=binding.source_key "
+                "WHERE binding.sheet_id=? AND binding.row_id=? "
+                "ORDER BY binding.column_id,source.source_kind",
+                (sheet, row),
+            ).fetchall()
+        assert [(item["source_kind"], item["column_id"]) for item in bound] == [
+            ("prepared_text", ocr_text),
+            ("text", notes),
+        ]
     finally:
         project.close()
 

@@ -248,6 +248,21 @@ def _binding_revision(
     return BindingRevision(row_id, column_id, int(row["retrieval_revision"]))
 
 
+def _cell_uses_prepared_text(project: Any, *, row_id: int, column_id: int) -> bool:
+    """Return whether the logical cell already owns a prepared text surface.
+
+    OCR evidence attached to such a cell supplies grounding for that prepared
+    surface. It is not a second independently searchable copy of the text.
+    """
+
+    row = project.db.execute(
+        "SELECT prepared_ref_id FROM current_cell_values "
+        "WHERE row_id=? AND column_id=?",
+        (row_id, column_id),
+    ).fetchone()
+    return row is not None and row["prepared_ref_id"] is not None
+
+
 def resolve_cell_transcript_source(
     project: Any, *, sheet_id: int, row_id: int, column_id: int
 ) -> ResolvedCellTranscriptSource | None:
@@ -293,6 +308,9 @@ def resolve_cell_ocr_text_source(
     project: Any, *, sheet_id: int, row_id: int, column_id: int
 ) -> ResolvedCellOcrTextSource | None:
     """Resolve one unambiguous exact current OCR text producer surface."""
+
+    if _cell_uses_prepared_text(project, row_id=row_id, column_id=column_id):
+        return None
 
     from frisket.engine.store.ocr_word_stream import resolve_current_ocr_evidence
     from frisket.retrieval.sources import identity_digest, ocr_source_revision
@@ -424,7 +442,15 @@ def resolve_cell_text_sources(
 
     placeholders = ",".join("?" for _ in selected_rows)
     rows = project.db.execute(
-        "SELECT current.row_id,current.retrieval_revision,logical.prepared_ref_id "
+        "SELECT current.row_id,current.retrieval_revision,logical.prepared_ref_id,"
+        "EXISTS(SELECT 1 FROM run_output_generations generation "
+        "JOIN runs run ON run.id=generation.run_id "
+        "WHERE generation.run_id=logical.origin_run_id "
+        "AND generation.column_id=logical.column_id "
+        "AND run.action_kind='media.ocr' "
+        "AND generation.output_role="
+        "json_extract(run.params,'$.output_names.blocks')) "
+        "AS noncontent_metadata "
         "FROM current_cells current "
         "JOIN current_cell_values logical ON logical.column_id=current.column_id "
         "AND logical.row_id=current.row_id "
@@ -432,7 +458,11 @@ def resolve_cell_text_sources(
         (selected_column, *selected_rows),
     ).fetchall()
     metadata = {
-        int(row["row_id"]): (int(row["retrieval_revision"]), row["prepared_ref_id"])
+        int(row["row_id"]): (
+            int(row["retrieval_revision"]),
+            row["prepared_ref_id"],
+            bool(row["noncontent_metadata"]),
+        )
         for row in rows
     }
     if not metadata:
@@ -445,7 +475,7 @@ def resolve_cell_text_sources(
     )
     prepared_ids = {
         int(ref_id)
-        for _revision, ref_id in metadata.values()
+        for _revision, ref_id, _noncontent in metadata.values()
         if isinstance(ref_id, int) and not isinstance(ref_id, bool)
     }
     prepared_by_id = PreparedContentStore(project).resolve_many(sorted(prepared_ids))
@@ -454,10 +484,12 @@ def resolve_cell_text_sources(
     for row_id in selected_rows:
         if row_id not in metadata:
             continue
+        retrieval_revision, metadata_ref_id, noncontent_metadata = metadata[row_id]
+        if noncontent_metadata:
+            continue
         text = searchable_text(values.get(row_id))
         if text is None:
             continue
-        retrieval_revision, metadata_ref_id = metadata[row_id]
         ref_id = metadata_ref_id
         if ref_id is None:
             surface: TextProducerSurface = _plain_surface(
@@ -615,7 +647,13 @@ def _resolve_ocr_lexical_text(
     locator: SourceLocator,
     binding: ScopedBinding,
 ) -> str | None:
-    if binding.column_id is None or not locator.source_span_ids:
+    if (
+        binding.column_id is None
+        or not locator.source_span_ids
+        or _cell_uses_prepared_text(
+            project, row_id=binding.row_id, column_id=binding.column_id
+        )
+    ):
         return None
     from frisket.engine.store.ocr_word_stream import resolve_current_ocr_evidence
     from frisket.retrieval.sources import ocr_source_revision

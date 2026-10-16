@@ -525,7 +525,9 @@ def test_unusable_retrieval_cache_is_preserved_and_rebuilt_on_open(tmp_path, kin
                 db.execute(
                     "CREATE TABLE retrieval_meta(key TEXT PRIMARY KEY,value TEXT)"
                 )
-                db.execute("INSERT INTO retrieval_meta VALUES ('schema_version','1')")
+                # Version 2 indexed every generated JSON output and let OCR
+                # prepared text fan out into an equivalent evidence source.
+                db.execute("INSERT INTO retrieval_meta VALUES ('schema_version','2')")
     with closing(Project(path)) as project:
         archives = list(path.glob("retrieval-unusable-*/project.retrieval.db"))
         assert len(archives) == 1

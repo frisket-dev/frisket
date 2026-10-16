@@ -437,6 +437,10 @@ def test_ocr_lexical_text_requires_exact_current_evidence_link(monkeypatch) -> N
         "resolve_current_ocr_evidence",
         lambda *_args, **_kwargs: (resolved,),
     )
+    monkeypatch.setattr(
+        "frisket.retrieval.source_adapter._cell_uses_prepared_text",
+        lambda *_args, **_kwargs: False,
+    )
     source = ocr_source_revision(
         evidence_link_stable_id=resolved.evidence_link_stable_id,
         snapshot_hash=resolved.snapshot_hash,
