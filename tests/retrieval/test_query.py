@@ -213,6 +213,26 @@ def _included_scope(sheet: int, body: int) -> RetrievalScope:
     )
 
 
+@pytest.mark.parametrize("identifier", ["ORCHID-79", "Case:123"])
+def test_keyword_search_treats_identifiers_as_text_when_fts_rejects_them(
+    tmp_path, identifier
+):
+    from frisket.search import drain_index, search_project
+
+    project = Project.create(tmp_path / "identifiers.frisket")
+    try:
+        sheet = project.add_sheet("Records")
+        column = project.add_column(sheet, "body")
+        rows = project.add_rows(
+            sheet, [{"body": f"Grant {identifier} approved."}], {"body": column}
+        )
+        drain_index(project)
+        hits = search_project(project, identifier, rerank="off")
+        assert [hit["row_id"] for hit in hits] == rows
+    finally:
+        project.close()
+
+
 def test_semantic_scope_and_freshness_are_applied_before_top_k(tmp_path):
     project, sheet, _status, body, rows = _prepare_project(tmp_path)
     try:
@@ -662,9 +682,10 @@ def test_overlapping_moments_group_to_best_part(tmp_path):
             "moment:6",
         ]
         assert len(hybrid.results[0].supporting) == 3
-        assert {
-            hit.part.part_id for hit in hybrid.results[0].supporting
-        } >= {"moment:2", "moment:3"}
+        assert {hit.part.part_id for hit in hybrid.results[0].supporting} >= {
+            "moment:2",
+            "moment:3",
+        }
         assert hybrid.results[0].additional_count == 3
         assert {item.method for item in hybrid.results[0].primary.contributions} == {
             "lexical",
@@ -706,9 +727,7 @@ def test_row_groups_bound_scoped_locations_and_report_hidden_count(tmp_path):
             (row, columns[5]),
         )
         project.db.commit()
-        scope = RetrievalScope(
-            (SheetScope(sheet, column_ids=tuple(columns[:6])),)
-        )
+        scope = RetrievalScope((SheetScope(sheet, column_ids=tuple(columns[:6])),))
 
         lexical = search(
             project,
@@ -753,12 +772,11 @@ def test_row_groups_bound_scoped_locations_and_report_hidden_count(tmp_path):
         [hybrid_group] = hybrid.results
         assert len(hybrid_group.supporting) == 3
         assert hybrid_group.additional_count == 6
-        assert {
-            item.method for item in hybrid_group.primary.contributions
-        } == {"semantic"}
+        assert {item.method for item in hybrid_group.primary.contributions} == {
+            "semantic"
+        }
         assert any(
-            hit.contributions[0].method == "lexical"
-            for hit in hybrid_group.supporting
+            hit.contributions[0].method == "lexical" for hit in hybrid_group.supporting
         )
     finally:
         project.close()
@@ -794,9 +812,7 @@ def test_source_hit_counts_other_authorized_bindings(tmp_path):
                         sheet,
                         rows[1],
                         column_id=body,
-                        dependencies=(
-                            BindingDependency(rows[1], body, revisions[1]),
-                        ),
+                        dependencies=(BindingDependency(rows[1], body, revisions[1]),),
                     ),
                 ),
             )

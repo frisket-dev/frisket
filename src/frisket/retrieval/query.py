@@ -98,6 +98,7 @@ class _Candidate:
     snippet: str | None = None
     rerank_text: str | None = None
 
+
 class PinnedRetrievalReader(AbstractContextManager["PinnedRetrievalReader"]):
     """One connection with project.db as main and a read-only attached sidecar."""
 
@@ -1300,11 +1301,7 @@ def _hybrid_groups(
         hits = [
             _located_hit(
                 candidate,
-                rank=(
-                    semantic_rank
-                    if candidate.method == "semantic"
-                    else lexical_rank
-                )
+                rank=(semantic_rank if candidate.method == "semantic" else lexical_rank)
                 or fused_rank,
                 rank_score=item.score,
             )
@@ -1524,7 +1521,14 @@ def _quoted_fts(value: str) -> str:
 
 def _is_fts_syntax_error(error: sqlite3.OperationalError) -> bool:
     message = str(error).lower()
-    return "fts5" in message or "syntax error" in message or "unterminated" in message
+    # FTS treats punctuation in ordinary identifiers (ORCHID-79, Case:123)
+    # as column-filter syntax. Retry these as literal text as well.
+    return (
+        "fts5" in message
+        or "syntax error" in message
+        or "unterminated" in message
+        or message.startswith("no such column:")
+    )
 
 
 def _empty_response(request: SearchRequest) -> SearchResponse:
