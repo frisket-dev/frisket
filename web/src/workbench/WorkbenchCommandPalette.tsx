@@ -16,7 +16,7 @@ import {
 import { PaletteSearchSection } from './WorkbenchCommandPaletteSearch';
 import { useNativePopover } from '../hooks/useNativePopover';
 import { topLayerPortalRoot } from '../topLayerPortal';
-import { createSearchPreparation } from '../api/searchPreparation';
+import { createSearchPreparation, listSearchPreparations } from '../api/searchPreparation';
 import { SearchPreparationReceipt } from '../components/SearchPreparationReceipt';
 
 const EMPTY_LAUNCHER_COMMANDS: PaletteLauncherCommand[] = [];
@@ -225,6 +225,21 @@ export function WorkbenchCommandPalette({
   const [preparationBatchId, setPreparationBatchId] = useState<string | null>(null);
   const [preparationBusy, setPreparationBusy] = useState(false);
   const [preparationError, setPreparationError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!projectId) return undefined;
+    const controller = new AbortController();
+    void listSearchPreparations(projectId, { signal: controller.signal })
+      .then(({ batches }) => {
+        const awaitingApproval = batches.find((batch) => batch.status === 'needs_consent');
+        if (awaitingApproval) {
+          setPreparationBatchId((current) => current ?? awaitingApproval.id);
+        }
+      })
+      .catch((error: Error) => {
+        if (error.name !== 'AbortError') setPreparationError(error.message);
+      });
+    return () => controller.abort();
+  }, [projectId]);
   const prepareSearchGap = (sheetId: number) => {
     if (!projectId || !Number.isInteger(sheetId) || sheetId <= 0 || preparationBusy) return;
     setPreparationBusy(true);

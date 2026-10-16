@@ -15,6 +15,8 @@ const getModelPull = vi.fn();
 const orgListModelPulls = vi.fn();
 const orgGetModelPull = vi.fn();
 const createSearchPreparation = vi.fn();
+const listSearchPreparations = vi.fn();
+const getSearchPreparation = vi.fn();
 const embeddingIndexes = vi.fn();
 const saveLens = vi.fn();
 const createWatch = vi.fn();
@@ -37,6 +39,8 @@ vi.mock('../../src/api/engineSetup', async (importOriginal) => ({
 vi.mock('../../src/api/searchPreparation', async (importOriginal) => ({
   ...await importOriginal<typeof import('../../src/api/searchPreparation')>(),
   createSearchPreparation: (...args: unknown[]) => createSearchPreparation(...args),
+  listSearchPreparations: (...args: unknown[]) => listSearchPreparations(...args),
+  getSearchPreparation: (...args: unknown[]) => getSearchPreparation(...args),
 }));
 
 vi.mock('../../src/bind/useWorkspaceStores', () => ({
@@ -218,6 +222,8 @@ beforeEach(() => {
   orgListModelPulls.mockReset();
   orgGetModelPull.mockReset();
   createSearchPreparation.mockReset();
+  listSearchPreparations.mockReset();
+  getSearchPreparation.mockReset();
   embeddingIndexes.mockReset();
   saveLens.mockReset();
   createWatch.mockReset();
@@ -230,6 +236,7 @@ beforeEach(() => {
   createWatch.mockResolvedValue({});
   listModelPulls.mockResolvedValue({ pulls: [] });
   orgListModelPulls.mockResolvedValue({ pulls: [] });
+  listSearchPreparations.mockResolvedValue({ batches: [] });
 });
 
 afterEach(cleanup);
@@ -551,6 +558,44 @@ describe('located palette search', () => {
     fireEvent.click(action);
 
     expect(createSearchPreparation).toHaveBeenCalledWith('project-1', { sheet_id: 2 });
+  });
+
+  it('restores the latest preparation awaiting approval when Search opens', async () => {
+    const awaitingApproval = {
+      schemaVersion: 'frisket.search_preparation.v1',
+      id: 'prep-awaiting-approval',
+      sheet_id: 2,
+      plan_hash: 'sha256:approval',
+      status: 'needs_consent',
+      groups: [{ kind: 'ocr', count: 1, status: 'needs_consent' }],
+      models: [],
+      jobs: [],
+      can_stop: false,
+      can_setup: true,
+      errors: [],
+    };
+    searchProject.mockResolvedValue(completeResponse);
+    listSearchPreparations.mockResolvedValue({
+      batches: [
+        { ...awaitingApproval, id: 'prep-complete', status: 'complete' },
+        awaitingApproval,
+      ],
+    });
+    getSearchPreparation.mockResolvedValue(awaitingApproval);
+
+    render(<PaletteHarness />);
+
+    expect(await screen.findByTestId('search-preparation-receipt')).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Make these files searchable' })).toBeVisible();
+    expect(screen.getByTestId('search-preparation-model-consent')).toBeVisible();
+    expect(listSearchPreparations).toHaveBeenCalledWith(
+      'project-1',
+      { signal: expect.any(AbortSignal) },
+    );
+    expect(getSearchPreparation).toHaveBeenCalledWith(
+      'project-1',
+      'prep-awaiting-approval',
+    );
   });
 
   it('selects a named index for free-text search and saves its semantic view', async () => {
