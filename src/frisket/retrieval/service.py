@@ -191,37 +191,8 @@ def _query_inputs(request: SearchRequest) -> tuple[tuple[TextEncodingInput, ...]
 def _without_local_model(
     query: RetrievalQueryService, request: SearchRequest, cancel_event: Event | None
 ) -> SearchResponse:
-    missing = ChannelCoverage(
-        channel="semantic",
-        state="unavailable",
+    return query.without_semantic(
+        request,
         reason="Install the local search model to use semantic search.",
-    )
-    if isinstance(request.query, TextQuery):
-        lexical = query.search(
-            replace(request, mode="lexical"), cancel_event=cancel_event
-        )
-        available = any(c.state == "ready" for c in lexical.coverage.channels)
-        return replace(
-            lexical,
-            coverage=replace(
-                lexical.coverage,
-                requested_mode=request.mode,
-                state="partial" if available else lexical.coverage.state,
-                effective_modes=("lexical",) if available else (),
-                searched_channels=("lexical",) if available else (),
-                channels=(*lexical.coverage.channels, missing),
-            ),
-        )
-    # Weighted terms and exclusions have no equivalent lexical interpretation.
-    return SearchResponse(
-        results=(),
-        coverage=SearchCoverage(
-            requested_mode=request.mode,
-            effective_modes=(),
-            state="unavailable",
-            searched_channels=(),
-            is_top_k=True,
-            truncated=False,
-            channels=(missing,),
-        ),
+        cancel_event=cancel_event,
     )

@@ -241,3 +241,18 @@ def test_unprepared_anchor_refuses_stale_binding_before_encoding(indexed_project
     with pytest.raises(RetrievalQueryError, match="changed"):
         search_with_encoding(project, replace(request(), query=anchor), runtime=encoder)
     assert encoder.calls == 1
+
+
+@pytest.mark.parametrize("mode", ["lexical", "semantic", "hybrid"])
+def test_keyword_search_survives_missing_vec1(
+    indexed_project, monkeypatch, tmp_path, mode
+):
+    project, row = indexed_project
+    monkeypatch.setattr(native, "_NATIVE_ROOT", tmp_path / "no-native-library")
+    response = search_with_encoding(
+        project, replace(request(), mode=mode), runtime=Encoder()
+    )
+    assert response.results[0].primary.binding.row_id == row
+    assert response.coverage.effective_modes == ("lexical",)
+    if mode != "lexical":
+        assert response.coverage.channels[-1].state == "unavailable"

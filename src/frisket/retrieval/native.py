@@ -126,10 +126,13 @@ def load_vec1(connection: sqlite3.Connection) -> str:
 
 def configure_retrieval_connection(
     connection: sqlite3.Connection,
+    *,
+    load_vector_extension: bool = True,
 ) -> RetrievalSQLiteSettings:
-    """Load Vec1 and apply the selected connection-local cache/mmap posture."""
+    """Apply connection settings, optionally loading vector search support."""
 
-    load_vec1(connection)
+    if load_vector_extension:
+        load_vec1(connection)
     connection.execute(f"PRAGMA cache_size=-{RETRIEVAL_CACHE_KIB}")
     connection.execute(f"PRAGMA mmap_size={RETRIEVAL_MMAP_BYTES}")
     cache_size = int(connection.execute("PRAGMA cache_size").fetchone()[0])

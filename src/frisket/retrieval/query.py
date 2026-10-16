@@ -40,6 +40,8 @@ from .contracts import (
 from .native import (
     RETRIEVAL_CACHE_KIB,
     RETRIEVAL_MMAP_BYTES,
+    Vec1Unavailable,
+    load_vec1,
     configure_retrieval_connection,
     pack_vector,
 )
@@ -130,7 +132,7 @@ class PinnedRetrievalReader(AbstractContextManager["PinnedRetrievalReader"]):
         try:
             db.execute("PRAGMA foreign_keys=ON")
             db.execute("PRAGMA busy_timeout=10000")
-            configure_retrieval_connection(db)
+            configure_retrieval_connection(db, load_vector_extension=False)
             db.execute(
                 "ATTACH DATABASE ? AS idx",
                 (f"{sidecar.resolve().as_uri()}?mode=ro",),
@@ -282,6 +284,13 @@ class RetrievalQueryService:
                 finally:
                     if cancel_event is not None:
                         reader.db.set_progress_handler(None, 0)
+        except Vec1Unavailable:
+            return self.without_semantic(
+                request,
+                reason="Semantic search is unavailable in this SQLite runtime. "
+                "Install a supported Frisket runtime to enable it.",
+                cancel_event=cancel_event,
+            )
         except sqlite3.OperationalError as exc:
             if (
                 cancel_event is not None
@@ -293,6 +302,42 @@ class RetrievalQueryService:
         if cancel_event is not None and cancel_event.is_set():
             raise InterruptedError("retrieval search was stopped")
         return SearchResponse(results=tuple(groups[: request.limit]), coverage=coverage)
+
+    def without_semantic(
+        self, request: SearchRequest, *, reason: str, cancel_event: Event | None = None
+    ) -> SearchResponse:
+        """Keep keyword search available without reinterpreting composed queries."""
+        missing = ChannelCoverage(
+            channel="semantic", state="unavailable", reason=reason
+        )
+        if isinstance(request.query, TextQuery):
+            lexical = self.search(
+                replace(request, mode="lexical"), cancel_event=cancel_event
+            )
+            available = any(c.state == "ready" for c in lexical.coverage.channels)
+            return replace(
+                lexical,
+                coverage=replace(
+                    lexical.coverage,
+                    requested_mode=request.mode,
+                    state="partial" if available else lexical.coverage.state,
+                    effective_modes=("lexical",) if available else (),
+                    searched_channels=("lexical",) if available else (),
+                    channels=(*lexical.coverage.channels, missing),
+                ),
+            )
+        return SearchResponse(
+            results=(),
+            coverage=SearchCoverage(
+                requested_mode=request.mode,
+                effective_modes=(),
+                state="unavailable",
+                searched_channels=(),
+                is_top_k=True,
+                truncated=False,
+                channels=(missing,),
+            ),
+        )
 
     def _rerank(
         self, groups: list[ResultGroup], request: SearchRequest
@@ -427,6 +472,7 @@ class RetrievalQueryService:
         limit: int,
         fusion: bool = False,
     ) -> list[_Candidate]:
+        load_vec1(reader.db)
         if not request.space_id:
             raise RetrievalQueryError(
                 "embedding_space_required", "semantic retrieval requires space_id"
