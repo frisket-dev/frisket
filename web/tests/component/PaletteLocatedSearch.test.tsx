@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -629,6 +629,32 @@ describe('located palette search', () => {
     fireEvent.click(action);
 
     await waitFor(() => expect(createSearchPreparation).toHaveBeenCalledWith('project-1', { sheet_id: 2 }, { signal: expect.any(AbortSignal) }));
+  });
+
+  it('ignores late initial approval restoration after preparing a different sheet', async () => {
+    let restore!: (value: unknown) => void;
+    let created!: (value: unknown) => void;
+    const batchB = {
+      id: 'prep-b', sheet_id: 2, plan_hash: 'sha256:b', status: 'needs_consent', force_ocr: false,
+      groups: [{ kind: 'ocr', count: 1, status: 'needs_consent' }],
+      models: [], jobs: [], can_stop: false, can_setup: true, errors: [],
+    };
+    listSearchPreparations.mockReturnValueOnce(new Promise((resolve) => { restore = resolve; }))
+      .mockResolvedValue({ batches: [] });
+    createSearchPreparation.mockReturnValue(new Promise((resolve) => { created = resolve; }));
+    getSearchPreparation.mockResolvedValue(batchB);
+    searchProject.mockResolvedValue({ ...completeResponse, coverage: { ...completeResponse.coverage,
+      state: 'partial', channels: [{ channel: 'search_preparation', state: 'unavailable', eligible_count: 1, prepared_count: 0, gap_sheet_ids: [2] }],
+    } });
+    render(<PaletteHarness searchSheets={[{ id: '2', name: 'Court filings' } as never]} activeSearchSheetId="2" />);
+    fireEvent.click(await screen.findByTestId('search-preparation-gap-action'));
+    await waitFor(() => expect(createSearchPreparation).toHaveBeenCalledOnce());
+    await act(async () => { restore({ batches: [{ ...batchB, id: 'prep-a', sheet_id: 1 }] }); });
+    expect(getSearchPreparation).not.toHaveBeenCalled();
+    await act(async () => { created(batchB); });
+    await screen.findByTestId('search-preparation-decision-prepare');
+    expect(getSearchPreparation).toHaveBeenCalledWith('project-1', 'prep-b');
+    expect(getSearchPreparation).not.toHaveBeenCalledWith('project-1', 'prep-a');
   });
 
   it('restores the latest preparation awaiting approval when Search opens', async () => {
