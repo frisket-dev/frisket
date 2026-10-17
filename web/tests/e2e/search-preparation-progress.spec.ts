@@ -59,7 +59,7 @@ test('project search prepares the missing PDF sheet while a text sheet is open',
     .toBeVisible({ timeout: 30_000 });
 });
 
-test('semantic setup keeps download progress and errors visible after closing search', async ({ page }, testInfo) => {
+test('semantic setup keeps progress in activity and setup errors in search', async ({ page }, testInfo) => {
   const pid = await createProject(page.request, uniqueName('search-download-progress'));
   const sheet = await importCsv(page.request, pid, 'stories.csv', 'story\nHarbor repair contract\n');
   let started = false;
@@ -87,15 +87,15 @@ test('semantic setup keeps download progress and errors visible after closing se
   await palette.getByTestId('command-palette-input').fill('harbor');
   await palette.getByTestId('search-setup').click();
   await palette.getByRole('button', { name: 'Download and set up' }).click();
-  await expect(palette.getByTestId('model-pull-progress')).toHaveAttribute('data-status', 'pending');
+  await expect(palette.getByTestId('search-setup-status')).toContainText('setup is running.');
+  await expect(palette.getByRole('progressbar')).toHaveCount(0);
   pull = { ...pull, status: 'running', phase: 'Downloading', completed_bytes: 350_000_000 };
-  await expect(palette.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '25');
   await page.getByRole('button', { name: 'Close command palette' }).click();
   await expect(palette).toBeHidden();
   const notice = page.getByTestId('search-preparation-banner');
   const activity = page.getByTestId('search-activity-toggle');
-  // The palette polls the pull detail independently of the footer. Open only
-  // after the footer has observed this download, rather than the prior index.
+  // Activity owns progress. Open only after its poll has observed this download,
+  // rather than the prior index.
   await expect(activity).toContainText('Downloading EmbeddingGemma 2');
   await expect(notice).toBeHidden();
   await activity.click();
@@ -104,7 +104,9 @@ test('semantic setup keeps download progress and errors visible after closing se
   await page.screenshot({ path: testInfo.outputPath('download-progress@2x.png'), animations: 'disabled' });
   const reopened = await openPalette(page);
   await reopened.getByTestId('command-palette-input').fill('harbor');
-  await expect(reopened.getByTestId('model-pull-progress')).toHaveAttribute('data-status', 'running');
+  await expect(reopened.getByTestId('search-setup-status')).toContainText('setup is running.');
+  await expect(reopened.getByRole('progressbar')).toHaveCount(0);
+  await expect(notice.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '25');
   await page.getByRole('button', { name: 'Close command palette' }).click();
   await expect(notice).toContainText('EmbeddingGemma 2');
   await expect(notice.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '25');
@@ -115,7 +117,8 @@ test('semantic setup keeps download progress and errors visible after closing se
     error: { code: 'download_failed', message: 'The model download was interrupted.' },
     capabilities: { cancel: false, retry: true, remove: false },
   };
-  await expect(failurePalette.getByTestId('model-pull-error')).toContainText('interrupted');
+  await expect(failurePalette.getByTestId('search-setup-error')).toContainText('interrupted');
+  await expect(failurePalette.getByRole('progressbar')).toHaveCount(0);
   await expect(failurePalette.getByTestId('search-setup-retry')).toBeVisible();
   await page.getByRole('button', { name: 'Close command palette' }).click();
   await expect(activity).toContainText('interrupted');
@@ -132,7 +135,9 @@ test('semantic setup keeps download progress and errors visible after closing se
     capabilities: { cancel: true, retry: false, remove: false },
   };
   await retryPalette.getByTestId('search-setup-retry').click();
-  await expect(retryPalette.getByTestId('model-pull-progress')).toHaveAttribute('data-status', 'running');
+  await expect(retryPalette.getByTestId('search-setup-status')).toContainText('setup is running.');
+  await expect(retryPalette.getByTestId('search-setup-error')).toHaveCount(0);
+  await expect(retryPalette.getByRole('progressbar')).toHaveCount(0);
   await page.getByRole('button', { name: 'Close command palette' }).click();
   await expect(activity).toContainText('Downloading EmbeddingGemma 2');
   await expect(notice).toBeHidden();
