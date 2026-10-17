@@ -56,6 +56,91 @@ def test_delete_sheet_physically_removes_rows_columns_and_blob_metadata(
     assert (op["kind"], op["barrier"]) == ("sheet.delete", 1)
 
 
+def test_delete_sheet_discards_its_prepared_history_before_removing_generations(
+    tmp_path: Path,
+) -> None:
+    from frisket.engine.executor import run_action_spec
+    from tests.engine.test_native_pdf_text_action import _pdf_bytes, _request, _source
+
+    project = Project.create(tmp_path / "prepared-delete.frisket")
+    try:
+        keep = project.add_sheet("Keep")
+        keep_column = project.add_column(keep, "note")
+        [keep_row] = project.add_rows(
+            keep, [{"note": "original"}], {"note": keep_column}
+        )
+        project.apply_edits(
+            [{"row_id": keep_row, "column_id": keep_column, "value": "surviving edit"}]
+        )
+        keep_op = project.op_cursor
+        doomed, _source_column, row, _digest = _source(
+            project, tmp_path, pdf=_pdf_bytes("native text to delete")
+        )
+        result = run_action_spec(
+            project,
+            _request(doomed, row, key="delete-prepared-native@1"),
+            project_id="prepared-delete",
+        )
+        assert result.status == "completed", result.errors
+        run = project.db.execute(
+            "SELECT id,op_id FROM runs WHERE sheet_id=?", (doomed,)
+        ).fetchone()
+        assert (
+            project.db.execute(
+                "SELECT status FROM ops WHERE id=?", (run["op_id"],)
+            ).fetchone()[0]
+            == "applied"
+        )
+        assert (
+            project.db.execute(
+                "SELECT count(*) FROM cell_result_heads WHERE run_id=?", (run["id"],)
+            ).fetchone()[0]
+            > 0
+        )
+
+        deleted = project.delete_sheet(doomed)
+
+        assert deleted["deleted_sheet_id"] == doomed
+        assert (
+            project.db.execute("SELECT 1 FROM sheets WHERE id=?", (doomed,)).fetchone()
+            is None
+        )
+        assert (
+            project.db.execute("SELECT 1 FROM runs WHERE id=?", (run["id"],)).fetchone()
+            is None
+        )
+        assert (
+            project.db.execute(
+                "SELECT 1 FROM run_output_generations WHERE run_id=?", (run["id"],)
+            ).fetchone()
+            is None
+        )
+        assert (
+            project.db.execute(
+                "SELECT 1 FROM cell_result_heads WHERE run_id=?", (run["id"],)
+            ).fetchone()
+            is None
+        )
+        assert (
+            project.db.execute(
+                "SELECT status FROM ops WHERE id=?", (run["op_id"],)
+            ).fetchone()[0]
+            == "discarded"
+        )
+        assert (
+            project.db.execute(
+                "SELECT status FROM ops WHERE id=?", (keep_op,)
+            ).fetchone()[0]
+            == "applied"
+        )
+        assert project.get_values(keep, keep_column, row_ids=[keep_row]) == {
+            keep_row: "surviving edit"
+        }
+        assert list(project.db.execute("PRAGMA foreign_key_check")) == []
+    finally:
+        project.close()
+
+
 def test_delete_sheet_blocks_dependent_sheets(tmp_path: Path) -> None:
     project = Project.create(tmp_path / "dependencies.frisket", "dependencies")
     source_id = project.add_sheet("Source")
@@ -68,8 +153,10 @@ def test_delete_sheet_blocks_dependent_sheets(tmp_path: Path) -> None:
     assert {int(row["id"]) for row in project.sheets()} == {source_id, child_id}
 
 
-def test_delete_sheet_removes_cross_sheet_dependencies_with_low_variable_limit(
+@pytest.mark.parametrize("dependent_applied", [False, True])
+def test_delete_sheet_respects_cross_sheet_dependencies_with_low_variable_limit(
     tmp_path: Path,
+    dependent_applied: bool,
 ) -> None:
     project = Project.create(tmp_path / "bounded-delete.frisket", "bounded delete")
     try:
@@ -191,9 +278,38 @@ def test_delete_sheet_removes_cross_sheet_dependencies_with_low_variable_limit(
                 "surviving-claim",
             ),
         )
+        if dependent_applied:
+            project.db.execute(
+                "UPDATE ops SET status='applied' WHERE id=(SELECT op_id FROM runs WHERE id=?)",
+                (surviving_run,),
+            )
         project.db.commit()
         project.db.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 8)
 
+        if dependent_applied:
+            with pytest.raises(SheetDeleteBlocked, match="used by Surviving"):
+                project.delete_sheet(doomed_sheet)
+            assert (
+                project.db.execute(
+                    "SELECT 1 FROM runs WHERE id=?", (doomed_run,)
+                ).fetchone()
+                is not None
+            )
+            assert (
+                project.db.execute(
+                    "SELECT COUNT(*) FROM source_artifacts WHERE source_sheet_id=?",
+                    (doomed_sheet,),
+                ).fetchone()[0]
+                == 5
+            )
+            assert (
+                project.db.execute(
+                    "SELECT status FROM ops WHERE id=(SELECT op_id FROM runs WHERE id=?)",
+                    (surviving_run,),
+                ).fetchone()[0]
+                == "applied"
+            )
+            return
         project.delete_sheet(doomed_sheet)
 
         assert (
@@ -239,6 +355,32 @@ def test_delete_sheet_removes_cross_sheet_dependencies_with_low_variable_limit(
                 (surviving_run, surviving_column),
             ).fetchone()
             is not None
+        )
+    finally:
+        project.close()
+
+
+def test_delete_sheet_keeps_running_operation_applied(tmp_path: Path) -> None:
+    from frisket.engine.store.runs import RunResultStore
+
+    project = Project.create(tmp_path / "running-delete.frisket")
+    try:
+        sheet = project.add_sheet("Running")
+        op = project.append_op("media.read_pdf_text")
+        run = RunResultStore(project).start_run(
+            op, sheet, "media.read_pdf_text", total_rows=0
+        )
+        with pytest.raises(SheetDeleteBlocked, match="run in progress"):
+            project.delete_sheet(sheet)
+        assert (
+            project.db.execute("SELECT status FROM ops WHERE id=?", (op,)).fetchone()[0]
+            == "applied"
+        )
+        assert (
+            project.db.execute("SELECT status FROM runs WHERE id=?", (run,)).fetchone()[
+                0
+            ]
+            == "running"
         )
     finally:
         project.close()

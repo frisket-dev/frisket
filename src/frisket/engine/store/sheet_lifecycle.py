@@ -71,9 +71,17 @@ def dependent_sheets(project: Any, sheet_id: int) -> list[dict[str, Any]]:
         JOIN rows materialized ON materialized.id=source.materialized_row_id
         JOIN sheets child ON child.id=materialized.sheet_id
         WHERE child.hidden=0 AND child.id<>? AND source.source_sheet_id=?
+        UNION
+        SELECT DISTINCT child.id, child.name
+        FROM run_output_generations generation
+        JOIN runs owner ON owner.id=generation.run_id
+        JOIN ops owner_op ON owner_op.id=owner.op_id
+        JOIN sheets child ON child.id=owner.sheet_id
+        JOIN runs base ON base.id=generation.expected_base_run_id
+        WHERE child.id<>? AND base.sheet_id=? AND owner_op.status<>'discarded'
         ORDER BY id
         """,
-        (sheet_id, sheet_id, sheet_id),
+        (sheet_id, sheet_id, sheet_id, sheet_id, sheet_id),
     ).fetchall()
     dependents = {int(row["id"]): str(row["name"]) for row in rows}
     for child, sources in materialized_source_sheets(project).items():
@@ -127,9 +135,28 @@ def delete_sheet(project: Any, sheet_id: int) -> dict[str, Any]:
             "DELETE FROM source_artifacts WHERE source_sheet_id=?", (sheet_id,)
         )
 
-        # Generation rows deliberately RESTRICT both their owning and base
-        # runs. A whole-sheet delete removes those declarations before the
-        # runs and columns they describe.
+        # Physical deletion makes this sheet's run history permanently
+        # unredoable. Discard only its owning operations before removing the
+        # authoritative declarations; the schema intentionally refuses any
+        # generation deletion while its operation can still be applied.
+        project.db.execute(
+            "UPDATE ops SET status='discarded' WHERE id IN ("
+            "SELECT op_id FROM runs WHERE sheet_id=?)",
+            (sheet_id,),
+        )
+        # Current heads restrict generation/result deletion. Remove this
+        # rebuildable projection first, including already discarded dependent
+        # generations whose base run is on the deleted sheet.
+        project.db.execute(
+            "DELETE FROM cell_result_heads WHERE (run_id,column_id) IN ("
+            "SELECT generation.run_id,generation.column_id "
+            "FROM run_output_generations generation "
+            "JOIN runs owner ON owner.id=generation.run_id "
+            "LEFT JOIN runs base ON base.id=generation.expected_base_run_id "
+            "WHERE owner.sheet_id=? OR base.sheet_id=?)",
+            (sheet_id, sheet_id),
+        )
+        # Generation rows restrict both their owning and base runs.
         project.db.execute(
             "DELETE FROM run_output_generations WHERE run_id IN ("
             "SELECT id FROM runs WHERE sheet_id=?"
