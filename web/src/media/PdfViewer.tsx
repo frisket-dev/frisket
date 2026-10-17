@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from 'react';
 import { pdfjsLib, type PdfDocumentProxy, type PdfPageProxy } from './pdfjsSetup';
@@ -32,6 +33,39 @@ export interface PdfViewerProps {
   className?: string;
 }
 
+interface PageSize {
+  width: number;
+  height: number;
+}
+
+// Unvisited native pages use a fixed estimate; measured sizes survive eviction.
+const DEFAULT_PAGE_SIZE: PageSize = { width: 612, height: 792 };
+
+function renderedPageSize(
+  page: PageSize,
+  fit: PdfViewerProps['fit'],
+  zoom: number,
+  containerWidth: number,
+  containerHeight: number,
+): PageSize {
+  if (containerWidth <= 0) {
+    return {
+      width: Math.max(1, Math.floor(page.width * zoom)),
+      height: Math.max(1, Math.floor(page.height * zoom)),
+    };
+  }
+  const widthScale = Math.max(1, containerWidth - 32) / page.width;
+  const heightScale = containerHeight > 0
+    ? Math.max(1, containerHeight - 32) / page.height
+    : widthScale;
+  const fitScale = fit === 'page' ? Math.min(widthScale, heightScale) : widthScale;
+  const scale = Math.max(0.1, fitScale * zoom);
+  return {
+    width: Math.max(1, Math.floor(page.width * scale)),
+    height: Math.max(1, Math.floor(page.height * scale)),
+  };
+}
+
 /** Shared pdf.js reading surface for document and evidence views. */
 export function PdfViewer({
   url,
@@ -54,15 +88,34 @@ export function PdfViewer({
   const [doc, setDoc] = useState<PdfDocumentProxy | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [viewport, setViewport] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
+  const [pageSizes, setPageSizes] = useState<ReadonlyMap<number, PageSize>>(() => new Map());
+  const [intersectingPages, setIntersectingPages] = useState<ReadonlySet<number>>(() => new Set());
   const [pageLayoutRevision, setPageLayoutRevision] = useState(0);
   const programmaticScroll = useRef(false);
+  const programmaticScrollTimer = useRef<number | null>(null);
+  const scrollReportedPage = useRef<number | null>(null);
+  const requestedPage = useRef<number | null>(layout === 'continuous' ? currentPage : null);
+  const readyPages = useRef<Set<number>>(new Set());
+  const currentPageValue = useRef(currentPage);
+  const layoutValue = useRef(layout);
+  const onLoadedValue = useRef(onLoaded);
+  currentPageValue.current = currentPage;
+  layoutValue.current = layout;
+  onLoadedValue.current = onLoaded;
 
   useEffect(() => {
+    setError(null);
+    setPageSizes(new Map());
+    setIntersectingPages(new Set());
+    readyPages.current.clear();
+    requestedPage.current = layoutValue.current === 'continuous' ? currentPageValue.current : null;
     if (pageImages) {
-      onLoaded(totalPageCount ?? pageImages.length);
+      setDoc(null);
+      onLoadedValue.current(totalPageCount ?? pageImages.length);
       return;
     }
     let cancelled = false;
+    setDoc(null);
     const task = pdfjsLib.getDocument({ url });
     task.promise
       .then((loaded) => {
@@ -71,7 +124,7 @@ export function PdfViewer({
           return;
         }
         setDoc(loaded);
-        onLoaded(loaded.numPages);
+        onLoadedValue.current(loaded.numPages);
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -81,7 +134,7 @@ export function PdfViewer({
       cancelled = true;
       void task.destroy();
     };
-  }, [url, onLoaded, pageImages, totalPageCount]);
+  }, [url, pageImages, totalPageCount]);
 
   useLayoutEffect(() => {
     const node = containerRef.current;
@@ -94,53 +147,141 @@ export function PdfViewer({
     return () => observer.disconnect();
   }, [doc, pageImages]);
 
+  const allPageNumbers = useMemo(() => pageImages?.map((page) => page.page)
+    ?? Array.from({ length: doc?.numPages ?? 0 }, (_, index) => index + 1), [doc, pageImages]);
   const pageNumbers = useMemo(() => {
-    if (!doc && !pageImages) return [];
-    const all = pageImages?.map((page) => page.page)
-      ?? Array.from({ length: doc!.numPages }, (_, index) => index + 1);
+    if (allPageNumbers.length === 0) return [];
     if (layout === 'single') return [currentPage];
     if (layout === 'two-up') {
       const start = currentPage % 2 === 0 ? currentPage - 1 : currentPage;
-      return all.slice(start - 1, start + 1);
+      return allPageNumbers.slice(start - 1, start + 1);
     }
-    return all;
-  }, [doc, layout, currentPage, pageImages]);
+    return allPageNumbers;
+  }, [allPageNumbers, layout, currentPage]);
+  const pageImagesByNumber = useMemo(
+    () => new Map(pageImages?.map((image) => [image.page, image]) ?? []),
+    [pageImages],
+  );
 
   useEffect(() => {
+    if (layout !== 'continuous') {
+      setIntersectingPages(new Set());
+      return;
+    }
+    const root = containerRef.current;
+    if (!root || typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver((entries) => {
+      setIntersectingPages((previous) => {
+        let changed = false;
+        const next = new Set(previous);
+        for (const entry of entries) {
+          const page = Number((entry.target as HTMLElement).dataset.page);
+          if (!Number.isInteger(page)) continue;
+          if (entry.isIntersecting) {
+            if (!next.has(page)) {
+              next.add(page);
+              changed = true;
+            }
+          } else if (next.delete(page)) {
+            changed = true;
+          }
+        }
+        return changed ? next : previous;
+      });
+    }, { root, rootMargin: `${viewport.height}px 0px` });
+    for (const node of pageRefs.current!.values()) observer.observe(node);
+    return () => observer.disconnect();
+  }, [layout, pageNumbers, viewport.height]);
+
+  useLayoutEffect(() => {
     if (layout !== 'continuous') return;
+    const reportedByScroll = scrollReportedPage.current === currentPage;
+    scrollReportedPage.current = null;
+    if (reportedByScroll) {
+      requestedPage.current = null;
+      return;
+    }
+    requestedPage.current = currentPage;
+  }, [currentPage, layout, doc, pageImages]);
+
+  // Height changes do not alter width-fit page geometry.
+  const fitHeight = fit === 'page' ? viewport.height : 0;
+  useLayoutEffect(() => {
+    if (layoutValue.current === 'continuous') requestedPage.current = currentPageValue.current;
+  }, [fit, zoom, viewport.width, fitHeight]);
+
+  useLayoutEffect(() => {
+    if (layout !== 'continuous' || requestedPage.current !== currentPage) return;
     const target = pageRefs.current!.get(currentPage);
     const container = containerRef.current;
     if (!target || !container) return;
     programmaticScroll.current = true;
     container.scrollTo({ top: Math.max(0, target.offsetTop - 16), behavior: 'auto' });
-    const timer = window.setTimeout(() => {
+    if (programmaticScrollTimer.current !== null) {
+      window.clearTimeout(programmaticScrollTimer.current);
+    }
+    programmaticScrollTimer.current = window.setTimeout(() => {
       programmaticScroll.current = false;
+      programmaticScrollTimer.current = null;
     }, 120);
-    return () => window.clearTimeout(timer);
-  }, [currentPage, layout, doc, viewport.width, pageLayoutRevision]);
+    if (readyPages.current.has(currentPage)) requestedPage.current = null;
+  }, [currentPage, layout, doc, pageImages, fit, zoom, viewport.width, fitHeight, pageSizes, pageLayoutRevision]);
+
+  useEffect(() => () => {
+    if (programmaticScrollTimer.current !== null) {
+      window.clearTimeout(programmaticScrollTimer.current);
+    }
+  }, []);
 
   const onScroll = useCallback(() => {
     if (layout !== 'continuous' || programmaticScroll.current) return;
     const container = containerRef.current;
-    if (!container) return;
+    if (!container || pageNumbers.length === 0) return;
+    const target = container.scrollTop + 16;
+    let low = 0;
+    let high = pageNumbers.length - 1;
+    while (low <= high) {
+      const middle = Math.floor((low + high) / 2);
+      const node = pageRefs.current!.get(pageNumbers[middle]);
+      if (!node || node.offsetTop > target) high = middle - 1;
+      else low = middle + 1;
+    }
+    const candidates = [high, low]
+      .filter((index) => index >= 0 && index < pageNumbers.length)
+      .map((index) => pageNumbers[index]);
     let best = currentPage;
     let bestDelta = Number.POSITIVE_INFINITY;
-    for (const [page, node] of pageRefs.current!) {
-      const delta = Math.abs(node.offsetTop - 16 - container.scrollTop);
+    for (const page of candidates) {
+      const node = pageRefs.current!.get(page);
+      if (!node) continue;
+      const delta = Math.abs(node.offsetTop - target);
       if (delta < bestDelta) {
         bestDelta = delta;
         best = page;
       }
     }
-    if (best !== currentPage) onCurrentPageChange(best);
-  }, [layout, currentPage, onCurrentPageChange]);
+    if (best !== currentPage) {
+      scrollReportedPage.current = best;
+      onCurrentPageChange(best);
+    }
+  }, [layout, currentPage, onCurrentPageChange, pageNumbers]);
 
   const registerPage = useCallback((page: number, node: HTMLDivElement | null) => {
     if (node) pageRefs.current!.set(page, node);
     else pageRefs.current!.delete(page);
   }, []);
-  const pageReady = useCallback(() => {
-    setPageLayoutRevision((revision) => revision + 1);
+  const pageReady = useCallback((page: number) => {
+    readyPages.current.add(page);
+    if (requestedPage.current === page) setPageLayoutRevision((revision) => revision + 1);
+  }, []);
+  const recordPageSize = useCallback((page: number, size: PageSize) => {
+    setPageSizes((previous) => {
+      const existing = previous.get(page);
+      if (existing?.width === size.width && existing.height === size.height) return previous;
+      const next = new Map(previous);
+      next.set(page, size);
+      return next;
+    });
   }, []);
 
   return (
@@ -158,23 +299,30 @@ export function PdfViewer({
         </div>
       )}
       {(doc || pageImages) &&
-        pageNumbers.map((pageNumber) => (
-          <PdfPage
-            key={pageNumber}
-            doc={doc}
-            pageNumber={pageNumber}
-            fit={fit}
-            zoom={zoom}
-            textLayer={textLayer}
-            containerWidth={viewport.width}
-            containerHeight={viewport.height}
-            registerPage={registerPage}
-            renderPageOverlay={renderPageOverlay}
-            pageImage={pageImages?.find((image) => image.page === pageNumber)}
-            pageId={pageId?.(pageNumber)}
-            onPageReady={pageReady}
-          />
-        ))}
+        pageNumbers.map((pageNumber) => {
+          const pageImage = pageImagesByNumber.get(pageNumber);
+          const intrinsicSize = pageImage ?? pageSizes.get(pageNumber) ?? DEFAULT_PAGE_SIZE;
+          return (
+            <PdfPage
+              key={pageNumber}
+              doc={doc}
+              pageNumber={pageNumber}
+              fit={fit}
+              zoom={zoom}
+              textLayer={textLayer}
+              containerWidth={viewport.width}
+              containerHeight={fitHeight}
+              active={layout !== 'continuous' || pageNumber === currentPage || intersectingPages.has(pageNumber)}
+              intrinsicSize={intrinsicSize}
+              registerPage={registerPage}
+              renderPageOverlay={renderPageOverlay}
+              pageImage={pageImage}
+              pageId={pageId?.(pageNumber)}
+              onPageReady={pageReady}
+              onPageSize={recordPageSize}
+            />
+          );
+        })}
     </div>
   );
 }
@@ -187,11 +335,14 @@ interface PdfPageProps {
   textLayer: boolean;
   containerWidth: number;
   containerHeight: number;
+  active: boolean;
+  intrinsicSize: PageSize;
   registerPage(page: number, node: HTMLDivElement | null): void;
   renderPageOverlay?(page: number): ReactNode;
   pageImage?: DocumentPageImage;
   pageId?: string;
   onPageReady(page: number): void;
+  onPageSize(page: number, size: PageSize): void;
 }
 
 function PdfPage({
@@ -202,48 +353,55 @@ function PdfPage({
   textLayer,
   containerWidth,
   containerHeight,
+  active,
+  intrinsicSize,
   registerPage,
   renderPageOverlay,
   pageImage,
   pageId,
   onPageReady,
+  onPageSize,
 }: PdfPageProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     registerPage(pageNumber, wrapRef.current);
     return () => registerPage(pageNumber, null);
   }, [pageNumber, registerPage]);
 
   useEffect(() => {
-    if (pageImage) onPageReady(pageNumber);
-  }, [onPageReady, pageImage, pageNumber]);
+    if (active && pageImage) onPageReady(pageNumber);
+  }, [active, onPageReady, pageImage, pageNumber]);
 
   useEffect(() => {
-    if (containerWidth <= 0 || !doc || pageImage) return;
+    if (!active || containerWidth <= 0 || !doc || pageImage) return;
     let cancelled = false;
     let page: PdfPageProxy | null = null;
     let renderTask: ReturnType<PdfPageProxy['render']> | null = null;
+    let canvas: HTMLCanvasElement | null = null;
+    let textContainer: HTMLDivElement | null = null;
+    let layer: InstanceType<typeof pdfjsLib.TextLayer> | null = null;
 
     void doc.getPage(pageNumber).then((loadedPage) => {
-      if (cancelled) return;
+      if (cancelled) {
+        loadedPage.cleanup();
+        return;
+      }
       page = loadedPage;
       const base = loadedPage.getViewport({ scale: 1 });
-      const pad = 32;
-      const widthScale = (containerWidth - pad) / base.width;
-      const heightScale = containerHeight > 0 ? (containerHeight - pad) / base.height : widthScale;
-      const fitScale = fit === 'page' ? Math.min(widthScale, heightScale) : widthScale;
-      const scale = Math.max(0.1, fitScale * zoom);
+      onPageSize(pageNumber, { width: base.width, height: base.height });
+      const size = renderedPageSize(base, fit, zoom, containerWidth, containerHeight);
+      const scale = size.width / base.width;
       const viewport = loadedPage.getViewport({ scale });
-      const canvas = canvasRef.current;
+      canvas = canvasRef.current;
       if (!canvas) return;
       const dpr = window.devicePixelRatio || 1;
       canvas.width = Math.floor(viewport.width * dpr);
       canvas.height = Math.floor(viewport.height * dpr);
-      canvas.style.width = `${Math.floor(viewport.width)}px`;
-      canvas.style.height = `${Math.floor(viewport.height)}px`;
+      canvas.style.width = `${size.width}px`;
+      canvas.style.height = `${size.height}px`;
       renderTask = loadedPage.render({
         canvas,
         viewport,
@@ -253,16 +411,16 @@ function PdfPage({
         .then(async () => {
           if (cancelled) return;
           onPageReady(pageNumber);
-          const textContainer = textRef.current;
+          textContainer = textRef.current;
           if (!textContainer) return;
           textContainer.replaceChildren();
           if (!textLayer) return;
           textContainer.style.setProperty('--scale-factor', String(scale));
-          textContainer.style.width = `${Math.floor(viewport.width)}px`;
-          textContainer.style.height = `${Math.floor(viewport.height)}px`;
+          textContainer.style.width = `${size.width}px`;
+          textContainer.style.height = `${size.height}px`;
           const textContent = await loadedPage.getTextContent();
           if (cancelled) return;
-          const layer = new pdfjsLib.TextLayer({
+          layer = new pdfjsLib.TextLayer({
             textContentSource: textContent,
             container: textContainer,
             viewport,
@@ -270,48 +428,55 @@ function PdfPage({
           await layer.render();
         })
         .catch(() => {
-          // Cancelled renders (page/scale change) throw — safe to ignore.
+          // Cancelled renders (page/scale/window change) throw — safe to ignore.
         });
+    }).catch(() => {
+      // A document may be destroyed while getPage is still pending.
     });
 
     return () => {
       cancelled = true;
+      layer?.cancel();
       renderTask?.cancel();
       page?.cleanup();
+      textContainer?.replaceChildren();
+      if (canvas) {
+        canvas.width = 0;
+        canvas.height = 0;
+      }
     };
-  }, [doc, pageNumber, fit, zoom, textLayer, containerWidth, containerHeight, pageImage, onPageReady]);
+  }, [active, doc, pageNumber, fit, zoom, textLayer, containerWidth, containerHeight, pageImage, onPageReady, onPageSize]);
 
-  const imageScale = pageImage ? Math.max(0.1, (fit === 'page'
-    ? Math.min((containerWidth - 32) / pageImage.width, (containerHeight - 32) / pageImage.height)
-    : (containerWidth - 32) / pageImage.width) * zoom) : 1;
+  const pageSize = renderedPageSize(intrinsicSize, fit, zoom, containerWidth, containerHeight);
+  const geometry: CSSProperties = { width: pageSize.width, height: pageSize.height, flexShrink: 0 };
 
   return (
     <div
       className="document-pdf-page"
       data-testid="document-pdf-page"
       data-page={pageNumber}
+      data-rendered={active ? 'true' : 'false'}
       id={pageId}
       ref={wrapRef}
+      style={geometry}
     >
-      <div className="document-pdf-page-inner">
-        {pageImage ? (
+      <div className="document-pdf-page-inner" style={geometry}>
+        {active && (pageImage ? (
           <img
             src={pageImage.url}
             alt={`Page ${pageNumber}`}
             draggable={false}
-            style={{
-              width: Math.floor(pageImage.width * imageScale),
-              height: Math.floor(pageImage.height * imageScale),
-              display: 'block',
-            }}
+            style={{ ...geometry, display: 'block' }}
           />
-        ) : <canvas ref={canvasRef} />}
-        <div
-          className={`textLayer document-pdf-textlayer${textLayer ? '' : ' document-pdf-textlayer-off'}`}
-          data-testid="document-pdf-textlayer"
-          ref={textRef}
-        />
-        {renderPageOverlay?.(pageNumber)}
+        ) : <canvas ref={canvasRef} />)}
+        {active && (
+          <div
+            className={`textLayer document-pdf-textlayer${textLayer ? '' : ' document-pdf-textlayer-off'}`}
+            data-testid="document-pdf-textlayer"
+            ref={textRef}
+          />
+        )}
+        {active && renderPageOverlay?.(pageNumber)}
       </div>
     </div>
   );
