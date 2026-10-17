@@ -39,8 +39,13 @@ from frisket.engine.store.cells import (
     replay_generated_value_hash,
     replay_origin_run_id,
 )
-from frisket.engine.store.runs import REVIEWABLE_OUTCOMES_SQL, RunResultStore
+from frisket.engine.store.current_value_windows import (
+    MANUAL_EDIT_BYTE_LIMIT,
+    read_current_column,
+)
 from frisket.engine.store.review_stats import ensure_run_review_stats
+from frisket.engine.store.runs import REVIEWABLE_OUTCOMES_SQL, RunResultStore
+from frisket.engine.store.value_codec import encode_stored_value
 from frisket.review_predicate import is_exact_review_correction
 
 
@@ -293,13 +298,33 @@ class _ReviewDecider(_CallOnce):
             column_id=column_id,
             action_kind=self._action.kind,
         )
+        if decision == "edit":
+            replacement_kind, replacement = encode_stored_value(value)
+            if (
+                replacement_kind in {"text", "json", "bigint", "legacy_invalid"}
+                and isinstance(replacement, str)
+                and len(replacement.encode("utf-8")) > MANUAL_EDIT_BYTE_LIMIT
+            ):
+                _refuse(
+                    "review_value_too_large",
+                    "Review edits are limited to 64 KiB of UTF-8 text.",
+                    action_kind=self._action.kind,
+                    field="params.value",
+                    details={"maximum_bytes": MANUAL_EDIT_BYTE_LIMIT},
+                )
         current_ref: dict[str, Any] | None = None
+        current_is_bounded = False
         if decision in {"edit", "reject_clear"}:
-            _values, refs = self._project.get_values_with_refs(
-                int(target["sheet_id"]), column_id, row_ids=[row_id]
-            )
-            ref = refs.get(row_id)
-            current_ref = dict(ref) if isinstance(ref, dict) else None
+            current = read_current_column(
+                self._project.db,
+                sheet_id=int(target["sheet_id"]),
+                column_id=column_id,
+                row_ids=[row_id],
+                bounded=True,
+            ).get(row_id)
+            if current is not None:
+                current_ref = dict(current.value_ref)
+                current_is_bounded = current.bounded_value is not None
         if decision in {"edit", "reject_clear"} and not _is_current_review_value(
             self._project, target, current_ref
         ):
@@ -313,6 +338,19 @@ class _ReviewDecider(_CallOnce):
                     "row_id": row_id,
                     "column_id": column_id,
                     "reason": "result_not_current",
+                },
+            )
+        if decision == "edit" and current_is_bounded:
+            _refuse(
+                "review_value_truncated",
+                "Only an excerpt of this value is available in Review, so it cannot be edited here.",
+                action_kind=self._action.kind,
+                field="params",
+                details={
+                    "run_id": run_id,
+                    "row_id": row_id,
+                    "column_id": column_id,
+                    "maximum_bytes": MANUAL_EDIT_BYTE_LIMIT,
                 },
             )
         _claimed_column(self._project, column_id, action_kind=self._action.kind)

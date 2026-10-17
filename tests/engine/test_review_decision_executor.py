@@ -15,6 +15,7 @@ from executor_harness import (
     operation_action,
 )
 from frisket.engine.store import Project
+from frisket.engine.store.edit_overlays import write_edit_overlay
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.runner.review import review_bundle_page, review_runs_page
 from frisket.engine.store.evidence import (
@@ -718,6 +719,110 @@ def test_clear_reject_clear_keeps_the_null_overlay(
         assert refused.status == "failed"
         assert any(error.code == "review_target_not_found" for error in refused.errors)
         assert _live_risk(project, seeded, row_id) == "later manual edit"
+
+
+def test_review_edit_refuses_bounded_target_and_oversized_replacement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with case_env(CASES[0], tmp_path, monkeypatch) as env:
+        project, seeded = env.project, env.seeded
+        row_id = seeded["row_ids"][0]
+        column_id = seeded["risk_column_id"]
+
+        oversized_replacement = env.run(
+            _review_action(
+                run_id=seeded["run_id"],
+                row_id=row_id,
+                column_id=column_id,
+                decision="edit",
+                value="x" * 65_537,
+                key="review_oversized_replacement@sha256:v1",
+            )
+        )
+        assert oversized_replacement.status == "failed"
+        assert [error.code for error in oversized_replacement.errors] == [
+            "review_value_too_large"
+        ]
+        assert _review_state(project, seeded, row_id) == "unreviewed"
+
+        _values, refs = project.get_values_with_refs(
+            seeded["sheet_id"], column_id, row_ids=[row_id]
+        )
+        project.db.execute("BEGIN IMMEDIATE")
+        write_edit_overlay(
+            project,
+            kind="review.decision",
+            label="Existing oversized Review correction",
+            spec={
+                "action_id": "review.decision",
+                "params": {
+                    "run_id": seeded["run_id"],
+                    "row_id": row_id,
+                    "column_id": column_id,
+                    "decision": "edit",
+                },
+            },
+            targets=[
+                {
+                    "row_id": row_id,
+                    "column_id": column_id,
+                    "value_after": "y" * 65_537,
+                    "current_value_ref": refs[row_id],
+                }
+            ],
+            stale_reason="review_decision_edit",
+        )
+        project.db.commit()
+        page = review_bundle_page(
+            project, run_id=seeded["run_id"], include_reviewed=True
+        )
+        correction = next(item for item in page["bundles"] if item["row_id"] == row_id)[
+            "fields"
+        ][0]
+        assert correction["changed"] is True
+        assert correction["value"] is None
+        assert correction["bounded_value"]["preview"] == "y" * 2_048
+        assert correction["bounded_value"]["_download_revision"] > 0
+        assert correction["can_edit"] is False
+
+        bounded_target = env.run(
+            _review_action(
+                run_id=seeded["run_id"],
+                row_id=row_id,
+                column_id=column_id,
+                decision="edit",
+                value="small correction",
+                key="review_bounded_target@sha256:v1",
+            )
+        )
+        assert bounded_target.status == "failed"
+        assert [error.code for error in bounded_target.errors] == [
+            "review_value_truncated"
+        ]
+        assert _review_state(project, seeded, row_id) == "unreviewed"
+
+
+def test_review_edit_allows_replacement_at_utf8_byte_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with case_env(CASES[0], tmp_path, monkeypatch) as env:
+        project, seeded = env.project, env.seeded
+        row_id = seeded["row_ids"][0]
+        replacement = "é" * 32_768
+
+        edited = env.run(
+            _review_action(
+                run_id=seeded["run_id"],
+                row_id=row_id,
+                column_id=seeded["risk_column_id"],
+                decision="edit",
+                value=replacement,
+                key="review_replacement_at_limit@sha256:v1",
+            )
+        )
+
+        assert edited.status == "completed", edited.errors
+        assert _live_risk(project, seeded, row_id) == replacement
 
 
 def test_decision_omitted_note_preserves_row_note_and_explicit_null_clears_it(
