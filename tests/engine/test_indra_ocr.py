@@ -202,9 +202,9 @@ def test_indra_fatal_failure_crosses_main_and_host_without_writable_result(
     model_dir = tmp_path / "cache" / "snapshots" / MODEL_REVISION
     model_dir.mkdir(parents=True)
     monkeypatch.setattr(indra_ocr_artifacts, "cached_indra_ocr_path", lambda: model_dir)
-    monkeypatch.setattr(
-        indra_ocr_install, "runtime_python", lambda: Path(sys.executable)
-    )
+    runtime = tmp_path / "python"
+    runtime.touch(mode=0o755)
+    monkeypatch.setattr(indra_ocr_install, "runtime_python", lambda: runtime)
     monkeypatch.setattr(ocr_engines_local, "indra_ocr_available", lambda: (True, None))
     loaded, rendered, closed, signals = [], [], [], []
 
