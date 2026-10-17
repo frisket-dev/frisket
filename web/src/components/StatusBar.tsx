@@ -123,20 +123,32 @@ export function StatusBar({
     open: false,
   });
   const runActive = run ? isActiveRunStatus(run.status) : false;
-  const activityKeys = [
-    runActive ? `run:${run?.runId ?? ''}` : null,
-    searchPreparationNotice
-      ? `search:${searchPreparationNotice.activityKey}`
-      : null,
-  ].filter((key): key is string => key !== null);
-  const [noticeVisibility, setNoticeVisibility] = useState<{ keys: string[]; open: boolean }>({
-    keys: [],
-    open: true,
-  });
-  const noticesOpen = activityKeys.length > 0
-    && (noticeVisibility.open || activityKeys.some((key) => !noticeVisibility.keys.includes(key)));
-  const setNoticesOpen = (open: boolean) => {
-    setNoticeVisibility({ keys: activityKeys, open });
+  const [runNoticeVisibility, setRunNoticeVisibility] = useState<{
+    projectId: string; runId: string | null; open: boolean;
+  }>({ projectId, runId: null, open: false });
+  const [searchNoticeVisibility, setSearchNoticeVisibility] = useState<{
+    projectId: string; activityKey: string | null; open: boolean;
+  }>({ projectId, activityKey: null, open: false });
+  // Each new action shows its own progress. Background search only opens
+  // through its own control; neither activity can reopen the other.
+  const runNoticeOpen = Boolean(runActive && run && (
+    runNoticeVisibility.projectId !== projectId
+    || runNoticeVisibility.runId !== run.runId
+    || runNoticeVisibility.open
+  ));
+  const searchNoticeOpen = Boolean(searchPreparationNotice
+    && searchNoticeVisibility.projectId === projectId
+    && searchNoticeVisibility.activityKey === searchPreparationNotice.activityKey
+    && searchNoticeVisibility.open);
+  const setRunNoticeOpen = (open: boolean) => {
+    setRunNoticeVisibility({ projectId, runId: run?.runId ?? null, open });
+  };
+  const setSearchNoticeOpen = (open: boolean) => {
+    setSearchNoticeVisibility({
+      projectId,
+      activityKey: searchPreparationNotice?.activityKey ?? null,
+      open,
+    });
   };
   const watcherOpen = Boolean(run && !runActive && watcherState.runId === run.runId && watcherState.open);
   const watcherTriggerRef = useRef<HTMLButtonElement>(null);
@@ -153,9 +165,9 @@ export function StatusBar({
 
   return (
     <>
-    {(run && runActive || searchPreparationNotice) && noticesOpen && (
+    {(runNoticeOpen || searchNoticeOpen) && (
       <div className="status-notice-stack" data-testid="status-notice-stack">
-        {run && runActive && (
+        {run && runNoticeOpen && (
           <section
             className={`active-run-banner status-${run.status}`}
             data-testid="active-run-banner"
@@ -167,8 +179,8 @@ export function StatusBar({
               type="button"
               className="icon-btn status-notice-dismiss"
               data-testid="active-run-dismiss"
-              aria-label="Dismiss activity notification"
-              onClick={() => setNoticesOpen(false)}
+              aria-label="Minimize action progress"
+              onClick={() => setRunNoticeOpen(false)}
             >
               <X size={14} aria-hidden />
             </button>
@@ -194,11 +206,11 @@ export function StatusBar({
             </span>
           </section>
         )}
-        {searchPreparationNotice && (
+        {searchPreparationNotice && searchNoticeOpen && (
           <SearchPreparationNotice
             notice={searchPreparationNotice}
             onReviewPreparation={actSurface.openImportPreparation}
-            onDismiss={() => setNoticesOpen(false)}
+            onDismiss={() => setSearchNoticeOpen(false)}
           />
         )}
       </div>
@@ -210,18 +222,18 @@ export function StatusBar({
             <button
               type="button"
               ref={watcherTriggerRef}
-              className={`run-summary${runActive ? (noticesOpen ? ' run-summary-open' : '') : (watcherOpen ? ' run-summary-open' : '')}`}
+              className={`run-summary${runActive ? (runNoticeOpen ? ' run-summary-open' : '') : (watcherOpen ? ' run-summary-open' : '')}`}
               data-testid="run-watcher-toggle"
               data-run-status={run.status}
               data-run-completed-rows={run.completedRows}
               data-run-total-rows={run.totalRows}
               data-run-failed-rows={run.failedRows}
               title={runActive
-                ? (noticesOpen ? 'Hide activity notifications' : 'Show activity notifications')
+                ? (runNoticeOpen ? 'Hide action progress' : 'Show action progress')
                 : 'Run details'}
-              aria-expanded={runActive ? noticesOpen : watcherOpen}
+              aria-expanded={runActive ? runNoticeOpen : watcherOpen}
               onClick={() => {
-                if (runActive) setNoticesOpen(!noticesOpen);
+                if (runActive) setRunNoticeOpen(!runNoticeOpen);
                 else setCurrentWatcherOpen((o) => !o);
               }}
             >
@@ -287,20 +299,14 @@ export function StatusBar({
               />
             )}
           </>
-        ) : searchPreparationNotice ? (
-          <SearchActivityToggle
-            notice={searchPreparationNotice}
-            open={noticesOpen}
-            onToggle={() => setNoticesOpen(!noticesOpen)}
-          />
-        ) : (
+        ) : !searchPreparationNotice && (
           <span className="run-label muted">idle</span>
         )}
-        {run && !runActive && searchPreparationNotice && (
+        {searchPreparationNotice && (
           <SearchActivityToggle
             notice={searchPreparationNotice}
-            open={noticesOpen}
-            onToggle={() => setNoticesOpen(!noticesOpen)}
+            open={searchNoticeOpen}
+            onToggle={() => setSearchNoticeOpen(!searchNoticeOpen)}
           />
         )}
         {projectionStatus && <ProjectionChip status={projectionStatus} />}
@@ -359,7 +365,7 @@ function SearchActivityToggle({
       className={`run-summary${open ? ' run-summary-open' : ''}`}
       data-testid="search-activity-toggle"
       aria-expanded={open}
-      title={open ? 'Hide activity notifications' : 'Show activity notifications'}
+      title={open ? 'Hide search preparation' : 'Show search preparation'}
       onClick={onToggle}
     >
       {notice.tone === 'error' || notice.tone === 'warning' ? (
