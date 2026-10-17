@@ -135,17 +135,34 @@ def test_native_and_ocr_preparation_share_one_designated_text_column(tmp_path) -
 
         role = document_text_role(project, source_column_id=source_column_id)
         assert role is not None
-        assert native["output_names"]["text"] == "Text"
-        assert ocr["output_names"]["text"] == "Text"
-        assert native["expected_output_columns"]["Text"] == role.text_column_id
-        assert ocr["expected_output_columns"]["Text"] == role.text_column_id
+        assert native["output_names"]["text"] == "text"
+        assert ocr["output_names"]["text"] == "text"
+        assert native["expected_output_columns"]["text"] == role.text_column_id
+        assert ocr["expected_output_columns"]["text"] == role.text_column_id
         assert ocr["output_names"]["blocks"] == "Search positions · Document"
 
 
-def test_designated_text_name_is_unique_without_claiming_a_collision(tmp_path) -> None:
+@pytest.mark.parametrize(
+    ("occupied_columns", "expected_name"),
+    [
+        ([("text", False)], "text_2"),
+        ([("TEXT", True)], "text_2"),
+        ([("Text", False), ("TeXt_2", True)], "text_3"),
+    ],
+)
+def test_designated_text_name_is_unique_without_claiming_a_collision(
+    tmp_path, occupied_columns, expected_name
+) -> None:
     with closing(Project.create(tmp_path / "text-collision.frisket")) as project:
         sheet_id, source_column_id = _source(project)
-        occupied = project.add_column(sheet_id, "Text", type="text")
+        occupied = []
+        for name, hidden in occupied_columns:
+            column_id = project.add_column(sheet_id, name, type="text")
+            project.db.execute(
+                "UPDATE columns SET hidden=? WHERE id=?", (int(hidden), column_id)
+            )
+            occupied.append(column_id)
+        project.db.commit()
 
         body = _body(
             project,
@@ -157,10 +174,43 @@ def test_designated_text_name_is_unique_without_claiming_a_collision(tmp_path) -
 
         role = document_text_role(project, source_column_id=source_column_id)
         assert role is not None
-        assert role.text_column_id != occupied
-        assert body["output_names"]["text"] == "Text_2"
-        assert body["expected_output_columns"]["Text_2"] == role.text_column_id
-        assert project.get_column(occupied)["ai_generated"] == 0
+        assert role.text_column_id not in occupied
+        assert body["output_names"]["text"] == expected_name
+        assert body["expected_output_columns"][expected_name] == role.text_column_id
+        assert [project.get_column(column_id)["name"] for column_id in occupied] == [
+            name for name, _hidden in occupied_columns
+        ]
+        assert all(
+            project.get_column(column_id)["ai_generated"] == 0 for column_id in occupied
+        )
+
+
+def test_existing_designated_text_name_and_identity_are_reused_without_rename(tmp_path):
+    with closing(Project.create(tmp_path / "existing-text-role.frisket")) as project:
+        sheet_id, source_column_id = _source(project)
+        text_column_id = project.add_column(sheet_id, "Text", type="text")
+        ensure_document_text_role(
+            project,
+            source_column_id=source_column_id,
+            text_column_id=text_column_id,
+            commit=True,
+        )
+        for kind in ("native_pdf", "ocr"):
+            body = _body(
+                project,
+                sheet_id=sheet_id,
+                source_column_id=source_column_id,
+                source_name="Document",
+                kind=kind,
+            )
+            assert body["output_names"]["text"] == "Text"
+            assert body["expected_output_columns"]["Text"] == text_column_id
+        assert [
+            (column["id"], column["name"]) for column in project.columns(sheet_id)
+        ] == [
+            (source_column_id, "Document"),
+            (text_column_id, "Text"),
+        ]
 
 
 def test_image_ocr_preparation_uses_the_designated_text_column(tmp_path) -> None:
@@ -177,8 +227,8 @@ def test_image_ocr_preparation_uses_the_designated_text_column(tmp_path) -> None
 
         role = document_text_role(project, source_column_id=source_column_id)
         assert role is not None
-        assert body["output_names"]["text"] == "Text"
-        assert body["expected_output_columns"]["Text"] == role.text_column_id
+        assert body["output_names"]["text"] == "text"
+        assert body["expected_output_columns"]["text"] == role.text_column_id
 
 
 def test_hidden_designated_role_keeps_exact_target_without_fallback(tmp_path) -> None:
@@ -215,8 +265,8 @@ def test_hidden_designated_role_keeps_exact_target_without_fallback(tmp_path) ->
         assert [
             column["name"]
             for column in project.columns(sheet_id, include_hidden=True)
-            if column["name"].startswith("Text")
-        ] == ["Text"]
+            if column["name"].startswith("text")
+        ] == ["text"]
 
 
 def test_inactive_designated_text_column_is_not_silently_replaced(tmp_path) -> None:
