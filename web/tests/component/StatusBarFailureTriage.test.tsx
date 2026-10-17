@@ -195,6 +195,7 @@ describe('StatusBar queued-run feedback', () => {
     }), { onCancelRun });
     const banner = screen.getByTestId('active-run-banner');
     expect(banner).toHaveTextContent('Stopping…');
+    expect(within(banner).queryByTestId('pending-ai-cells')).not.toBeInTheDocument();
     expect(screen.getByTestId('run-watcher-toggle')).toHaveTextContent('Stopping…');
     const toastCancel = within(banner).getByRole('button', { name: 'Stopping…' });
     const footerCancel = screen.getByTestId('run-cancel-button');
@@ -236,8 +237,10 @@ describe('StatusBar queued-run feedback', () => {
     const view = render(statusBar(run));
     const banner = screen.getByTestId('active-run-banner');
     expect(banner).toHaveTextContent('0/7 files');
-    expect(screen.getByTestId('run-file-progress-12')).toHaveTextContent('first.pdf · 3 / 100 pages');
-    expect(screen.getByTestId('run-file-progress-13')).toHaveTextContent('File row 13 · 40 / 500 pages');
+    expect(within(screen.getByTestId('run-file-progress-12')).getByText('first.pdf')).toBeInTheDocument();
+    expect(within(screen.getByTestId('run-file-progress-12')).getByText('3 / 100 pages')).toBeInTheDocument();
+    expect(within(screen.getByTestId('run-file-progress-13')).getByText('File row 13')).toBeInTheDocument();
+    expect(within(screen.getByTestId('run-file-progress-13')).getByText('40 / 500 pages')).toBeInTheDocument();
     expect(screen.getByRole('progressbar', { name: 'OCR pages for first.pdf' })).toHaveAttribute('value', '3');
     expect(screen.getByRole('progressbar', { name: 'OCR pages for File row 13' })).toHaveAttribute('max', '500');
     expect(banner).not.toHaveTextContent('%');

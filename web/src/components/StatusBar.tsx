@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useReducer, useRef, useState, type RefObject } from 'react';
+import { useEffect, useReducer, useRef, useState, type RefObject } from 'react';
 import { Activity, AlertTriangle, ChevronUp, Inbox, Redo2, Square, Undo2, X } from 'lucide-react';
 import { type HistoryState, type RunProgress, type RunRowsPage } from '../api/open';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
@@ -56,7 +56,6 @@ function activeStatusCopy(run: RunProgress): string {
 }
 
 function pendingRunCopy(run: RunProgress): string {
-  if (run.cancelRequested) return 'Stopping…';
   switch (run.status) {
     case 'queued':
       return 'pending in worker queue';
@@ -205,9 +204,9 @@ export function StatusBar({
               </div>
             </div>
             <ActiveRunWatcher run={run} />
-            <span className="pending-ai-cells" data-testid="pending-ai-cells">
+            {!run.cancelRequested && <span className="pending-ai-cells" data-testid="pending-ai-cells">
               {pendingRunCopy(run)}
-            </span>
+            </span>}
             <button
               type="button"
               className="mini-btn run-cancel"
@@ -635,21 +634,6 @@ function RunWatcherBody({
           {run.completedRows.toLocaleString()} / {run.totalRows.toLocaleString()}
           {files.length === 0 && ` (${pct.toFixed(0)}%)`}
         </span>
-        {files.map((file) => (
-          <Fragment key={file.row_id}>
-            <span className="prov-key">OCR pages</span>
-            <span data-testid={`run-file-progress-${file.row_id}`}>
-              <span style={{ overflowWrap: 'anywhere' }}>{file.filename || `File row ${file.row_id}`}</span>
-              {' · '}{file.completed.toLocaleString()} / {file.total.toLocaleString()} pages
-              <progress
-                aria-label={`OCR pages for ${file.filename || `File row ${file.row_id}`}`}
-                max={file.total}
-                value={file.completed}
-                style={{ width: '100%' }}
-              />
-            </span>
-          </Fragment>
-        ))}
         <span className="prov-key">failed</span>
         <span className={run.failedRows > 0 ? 'run-failed' : undefined}>
           {run.failedRows.toLocaleString()}
@@ -657,6 +641,24 @@ function RunWatcherBody({
         <span className="prov-key">cost</span>
         <span>{formatUsd(run.costSoFar)}</span>
       </div>
+      {files.length > 0 && (
+        <div className="run-file-progress-list">
+          {files.map((file) => (
+            <div className="run-file-progress" key={file.row_id} data-testid={`run-file-progress-${file.row_id}`}>
+              <div className="run-file-progress-copy">
+                <span className="run-file-progress-name">{file.filename || `File row ${file.row_id}`}</span>
+                <span className="run-file-progress-count">{file.completed.toLocaleString()} / {file.total.toLocaleString()} pages</span>
+              </div>
+              <progress
+                className="run-file-progress-bar"
+                aria-label={`OCR pages for ${file.filename || `File row ${file.row_id}`}`}
+                max={file.total}
+                value={file.completed}
+              />
+            </div>
+          ))}
+        </div>
+      )}
       {!isActiveRunStatus(run.status) && run.rowErrors && (
         <RunFailureTriage
           rowErrors={run.rowErrors}

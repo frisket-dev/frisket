@@ -10691,6 +10691,11 @@ dialog.modal-card::backdrop {
   grid-template-columns: repeat(3, auto minmax(0, 1fr));
   gap: 3px 8px;
 }
+.run-file-progress-list { display: grid; gap: 8px; margin: 8px 0; }
+.run-file-progress-copy { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.run-file-progress-name { min-width: 0; overflow-wrap: anywhere; }
+.run-file-progress-count { flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.run-file-progress-bar { display: block; width: 100%; height: 6px; accent-color: var(--accent); }
 .run-watcher-errors { margin-top: 10px; border-top: 1px solid var(--bg-hover); padding-top: 8px; }
 .run-watcher-errors-title { font-weight: 650; color: var(--red); margin-bottom: 5px; font-size: 11.5px; }
 .run-watcher-errors ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
