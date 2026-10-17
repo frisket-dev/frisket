@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   replanSearchPreparation,
   decideSearchPreparation,
+  stopSearchPreparation,
   getSearchPreparation,
   getSearchPreparationTextSamples,
   type SearchPreparationBatch,
@@ -260,11 +261,13 @@ export function SearchPreparationReceipt({
     let refreshAfterFailure = false;
     setBusy(true);
     try {
-      const next = await decideSearchPreparation(projectId, batch.id, {
-        plan_hash: batch.plan_hash,
-        decision,
-        selected_setup_refs: decision === 'prepare' ? selectedRefs : [],
-      });
+      const next = decision === 'not_now'
+        ? await stopSearchPreparation(projectId, batch.id)
+        : await decideSearchPreparation(projectId, batch.id, {
+          plan_hash: batch.plan_hash,
+          decision: 'prepare',
+          selected_setup_refs: selectedRefs,
+        });
       if (generation === requestGeneration.current) {
         publish(next);
         finish();

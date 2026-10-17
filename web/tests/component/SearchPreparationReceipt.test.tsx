@@ -7,12 +7,14 @@ import type { SearchPreparationBatch } from '../../src/api/searchPreparation';
 const {
   getSearchPreparation,
   decideSearchPreparation,
+  stopSearchPreparation,
   replanSearchPreparation,
   getSearchPreparationTextSamples,
   getModelPull,
 } = vi.hoisted(() => ({
   getSearchPreparation: vi.fn(),
   decideSearchPreparation: vi.fn(),
+  stopSearchPreparation: vi.fn(),
   replanSearchPreparation: vi.fn(),
   getSearchPreparationTextSamples: vi.fn(),
   getModelPull: vi.fn(),
@@ -22,6 +24,7 @@ vi.mock('../../src/api/searchPreparation', async (importOriginal) => ({
   ...await importOriginal<typeof import('../../src/api/searchPreparation')>(),
   getSearchPreparation,
   decideSearchPreparation,
+  stopSearchPreparation,
   replanSearchPreparation,
   getSearchPreparationTextSamples,
 }));
@@ -281,30 +284,32 @@ describe('SearchPreparationReceipt', () => {
     expect((semantic as HTMLInputElement).checked).toBe(true);
   });
 
-  it('declines durably without setup refs', async () => {
+  it('stops an undecided batch on Not now without starting extraction or downloads, then closes', async () => {
     getSearchPreparation.mockResolvedValue(consentBatch);
-    decideSearchPreparation.mockResolvedValue({
-      ...consentBatch,
-      status: 'complete',
-      groups: consentBatch.groups.map((group) => (
-        group.kind === 'ocr' ? { ...group, status: 'not_prepared' as const } : group
-      )),
-    });
-
-    render(
-      <SearchPreparationReceipt
-        projectId="project-1"
-        batchId="prep-1"
-        onDone={vi.fn()}
-        onError={vi.fn()}
-      />,
-    );
+    stopSearchPreparation.mockResolvedValue({ ...consentBatch, status: 'stopped' });
+    const onDone = vi.fn();
+    render(<SearchPreparationReceipt projectId="project-1" batchId="prep-1"
+      onDone={onDone} onError={vi.fn()} />);
     fireEvent.click(await screen.findByTestId('search-preparation-decision-not-now'));
-    await waitFor(() => expect(decideSearchPreparation).toHaveBeenCalledWith(
-      'project-1',
-      'prep-1',
-      { plan_hash: 'sha256:plan', decision: 'not_now', selected_setup_refs: [] },
-    ));
+    await waitFor(() => expect(stopSearchPreparation).toHaveBeenCalledWith('project-1', 'prep-1'));
+    expect(decideSearchPreparation).not.toHaveBeenCalled();
+    expect(replanSearchPreparation).not.toHaveBeenCalled();
+    expect(onDone).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the review open if stopping an undecided batch fails', async () => {
+    getSearchPreparation.mockResolvedValue(consentBatch);
+    stopSearchPreparation.mockRejectedValue(new Error('Could not stop preparation'));
+    const onDone = vi.fn();
+    const onError = vi.fn();
+    render(<SearchPreparationReceipt projectId="project-1" batchId="prep-1"
+      onDone={onDone} onError={onError} />);
+    fireEvent.click(await screen.findByTestId('search-preparation-decision-not-now'));
+    await waitFor(() => expect(onError).toHaveBeenCalledWith('Could not stop preparation'));
+    expect(onDone).not.toHaveBeenCalled();
+    expect(decideSearchPreparation).not.toHaveBeenCalled();
+    expect(screen.getByTestId('search-preparation-decision-prepare')).not.toBeNull();
+    expect(screen.getByTestId('search-preparation-model-consent')).not.toBeNull();
   });
 
   it('does not let an older poll response overwrite a preparation decision', async () => {
