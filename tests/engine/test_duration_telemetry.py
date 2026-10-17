@@ -123,6 +123,7 @@ def test_run_status_exposes_elapsed_throughput_eta_and_queue_wait(tmp_path):
         started_at=base - timedelta(seconds=120),
         total_rows=4,
         completed_rows=1,
+        failed_rows=1,
     )
     _set_job_clock(
         client,
@@ -135,6 +136,8 @@ def test_run_status_exposes_elapsed_throughput_eta_and_queue_wait(tmp_path):
 
     assert body["status"] == "running"
     timing = body["timing"]
+    # completed_rows counts every processed row; failed_rows classifies a
+    # subset and must not advance timing a second time.
     assert timing["processed_rows"] == 1
     assert timing["remaining_rows"] == 3
     assert timing["elapsed_seconds"] >= 115

@@ -134,8 +134,7 @@ def run_timing_payload(
     elapsed = seconds_between(row["started_at"], run_end)
     total_rows = int(row["total_rows"] or 0)
     completed_rows = int(row["completed_rows"] or 0)
-    failed_rows = int(row["failed_rows"] or 0)
-    processed_rows = completed_rows + failed_rows
+    processed_rows = completed_rows
     remaining_rows = max(total_rows - processed_rows, 0)
     rows_per_second = (
         processed_rows / elapsed
