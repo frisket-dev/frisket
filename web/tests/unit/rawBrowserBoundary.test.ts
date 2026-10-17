@@ -26,11 +26,11 @@ describe('named browser auth operations', () => {
 
 describe('named blob text operations', () => {
   it('returns evidence text and rejects a failed resource for the quote fallback', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('source text', { status: 200 })));
-    await expect(readEvidenceTextResource('/blobs/source.txt')).resolves.toBe('source text');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('source text', { status: 206, headers: { 'Content-Range': 'bytes 0-10/11' } })));
+    await expect(readEvidenceTextResource('/blobs/source.txt', new AbortController().signal)).resolves.toBe('source text');
 
     vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 404 })));
-    await expect(readEvidenceTextResource('/blobs/missing.txt')).rejects.toThrow('404');
+    await expect(readEvidenceTextResource('/blobs/missing.txt', new AbortController().signal)).rejects.toThrow('404');
   });
 
   it('passes the document viewer\'s exact abort signal through and retains its human error', async () => {

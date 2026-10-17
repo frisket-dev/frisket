@@ -32,6 +32,21 @@ afterEach(() => {
 });
 
 describe('evidence text renderer', () => {
+  it('keeps a legacy quote fallback when the quote is outside the bounded original-file section', async () => {
+    const fetch = vi.fn(() => Promise.resolve(new Response('x'.repeat(16387), { status: 206,
+      headers: { 'Content-Range': 'bytes 0-16386/2000000' } })));
+    vi.stubGlobal('fetch', fetch);
+    const artifact = evidenceArtifact({ artifact_kind: 'file', media_type: 'text/plain',
+      artifact_ref: artifactRef({ artifact_kind: 'file', media_type: 'text/plain', blob: blobRef('/blob/notes.txt') }),
+      spans: [evidenceSpan({ span_kind: 'text', quote: CITED_QUOTE, snippet: CITED_QUOTE })],
+    });
+    render(<TextArtifactSource artifact={artifact} />);
+    expect(await screen.findByText(CITED_QUOTE)).toBeVisible();
+    expect(screen.queryByTestId('evidence-text-body')).not.toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledWith('/blob/notes.txt', expect.objectContaining({ headers: { Range: 'bytes=0-16386' } }));
+  });
+
   it('renders a row+json (no-blob) citation as a highlighted quote surface, no fallback', () => {
     const artifact = evidenceArtifact({
       artifact_kind: 'row',
@@ -53,7 +68,7 @@ describe('evidence text renderer', () => {
   it('renders a text/plain (blob-backed) citation as the full source with the quote highlighted in place', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(() => Promise.resolve(new Response(DESCRIPTION_TEXT, { status: 200 }))),
+      vi.fn(() => Promise.resolve(new Response(DESCRIPTION_TEXT, { status: 206, headers: { 'Content-Range': `bytes 0-${DESCRIPTION_TEXT.length - 1}/${DESCRIPTION_TEXT.length}` } }))),
     );
     const artifact = evidenceArtifact({
       artifact_kind: 'file',

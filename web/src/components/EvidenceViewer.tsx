@@ -1230,7 +1230,8 @@ function TextBlobSource({
   useEffect(() => {
     let alive = true;
 
-    readEvidenceTextResource(blobUrl)
+    const controller = new AbortController();
+    readEvidenceTextResource(blobUrl, controller.signal)
       .then((text) => {
         if (alive) setState({ phase: 'done', text });
       })
@@ -1239,6 +1240,7 @@ function TextBlobSource({
       });
     return () => {
       alive = false;
+      controller.abort();
     };
   }, [blobUrl]);
 

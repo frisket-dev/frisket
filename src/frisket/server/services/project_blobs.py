@@ -14,7 +14,11 @@ from typing import Any
 from frisket.engine.store.media_blobs import backfill_blob_metadata
 from frisket.server.workspace import Workspace
 from frisket.server.route_errors import RouteError
-from frisket.engine.store.blob_backend import BlobNotFoundError, validate_blob_digest
+from frisket.engine.store.blob_backend import (
+    BlobByteRange,
+    BlobNotFoundError,
+    validate_blob_digest,
+)
 from frisket.engine.pdf_render import (
     PdfPageOutOfRange,
     PdfRenderError,
@@ -42,7 +46,7 @@ class ProjectBlobService:
     def __init__(self, workspace: Workspace):
         self._workspace = workspace
 
-    def blob_download(self, project_id: str, digest: str) -> BlobDownload:
+    def _blob_source(self, project_id: str, digest: str):
         try:
             validate_blob_digest(digest)
         except ValueError as exc:
@@ -59,6 +63,19 @@ class ProjectBlobService:
             or mimetypes.guess_type(row["filename"] if row else "")[0]
             or "application/octet-stream"
         )
+        return project, media_type
+
+    def blob_range(
+        self, project_id: str, digest: str, start: int, end: int
+    ) -> tuple[BlobByteRange, str]:
+        project, media_type = self._blob_source(project_id, digest)
+        try:
+            return project.blob_store.read_range(digest, start, end), media_type
+        except BlobNotFoundError as exc:
+            raise ProjectBlobRouteError(404, "no such blob") from exc
+
+    def blob_download(self, project_id: str, digest: str) -> BlobDownload:
+        project, media_type = self._blob_source(project_id, digest)
         materialization = project.materialize_blob(digest)
         try:
             path = Path(materialization.__enter__())

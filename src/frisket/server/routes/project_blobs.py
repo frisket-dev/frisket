@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 import asyncio
+import re
 from contextlib import suppress
 from threading import Event
 
 from fastapi import FastAPI, Request, Path as PathParam
-from fastapi.responses import FileResponse
-from starlette.background import BackgroundTask
+from fastapi.responses import FileResponse, Response
 
 from frisket.server import schemas
 from frisket.server.services.project_blobs import (
@@ -17,12 +17,12 @@ from frisket.server.services.project_blobs import (
 )
 
 
-class _PageImageResponse(FileResponse):
-    def __init__(self, blob):
+class _BlobResponse(FileResponse):
+    def __init__(self, blob, *, media_type=None, headers=None):
         super().__init__(
             blob.path,
-            media_type="image/png",
-            headers={"Cache-Control": "private, max-age=3600"},
+            media_type=media_type or blob.media_type,
+            headers=headers,
         )
         self._blob = blob
 
@@ -33,19 +33,41 @@ class _PageImageResponse(FileResponse):
             self._blob.close()
 
 
+class _PageImageResponse(_BlobResponse):
+    def __init__(self, blob):
+        super().__init__(
+            blob,
+            media_type="image/png",
+            headers={"Cache-Control": "private, max-age=3600"},
+        )
+
+
 def register_project_blob_routes(
     app: FastAPI,
     *,
     service: ProjectBlobService,
 ) -> None:
     @app.get("/api/projects/{pid}/blobs/{digest}")
-    def get_blob(pid: str, digest: str) -> FileResponse:
-        blob = service.blob_download(pid, digest)
-        return FileResponse(
-            blob.path,
-            media_type=blob.media_type,
-            background=BackgroundTask(blob.close),
+    def get_blob(pid: str, digest: str, request: Request) -> Response:
+        # Ordinary bounded sections avoid materializing/hash-reading the full
+        # object. FileResponse retains all other HTTP Range/If-Range semantics.
+        selected = re.fullmatch(
+            r"bytes=(\d{1,18})-(\d{1,18})", request.headers.get("range", "")
         )
+        if selected and "if-range" not in request.headers:
+            start, end = map(int, selected.groups())
+            if 0 < end - start + 1 <= 65_536:
+                part, media_type = service.blob_range(pid, digest, start, end)
+                headers = {"Accept-Ranges": "bytes"}
+                if not part.data:
+                    headers["Content-Range"] = f"bytes */{part.total}"
+                    return Response(status_code=416, headers=headers)
+                headers["Content-Range"] = f"bytes {part.start}-{part.end}/{part.total}"
+                return Response(
+                    part.data, status_code=206, media_type=media_type, headers=headers
+                )
+        blob = service.blob_download(pid, digest)
+        return _BlobResponse(blob)
 
     @app.get("/api/projects/{pid}/blobs/{digest}/pages/{page}/image")
     async def get_pdf_page_image(

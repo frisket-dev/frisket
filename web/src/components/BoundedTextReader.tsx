@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import type { BlobTextWindow } from '../api/raw/blobText';
 
 export interface TextWindow {
   retrieval_revision: number;
@@ -11,6 +12,7 @@ export interface TextWindow {
 }
 
 export interface BoundedTextReaderProps {
+  coordinate?: 'characters';
   initialRevision?: number;
   totalCharacters: number;
   totalBytes: number;
@@ -19,15 +21,22 @@ export interface BoundedTextReaderProps {
   copyFullValue(revision: number, signal: AbortSignal): Promise<string>;
 }
 
+export interface BlobTextReaderProps {
+  coordinate: 'bytes';
+  loadWindow(options: { start: number; limit: number; revision?: number; signal: AbortSignal }): Promise<BlobTextWindow>;
+  downloadUrl: string;
+  copyFullValue(signal: AbortSignal): Promise<string>;
+}
+
 const WINDOW_SIZE = 16_384;
 
 /** Plain text for bounded cell/blob reads, including Markdown and encoded JSON. */
-export function BoundedTextReader({
-  initialRevision, totalCharacters, totalBytes, loadWindow, downloadUrl, copyFullValue,
-}: BoundedTextReaderProps) {
+export function BoundedTextReader(props: BoundedTextReaderProps | BlobTextReaderProps) {
+  const { loadWindow } = props;
+  const initialRevision = props.coordinate === 'bytes' ? undefined : props.initialRevision;
   const [request, setRequest] = useState({ start: 0, revision: initialRevision, attempt: 0 });
   const requestKey = `${request.start}:${request.revision ?? ''}:${request.attempt}`;
-  const [result, setResult] = useState<{ key: string; window?: TextWindow; error?: string }>({ key: '' });
+  const [result, setResult] = useState<{ key: string; window?: TextWindow | BlobTextWindow; error?: string }>({ key: '' });
   const [jump, setJump] = useState('');
   const [copyStatus, setCopyStatus] = useState('');
   const copyController = useRef<AbortController | null>(null);
@@ -46,58 +55,64 @@ export function BoundedTextReader({
   }, [loadWindow, request.start, request.revision, requestKey]);
   const current = result.key === requestKey ? result : null;
   const window = current?.window;
-  const total = window?.total_characters ?? totalCharacters;
-  const bytes = window?.total_bytes ?? totalBytes;
+  const total = props.coordinate === 'bytes'
+    ? window?.total_bytes ?? 0
+    : (window && 'total_characters' in window ? window.total_characters : props.totalCharacters);
+  const bytes = window?.total_bytes ?? (props.coordinate === 'bytes' ? 0 : props.totalBytes);
   const busy = current === null;
-  const revision = window?.retrieval_revision;
+  const revision = window && 'retrieval_revision' in window ? window.retrieval_revision : undefined;
   const go = (start: number) => {
     if (!window) return;
-    setRequest({ start, revision: window.retrieval_revision, attempt: request.attempt + 1 });
+    setRequest({ start, revision, attempt: request.attempt + 1 });
   };
   async function copy() {
-    if (revision === undefined) return;
+    if (props.coordinate !== 'bytes' && revision === undefined) return;
     copyController.current?.abort();
     const controller = new AbortController();
     copyController.current = controller;
-    setCopyStatus('Copying full value…');
+    setCopyStatus(props.coordinate === 'bytes' ? 'Copying full file…' : 'Copying full value…');
     try {
-      const exact = await copyFullValue(revision, controller.signal);
+      const exact = props.coordinate === 'bytes'
+        ? await props.copyFullValue(controller.signal)
+        : await props.copyFullValue(revision!, controller.signal);
       if (controller.signal.aborted) return;
       await navigator.clipboard.writeText(exact);
-      if (!controller.signal.aborted) setCopyStatus('Full value copied.');
+      if (!controller.signal.aborted) setCopyStatus(props.coordinate === 'bytes' ? 'Full file copied.' : 'Full value copied.');
     } catch (error) {
       if (!controller.signal.aborted) setCopyStatus(error instanceof Error ? error.message : 'Could not copy full value.');
     }
   }
   return (
     <section className="bounded-text-reader" data-testid="bounded-text-reader" aria-label="Large value reader">
-      <p className="muted">{total.toLocaleString()} characters · {bytes.toLocaleString()} bytes. Read-only above 64 KiB.</p>
-      <div className="bounded-text-actions" style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+      {props.coordinate !== 'bytes' && <p className="muted">{total.toLocaleString()} characters · {bytes.toLocaleString()} bytes. Read-only above 64 KiB.</p>}
+      {(props.coordinate !== 'bytes' || !window || window.previous_start !== null || window.next_start !== null) && <div className="bounded-text-actions" style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
         <button className="mini-btn" type="button" disabled={!window || busy || window.range.start === 0} onClick={() => go(0)}>First</button>
         <button className="mini-btn" type="button" disabled={!window || busy || window.previous_start === null} onClick={() => window?.previous_start != null && go(window.previous_start)}>Previous</button>
-        <button className="mini-btn" type="button" disabled={!window || busy} onClick={() => go(Math.floor(total / 2))}>Middle</button>
+        {props.coordinate !== 'bytes' && <button className="mini-btn" type="button" disabled={!window || busy} onClick={() => go(Math.floor(total / 2))}>Middle</button>}
         <button className="mini-btn" type="button" disabled={!window || busy || window.next_start === null} onClick={() => window?.next_start != null && go(window.next_start)}>Next</button>
-        <button className="mini-btn" type="button" disabled={!window || busy} onClick={() => go(Math.max(0, total - WINDOW_SIZE))}>Last</button>
-      </div>
-      <form onSubmit={(event) => {
+        <button className="mini-btn" type="button" disabled={!window || busy} onClick={() => go(props.coordinate === 'bytes' ? Math.floor(Math.max(0, total - 1) / WINDOW_SIZE) * WINDOW_SIZE : Math.max(0, total - WINDOW_SIZE))}>Last</button>
+      </div>}
+      {props.coordinate !== 'bytes' && <form onSubmit={(event) => {
         event.preventDefault();
         const character = Number(jump);
         if (Number.isInteger(character) && character >= 1 && character <= total) go(character - 1);
       }} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBlock: 8 }}>
         <label>Character <input aria-label="Go to character" type="number" min="1" max={total} style={{ width: '9ch' }} value={jump} onChange={(event) => setJump(event.target.value)} /></label>
         <button type="submit" className="mini-btn" disabled={!window || busy || !jump}>Go</button>
-      </form>
+      </form>}
       {busy ? <p role="status">Loading text…</p> : current?.error ? (
         <div role="alert"><p>{current.error}</p><button type="button" className="mini-btn" onClick={() => {
           setRequest({ start: 0, revision: undefined, attempt: request.attempt + 1 });
         }}>Reload text</button></div>
       ) : window ? <>
-        <p className="muted" role="status">Characters {window.range.start + 1}–{window.range.end} of {total.toLocaleString()} · plain text excerpt</p>
-        <pre data-testid="bounded-text-window" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: '45vh', overflowY: 'auto' }}>{window.text}</pre>
+        <p className="muted" role="status">{props.coordinate === 'bytes'
+          ? `Section ${Math.floor(('section_start' in window ? window.section_start : 0) / WINDOW_SIZE) + 1} of ${Math.max(1, Math.ceil(total / WINDOW_SIZE))} · plain text`
+          : `Characters ${window.range.start + 1}–${window.range.end} of ${total.toLocaleString()} · plain text excerpt`}</p>
+        <pre className={props.coordinate === 'bytes' ? 'document-text' : undefined} data-testid="bounded-text-window" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: '45vh', overflowY: 'auto' }}>{window.text}</pre>
       </> : null}
-      {revision !== undefined && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-        <a className="mini-btn" href={downloadUrl(revision)} download>Download full value</a>
-        <button type="button" className="mini-btn" onClick={() => void copy()}>Copy full value ({bytes.toLocaleString()} bytes)</button>
+      {(props.coordinate === 'bytes' || revision !== undefined) && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        <a className="mini-btn" href={props.coordinate === 'bytes' ? props.downloadUrl : props.downloadUrl(revision!)} download>{props.coordinate === 'bytes' ? 'Download full file' : 'Download full value'}</a>
+        <button type="button" className="mini-btn" disabled={!window || busy} onClick={() => void copy()}>Copy full {props.coordinate === 'bytes' ? 'file' : 'value'} ({bytes.toLocaleString()} bytes)</button>
       </div>}
       <p role="status">{copyStatus}</p>
     </section>

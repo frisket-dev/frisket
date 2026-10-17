@@ -6,6 +6,7 @@ import base64
 import hashlib
 import os
 import tempfile
+from dataclasses import dataclass
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
@@ -25,6 +26,22 @@ class BlobNotFoundError(BlobStoreError, LookupError):
 
 class BlobIntegrityError(BlobStoreError):
     """Canonical bytes do not match their content digest."""
+
+
+@dataclass(frozen=True)
+class BlobByteRange:
+    data: bytes
+    start: int
+    total: int
+
+    @property
+    def end(self) -> int:
+        return self.start + len(self.data) - 1
+
+
+def _validate_byte_range(start: int, end: int) -> None:
+    if start < 0 or end < start or end - start + 1 > 65_536:
+        raise ValueError("blob byte range must contain 1 to 65536 bytes")
 
 
 class ProjectBlobStore(Protocol):
@@ -53,6 +70,15 @@ class ProjectBlobStore(Protocol):
     ) -> str: ...
 
     def materialize(self, digest: str) -> AbstractContextManager[Path]: ...
+
+    def read_range(self, digest: str, start: int, end: int) -> BlobByteRange:
+        """Read <=64 KiB from write-verified canonical bytes without full hashing.
+
+        Unlike materialize, a partial read cannot prove a whole-object digest.
+        The backend must preserve project scope and bound both I/O and memory.
+        Empty data represents an unsatisfiable range (including an empty blob).
+        """
+        ...
 
 
 def validate_blob_digest(digest: str) -> str:
@@ -207,6 +233,17 @@ class FilesystemProjectBlobStore:
             raise BlobIntegrityError(f"canonical blob {digest} is corrupt")
         yield target
 
+    def read_range(self, digest: str, start: int, end: int) -> BlobByteRange:
+        _validate_byte_range(start, end)
+        target = self._path_for_digest(digest)
+        try:
+            with target.open("rb") as source:
+                total = os.fstat(source.fileno()).st_size
+                source.seek(start)
+                return BlobByteRange(source.read(end - start + 1), start, total)
+        except FileNotFoundError as exc:
+            raise BlobNotFoundError(f"no such blob: {digest}") from exc
+
 
 class S3ProjectBlobStore:
     """Scoped S3-compatible canonical storage without a local shared cache."""
@@ -277,6 +314,40 @@ class S3ProjectBlobStore:
         except BlobStoreError:
             raise
         except Exception as exc:  # boto and S3-compatible clients share this envelope
+            self._raise_store_error(exc, digest=digest)
+
+    def read_range(self, digest: str, start: int, end: int) -> BlobByteRange:
+        _validate_byte_range(start, end)
+        key = self._object_key(digest)
+        try:
+            metadata = self.client.head_object(Bucket=self.bucket, Key=key)
+            total = metadata.get("ContentLength")
+            if not isinstance(total, int) or total < 0:
+                raise BlobStoreError("object store returned an invalid blob size")
+            if start >= total:
+                return BlobByteRange(b"", start, total)
+            end = min(end, total - 1)
+            response = self.client.get_object(
+                Bucket=self.bucket, Key=key, Range=f"bytes={start}-{end}"
+            )
+            body = response.get("Body")
+            if body is None or not hasattr(body, "read"):
+                raise BlobStoreError("object store returned no range body")
+            try:
+                if response.get("ContentRange") != f"bytes {start}-{end}/{total}":
+                    raise BlobStoreError("object store returned an invalid byte range")
+                limit = end - start + 1
+                data = body.read(limit + 1)
+                if len(data) != limit:
+                    raise BlobStoreError(
+                        "object store returned an invalid range length"
+                    )
+                return BlobByteRange(data, start, total)
+            finally:
+                body.close()
+        except BlobStoreError:
+            raise
+        except Exception as exc:
             self._raise_store_error(exc, digest=digest)
 
     def put(self, data: bytes) -> str:
