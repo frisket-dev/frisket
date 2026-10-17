@@ -84,22 +84,34 @@ test('semantic setup keeps download progress and errors visible after closing se
   await page.getByRole('button', { name: 'Close command palette' }).click();
   await expect(palette).toBeHidden();
   const notice = page.getByTestId('search-preparation-banner');
+  const activity = page.getByTestId('search-activity-toggle');
+  // The palette polls the pull detail independently of the footer. Open only
+  // after the footer has observed this download, rather than the prior index.
+  await expect(activity).toContainText('Downloading EmbeddingGemma 2');
   await expect(notice).toBeHidden();
-  await page.getByTestId('search-activity-toggle').click();
+  await activity.click();
   await expect(notice).toContainText('EmbeddingGemma 2');
   await expect(notice.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '25');
   await page.screenshot({ path: testInfo.outputPath('download-progress@2x.png'), animations: 'disabled' });
   const reopened = await openPalette(page);
   await reopened.getByTestId('command-palette-input').fill('harbor');
   await expect(reopened.getByTestId('model-pull-progress')).toHaveAttribute('data-status', 'running');
+  await page.getByRole('button', { name: 'Close command palette' }).click();
+  await expect(notice).toContainText('EmbeddingGemma 2');
+  await expect(notice.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '25');
+  const failurePalette = await openPalette(page);
+  await failurePalette.getByTestId('command-palette-input').fill('harbor');
   pull = {
     ...pull, status: 'failed', phase: null,
     error: { code: 'download_failed', message: 'The model download was interrupted.' },
     capabilities: { cancel: false, retry: true, remove: false },
   };
-  await expect(reopened.getByTestId('model-pull-error')).toContainText('interrupted');
-  await expect(reopened.getByTestId('search-setup-retry')).toBeVisible();
+  await expect(failurePalette.getByTestId('model-pull-error')).toContainText('interrupted');
+  await expect(failurePalette.getByTestId('search-setup-retry')).toBeVisible();
   await page.getByRole('button', { name: 'Close command palette' }).click();
+  await expect(activity).toContainText('interrupted');
+  await expect(notice).toBeHidden();
+  await activity.click();
   await expect(notice).toContainText('interrupted');
   await page.screenshot({ path: testInfo.outputPath('download-failed@2x.png'), animations: 'disabled' });
   const retryPalette = await openPalette(page);
@@ -113,6 +125,9 @@ test('semantic setup keeps download progress and errors visible after closing se
   await retryPalette.getByTestId('search-setup-retry').click();
   await expect(retryPalette.getByTestId('model-pull-progress')).toHaveAttribute('data-status', 'running');
   await page.getByRole('button', { name: 'Close command palette' }).click();
+  await expect(activity).toContainText('Downloading EmbeddingGemma 2');
+  await expect(notice).toBeHidden();
+  await activity.click();
   await expect(notice.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '50');
 
   // Download bytes are simulated, so control only the resulting index lifecycle too.
@@ -128,6 +143,9 @@ test('semantic setup keeps download progress and errors visible after closing se
     ...pull, status: 'done', phase: 'Ready', completed_bytes: 1_400_000_000,
     finished_at: new Date().toISOString(),
   };
+  await expect(activity).toContainText('Indexing');
+  await expect(notice).toBeHidden();
+  await activity.click();
   await expect(notice).toHaveAttribute('data-stage', 'index');
   await expect(notice).toContainText('Indexing');
   await page.screenshot({ path: testInfo.outputPath('indexing@2x.png'), animations: 'disabled' });
