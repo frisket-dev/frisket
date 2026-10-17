@@ -104,6 +104,45 @@ function snapshot(overrides: Partial<SearchPreparationSnapshot> = {}): SearchPre
 }
 
 describe('search preparation notice projection', () => {
+  it('shows concurrent OCR page counters separately and drops only the finished file', () => {
+    const currentBatch = batch({
+      jobs: [{
+        job_id: 44, action_kind: 'media.ocr', status: 'running',
+        progress: preparationProgress({
+          completed: 0, failed: 0,
+          work_progress: {
+            kind: 'ocr_pages',
+            files: [
+              { row_id: 12, completed: 3, total: 100, filename: 'first.pdf' },
+              { row_id: 13, completed: 40, total: 500 },
+            ],
+          },
+        }),
+      }],
+    });
+    const notice = deriveSearchPreparationNotice(snapshot({ batches: [currentBatch] }));
+    expect(notice).toMatchObject({ detail: 'Reading 2 files · page progress in Details', progress: null });
+    const view = render(<SearchPreparationNotice notice={notice!} />);
+    fireEvent.click(screen.getByTestId('search-preparation-details'));
+    expect(screen.getByText('first.pdf · 3 of 100 pages')).toBeInTheDocument();
+    expect(screen.getByText('File row 13 · 40 of 500 pages')).toBeInTheDocument();
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+
+    const next = deriveSearchPreparationNotice(snapshot({ batches: [batch({
+      jobs: [{
+        ...currentBatch.jobs[0],
+        progress: preparationProgress({
+          completed: 1, failed: 0,
+          work_progress: { kind: 'ocr_pages', files: [{ row_id: 13, completed: 41, total: 500 }] },
+        }),
+      }],
+    })] }));
+    view.rerender(<SearchPreparationNotice notice={next!} />);
+    expect(screen.queryByText(/first.pdf/)).not.toBeInTheDocument();
+    expect(screen.getByText('File row 13 · 41 of 500 pages')).toBeInTheDocument();
+    expect(next?.detail).toBe('Reading file · 41 of 500 pages in current file');
+  });
+
   it('preserves the failed activity identity through retry, warned completion, expiry and later polls', async () => {
     vi.useFakeTimers();
     const list = vi.spyOn(preparationApi, 'listSearchPreparations').mockResolvedValue({

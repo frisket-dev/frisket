@@ -82,9 +82,22 @@ function remainingFileCount(batch: SearchPreparationBatch): number {
     .reduce((sum, group) => sum + group.count, 0);
 }
 
+function preparationFiles(batch: SearchPreparationBatch) {
+  return batch.jobs.flatMap((job) => job.progress?.status === 'running'
+    ? job.progress.work_progress?.files ?? []
+    : []);
+}
+
+function preparationPageDetails(batch: SearchPreparationBatch): string[] {
+  return preparationFiles(batch).map((file) => (
+    `${file.filename || `File row ${file.row_id}`} · ${file.completed.toLocaleString()} of ${file.total.toLocaleString()} pages`
+  ));
+}
+
 function preparationDetail(batch: SearchPreparationBatch): string {
-  const pageWork = batch.jobs.find((job) => job.progress?.status === 'running' && job.progress.work_progress)?.progress?.work_progress;
-  if (pageWork) return `Reading file · ${pageWork.completed.toLocaleString()} of ${pageWork.total.toLocaleString()} pages in current file`;
+  const files = preparationFiles(batch);
+  if (files.length === 1) return `Reading file · ${files[0].completed.toLocaleString()} of ${files[0].total.toLocaleString()} pages in current file`;
+  if (files.length > 1) return `Reading ${files.length.toLocaleString()} files · page progress in Details`;
   const group = batch.groups.find((candidate) => (
     candidate.status === 'running'
       || candidate.status === 'queued'
@@ -164,7 +177,7 @@ export function deriveSearchPreparationNotice(
   if (progressFailureBatch?.failure) {
     const { batch, failure } = progressFailureBatch;
     const fileNoun = failure.total === 1 ? 'file' : 'files';
-    const details = [...failure.details];
+    const details = [...failure.details, ...preparationPageDetails(batch)];
     if (failure.running) details.push(preparationDetail(batch));
     if (snapshot.indexing.status !== 'idle') details.push(indexingDetail(snapshot.indexing));
     return {
@@ -302,7 +315,10 @@ export function deriveSearchPreparationNotice(
       title: 'Preparing search',
       detail: preparationDetail(activePreparationBatch),
       progress: null,
-      details: activePreparationBatch.jobs.map((job) => `Job ${job.job_id.toLocaleString()} · ${job.status}`),
+      details: [
+        ...preparationPageDetails(activePreparationBatch),
+        ...activePreparationBatch.jobs.map((job) => `Job ${job.job_id.toLocaleString()} · ${job.status}`),
+      ],
     };
   }
 

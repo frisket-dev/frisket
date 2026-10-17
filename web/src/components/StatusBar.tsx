@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useRef, useState, type RefObject } from 'react';
+import { Fragment, useEffect, useReducer, useRef, useState, type RefObject } from 'react';
 import { Activity, AlertTriangle, ChevronUp, Inbox, Redo2, Square, Undo2, X } from 'lucide-react';
 import { type HistoryState, type RunProgress, type RunRowsPage } from '../api/open';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
@@ -22,14 +22,16 @@ function isNoLiveWorker(run: RunProgress): boolean {
 }
 
 function rowsProgress(run: RunProgress): string {
-  const rows = `${run.completedRows.toLocaleString()}/${run.totalRows.toLocaleString()} rows`;
-  const pages = run.workProgress;
-  return pages && run.status === 'running'
-    ? `${rows} · ${pages.completed.toLocaleString()}/${pages.total.toLocaleString()} pages in current file`
-    : rows;
+  const unit = run.actionKind === 'media.ocr' ? 'files' : 'rows';
+  return `${run.completedRows.toLocaleString()}/${run.totalRows.toLocaleString()} ${unit}`;
+}
+
+function activeOcrFiles(run: RunProgress) {
+  return isActiveRunStatus(run.status) ? run.workProgress?.files ?? [] : [];
 }
 
 function activeStatusCopy(run: RunProgress): string {
+  if (run.cancelRequested && isActiveRunStatus(run.status)) return `Stopping… · ${rowsProgress(run)}`;
   if (isNoLiveWorker(run)) {
     return `no worker is running — queued work is stuck · ${rowsProgress(run)}`;
   }
@@ -53,8 +55,9 @@ function activeStatusCopy(run: RunProgress): string {
   }
 }
 
-function pendingRunCopy(status: RunProgress['status']): string {
-  switch (status) {
+function pendingRunCopy(run: RunProgress): string {
+  if (run.cancelRequested) return 'Stopping…';
+  switch (run.status) {
     case 'queued':
       return 'pending in worker queue';
     case 'stalled':
@@ -69,6 +72,7 @@ function pendingRunCopy(status: RunProgress['status']): string {
 }
 
 function compactStatusCopy(run: RunProgress): string {
+  if (run.cancelRequested && isActiveRunStatus(run.status)) return `Stopping… · ${rowsProgress(run)}`;
   if (isActiveRunStatus(run.status)) return `${run.status} · ${rowsProgress(run)}`;
   if (run.status === 'failed') return `failed after ${rowsProgress(run)}`;
   // A run that finished with failed rows says so here rather than asserting
@@ -202,8 +206,17 @@ export function StatusBar({
             </div>
             <ActiveRunWatcher run={run} />
             <span className="pending-ai-cells" data-testid="pending-ai-cells">
-              {pendingRunCopy(run.status)}
+              {pendingRunCopy(run)}
             </span>
+            <button
+              type="button"
+              className="mini-btn run-cancel"
+              data-testid="active-run-cancel"
+              disabled={run.cancelRequested}
+              onClick={() => onCancelRun(run.runId)}
+            >
+              <Square size={11} /> {run.cancelRequested ? 'Stopping…' : 'Cancel run'}
+            </button>
           </section>
         )}
         {searchPreparationNotice && searchNoticeOpen && (
@@ -253,12 +266,12 @@ export function StatusBar({
                     )}{' '}
                     · {formatUsd(run.costSoFar)}
                   </span>
-                  <span className="run-track">
+                  {activeOcrFiles(run).length === 0 && <span className="run-track">
                     <span
                       className="run-fill"
                       style={{ width: `${(100 * run.completedRows) / Math.max(1, run.totalRows)}%` }}
                     />
-                  </span>
+                  </span>}
                 </>
               ) : (
                 <span
@@ -284,9 +297,10 @@ export function StatusBar({
                 type="button"
                 className="mini-btn run-cancel"
                 data-testid="run-cancel-button"
+                disabled={run.cancelRequested}
                 onClick={() => onCancelRun(run.runId)}
               >
-                <Square size={11} /> Cancel run
+                <Square size={11} /> {run.cancelRequested ? 'Stopping…' : 'Cancel run'}
               </button>
             )}
             {watcherOpen && (
@@ -587,6 +601,7 @@ function RunWatcherBody({
   onRetryFailedRows?: StatusBarProps['onRetryFailedRows'];
 }) {
   const pct = (100 * run.completedRows) / Math.max(1, run.totalRows);
+  const files = activeOcrFiles(run);
   // Triage acts on the run's target column; a run restored without launch
   // context has no column name — the buckets still render, the actions do not.
   const triageColumn = run.targetColumnId;
@@ -598,7 +613,7 @@ function RunWatcherBody({
           {actionTitle(run.actionName)}
           <span className={`run-watcher-status ${runCompletedWithErrors(run.status, run.failedRows)
             ? 'run-failed' : `status-${run.status}`}`}>
-            {runStatusLabel(run.status, run.failedRows)}
+            {run.cancelRequested && isActiveRunStatus(run.status) ? 'Stopping…' : runStatusLabel(run.status, run.failedRows)}
           </span>
         </div>
         {onClose && (
@@ -615,14 +630,26 @@ function RunWatcherBody({
         )}
       </div>
       <div className="run-watcher-grid">
-        <span className="prov-key">rows</span>
+        <span className="prov-key">{run.actionKind === 'media.ocr' ? 'files' : 'rows'}</span>
         <span>
-          {run.completedRows.toLocaleString()} / {run.totalRows.toLocaleString()} ({pct.toFixed(0)}%)
+          {run.completedRows.toLocaleString()} / {run.totalRows.toLocaleString()}
+          {files.length === 0 && ` (${pct.toFixed(0)}%)`}
         </span>
-        {run.status === 'running' && run.workProgress && <>
-          <span className="prov-key">pages in current file</span>
-          <span>{run.workProgress.completed.toLocaleString()} / {run.workProgress.total.toLocaleString()}</span>
-        </>}
+        {files.map((file) => (
+          <Fragment key={file.row_id}>
+            <span className="prov-key">OCR pages</span>
+            <span data-testid={`run-file-progress-${file.row_id}`}>
+              <span style={{ overflowWrap: 'anywhere' }}>{file.filename || `File row ${file.row_id}`}</span>
+              {' · '}{file.completed.toLocaleString()} / {file.total.toLocaleString()} pages
+              <progress
+                aria-label={`OCR pages for ${file.filename || `File row ${file.row_id}`}`}
+                max={file.total}
+                value={file.completed}
+                style={{ width: '100%' }}
+              />
+            </span>
+          </Fragment>
+        ))}
         <span className="prov-key">failed</span>
         <span className={run.failedRows > 0 ? 'run-failed' : undefined}>
           {run.failedRows.toLocaleString()}
