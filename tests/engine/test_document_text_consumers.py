@@ -76,12 +76,12 @@ def _text_output(project, source_cell, text_column, blob, pages, *, page=None):
     return ref.ref_id, artifact["id"], span, link
 
 
-def _document(project, *, page=None):
+def _document(project, *, page=None, pdf=b"two-page fixture"):
     sheet = project.add_sheet("Documents")
     source = project.add_column(sheet, "File", type="file")
     text = project.add_column(sheet, "Text", type="text")
     other = project.add_column(sheet, "Comparison", type="text")
-    blob = project.add_blob(b"two-page fixture", mime="application/pdf")
+    blob = project.add_blob(pdf, mime="application/pdf")
     [row] = project.add_rows(
         sheet,
         [{"File": {"blob": blob, **({"page": page} if page else {})}}],
@@ -281,3 +281,92 @@ def test_find_file_uses_selected_text_with_ordinary_text_publication_coordinates
         stale = resolve_find_sources(project, params)
         assert isinstance(stale, ActionError)
         assert stale.code == "source_not_addressable"
+
+
+def test_queued_file_find_publishes_designated_text_with_exact_page_citation(tmp_path):
+    from frisket.actions.types import ActionRequest
+    from frisket.engine.store.evidence import list_row_evidence, resolve_evidence_viewer
+    from frisket.engine.store.receipts import ReceiptStore
+    from tests.engine.test_map_find_runtime import (
+        _FindAdapter,
+        _queued_find,
+        _run_queued_find,
+    )
+    from tests.engine.test_native_pdf_text_action import _pdf_bytes
+
+    with closing(Project.create(tmp_path / "queued-file-find.frisket")) as project:
+        cell, text, _other, blob, chosen, _alternative = _document(
+            project, page=2, pdf=_pdf_bytes("chosen first", "chosen second")
+        )
+        _, refs = project.get_values_with_refs(cell[0], text, [cell[1]])
+        record_evidence_link(
+            project,
+            subject_kind="cell",
+            subject_ref=refs[cell[1]],
+            spans=[{"span_id": chosen[2]["id"]}],
+            sheet_id=cell[0],
+            row_id=cell[1],
+            column_id=text,
+            link_role="media_ocr_grounding",
+            producer={"action_kind": "media.read_pdf_text"},
+        )
+        request = ActionRequest(
+            action_id="map.find",
+            scope={"kind": "sheet_rows", "sheet_id": cell[0], "row_ids": [cell[1]]},
+            sheet_name="Findings",
+            output_names={"match": "Match"},
+            params={
+                "source": "File",
+                "instruction": "Find chosen second.",
+                "model": "anthropic/claude-haiku-4-5",
+            },
+            idempotency_key="canonical-file-find",
+        )
+        envelope = _queued_find(project, request, project_id="canonical-file-find")
+        assert envelope.resolved_snapshot["operation"]["source_column"] == "File"
+        assert [
+            item["column_id"] for item in envelope.resolved_snapshot["sources"]
+        ] == [text]
+        adapter = _FindAdapter(
+            chosen[2]["stable_id"],
+            matches=[
+                {
+                    "match": "chosen second",
+                    "source_unit_ids": [chosen[2]["stable_id"]],
+                    "details": {},
+                }
+            ],
+        )
+
+        result = _run_queued_find(project, envelope, adapter)
+
+        assert result.status == "completed", result.errors
+        assert len(adapter.requests) == 1
+        receipt = ReceiptStore(project).parsed_by_id(envelope.receipt_id)
+        assert receipt is not None and receipt.status == "completed"
+        findings = next(
+            sheet for sheet in project.sheets() if sheet["name"] == "Findings"
+        )
+        [row] = project.visible_row_ids(findings["id"])
+        [column] = project.columns(findings["id"])
+        assert (
+            project.get_values(findings["id"], column["id"], [row])[row]
+            == "chosen second"
+        )
+        [link] = list_row_evidence(project, sheet_id=findings["id"], row_id=row)[
+            "links"
+        ]
+        viewer = resolve_evidence_viewer(project, link["stable_id"])
+        [artifact] = viewer["artifacts"]
+        assert artifact["artifact_ref"]["blob"]["hash"] == blob
+        assert artifact["source_cell"] == dict(
+            zip(("sheet_id", "row_id", "column_id"), cell, strict=True)
+        )
+        [span] = artifact["spans"]
+        assert span["stable_id"] == chosen[2]["stable_id"]
+        assert span["selector"] == {
+            "kind": "page_range",
+            "page_start": 2,
+            "page_end": 2,
+        }
+        assert span["quote"] == "chosen second"
