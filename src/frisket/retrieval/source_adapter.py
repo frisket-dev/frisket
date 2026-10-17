@@ -32,6 +32,33 @@ from frisket.retrieval.contracts import (
 from frisket.search_hydration import searchable_text
 
 
+# The logical cell's producer, not its name or JSON shape, identifies OCR boxes.
+_OCR_METADATA_PREDICATE = (
+    "EXISTS(SELECT 1 FROM run_output_generations generation "
+    "JOIN runs run ON run.id=generation.run_id "
+    "WHERE generation.run_id=logical.origin_run_id "
+    "AND generation.column_id=logical.column_id "
+    "AND run.action_kind='media.ocr' "
+    "AND generation.output_role=json_extract(run.params,'$.output_names.blocks'))"
+)
+
+
+def resolve_ocr_metadata_cells(
+    project: Any, *, sheet_id: int, row_ids: Sequence[int]
+) -> frozenset[tuple[int, int]]:
+    """Identify generated geometry for implicit content reads; keep explicit access."""
+    if not row_ids:
+        return frozenset()
+    rows = project.db.execute(
+        "SELECT logical.row_id,logical.column_id FROM current_cell_values logical "
+        "JOIN rows r ON r.id=logical.row_id WHERE r.sheet_id=? "
+        "AND logical.row_id IN (SELECT value FROM json_each(?)) AND "
+        + _OCR_METADATA_PREDICATE,
+        (sheet_id, json.dumps(list(row_ids))),
+    )
+    return frozenset((int(row[0]), int(row[1])) for row in rows)
+
+
 TEXT_SOURCE_COLUMN_TYPES = ("text", "category", "json", "link")
 BLOB_SOURCE_COLUMN_TYPES = ("file", "image", "audio", "video")
 EVIDENCE_SOURCE_COLUMN_TYPES = ("timestamped_transcript",)
@@ -486,14 +513,7 @@ def resolve_cell_text_sources(
     placeholders = ",".join("?" for _ in selected_rows)
     rows = project.db.execute(
         "SELECT current.row_id,current.retrieval_revision,logical.prepared_ref_id,"
-        "EXISTS(SELECT 1 FROM run_output_generations generation "
-        "JOIN runs run ON run.id=generation.run_id "
-        "WHERE generation.run_id=logical.origin_run_id "
-        "AND generation.column_id=logical.column_id "
-        "AND run.action_kind='media.ocr' "
-        "AND generation.output_role="
-        "json_extract(run.params,'$.output_names.blocks')) "
-        "AS noncontent_metadata "
+        f"{_OCR_METADATA_PREDICATE} AS noncontent_metadata "
         "FROM current_cells current "
         "JOIN current_cell_values logical ON logical.column_id=current.column_id "
         "AND logical.row_id=current.row_id "
@@ -792,6 +812,7 @@ __all__ = [
     "resolve_cell_ocr_text_source",
     "resolve_cell_text_sources",
     "resolve_cell_transcript_source",
+    "resolve_ocr_metadata_cells",
     "resolve_source_text",
     "resolve_source_text_pages",
     "UnsupportedLexicalSourceError",
