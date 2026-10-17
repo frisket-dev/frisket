@@ -74,6 +74,18 @@ export function decideSearchPreparation(
   });
 }
 
+export function replanSearchPreparation(
+  projectId: string,
+  batchId: string,
+  input: HttpContractOperationMap['tenant.replan_search_preparation.post']['request'],
+  options: SearchPreparationRequestOptions = {},
+): Promise<SearchPreparationWire> {
+  return httpContract('tenant.replan_search_preparation.post', {
+    pathParams: { pid: projectId, batch_id: batchId },
+    query: {}, body: input, signal: options.signal,
+  });
+}
+
 export function stopSearchPreparation(
   projectId: string,
   batchId: string,

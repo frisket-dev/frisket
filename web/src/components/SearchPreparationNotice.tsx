@@ -112,7 +112,7 @@ export function SearchPreparationNotice({
           )}
         </div>
       )}
-      {notice.reviewBatchId && onReviewPreparation && (
+      {notice.reviewBatchId && onReviewPreparation && (notice.stage === 'approval' || notice.stage === 'failed') && (
         <button
           type="button"
           className="btn btn-compact search-preparation-review"
@@ -121,9 +121,7 @@ export function SearchPreparationNotice({
         >
           {notice.stage === 'approval'
             ? 'Review text'
-            : notice.stage === 'failed'
-              ? 'Review files'
-              : 'View progress'}
+            : 'Review files'}
         </button>
       )}
     </section>

@@ -225,6 +225,9 @@ export function WorkbenchCommandPalette({
   const anchored = anchor !== null;
   const [preparationBatchId, setPreparationBatchId] = useState<string | null>(null);
   const preparationRevision = useRef<string | null>(null);
+  const preparationController = useRef<AbortController | null>(null);
+  const preparationOwner = useRef<number | null>(null);
+  useEffect(() => () => preparationController.current?.abort(), [projectId]);
   const [preparationBusy, setPreparationBusy] = useState(false);
   const [preparationError, setPreparationError] = useState<string | null>(null);
   useEffect(() => {
@@ -232,8 +235,10 @@ export function WorkbenchCommandPalette({
     const controller = new AbortController();
     void listSearchPreparations(projectId, { signal: controller.signal })
       .then(({ batches }) => {
+        if (controller.signal.aborted) return;
         const awaitingApproval = batches.find((batch) => batch.status === 'needs_consent');
         if (awaitingApproval) {
+          preparationOwner.current ??= awaitingApproval.sheet_id;
           setPreparationBatchId((current) => current ?? awaitingApproval.id);
         }
       })
@@ -246,10 +251,29 @@ export function WorkbenchCommandPalette({
     if (!projectId || !Number.isInteger(sheetId) || sheetId <= 0 || preparationBusy) return;
     setPreparationBusy(true);
     setPreparationError(null);
-    void createSearchPreparation(projectId, { sheet_id: sheetId })
-      .then((batch) => setPreparationBatchId(batch.id))
-      .catch((error) => setPreparationError(error instanceof Error ? error.message : String(error)))
-      .finally(() => setPreparationBusy(false));
+    preparationController.current?.abort();
+    const controller = new AbortController();
+    preparationController.current = controller;
+    preparationOwner.current = sheetId;
+    void listSearchPreparations(projectId, { signal: controller.signal })
+      .then(async ({ batches }) => {
+        if (controller.signal.aborted) return;
+        const running = batches.find((batch) => batch.sheet_id === sheetId && batch.status === 'preparing');
+        if (running) {
+          onClose();
+          return;
+        }
+        const batch = await createSearchPreparation(projectId, { sheet_id: sheetId }, { signal: controller.signal });
+        if (controller.signal.aborted) return;
+        if (batch.status === 'preparing') onClose();
+        else setPreparationBatchId(batch.id);
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) setPreparationError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setPreparationBusy(false);
+      });
   };
   const hasAnyFilteredResults =
     anchored
@@ -520,7 +544,7 @@ export function WorkbenchCommandPalette({
             onPrepareGap={prepareSearchGap}
             preparationReview={projectId && preparationBatchId ? (
               <SearchPreparationReceipt
-                key={preparationBatchId}
+                key={`${projectId}:${preparationOwner.current}`}
                 projectId={projectId}
                 batchId={preparationBatchId}
                 onBatchChange={(batch) => {
@@ -534,12 +558,9 @@ export function WorkbenchCommandPalette({
                     if (batch.status !== 'needs_consent') refreshSearch();
                   }
                 }}
-                onDone={() => setPreparationBatchId(null)}
+                onDone={() => { setPreparationBatchId(null); onClose(); }}
                 onError={setPreparationError}
-                onViewJobs={onOpenJobs == null ? undefined : () => {
-                  onOpenJobs();
-                  onClose();
-                }}
+
               />
             ) : null}
             onViewJobs={() => {

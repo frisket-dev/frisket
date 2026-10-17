@@ -17,6 +17,8 @@ const orgGetModelPull = vi.fn();
 const createSearchPreparation = vi.fn();
 const listSearchPreparations = vi.fn();
 const getSearchPreparation = vi.fn();
+const decideSearchPreparation = vi.fn();
+const getSearchPreparationTextSamples = vi.fn();
 const embeddingIndexes = vi.fn();
 const saveLens = vi.fn();
 const createWatch = vi.fn();
@@ -41,6 +43,8 @@ vi.mock('../../src/api/searchPreparation', async (importOriginal) => ({
   createSearchPreparation: (...args: unknown[]) => createSearchPreparation(...args),
   listSearchPreparations: (...args: unknown[]) => listSearchPreparations(...args),
   getSearchPreparation: (...args: unknown[]) => getSearchPreparation(...args),
+  decideSearchPreparation: (...args: unknown[]) => decideSearchPreparation(...args),
+  getSearchPreparationTextSamples: (...args: unknown[]) => getSearchPreparationTextSamples(...args),
 }));
 
 vi.mock('../../src/bind/useWorkspaceStores', () => ({
@@ -143,14 +147,16 @@ function setupPull(overrides: Record<string, unknown> = {}) {
 function PaletteHarness({
   searchSheets = [{ id: '1', name: 'Documents' } as never],
   activeSearchSheetId = '1',
+  onClose = vi.fn(),
 }: {
   searchSheets?: never[];
   activeSearchSheetId?: string;
+  onClose?: () => void;
 } = {}) {
   const [query, setQuery] = useState('budget');
   return (
     <WorkbenchCommandPalette
-      onClose={vi.fn()}
+      onClose={onClose}
       commands={[]}
       onHideContribution={vi.fn()}
       onRevealContribution={vi.fn()}
@@ -224,6 +230,9 @@ beforeEach(() => {
   createSearchPreparation.mockReset();
   listSearchPreparations.mockReset();
   getSearchPreparation.mockReset();
+  decideSearchPreparation.mockReset();
+  getSearchPreparationTextSamples.mockReset();
+  getSearchPreparationTextSamples.mockResolvedValue({ samples: [] });
   embeddingIndexes.mockReset();
   saveLens.mockReset();
   createWatch.mockReset();
@@ -619,7 +628,7 @@ describe('located palette search', () => {
     expect(action).toHaveTextContent('Prepare Court filings');
     fireEvent.click(action);
 
-    expect(createSearchPreparation).toHaveBeenCalledWith('project-1', { sheet_id: 2 });
+    await waitFor(() => expect(createSearchPreparation).toHaveBeenCalledWith('project-1', { sheet_id: 2 }, { signal: expect.any(AbortSignal) }));
   });
 
   it('restores the latest preparation awaiting approval when Search opens', async () => {
@@ -678,34 +687,43 @@ describe('located palette search', () => {
     expect(row).toHaveTextContent('budget on second page');
   });
 
-  it('puts preparation review before results and refreshes coverage when it completes', async () => {
+  it('keeps the text choice in Search until explicit Prepare, then returns to the workspace', async () => {
     const pending = {
       schemaVersion: 'frisket.search_preparation.v1', id: 'prep-review', sheet_id: 1,
-      plan_hash: 'sha256:review', status: 'running',
-      groups: [{ kind: 'ocr', count: 1, status: 'running' }],
+      plan_hash: 'sha256:review', force_ocr: false, status: 'needs_consent',
+      groups: [{ kind: 'ocr', count: 1, status: 'needs_consent' }],
       models: [], jobs: [], can_stop: false, can_setup: true, errors: [],
     };
-    const finished = { ...pending, status: 'complete', groups: [{ kind: 'ocr', count: 1, status: 'complete' }] };
-    listSearchPreparations.mockResolvedValue({ batches: [{ ...pending, status: 'needs_consent' }] });
-    getSearchPreparation.mockResolvedValueOnce(pending).mockResolvedValue(finished);
-    searchProject.mockResolvedValueOnce({
-      ...completeResponse,
-      coverage: {
-        ...completeResponse.coverage, state: 'partial',
-        channels: [{ channel: 'search_preparation', state: 'unavailable', eligible_count: 1, prepared_count: 0, gap_sheet_ids: [1] }],
-      },
-    }).mockResolvedValue(completeResponse);
-    render(<PaletteHarness />);
-
-    const review = await screen.findByTestId('search-preparation-receipt');
-    const results = await screen.findByTestId('search-results');
-    expect(review.compareDocumentPosition(results) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.queryByTestId('search-preparation-gap')).not.toBeInTheDocument();
-    await waitFor(() => expect(searchProject).toHaveBeenCalledTimes(2), { timeout: 2_500 });
-    expect(screen.queryByText('Showing available search results.')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('search-preparation-done'));
+    listSearchPreparations.mockResolvedValue({ batches: [pending] });
+    getSearchPreparation.mockResolvedValue(pending);
+    decideSearchPreparation.mockResolvedValue({ ...pending, status: 'preparing' });
+    searchProject.mockResolvedValue(completeResponse);
+    const onClose = vi.fn();
+    render(<PaletteHarness onClose={onClose} />);
+    await screen.findByTestId('search-preparation-decision-prepare');
+    expect(onClose).not.toHaveBeenCalled();
+    expect(decideSearchPreparation).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('search-preparation-decision-prepare'));
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+    expect(decideSearchPreparation).toHaveBeenCalledWith('project-1', 'prep-review', {
+      plan_hash: 'sha256:review', decision: 'prepare', selected_setup_refs: [],
+    });
     expect(screen.queryByTestId('search-preparation-receipt')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('search-preparation-gap')).not.toBeInTheDocument();
+  });
+
+  it('returns to the workspace for already running preparation without creating a plan or reading samples', async () => {
+    const running = { id: 'prep-running', sheet_id: 1, status: 'preparing' };
+    listSearchPreparations.mockResolvedValue({ batches: [running] });
+    searchProject.mockResolvedValue({ ...completeResponse, coverage: { ...completeResponse.coverage,
+      state: 'partial', channels: [{ channel: 'search_preparation', state: 'unavailable', eligible_count: 1, prepared_count: 0, gap_sheet_ids: [1] }],
+    } });
+    const onClose = vi.fn();
+    render(<PaletteHarness onClose={onClose} />);
+    fireEvent.click(await screen.findByTestId('search-preparation-gap-action'));
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+    expect(createSearchPreparation).not.toHaveBeenCalled();
+    expect(getSearchPreparationTextSamples).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('search-preparation-receipt')).not.toBeInTheDocument();
   });
 
   it('selects a named index for free-text search and saves its semantic view', async () => {

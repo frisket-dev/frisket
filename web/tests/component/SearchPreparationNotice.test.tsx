@@ -104,6 +104,13 @@ function snapshot(overrides: Partial<SearchPreparationSnapshot> = {}): SearchPre
 }
 
 describe('search preparation notice projection', () => {
+  it('keeps running progress in activity without linking back to a progress dialog', () => {
+    const notice = deriveSearchPreparationNotice(snapshot({ batches: [batch()] }));
+    expect(notice).not.toBeNull();
+    render(<SearchPreparationNotice notice={notice!} onDismiss={vi.fn()} onReviewPreparation={vi.fn()} />);
+    expect(screen.queryByTestId('search-preparation-review')).toBeNull();
+  });
+
   it('shows independent indexing bars for active PDFs alongside preparation and removes finished files', () => {
     const files = [
       { source_id: 'source:first', filename: 'Council papers.pdf', completed: 1_896, total: 24_909 },

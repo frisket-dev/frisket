@@ -1890,7 +1890,7 @@ function OpenImportWorkspaceSession({
               {preparationReceipt ? (
                 preparationReceipt.batchId ? (
                   <SearchPreparationReceipt
-                    key={preparationReceipt.batchId}
+                    key={`${projectId}:${preparationReceipt.sheetId ?? initialPreparationBatchId ?? 'import'}`}
                     projectId={projectId}
                     batchId={preparationReceipt.batchId}
                     importSummary={bulkReceiptSummary}

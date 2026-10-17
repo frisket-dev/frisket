@@ -16,6 +16,7 @@ const uploadFilesToImportSession = vi.hoisted(() => vi.fn());
 const getSearchPreparation = vi.hoisted(() => vi.fn());
 const getSearchPreparationTextSamples = vi.hoisted(() => vi.fn());
 const createSearchPreparation = vi.hoisted(() => vi.fn());
+const replanSearchPreparation = vi.hoisted(() => vi.fn());
 const projectApi = vi.hoisted(() => ({ getSheetData: vi.fn(), listSheets: vi.fn() }));
 
 vi.mock('../../src/api/open', async (importOriginal) => {
@@ -46,6 +47,7 @@ vi.mock('../../src/api/searchPreparation', async (importOriginal) => ({
   getSearchPreparation,
   getSearchPreparationTextSamples,
   createSearchPreparation,
+  replanSearchPreparation,
 }));
 
 import { ImportDropzone, ImportWorkspaceDialog } from '../../src/components/ImportCsv';
@@ -82,6 +84,7 @@ beforeEach(() => {
   getSearchPreparationTextSamples.mockReset();
   getSearchPreparationTextSamples.mockResolvedValue({ batch_id: 'prep', samples: [] });
   createSearchPreparation.mockReset();
+  replanSearchPreparation.mockReset();
   getImportSession.mockReset();
   getImportSession.mockResolvedValue({
     import_ref: 'large-selection', state: 'running', admitted_files: 4_096, admitted_bytes: 4_096,
@@ -262,7 +265,7 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     });
     const batch = (id: string, sheet_id: number) => ({
       schemaVersion: 'frisket.search_preparation.v1', id, sheet_id, plan_hash: 'sha256:plan',
-      status: 'complete', groups: [{ kind: 'native_pdf', count: 1, status: 'complete' }],
+      status: 'needs_consent', force_ocr: false, groups: [{ kind: 'native_pdf', count: 1, status: 'complete' }],
       models: [], jobs: [], can_stop: false, can_setup: true, errors: [],
     });
     getSearchPreparation.mockImplementation(async (_projectId: string, id: string) => batch(id, id === 'prep-b' ? 42 : 41));
@@ -274,15 +277,15 @@ describe('ImportWorkspaceDialog controlled open session', () => {
       }],
     }));
     let resolveOcr!: (value: ReturnType<typeof batch>) => void;
-    createSearchPreparation.mockReturnValue(new Promise((resolve) => { resolveOcr = resolve; }));
+    replanSearchPreparation.mockReturnValue(new Promise((resolve) => { resolveOcr = resolve; }));
     renderDialog(true);
     fireEvent.change(screen.getByTestId('import-zip-input'), {
       target: { files: [new File(['archive'], 'documents.zip', { type: 'application/zip' })] },
     });
     await screen.findByText('Native text prep-a');
     fireEvent.click(screen.getByTestId('search-preparation-force-ocr'));
-    expect(createSearchPreparation).toHaveBeenCalledWith('open-session-project', {
-      sheet_id: 41, row_ids: [101], force_ocr: true,
+    expect(replanSearchPreparation).toHaveBeenCalledWith('open-session-project', 'prep-a', {
+      plan_hash: 'sha256:plan', force_ocr: true,
     });
     fireEvent.change(screen.getByRole('combobox', { name: 'Review imported sheet' }), { target: { value: '42' } });
     await screen.findByText('Native text prep-b');

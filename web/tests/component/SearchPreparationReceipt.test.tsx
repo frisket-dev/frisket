@@ -7,15 +7,13 @@ import type { SearchPreparationBatch } from '../../src/api/searchPreparation';
 const {
   getSearchPreparation,
   decideSearchPreparation,
-  stopSearchPreparation,
-  createSearchPreparation,
+  replanSearchPreparation,
   getSearchPreparationTextSamples,
   getModelPull,
 } = vi.hoisted(() => ({
   getSearchPreparation: vi.fn(),
   decideSearchPreparation: vi.fn(),
-  stopSearchPreparation: vi.fn(),
-  createSearchPreparation: vi.fn(),
+  replanSearchPreparation: vi.fn(),
   getSearchPreparationTextSamples: vi.fn(),
   getModelPull: vi.fn(),
 }));
@@ -24,8 +22,7 @@ vi.mock('../../src/api/searchPreparation', async (importOriginal) => ({
   ...await importOriginal<typeof import('../../src/api/searchPreparation')>(),
   getSearchPreparation,
   decideSearchPreparation,
-  stopSearchPreparation,
-  createSearchPreparation,
+  replanSearchPreparation,
   getSearchPreparationTextSamples,
 }));
 
@@ -45,6 +42,7 @@ function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
 const consentBatch: SearchPreparationBatch = {
   schemaVersion: 'frisket.search_preparation.v1',
   id: 'prep-1',
+  force_ocr: false,
   sheet_id: 7,
   plan_hash: 'sha256:plan',
   status: 'needs_consent',
@@ -148,23 +146,18 @@ describe('SearchPreparationReceipt', () => {
     expect(screen.queryByRole('heading', { name: 'Text ready for keyword search' })).toBeNull();
   });
 
-  it('shows processed and failed counts from the live OCR action', async () => {
+  it('returns running preparation to the workspace without reading samples or duplicating progress', async () => {
+    const onDone = vi.fn();
     getSearchPreparation.mockResolvedValue({
-      ...consentBatch,
-      status: 'preparing',
-      groups: [{ kind: 'ocr', count: 3, status: 'running' }],
-      jobs: [{
-        job_id: 473,
-        action_kind: 'ocr',
-        status: 'running',
-        progress: preparationProgress(),
-      }],
+      ...consentBatch, status: 'preparing',
+      jobs: [{ job_id: 473, action_kind: 'ocr', status: 'running', progress: preparationProgress() }],
     });
-    render(<SearchPreparationReceipt projectId="project-1" batchId="prep-1" onDone={vi.fn()} onError={vi.fn()} />);
-
-    const group = await screen.findByTestId('search-preparation-group-ocr');
-    expect(group.textContent).toContain('Running OCR');
-    expect(group.textContent).toContain('2/3 processed · 1 failed');
+    render(<SearchPreparationReceipt projectId="project-1" batchId="prep-1" onDone={onDone} onError={vi.fn()} />);
+    await waitFor(() => expect(onDone).toHaveBeenCalledOnce());
+    expect(getSearchPreparationTextSamples).not.toHaveBeenCalled();
+    expect(screen.queryByText('Running OCR')).toBeNull();
+    expect(screen.queryByTestId('search-preparation-stop')).toBeNull();
+    expect(getModelPull).not.toHaveBeenCalled();
   });
 
   it('keeps an empty planning response visibly active instead of calling it ready', async () => {
@@ -220,57 +213,7 @@ describe('SearchPreparationReceipt', () => {
     expect(await screen.findByRole('heading', { name: 'Text ready for keyword search' })).not.toBeNull();
   });
 
-  it('refreshes a visible preview on batch completion without repeatedly reading settled samples', async () => {
-    vi.useFakeTimers();
-    getSearchPreparation
-      .mockResolvedValueOnce({ ...consentBatch, status: 'preparing' })
-      .mockResolvedValue({ ...consentBatch, status: 'complete' });
-    const sample = {
-      row_id: 42, column_id: 5, filename: 'bad-layer.pdf', page_number: 1,
-      page_count: 1, page_scoped: true, preview_url: '/preview',
-      text: 'Garbled original text', source: 'prepared', truncated: false,
-    };
-    const refresh = deferred<Awaited<ReturnType<typeof getSearchPreparationTextSamples>>>();
-    getSearchPreparationTextSamples
-      .mockResolvedValueOnce({ batch_id: 'prep-1', samples: [sample] })
-      .mockReturnValue(refresh.promise);
-    render(<SearchPreparationReceipt projectId="project-1" batchId="prep-1" onDone={vi.fn()} onError={vi.fn()} />);
-    await act(async () => { await Promise.resolve(); });
-    expect(screen.getByText('Garbled original text')).not.toBeNull();
 
-    expect(getSearchPreparationTextSamples).toHaveBeenCalledTimes(1);
-    await act(async () => { await vi.advanceTimersByTimeAsync(1_500); });
-    expect(getSearchPreparationTextSamples).toHaveBeenCalledTimes(2);
-    expect(screen.getByText('Garbled original text')).not.toBeNull();
-    await act(async () => {
-      refresh.resolve({ batch_id: 'prep-1', samples: [{ ...sample, text: 'Correct replacement text' }] });
-    });
-    expect(screen.getByText('Correct replacement text')).not.toBeNull();
-    expect(screen.queryByText('Garbled original text')).toBeNull();
-    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
-    expect(getSearchPreparationTextSamples).toHaveBeenCalledTimes(2);
-  });
-
-  it('keeps a dismissed text review closed when the batch completes', async () => {
-    vi.useFakeTimers();
-    getSearchPreparation
-      .mockResolvedValueOnce({ ...consentBatch, status: 'preparing' })
-      .mockResolvedValue({ ...consentBatch, status: 'complete' });
-    getSearchPreparationTextSamples.mockResolvedValue({
-      batch_id: 'prep-1', samples: [{
-        row_id: 42, column_id: 5, filename: 'native.pdf', page_number: 1,
-        page_count: 1, page_scoped: true, preview_url: '/preview',
-        text: 'Correct native text', source: 'native', truncated: false,
-      }],
-    });
-    render(<SearchPreparationReceipt projectId="project-1" batchId="prep-1" onDone={vi.fn()} onError={vi.fn()} />);
-    await act(async () => { await Promise.resolve(); });
-    fireEvent.click(screen.getByTestId('search-preparation-keep-text'));
-
-    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
-    expect(screen.queryByTestId('search-preparation-text-preview')).toBeNull();
-    expect(getSearchPreparationTextSamples).toHaveBeenCalledTimes(1);
-  });
 
   it('checks semantic search by default without authorizing downloads and allows opting out', async () => {
     getSearchPreparation.mockResolvedValue(consentBatch);
@@ -399,52 +342,6 @@ describe('SearchPreparationReceipt', () => {
     expect(screen.queryByTestId('search-preparation-model-consent')).toBeNull();
   });
 
-  it('does not let an older poll response overwrite a stop result', async () => {
-    vi.useFakeTimers();
-    const stalePoll = deferred<SearchPreparationBatch>();
-    const preparingBatch: SearchPreparationBatch = {
-      ...consentBatch,
-      status: 'preparing',
-      can_stop: true,
-      groups: consentBatch.groups.map((group) => (
-        group.kind === 'ocr' ? { ...group, status: 'running' as const } : group
-      )),
-    };
-    getSearchPreparation
-      .mockResolvedValueOnce(preparingBatch)
-      .mockReturnValueOnce(stalePoll.promise);
-    stopSearchPreparation.mockResolvedValue({
-      ...preparingBatch,
-      status: 'stopped',
-      can_stop: false,
-      groups: preparingBatch.groups.map((group) => (
-        group.kind === 'ocr' ? { ...group, status: 'stopped' as const } : group
-      )),
-    });
-
-    render(
-      <SearchPreparationReceipt
-        projectId="project-1"
-        batchId="prep-1"
-        onDone={vi.fn()}
-        onError={vi.fn()}
-      />,
-    );
-    await act(async () => { await Promise.resolve(); });
-    expect(screen.getByTestId('search-preparation-stop')).not.toBeNull();
-    expect(screen.getByTestId('search-preparation-done')).not.toBeNull();
-
-    await act(async () => { await vi.advanceTimersByTimeAsync(1_500); });
-    expect(getSearchPreparation).toHaveBeenCalledTimes(2);
-    fireEvent.click(screen.getByTestId('search-preparation-stop'));
-    await act(async () => { await Promise.resolve(); });
-    expect(screen.queryByTestId('search-preparation-stop')).toBeNull();
-    expect(screen.getByText('Stopped')).not.toBeNull();
-
-    await act(async () => { stalePoll.resolve(preparingBatch); });
-    expect(screen.queryByTestId('search-preparation-stop')).toBeNull();
-    expect(screen.getByText('Stopped')).not.toBeNull();
-  });
 
   it('prepares without download wording when every required model is ready', async () => {
     const readyBatch = {
@@ -466,7 +363,7 @@ describe('SearchPreparationReceipt', () => {
 
     expect(await screen.findByText('Extract text with OCR?')).not.toBeNull();
     expect(screen.queryByText('Download local models?')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Extract text with OCR' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare files' }));
     await waitFor(() => expect(decideSearchPreparation).toHaveBeenCalledWith(
       'project-1',
       'prep-1',
@@ -509,12 +406,12 @@ describe('SearchPreparationReceipt', () => {
       />,
     );
 
-    expect(await screen.findByText('No embedded text found')).not.toBeNull();
+    expect(await screen.findByText('Check a sampled PDF page')).not.toBeNull();
     expect(screen.getByAltText('Page 1').getAttribute('src')).toBe(
       '/api/projects/project-1/blobs/hash/pages/1/image',
     );
-    expect(screen.getByText('This page needs OCR before Frisket can read it.')).not.toBeNull();
-    const extract = screen.getByRole('button', { name: 'Extract text with OCR' });
+    expect(screen.getByText('No embedded text is available on this sampled page.')).not.toBeNull();
+    const extract = screen.getByRole('button', { name: 'Prepare files' });
     expect((extract as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(extract);
     await waitFor(() => expect(decideSearchPreparation).toHaveBeenCalledWith(
@@ -614,86 +511,76 @@ describe('SearchPreparationReceipt', () => {
     ));
   });
 
-  it('shows native text automatically and starts replacement OCR only after the explicit choice', async () => {
-    getSearchPreparation.mockResolvedValue({ ...consentBatch, status: 'complete' });
-    getSearchPreparationTextSamples.mockResolvedValue({
-      schemaVersion: 'frisket.search_preparation_text_samples.v1',
-      batch_id: 'prep-1',
-      samples: [{
-        row_id: 42,
-        column_id: 5,
-        filename: 'native.pdf',
-        page_number: 3,
-        page_count: 5,
-        page_scoped: true,
-        preview_url: '/api/projects/project-1/blobs/hash/pages/3/image',
-        text: 'Native text from the PDF',
-        source: 'native',
-        truncated: false,
-      }],
-    });
-    createSearchPreparation.mockResolvedValue({ ...consentBatch, id: 'prep-force' });
-
-    render(
-      <SearchPreparationReceipt
-        projectId="project-1"
-        batchId="prep-1"
-        onDone={vi.fn()}
-        onError={vi.fn()}
-      />,
-    );
-
-    expect(createSearchPreparation).not.toHaveBeenCalled();
+  it('replans the entire mixed batch without starting it, then decides the replacement exact plan', async () => {
+    const onDone = vi.fn();
+    const mixed = { ...consentBatch, groups: [...consentBatch.groups, { kind: 'transcribe', count: 2, status: 'needs_consent' }] };
+    const replacement = { ...mixed, id: 'prep-force', force_ocr: true, plan_hash: 'sha256:replacement',
+      groups: [{ kind: 'ocr', count: 3, status: 'needs_consent' }, { kind: 'transcribe', count: 2, status: 'needs_consent' }] };
+    getSearchPreparation.mockImplementation(async (_project, id) => id === 'prep-force' ? replacement : mixed);
+    getSearchPreparationTextSamples.mockResolvedValue({ batch_id: 'prep-1', samples: [{
+      row_id: 42, column_id: 5, filename: 'native.pdf', page_number: 3, page_count: 5,
+      page_scoped: true, preview_url: '/preview', text: 'Native text from the PDF', source: 'native', truncated: false,
+    }] });
+    replanSearchPreparation.mockResolvedValue(replacement);
+    decideSearchPreparation.mockResolvedValue({ ...replacement, status: 'preparing' });
+    render(<SearchPreparationReceipt projectId="project-1" batchId="prep-1" onDone={onDone} onError={vi.fn()} />);
     await screen.findByText('Native text from the PDF');
-    expect(screen.getByText('Does this text look right?')).not.toBeNull();
-    expect(screen.getByRole('button', { name: 'Yes, keep it' })).not.toBeNull();
-    expect(screen.getByText('Page 3 of 5')).not.toBeNull();
-    expect(screen.queryByRole('button', { name: 'Page 1' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Refresh sample pages' })).toBeNull();
-    expect(screen.getByText(/Your PDF stays unchanged/)).not.toBeNull();
+    fireEvent.click(screen.getByTestId('search-preparation-keep-text'));
+    expect(decideSearchPreparation).not.toHaveBeenCalled();
+    expect(replanSearchPreparation).not.toHaveBeenCalled();
     fireEvent.click(screen.getByTestId('search-preparation-force-ocr'));
-    await waitFor(() => expect(createSearchPreparation).toHaveBeenCalledWith('project-1', {
-      sheet_id: 7,
-      row_ids: [42],
-      force_ocr: true,
+    await waitFor(() => expect(replanSearchPreparation).toHaveBeenCalledWith('project-1', 'prep-1', {
+      plan_hash: 'sha256:plan', force_ocr: true,
     }));
+    await screen.findByText(/3 files with OCR, 2 transcriptions/);
+    expect(onDone).not.toHaveBeenCalled();
+    expect(decideSearchPreparation).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('search-preparation-decision-prepare'));
+    await waitFor(() => expect(decideSearchPreparation).toHaveBeenCalledWith('project-1', 'prep-force', {
+      plan_hash: 'sha256:replacement', decision: 'prepare', selected_setup_refs: [
+        'engine-setup:rapidocr-default.local@1', 'engine-setup:embeddinggemma-2.local@1',
+      ],
+    }));
+    expect(onDone).toHaveBeenCalledOnce();
+    expect(screen.queryByText('Text extraction')).toBeNull();
   });
 
-  it('reviews the visible prepared native PDF independently of another document requiring OCR', async () => {
-    getSearchPreparation.mockResolvedValue({
-      ...consentBatch, status: 'complete',
-      groups: [{ kind: 'native_pdf', count: 1, status: 'complete' }, { kind: 'ocr', count: 1, status: 'complete' }],
-    });
-    const sample = {
-      row_id: 42, column_id: 5, filename: 'native.pdf', page_number: 1,
-      page_count: 1, page_scoped: true, preview_url: '/native-preview',
-      text: 'Native PDF text stored as prepared content', source: 'prepared', truncated: false,
-    };
-    getSearchPreparationTextSamples.mockResolvedValue({
-      batch_id: 'prep-1', samples: [sample, { ...sample, row_id: 43, filename: 'scanned.pdf', text: 'Other document OCR text' }],
-    });
-    const replacement = deferred<SearchPreparationBatch>();
-    createSearchPreparation.mockReturnValue(replacement.promise);
+  it('can restore embedded-text mode without deciding and polls only the replacement batch', async () => {
+    vi.useFakeTimers();
+    const forced = { ...consentBatch, force_ocr: true };
+    const replacement = { ...consentBatch, id: 'prep-native', plan_hash: 'sha256:native' };
+    getSearchPreparation.mockImplementation(async (_project, id) => id === 'prep-native' ? replacement : forced);
+    replanSearchPreparation.mockResolvedValue(replacement);
     render(<SearchPreparationReceipt projectId="project-1" batchId="prep-1" onDone={vi.fn()} onError={vi.fn()} />);
+    await act(async () => { await Promise.resolve(); });
+    fireEvent.click(screen.getByTestId('search-preparation-keep-text'));
+    await act(async () => { await Promise.resolve(); });
+    expect(replanSearchPreparation).toHaveBeenCalledWith('project-1', 'prep-1', { plan_hash: 'sha256:plan', force_ocr: false });
+    expect(decideSearchPreparation).not.toHaveBeenCalled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_500); });
+    expect(getSearchPreparation).toHaveBeenLastCalledWith('project-1', 'prep-native');
+  });
 
-    await screen.findByText(sample.text);
-    expect(screen.getByText('Does this text look right?')).not.toBeNull();
-    expect(screen.getByText('Extracted text')).not.toBeNull();
-    expect(screen.queryByText('Check the OCR text')).toBeNull();
-    expect(screen.getByTestId('search-preparation-keep-text')).not.toBeNull();
-    fireEvent.click(screen.getByTestId('search-preparation-force-ocr'));
-    expect(createSearchPreparation).toHaveBeenCalledWith('project-1', {
-      sheet_id: 7, row_ids: [42], force_ocr: true,
-    });
-    expect((screen.getByTestId('search-preparation-force-ocr') as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByTestId('search-preparation-keep-text') as HTMLButtonElement).disabled).toBe(true);
-    await act(async () => { replacement.resolve({ ...consentBatch, id: 'prep-replace-native' }); });
+  it('does not close a new receipt when an old decision resolves after unmount', async () => {
+    getSearchPreparation.mockResolvedValue(consentBatch);
+    const oldDecision = deferred<SearchPreparationBatch>();
+    decideSearchPreparation.mockReturnValue(oldDecision.promise);
+    const oldDone = vi.fn();
+    const newDone = vi.fn();
+    const view = render(<SearchPreparationReceipt key="old" projectId="project-1" batchId="prep-1" onDone={oldDone} onError={vi.fn()} />);
+    fireEvent.click(await screen.findByTestId('search-preparation-decision-prepare'));
+    view.rerender(<SearchPreparationReceipt key="new" projectId="project-1" batchId="prep-1" onDone={newDone} onError={vi.fn()} />);
+    await screen.findByTestId('search-preparation-decision-prepare');
+    await act(async () => { oldDecision.resolve({ ...consentBatch, status: 'preparing' }); });
+    expect(oldDone).not.toHaveBeenCalled();
+    expect(newDone).not.toHaveBeenCalled();
+    expect(screen.getByTestId('search-preparation-model-consent')).not.toBeNull();
   });
 
   it('does not overlap a slow automatic text sample read', async () => {
     vi.useFakeTimers();
     const slowSample = deferred<Awaited<ReturnType<typeof getSearchPreparationTextSamples>>>();
-    getSearchPreparation.mockResolvedValue({ ...consentBatch, status: 'complete' });
+    getSearchPreparation.mockResolvedValue(consentBatch);
     getSearchPreparationTextSamples.mockReturnValue(slowSample.promise);
 
     render(
@@ -734,7 +621,7 @@ describe('SearchPreparationReceipt', () => {
   });
 
   it('keeps page sampling controls for whole-PDF preparation items', async () => {
-    getSearchPreparation.mockResolvedValue({ ...consentBatch, status: 'complete' });
+    getSearchPreparation.mockResolvedValue(consentBatch);
     const wholePdfSample = {
       row_id: 42,
       column_id: 5,
@@ -782,13 +669,13 @@ describe('SearchPreparationReceipt', () => {
       { rowId: 42, pageNumber: 2 },
       { signal: expect.anything() },
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Yes, keep it' }));
-    expect(screen.queryByTestId('search-preparation-text-preview')).toBeNull();
-    expect(createSearchPreparation).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Keep embedded text' }));
+    expect(screen.queryByTestId('search-preparation-text-preview')).not.toBeNull();
+    expect(replanSearchPreparation).not.toHaveBeenCalled();
   });
 
   it('keeps the latest selected PDF page when responses arrive out of order', async () => {
-    getSearchPreparation.mockResolvedValue({ ...consentBatch, status: 'complete' });
+    getSearchPreparation.mockResolvedValue(consentBatch);
     const page2 = deferred<Awaited<ReturnType<typeof getSearchPreparationTextSamples>>>();
     const page3 = deferred<Awaited<ReturnType<typeof getSearchPreparationTextSamples>>>();
     const sample = {
@@ -844,42 +731,5 @@ describe('SearchPreparationReceipt', () => {
     expect(screen.queryByText('Second page text')).toBeNull();
   });
 
-  it('retries the initial model-pull lookup after a transient failure', async () => {
-    vi.useFakeTimers();
-    getSearchPreparation.mockResolvedValue({
-      ...consentBatch,
-      status: 'preparing',
-      models: [{ ...consentBatch.models[0], pull_id: 77 }],
-    });
-    getModelPull
-      .mockRejectedValueOnce(new Error('temporary outage'))
-      .mockResolvedValueOnce({
-        id: 77,
-        model: consentBatch.models[0].setup_ref,
-        display_name: 'RapidOCR',
-        status: 'done',
-        phase: null,
-        completed_bytes: 10,
-        total_bytes: 10,
-        resolved_size: 10,
-        cancel_requested: false,
-        error: null,
-        capabilities: { cancel: false, retry: false, remove: false },
-      });
 
-    render(
-      <SearchPreparationReceipt
-        projectId="project-1"
-        batchId="prep-1"
-        onDone={vi.fn()}
-        onError={vi.fn()}
-      />,
-    );
-    await act(async () => { await Promise.resolve(); });
-    expect(screen.getByRole('alert').textContent).toContain('Retrying');
-
-    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
-    expect(screen.getByTestId('model-pull-done').textContent).toContain('RapidOCR installed');
-    expect(getModelPull).toHaveBeenCalledTimes(2);
-  });
 });
