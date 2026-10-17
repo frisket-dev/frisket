@@ -8525,7 +8525,9 @@ dialog.import-workspace-layer::backdrop {
   font-size: 13px;
 }
 
-.search-preparation-receipt > header,
+.search-preparation-receipt-body { display: contents; }
+
+.search-preparation-receipt-body > header,
 .search-preparation-text-preview > header {
   display: flex;
   align-items: flex-start;
@@ -8646,6 +8648,34 @@ dialog.import-workspace-layer::backdrop {
   padding: 14px 22px;
   background: var(--bg-panel);
 }
+.import-workspace-main-preparation .import-workspace-panel {
+  overflow: hidden;
+  padding: 0;
+}
+.import-workspace-main-preparation .search-preparation-receipt {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+.import-workspace-main-preparation .search-preparation-receipt-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 20px 22px;
+  overflow-y: auto;
+}
+.import-workspace-main-preparation .search-preparation-receipt > footer {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 14px 22px;
+  background: var(--bg-panel);
+}
 .search-preparation-pulls { display: grid; gap: 8px; }
 
 .search-preparation-text-preview {
@@ -8709,6 +8739,8 @@ dialog.import-workspace-layer::backdrop {
 
 @media (max-width: 700px) {
   .search-preparation-receipt { padding: 16px; }
+  .import-workspace-main-preparation .search-preparation-receipt-body { padding: 16px; }
+  .import-workspace-main-preparation .search-preparation-receipt > footer { padding: 14px 16px; }
   .import-workspace-receipt .search-preparation-receipt > footer { margin: 2px -16px -16px; }
   .search-preparation-group { align-items: flex-start; flex-direction: column; gap: 3px; padding: 8px 0; }
   .search-preparation-text-preview .pdf-packet-page-and-text { grid-template-columns: 1fr; }

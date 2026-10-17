@@ -224,6 +224,58 @@ def _execute_bulk(
     )
 
 
+@pytest.mark.parametrize("batch_id", ["existing-preparation", None, "hook-error"])
+def test_bulk_execute_returns_existing_preparation_batch_for_each_output(
+    tmp_path: Path, monkeypatch, batch_id: str | None
+) -> None:
+    from frisket.server.services.search_preparation import SearchPreparationService
+
+    calls: list[tuple[str, int, list[int]]] = []
+
+    def materialized(_self, project_id, *, sheet_id, row_ids):
+        calls.append((project_id, sheet_id, list(row_ids)))
+        if batch_id == "hook-error":
+            raise RuntimeError("preparation unavailable")
+        return batch_id
+
+    monkeypatch.setattr(
+        SearchPreparationService, "create_after_materialization", materialized
+    )
+    client = TestClient(create_app(tmp_path / "workspace"))
+    pid = _project(client)
+    planned = _bulk_plan(
+        client,
+        pid,
+        [
+            (
+                "records.zip",
+                _zip_bytes({"records.csv": b"name\nAda\n"}),
+                "application/zip",
+                "records.zip",
+            )
+        ],
+        expand_archive=True,
+    )
+    assert planned.status_code == 200, planned.text
+    executed = _execute_bulk(client, pid, planned.json())
+    assert executed.status_code == 200, executed.text
+    result = executed.json()
+    assert result["failed"] == []
+    assert len(result["created"]) == 1
+    created = result["created"][0]
+    assert created["search_preparation_batch_id"] == (
+        None if batch_id == "hook-error" else batch_id
+    )
+    assert created["rows"] == 1
+    assert calls == [
+        (
+            pid,
+            created["sheet_id"],
+            client.app.state.workspace.get(pid).visible_row_ids(created["sheet_id"]),
+        )
+    ]
+
+
 def test_solo_bulk_csv_exceeds_legacy_file_and_row_caps_without_truncation(
     tmp_path: Path,
 ) -> None:

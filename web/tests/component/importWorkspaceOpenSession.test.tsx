@@ -14,6 +14,8 @@ const getImportSession = vi.hoisted(() => vi.fn());
 const createImportSession = vi.hoisted(() => vi.fn());
 const uploadFilesToImportSession = vi.hoisted(() => vi.fn());
 const getSearchPreparation = vi.hoisted(() => vi.fn());
+const getSearchPreparationTextSamples = vi.hoisted(() => vi.fn());
+const createSearchPreparation = vi.hoisted(() => vi.fn());
 const projectApi = vi.hoisted(() => ({ getSheetData: vi.fn(), listSheets: vi.fn() }));
 
 vi.mock('../../src/api/open', async (importOriginal) => {
@@ -42,6 +44,8 @@ vi.mock('../../src/bind/useWorkspaceStores', () => ({
 vi.mock('../../src/api/searchPreparation', async (importOriginal) => ({
   ...await importOriginal<typeof import('../../src/api/searchPreparation')>(),
   getSearchPreparation,
+  getSearchPreparationTextSamples,
+  createSearchPreparation,
 }));
 
 import { ImportDropzone, ImportWorkspaceDialog } from '../../src/components/ImportCsv';
@@ -75,6 +79,9 @@ function renderDialog(open: boolean, onImported = vi.fn(), onClose = vi.fn()) {
 }
 
 beforeEach(() => {
+  getSearchPreparationTextSamples.mockReset();
+  getSearchPreparationTextSamples.mockResolvedValue({ batch_id: 'prep', samples: [] });
+  createSearchPreparation.mockReset();
   getImportSession.mockReset();
   getImportSession.mockResolvedValue({
     import_ref: 'large-selection', state: 'running', admitted_files: 4_096, admitted_bytes: 4_096,
@@ -204,6 +211,123 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     expect(screen.queryByText('Project data intake')).not.toBeInTheDocument();
     expect(screen.getByTestId('import-workspace')).toHaveAccessibleName('Import');
     expect(getSearchPreparation).toHaveBeenCalledWith('open-session-project', 'sync-prep');
+  });
+
+  it('keeps an automatic ZIP import in the shared receipt and reviews each created sheet', async () => {
+    planBulkImport.mockResolvedValue({ ...plan, questions: [] });
+    executeBulkImport.mockResolvedValue({
+      created: [
+        { id: 'a', kind: 'sheet', sheet_id: 41, sheet_name: 'PDFs', logical_paths: ['report.pdf'], search_preparation_batch_id: 'zip-pdf-prep' },
+        { id: 'b', kind: 'sheet', sheet_id: 42, sheet_name: 'Audio', logical_paths: ['interview.mp3'], search_preparation_batch_id: 'zip-audio-prep' },
+        { id: 'c', kind: 'sheet', sheet_id: 43, sheet_name: 'Records', logical_paths: ['records.csv'], search_preparation_batch_id: null },
+      ],
+      failed: [{ logical_paths: ['broken.csv'], logical_paths_omitted: 0, error: 'Invalid header' }],
+      failed_omitted: 0, first_sheet_id: 41,
+      message: 'Imported 3 files; 1 file failed.', warnings: ['One attachment was skipped.'],
+    });
+    const onImported = vi.fn();
+    const onClose = vi.fn();
+    renderDialog(true, onImported, onClose);
+    fireEvent.change(screen.getByTestId('import-zip-input'), {
+      target: { files: [new File(['archive'], 'documents.zip', { type: 'application/zip' })] },
+    });
+
+    await waitFor(() => expect(getSearchPreparation).toHaveBeenCalledWith('open-session-project', 'zip-pdf-prep'));
+    expect(onImported).toHaveBeenCalledWith(41);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByTestId('search-preparation-receipt')).toHaveTextContent('Text ready for keyword search');
+    expect(screen.getByRole('alert')).toHaveTextContent('Imported 3 files; 1 file failed.');
+    expect(screen.getByText('Invalid header')).toBeVisible();
+    expect(screen.getAllByText('One attachment was skipped.')).toHaveLength(1);
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Review imported sheet' }), { target: { value: '42' } });
+    await waitFor(() => expect(getSearchPreparation).toHaveBeenCalledWith('open-session-project', 'zip-audio-prep'));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Review imported sheet' }), { target: { value: '43' } });
+    expect(screen.getByText('Files imported. Search preparation is not available for this sheet.')).toBeVisible();
+    expect(getSearchPreparation).toHaveBeenCalledTimes(2);
+    fireEvent.change(screen.getByRole('combobox', { name: 'Review imported sheet' }), { target: { value: '41' } });
+    await screen.findByText('Text ready for keyword search');
+    fireEvent.click(screen.getByTestId('search-preparation-done'));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('keeps sheet B selected when sheet A replacement OCR finishes after switching sheets', async () => {
+    planBulkImport.mockResolvedValue({ ...plan, questions: [] });
+    executeBulkImport.mockResolvedValue({
+      created: [
+        { id: 'a', kind: 'sheet', sheet_id: 41, sheet_name: 'A', logical_paths: ['a.pdf'], search_preparation_batch_id: 'prep-a' },
+        { id: 'b', kind: 'sheet', sheet_id: 42, sheet_name: 'B', logical_paths: ['b.pdf'], search_preparation_batch_id: 'prep-b' },
+      ],
+      failed: [], failed_omitted: 0, first_sheet_id: 41, message: 'Imported 2 files.', warnings: [],
+    });
+    const batch = (id: string, sheet_id: number) => ({
+      schemaVersion: 'frisket.search_preparation.v1', id, sheet_id, plan_hash: 'sha256:plan',
+      status: 'complete', groups: [{ kind: 'native_pdf', count: 1, status: 'complete' }],
+      models: [], jobs: [], can_stop: false, can_setup: true, errors: [],
+    });
+    getSearchPreparation.mockImplementation(async (_projectId: string, id: string) => batch(id, id === 'prep-b' ? 42 : 41));
+    getSearchPreparationTextSamples.mockImplementation(async (_projectId: string, id: string) => ({
+      batch_id: id, samples: [{
+        row_id: id === 'prep-a' ? 101 : 102, column_id: 5, filename: `${id}.pdf`, page_number: 1,
+        page_count: 1, page_scoped: true, preview_url: '/preview',
+        text: `Native text ${id}`, source: 'native', truncated: false,
+      }],
+    }));
+    let resolveOcr!: (value: ReturnType<typeof batch>) => void;
+    createSearchPreparation.mockReturnValue(new Promise((resolve) => { resolveOcr = resolve; }));
+    renderDialog(true);
+    fireEvent.change(screen.getByTestId('import-zip-input'), {
+      target: { files: [new File(['archive'], 'documents.zip', { type: 'application/zip' })] },
+    });
+    await screen.findByText('Native text prep-a');
+    fireEvent.click(screen.getByTestId('search-preparation-force-ocr'));
+    expect(createSearchPreparation).toHaveBeenCalledWith('open-session-project', {
+      sheet_id: 41, row_ids: [101], force_ocr: true,
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Review imported sheet' }), { target: { value: '42' } });
+    await screen.findByText('Native text prep-b');
+    await act(async () => { resolveOcr(batch('prep-a-ocr', 41)); });
+    expect(screen.getByRole('combobox', { name: 'Review imported sheet' })).toHaveValue('42');
+    expect(screen.getByText('Native text prep-b')).toBeVisible();
+    expect(getSearchPreparation).not.toHaveBeenCalledWith('open-session-project', 'prep-a-ocr');
+  });
+
+  it('opens the receipt for a successful automatic ZIP without warnings', async () => {
+    planBulkImport.mockResolvedValue({ ...plan, questions: [] });
+    executeBulkImport.mockResolvedValue({
+      created: [{ id: 'pdf', kind: 'sheet', sheet_id: 41, sheet_name: 'PDFs', logical_paths: ['report.pdf'], search_preparation_batch_id: 'zip-success' }],
+      failed: [], failed_omitted: 0, first_sheet_id: 41, message: 'Imported 1 file.', warnings: [],
+    });
+    const onClose = vi.fn();
+    renderDialog(true, vi.fn(), onClose);
+    fireEvent.change(screen.getByTestId('import-zip-input'), {
+      target: { files: [new File(['archive'], 'documents.zip', { type: 'application/zip' })] },
+    });
+    await screen.findByText('Text ready for keyword search');
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.queryByRole('combobox', { name: 'Review imported sheet' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('search-preparation-done'));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('finishes automatic bulk spreadsheet imports when no preparation batch was created', async () => {
+    planBulkImport.mockResolvedValue({ ...plan, questions: [] });
+    executeBulkImport.mockResolvedValue({
+      created: [
+        { id: 'csv', kind: 'sheet', sheet_id: 41, sheet_name: 'CSV records', logical_paths: ['records.csv'], search_preparation_batch_id: null },
+        { id: 'xlsx', kind: 'sheet', sheet_id: 42, sheet_name: 'Workbook', logical_paths: ['records.xlsx'], search_preparation_batch_id: null },
+      ],
+      failed: [], failed_omitted: 0, first_sheet_id: 41, message: 'Imported 2 files.', warnings: [],
+    });
+    const onImported = vi.fn();
+    const onClose = vi.fn();
+    renderDialog(true, onImported, onClose);
+    fireEvent.change(screen.getByTestId('import-zip-input'), {
+      target: { files: [new File(['archive'], 'records.zip', { type: 'application/zip' })] },
+    });
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+    expect(onImported).toHaveBeenCalledWith(41);
+    expect(getSearchPreparation).not.toHaveBeenCalled();
   });
 
   it('opens the same receipt after a resumable attachment session seals', async () => {

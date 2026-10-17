@@ -1,5 +1,5 @@
 import { CircleAlert, LoaderCircle, Square } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   createSearchPreparation,
   decideSearchPreparation,
@@ -130,10 +130,12 @@ function TextReview({
   const [loading, setLoading] = useState(true);
   const [forcing, setForcing] = useState(false);
   const loadGeneration = useRef(0);
+  const forceGeneration = useRef(0);
   const loadController = useRef<AbortController | null>(null);
 
   useEffect(() => () => {
     loadGeneration.current += 1;
+    forceGeneration.current += 1;
     loadController.current?.abort();
   }, [batch.id, projectId]);
 
@@ -190,18 +192,20 @@ function TextReview({
   const forceOcr = async () => {
     if (!sample || forcing) return;
     setForcing(true);
+    const generation = forceGeneration.current;
     try {
       const next = await createSearchPreparation(projectId, {
         sheet_id: batch.sheet_id,
         row_ids: [sample.row_id],
         force_ocr: true,
       });
+      if (generation !== forceGeneration.current) return;
       onBatchChange(next);
       setDismissed(true);
     } catch (error) {
-      onError(error instanceof Error ? error.message : String(error));
+      if (generation === forceGeneration.current) onError(error instanceof Error ? error.message : String(error));
     } finally {
-      setForcing(false);
+      if (generation === forceGeneration.current) setForcing(false);
     }
   };
   const hasText = Boolean(sample?.text.trim());
@@ -304,6 +308,7 @@ export function SearchPreparationReceipt({
   onDone,
   onError,
   onViewJobs,
+  importSummary,
 }: {
   projectId: string;
   batchId: string;
@@ -311,6 +316,7 @@ export function SearchPreparationReceipt({
   onDone(): void;
   onError(message: string): void;
   onViewJobs?(): void;
+  importSummary?: ReactNode;
 }) {
   const [batch, setBatch] = useState<SearchPreparationBatch | null>(null);
   const [loadingError, setLoadingError] = useState<string | null>(null);
@@ -412,8 +418,14 @@ export function SearchPreparationReceipt({
   if (!batch) {
     return (
       <section className="search-preparation-receipt" data-testid="search-preparation-receipt">
-        <div role="status"><LoaderCircle className="spin" size={18} /> Checking search preparation…</div>
-        {loadingError && <div className="import-field-error" role="alert">{loadingError}</div>}
+        <div className="search-preparation-receipt-body">
+          {importSummary}
+          <div role="status"><LoaderCircle className="spin" size={18} /> Checking search preparation…</div>
+          {loadingError && <div className="import-field-error" role="alert">{loadingError}</div>}
+        </div>
+        <footer className="search-preparation-actions">
+          <button type="button" className="btn" onClick={onDone}>Close</button>
+        </footer>
       </section>
     );
   }
@@ -433,134 +445,136 @@ export function SearchPreparationReceipt({
   const warnings = batch.warnings ?? [];
   return (
     <section className="search-preparation-receipt" data-testid="search-preparation-receipt">
-      <header>
-        <div>
-          <h2>{fullyPrepared && warnings.length > 0
-            ? 'Text prepared with warnings'
-            : fullyPrepared
-            ? 'Text ready for keyword search'
-            : batch.status === 'planning'
-              ? 'Planning search preparation'
-            : batch.status === 'complete' || batch.status === 'stopped'
-              ? 'Files imported'
-              : 'Make these files searchable'}</h2>
+      <div className="search-preparation-receipt-body">
+        {importSummary}
+        <header>
+          <div>
+            <h2>{fullyPrepared && warnings.length > 0
+              ? 'Text prepared with warnings'
+              : fullyPrepared
+              ? 'Text ready for keyword search'
+              : batch.status === 'planning'
+                ? 'Planning search preparation'
+              : batch.status === 'complete' || batch.status === 'stopped'
+                ? 'Files imported'
+                : 'Make these files searchable'}</h2>
+          </div>
+        </header>
+
+        {warnings.length > 0 && (
+          <aside className="form-hint" role="note" aria-label="Preparation warnings" data-testid="search-preparation-warnings">
+            <strong><CircleAlert size={14} className="run-warning-icon" aria-hidden /> Some results need attention</strong>
+            <ul>{warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
+          </aside>
+        )}
+
+        {batch.groups.length > 0 && <h3 className="search-preparation-section-heading">Text extraction</h3>}
+        <div className="search-preparation-groups">
+          {batch.groups.map((group) => {
+            const label = groupLabel(group);
+            const progress = groupProgress(batch, group);
+            return (
+              <div
+                key={group.kind}
+                className="search-preparation-group"
+                data-testid={`search-preparation-group-${group.kind}`}
+                data-status={group.status}
+              >
+                <span><strong>{label.primary}</strong> <small>{label.qualifier}</small></span>
+                <span className="search-preparation-group-status">
+                  <strong>{groupStatus(group)}</strong>
+                  {progress && <small>{groupProgressLabel(progress)}</small>}
+                </span>
+              </div>
+            );
+          })}
         </div>
-      </header>
 
-      {warnings.length > 0 && (
-        <aside className="form-hint" role="note" aria-label="Preparation warnings" data-testid="search-preparation-warnings">
-          <strong><CircleAlert size={14} className="run-warning-icon" aria-hidden /> Some results need attention</strong>
-          <ul>{warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
-        </aside>
-      )}
+        {active && batch.groups.length === 0 && (
+          <div className="search-preparation-status" role="status">
+            <LoaderCircle className="spin" size={16} /> Checking files and planning preparation…
+          </div>
+        )}
 
-      {batch.groups.length > 0 && <h3 className="search-preparation-section-heading">Text extraction</h3>}
-      <div className="search-preparation-groups">
-        {batch.groups.map((group) => {
-          const label = groupLabel(group);
-          const progress = groupProgress(batch, group);
-          return (
-            <div
-              key={group.kind}
-              className="search-preparation-group"
-              data-testid={`search-preparation-group-${group.kind}`}
-              data-status={group.status}
-            >
-              <span><strong>{label.primary}</strong> <small>{label.qualifier}</small></span>
-              <span className="search-preparation-group-status">
-                <strong>{groupStatus(group)}</strong>
-                {progress && <small>{groupProgressLabel(progress)}</small>}
-              </span>
-            </div>
-          );
-        })}
+        {batch.status !== 'needs_consent' && unavailableModels.length > 0 && (
+          <div className="import-field-error" role="alert">
+            {unavailableModels.map((model) => (
+              <p key={model.setup_ref}>
+                <strong>{model.display_name} is unavailable on this device.</strong>{' '}
+                {model.remediation || 'Install its local runtime, then prepare these files again.'}
+              </p>
+            ))}
+          </div>
+        )}
+
+        {pdfGroup && (
+          <TextReview
+            key={batch.id}
+            projectId={projectId}
+            batch={batch}
+            onBatchChange={publish}
+            onError={onError}
+          />
+        )}
+
+        {batch.status === 'needs_consent' && (
+          <section className="search-preparation-consent" data-testid="search-preparation-model-consent">
+            <h3>{missingModels.length > 0
+              ? 'Set up text extraction'
+              : ocrGroup ? 'Extract text with OCR?' : 'Prepare file text?'}</h3>
+            {missingModels.length > 0 && (
+              <div className="search-preparation-model-list">
+                {missingModels.map((model) => (
+                  <label
+                    className="search-preparation-model"
+                    key={model.setup_ref}
+                    data-testid={model.required
+                      ? `search-preparation-model-${model.purpose}`
+                      : undefined}
+                  >
+                    <input
+                      type="checkbox"
+                      data-testid={model.required ? undefined : 'search-preparation-semantic-model'}
+                      checked={model.can_setup && (model.required || semanticSelected)}
+                      disabled={model.required || !model.can_setup}
+                      onChange={(event) => setSemanticSelected(event.currentTarget.checked)}
+                    />
+                    <span>
+                      <strong>{model.display_name}</strong>
+                      <small className="search-preparation-model-purpose">{modelPurposeLabel(model.purpose)}</small>
+                      {!model.can_setup && model.remediation && (
+                        <small className="search-preparation-model-remediation">{model.remediation}</small>
+                      )}
+                    </span>
+                    <b>{model.download_bytes == null
+                      ? 'Size not measured'
+                      : `About ${formatNumberDisplay(model.download_bytes, 'filesize')}`}</b>
+                  </label>
+                ))}
+              </div>
+            )}
+            {!canPrepare && (
+              <div className="import-field-error" role="alert">
+                Model setup is unavailable. See the model details above.
+              </div>
+            )}
+          </section>
+        )}
+
+        {batch.models.some((model) => model.pull_id != null) && (
+          <div className="search-preparation-pulls">
+            {batch.models.map((model) => model.pull_id == null ? null : (
+              <PullProgress key={model.pull_id} pullId={model.pull_id} onChange={() => void refresh()} />
+            ))}
+          </div>
+        )}
+
+        {batch.errors.length > 0 && (
+          <div className="import-field-error" role="alert">
+            <CircleAlert size={14} /> {batch.errors.join(' ')}
+          </div>
+        )}
       </div>
-
-      {active && batch.groups.length === 0 && (
-        <div className="search-preparation-status" role="status">
-          <LoaderCircle className="spin" size={16} /> Checking files and planning preparation…
-        </div>
-      )}
-
-      {batch.status !== 'needs_consent' && unavailableModels.length > 0 && (
-        <div className="import-field-error" role="alert">
-          {unavailableModels.map((model) => (
-            <p key={model.setup_ref}>
-              <strong>{model.display_name} is unavailable on this device.</strong>{' '}
-              {model.remediation || 'Install its local runtime, then prepare these files again.'}
-            </p>
-          ))}
-        </div>
-      )}
-
-      {pdfGroup && (
-        <TextReview
-          key={batch.id}
-          projectId={projectId}
-          batch={batch}
-          onBatchChange={publish}
-          onError={onError}
-        />
-      )}
-
-      {batch.status === 'needs_consent' && (
-        <section className="search-preparation-consent" data-testid="search-preparation-model-consent">
-          <h3>{missingModels.length > 0
-            ? 'Set up text extraction'
-            : ocrGroup ? 'Extract text with OCR?' : 'Prepare file text?'}</h3>
-          {missingModels.length > 0 && (
-            <div className="search-preparation-model-list">
-              {missingModels.map((model) => (
-                <label
-                  className="search-preparation-model"
-                  key={model.setup_ref}
-                  data-testid={model.required
-                    ? `search-preparation-model-${model.purpose}`
-                    : undefined}
-                >
-                  <input
-                    type="checkbox"
-                    data-testid={model.required ? undefined : 'search-preparation-semantic-model'}
-                    checked={model.can_setup && (model.required || semanticSelected)}
-                    disabled={model.required || !model.can_setup}
-                    onChange={(event) => setSemanticSelected(event.currentTarget.checked)}
-                  />
-                  <span>
-                    <strong>{model.display_name}</strong>
-                    <small className="search-preparation-model-purpose">{modelPurposeLabel(model.purpose)}</small>
-                    {!model.can_setup && model.remediation && (
-                      <small className="search-preparation-model-remediation">{model.remediation}</small>
-                    )}
-                  </span>
-                  <b>{model.download_bytes == null
-                    ? 'Size not measured'
-                    : `About ${formatNumberDisplay(model.download_bytes, 'filesize')}`}</b>
-                </label>
-              ))}
-            </div>
-          )}
-          {!canPrepare && (
-            <div className="import-field-error" role="alert">
-              Model setup is unavailable. See the model details above.
-            </div>
-          )}
-        </section>
-      )}
-
-      {batch.models.some((model) => model.pull_id != null) && (
-        <div className="search-preparation-pulls">
-          {batch.models.map((model) => model.pull_id == null ? null : (
-            <PullProgress key={model.pull_id} pullId={model.pull_id} onChange={() => void refresh()} />
-          ))}
-        </div>
-      )}
-
-      {batch.errors.length > 0 && (
-        <div className="import-field-error" role="alert">
-          <CircleAlert size={14} /> {batch.errors.join(' ')}
-        </div>
-      )}
-
       {batch.status === 'needs_consent' ? (
         <footer className="search-preparation-actions">
           <button
