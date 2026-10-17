@@ -226,7 +226,7 @@ export function WorkbenchCommandPalette({
   const [preparationBatchId, setPreparationBatchId] = useState<string | null>(null);
   const preparationRevision = useRef<string | null>(null);
   const preparationController = useRef<AbortController | null>(null);
-  const preparationOwner = useRef<number | null>(null);
+  const [preparationSheetId, setPreparationSheetId] = useState<number | null>(null);
   useEffect(() => () => preparationController.current?.abort(), [projectId]);
   const [preparationBusy, setPreparationBusy] = useState(false);
   const [preparationError, setPreparationError] = useState<string | null>(null);
@@ -239,7 +239,7 @@ export function WorkbenchCommandPalette({
         if (controller.signal.aborted) return;
         const awaitingApproval = batches.find((batch) => batch.status === 'needs_consent');
         if (awaitingApproval) {
-          preparationOwner.current ??= awaitingApproval.sheet_id;
+          setPreparationSheetId(awaitingApproval.sheet_id);
           setPreparationBatchId((current) => current ?? awaitingApproval.id);
         }
       })
@@ -255,7 +255,7 @@ export function WorkbenchCommandPalette({
     preparationController.current?.abort();
     const controller = new AbortController();
     preparationController.current = controller;
-    preparationOwner.current = sheetId;
+    setPreparationSheetId(sheetId);
     void listSearchPreparations(projectId, { signal: controller.signal })
       .then(async ({ batches }) => {
         if (controller.signal.aborted) return;
@@ -545,7 +545,7 @@ export function WorkbenchCommandPalette({
             onPrepareGap={prepareSearchGap}
             preparationReview={projectId && preparationBatchId ? (
               <SearchPreparationReceipt
-                key={`${projectId}:${preparationOwner.current}`}
+                key={`${projectId}:${preparationSheetId}`}
                 projectId={projectId}
                 batchId={preparationBatchId}
                 onBatchChange={(batch) => {

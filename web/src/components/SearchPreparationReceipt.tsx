@@ -108,68 +108,66 @@ function TextReview({
   };
 
   return (
-    <>
-        <section className="search-preparation-text-preview" data-testid="search-preparation-text-preview">
-          <header>
-            <div>
-              <strong>Does this text look right?</strong>
-              <span>{sample?.filename ?? 'Imported PDF'}</span>
-            </div>
-          </header>
-          {sample ? (
-            <>
-              <div className="search-preparation-sample-pages">
-                {sample.page_scoped ? (
-                  <span>Page {sample.page_number} of {sample.page_count}</span>
-                ) : pages.map((page) => (
-                    <button
-                      type="button"
-                      key={page}
-                      className={page === sample.page_number ? 'active' : ''}
-                      aria-pressed={page === sample.page_number}
-                      onClick={() => selectPage(page)}
-                    >
-                      Page {page}
-                    </button>
-                  ))}
-                {!sample.page_scoped && (sample.page_count ?? 1) > 6 && (
-                  <button
-                    type="button"
-                    className="icon-btn"
-                    aria-label="Refresh sample pages"
-                    onClick={() => setPages((current) => resamplePages(sample.page_count ?? 1, current))}
-                  >
-                    ↻
-                  </button>
-                )}
-              </div>
-              <PdfTextPagePreview
-                page={sample.page_number}
-                thumbnailUrl={sample.preview_url}
-                text={sample.text}
-                heading="Extracted text"
-                emptyCopy="No embedded text is available on this sampled page."
-                truncated={sample.truncated}
-                loading={loading}
-              />
-            </>
-          ) : loading ? (
-            <div role="status"><LoaderCircle className="spin" size={18} /> Reading PDF text…</div>
-          ) : <p>No PDF text sample is available.</p>}
-          <div className="search-preparation-actions">
-            <button type="button" className="btn" data-testid="search-preparation-keep-text"
-              aria-pressed={!batch.force_ocr} disabled={busy}
-              onClick={() => onReplan(false)}>Keep embedded text</button>
-            <button type="button" className="btn" data-testid="search-preparation-force-ocr"
-              aria-pressed={batch.force_ocr} disabled={busy}
-              onClick={() => onReplan(true)}>Re-scan PDFs with OCR</button>
+    <section className="search-preparation-text-preview" data-testid="search-preparation-text-preview">
+      <header>
+        <div>
+          <strong>Does this text look right?</strong>
+          <span>{sample?.filename ?? 'Imported PDF'}</span>
+        </div>
+      </header>
+      {sample ? (
+        <>
+          <div className="search-preparation-sample-pages">
+            {sample.page_scoped ? (
+              <span>Page {sample.page_number} of {sample.page_count}</span>
+            ) : pages.map((page) => (
+                <button
+                  type="button"
+                  key={page}
+                  className={page === sample.page_number ? 'active' : ''}
+                  aria-pressed={page === sample.page_number}
+                  onClick={() => selectPage(page)}
+                >
+                  Page {page}
+                </button>
+              ))}
+            {!sample.page_scoped && (sample.page_count ?? 1) > 6 && (
+              <button
+                type="button"
+                className="icon-btn"
+                aria-label="Refresh sample pages"
+                onClick={() => setPages((current) => resamplePages(sample.page_count ?? 1, current))}
+              >
+                ↻
+              </button>
+            )}
           </div>
-          <p className="form-hint">
-            This choice applies to all PDFs in this batch. Keep embedded text where available,
-            or re-scan every PDF with OCR.
-          </p>
-        </section>
-    </>
+          <PdfTextPagePreview
+            page={sample.page_number}
+            thumbnailUrl={sample.preview_url}
+            text={sample.text}
+            heading="Extracted text"
+            emptyCopy="No embedded text is available on this sampled page."
+            truncated={sample.truncated}
+            loading={loading}
+          />
+        </>
+      ) : loading ? (
+        <div role="status"><LoaderCircle className="spin" size={18} /> Reading PDF text…</div>
+      ) : <p>No PDF text sample is available.</p>}
+      <div className="search-preparation-actions">
+        <button type="button" className={batch.force_ocr ? 'btn' : 'btn btn-primary'} data-testid="search-preparation-keep-text"
+          aria-pressed={!batch.force_ocr} disabled={busy}
+          onClick={() => onReplan(false)}>Keep embedded text</button>
+        <button type="button" className={batch.force_ocr ? 'btn btn-primary' : 'btn'} data-testid="search-preparation-force-ocr"
+          aria-pressed={batch.force_ocr} disabled={busy}
+          onClick={() => onReplan(true)}>Re-scan PDFs with OCR</button>
+      </div>
+      <p className="form-hint">
+        This choice applies to all PDFs in this batch. Keep embedded text where available,
+        or re-scan every PDF with OCR.
+      </p>
+    </section>
   );
 }
 
@@ -215,11 +213,13 @@ export function SearchPreparationReceipt({
     setLoadingError(null);
   };
   const refresh = async () => {
+    if (handedOff.current) return 'stop';
     if (mutationGeneration.current !== null) return;
     const generation = ++requestGeneration.current;
     try {
       const next = await getSearchPreparation(projectId, currentBatchId.current);
       if (generation === requestGeneration.current) publish(next);
+      if (handedOff.current) return 'stop';
     } catch (error) {
       if (generation === requestGeneration.current) {
         setLoadingError(error instanceof Error ? error.message : String(error));
@@ -233,7 +233,7 @@ export function SearchPreparationReceipt({
   }, [projectId]);
 
   usePoll(refresh, {
-    active: !handedOff.current && (batch === null || !TERMINAL.has(batch.status)),
+    active: batch === null || !TERMINAL.has(batch.status),
     intervalMs: 1_500,
     guardOverlap: true,
     immediate: true,
