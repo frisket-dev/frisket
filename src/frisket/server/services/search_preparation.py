@@ -28,6 +28,7 @@ from frisket.engine.jobs.search_preparation_store import (
     SearchPreparationBatchRow,
     SearchPreparationChildRow,
     SearchPreparationStore,
+    plan_sources,
 )
 from frisket.engine.jobs.model_pull import ModelPullEnqueueError, schedule_model_pull
 from frisket.engine.jobs.queue import SEARCH_INDEX_KIND, SERVER_SCOPED_JOB_PAYLOAD_KEY
@@ -606,13 +607,14 @@ class SearchPreparationService:
         project = self.workspace.get(project_id)
         if any(
             not self._source_item_current(project, row.sheet_id, item)
-            for item in row.plan["items"]
+            for item in plan_sources(row.plan)
         ):
             raise RouteError(
                 409, "a source file changed; review a new preparation plan"
             )
         source_cells = frozenset(
-            (int(item["row_id"]), int(item["column_id"])) for item in row.plan["items"]
+            (int(item["row_id"]), int(item["column_id"]))
+            for item in plan_sources(row.plan)
         )
         plan = self._plan(
             project,
@@ -676,7 +678,7 @@ class SearchPreparationService:
                 force_ocr=row.force_ocr,
                 source_cells=frozenset(
                     (int(item["row_id"]), int(item["column_id"]))
-                    for item in row.plan["items"]
+                    for item in plan_sources(row.plan)
                 ),
             )
             refreshed = self.store.replan(
@@ -754,7 +756,7 @@ class SearchPreparationService:
             current = _requirement_dict(live, required=bool(planned["required"]))
             if current != planned:
                 return False
-        for item in row.plan["items"]:
+        for item in plan_sources(row.plan):
             source = resolve_cell_blob_source(
                 project,
                 sheet_id=row.sheet_id,
@@ -1486,7 +1488,9 @@ class SearchPreparationService:
         jobs: list[SearchPreparationJob] = []
         child_states: dict[int, str] = {}
         projection_errors = list(row.errors)
-        projection_warnings: dict[str, None] = {}
+        projection_warnings: dict[str, None] = dict.fromkeys(
+            row.plan.get("warnings", [])
+        )
         for child in children:
             stored = (
                 receipts.find_by_id(child.receipt_id)

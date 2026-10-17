@@ -113,6 +113,11 @@ def canonical_plan_hash(plan: Mapping[str, Any]) -> str:
     return "sha256:" + hashlib.sha256(payload).hexdigest()
 
 
+def plan_sources(plan: Mapping[str, Any]) -> Sequence[Mapping[str, Any]]:
+    """Original actionable cells, including unreadable sources in partial plans."""
+    return plan.get("sources", plan["items"])
+
+
 @dataclass(frozen=True, slots=True)
 class SearchPreparationBatchRow:
     id: str
@@ -803,7 +808,7 @@ class SearchPreparationStore:
                     scope_json=json.dumps(
                         {
                             "row_ids": sorted(
-                                {int(item["row_id"]) for item in body["items"]}
+                                {int(item["row_id"]) for item in plan_sources(body)}
                             )
                         },
                         separators=(",", ":"),

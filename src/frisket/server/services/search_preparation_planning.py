@@ -22,6 +22,7 @@ from frisket.server.route_errors import RouteError
 _GROUP_ORDER = ("native_pdf", "ocr", "transcribe")
 _SCAN_PAGE = 200
 _PREVIEW_CHARS = 12_000
+_PLAN_WARNING_LIMIT = 20
 
 
 def build_plan(
@@ -51,6 +52,10 @@ def build_plan(
     ):
         raise RouteError(404, "one or more selected rows are not visible in this sheet")
     items: list[dict[str, Any]] = []
+    sources: list[dict[str, Any]] = []
+    warnings: dict[str, None] = {}
+    warnings_omitted = False
+    first_preview_error: RouteError | None = None
     counts: defaultdict[str, int] = defaultdict(int)
     pdf_cache: dict[tuple[str, int], PdfTextSample] = {}
     for offset in range(0, len(selected), _SCAN_PAGE):
@@ -87,15 +92,41 @@ def build_plan(
             mime = source.mime_type.lower()
             kind: str | None = None
             page_count: int | None = None
+            source_item = {
+                "row_id": selected_row,
+                "column_id": int(column["id"]),
+                "column_name": str(column["name"]),
+                "blob_hash": source.blob_hash,
+                "mime": mime,
+                "filename": value.get("filename"),
+                "page_number": source.page_number,
+                "retrieval_revision": source.binding.retrieval_revision,
+            }
             if mime == "application/pdf":
                 if not force_ocr and _has_current_result(project, source, "native_pdf"):
                     continue
-                sample = _pdf_sample(
-                    project,
-                    source.blob_hash,
-                    source.page_number or 1,
-                    cache=pdf_cache,
-                )
+                try:
+                    sample = _pdf_sample(
+                        project,
+                        source.blob_hash,
+                        source.page_number or 1,
+                        cache=pdf_cache,
+                    )
+                except RouteError as exc:
+                    if exc.status_code != 422:
+                        raise
+                    sources.append(source_item)
+                    first_preview_error = first_preview_error or exc
+                    filename = str(value.get("filename") or f"File row {selected_row}")[
+                        :200
+                    ]
+                    warning = f"Skipped {filename}: PDF text preview could not be read."
+                    if warning not in warnings:
+                        if len(warnings) < _PLAN_WARNING_LIMIT:
+                            warnings[warning] = None
+                        else:
+                            warnings_omitted = True
+                    continue
                 page_count = sample.page_count
                 # This is evidence about the sampled page, not a claim that
                 # every page contains usable native text. The user reviews it
@@ -124,21 +155,20 @@ def build_plan(
                 continue
             if mime != "application/pdf" and _has_current_result(project, source, kind):
                 continue
+            sources.append(source_item)
             items.append(
                 {
+                    **source_item,
                     "kind": kind,
-                    "row_id": selected_row,
-                    "column_id": int(column["id"]),
-                    "column_name": str(column["name"]),
-                    "blob_hash": source.blob_hash,
-                    "mime": mime,
-                    "filename": value.get("filename"),
-                    "page_number": source.page_number,
                     "page_count": page_count,
-                    "retrieval_revision": source.binding.retrieval_revision,
                 }
             )
             counts[kind] += 1
+    if not items and first_preview_error is not None:
+        raise first_preview_error
+    warning_messages = list(warnings)
+    if warnings_omitted:
+        warning_messages[-1] = "Additional unreadable PDF files were skipped."
     capabilities = {
         capability
         for kind, capability in (("ocr", "ocr"), ("transcribe", "transcription"))
@@ -161,6 +191,8 @@ def build_plan(
         ],
         "models": models,
         "items": items,
+        "sources": sources,
+        "warnings": warning_messages,
     }
 
 

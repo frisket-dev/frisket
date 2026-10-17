@@ -827,6 +827,139 @@ def test_pdf_replan_preserves_full_original_cell_scope_and_rejects_late_decision
     )
 
 
+@pytest.mark.parametrize("repair_skipped_pdf", [False, True])
+def test_mixed_pdf_plan_preserves_good_work_and_skipped_source_scope(
+    tmp_path, monkeypatch, repair_skipped_pdf
+):
+    from tests.server.test_server_import_pdf_routes import _pdf_bytes
+
+    monkeypatch.setattr(
+        preparation_module,
+        "_requirements",
+        lambda: (replace(_Requirement(), weights_ready=True),),
+    )
+    client = TestClient(create_app(tmp_path / "workspace"))
+    workspace = client.app.state.workspace
+    project_id = workspace.create("Mixed PDF preparation")["id"]
+    imported = client.post(
+        f"/api/projects/{project_id}/import/files",
+        files=[
+            ("files", ("native.pdf", _pdf_bytes("Native beacon"), "application/pdf")),
+            ("files", ("scan.pdf", _pdf_bytes(""), "application/pdf")),
+            ("files", ("broken.pdf", b"not a PDF", "application/pdf")),
+        ],
+    )
+    assert imported.status_code == 200, imported.text
+    sheet = imported.json()["sheet_id"]
+    base = f"/api/projects/{project_id}/search-preparation"
+    batch = client.get(
+        f"{base}/{imported.json()['search_preparation_batch_id']}"
+    ).json()
+    expected_warning = "Skipped broken.pdf: PDF text preview could not be read."
+    assert batch["status"] == "needs_consent"
+    assert [(group["kind"], group["count"]) for group in batch["groups"]] == [
+        ("native_pdf", 1),
+        ("ocr", 1),
+    ]
+    assert batch["warnings"] == [expected_warning]
+    assert batch["jobs"] == []
+    service = SearchPreparationService(workspace)
+    project = workspace.get(project_id)
+    original = service.store.get(
+        batch["id"], project_id=project_id, storage_org_id=None
+    )
+    sources = original.plan["sources"]
+    original_cells = {(item["row_id"], item["column_id"]) for item in sources}
+    assert len(original_cells) == 3
+    broken = next(item for item in sources if item["filename"] == "broken.pdf")
+    assert broken["row_id"] not in {item["row_id"] for item in original.plan["items"]}
+
+    # A later source column must not broaden this plan's original cell roster.
+    extra = project.add_column(sheet, "Unrelated PDF", type="file")
+    project.apply_edits(
+        [
+            {
+                "row_id": broken["row_id"],
+                "column_id": extra,
+                "value": {"blob": sources[0]["blob_hash"], "mime": "application/pdf"},
+            }
+        ]
+    )
+    for force_ocr in (True, False):
+        response = client.post(
+            f"{base}/{batch['id']}/replan",
+            json={"plan_hash": batch["plan_hash"], "force_ocr": force_ocr},
+        )
+        assert response.status_code == 200, response.text
+        batch = response.json()
+        assert batch["warnings"] == [expected_warning]
+        assert sum(group["count"] for group in batch["groups"]) == 2
+        assert batch["status"] == "needs_consent"
+        assert batch["jobs"] == []
+        stored = service.store.get(
+            batch["id"], project_id=project_id, storage_org_id=None
+        )
+        assert {
+            (item["row_id"], item["column_id"]) for item in stored.plan["sources"]
+        } == original_cells
+        assert set(stored.row_ids) == {row for row, _ in original_cells}
+
+    if repair_skipped_pdf:
+        repaired = project.add_blob(
+            _pdf_bytes("Repaired beacon"), mime="application/pdf"
+        )
+        project.apply_edits(
+            [
+                {
+                    "row_id": broken["row_id"],
+                    "column_id": broken["column_id"],
+                    "value": {
+                        "blob": repaired,
+                        "filename": "broken.pdf",
+                        "mime": "application/pdf",
+                    },
+                }
+            ]
+        )
+    stale = client.post(
+        f"{base}/{batch['id']}/decision",
+        json={
+            "plan_hash": batch["plan_hash"] if repair_skipped_pdf else "stale",
+            "decision": "prepare",
+            "selected_setup_refs": [],
+        },
+    )
+    assert stale.status_code == 409, stale.text
+    batch = client.get(f"{base}/{batch['id']}").json()
+    assert batch["status"] == "needs_consent"
+    assert batch["warnings"] == ([] if repair_skipped_pdf else [expected_warning])
+    stored = service.store.get(batch["id"], project_id=project_id, storage_org_id=None)
+    assert {
+        (item["row_id"], item["column_id"]) for item in stored.plan["sources"]
+    } == original_cells
+    expected_rows = {row for row, _ in original_cells}
+    if not repair_skipped_pdf:
+        expected_rows.remove(broken["row_id"])
+    assert {item["row_id"] for item in stored.plan["items"]} == expected_rows
+    assert batch["jobs"] == []
+    assert client.get("/api/providers/models/pulls").json()["pulls"] == []
+    started = client.post(
+        f"{base}/{batch['id']}/decision",
+        json={
+            "plan_hash": batch["plan_hash"],
+            "decision": "prepare",
+            "selected_setup_refs": [],
+        },
+    )
+    assert started.status_code == 200, started.text
+    assert {job["action_kind"] for job in started.json()["jobs"]} == {
+        "native_pdf",
+        "ocr",
+    }
+    assert len(started.json()["jobs"]) == 2
+    assert started.json()["warnings"] == batch["warnings"]
+
+
 def test_pdf_preview_failure_is_readable_http_error(tmp_path, monkeypatch):
     monkeypatch.setattr(preparation_module, "_requirements", lambda: ())
 
