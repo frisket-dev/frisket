@@ -10471,6 +10471,8 @@ type HttpSearchPreparationBatchList_SearchPreparationGroup = ({
 type HttpSearchPreparationBatchList_SearchPreparationIndexing = ({
   "error"?: (((string)) | ((null)));
   "job_id"?: (((number)) | ((null)));
+  "pdf_files"?: (Array<(HttpSearchPreparationBatchList_SearchPreparationPdfFile)>);
+  "pdf_files_truncated"?: (boolean);
   "status": ("idle" | "pending" | "queued" | "running" | "failed") & (string);
 });
 
@@ -10495,6 +10497,13 @@ type HttpSearchPreparationBatchList_SearchPreparationModel = ({
   "runtime_ready": (boolean);
   "setup_ref": (string);
   "source_url": (string);
+});
+
+type HttpSearchPreparationBatchList_SearchPreparationPdfFile = ({
+  "completed": (number);
+  "filename"?: (((string)) | ((null)));
+  "source_id": (string);
+  "total": (number);
 });
 
 export type HttpSearchPreparationBatchList = ({
