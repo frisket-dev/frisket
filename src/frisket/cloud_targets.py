@@ -471,6 +471,7 @@ def _support(route: CloudCapabilityRoute, capability: str) -> TargetEngineSuppor
                 language=options.language,
                 geometry=options.geometry,
                 searchable_pdf=options.searchable_pdf,
+                pdf_input=options.pdf_input,
             ),
             unavailable_reason=unavailable,
         )

@@ -227,6 +227,163 @@ def _cloud_ocr_composition(project, router, transport, engine="datalab"):
     )
 
 
+@pytest.mark.parametrize(
+    "selected_page,pdf_input", [(None, True), (2, True), (None, False)]
+)
+def test_cloud_pdf_companion_uploads_original_without_local_rasters(
+    tmp_path, monkeypatch, selected_page, pdf_input
+):
+    import io
+    from pypdf import PdfReader, PdfWriter
+    from frisket.engine.store.prepared_content import PreparedContentStore
+
+    project = Project.create(tmp_path / "cloud-pdf.frisket")
+    try:
+        sheet = project.add_sheet("Documents")
+        column = project.add_column(sheet, "page", type="image")
+        writer = PdfWriter()
+        for _ in range(3):
+            writer.add_blank_page(width=72, height=144)
+        buffer = io.BytesIO()
+        writer.write(buffer)
+        original = buffer.getvalue()
+        digest = project.add_blob(
+            original,
+            filename="source.pdf",
+            mime="application/pdf",
+            metadata=owned_media_metadata_document(probe={"kind": "pdf", "pages": 3}),
+        )
+        value = media_cell(digest, mime="application/pdf", filename="source.pdf")
+        if selected_page is not None:
+            value["page"] = selected_page
+        [row_id] = project.add_rows(sheet, [{"page": value}], {"page": column})
+        route_payload = _cloud_ocr_route().model_dump(mode="json")
+        if pdf_input:
+            route_payload["options"]["pdf_input"] = True
+        route = CloudCapabilityRoute.model_validate(route_payload)
+        count = 1 if selected_page else 3
+        calls = []
+
+        async def forbidden_raster(*_args, **_kwargs):
+            pytest.fail("Cloud PDF OCR must not rasterize on the client")
+
+        monkeypatch.setattr(
+            "frisket.ops.ocr_engines.OcrEngines._page_images", forbidden_raster
+        )
+
+        class Transport:
+            async def execute_media(self, attempt, **request):
+                calls.append(attempt)
+                assert attempt.payer.account_id == 41
+                assert attempt.payer.route_revision == route.route_revision
+                assert attempt.quote_authority.maximum_charge_micro == 2500 * count
+                [upload] = request["uploads"]
+                uploaded = upload.stream.read()
+                assert upload.content_type == "application/pdf"
+                assert len(PdfReader(io.BytesIO(uploaded)).pages) == count
+                if selected_page is None:
+                    assert uploaded == original
+                assert request["options"].model_dump(mode="json")["pdf_dpi"] == 200
+                pages = [
+                    {
+                        "page": number,
+                        "text": f"Page {number}",
+                        "blocks": [],
+                        "width": 200,
+                        "height": 400,
+                    }
+                    for number in range(1, count + 1)
+                ]
+                if count == 3:
+                    pages[1] = {
+                        "page": 2,
+                        "text": "",
+                        "blocks": [],
+                        "error": {"code": "ocr_page_failed", "stage": "rendering"},
+                    }
+                return CloudExecutionResponse(
+                    execution_id="cloud-original-pdf",
+                    status="completed",
+                    route=route,
+                    result=CloudOCRResult.model_validate({"pages": pages}),
+                    receipt=CloudExecutionReceipt(
+                        user_id=7,
+                        account_id=41,
+                        lane=route.lane,
+                        provider=route.provider,
+                        engine=route.engine,
+                        charge_micro=2500 * count,
+                        provider_cost_micro=2000 * count,
+                        usage=CloudOCRUsage(kind="ocr", pages=count),
+                    ),
+                )
+
+        router = _NullRouter()
+        composition = compose_cloud_targets(
+            open_execution_composition(
+                project, router, ExecutionCompositionContext.direct()
+            ),
+            user_id=7,
+            account=CloudAccount(
+                id=41,
+                name="Personal",
+                kind="personal",
+                balance_micro=50000,
+                available_micro=50000,
+                manage_billing=False,
+            ),
+            capabilities=CloudCapabilitiesResponse(account_id=41, routes=[route]),
+            preference="cloud_first",
+            execution_transport=Transport(),
+        )
+        deps = ExecutorDeps(
+            execution_composition=composition,
+            consent_coverage=ConsentCoverage(instance_principal(project), Decimal("0")),
+        )
+        request = _request(sheet, engine="datalab", dpi=200)
+        confirmed = _confirmed_request(project, request, router=router, deps=deps)
+        result = run_action_spec(
+            project, confirmed, project_id="cloud-pdf", router=router, deps=deps
+        )
+        if not pdf_input:
+            assert result.status == "failed"
+            assert not calls
+            errors = " ".join(str(error) for error in result.errors).lower()
+            assert "upgrade" in errors or "pdf" in errors
+            return
+        assert result.status == "completed", result.errors
+        assert len(calls) == 1
+        outputs = {output.name: output.column_id for output in result.outputs}
+        assert project.get_values(sheet, outputs["ocr_text"])[row_id] == (
+            "Page 1" if selected_page else "Page 1\n\n\n\nPage 3"
+        )
+        blocks = project.get_values(sheet, outputs["ocr_text_blocks"])[row_id]
+        assert [item["page"] for item in blocks] == (
+            [2] if selected_page else [1, 2, 3]
+        )
+        [reference] = project.db.execute(
+            "SELECT id FROM prepared_content_refs"
+        ).fetchall()
+        prepared = PreparedContentStore(project).resolve(reference[0])
+        assert [pin.page_number for pin in prepared.pins] == (
+            [2] if selected_page else [1, 2, 3]
+        )
+        for pin in prepared.pins:
+            if selected_page or pin.page_number != 2:
+                assert (pin.positions["width"], pin.positions["height"]) == (200, 400)
+        if selected_page is None:
+            assert any(
+                "Page 2 failed during rendering" in str(warning)
+                for warning in result.warnings
+            )
+        [call] = project.db.execute(
+            "SELECT id, provider, credential_source FROM model_calls"
+        ).fetchall()
+        assert tuple(call) == ("cloud-original-pdf", route.provider, "platform_key")
+    finally:
+        project.close()
+
+
 # ---------------------------------------------------------------------------
 # O1-ocr — the short-circuit probe + the local rent bound
 # ---------------------------------------------------------------------------

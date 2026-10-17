@@ -518,7 +518,10 @@ class CloudConnectionClient:
         response = self._request(
             "GET",
             f"/api/desktop/v1/accounts/{account_id}/capabilities",
-            headers=self._bearer(access_token),
+            headers={
+                **self._bearer(access_token),
+                "X-Frisket-OCR-Contract": "pdf-v1",
+            },
             params={"include_unconfigured": "true"},
         )
         capabilities = self._parse(response, CloudCapabilitiesResponse)

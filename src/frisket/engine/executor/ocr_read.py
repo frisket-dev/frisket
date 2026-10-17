@@ -275,7 +275,9 @@ class _BoundOcrReader:
             raise RowError("missing_blob", "OCR source blob is missing")
         page = value.get("page")
         if page is not None and (
-            type(page) is not int or page < 1 or column["type"] != "file"
+            type(page) is not int
+            or page < 1
+            or (column["type"] != "file" and value.get("mime") != "application/pdf")
         ):
             raise RowError(
                 "invalid_media_cell",
@@ -334,6 +336,18 @@ class _BoundOcrReader:
                 path = original_path
                 page_count = None
                 if is_pdf:
+                    from frisket.ops.ocr_engines_cloud import (
+                        cloud_pdf_input_supported,
+                    )
+
+                    cloud_pdf = self._cloud_media_route() and cloud_pdf_input_supported(
+                        ctx, engine
+                    )
+                    if self._cloud_media_route() and not cloud_pdf:
+                        raise RecipeInvocationHalt(
+                            "promise_violation",
+                            "Cloud OCR does not support PDF input; reconnect or upgrade Frisket Cloud",
+                        )
                     probe = MediaBlobStore(owner._project).probe_metadata(
                         source["blob_hash"]
                     )
@@ -390,7 +404,21 @@ class _BoundOcrReader:
                 warnings = ()
                 returned = False
                 try:
-                    if incremental:
+                    if is_pdf and cloud_pdf:
+                        if type(page_count) is not int or page_count <= 0:
+                            raise RowError(
+                                "invalid_media_cell", "PDF page count could not be read"
+                            )
+                        source["page_count"] = page_count
+                        pages, page_images, warnings = await self._recognize_cloud_pdf(
+                            source,
+                            path,
+                            engine,
+                            usage,
+                            page_count=1 if selected_page is not None else page_count,
+                            first_page=selected_page or 1,
+                        )
+                    elif incremental:
                         if type(page_count) is not int or page_count <= 0:
                             raise RowError(
                                 "invalid_media_cell", "PDF page count could not be read"
@@ -542,6 +570,45 @@ class _BoundOcrReader:
         return engine in engines.LOCAL_ENGINES and (
             transport != "frisket.cloud.media.v1"
         )
+
+    def _cloud_media_route(self):
+        admission = routed_admission_in_scope(self._ctx.extras)
+        return bool(
+            admission is not None
+            and admission.route.target_snapshot.get("transport")
+            == "frisket.cloud.media.v1"
+        )
+
+    async def _recognize_cloud_pdf(
+        self, source, path, engine, usage, *, page_count, first_page
+    ):
+        from frisket.ops.ocr_engines_cloud import ocr_cloud_pdf
+
+        self._owner._check_open()
+        self._report_page_progress(0, page_count)
+        pages = await ocr_cloud_pdf(
+            engine,
+            path,
+            self._ctx,
+            usage,
+            page_count=page_count,
+            dpi=self._owner._options["dpi"],
+            language=self._owner._options.get("language"),
+            keep_text_position=self._owner._options.get("keep_text_position"),
+        )
+        self._owner._check_open()
+        images = {}
+        for number, page in enumerate(pages, first_page):
+            positions = _page_coordinate_frame(page, required=False)
+            if positions and not self._owner._files.preview:
+                images[str(number)] = {
+                    "mime": "application/pdf",
+                    "source_width": positions["width"],
+                    "source_height": positions["height"],
+                }
+        usage["input_pages"] = page_count
+        self._report_page_progress(page_count, page_count)
+        return pages, images, _page_warnings(pages, first_page=first_page)
 
     async def _recognize_indra_pdf(
         self, source, path, engine, scratch, usage, *, page_count, first_page

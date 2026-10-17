@@ -151,6 +151,7 @@ class CloudOCROptionSupport(WireModel):
     language: bool
     geometry: bool
     searchable_pdf: bool
+    pdf_input: bool = Field(default=False, exclude_if=lambda value: not value)
 
 
 class CloudTranscriptionOptionSupport(WireModel):
@@ -225,6 +226,9 @@ class CloudOCROptions(WireModel):
     language: str | None = Field(default=None, min_length=1)
     geometry: bool = False
     searchable_pdf: bool = False
+    pdf_dpi: int | None = Field(
+        default=None, ge=50, le=600, exclude_if=lambda value: value is None
+    )
 
 
 class CloudDocumentConvertOptions(WireModel):
@@ -322,10 +326,32 @@ class CloudOCRBlock(WireModel):
         return value
 
 
+class CloudOCRPageError(WireModel):
+    code: str = Field(min_length=1)
+    stage: str = Field(min_length=1)
+
+
 class CloudOCRPage(WireModel):
     page: int = Field(ge=1)
     text: str
     blocks: list[CloudOCRBlock]
+    width: int | None = Field(
+        default=None, gt=0, exclude_if=lambda value: value is None
+    )
+    height: int | None = Field(
+        default=None, gt=0, exclude_if=lambda value: value is None
+    )
+    error: CloudOCRPageError | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+
+    @model_validator(mode="after")
+    def _pdf_page_shape(self) -> "CloudOCRPage":
+        if (self.width is None) != (self.height is None):
+            raise ValueError("OCR page width and height must be provided together")
+        if self.error is not None and (self.text or self.blocks):
+            raise ValueError("failed OCR pages must not contain OCR content")
+        return self
 
 
 class CloudOCRResult(WireModel):

@@ -243,6 +243,63 @@ def _response(*, account_id: int = 41) -> CloudExecutionResponse:
     )
 
 
+@pytest.mark.asyncio
+async def test_cloud_pdf_companion_http_poll_and_recovery_keep_one_purchase(tmp_path):
+    payload = _response().model_dump(mode="json")
+    payload["route"].update(engine="pp-ocrv6", provider="frisket_models")
+    payload["route"]["price"] = {"kind": "unit", "unit": "page", "micro_per_unit": 2500}
+    payload["route"]["options"]["pdf_input"] = True
+    payload["receipt"].update(
+        engine="pp-ocrv6", provider="frisket_models", charge_micro=5000
+    )
+    payload["result"] = {
+        "pages": [
+            {"page": 1, "text": "", "blocks": [], "width": 100, "height": 200},
+            {"page": 2, "text": "last", "blocks": [], "width": 200, "height": 100},
+        ]
+    }
+    original = b"%PDF-original-document"
+    requests = []
+
+    async def handler(request):
+        assert request.headers.get("X-Frisket-OCR-Contract") == "pdf-v1"
+        assert request.headers["Idempotency-Key"] == "one-pdf-purchase"
+        requests.append(request.method)
+        if request.method == "POST":
+            body = await request.aread()
+            assert original in body
+            assert b'"pdf_dpi":200' in body
+            running = {**payload, "status": "running", "result": None, "receipt": None}
+            return httpx.Response(202, json=running)
+        assert request.method == "GET"
+        return httpx.Response(200, json=payload)
+
+    transport = HttpCloudExecutionTransport(
+        _store(tmp_path),
+        "https://cloud.example.test",
+        http_transport=httpx.MockTransport(handler),
+    )
+    attempt = CloudExecutionAttempt(
+        "one-pdf-purchase",
+        replace(_payer(), engine="pp-ocrv6", provider="frisket_models"),
+        CloudQuoteAuthority(5000),
+    )
+    result = await transport.execute_media(
+        attempt,
+        capability="ocr",
+        engine="pp-ocrv6",
+        options=CloudOCROptions.model_validate({"geometry": True, "pdf_dpi": 200}),
+        uploads=[
+            CloudMediaUpload("source.pdf", "application/pdf", io.BytesIO(original))
+        ],
+    )
+    recovered = await transport.recover(attempt, result.execution_id)
+    assert recovered == result
+    assert requests == ["POST", "GET", "GET"]
+    assert recovered.receipt.usage.pages == 2
+    assert recovered.result.pages[1].width == 200
+
+
 def _store(tmp_path) -> CloudConnectionStore:
     store = CloudConnectionStore(tmp_path / "cloud-profile")
     store.save_connection(
