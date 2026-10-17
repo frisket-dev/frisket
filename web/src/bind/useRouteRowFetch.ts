@@ -50,11 +50,12 @@ async function fetchRowInScope(
   if (!location.found || location.pageOffset === null) return null;
   const page = await api.getSheetData(
     sheetId,
-    location.pageOffset,
-    location.pageSize,
-    scope,
+    0,
+    1,
+    { ...scope, rowIds: [Number(rowId)], valueMode: 'bounded' },
   );
-  return page.rows.find((candidate) => candidate.id === rowId) ?? null;
+  const row = page.rows.find((candidate) => candidate.id === rowId);
+  return row ? { ...row, index: location.index ?? row.index } : null;
 }
 
 /** Resolve a routed row in the current view, then fall back to its sheet.

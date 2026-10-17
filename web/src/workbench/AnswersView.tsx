@@ -16,11 +16,12 @@ import { CitationChip } from '../components/evidence/CitationChip';
 import { PanelLoading } from '../components/PanelPrimitives';
 import { PanelSelect } from '../components/PanelSelect';
 import { useResizable } from '../components/useResizable';
+import { LargeCellValue } from '../components/LargeCellValue';
 import { MarkdownView } from '../markdown';
 import { mergeCitedQuote } from './citationQuote';
 import { useColumnEvidence } from './columnEvidenceResource';
 import { useEvidenceLinkViewer } from './evidenceLinkViewerResource';
-import { rowTitle as resolveRowTitle } from './rowTitle';
+import { resolveTitleColumn, rowTitle as resolveRowTitle } from './rowTitle';
 import { LIST_ITEM_HEIGHT, useWindowedRowList } from './useWindowedRowList';
 
 // Lazy, matching App.tsx's LazyEvidenceViewer -- AnswersView itself is
@@ -125,7 +126,11 @@ export function AnswersView({
     [citedColumns, chosenColumnId],
   );
 
-  const listKey = `${sheet.id}:${orderKey}`;
+  const listColumnIds = useMemo(() => {
+    const title = resolveTitleColumn(sheet, { columnOrder: titleColumnOrder });
+    return [...new Set([chosenColumn?.id, title?.id].filter((id): id is string => Boolean(id)))];
+  }, [chosenColumn?.id, sheet, titleColumnOrder]);
+  const listKey = `${sheet.id}:${orderKey}:${listColumnIds.join(',')}`;
   const [list, setList] = useState<ListState>({
     key: listKey,
     rows: [],
@@ -144,7 +149,7 @@ export function AnswersView({
   useEffect(() => {
     let cancelled = false;
     setList({ key: listKey, rows: [], total: sheet.rowCount, loading: true, error: null });
-    void queryRows({ offset: 0, limit: LIST_PAGE_SIZE })
+    void queryRows({ columnIds: listColumnIds, offset: 0, limit: LIST_PAGE_SIZE })
       .then((page) => {
         if (cancelled) return;
         setList({ key: listKey, rows: page.rows, total: page.total, loading: false, error: null });
@@ -162,13 +167,13 @@ export function AnswersView({
     return () => {
       cancelled = true;
     };
-  }, [listKey, queryRows, sheet.rowCount]);
+  }, [listKey, listColumnIds, queryRows, sheet.rowCount]);
 
   const loadMore = useCallback(async () => {
     if (list.loading || list.rows.length >= list.total) return;
     setList((prev) => ({ ...prev, loading: true }));
     try {
-      const page = await queryRows({ offset: list.rows.length, limit: LIST_PAGE_SIZE });
+      const page = await queryRows({ columnIds: listColumnIds, offset: list.rows.length, limit: LIST_PAGE_SIZE });
       setList((prev) => ({
         key: prev.key,
         rows: [...prev.rows, ...page.rows],
@@ -183,7 +188,7 @@ export function AnswersView({
         error: err instanceof Error ? err.message : 'Could not load rows.',
       }));
     }
-  }, [list.loading, list.rows.length, list.total, queryRows]);
+  }, [list.loading, list.rows.length, list.total, listColumnIds, queryRows]);
 
   const rowTitle = useCallback(
     (row: Row): string => resolveRowTitle(sheet, row, { columnOrder: titleColumnOrder }),
@@ -409,7 +414,10 @@ export function AnswersView({
             >
               <div className="answers-cell-title">{rowTitle(activeRow)}</div>
               <div className="answers-cell-content" data-testid="answers-cell-content">
-                {activeValue === null || activeValue === undefined || activeValue === '' ? (
+                {chosenColumn && activeRow.boundedValues?.[chosenColumn.id] ? (
+                  <LargeCellValue projectId={projectId} rowId={activeRow.id} columnId={chosenColumn.id}
+                    descriptor={activeRow.boundedValues[chosenColumn.id]} />
+                ) : activeValue === null || activeValue === undefined || activeValue === '' ? (
                   <span className="row-field-empty">empty</span>
                 ) : chosenColumn?.format === 'markdown' ? (
                   <MarkdownView source={String(activeValue)} className="answers-cell-markdown" />

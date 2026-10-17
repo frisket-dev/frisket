@@ -3,7 +3,7 @@ import type { GridApiPort } from '../../src/api/ports';
 import type { Row } from '../../src/api/open';
 import { fetchRouteRow } from '../../src/bind/useRouteRowFetch';
 
-const row = { id: 'row-7', index: 7, cells: {} } as Row;
+const row = { id: '7', index: 7, cells: {} } as Row;
 const scope = {
   parentRowId: null,
   filter: { status: { eq: 'open' } },
@@ -20,30 +20,30 @@ function apiWith(
 
 describe('fetchRouteRow', () => {
   it('uses the current grid scope when it contains the routed row', async () => {
-    const locate = vi.fn().mockResolvedValue({ found: true, rowIndex: 7, pageOffset: 0, pageSize: 100 });
+    const locate = vi.fn().mockResolvedValue({ found: true, index: 7, pageOffset: 0, pageSize: 100 });
     const read = vi.fn().mockResolvedValue({ rows: [row], total: 1 });
 
-    await expect(fetchRouteRow(apiWith(locate, read), 'sheet-1', row.id, scope)).resolves.toBe(row);
+    await expect(fetchRouteRow(apiWith(locate, read), 'sheet-1', row.id, scope)).resolves.toEqual(row);
     expect(locate).toHaveBeenCalledOnce();
-    expect(read).toHaveBeenCalledWith('sheet-1', 0, 100, scope);
+    expect(read).toHaveBeenCalledWith('sheet-1', 0, 1, { ...scope, rowIds: [7], valueMode: 'bounded' });
   });
 
   it('falls back to the unfiltered sheet when the current view excludes the row', async () => {
     const locate = vi.fn()
-      .mockResolvedValueOnce({ found: false, rowIndex: null, pageOffset: null, pageSize: 100 })
-      .mockResolvedValueOnce({ found: true, rowIndex: 7, pageOffset: 0, pageSize: 100 });
+      .mockResolvedValueOnce({ found: false, index: null, pageOffset: null, pageSize: 100 })
+      .mockResolvedValueOnce({ found: true, index: 7, pageOffset: 0, pageSize: 100 });
     const read = vi.fn().mockResolvedValue({ rows: [row], total: 1 });
 
-    await expect(fetchRouteRow(apiWith(locate, read), 'sheet-1', row.id, scope)).resolves.toBe(row);
+    await expect(fetchRouteRow(apiWith(locate, read), 'sheet-1', row.id, scope)).resolves.toEqual(row);
     expect(locate.mock.calls).toEqual([
       ['sheet-1', row.id, scope],
       ['sheet-1', row.id, null],
     ]);
-    expect(read).toHaveBeenCalledWith('sheet-1', 0, 100, null);
+    expect(read).toHaveBeenCalledWith('sheet-1', 0, 1, { rowIds: [7], valueMode: 'bounded' });
   });
 
   it('does not repeat a miss when only row ordering is active', async () => {
-    const locate = vi.fn().mockResolvedValue({ found: false, rowIndex: null, pageOffset: null, pageSize: 100 });
+    const locate = vi.fn().mockResolvedValue({ found: false, index: null, pageOffset: null, pageSize: 100 });
     const read = vi.fn();
     const unscoped = {
       parentRowId: null,

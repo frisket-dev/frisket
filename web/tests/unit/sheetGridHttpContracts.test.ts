@@ -82,6 +82,23 @@ afterEach(() => {
 });
 
 describe('sheet and grid HTTP contracts', () => {
+  it('preserves bounded descriptors separately from exact cells and projects display reads', async () => {
+    const descriptor = { preview: 'A display excerpt', value_kind: 'text', total_characters: 100000,
+      total_bytes: 100001, retrieval_revision: 3, truncated: true, manual_editable: false, manual_edit_byte_limit: 65536 };
+    const fetchMock = vi.fn(async () => jsonResponse({ columns: [sheetColumnWire], total: 1,
+      rows: [{ id: 11, cells: {}, meta: { 9: { bounded_value: descriptor,
+        current_value_ref: { kind: 'source_cell', row_id: 11, column_id: 9, run_id: null, op_id: null } } },
+        parent_row_id: null, child_count: 0 }] }));
+    vi.stubGlobal('fetch', fetchMock);
+    const page = await realApi.getSheetData('7', 0, 25, { columnIds: ['9'], valueMode: 'bounded' });
+    const url = new URL(String(fetchMock.mock.calls[0][0]), 'http://localhost');
+    expect(url.searchParams.get('value_mode')).toBe('bounded');
+    expect(url.searchParams.get('column_ids')).toBe('9');
+    expect(page.rows[0].cells).toEqual({});
+    expect(page.rows[0].boundedValues).toEqual({ 9: descriptor });
+    expect(page.rows[0].loadedColumnIds).toEqual(['9']);
+  });
+
   it('preserves the canonical URL-download launcher hint from the sheet contract', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
       total: 0, rows: [], columns: [{

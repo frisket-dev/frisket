@@ -70,3 +70,13 @@ describe('computeRowCacheKey — scope changes re-key without a data-version bum
       .not.toBe(computeRowCacheKey(SHEET, VERSION, scope));
   });
 });
+
+ it('keeps projected and bounded row caches separate from exact/full rows', () => {
+  const full = computeRowCacheKey(SHEET, VERSION);
+  const first = computeRowCacheKey(SHEET, VERSION, { columnIds: ['1'], valueMode: 'bounded' });
+  expect(first).not.toBe(full);
+  expect(first).not.toBe(computeRowCacheKey(SHEET, VERSION, { columnIds: ['2'], valueMode: 'bounded' }));
+  expect(first).not.toBe(computeRowCacheKey(SHEET, VERSION, { columnIds: ['1'], valueMode: 'exact' }));
+  expect(computeRowCacheKey(SHEET, VERSION, { columnIds: ['2', '1'] }))
+    .toBe(computeRowCacheKey(SHEET, VERSION, { columnIds: ['1', '2'] }));
+});

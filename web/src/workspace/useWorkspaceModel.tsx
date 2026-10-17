@@ -53,6 +53,7 @@ import { backfillWithConfirmation } from '../api/backfillWithConfirmation';
 import { subscribeMapPointsMeta } from '../api/mapPointsMeta';
 import type { ColumnGroupViewSpec } from '../grid/SheetGrid';
 import { applyColumnTypeRegistry } from '../grid/typeRegistry';
+import { gridReadColumnIds } from '../components/fieldValueDependencies';
 import { computeRowCacheKey, resolveRowCacheScope } from '../grid/rowCacheStore';
 import { PanelLoading } from '../components/PanelPrimitives';
 import { documentMediaColumns } from '../workbench/documentMedia';
@@ -1015,7 +1016,7 @@ export function useWorkspaceModel({
     activeGridFilter,
     activeGridSort,
     activeGridScopeRowIds: scopeRowIds,
-    rowDrawerId: rowDrawer?.id ?? null,
+    rowDrawerId: rowDrawer?.loadedColumnIds ? null : rowDrawer?.id ?? null,
     showError,
   });
 
@@ -1046,7 +1047,7 @@ export function useWorkspaceModel({
         sort: activeGridSort,
       };
       void projectApi
-        .getSheetData(sheet.id, targetIndex, 1, scope)
+        .getSheetData(sheet.id, targetIndex, 1, { ...scope, valueMode: 'bounded' })
         .then((page) => {
           const nextRow = page.rows[0];
           if (!nextRow) return;
@@ -2872,15 +2873,18 @@ export function useWorkspaceModel({
         ? activeChildFilter.count
         : sheet?.rowCount ?? 0;
   const activeRowCacheOptions = useMemo(
-    () =>
-      resolveRowCacheScope({
+    () => ({
+      ...resolveRowCacheScope({
         parentRowId: activeChildFilter?.parentRowId,
         filter: activeGridFilter,
         sort: activeGridSort,
         lensRowIds: activeGridLensRowIds,
         scopeRowIds,
       }),
-    [activeChildFilter?.parentRowId, activeGridFilter, activeGridSort, activeGridLensRowIds, scopeRowIds],
+      columnIds: sheet ? gridReadColumnIds(sheet.columns, hiddenColumnNames) : [],
+      valueMode: 'bounded' as const,
+    }),
+    [activeChildFilter?.parentRowId, activeGridFilter, activeGridSort, activeGridLensRowIds, scopeRowIds, sheet, hiddenColumnNames],
   );
   const activeRowCacheKey = sheet
     ? computeRowCacheKey(sheet.id, dataVersion, activeRowCacheOptions)

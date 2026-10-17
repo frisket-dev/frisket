@@ -59,6 +59,7 @@ export default defineConfig([
       'src/api/httpContract.ts',
       'src/api/raw/browserAuth.ts',
       'src/api/raw/blobText.ts',
+      'src/api/raw/cellValue.ts',
       'src/api/raw/mapPointsArrow.ts',
       'src/api/raw/skillMarkdownUpload.ts',
       '**/*.{test,spec}.{ts,tsx}',

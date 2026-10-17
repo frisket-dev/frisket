@@ -183,6 +183,8 @@ export function computeRowCacheKey(
     sheetId,
     dataVersion,
     o.parentRowId ?? '',
+    JSON.stringify(o.columnIds ? [...o.columnIds].sort() : null),
+    o.valueMode ?? 'exact',
     JSON.stringify(o.filter ?? null),
     JSON.stringify(o.sort ?? null),
     JSON.stringify(o.rowIds ?? null),

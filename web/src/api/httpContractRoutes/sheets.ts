@@ -3,6 +3,7 @@ import {
   type HttpContractSuccessResponse,
 } from '../httpContract';
 import type {
+  BoundedCellValue,
   CellValue,
   CellValueRef,
   ColumnStats,
@@ -32,6 +33,7 @@ export interface SheetDataContractQuery {
   offset?: number;
   limit?: number;
   column_ids?: string;
+  value_mode?: 'exact' | 'bounded';
   parent_row_id?: number;
   filter?: string;
   sort?: string;
@@ -176,7 +178,9 @@ function mapSheetRows(wire: SheetDataWire): SheetRowsContractPage {
       const cellOutcomes: Record<string, string> = {};
       const invalidCells: Record<string, true> = {};
       const replayPending: Record<string, ReplayPendingValue> = {};
+      const boundedValues: Record<string, BoundedCellValue> = {};
       for (const [columnId, meta] of Object.entries(row.meta)) {
+        if (meta.bounded_value) boundedValues[columnId] = meta.bounded_value;
         if (meta.state) cellStates[columnId] = meta.state;
         if (meta.error) cellErrors[columnId] = meta.error;
         if (meta.outcome) cellOutcomes[columnId] = meta.outcome;
@@ -215,6 +219,7 @@ function mapSheetRows(wire: SheetDataWire): SheetRowsContractPage {
         id: String(row.id),
         index,
         cells,
+        ...(Object.keys(boundedValues).length > 0 ? { boundedValues } : {}),
         provenance,
         cellStates,
         cellErrors,

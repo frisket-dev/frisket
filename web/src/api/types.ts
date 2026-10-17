@@ -881,10 +881,25 @@ export type EvidenceRegion = EvidencePage['regions'][number];
 export type EvidenceSpan = EvidenceArtifact['spans'][number];
 export type EvidenceCitationRun = EvidenceArtifact['runs'][number];
 
+/** A display excerpt, never an editable value or an exact clipboard value. */
+export interface BoundedCellValue {
+  preview: string;
+  value_kind: string;
+  total_characters: number;
+  total_bytes: number;
+  retrieval_revision: number;
+  truncated: true;
+  manual_editable: false;
+  manual_edit_byte_limit: number;
+}
+
 export interface Row {
   id: string;
   index: number;
-  cells: Record<string, CellValue>; // columnId -> value
+  cells: Record<string, CellValue>; // columnId -> exact value
+  boundedValues?: Record<string, BoundedCellValue>;
+  /** Present only on a projected row; missing columns are unloaded, not empty. */
+  loadedColumnIds?: string[];
   provenance: Record<string, CellProvenance>; // columnId -> current value refs/provenance
   /** Backend per-cell state from /data meta: complete/error/incomplete. */
   cellStates?: Record<string, string>;
@@ -2134,6 +2149,8 @@ export interface GridSortRule {
 export type GridSortSpec = GridSortRule[];
 
 export interface SheetDataOptions {
+  /** Display reads omit large values and return explicit bounded descriptors. */
+  valueMode?: 'exact' | 'bounded';
   /** Narrow read projection. Omitted retains the grid's full visible-column payload. */
   columnIds?: string[] | null;
   /** Exact row restriction, intersected with normal filter/sort. */

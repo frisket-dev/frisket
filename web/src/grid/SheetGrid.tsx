@@ -68,6 +68,7 @@ import {
   resolveColumnAnnotationPlacement,
 } from './gridHeaderBand';
 import { useRowCache, type RowCache } from './useRowCache';
+import { gridReadColumnIds } from '../components/fieldValueDependencies';
 import { createRowCacheStore, resolveRowCacheScope, type RowCacheStoreHandle } from './rowCacheStore';
 import { isActiveRunStatus, isStreamingRunStatus } from '../runStatusModel';
 import { usePoll } from '../hooks/usePoll';
@@ -1168,16 +1169,23 @@ function useSheetGridController({
       ? parentRowFilter.count
       : sheet.rowCount;
   const lensRowIdsKey = lensActive ? lensRowIds.join(',') : '';
+  const projectedColumnIds = useMemo(
+    () => gridReadColumnIds(sheet.columns, hiddenColumnNames),
+    [sheet.columns, hiddenColumnNames],
+  );
   const dataOptions = useMemo<SheetDataOptions>(
-    () =>
-      resolveRowCacheScope({
+    () => ({
+      ...resolveRowCacheScope({
         parentRowId: parentRowFilter?.parentRowId,
         filter: activeFilter,
         scopeRowIds,
         sort: activeSort,
         lensRowIds: lensActive ? (lensRowIdsKey ? lensRowIdsKey.split(',').map(Number) : []) : null,
       }),
-    [activeFilter, activeSort, parentRowFilter?.parentRowId, lensActive, lensRowIdsKey, scopeRowIds],
+      columnIds: projectedColumnIds,
+      valueMode: 'bounded',
+    }),
+    [activeFilter, activeSort, parentRowFilter?.parentRowId, lensActive, lensRowIdsKey, scopeRowIds, projectedColumnIds],
   );
   const fallbackRowCacheStore = useMemo(() => createRowCacheStore(), []);
   const cache = useRowCache(
@@ -1891,7 +1899,7 @@ function useSheetGridController({
       if (!def || def.ai) return;
       const row = cache.getRow(rowIdx);
       const value = editableValue(newValue);
-      if (!row || value === undefined) return;
+      if (!row || row.boundedValues?.[def.id] || value === undefined) return;
       void onCellEdit(row, def, value).then(
         () => cache.refresh(),
         () => cache.refresh(),

@@ -37,6 +37,7 @@ import structuredStyles from './StructuredValue.module.css';
 import { useAnchoredPosition } from '../hooks/useAnchoredPosition';
 import { useNativePopover } from '../hooks/useNativePopover';
 import { createAudioPlaybackSource } from '../state/audioPlaybackStore';
+import { LargeCellValue } from './LargeCellValue';
 import { captionColumnScore, fieldValueDependencyColumnIds } from './fieldValueDependencies';
 
 const EMPTY_CONTRIBUTIONS: WorkbenchResolvedLayoutContribution[] = [];
@@ -326,9 +327,11 @@ export function RowField({
   const temporalDraftResult = editableTimelineType
     ? replaceTimelineItemsFromDraft(displayValue, editableTimelineType, draft)
     : null;
-  const canEdit = editableTimelineType
+  const bounded = row.boundedValues?.[col.id];
+  const loaded = !row.loadedColumnIds || row.loadedColumnIds.includes(col.id);
+  const canEdit = loaded && !bounded && (editableTimelineType
     ? temporalDraftText !== null
-    : !col.ai && !isTemporalColumnType(col.type);
+    : !col.ai && !isTemporalColumnType(col.type));
   const copyText = editableTimelineType
     ? temporalDraftText ?? ''
     : isTemporalColumnType(col.type)
@@ -419,7 +422,7 @@ export function RowField({
             )}
           </span>
           <span className="row-field-action-slot">
-            {actionsVisible ? (
+            {actionsVisible && loaded && !bounded ? (
               <button
                 type="button"
                 className="row-field-icon"
@@ -482,6 +485,8 @@ export function RowField({
             <Check size={12} /> Save
           </button>
         </form>
+      ) : bounded ? (
+        <FieldValue col={col} columns={columns} row={row} sheetId={sheetId} value={displayValue} />
       ) : (
         <ClampedField>
           <FieldValue
@@ -726,6 +731,9 @@ export function FieldValue({
   selectableItemIndices?: ReadonlySet<number>;
 }) {
   const { chromePreferences: { projectId } } = useWorkspaceStores();
+  if (row.loadedColumnIds && !row.loadedColumnIds.includes(col.id)) return <p role="status">Loading value…</p>;
+  const bounded = row.boundedValues?.[col.id];
+  if (bounded) return <LargeCellValue projectId={projectId} rowId={row.id} columnId={col.id} descriptor={bounded} />;
   // Explicit "(empty)" for a real null/empty value so the detail panel never
   // shows blank (or, pre-coercion, the literal string "null") as if it were
   // text. Styled by .row-field-empty (dim, italic, --text-light).

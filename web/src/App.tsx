@@ -3599,6 +3599,7 @@ function WorkspacePrimarySurface() {
   const queryImageGalleryRows = useCallback(
     (args: { columnIds?: string[]; offset: number; limit: number }) =>
       projectApi.getSheetData(sheetIdForGallery, args.offset, args.limit, {
+        columnIds: args.columnIds, valueMode: 'bounded',
         filter: activeGridFilter,
         scopeRowIds,
         sort: activeGridSort,
@@ -3649,7 +3650,7 @@ function WorkspacePrimarySurface() {
     });
     const hydrateDocumentRow = async (rowId: string, columnIds: string[]) => {
       const page = await projectApi.getSheetData(sheet.id, 0, 1, {
-        rowIds: [Number(rowId)], columnIds,
+        rowIds: [Number(rowId)], columnIds, valueMode: 'bounded',
       });
       return page.rows[0] ?? null;
     };
@@ -3865,6 +3866,7 @@ function WorkspacePromotedView() {
   const queryRows = useCallback(
     (args: { columnIds?: string[]; offset: number; limit: number }) =>
       projectApi.getSheetData(sheetId, args.offset, args.limit, {
+        columnIds: args.columnIds, valueMode: 'bounded',
         filter: activeGridFilter,
         scopeRowIds,
         sort: activeGridSort,
