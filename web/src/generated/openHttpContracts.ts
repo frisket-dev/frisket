@@ -10081,6 +10081,86 @@ export type HttpSavedViewRenameRequest = ({
   "name": (string);
 });
 
+type HttpSearchPreparationBatch_ActionJobProgress = ({
+  "action_kind": (string);
+  "action_name": (string);
+  "completed": (number);
+  "cost": (((number)) | ((null)));
+  "error"?: (((string)) | ((null)));
+  "failed": (number);
+  "halted_code"?: (((string)) | ((null)));
+  "halted_reason"?: (((string)) | ((null)));
+  "live": (boolean);
+  "preparation"?: (((HttpSearchPreparationBatch_ActionPreparationHint)) | ((null)));
+  "queue"?: (((HttpSearchPreparationBatch_ActionRunQueue)) | ((HttpSearchPreparationBatch_ActionRunMissingQueue)) | ((null)));
+  "row_errors"?: (((HttpSearchPreparationBatch_RunRowErrorSummary)) | ((null)));
+  "run_id": (number);
+  "sheet_id": (number);
+  "stalled_reason"?: (((string)) | ((null)));
+  "status": (string);
+  "timing": (HttpSearchPreparationBatch_ActionRunTiming);
+  "total": (number);
+});
+
+type HttpSearchPreparationBatch_ActionPreparationHint = ({
+  "message": (string);
+});
+
+type HttpSearchPreparationBatch_ActionRunMissingQueue = ({
+  "job_id": (((number)) | ((null)));
+  "status": ("missing") & (string);
+});
+
+type HttpSearchPreparationBatch_ActionRunQueue = ({
+  "action_kind": (((string)) | ((null)));
+  "action_name": (((string)) | ((null)));
+  "attempts": (number);
+  "created_at": (((string)) | ((null)));
+  "error": (((string)) | ((null)));
+  "finished_at": (((string)) | ((null)));
+  "job_id": (number);
+  "lease_expired": (boolean);
+  "lease_expires_at": (((string)) | ((null)));
+  "live_workers"?: (((number)) | ((null)));
+  "locked_at": (((string)) | ((null)));
+  "locked_by": (((string)) | ((null)));
+  "max_attempts": (number);
+  "no_live_worker"?: (((boolean)) | ((null)));
+  "queued_seconds"?: (((number)) | ((null)));
+  "started_at": (((string)) | ((null)));
+  "status": (string);
+});
+
+type HttpSearchPreparationBatch_ActionRunTiming = ({
+  "elapsed_seconds": (((number)) | ((null)));
+  "estimated_finish_at": (((string)) | ((null)));
+  "eta_seconds": (((number)) | ((null)));
+  "finished_at": (((string)) | ((null)));
+  "job_elapsed_seconds": (((number)) | ((null)));
+  "processed_rows": (number);
+  "processed_rows_per_second": (((number)) | ((null)));
+  "queue_wait_seconds": (((number)) | ((null)));
+  "remaining_rows": (number);
+  "started_at": (((string)) | ((null)));
+});
+
+type HttpSearchPreparationBatch_RunRowErrorGroup = ({
+  "code": (((string)) | ((null)));
+  "count": (number);
+  "details"?: ((({
+  [key: string]: (boolean);
+})) | ((null)));
+  "message": (string);
+  "outcome"?: (((string)) | ((null)));
+  "row_ids": (Array<(number)>);
+  "terminal"?: (boolean);
+});
+
+type HttpSearchPreparationBatch_RunRowErrorSummary = ({
+  "groups": (Array<(HttpSearchPreparationBatch_RunRowErrorGroup)>);
+  "total_failed_rows": (number);
+});
+
 type HttpSearchPreparationBatch_SearchPreparationGroup = ({
   "count": (number);
   "kind": ("native_pdf" | "ocr" | "transcribe") & (string);
@@ -10090,6 +10170,7 @@ type HttpSearchPreparationBatch_SearchPreparationGroup = ({
 type HttpSearchPreparationBatch_SearchPreparationJob = ({
   "action_kind"?: (((string)) | ((null)));
   "job_id": (number);
+  "progress"?: (((HttpSearchPreparationBatch_ActionJobProgress)) | ((null)));
   "status": ("queued" | "running" | "done" | "failed" | "cancelled") & (string);
 });
 
@@ -10123,6 +10204,86 @@ export type HttpSearchPreparationBatch = ({
   "status": ("planning" | "needs_consent" | "preparing" | "complete" | "stopped" | "failed") & (string);
 });
 
+type HttpSearchPreparationBatchList_ActionJobProgress = ({
+  "action_kind": (string);
+  "action_name": (string);
+  "completed": (number);
+  "cost": (((number)) | ((null)));
+  "error"?: (((string)) | ((null)));
+  "failed": (number);
+  "halted_code"?: (((string)) | ((null)));
+  "halted_reason"?: (((string)) | ((null)));
+  "live": (boolean);
+  "preparation"?: (((HttpSearchPreparationBatchList_ActionPreparationHint)) | ((null)));
+  "queue"?: (((HttpSearchPreparationBatchList_ActionRunQueue)) | ((HttpSearchPreparationBatchList_ActionRunMissingQueue)) | ((null)));
+  "row_errors"?: (((HttpSearchPreparationBatchList_RunRowErrorSummary)) | ((null)));
+  "run_id": (number);
+  "sheet_id": (number);
+  "stalled_reason"?: (((string)) | ((null)));
+  "status": (string);
+  "timing": (HttpSearchPreparationBatchList_ActionRunTiming);
+  "total": (number);
+});
+
+type HttpSearchPreparationBatchList_ActionPreparationHint = ({
+  "message": (string);
+});
+
+type HttpSearchPreparationBatchList_ActionRunMissingQueue = ({
+  "job_id": (((number)) | ((null)));
+  "status": ("missing") & (string);
+});
+
+type HttpSearchPreparationBatchList_ActionRunQueue = ({
+  "action_kind": (((string)) | ((null)));
+  "action_name": (((string)) | ((null)));
+  "attempts": (number);
+  "created_at": (((string)) | ((null)));
+  "error": (((string)) | ((null)));
+  "finished_at": (((string)) | ((null)));
+  "job_id": (number);
+  "lease_expired": (boolean);
+  "lease_expires_at": (((string)) | ((null)));
+  "live_workers"?: (((number)) | ((null)));
+  "locked_at": (((string)) | ((null)));
+  "locked_by": (((string)) | ((null)));
+  "max_attempts": (number);
+  "no_live_worker"?: (((boolean)) | ((null)));
+  "queued_seconds"?: (((number)) | ((null)));
+  "started_at": (((string)) | ((null)));
+  "status": (string);
+});
+
+type HttpSearchPreparationBatchList_ActionRunTiming = ({
+  "elapsed_seconds": (((number)) | ((null)));
+  "estimated_finish_at": (((string)) | ((null)));
+  "eta_seconds": (((number)) | ((null)));
+  "finished_at": (((string)) | ((null)));
+  "job_elapsed_seconds": (((number)) | ((null)));
+  "processed_rows": (number);
+  "processed_rows_per_second": (((number)) | ((null)));
+  "queue_wait_seconds": (((number)) | ((null)));
+  "remaining_rows": (number);
+  "started_at": (((string)) | ((null)));
+});
+
+type HttpSearchPreparationBatchList_RunRowErrorGroup = ({
+  "code": (((string)) | ((null)));
+  "count": (number);
+  "details"?: ((({
+  [key: string]: (boolean);
+})) | ((null)));
+  "message": (string);
+  "outcome"?: (((string)) | ((null)));
+  "row_ids": (Array<(number)>);
+  "terminal"?: (boolean);
+});
+
+type HttpSearchPreparationBatchList_RunRowErrorSummary = ({
+  "groups": (Array<(HttpSearchPreparationBatchList_RunRowErrorGroup)>);
+  "total_failed_rows": (number);
+});
+
 type HttpSearchPreparationBatchList_SearchPreparationBatch = ({
   "can_setup": (boolean);
   "can_stop": (boolean);
@@ -10152,6 +10313,7 @@ type HttpSearchPreparationBatchList_SearchPreparationIndexing = ({
 type HttpSearchPreparationBatchList_SearchPreparationJob = ({
   "action_kind"?: (((string)) | ((null)));
   "job_id": (number);
+  "progress"?: (((HttpSearchPreparationBatchList_ActionJobProgress)) | ((null)));
   "status": ("queued" | "running" | "done" | "failed" | "cancelled") & (string);
 });
 
