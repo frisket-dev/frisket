@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
-from frisket.contracts.http.models import WireModel
+from frisket.contracts.http.models import ActionJobProgress, WireModel
 
 
 SearchPreparationStatus = Literal[
@@ -88,6 +88,7 @@ class SearchPreparationJob(WireModel):
     job_id: int = Field(gt=0)
     status: Literal["queued", "running", "done", "failed", "cancelled"]
     action_kind: str | None = None
+    progress: ActionJobProgress | None = None
 
 
 class SearchPreparationBatch(WireModel):

@@ -6,6 +6,8 @@ from dataclasses import replace
 import pytest
 
 from frisket.engine.jobs import model_pull_store
+from frisket.engine.jobs.projection import job_run_id
+from frisket.engine.store.receipts import ReceiptStore
 from frisket.server.app import create_app
 from frisket.server.services import search_preparation as preparation_module
 from frisket.server.services.search_preparation import SearchPreparationService
@@ -622,6 +624,86 @@ def test_recovery_adopts_unbound_real_action_reservation(tmp_path, monkeypatch) 
     ]
     assert [job.id for job in jobs] == [child.job_id]
     assert service.get(project_id, batch.id).errors == []
+
+
+def test_live_action_progress_overrides_a_stale_queued_receipt(
+    tmp_path, monkeypatch
+) -> None:
+    ready = replace(_Requirement(), weights_ready=True)
+    monkeypatch.setattr(preparation_module, "_requirements", lambda: (ready,))
+    workspace = Workspace(tmp_path / "workspace")
+    project_id = workspace.create("Live preparation")["id"]
+    project = workspace.get(project_id)
+    sheet_id = project.add_sheet("Files")
+    image_column = project.add_column(sheet_id, "Image", type="image")
+    rows = []
+    for number in range(3):
+        digest = project.add_blob(
+            f"image-{number}".encode(),
+            filename=f"scan-{number}.png",
+            mime="image/png",
+        )
+        rows.append(
+            {
+                "Image": {
+                    "blob": digest,
+                    "filename": f"scan-{number}.png",
+                    "mime": "image/png",
+                }
+            }
+        )
+    project.add_rows(sheet_id, rows, {"Image": image_column})
+    service = SearchPreparationService(workspace)
+
+    batch = service.create(project_id, sheet_id=sheet_id, row_ids=None, force_ocr=False)
+    [child] = service.store.children(batch.id)
+    assert child.job_id is not None and child.receipt_id is not None
+    stored = ReceiptStore(project).find_by_id(child.receipt_id)
+    assert stored is not None and stored.status == "queued"
+
+    claimed = workspace.queue.claim("ocr-worker")
+    while claimed is not None and claimed.id != child.job_id:
+        assert workspace.queue.complete(
+            claimed.id, "ocr-worker", {"skipped_by_test": True}
+        )
+        claimed = workspace.queue.claim("ocr-worker")
+    assert claimed is not None and claimed.id == child.job_id
+    run_id = job_run_id(claimed)
+    assert run_id is not None
+    project.db.execute(
+        "UPDATE runs SET completed_rows=1, failed_rows=1 WHERE id=?", (run_id,)
+    )
+    project.db.commit()
+
+    active = service.get(project_id, batch.id)
+
+    assert active.groups[0].status == "running"
+    assert active.jobs[0].status == "running"
+    assert active.jobs[0].progress is not None
+    assert active.jobs[0].progress.status == "running"
+    assert active.jobs[0].progress.total == 3
+    assert active.jobs[0].progress.completed == 1
+    assert active.jobs[0].progress.failed == 1
+    assert ReceiptStore(project).find_by_id(child.receipt_id).status == "queued"
+
+    project.db.execute(
+        "UPDATE runs SET status='completed', completed_rows=2, failed_rows=1, "
+        "finished_at=CURRENT_TIMESTAMP WHERE id=?",
+        (run_id,),
+    )
+    project.db.commit()
+
+    terminal = service.get(project_id, batch.id)
+
+    assert terminal.status == "failed"
+    assert terminal.groups[0].status == "failed"
+    assert terminal.jobs[0].status == "running"
+    assert terminal.jobs[0].progress is not None
+    assert terminal.jobs[0].progress.status == "completed"
+    assert terminal.jobs[0].progress.total == 3
+    assert terminal.jobs[0].progress.completed == 2
+    assert terminal.jobs[0].progress.failed == 1
+    assert ReceiptStore(project).find_by_id(child.receipt_id).status == "queued"
 
 
 def test_recovery_resumes_prepared_action_with_no_queue_job(

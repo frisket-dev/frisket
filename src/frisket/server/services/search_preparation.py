@@ -35,7 +35,7 @@ from frisket.engine.store.receipts import ReceiptStore
 from frisket.project_settings import read_project_settings
 from frisket.retrieval.source_adapter import resolve_cell_blob_source
 from frisket.server.route_errors import RouteError
-from frisket.server.services.action_runs import ActionRunService
+from frisket.server.services.action_runs import ActionRunRouteError, ActionRunService
 from frisket.server.services.search_preparation_planning import build_plan, sample_pdf
 
 
@@ -48,6 +48,23 @@ _LOCAL_TRANSCRIBE_TARGET = ExactExecutionMatch(
 )
 _SEMANTIC_REF = "engine-setup:embeddinggemma-2.local@1"
 LOG = logging.getLogger(__name__)
+
+_RECEIPT_TO_CHILD_STATE = {
+    "queued": "queued",
+    "running": "running",
+    "completed": "done",
+    "partial": "failed",
+    "failed": "failed",
+    "cancelled": "cancelled",
+}
+_JOB_TO_CHILD_STATE = {
+    "queued": "queued",
+    "running": "running",
+    "done": "done",
+    "failed": "failed",
+    "cancelled": "cancelled",
+}
+_ACTIVE_PROGRESS_STATES = frozenset({"queued", "running", "stalled", "orphaned"})
 
 
 def _sha(value: object) -> str:
@@ -1330,15 +1347,40 @@ class SearchPreparationService:
                 if child.receipt_id is None
                 else "failed"
                 if stored is None
-                else {
-                    "queued": "queued",
-                    "running": "running",
-                    "completed": "done",
-                    "partial": "failed",
-                    "failed": "failed",
-                    "cancelled": "cancelled",
-                }.get(stored.status, "failed")
+                else _RECEIPT_TO_CHILD_STATE.get(stored.status, "failed")
             )
+            live_job: Mapping[str, Any] | None = None
+            progress: Mapping[str, Any] | None = None
+            if child.job_id is not None:
+                try:
+                    live_job = self.action_runs.job_detail(row.project_id, child.job_id)
+                except ActionRunRouteError:
+                    # The receipt remains the durable fallback if the queue job
+                    # was removed or belongs to a retired execution backend.
+                    pass
+                else:
+                    candidate = live_job.get("progress")
+                    if isinstance(candidate, Mapping):
+                        progress = candidate
+                        progress_status = str(candidate.get("status") or "")
+                        if progress_status in _ACTIVE_PROGRESS_STATES:
+                            state = (
+                                "queued" if progress_status == "queued" else "running"
+                            )
+                        elif progress_status in {"failed", "partial"}:
+                            state = "failed"
+                        elif progress_status == "cancelled":
+                            state = "cancelled"
+                        elif progress_status == "completed":
+                            state = (
+                                "failed"
+                                if int(candidate.get("failed") or 0) > 0
+                                else "done"
+                            )
+                    else:
+                        state = _JOB_TO_CHILD_STATE.get(
+                            str(live_job.get("status") or ""), state
+                        )
             child_states[child.id] = state
             if stored is not None and state in {"failed", "cancelled"}:
                 try:
@@ -1350,11 +1392,15 @@ class SearchPreparationService:
                         error.message for error in receipt.errors if error.message
                     )
             if child.job_id is not None and state != "planning":
+                job_status = (
+                    str(live_job.get("status")) if live_job is not None else state
+                )
                 jobs.append(
                     SearchPreparationJob(
                         job_id=child.job_id,
-                        status=state,
+                        status=job_status,
                         action_kind=child.kind,
+                        progress=progress,
                     )
                 )
         current = setup.requirements_by_ref
