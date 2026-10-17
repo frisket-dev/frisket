@@ -222,6 +222,7 @@ export function StatusBar({
           <SearchPreparationNotice
             notice={searchPreparationNotice}
             onReviewPreparation={actSurface.openImportPreparation}
+            onStopPreparation={searchPreparationNotice.onStopPreparation}
             onDismiss={() => setSearchNoticeOpen(false)}
           />
         )}

@@ -6,12 +6,29 @@ export function SearchPreparationNotice({
   notice,
   onReviewPreparation,
   onDismiss,
+  onStopPreparation,
 }: {
   notice: Notice;
   onReviewPreparation?: (batchId: string) => void;
   onDismiss?(): void;
+  onStopPreparation?(): Promise<void>;
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [stopState, setStopState] = useState<{ batchId: string; busy: boolean; error: string | null } | null>(null);
+  const currentStop = stopState?.batchId === notice.stopBatchId ? stopState : null;
+  const stop = async () => {
+    const batchId = notice.stopBatchId;
+    if (!batchId || !onStopPreparation || currentStop?.busy) return;
+    setStopState({ batchId, busy: true, error: null });
+    try {
+      await onStopPreparation();
+      setStopState((current) => current?.batchId === batchId ? { ...current, busy: false } : current);
+    } catch (error) {
+      setStopState((current) => current?.batchId === batchId ? {
+        batchId, busy: false, error: error instanceof Error ? error.message : String(error),
+      } : current);
+    }
+  };
   const active = notice.tone === 'active';
   const progressLabel = notice.stage === 'download'
     ? notice.detail
@@ -110,6 +127,15 @@ export function SearchPreparationNotice({
               {notice.details.map((detail, index) => <li key={`${index}:${detail}`}>{detail}</li>)}
             </ul>
           )}
+        </div>
+      )}
+      {notice.stopBatchId && onStopPreparation && (
+        <div className="search-preparation-actions">
+          <button type="button" className="btn btn-compact" disabled={currentStop?.busy}
+            onClick={() => void stop()}>
+            {currentStop?.busy ? 'Stopping…' : 'Stop remaining preparation'}
+          </button>
+          {currentStop?.error && <span role="alert">{currentStop.error}</span>}
         </div>
       )}
       {notice.reviewBatchId && onReviewPreparation && (notice.stage === 'approval' || notice.stage === 'failed') && (

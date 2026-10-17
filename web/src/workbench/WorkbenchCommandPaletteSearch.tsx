@@ -1,10 +1,7 @@
 import { Bell, Bookmark, LoaderCircle, SearchCheck, X } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import {
-  getModelPull,
-  orgGetModelPull,
   type EmbeddingIndexSummary,
-  type ModelPullDto,
 } from '../api/open';
 import type {
   ProjectSearchGroupWire,
@@ -12,7 +9,6 @@ import type {
   ProjectSearchResponseWire,
 } from '../api/projectSearch';
 import { PanelSelect } from '../components/PanelSelect';
-import { ModelPullProgress } from '../components/ModelPullProgress';
 import type { PaletteSearchSetupOperation } from './usePaletteSearch';
 import { decodeEscapedText } from '../displayText';
 import { formatNumberDisplay } from '../format';
@@ -180,7 +176,6 @@ export function PaletteSearchSection({
   setupError,
   setupOperation,
   onStartSetup,
-  onFinishSetup,
   preparationBusy,
   preparationError,
   canPrepareGap,
@@ -222,7 +217,6 @@ export function PaletteSearchSection({
   setupError: string | null;
   setupOperation: PaletteSearchSetupOperation | null;
   onStartSetup(setupRef: string, scope: 'workspace' | 'organization'): void;
-  onFinishSetup(pull: ModelPullDto): void;
   preparationBusy: boolean;
   preparationError: string | null;
   canPrepareGap: boolean;
@@ -428,54 +422,26 @@ export function PaletteSearchSection({
         </section>
       )}
       {currentSetupOperation && currentSetupOperation.pull.status !== 'done' && (
-        <section className="search-setup-consent" data-testid="search-setup-progress">
-          <div>
-            <strong>{currentSetupOperation.pull.status === 'failed' || currentSetupOperation.pull.status === 'cancelled'
-              ? 'Semantic search setup needs attention'
-              : 'Setting up semantic search'}</strong>
-            <span>You can close Search and return here to check progress.</span>
-          </div>
-          <ModelPullProgress
-            pull={currentSetupOperation.pull}
-            fetchPull={currentSetupOperation.scope === 'organization'
-              ? orgGetModelPull
-              : getModelPull}
-            onDone={onFinishSetup}
-            onFailed={onFinishSetup}
-            readOnly
-          />
-          {(currentSetupOperation.pull.status === 'failed'
-            || currentSetupOperation.pull.status === 'cancelled') && (
-            <button
-              type="button"
-              className="btn btn-primary"
-              data-testid="search-setup-retry"
-              disabled={setupBusy}
-              onClick={() => onStartSetup(
-                currentSetupOperation.setupRef,
-                currentSetupOperation.scope,
-              )}
-            >
-              {setupBusy ? 'Starting…' : 'Retry setup'}
-            </button>
-          )}
+        <section className="search-setup-consent" data-testid="search-setup-status">
+          {currentSetupOperation.pull.status === 'failed' || currentSetupOperation.pull.status === 'cancelled' ? (
+            <>
+              <strong>Semantic search setup needs attention</strong>
+              <p role="alert" data-testid="search-setup-error">
+                {currentSetupOperation.pull.error?.message || (currentSetupOperation.pull.status === 'cancelled'
+                  ? 'Model setup was cancelled.' : 'Model setup failed.')}
+              </p>
+              <button type="button" className="btn btn-primary" data-testid="search-setup-retry"
+                disabled={setupBusy} onClick={() => onStartSetup(currentSetupOperation.setupRef, currentSetupOperation.scope)}>
+                {setupBusy ? 'Starting…' : 'Retry setup'}
+              </button>
+            </>
+          ) : <span>Semantic setup is running. Progress is available in workspace activity.</span>}
         </section>
       )}
       {blockingSetupOperation && (
-        <section className="search-setup-consent" data-testid="search-setup-blocked-progress">
-          <div>
-            <strong>Another setup operation is active</strong>
-            <span>Wait for it to finish, then try semantic setup again.</span>
-          </div>
-          <ModelPullProgress
-            pull={blockingSetupOperation.pull}
-            fetchPull={blockingSetupOperation.scope === 'organization'
-              ? orgGetModelPull
-              : getModelPull}
-            onDone={onFinishSetup}
-            onFailed={onFinishSetup}
-            readOnly
-          />
+        <section className="search-setup-consent" data-testid="search-setup-blocked-status">
+          <strong>Another setup operation is active</strong>
+          <span>Wait for it to finish, then try semantic setup again.</span>
         </section>
       )}
       {setupError && <div className="picker-error">{setupError}</div>}
