@@ -379,11 +379,30 @@ class RunResultStore:
         value = json.dumps(
             {"kind": kind, "row_id": row_id, "completed": completed, "total": total}
         )
-        self.db.execute(
-            "UPDATE runs SET work_progress=? WHERE id=? AND status='running'",
-            (value, run_id),
-        )
-        self.db.commit()
+        self._write_work_progress(run_id, value)
+
+    def clear_work_progress(self, run_id: int) -> None:
+        """Drop the preceding row's page counter before starting another row."""
+        self._write_work_progress(run_id, None)
+
+    def _write_work_progress(self, run_id: int, value: str | None) -> None:
+        # Telemetry must neither commit a caller's transaction nor wait behind
+        # another writer on the runner's event loop. The hook drops failed ticks.
+        if self.db.in_transaction:
+            return
+        timeout = int(self.db.execute("PRAGMA busy_timeout").fetchone()[0])
+        try:
+            self.db.execute("PRAGMA busy_timeout=0")
+            self.db.execute(
+                "UPDATE runs SET work_progress=? WHERE id=? AND status='running'",
+                (value, run_id),
+            )
+            self.db.commit()
+        except sqlite3.Error:
+            self.db.rollback()
+            raise
+        finally:
+            self.db.execute(f"PRAGMA busy_timeout={timeout}")
 
     def set_run_halt(
         self,

@@ -36,7 +36,10 @@ def _mutation_snapshot(project) -> tuple[object, ...]:  # noqa: ANN001
     )
 
 
-def test_managed_resume_only_accepts_exact_open_recovery(tmp_path: Path) -> None:
+@pytest.mark.parametrize("default_hidden", [False, True])
+def test_managed_resume_only_accepts_exact_open_recovery(
+    tmp_path: Path, default_hidden: bool
+) -> None:
     project, sheet_id, column_id, row_ids = _seed_project(tmp_path)
     claimed_run = _start_claimed_run(
         project,
@@ -48,7 +51,9 @@ def test_managed_resume_only_accepts_exact_open_recovery(tmp_path: Path) -> None
     generations = ResultGenerationStore(project)
     _declare(generations, claimed_run, column_id, write_mode="create")
     store = RunResultStore(project)
-    fields = [{"name": "generated", "column_type": "text"}]
+    fields = [
+        {"name": "generated", "column_type": "text", "default_hidden": default_hidden}
+    ]
     bindings = generations.bindings_for_run(claimed_run.run_id)
     try:
         _validate_managed_resume(

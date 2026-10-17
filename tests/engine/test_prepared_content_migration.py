@@ -34,6 +34,7 @@ from frisket.engine.store.schema import (
     SCHEMA_DIGEST,
     SCHEMA_DIGEST_META_KEY,
 )
+from frisket.engine.store.runs import RunResultStore
 from tests.engine.test_scalar_storage_migration import _seed_mixed_origins
 from tests.engine.test_bundle_schema_fence import _remove_execution_metadata
 
@@ -64,14 +65,17 @@ def _seed_extraction_layout(
     return source_column_id, layout_id
 
 
-def _downgrade_to_exact_prepared_content_predecessor(path: Path) -> None:
+def _downgrade_to_exact_prepared_content_predecessor(
+    path: Path, *, preserve_execution_metadata: bool = False
+) -> None:
     """Remove exactly the objects added by the prepared-content migration."""
 
     with sqlite3.connect(path / "project.db") as db:
         db.execute("PRAGMA foreign_keys=OFF")
         db.execute("PRAGMA legacy_alter_table=ON")
         db.execute("BEGIN IMMEDIATE")
-        _remove_execution_metadata(db)
+        if not preserve_execution_metadata:
+            _remove_execution_metadata(db)
         db.execute("DROP VIEW current_cell_values")
 
         authority_objects = db.execute(
@@ -237,6 +241,40 @@ def test_exact_prior_schema_preserves_values_history_undo_and_reopen(
     assert reopened.get_values(sheet_id, output_column_id)[row_ids[2]] == "manual"
     assert reopened.db.execute("PRAGMA foreign_key_check").fetchall() == []
     reopened.close()
+
+
+def test_prepared_rebuild_preserves_already_present_result_warnings(tmp_path):
+    path = tmp_path / "warnings-preserved.frisket"
+    project = Project.create(path)
+    sheet = project.add_sheet("Rows")
+    column = project.add_column(sheet, "value")
+    row = project.add_rows(sheet, [{"value": "source"}], {"value": column})[0]
+    op = project.append_op("map.regex_extract", {})
+    run = RunResultStore(project).start_run(op, sheet, "map.regex_extract")
+    project.db.execute(
+        "INSERT INTO results(run_id,row_id,column_id,value_kind,value,warnings) "
+        "VALUES (?,?,?,'text','recognized','[\"Page 2 failed\"]')",
+        (run, row, column),
+    )
+    project.db.commit()
+    project.close()
+    _downgrade_to_exact_prepared_content_predecessor(
+        path, preserve_execution_metadata=True
+    )
+
+    with sqlite3.connect(path / "project.db") as db:
+        migrate_prepared_content(db, bundle_path=path / "project.db")
+        assert db.execute("SELECT warnings FROM results").fetchone()[0] == (
+            '["Page 2 failed"]'
+        )
+    reopened = Project(path)
+    try:
+        assert reopened.get_meta(SCHEMA_DIGEST_META_KEY) == SCHEMA_DIGEST
+        assert tuple(
+            reopened.db.execute("SELECT value,warnings FROM results").fetchone()
+        ) == ("recognized", '["Page 2 failed"]')
+    finally:
+        reopened.close()
 
 
 def test_exact_prior_schema_rolls_back_and_retries_after_interrupted_stamp(

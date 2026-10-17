@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sqlite3
+import time
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -23,6 +25,7 @@ from frisket.engine.runner import MapRunner
 from frisket.engine.sandbox.shim import SandboxTeardownError
 from frisket.engine.store import Project
 from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.result_generations import (
     GenerationDeclarationConflict,
     GenerationSealedError,
@@ -243,6 +246,95 @@ def _spec(recipe: Recipe, sheet_id: int, **extra: Any) -> dict[str, Any]:
         "output_name": "derived",
         **extra,
     }
+
+
+@pytest.mark.parametrize("failed_write", [None, "page", "clear"])
+def test_page_progress_is_best_effort_and_clears_before_the_next_row(
+    tmp_path, scope_recipe, monkeypatch, caplog, failed_write
+):
+    project, sheet_id, row_ids = _seed_project(tmp_path, rows=2)
+    observed = []
+    original_execute = scope_recipe.execute
+    original_write = RunResultStore.set_work_progress
+
+    def write(store, run_id, **values):
+        if failed_write == "page" and values["completed"] == 1:
+            raise sqlite3.OperationalError("injected progress failure")
+        return original_write(store, run_id, **values)
+
+    def fail_clear(*args):
+        raise sqlite3.OperationalError("injected progress failure")
+
+    async def execute(values, spec, ctx):
+        run_id = ctx.extras["run_id"]
+        observed.append(
+            project.db.execute(
+                "SELECT work_progress FROM runs WHERE id=?", (run_id,)
+            ).fetchone()[0]
+        )
+        if ctx.extras["row_id"] == row_ids[0]:
+            for completed in (0, 1, 3):
+                ctx.extras["report_work_progress"](
+                    kind="ocr_pages", row_id=row_ids[0], completed=completed, total=3
+                )
+        return await original_execute(values, spec, ctx)
+
+    monkeypatch.setattr(scope_recipe, "execute", execute)
+    monkeypatch.setattr(RunResultStore, "set_work_progress", write)
+    if failed_write == "clear":
+        monkeypatch.setattr(RunResultStore, "clear_work_progress", fail_clear)
+    try:
+        runner = MapRunner(
+            project,
+            ModelRouter(keys={}),
+            concurrency=1,
+            authority=UnroutedOnlyAuthority(project),
+        )
+        progress = asyncio.run(
+            run_with_output_claim(runner, _spec(scope_recipe, sheet_id))
+        )
+        assert progress.done and progress.completed == 2 and progress.failed == 0
+        run = runner.run_store.get_run(progress.run_id)
+        assert run["status"] == "completed"
+        assert project.db.execute("SELECT COUNT(*) FROM results").fetchone()[0] == 2
+        if failed_write != "clear":
+            assert observed == [None, None]
+            assert run["work_progress"] is None
+        if failed_write is not None:
+            assert "work_progress_write_failed" in caplog.text
+    finally:
+        project.close()
+
+
+def test_page_progress_does_not_wait_for_or_commit_another_write(tmp_path):
+    project, sheet_id, row_ids = _seed_project(tmp_path, rows=1)
+    store = RunResultStore(project)
+    op = project.append_op("map.regex_extract", {})
+    run_id = store.start_run(op, sheet_id, "map.regex_extract")
+    project.db.execute("PRAGMA busy_timeout=2000")
+    try:
+        with sqlite3.connect(project.db_path) as competing:
+            competing.execute("BEGIN IMMEDIATE")
+            started = time.monotonic()
+            with pytest.raises(sqlite3.OperationalError, match="locked"):
+                store.set_work_progress(
+                    run_id, kind="ocr_pages", row_id=row_ids[0], completed=1, total=3
+                )
+            assert time.monotonic() - started < 0.5
+            assert project.db.execute("PRAGMA busy_timeout").fetchone()[0] == 2000
+            assert not project.db.in_transaction
+        store.set_work_progress(
+            run_id, kind="ocr_pages", row_id=row_ids[0], completed=2, total=3
+        )
+        project.db.execute("UPDATE runs SET model='uncommitted' WHERE id=?", (run_id,))
+        store.clear_work_progress(run_id)
+        assert project.db.in_transaction
+        project.db.rollback()
+        run = store.get_run(run_id)
+        assert run["model"] is None
+        assert json.loads(run["work_progress"])["completed"] == 2
+    finally:
+        project.close()
 
 
 def test_exact_ner_rechecks_fresh_output_during_prepare(tmp_path) -> None:

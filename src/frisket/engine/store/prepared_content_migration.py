@@ -65,6 +65,15 @@ def migrate_prepared_content(
                     str(info[1]) for info in db.execute(f"PRAGMA table_info({table})")
                 ]
                 db.execute(PREPARED_AUTHORITY_TABLE_SQL[table])
+                # Some older upgrade entry points retain already-added result
+                # metadata. Preserve it through this pinned historical rebuild;
+                # genuine predecessors still receive the original table layout.
+                if table == "results" and "warnings" in columns:
+                    db.execute(
+                        "ALTER TABLE results_prepared_new ADD COLUMN warnings "
+                        "TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(warnings) "
+                        "AND json_type(warnings)='array')"
+                    )
                 joined = ",".join(columns)
                 db.execute(
                     f"INSERT INTO {table}_prepared_new({joined}) "
