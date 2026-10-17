@@ -330,6 +330,158 @@ def test_frozen_transcript_window_keeps_local_utf16_timestamps(tmp_path):
     assert segment["start_ms"] == 100
 
 
+def test_long_transcript_serves_only_window_segments_and_keeps_full_stored_history(
+    tmp_path,
+):
+    fx = _native(tmp_path)
+    lines = [f"{index:05} 😀 spoken words.\n" for index in range(10_000)]
+    text = "".join(lines)
+    width = len(lines[0])
+    segments = [
+        {
+            "span_id": f"segment:{index}",
+            "start": index * width,
+            "end": (index + 1) * width - 1,
+            "start_ms": index * 100,
+            "end_ms": index * 100 + 90,
+            "speaker": "Reporter",
+        }
+        for index in range(len(lines))
+    ]
+    surface = record_text_surface(
+        fx.project,
+        surface_kind="composite",
+        content_hash=_hash(text),
+        offset_unit="unicode_codepoint",
+        surface_ref={"identity": {"kind": "long-transcript"}},
+    )
+    artifact = record_source_artifact(
+        fx.project,
+        artifact_kind="av",
+        media_type="audio/wav",
+        metadata={
+            "captured_text": text,
+            "engine": "fixture",
+            "timestamped_transcript": {
+                "schema_version": "frisket.timestamped_text_context.v1",
+                "offset_unit": "unicode_codepoint",
+                "evidence_link_stable_id": "transcript-link",
+                "artifact_stable_id": "transcript-artifact",
+                "segments": segments,
+            },
+        },
+    )
+    target = segments[-2]
+    span = record_source_span(
+        fx.project,
+        artifact_id=artifact["id"],
+        span_kind="temporal",
+        start_ms=target["start_ms"],
+        end_ms=target["end_ms"],
+        char_start=target["start"],
+        char_end=target["end"],
+        quote=text[target["start"] : target["end"]],
+        text_layer_hash=_hash(text),
+        text_surface_id=surface["id"],
+    )
+    link = record_evidence_link(
+        fx.project,
+        subject_kind="test",
+        subject_ref={"kind": "test"},
+        spans=[{"span_id": span["id"]}],
+    )
+    response = fx.client.get(
+        f"/api/projects/{fx.pid}/evidence/links/{link['stable_id']}/viewer",
+        params={
+            "text_artifact_id": artifact["id"],
+            "text_start": target["start"] - 2,
+            "text_limit": 60,
+        },
+    )
+    assert response.status_code == 200, response.text
+    served = response.json()["artifacts"][0]
+    assert "segments" not in served["metadata"]["timestamped_transcript"]
+    assert "captured_text" not in served["metadata"]
+    assert served["metadata"]["engine"] == "fixture"
+    assert (
+        served["metadata"]["timestamped_transcript"]["evidence_link_stable_id"]
+        == "transcript-link"
+    )
+    visible = served["text_context"]["transcript"]["segments"]
+    assert 1 <= len(visible) <= 3
+    timed = next(
+        segment for segment in visible if segment["span_id"] == target["span_id"]
+    )
+    assert timed["start_ms"] == target["start_ms"]
+    assert timed["speaker"] == "Reporter"
+    assert len(response.content) < 20_000
+    assert (
+        fx.project.db.execute(
+            "SELECT json_array_length(metadata,'$.timestamped_transcript.segments') FROM source_artifacts WHERE id=?",
+            (artifact["id"],),
+        ).fetchone()[0]
+        == 10_000
+    )
+
+
+def test_viewer_projects_cited_pages_without_echoing_full_page_metadata_maps(tmp_path):
+    fx = _native(tmp_path)
+    blob = fx.project.add_blob(
+        b"%PDF-1.4", filename="source.pdf", mime="application/pdf"
+    )
+    image = fx.project.add_blob(b"fixture png", filename="page.png", mime="image/png")
+    page_images = {
+        str(page): {"blob_hash": image, "width": 1700, "height": 2200}
+        for page in range(1, 1001)
+    }
+    text_pages = {str(page): f"Page {page}: " + "x" * 1000 for page in range(1, 1001)}
+    artifact = record_source_artifact(
+        fx.project,
+        artifact_kind="file",
+        media_type="application/pdf",
+        blob_hash=blob,
+        page_count=1000,
+        metadata={
+            "engine": "rapidocr",
+            "dpi": 200,
+            "page_images": page_images,
+            "text_pages": text_pages,
+        },
+    )
+    span = record_source_span(
+        fx.project,
+        artifact_id=artifact["id"],
+        span_kind="page",
+        page_start=3,
+        page_end=3,
+    )
+    link = record_evidence_link(
+        fx.project,
+        subject_kind="test",
+        subject_ref={"kind": "test"},
+        spans=[{"span_id": span["id"]}],
+    )
+    response = fx.client.get(
+        f"/api/projects/{fx.pid}/evidence/links/{link['stable_id']}/viewer"
+    )
+    assert response.status_code == 200, response.text
+    served = response.json()["artifacts"][0]
+    assert served["metadata"] == {"engine": "rapidocr", "dpi": 200}
+    [page] = served["pages"]
+    assert page["page"] == 3
+    assert page["text"] == text_pages["3"]
+    assert page["image"]["width"] == 1700
+    assert page["image"]["blob_hash"] == image
+    assert len(response.content) < 20_000
+    assert (
+        fx.project.db.execute(
+            "SELECT COUNT(*) FROM source_artifacts,json_each(source_artifacts.metadata,'$.page_images') WHERE source_artifacts.id=?",
+            (artifact["id"],),
+        ).fetchone()[0]
+        == 1000
+    )
+
+
 def test_large_locate_current_is_bounded_and_never_reports_partial_scan_as_no_match(
     tmp_path,
 ):

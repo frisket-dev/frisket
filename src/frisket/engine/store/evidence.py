@@ -925,6 +925,7 @@ def resolve_evidence_viewer(
         artifact["text_context_status"] = (
             "stale" if stale else "available" if passage is not None else None
         )
+        artifact["metadata"] = _public_artifact_metadata(artifact["metadata"])
 
     # Attach each cited span's run membership (run_index) and each
     # artifact's run-level clip affordances -- ONE clip per contiguous run
@@ -1544,6 +1545,23 @@ def _page_snippet(row: sqlite3.Row) -> str | None:
     if row["page_end"] is not None and row["page_end"] != row["page_start"]:
         return f"Pages {row['page_start']}-{row['page_end']}"
     return f"Page {row['page_start']}"
+
+
+def _public_artifact_metadata(metadata: Any) -> Any:
+    """Keep descriptive metadata; text, timing and pages have typed projections."""
+    if not isinstance(metadata, dict):
+        return metadata
+    projected = {
+        key: value
+        for key, value in metadata.items()
+        if key not in {"page_images", "text_pages", "captured_text"}
+    }
+    transcript = projected.get("timestamped_transcript")
+    if isinstance(transcript, dict):
+        projected["timestamped_transcript"] = {
+            key: value for key, value in transcript.items() if key != "segments"
+        }
+    return projected
 
 
 def _artifact_payload_from_join(
