@@ -25,6 +25,7 @@ from frisket.server.services.project_qa_sources import (
     SourceUnavailableError,
     read_source_text,
     read_source_with_prepared,
+    resolve_prepared_source,
 )
 
 
@@ -370,3 +371,127 @@ def test_queued_file_find_publishes_designated_text_with_exact_page_citation(tmp
             "page_end": 2,
         }
         assert span["quote"] == "chosen second"
+
+
+@pytest.mark.parametrize("manual", [False, True])
+def test_blank_designated_text_is_valid_but_not_preparation_ready(tmp_path, manual):
+    with closing(Project.create(tmp_path / "blank-text.frisket")) as project:
+        cell, text, _other, blob, _chosen, _alternative = _document(project)
+        _text_output(project, cell, text, blob, ["", ""])
+        if manual:
+            project.apply_edits(
+                [{"row_id": cell[1], "column_id": text, "value": "   "}]
+            )
+        target, _source, selected = read_source_with_prepared(project, cell)
+        assert target == (cell[0], cell[1], text)
+        assert selected is not None
+        assert not read_source_text(project, target)["text"].strip()
+        source = resolve_cell_blob_source(
+            project, sheet_id=cell[0], row_id=cell[1], column_id=cell[2]
+        )
+        assert not planning._has_current_result(project, source, "native_pdf")
+        # Readiness follows the selected pages, not a nonblank alternative.
+        _text_output(project, cell, text, blob, ["", "readable second"])
+        assert planning._has_current_result(project, source, "native_pdf")
+
+
+def test_find_skips_blank_selected_text_and_keeps_readable_sibling(tmp_path):
+    with closing(Project.create(tmp_path / "find-blank.frisket")) as project:
+        cell, text, _other, blob, _chosen, _alternative = _document(project)
+        [blank] = project.add_rows(
+            cell[0], [{"File": {"blob": blob}}], {"File": cell[2]}
+        )
+        _text_output(project, (cell[0], blank, cell[2]), text, blob, ["", ""])
+        params = FindOperation(
+            action_kind="map.find",
+            request={},
+            sheet_id=cell[0],
+            row_ids=[blank, cell[1]],
+            source_column="File",
+            model="test/model",
+            instruction="Find chosen",
+            fields=[],
+            target_sheet_name="Findings",
+            output_names={"match": "Match"},
+        )
+        sources = resolve_find_sources(project, params)
+        assert isinstance(sources, tuple), sources
+        assert [source.row_id for source in sources] == [cell[1]]
+        assert sources[0].column_id == text
+
+
+def test_ask_requested_link_must_match_selected_text(tmp_path):
+    with closing(Project.create(tmp_path / "ask-link.frisket")) as project:
+        cell, text, _other, _blob, chosen, alternative = _document(project)
+        assert (
+            resolve_prepared_source(
+                project, cell, evidence_link_id=alternative[3]["stable_id"]
+            )
+            is None
+        )
+        assert (
+            resolve_prepared_source(project, cell, evidence_link_id="missing-link")
+            is None
+        )
+        selected = resolve_prepared_source(
+            project, cell, evidence_link_id=chosen[3]["stable_id"]
+        )
+        assert selected is not None
+        assert selected["cell"] == (cell[0], cell[1], text)
+        assert selected["evidence_link_id"] == chosen[3]["stable_id"]
+
+
+def test_ask_manual_text_without_grounding_link_searches_and_resolves_citation(
+    tmp_path,
+):
+    from frisket.engine.store.project_qa import ProjectQAStore
+    from frisket.search import drain_index
+    from frisket.server.services.project_qa_citations import resolve_citation
+    from frisket.server.services.project_qa_tools import ProjectQATools
+
+    with closing(Project.create(tmp_path / "ask-manual.frisket")) as project:
+        cell, text, _other, _blob, _chosen, _alternative = _document(project)
+        project.apply_edits(
+            [
+                {
+                    "row_id": cell[1],
+                    "column_id": text,
+                    "value": "manual NEEDLE correction",
+                }
+            ]
+        )
+        selected = resolve_prepared_source(project, cell)
+        assert selected is not None
+        assert selected["evidence_link_id"] is None
+        store = ProjectQAStore(project)
+        thread = store.create_thread(title="Ask")
+        turn = store.submit_turn(
+            thread["id"],
+            request_id="manual",
+            question="Read the document",
+            scope={
+                "kind": "sources",
+                "sources": [
+                    {
+                        "kind": "file",
+                        "sheet_id": cell[0],
+                        "row_id": cell[1],
+                        "column_id": cell[2],
+                    }
+                ],
+            },
+        )
+        drain_index(project)
+        tools = ProjectQATools(project, turn, store)
+        [hit] = tools.search_cells("NEEDLE", cell[0])["hits"]
+        assert hit["column_id"] == cell[2]
+        opened = tools.open_source(hit["citation_id"])
+        assert "manual NEEDLE correction" in opened["passages"][0]["text"]
+        resolved = resolve_citation(project, thread["id"], hit["citation_id"])
+        assert resolved["status"] == "current"
+        assert resolved["target"] == {
+            "kind": "cell",
+            "sheet_id": cell[0],
+            "row_id": cell[1],
+            "column_id": text,
+        }
