@@ -17,6 +17,17 @@ from frisket.execution.resolver import preview_resolution_in_scope
 from frisket.ai.models.metadata import model_calls_cost_actual
 from frisket.ops import ocr_engines as engines
 from frisket.engine.executor.blob_outputs import RowBlobOutput, RowBlobPlan
+from frisket.engine._workers.pdf_render_worker import (
+    POST_SUCCESS_FAILURE_LIMIT,
+    is_environment_failure,
+)
+from frisket.engine.pdf_render import (
+    PdfRenderCancelled,
+    PdfRenderEnvironmentError,
+    render_pdf_pages,
+)
+from frisket.engine.sandbox.fence import SandboxEnforcementUnavailable
+from frisket.engine.sandbox.shim import SandboxTeardownError
 from frisket.engine.pdf_page_source import (
     PdfPageSourceError,
     materialize_pdf_page,
@@ -56,6 +67,35 @@ def _page_coordinate_frame(page: dict, *, required: bool) -> dict[str, int]:
     if type(width) is not int or type(height) is not int or width <= 0 or height <= 0:
         raise RuntimeError("positioned OCR returned no valid coordinate frame")
     return {"width": width, "height": height}
+
+
+def _page_warnings(pages, *, first_page):
+    failures, skipped, warnings = 0, 0, []
+    for number, page in enumerate(pages, first_page):
+        if error := page.get("error"):
+            if error.get("code") == "ocr_page_skipped":
+                skipped += 1
+                continue
+            failures += 1
+            if len(warnings) < 19:
+                warnings.append(f"Page {number} failed during {error['stage']}.")
+    if failures and failures == len(pages):
+        raise RowError(
+            "ocr_pages_failed", f"OCR failed for all {len(pages)} pages. {warnings[0]}"
+        )
+    if skipped:
+        stopped_at = first_page + len(pages) - skipped - 1
+        warnings.append(
+            f"OCR stopped after {POST_SUCCESS_FAILURE_LIMIT} consecutive page failures "
+            f"at page {stopped_at}; {failures} pages failed; "
+            f"{skipped} later pages were not attempted."
+        )
+    elif failures > len(warnings):
+        warnings.append(
+            f"{failures} pages failed; {failures - len(warnings)} "
+            "additional page warnings omitted."
+        )
+    return tuple(warnings)
 
 
 class AdmittedOcrReader:
@@ -317,24 +357,90 @@ class _BoundOcrReader:
                             limits.max_pdf_pages,
                             1 if selected_page is not None else page_count,
                         )
-                page_paths = await owner._engines._page_images(
-                    path, source, options, scratch
-                )
-                if type(page_count) is not int or page_count <= 0:
-                    page_count = len(page_paths)
-                source["page_count"] = page_count
-                usage["input_pages"] = len(page_paths)
+                    if self._incremental_engine(engine) and (
+                        type(page_count) is not int or page_count <= 0
+                    ):
+                        # A bounded first chunk can still open PDFs that the
+                        # inexpensive metadata probe cannot inspect.
+                        with tempfile.TemporaryDirectory(
+                            prefix="count-", dir=scratch
+                        ) as count_dir:
+                            try:
+                                rendered = await render_pdf_pages(
+                                    original_path,
+                                    Path(count_dir),
+                                    dpi=options["dpi"],
+                                    pages=[1],
+                                    timeout_seconds=600,
+                                    should_cancel=owner._cancelled,
+                                    max_edge=engines.RAPIDOCR_MAX_IMAGE_EDGE
+                                    if engine == engines.LIGHT_ENGINE
+                                    else None,
+                                )
+                            except PdfRenderCancelled as exc:
+                                raise engines.OcrCancelled("OCR cancelled") from exc
+                            except PdfRenderEnvironmentError as exc:
+                                raise RecipeInvocationHalt(
+                                    "local_session_failed",
+                                    "The PDF rendering environment failed; repair local storage or runtime before resuming.",
+                                ) from exc
+                            page_count = rendered.page_count
+                incremental = is_pdf and self._incremental_engine(engine)
+                page_images = {}
+                warnings = ()
                 returned = False
                 try:
-                    pages = await owner._engines.run_engine_on_pages(
-                        engine,
-                        page_paths,
-                        ctx,
-                        usage=usage,
-                        language=options.get("language"),
-                        keep_text_position=options.get("keep_text_position"),
-                        scratch=scratch,
-                    )
+                    if incremental:
+                        if type(page_count) is not int or page_count <= 0:
+                            raise RowError(
+                                "invalid_media_cell", "PDF page count could not be read"
+                            )
+                        source["page_count"] = page_count
+                        recognize_pdf = (
+                            self._recognize_indra_pdf
+                            if engine == engines.INDRA_OCR_ENGINE
+                            else self._recognize_pdf_pages
+                        )
+                        pages, page_images, warnings = await recognize_pdf(
+                            source,
+                            path,
+                            engine,
+                            scratch,
+                            usage,
+                            page_count=1 if selected_page is not None else page_count,
+                            first_page=selected_page or 1,
+                        )
+                    else:
+                        local_image = not is_pdf and self._incremental_engine(engine)
+                        if local_image:
+                            owner._check_open()
+                            self._report_page_progress(0, 1)
+                        page_paths = await owner._engines._page_images(
+                            path, source, options, scratch, engine=engine
+                        )
+                        if type(page_count) is not int or page_count <= 0:
+                            page_count = len(page_paths)
+                        source["page_count"] = page_count
+                        usage["input_pages"] = len(page_paths)
+                        pages = await owner._engines.run_engine_on_pages(
+                            engine,
+                            page_paths,
+                            ctx,
+                            usage=usage,
+                            language=options.get("language"),
+                            keep_text_position=options.get("keep_text_position"),
+                            scratch=scratch,
+                        )
+                        page_images = self._page_images(
+                            source,
+                            path,
+                            page_paths,
+                            scratch,
+                            first_page=selected_page or 1,
+                        )
+                        if local_image:
+                            owner._check_open()
+                            self._report_page_progress(1, 1)
                     returned = True
                 finally:
                     if usage.get("model_calls") or usage["calls"] or returned:
@@ -359,11 +465,20 @@ class _BoundOcrReader:
                         )
                 if selected_page is not None and len(pages) != 1:
                     raise RuntimeError("page-scoped OCR must return exactly one page")
+                owner._check_open()
                 pdf = (
-                    self._searchable_pdf(source, path, pages, engine, scratch)
+                    self._searchable_pdf(
+                        source,
+                        path,
+                        pages,
+                        page_images,
+                        engine,
+                        scratch,
+                    )
                     if options["searchable_pdf"] and not owner._files.preview
                     else Outcome.ok(None)
                 )
+                owner._check_open()
                 fact_pages = []
                 blocks = []
                 fact_blocks = []
@@ -402,28 +517,186 @@ class _BoundOcrReader:
                     "text": text,
                     "blocks": fact_blocks,
                     "pages": fact_pages,
-                    "page_images": self._page_images(
-                        source,
-                        path,
-                        page_paths,
-                        scratch,
-                        first_page=selected_page or 1,
-                    ),
+                    "page_images": page_images,
+                    "warnings": list(warnings),
                 }
                 owner.calls_by_row[self._row_id] = [copy.deepcopy(fact)]
-                return RecognizedDocument(text=OcrText(text), blocks=blocks, pdf=pdf)
+                document = RecognizedDocument(
+                    text=OcrText(text), blocks=blocks, pdf=pdf
+                )
+                document._warnings = warnings
+                return document
+
+    def _incremental_engine(self, engine):
+        # Connected Cloud and sidecars own a single admitted request. Splitting
+        # that request here would change accounting and admission semantics.
+        admission = routed_admission_in_scope(self._ctx.extras)
+        preview = preview_resolution_in_scope(self._ctx.extras)
+        transport = (
+            admission.route.target_snapshot.get("transport")
+            if admission is not None
+            else preview.support.transport
+            if preview is not None
+            else None
+        )
+        return engine in engines.LOCAL_ENGINES and (
+            transport != "frisket.cloud.media.v1"
+        )
+
+    async def _recognize_indra_pdf(
+        self, source, path, engine, scratch, usage, *, page_count, first_page
+    ):
+        del source, engine
+        self._owner._check_open()
+        self._report_page_progress(0, page_count)
+
+        pages = await self._owner._engines._ocr_indra_pdf(
+            path,
+            scratch,
+            dpi=self._owner._options["dpi"],
+            page_count=page_count,
+            report_progress=self._report_page_progress,
+        )
+        self._owner._check_open()
+        images = {}
+        for number, page in enumerate(pages, first_page):
+            positions = _page_coordinate_frame(
+                page, required=not bool(page.get("error"))
+            )
+            if positions and not self._owner._files.preview:
+                images[str(number)] = {
+                    "mime": "application/pdf",
+                    "source_width": positions["width"],
+                    "source_height": positions["height"],
+                }
+        usage["input_pages"] = sum(
+            page.get("error", {}).get("stage") != "rendering"
+            and page.get("error", {}).get("code") != "ocr_page_skipped"
+            for page in pages
+        )
+        return pages, images, _page_warnings(pages, first_page=first_page)
+
+    def _report_page_progress(self, completed, total):
+        report = self._ctx.extras.get("report_work_progress")
+        if callable(report):
+            report(
+                kind="ocr_pages",
+                row_id=self._row_id,
+                completed=completed,
+                total=total,
+            )
+
+    async def _recognize_pdf_pages(
+        self, source, path, engine, scratch, usage, *, page_count, first_page
+    ):
+        owner, options = self._owner, self._owner._options
+        pages, images = [], {}
+        has_success = False
+        consecutive_failures = 0
+        usage["input_pages"] = 0
+        owner._check_open()
+        self._report_page_progress(0, page_count)
+        for number in range(1, page_count + 1):
+            owner._check_open()
+            physical_page = first_page + number - 1
+            # The directory is page-owned, including renderer output created
+            # before a failure. It is removed before the next page is started.
+            with tempfile.TemporaryDirectory(prefix="page-", dir=scratch) as td:
+                page_scratch = Path(td)
+                stage = "rendering"
+                try:
+                    paths = await owner._engines._page_images(
+                        path,
+                        source,
+                        {**options, "_selected_pages": [number]},
+                        page_scratch,
+                        engine=engine,
+                    )
+                    if len(paths) != 1:
+                        raise RuntimeError(
+                            "PDF rendering returned the wrong page count"
+                        )
+                    stage = "reading image geometry"
+                    frame = self._page_images(
+                        source, path, paths, page_scratch, first_page=physical_page
+                    )
+                    images.update(frame)
+                    stage = "recognition"
+                    usage["input_pages"] += 1
+                    output = await owner._engines.run_engine_on_pages(
+                        engine,
+                        paths,
+                        self._ctx,
+                        usage=usage,
+                        language=options.get("language"),
+                        keep_text_position=options.get("keep_text_position"),
+                        scratch=page_scratch,
+                    )
+                    if len(output) != 1:
+                        raise RuntimeError("OCR returned the wrong page count")
+                    pages.append(output[0])
+                    has_success = True
+                    consecutive_failures = 0
+                except (
+                    engines.OcrCancelled,
+                    RecipeInvocationHalt,
+                    SandboxTeardownError,
+                ):
+                    raise
+                except SandboxEnforcementUnavailable as exc:
+                    raise RecipeInvocationHalt(
+                        "local_session_failed",
+                        "The local OCR sandbox is unavailable; repair the local runtime before resuming.",
+                    ) from exc
+                except (RuntimeError, OSError, ValueError) as exc:
+                    owner._check_open()
+                    if is_environment_failure(exc):
+                        raise RecipeInvocationHalt(
+                            "local_session_failed",
+                            "The local OCR environment failed; repair local storage or runtime before resuming.",
+                        ) from exc
+                    consecutive_failures += 1
+                    if not has_success and consecutive_failures >= 5:
+                        raise RowError(
+                            "ocr_pages_failed",
+                            f"OCR stopped after 5 consecutive page failures during {stage} (page {physical_page}).",
+                        ) from None
+                    pages.append(
+                        {
+                            "text": "",
+                            "blocks": [],
+                            "error": {"code": "ocr_page_failed", "stage": stage},
+                        }
+                    )
+            owner._check_open()
+            self._report_page_progress(number, page_count)
+            if has_success and consecutive_failures >= POST_SUCCESS_FAILURE_LIMIT:
+                pages.extend(
+                    {
+                        "text": "",
+                        "blocks": [],
+                        "error": {
+                            "code": "ocr_page_skipped",
+                            "stage": "not attempted after OCR stopped",
+                        },
+                    }
+                    for _ in range(number, page_count)
+                )
+                break
+        return pages, images, _page_warnings(pages, first_page=first_page)
 
     def _page_images(self, source, original, paths, scratch, *, first_page=1):
         if self._owner._files.preview:
             return {}
-        from PIL import Image
-
         images = {}
         is_pdf = self._owner._engines._is_pdf(original, source)
         for index, path in enumerate(paths, first_page):
             if is_pdf:
-                with Image.open(path) as image:
-                    width, height = image.size
+                with path.open("rb") as image:
+                    dimensions = engines.image_dimensions(image.read(24))
+                if dimensions is None:
+                    raise RuntimeError(f"Page {index} has no valid image geometry")
+                width, height = dimensions
                 # The original PDF is the durable source. Display pages are
                 # rendered on demand; retain only OCR's exact coordinate frame.
                 images[str(index)] = {
@@ -447,7 +720,7 @@ class _BoundOcrReader:
             }
         return images
 
-    def _searchable_pdf(self, source, path, pages, engine, scratch):
+    def _searchable_pdf(self, source, path, pages, page_images, engine, scratch):
         from frisket.ops.searchable_pdf import (
             COMPOSITOR_VERSION,
             compose_searchable_pdf,
@@ -464,8 +737,16 @@ class _BoundOcrReader:
                 "Searchable PDF requires a PDF source and an engine with text geometry",
             )
         try:
+            raster_dimensions = [
+                ((frame["source_width"], frame["source_height"]) if frame else None)
+                for index in range(1, len(pages) + 1)
+                for frame in [page_images.get(str(source.get("page") or index))]
+            ]
             pdf, results = compose_searchable_pdf(
-                path.read_bytes(), pages, dpi=self._owner._options["dpi"]
+                path.read_bytes(),
+                pages,
+                dpi=self._owner._options["dpi"],
+                raster_dimensions=raster_dimensions,
             )
         except Exception as exc:
             return Outcome.failed(

@@ -164,6 +164,7 @@ class StandardReceipt:
             evidence=self._evidence(decl, project, facts, output_refs),
             status=status,
             errors=self._errors(decl, facts, status),
+            warnings=list(facts.warnings),
             named_result_refs=(
                 self.named_results(project, facts, output_refs)
                 if self.named_results is not None

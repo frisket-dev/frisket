@@ -3427,8 +3427,10 @@ def test_v1_action_run_queues_media_ocr_and_worker_finalizes_receipt(
         media: Any,
         spec: dict[str, Any],
         scratch: Any,
+        *,
+        engine: str | None = None,
     ) -> list[Any]:
-        del self, media, scratch
+        del self, media, scratch, engine
         calls.append({"stage": "pages", "path": path.name, "dpi": spec.get("dpi")})
         return [path]
 

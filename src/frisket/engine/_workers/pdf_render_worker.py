@@ -7,10 +7,30 @@ fence, so malformed PDFs never load in a server process.
 
 from __future__ import annotations
 
+import errno
 import json
 from pathlib import Path
 import sys
 from typing import Any
+
+POST_SUCCESS_FAILURE_LIMIT = 50
+
+
+def is_environment_failure(error: BaseException) -> bool:
+    """Keep disk/resource failures distinct from one unreadable page."""
+    return isinstance(error, MemoryError) or (
+        isinstance(error, OSError)
+        and error.errno
+        in {
+            errno.ENOSPC,
+            getattr(errno, "EDQUOT", -1),
+            errno.ENOMEM,
+            errno.EMFILE,
+            errno.ENFILE,
+            errno.EROFS,
+            errno.EIO,
+        }
+    )
 
 
 def _reply(value: dict[str, Any]) -> None:
@@ -68,6 +88,33 @@ def _close(value: Any) -> None:
         closer()
 
 
+def render_page(
+    document: Any,
+    number: int,
+    output: Path,
+    *,
+    dpi: int,
+    max_edge: int | None = None,
+) -> tuple[int, int]:
+    """Render one physical page and release its bitmap before returning."""
+    page = document[number - 1]
+    bitmap = image = None
+    try:
+        # OCR coordinates refer to the full MediaBox, including cropped pages.
+        page.set_cropbox(*page.get_mediabox())
+        scale = dpi / 72
+        if max_edge is not None:
+            scale = min(scale, max_edge / max(page.get_size()))
+        bitmap = page.render(scale=scale)
+        image = bitmap.to_pil()
+        image.save(output, format="PNG")
+        return image.size
+    finally:
+        _close(image)
+        _close(bitmap)
+        _close(page)
+
+
 def main() -> None:
     try:
         source, output, dpi, pages, page_limit, max_edge = _request()
@@ -78,8 +125,15 @@ def main() -> None:
         import pypdfium2 as pdfium
 
         document = pdfium.PdfDocument(str(source))
-    except Exception:
-        _reply({"ok": False, "error": "invalid_pdf"})
+    except Exception as exc:
+        _reply(
+            {
+                "ok": False,
+                "error": "environment_failed"
+                if is_environment_failure(exc)
+                else "invalid_pdf",
+            }
+        )
         return
     try:
         page_count = len(document)
@@ -93,27 +147,30 @@ def main() -> None:
             return
         rendered: list[int] = []
         for number in pages:
-            page = document[number - 1]
-            # Preserve the full MediaBox raster used by imports and OCR text
-            # coordinates; PDFium otherwise clips to the document CropBox.
-            page.set_cropbox(*page.get_mediabox())
-            bitmap = None
-            image = None
             try:
-                scale = dpi / 72
-                if max_edge is not None:
-                    scale = min(scale, max_edge / max(page.get_size()))
-                bitmap = page.render(scale=scale)
-                image = bitmap.to_pil()
-                image.save(output / f"page-{number}.png", format="PNG")
-                rendered.append(number)
-            finally:
-                _close(image)
-                _close(bitmap)
-                _close(page)
+                render_page(
+                    document,
+                    number,
+                    output / f"page-{number}.png",
+                    dpi=dpi,
+                    max_edge=max_edge,
+                )
+            except MemoryError:
+                # This child's raster allocation belongs to one physical page;
+                # the next bounded child can still render a smaller page.
+                _reply({"ok": False, "error": "render_failed"})
+                return
+            rendered.append(number)
         _reply({"ok": True, "page_count": page_count, "pages": rendered})
-    except Exception:
-        _reply({"ok": False, "error": "render_failed"})
+    except Exception as exc:
+        _reply(
+            {
+                "ok": False,
+                "error": "environment_failed"
+                if is_environment_failure(exc)
+                else "render_failed",
+            }
+        )
     finally:
         _close(document)
 

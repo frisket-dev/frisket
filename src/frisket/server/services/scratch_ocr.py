@@ -214,6 +214,7 @@ def paid_ocr_scratch_plan(
                     max_pdf_pages=(
                         limits.max_pdf_pages if limits is not None else None
                     ),
+                    engine=canonical_engine,
                 )
                 rendered = rendered_document.pages
                 selected = [page.path for page in rendered]

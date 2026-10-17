@@ -176,13 +176,27 @@ def _stub_ocr_dispatch(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
     raster_calls: list[Path] = []
 
     async def fake_page_images(
-        _recipe: OcrEngines, path: Path, *_args: Any, **_kwargs: Any
-    ) -> list[dict[str, Any]]:
-        raster_calls.append(path)
-        return []
+        _recipe: OcrEngines,
+        path: Path,
+        _media: Any,
+        spec: dict,
+        scratch: Path,
+        **_kwargs: Any,
+    ) -> list[Path]:
+        from PIL import Image
 
-    async def fake_engine(*_args: Any, **_kwargs: Any) -> list[dict[str, Any]]:
-        return []
+        raster_calls.append(path)
+        paths = []
+        for number in spec.get("_selected_pages", [1]):
+            output = scratch / f"page-{number}.png"
+            Image.new("RGB", (1, 1)).save(output)
+            paths.append(output)
+        return paths
+
+    async def fake_engine(
+        _recipe, _engine, paths, *_args: Any, **_kwargs: Any
+    ) -> list[dict[str, Any]]:
+        return [{"text": "", "blocks": []} for _path in paths]
 
     monkeypatch.setattr(OcrEngines, "_page_images", fake_page_images)
     monkeypatch.setattr(OcrEngines, "run_engine_on_pages", fake_engine)
@@ -345,29 +359,7 @@ def test_content_sniffed_pdf_limit_precedes_rasterization_despite_spoofed_label(
         mime="image/jpeg",
         filename="photo.jpg",
     )
-    raster_calls: list[str] = []
-
-    async def fake_page_images(
-        _recipe: OcrEngines,
-        path: Path,
-        _media: Any,
-        _spec: dict[str, Any],
-        _scratch: Path,
-    ) -> list[dict[str, Any]]:
-        raster_calls.append(str(path))
-        return []
-
-    async def fake_run_pages(
-        _recipe: OcrEngines,
-        _engine: str,
-        _paths: list[dict[str, Any]],
-        _ctx: OpContext,
-        **_kwargs: Any,
-    ) -> list[dict[str, Any]]:
-        return []
-
-    monkeypatch.setattr(OcrEngines, "_page_images", fake_page_images)
-    monkeypatch.setattr(OcrEngines, "run_engine_on_pages", fake_run_pages)
+    raster_calls = _stub_ocr_dispatch(monkeypatch)
     try:
         context = _context(project, _limits(max_pdf_pages=limit))
         if dispatches:
@@ -413,7 +405,7 @@ def test_opaque_pdf_uses_content_page_count_at_and_over_limit(
     finally:
         project.close()
 
-    assert len(raster_calls) == 1
+    assert len(raster_calls) == 2
 
 
 def test_prefixed_opaque_pdf_limit_precedes_dispatch(

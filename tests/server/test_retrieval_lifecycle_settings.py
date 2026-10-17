@@ -32,8 +32,10 @@ class _MutableEncoder:
 def test_open_schedules_existing_durable_search_work(tmp_path) -> None:
     root = tmp_path / "workspace"
     root.mkdir()
-    with closing(Project.create(root / "docs.frisket", name="Docs")):
-        pass
+    with closing(Project.create(root / "docs.frisket", name="Docs")) as project:
+        sheet = project.add_sheet("Notes")
+        column = project.add_column(sheet, "text")
+        project.add_rows(sheet, [{"text": "pending content"}], {"text": column})
 
     workspace = Workspace(root, embedding_runtime=_UnavailableEncoder())
     try:

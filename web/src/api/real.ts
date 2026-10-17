@@ -1754,8 +1754,8 @@ class RealApi implements FrisketApi {
     );
   }
 
-  getTextAnnotations(rowId: string, columnId: string): Promise<TextAnnotations> {
-    return this.projectEvidenceApi.getTextAnnotations(rowId, columnId);
+  getTextAnnotations(rowId: string, columnId: string, options?: import('./types').TextAnnotationsOptions): Promise<TextAnnotations> {
+    return this.projectEvidenceApi.getTextAnnotations(rowId, columnId, options);
   }
 
   async getColumnRuns(columnId: string, offset = 0, limit = 20): Promise<ColumnRunsInfo> {
@@ -1806,7 +1806,7 @@ class RealApi implements FrisketApi {
 
   getEvidenceViewer(
     evidenceLinkId: string | number,
-    options?: { locateCurrent?: boolean },
+    options?: import('./types').EvidenceViewerReadOptions,
   ): Promise<EvidenceViewerPayload> {
     return this.projectEvidenceApi.getEvidenceViewer(evidenceLinkId, options);
   }

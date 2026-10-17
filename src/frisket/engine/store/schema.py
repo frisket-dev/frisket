@@ -262,6 +262,11 @@ CREATE TABLE IF NOT EXISTS runs (
   model TEXT,
   prompt_hash TEXT,
   params TEXT NOT NULL DEFAULT '{}',
+  -- Optional active-document telemetry is separate from canonical action inputs.
+  work_progress TEXT CHECK (
+    work_progress IS NULL
+    OR (json_valid(work_progress) AND json_type(work_progress)='object')
+  ),
   status TEXT NOT NULL DEFAULT 'running',  -- running|completed|failed|cancelled
   -- Durable cooperative cancellation INTENT. This is deliberately separate
   -- from ``status``: a live writer keeps the run ``running`` until its fenced
@@ -353,6 +358,9 @@ CREATE TABLE IF NOT EXISTS results (
   tokens_out INTEGER,
   confidence REAL,
   justification TEXT,
+  warnings TEXT NOT NULL DEFAULT '[]' CHECK (
+    json_valid(warnings) AND json_type(warnings)='array'
+  ),
   error TEXT,
   -- run-row-error-observability-v1: the classifier code behind `error`
   -- (frisket.llm.remediation's RemediatedError.code, e.g. model_error,
@@ -895,7 +903,7 @@ END;
 -- trigger column list and remain valid after publication.
 CREATE TRIGGER IF NOT EXISTS trg_results_semantic_update_open_generation
 BEFORE UPDATE OF value_kind, value, tokens_in, tokens_out, confidence, justification,
-  error, error_code, outcome, publication_effect ON results
+  warnings, error, error_code, outcome, publication_effect ON results
 WHEN NEW.publication_effect IS NOT NULL
   AND (
     NEW.run_id IS NOT OLD.run_id
@@ -907,6 +915,7 @@ WHEN NEW.publication_effect IS NOT NULL
     OR NEW.tokens_out IS NOT OLD.tokens_out
     OR NEW.confidence IS NOT OLD.confidence
     OR NEW.justification IS NOT OLD.justification
+    OR NEW.warnings IS NOT OLD.warnings
     OR NEW.error IS NOT OLD.error
     OR NEW.error_code IS NOT OLD.error_code
     OR NEW.outcome IS NOT OLD.outcome
@@ -958,6 +967,7 @@ WHEN OLD.publication_effect IS NOT NULL
         OR NEW.tokens_out IS NOT OLD.tokens_out
         OR NEW.confidence IS NOT OLD.confidence
         OR NEW.justification IS NOT OLD.justification
+        OR NEW.warnings IS NOT OLD.warnings
         OR NEW.error IS NOT OLD.error
         OR NEW.error_code IS NOT OLD.error_code
         OR NEW.outcome IS NOT OLD.outcome

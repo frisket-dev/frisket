@@ -10,7 +10,6 @@ from frisket.engine.store import Project
 from frisket.engine.store.citation_text import (
     migrate_legacy_citation_texts,
     read_text_snapshot,
-    resolve_current_native_texts,
 )
 from frisket.engine.store.evidence import (
     record_evidence_link,
@@ -110,9 +109,6 @@ def test_native_context_reads_current_text_then_becomes_stale_without_copy(
     viewer = resolve_evidence_viewer(project, link["id"])
     assert viewer["link"]["status"] == "stale"
     assert viewer["link"]["stale_reason"] == "source_changed"
-    assert resolve_current_native_texts(project.db, viewer["artifacts"]) == {
-        artifact["id"]: "Changed later."
-    }
 
 
 def test_synthesized_context_is_saved_once_and_remains_viewable(tmp_path) -> None:
@@ -262,7 +258,7 @@ def test_rendered_json_cell_surface_is_not_compared_as_native_text(tmp_path) -> 
     assert viewer["artifacts"][0]["text_context"]["text"] == rendered
 
 
-def test_viewer_batches_native_context_resolution_for_multiple_artifacts(
+def test_viewer_keeps_independent_native_contexts_for_multiple_artifacts(
     tmp_path,
 ) -> None:
     project = Project.create(tmp_path / "batched-citation.frisket")
@@ -284,20 +280,17 @@ def test_viewer_batches_native_context_resolution_for_multiple_artifacts(
         for row_id, text in zip(row_ids, ("first", "second"), strict=True)
     ]
     link = _link(project, [item[1] for item in artifacts_and_spans])
-    statements: list[str] = []
-    project.db.set_trace_callback(statements.append)
-    try:
-        viewer = resolve_evidence_viewer(project, link["id"])
-    finally:
-        project.db.set_trace_callback(None)
+    viewer = resolve_evidence_viewer(project, link["id"])
 
     assert len(viewer["artifacts"]) == 2
-    context_queries = [
-        sql
-        for sql in statements
-        if sql.startswith("WITH requested(sheet_id,row_id,column_id")
+    assert [artifact["text_context"]["text"] for artifact in viewer["artifacts"]] == [
+        "first",
+        "second",
     ]
-    assert len(context_queries) == 1
+    assert all(
+        artifact["text_context_status"] == "available"
+        for artifact in viewer["artifacts"]
+    )
 
 
 def test_legacy_inline_context_migrates_to_deduplicated_snapshot(tmp_path) -> None:

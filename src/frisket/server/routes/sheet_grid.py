@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
+from typing import Any, Callable, Iterator, Literal
+from urllib.parse import quote
+
+from anyio import CancelScope
 from fastapi import FastAPI, Query, Request
+from fastapi.responses import StreamingResponse
+from starlette.concurrency import run_in_threadpool
+from starlette.types import Receive, Scope, Send
 
 from frisket.contracts.http.models import (
+    CellTextWindow,
+    CellTextWindowQuery,
+    CellValueDownloadQuery,
     ColumnStatsQuery,
     ColumnStats,
     DocumentBrowseQuery,
@@ -19,6 +29,21 @@ from frisket.server.route_errors import (
     reject_unknown_query_parameters,
 )
 from frisket.server.services.sheet_grid import SheetGridService
+
+
+class _CellValueDownloadResponse(StreamingResponse):
+    """Own the cell snapshot even if sending fails before the first chunk."""
+
+    def __init__(self, body: Iterator[bytes], close: Callable[[], None], **kwargs: Any):
+        super().__init__(body, **kwargs)
+        self._close = close
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            with CancelScope(shield=True):
+                await run_in_threadpool(self._close)
 
 
 def register_sheet_grid_routes(
@@ -45,6 +70,7 @@ def register_sheet_grid_routes(
         scope_row_ids: str = Query(default=None),  # type: ignore[assignment]
         column_ids: str = Query(default=None),  # type: ignore[assignment]
         include_scope_metadata: bool = True,
+        value_mode: Literal["exact", "bounded"] = "exact",
     ) -> SheetData:
         reject_unknown_query_parameters(request, SheetDataQuery)
         return SheetData.model_validate(
@@ -60,7 +86,71 @@ def register_sheet_grid_routes(
                 scope_row_ids=scope_row_ids,
                 column_ids=column_ids,
                 include_scope_metadata=include_scope_metadata,
+                value_mode=value_mode,
             )
+        )
+
+    @app.get(
+        "/api/projects/{pid}/cells/{row_id}/{column_id}/text-window",
+        response_model=CellTextWindow,
+        response_model_exclude_unset=True,
+        responses=http_error_responses(400, 401, 403, 404, 409, 422, 500),
+    )
+    def cell_text_window(
+        request: Request,
+        pid: str,
+        row_id: int,
+        column_id: int,
+        start: int = Query(default=0, ge=0),
+        limit: int = Query(default=16_384, ge=1, le=16_384),
+        revision: int | None = Query(default=None, gt=0),
+    ) -> CellTextWindow:
+        reject_unknown_query_parameters(request, CellTextWindowQuery)
+        return CellTextWindow.model_validate(
+            service.cell_text_window(
+                pid,
+                row_id=row_id,
+                column_id=column_id,
+                start=start,
+                limit=limit,
+                revision=revision,
+            )
+        )
+
+    @app.get(
+        "/api/projects/{pid}/cells/{row_id}/{column_id}/download",
+        response_class=StreamingResponse,
+        responses={
+            200: {
+                "description": "The exact current cell value, streamed as text.",
+                "content": {"text/plain": {"schema": {"type": "string"}}},
+            },
+            **http_error_responses(400, 401, 403, 404, 409, 422, 500),
+        },
+    )
+    def cell_value_download(
+        request: Request,
+        pid: str,
+        row_id: int,
+        column_id: int,
+        revision: int = Query(gt=0),
+    ) -> StreamingResponse:
+        reject_unknown_query_parameters(request, CellValueDownloadQuery)
+        filename, media_type, body, close = service.cell_value_download(
+            pid,
+            row_id=row_id,
+            column_id=column_id,
+            revision=revision,
+        )
+        return _CellValueDownloadResponse(
+            body,
+            close,
+            media_type=media_type,
+            headers={
+                "Content-Disposition": (
+                    "attachment; filename*=UTF-8''" + quote(filename, safe="")
+                )
+            },
         )
 
     @app.get(

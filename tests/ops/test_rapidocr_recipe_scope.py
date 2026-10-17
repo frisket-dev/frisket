@@ -256,12 +256,13 @@ def test_direct_call_requires_explicit_invocation_pool(
     lease = _FakeLease()
     _install_fakes(monkeypatch, lease, workers=3)
 
-    with pytest.raises(RuntimeError, match="invocation"):
+    with pytest.raises(RecipeInvocationHalt, match="invocation") as halted:
         asyncio.run(
             OcrEngines()._ocr_rapidocr(
                 [Path("/tmp/page.png")], Path("/tmp/scratch"), "korean"
             )
         )
+    assert halted.value.code == "local_session_failed"
     assert _FakePool.instances == []
     assert lease.released == 0
 
@@ -475,10 +476,17 @@ def test_invalid_language_defers_to_worker_row_validation(
     assert ocr_local._rapidocr_model_root_dir("klingon") is None
 
 
+@pytest.mark.parametrize(
+    ("engine", "searchable_pdf", "expected_max_edge"),
+    [("rapidocr", False, 2000), ("rapidocr", True, 2000), ("surya2", False, None)],
+)
 def test_pdf_rasterization_log_is_content_free(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
+    engine: str,
+    searchable_pdf: bool,
+    expected_max_edge: int | None,
 ) -> None:
     from frisket.engine.pdf_render import PdfRenderResult
 
@@ -487,9 +495,13 @@ def test_pdf_rasterization_log_is_content_free(
     scratch = tmp_path / "render"
     scratch.mkdir()
 
-    async def fake_render(_source, output, *, dpi, pages, **_kwargs) -> PdfRenderResult:
+    async def fake_render(
+        _source, output, *, dpi, pages, max_edge, **_kwargs
+    ) -> PdfRenderResult:
         assert dpi == 144
         assert pages is None
+        assert max_edge == expected_max_edge
+        assert ocr_mod.RAPIDOCR_MAX_IMAGE_EDGE == 2000
         (scratch / "page-1.png").write_bytes(b"a" * 7)
         (scratch / "page-2.png").write_bytes(b"b" * 11)
         return PdfRenderResult(
@@ -504,8 +516,9 @@ def test_pdf_rasterization_log_is_content_free(
         OcrEngines()._page_images(
             source,
             {"mime": "application/pdf"},
-            {"dpi": 144},
+            {"dpi": 144, "searchable_pdf": searchable_pdf},
             scratch,
+            engine=engine,
         )
     )
 

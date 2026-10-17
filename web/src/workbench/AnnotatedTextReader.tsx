@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { AlertTriangle, FileSearch, Settings2 } from 'lucide-react';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import type { TextAnnotations } from '../api/types';
+import { TextPassageNavigation } from '../components/TextPassageNavigation';
 import { PanelHeader } from '../components/PanelPrimitives';
 import {
   annotationToggles,
@@ -125,31 +126,43 @@ export function AnnotatedTextReader({
     optionsMenuRefs,
   );
 
-  const loadKey = `${rowId ?? ''}:${columnId}`;
+  const contextKey = `${rowId ?? ''}:${columnId}:${activeOccurrenceId ?? ''}`;
+  const [navigation, setNavigation] = useState<{
+    contextKey: string; start?: number; revision?: number; attempt: number;
+  } | null>(null);
+  const request = navigation?.contextKey === contextKey ? navigation : null;
+  const loadKey = `${contextKey}:${request?.start ?? ''}:${request?.revision ?? ''}:${request?.attempt ?? 0}`;
   const [settled, setSettled] = useState<LoadState | null>(null);
   const [openStatusKey, setOpenStatusKey] = useState<string | null>(null);
 
   useEffect(() => {
     if (rowId === null) return;
-    let cancelled = false;
+    const controller = new AbortController();
     void api
-      .getTextAnnotations(rowId, columnId)
+      .getTextAnnotations(rowId, columnId, {
+        signal: controller.signal,
+        ...(request?.start !== undefined ? { start: request.start, limit: 16_384 } : {}),
+        ...(request?.revision !== undefined ? { revision: request.revision } : {}),
+        ...(request?.start === undefined && activeOccurrenceId ? { occurrenceId: activeOccurrenceId } : {}),
+      })
       .then((data) => {
-        if (cancelled) return;
+        if (controller.signal.aborted) return;
         setSettled({ key: loadKey, data, error: null });
       })
       .catch((err: unknown) => {
-        if (cancelled) return;
+        if (controller.signal.aborted) return;
         setSettled({
           key: loadKey,
           data: null,
-          error: err instanceof Error ? err.message : 'Could not load this document.',
+          error: typeof err === 'object' && err !== null && 'status' in err && err.status === 409
+            ? 'The source text changed. Reload the passage to continue.'
+            : err instanceof Error ? err.message : 'Could not load this document.',
         });
       });
     return () => {
-      cancelled = true;
+      controller.abort();
     };
-  }, [loadKey, rowId, columnId]);
+  }, [api, loadKey, rowId, columnId, request?.start, request?.revision, activeOccurrenceId]);
 
   // Opening a result in the mention-detail panel must land ON the occurrence,
   // not at the top of a 90-minute transcript. Keyed on the settled fetch too,
@@ -293,9 +306,18 @@ export function AnnotatedTextReader({
         </fieldset>
       )}
       <div className="document-reader-body" data-testid="document-reader-body">
+        {data?.window && <TextPassageNavigation window={data.window} disabled={loading} onNavigate={(start) => {
+          setNavigation({ contextKey, start, revision: data.window?.retrieval_revision ?? undefined,
+            attempt: (request?.attempt ?? 0) + 1 });
+        }} />}
+        {data?.window && layers.some((layer) => layer.positioned) && <p className="muted" data-testid="annotation-passage-counts">
+          {layers.filter((layer) => layer.positioned).map((layer) => `${layer.positioned ? layer.counts.shown : 0} of ${layer.positioned ? layer.counts.total : 0} ${layer.layerFamily} shown`).join(' · ')}
+        </p>}
         {error !== null && (
           <div className="document-pdf-error" role="alert" data-testid="annotated-text-error">
             {error}
+            <button type="button" className="mini-btn" onClick={() => setNavigation({ contextKey,
+              attempt: (request?.attempt ?? 0) + 1 })}>Reload passage</button>
           </div>
         )}
         {loading && (
@@ -332,7 +354,7 @@ export function AnnotatedTextReader({
                 // A clickable mark is a real <button>: focus order, Enter/Space,
                 // and the button role come from the element instead of from a
                 // hand-rolled keydown handler on a non-interactive tag (R18).
-                return onOpenMention ? (
+                return onOpenMention && !(owner.quoteTruncated && !owner.entityFingerprint) ? (
                   <button
                     key={fragment.start}
                     type="button"

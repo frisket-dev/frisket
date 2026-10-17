@@ -111,6 +111,17 @@ class SheetDataQuery(NonNullQueryWireModel):
     scope_row_ids: str | None = None
     column_ids: str | None = None
     include_scope_metadata: bool = True
+    value_mode: Literal["exact", "bounded"] = "exact"
+
+
+class CellTextWindowQuery(NonNullQueryWireModel):
+    start: int = Field(default=0, ge=0)
+    limit: int = Field(default=16_384, ge=1, le=16_384)
+    revision: int | None = Field(default=None, gt=0)
+
+
+class CellValueDownloadQuery(NonNullQueryWireModel):
+    revision: int = Field(gt=0)
 
 
 class DocumentBrowseQuery(NonNullQueryWireModel):
@@ -280,7 +291,8 @@ class SheetDataColumn(WireModel):
     # Full-column count of edited generated cells with a differing fresh
     # value, feeding the header chip. 0 when nothing is pending or the
     # column is not ai_generated.
-    replay_pending_count: int = Field(default=0, ge=0)
+    replay_pending_count: int | None = Field(default=0, ge=0)
+    replay_comparison_available: bool = True
     default_hidden: bool = False
 
 
@@ -301,8 +313,20 @@ class SheetDataPendingValue(WireModel):
     generated_value_hash: str
 
 
+class SheetDataBoundedValue(WireModel):
+    preview: str = Field(max_length=2_048)
+    value_kind: Literal["text", "json", "bigint", "legacy_invalid"]
+    total_characters: int = Field(ge=0)
+    total_bytes: int = Field(ge=0)
+    retrieval_revision: int = Field(gt=0)
+    truncated: Literal[True]
+    manual_editable: Literal[False]
+    manual_edit_byte_limit: Literal[65_536]
+
+
 class SheetDataCellMeta(WireModel):
     current_value_ref: SheetDataValueRef
+    warnings: list[str] = Field(default_factory=list)
     confidence: float | None = None
     justification: str | None = None
     error: str | None = None
@@ -314,6 +338,8 @@ class SheetDataCellMeta(WireModel):
     state: str | None = None
     pending_value: SheetDataPendingValue | None = None
     invalid: bool = False
+    bounded_value: SheetDataBoundedValue | None = None
+    replay_comparison_unavailable: bool = False
 
 
 class SheetDataRow(WireModel):
@@ -330,6 +356,27 @@ class SheetData(WireModel):
     # Grid sibling pages may omit scope-wide facts once an exact anchor page
     # has established them for the current client refresh epoch.
     total: int | None = Field(default=None, ge=0)
+
+
+class CellTextWindowRange(WireModel):
+    start: int = Field(ge=0)
+    end: int = Field(ge=0)
+
+
+class CellTextWindow(WireModel):
+    schema_version: Literal["frisket.cell_text_window.v1"]
+    row_id: int = Field(gt=0)
+    column_id: int = Field(gt=0)
+    retrieval_revision: int = Field(gt=0)
+    value_kind: Literal["text", "json", "bigint", "legacy_invalid"]
+    total_characters: int = Field(ge=0)
+    total_bytes: int = Field(ge=0)
+    range: CellTextWindowRange
+    text: str = Field(max_length=16_384)
+    previous_start: int | None = Field(default=None, ge=0)
+    next_start: int | None = Field(default=None, ge=0)
+    reached_start: bool
+    reached_end: bool
 
 
 class DocumentDescriptor(WireModel):
@@ -509,6 +556,13 @@ class ActionPreparationHint(WireModel):
     message: str
 
 
+class ActionWorkProgress(WireModel):
+    kind: Literal["ocr_pages"]
+    row_id: int = Field(gt=0)
+    completed: int = Field(ge=0)
+    total: int = Field(ge=0)
+
+
 class ActionRunPublicStatus(WireModel):
     run_id: int
     action_kind: str
@@ -530,6 +584,7 @@ class ActionRunPublicStatus(WireModel):
     error: str | None = None
     row_errors: RunRowErrorSummary | None = None
     preparation: ActionPreparationHint | None = None
+    work_progress: ActionWorkProgress | None = None
 
 
 class ActionJobProgress(ActionRunPublicStatus):
@@ -937,6 +992,9 @@ __all__ = [
     "ActionJobsPage",
     "ActionJobsQuery",
     "CreateProjectRequest",
+    "CellTextWindow",
+    "CellTextWindowQuery",
+    "CellValueDownloadQuery",
     "EmptyQuery",
     "DocumentBrowseQuery",
     "DocumentPage",

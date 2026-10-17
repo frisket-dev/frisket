@@ -11,7 +11,7 @@
 // download link reachable.
 
 import '@testing-library/jest-dom/vitest';
-import { cleanup, screen, within, render } from '@testing-library/react';
+import { cleanup, screen, render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // pdf.js touches DOMMatrix at import time, which jsdom does not provide; the
@@ -43,7 +43,7 @@ function stubFetch(body: string | Error, ok = true) {
   const fetchMock = vi.fn(() =>
     body instanceof Error
       ? Promise.reject(body)
-      : Promise.resolve({ ok, status: ok ? 200 : 404, text: () => Promise.resolve(body) }),
+      : Promise.resolve(new Response(body, { status: ok ? 206 : 404, headers: ok ? { 'Content-Range': `bytes 0-${new TextEncoder().encode(body).length - 1}/${new TextEncoder().encode(body).length}` } : {} })),
   );
   vi.stubGlobal('fetch', fetchMock);
   return fetchMock;
@@ -107,7 +107,7 @@ describe('DocumentReader text file body', () => {
     stubFetch('Ada Lovelace met Charles Babbage.\nSecond line.');
     renderReader(TEXT_MEDIA);
 
-    const body = await screen.findByTestId('document-text-body');
+    const body = await screen.findByTestId('bounded-text-window');
     expect(body).toHaveTextContent('Ada Lovelace met Charles Babbage.');
     expect(screen.queryByTestId('document-file')).not.toBeInTheDocument();
     expect(screen.getByTestId('document-reader-chip')).toHaveTextContent('Text');
@@ -117,9 +117,9 @@ describe('DocumentReader text file body', () => {
     stubFetch('nope', false);
     renderReader(TEXT_MEDIA);
 
-    const error = await screen.findByTestId('document-text-file-error');
+    const error = await screen.findByRole('alert');
     expect(error).toHaveTextContent('Could not load this file (404).');
-    expect(within(error).getByRole('link', { name: 'notes.txt' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Download full file' })).toHaveAttribute(
       'href',
       TEXT_MEDIA.url,
     );

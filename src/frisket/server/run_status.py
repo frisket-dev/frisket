@@ -134,8 +134,7 @@ def run_timing_payload(
     elapsed = seconds_between(row["started_at"], run_end)
     total_rows = int(row["total_rows"] or 0)
     completed_rows = int(row["completed_rows"] or 0)
-    failed_rows = int(row["failed_rows"] or 0)
-    processed_rows = completed_rows + failed_rows
+    processed_rows = completed_rows
     remaining_rows = max(total_rows - processed_rows, 0)
     rows_per_second = (
         processed_rows / elapsed
@@ -215,6 +214,13 @@ def project_run_status_payload(
         payload["stalled_reason"] = status.stalled_reason
     if status.job_error:
         payload["error"] = status.job_error
+    if status.public_status == "running":
+        try:
+            work_progress = json.loads(row["work_progress"] or "null")
+        except (TypeError, ValueError, KeyError, IndexError):
+            work_progress = None
+        if isinstance(work_progress, dict):
+            payload["work_progress"] = work_progress
     if preparation := _run_preparation_hint(row, status.public_status):
         payload["preparation"] = preparation
     # A typed recipe/session halt (e.g. Parakeet's local_artifact_unavailable)
@@ -264,7 +270,7 @@ def project_timing_payload(
         elapsed = seconds_between(row["started_at"], row["finished_at"])
         if elapsed is None:
             continue
-        processed = int(row["completed_rows"] or 0) + int(row["failed_rows"] or 0)
+        processed = int(row["completed_rows"] or 0)
         rps = processed / elapsed if elapsed > 0 and processed > 0 else None
         run_durations.append(elapsed)
         run_rps.append(rps)

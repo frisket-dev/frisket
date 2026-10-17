@@ -17,11 +17,12 @@ from frisket.contracts.actions.schemas._engines import (
 )
 from frisket.engine.pdf_render import (
     PdfRenderCancelled,
+    PdfRenderEnvironmentError,
     PdfRenderError,
     render_pdf_pages,
 )
 from frisket.execution.targets import CAPABILITY_OCR
-from frisket.ops.base import OpContext
+from frisket.ops.base import OpContext, RecipeInvocationHalt
 from frisket.ops.media_metadata import image_dimensions as _image_dimensions
 from frisket.ops import ocr_engines_hosted as hosted
 from frisket.ops import ocr_engines_local as local
@@ -41,6 +42,7 @@ RUN_SCOPED_ENGINES = frozenset(
     entry.id for entry in OCR_ENGINE_TABLE if entry.run_scoped
 )
 DEFAULT_DPI = 200
+RAPIDOCR_MAX_IMAGE_EDGE = 2000
 image_dimensions = _image_dimensions
 
 OcrCancelled = local.OcrCancelled
@@ -217,7 +219,13 @@ class OcrEngines:
         )
 
     async def _page_images(
-        self, path: Path, media: Any, spec: dict, scratch: Path
+        self,
+        path: Path,
+        media: Any,
+        spec: dict,
+        scratch: Path,
+        *,
+        engine: str | None = None,
     ) -> list[Path]:
         """An image is one page; a PDF rasterizes to one PNG per page."""
         if not path.exists():
@@ -245,9 +253,22 @@ class OcrEngines:
                     pages=selected_pages,
                     timeout_seconds=600,
                     should_cancel=self.cancelled,
+                    # RapidOCR 3.8 downsizes to this edge before detection.
+                    # Rendering larger only increases decode cost and can make
+                    # oversized PDF pages cross Pillow's safety threshold.
+                    # Searchable PDF composition maps the actual raster frame
+                    # back to the original physical page dimensions.
+                    max_edge=(
+                        RAPIDOCR_MAX_IMAGE_EDGE if engine == LIGHT_ENGINE else None
+                    ),
                 )
             except PdfRenderCancelled:
                 raise OcrCancelled("OCR cancelled") from None
+            except PdfRenderEnvironmentError as exc:
+                raise RecipeInvocationHalt(
+                    "local_session_failed",
+                    "The PDF rendering environment failed; repair local storage or runtime before resuming.",
+                ) from exc
             except PdfRenderError:
                 raise RuntimeError("PDF rasterization failed") from None
             pages = [page for _number, page in rendered.pages]
@@ -332,6 +353,17 @@ class OcrEngines:
 
     async def _ocr_indra(self, pages, scratch):
         return await local.ocr_indra(pages, scratch, cancelled=self.cancelled)
+
+    async def _ocr_indra_pdf(self, path, scratch, *, dpi, page_count, report_progress):
+        return await local.ocr_indra(
+            [],
+            scratch,
+            cancelled=self.cancelled,
+            pdf=path,
+            dpi=dpi,
+            page_count=page_count,
+            report_progress=report_progress,
+        )
 
     async def _ocr_sidecar(self, engine, pages, ctx):
         return await sidecar.ocr_sidecar(engine, pages, ctx)

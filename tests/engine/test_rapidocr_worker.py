@@ -209,6 +209,81 @@ def test_blank_result_still_reports_header_pixel_dimensions(tmp_path: Path) -> N
     assert metrics["max_page_height"] == 123
 
 
+def test_ocr_pages_reports_safe_recognition_page_without_leaking_exception() -> None:
+    secret = "/Users/reporter/Investigations/private-source.pdf"
+
+    class Engine:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def __call__(self, path: str) -> Any:
+            del path
+            self.calls += 1
+            if self.calls == 2:
+                raise RuntimeError(f"detector failed while reading {secret}")
+            return SimpleNamespace(
+                img=None,
+                txts=None,
+                boxes=None,
+                scores=None,
+                elapse_list=(0.01, None, None),
+            )
+
+    with pytest.raises(worker.RapidOCRPageError) as excinfo:
+        worker._ocr_pages(Engine(), ["first", "second"])
+
+    assert excinfo.value.code == "image_recognition_failed"
+    assert str(excinfo.value) == (
+        "RapidOCR could not process OCR input page 2 during recognition"
+    )
+    assert secret not in str(excinfo.value)
+
+
+def test_ocr_pages_reports_invalid_result_page_without_leaking_exception() -> None:
+    secret = "/Users/reporter/Investigations/private-source.pdf"
+
+    class BadText:
+        def strip(self) -> str:
+            raise RuntimeError(f"invalid text from {secret}")
+
+    class Engine:
+        def __call__(self, path: str) -> Any:
+            del path
+            return SimpleNamespace(
+                img=None,
+                txts=(BadText(),),
+                boxes=None,
+                scores=None,
+                elapse_list=(0.01, None, None),
+            )
+
+    with pytest.raises(worker.RapidOCRPageError) as excinfo:
+        worker._ocr_pages(Engine(), ["page"])
+
+    assert excinfo.value.code == "image_result_invalid"
+    assert str(excinfo.value) == "RapidOCR returned invalid output for OCR input page 1"
+    assert secret not in str(excinfo.value)
+
+
+def test_ocr_pages_keeps_nonfinite_scores_row_local() -> None:
+    class Engine:
+        def __call__(self, path: str) -> Any:
+            del path
+            return SimpleNamespace(
+                img=None,
+                txts=("text",),
+                boxes=None,
+                scores=(float("nan"),),
+                elapse_list=(0.01, None, None),
+            )
+
+    with pytest.raises(worker.RapidOCRPageError) as excinfo:
+        worker._ocr_pages(Engine(), ["page"])
+
+    assert excinfo.value.code == "image_result_invalid"
+    assert str(excinfo.value) == "RapidOCR returned invalid output for OCR input page 1"
+
+
 def test_request_paths_are_confined_to_request_staging_root(tmp_path: Path) -> None:
     root = tmp_path.resolve()
     request = root / "requests" / "r1"

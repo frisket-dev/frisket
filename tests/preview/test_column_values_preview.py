@@ -191,6 +191,8 @@ def test_missing_sheet_and_column_are_invalid_input_ref(tmp_path):
         ({"offset": True}, "offset"),
         ({"offset": -1}, "offset"),
         ({"search": 5}, "search"),
+        ({"value_mode": "preview"}, "value_mode"),
+        ({"value_mode": None}, "value_mode"),
     ],
 )
 def test_bad_paging_and_search_params_are_invalid_params(tmp_path, kwargs, field):

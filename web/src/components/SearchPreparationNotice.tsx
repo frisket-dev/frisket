@@ -1,13 +1,15 @@
 import { useState } from 'react';
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, X } from 'lucide-react';
 import type { SearchPreparationNotice as Notice } from './useSearchPreparationNotice';
 
 export function SearchPreparationNotice({
   notice,
-  onReviewApproval,
+  onReviewPreparation,
+  onDismiss,
 }: {
   notice: Notice;
-  onReviewApproval?: () => void;
+  onReviewPreparation?: (batchId: string) => void;
+  onDismiss?(): void;
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const active = notice.tone === 'active';
@@ -26,6 +28,17 @@ export function SearchPreparationNotice({
       aria-live={notice.tone === 'error' ? 'assertive' : 'polite'}
       aria-atomic="true"
     >
+      {onDismiss && (
+        <button
+          type="button"
+          className="icon-btn status-notice-dismiss"
+          data-testid="search-preparation-dismiss"
+          aria-label="Dismiss activity notification"
+          onClick={onDismiss}
+        >
+          <X size={14} aria-hidden />
+        </button>
+      )}
       <div className="active-run-main">
         {notice.tone === 'error' || notice.tone === 'warning' ? (
           <AlertTriangle size={16} className="run-warning-icon" aria-hidden />
@@ -40,7 +53,8 @@ export function SearchPreparationNotice({
         </div>
       </div>
 
-      {active && (notice.stage === 'download' || notice.progress !== null) && (
+      {((active && (notice.stage === 'download' || notice.progress !== null))
+        || (notice.tone === 'error' && notice.progress !== null)) && (
         <div className="search-preparation-progress" data-testid="search-preparation-progress">
           <span
             className={`model-pull-progress-bar${notice.progress === null ? ' indeterminate' : ''}`}
@@ -78,14 +92,18 @@ export function SearchPreparationNotice({
           )}
         </div>
       )}
-      {notice.stage === 'approval' && onReviewApproval && (
+      {notice.reviewBatchId && onReviewPreparation && (
         <button
           type="button"
           className="btn btn-compact search-preparation-review"
           data-testid="search-preparation-review"
-          onClick={onReviewApproval}
+          onClick={() => onReviewPreparation(notice.reviewBatchId!)}
         >
-          Review preparation
+          {notice.stage === 'approval'
+            ? 'Review text'
+            : notice.stage === 'failed'
+              ? 'Review files'
+              : 'View progress'}
         </button>
       )}
     </section>

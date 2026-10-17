@@ -22,12 +22,27 @@ from __future__ import annotations
 from contextlib import contextmanager
 from typing import Any
 
-from frisket.engine.store.evidence import _json_dumps, _json_loads, _text_hash
+from frisket.engine.store.evidence import _json_dumps, _json_loads
+from frisket.engine.store.current_value_windows import (
+    CurrentValueChanged,
+    CurrentValueNotTextual,
+    CurrentValueUnavailable,
+    MANUAL_EDIT_BYTE_LIMIT,
+    TEXT_WINDOW_CODEPOINT_LIMIT,
+    current_text_metadata,
+    current_text_hash,
+    decode_text_prefix,
+    read_current_column,
+    read_current_text,
+    read_sql_text,
+    sql_text_sizes,
+    limit_text_lines,
+)
+from frisket.engine.store.citation_text import passage_window
 
 _RESPONSE_OFFSET_UNIT = "utf16_code_unit"
 # v1 reads only code-point-stored offsets (all producers write this); a surface in
 # any other unit is reported unpositioned rather than mis-sliced.
-_READABLE_STORED_UNIT = "unicode_codepoint"
 
 
 def _sheet_visible(project: Any, sheet_id: int) -> bool:
@@ -81,7 +96,7 @@ def _cp_to_utf16_prefix(text: str) -> list[int]:
     """Cumulative UTF-16 code-unit offset for each code-point boundary: prefix[i]
     is the UTF-16 index of code-point i. An astral character (ord >= 0x10000) is
     two UTF-16 code units, so a single emoji earlier in the cell shifts every
-    later mark. Built once per cell."""
+    later mark. Built only for the returned passage."""
     prefix = [0] * (len(text) + 1)
     for i, ch in enumerate(text):
         prefix[i + 1] = prefix[i] + (1 if ord(ch) < 0x10000 else 2)
@@ -91,48 +106,35 @@ def _cp_to_utf16_prefix(text: str) -> list[int]:
 def _current_cell(project: Any, sheet_id: int, row_id: int, column_id: int):
     """Return (value, ref) for a cell, filtered for row visibility. ``get_values_
     with_refs`` already drops hidden rows, so a hidden row yields (None, None)."""
-    values, refs = project.get_values_with_refs(sheet_id, column_id, row_ids=[row_id])
-    return values.get(row_id), refs.get(row_id)
+    read = read_current_column(
+        project.db,
+        sheet_id=sheet_id,
+        column_id=column_id,
+        row_ids=[row_id],
+        bounded=True,
+    ).get(row_id)
+    return (read.value, read.value_ref) if read is not None else (None, None)
 
 
-def _entity_identity_map(project: Any, sheet_id: int, row_id: int, column_id: int):
-    """``(type, text) -> entity_fingerprint`` for one entity-mentions cell.
-
-    A mark has to carry the identity the Mentions panel groups by, or clicking
-    "A. Lovelace" opens a panel about that one SPELLING rather than about the
-    mention. The span itself does not store a fingerprint —
-    it stores the type — so the identity comes from the link's own OUTPUT cell,
-    the entity array the span was written alongside.
-
-    Keying on (type, text) is exactly the writer premise the mentions
-    aggregation already rests on: ``entity_fingerprint`` is a pure function of
-    (type, text), so one spelling is either always keyed or always unkeyed.
-    Under that premise this map is unambiguous even when a row mentions the
-    same name several times. Where the premise is broken (hand-edited JSON),
-    the LAST item wins and the mark simply carries a fingerprint the panel then
-    reports on honestly — no invented identity either way.
-    """
-    values, _refs = project.get_values_with_refs(sheet_id, column_id, row_ids=[row_id])
-    raw = values.get(row_id)
-    if isinstance(raw, str):
-        raw = _json_loads(raw, None)
-    out: dict[tuple[str, str], str] = {}
-    if not isinstance(raw, list):
-        return out
-    for item in raw:
-        if not isinstance(item, dict):
-            continue
-        text = item.get("text")
-        entity_type = item.get("type")
-        fingerprint = item.get("fingerprint")
-        if (
-            isinstance(text, str)
-            and isinstance(entity_type, str)
-            and isinstance(fingerprint, str)
-            and fingerprint != ""
-        ):
-            out[(entity_type, text)] = fingerprint
-    return out
+def _entity_identity_map(
+    project: Any, sheet_id: int, row_id: int, column_id: int, span_ids: list[int]
+) -> dict[int, str]:
+    """Project only visible mention fingerprints; leave full arrays in SQLite."""
+    rows = project.db.execute(
+        "SELECT sp.id,substr(json_extract(CASE WHEN item.type='object' THEN item.value ELSE '{}' END,'$.fingerprint'),1,240) AS fingerprint "
+        "FROM current_cell_values c, json_each(CASE WHEN c.value_kind IN ('json','text') "
+        "AND json_valid(c.value) THEN c.value ELSE '[]' END) item "
+        "JOIN source_spans sp ON json_extract(CASE WHEN item.type='object' THEN item.value ELSE '{}' END,'$.text')=sp.quote "
+        "AND json_extract(CASE WHEN item.type='object' THEN item.value ELSE '{}' END,'$.type')=json_extract(sp.metadata,'$.entity_type') "
+        "WHERE c.validity='valid' AND c.row_id=? AND c.column_id=? AND sp.id IN (SELECT value FROM json_each(?)) "
+        "ORDER BY CAST(item.key AS INTEGER)",
+        (row_id, column_id, _json_dumps(span_ids)),
+    ).fetchall()
+    return {
+        int(row["id"]): str(row["fingerprint"])
+        for row in rows
+        if isinstance(row["fingerprint"], str) and row["fingerprint"]
+    }
 
 
 def resolve_text_annotations(
@@ -141,6 +143,10 @@ def resolve_text_annotations(
     sheet_id: int,
     row_id: int,
     column_id: int,
+    start: int | None = None,
+    limit: int | None = None,
+    revision: int | None = None,
+    occurrence_id: str | None = None,
 ) -> dict[str, Any]:
     """Resolve the annotation layers whose coordinate surface is the cell
     ``(sheet_id, row_id, column_id)`` — the text the reader is rendering.
@@ -150,7 +156,14 @@ def resolve_text_annotations(
     summary (D4). Nothing leaks from a hidden sheet/row/column."""
     with _read_snapshot(project):
         return _resolve_text_annotations(
-            project, sheet_id=sheet_id, row_id=row_id, column_id=column_id
+            project,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=column_id,
+            start=start,
+            limit=limit,
+            revision=revision,
+            occurrence_id=occurrence_id,
         )
 
 
@@ -160,6 +173,10 @@ def _resolve_text_annotations(
     sheet_id: int,
     row_id: int,
     column_id: int,
+    start: int | None = None,
+    limit: int | None = None,
+    revision: int | None = None,
+    occurrence_id: str | None = None,
 ) -> dict[str, Any]:
     empty = {
         "sheet_id": sheet_id,
@@ -173,22 +190,81 @@ def _resolve_text_annotations(
     if not _visible_cell(project, sheet_id, row_id, column_id):
         return empty
 
-    text, _ref = _current_cell(project, sheet_id, row_id, column_id)
-    if not isinstance(text, str):
-        # Hidden row, absent cell, or a non-text value: nothing to render marks on.
+    try:
+        meta = current_text_metadata(
+            project.db, sheet_id=sheet_id, row_id=row_id, column_id=column_id
+        )
+    except (CurrentValueNotTextual, CurrentValueUnavailable):
         return empty
-    current_hash = _text_hash(text)
+    if meta.value_kind != "text":
+        return empty
+    validity = project.db.execute(
+        "SELECT validity FROM current_cells WHERE row_id=? AND column_id=?",
+        (row_id, column_id),
+    ).fetchone()
+    if validity is None or validity[0] != "valid":
+        return empty
+    if revision is not None and revision != meta.retrieval_revision:
+        raise CurrentValueChanged(
+            "source_changed: reopen annotations before continuing"
+        )
+    if start is not None and (start < 0 or (start > 0 and revision is None)):
+        raise ValueError("revision is required for a continuation passage")
+    if limit is not None and not 1 <= limit <= TEXT_WINDOW_CODEPOINT_LIMIT:
+        raise ValueError("invalid annotation passage limit")
+    bounded = (
+        meta.total_bytes > MANUAL_EDIT_BYTE_LIMIT
+        or start is not None
+        or limit is not None
+    )
+    size = limit or (
+        TEXT_WINDOW_CODEPOINT_LIMIT if bounded else max(1, meta.total_characters)
+    )
+    base = min(start or 0, meta.total_characters)
+    if occurrence_id is not None:
+        import re
+
+        if re.fullmatch(r"[0-9]+:[0-9]+", occurrence_id) is None:
+            raise ValueError("invalid annotation occurrence_id")
+        span_id, link_id = map(int, occurrence_id.split(":"))
+        anchor = project.db.execute(
+            "SELECT sp.char_start FROM source_spans sp JOIN evidence_link_spans ls ON ls.span_id=sp.id "
+            "JOIN evidence_links el ON el.id=ls.link_id JOIN text_surfaces ts ON ts.id=sp.text_surface_id "
+            "WHERE sp.id=? AND el.id=? AND el.status='active' AND ls.span_role='annotation' "
+            "AND ts.text_sheet_id=? AND ts.text_row_id=? AND ts.text_column_id=?",
+            (span_id, link_id, sheet_id, row_id, column_id),
+        ).fetchone()
+        if anchor is None:
+            raise ValueError("annotation occurrence does not belong to this source")
+        if bounded and start is None:
+            base = min(
+                meta.total_characters, max(0, int(anchor[0]) - min(500, size // 2))
+            )
+    text = read_current_text(
+        project.db,
+        sheet_id=sheet_id,
+        row_id=row_id,
+        column_id=column_id,
+        metadata=meta,
+        start=base,
+        limit=size,
+    )
+    if bounded:
+        text = limit_text_lines(text)
+    current_hash = current_text_hash(
+        project.db, sheet_id=sheet_id, row_id=row_id, column_id=column_id, metadata=meta
+    )
     prefix = _cp_to_utf16_prefix(text)
 
-    rows = project.db.execute(
-        """
-        SELECT ts.id            AS surface_id,
+    query = """
+        WITH candidates AS (SELECT ts.id            AS surface_id,
                ts.content_hash  AS surface_hash,
                ts.offset_unit   AS offset_unit,
                sp.id            AS span_id,
                sp.char_start    AS char_start,
                sp.char_end      AS char_end,
-               sp.quote         AS quote,
+               CASE WHEN length(CAST(sp.quote AS BLOB))>8192 THEN substr(CAST(sp.quote AS BLOB),1,8192) ELSE sp.quote END AS quote,
+               length(CAST(sp.quote AS BLOB))>8192 AS quote_truncated,
                sp.text_layer_hash AS span_hash,
                sp.metadata      AS span_metadata,
                el.id            AS link_id,
@@ -197,7 +273,12 @@ def _resolve_text_annotations(
                el.column_id     AS out_column_id,
                el.subject_ref_json AS subject_ref_json,
                el.producer_json AS producer_json,
-               el.layer_family  AS layer_family
+               el.layer_family  AS layer_family,
+               COUNT(*) OVER (PARTITION BY el.id) AS span_total,
+               ROW_NUMBER() OVER (PARTITION BY el.id ORDER BY sp.id) AS span_rank,
+               MAX(ts.content_hash != :current_hash) OVER (PARTITION BY el.id) AS bad_surface,
+               MAX(ts.offset_unit != 'unicode_codepoint') OVER (PARTITION BY el.id) AS bad_unit,
+               MAX(COALESCE(sp.text_layer_hash != ts.content_hash,1)) OVER (PARTITION BY el.id) AS bad_span
         FROM text_surfaces ts
         JOIN source_spans sp
           ON sp.text_surface_id = ts.id AND sp.span_kind = 'text'
@@ -206,12 +287,24 @@ def _resolve_text_annotations(
         JOIN evidence_links el
           ON el.id = els.link_id
         WHERE ts.surface_kind = 'cell'
-          AND ts.text_sheet_id = ? AND ts.text_row_id = ? AND ts.text_column_id = ?
+          AND ts.text_sheet_id = :sheet_id AND ts.text_row_id = :row_id AND ts.text_column_id = :column_id
           AND el.status = 'active'
           AND el.layer_family IS NOT NULL
-        ORDER BY el.id, sp.char_start, sp.char_end, sp.id
-        """,
-        (sheet_id, row_id, column_id),
+        ) SELECT * FROM candidates
+        """
+    if bounded:
+        query += " WHERE span_rank=1 OR (char_start < :window_end AND char_end > :window_start)"
+    query += " ORDER BY link_id,char_start,char_end,span_id"
+    rows = project.db.execute(
+        query,
+        {
+            "sheet_id": sheet_id,
+            "row_id": row_id,
+            "column_id": column_id,
+            "current_hash": current_hash,
+            "window_start": base,
+            "window_end": base + len(text),
+        },
     ).fetchall()
 
     # Group by link (one link = one producer run over one output cell = one layer).
@@ -238,7 +331,7 @@ def _resolve_text_annotations(
 
     # Cache the entity-identity map per output cell so N spans of one link cost
     # one read (see _entity_identity_map).
-    identity_cache: dict[tuple[int, int, int], dict[tuple[str, str], str]] = {}
+    identity_cache: dict[tuple[int, int, int], dict[int, str]] = {}
 
     layers: list[dict[str, Any]] = []
     for link_id, group in by_link.items():
@@ -264,13 +357,13 @@ def _resolve_text_annotations(
             "output_column": output_column,
         }
 
-        total = len(group)
+        total = int(head["span_total"])
         # Decide positioning from ALL spans in the link, not just the head: one link
         # references one surface today, but don't trust that as an invariant.
         # v1 producers all write 'unicode_codepoint'; the reader's slice + prefix
         # conversion assumes code points, so any other stored unit is reported
         # unpositioned rather than mis-sliced (no utf16-stored producer exists yet).
-        if any(r["offset_unit"] != _READABLE_STORED_UNIT for r in group):
+        if head["bad_unit"]:
             layers.append(
                 {
                     **common,
@@ -282,7 +375,7 @@ def _resolve_text_annotations(
                 }
             )
             continue
-        if any(r["surface_hash"] != current_hash for r in group):
+        if head["bad_surface"]:
             layers.append(
                 {
                     **common,
@@ -291,7 +384,7 @@ def _resolve_text_annotations(
                 }
             )
             continue
-        if any(r["span_hash"] != r["surface_hash"] for r in group):
+        if head["bad_span"]:
             layers.append(
                 {
                     **common,
@@ -307,13 +400,64 @@ def _resolve_text_annotations(
             int(head["out_column_id"]),
         )
         if out_cell not in identity_cache:
-            identity_cache[out_cell] = _entity_identity_map(project, *out_cell)
+            identity_cache[out_cell] = _entity_identity_map(
+                project,
+                *out_cell,
+                [
+                    int(r["span_id"])
+                    for r in rows
+                    if (r["out_sheet_id"], r["out_row_id"], r["out_column_id"])
+                    == out_cell
+                    and type(r["char_start"]) is int
+                    and type(r["char_end"]) is int
+                    and r["char_start"] < base + len(text)
+                    and r["char_end"] > base
+                ],
+            )
         identities = identity_cache[out_cell]
 
         spans: list[dict[str, Any]] = []
         invalid = 0
         for r in group:
-            start, end, quote = r["char_start"], r["char_end"], r["quote"]
+            start, end, quote = (
+                r["char_start"],
+                r["char_end"],
+                decode_text_prefix(r["quote"]),
+            )
+            if (
+                bounded
+                and type(start) is int
+                and type(end) is int
+                and (end <= base or start >= base + len(text))
+            ):
+                continue
+            local_start = max(0, start - base) if type(start) is int else 0
+            local_end = min(len(text), end - base) if type(end) is int else 0
+            visible_quote = (
+                quote[
+                    max(0, base - start) : max(0, base - start)
+                    + local_end
+                    - local_start
+                ]
+                if isinstance(quote, str) and type(start) is int
+                else None
+            )
+            if r["quote_truncated"] and type(start) is int:
+                sql = "SELECT quote AS value FROM source_spans WHERE id=:span_id"
+                params = {"span_id": int(r["span_id"])}
+                sizes = sql_text_sizes(project.db, sql, params)
+                visible_quote = (
+                    read_sql_text(
+                        project.db,
+                        sql,
+                        params,
+                        start=max(0, base - start),
+                        limit=max(0, local_end - local_start),
+                        sizes=sizes,
+                    )
+                    if sizes
+                    else None
+                )
             # Revalidate geometry against the CURRENT text and return the current
             # slice, never trusting stored text (§2.6). content_hash already matched,
             # so this should hold; a failure means stored corruption -> counted, not
@@ -321,19 +465,20 @@ def _resolve_text_annotations(
             if (
                 not isinstance(start, int)
                 or not isinstance(end, int)
-                or not (0 <= start < end <= len(text))
-                or text[start:end] != quote
+                or not (0 <= start < end <= meta.total_characters)
+                or text[local_start:local_end] != visible_quote
             ):
                 invalid += 1
                 continue
             md = _json_loads(r["span_metadata"], {})
             entity_type = md.get("entity_type") if isinstance(md, dict) else None
-            quote = text[start:end]
             spans.append(
                 {
                     "occurrence_id": f"{r['span_id']}:{link_id}",
-                    "start": prefix[start],
-                    "end": prefix[end],
+                    "start": prefix[local_start],
+                    "end": prefix[local_end],
+                    **({"source_start": start, "source_end": end} if bounded else {}),
+                    **({"quote_truncated": True} if r["quote_truncated"] else {}),
                     "quote": quote,
                     "metadata": {
                         "entity_type": entity_type,
@@ -341,13 +486,13 @@ def _resolve_text_annotations(
                         # a click on one spelling can open the whole group.
                         # Absent for the unfingerprinted types (date, money, …),
                         # which group by exact spelling by design.
-                        "entity_fingerprint": identities.get((entity_type, quote))
+                        "entity_fingerprint": identities.get(int(r["span_id"]))
                         if isinstance(entity_type, str)
                         else None,
                     },
                 }
             )
-        if not spans:
+        if not spans and (not bounded or invalid):
             layers.append(
                 {
                     **common,
@@ -377,6 +522,20 @@ def _resolve_text_annotations(
         "offset_unit": _RESPONSE_OFFSET_UNIT,
         "text": text,
         "layers": layers,
+        **(
+            {
+                "window": passage_window(
+                    base,
+                    text,
+                    total_characters=meta.total_characters,
+                    total_bytes=meta.total_bytes,
+                    revision=meta.retrieval_revision,
+                    limit=size,
+                )
+            }
+            if bounded
+            else {}
+        ),
     }
 
 

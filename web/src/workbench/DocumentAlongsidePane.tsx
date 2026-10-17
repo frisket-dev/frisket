@@ -70,6 +70,7 @@ export function DocumentAlongsidePane({
     minWidth: MIN_WIDTH, maxWidth: MAX_WIDTH, defaultWidth: 340, handleEdge: 'left',
   });
   const value = selectedColumn && row ? row.cells[selectedColumn.id] ?? null : null;
+  const bounded = selectedColumn && row ? row.boundedValues?.[selectedColumn.id] : null;
   const status = copyStatus?.rowId === row?.id && copyStatus?.columnId === selectedColumnId
     && copyStatus?.value === value ? copyStatus.text : '';
 
@@ -116,7 +117,7 @@ export function DocumentAlongsidePane({
           {selectedColumn && <IconButton icon={Columns2} ref={changeRef} label="Change column" title="Change column"
             aria-expanded={choosing} onClick={() => setChoosing(!choosing)} />}
           <IconButton icon={status === 'Copied' ? Check : Copy} label="Copy value" title={status === 'Copied' ? 'Copied' : 'Copy value'}
-            disabled={value === null || value === ''} onClick={() => void copyValue()} />
+            disabled={Boolean(bounded) || value === null || value === ''} onClick={() => void copyValue()} />
           <IconButton icon={Maximize2} label="Expand value" title="Expand value"
             disabled={!selectedColumn || !row} onClick={() => setExpanded(true)} />
           <WindowCloseButton size="compact" label="Close alongside panel" title="Close alongside panel" onClick={onClose} />

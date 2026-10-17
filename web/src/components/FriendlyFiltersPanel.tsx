@@ -520,6 +520,7 @@ function FacetCard({
       .columnValuesPreview({
         sheetId: sheet.id,
         inputColumn: column.name,
+        valueMode: 'bounded',
         limit: query ? SEARCH_LIMIT : ENUM_LIMIT + 1,
         ...(query ? { search: query } : {}),
       })
@@ -559,7 +560,7 @@ function FacetCard({
             <small>
               {column.type}
               {preview
-                ? ` · ${(collectionColumn ? preview.listFacet?.distinct ?? 0 : preview.distinct).toLocaleString()} values`
+                ? ` · ${(preview.omittedRows ?? 0) > 0 ? 'at least ' : ''}${(collectionColumn ? preview.listFacet?.distinct ?? 0 : preview.distinct).toLocaleString()} values`
                 : ''}
             </small>
           </span>
@@ -583,6 +584,14 @@ function FacetCard({
         <div className="friendly-facet-body">
           {error && <div className="facets-error" role="alert">{error}</div>}
           {!preview && !error && <div className="facets-empty">Loading values…</div>}
+          {preview?.inventoryComplete === false && (
+            <div className="friendly-facet-note" role="status">
+              {(preview.omittedRows ?? 0) > 0
+                ? `${(preview.omittedRows ?? 0).toLocaleString()} large ${preview.omittedRows === 1 ? 'cell omitted' : 'cells omitted'} from this preview. Counts cover the remaining cells.`
+                : 'Some choices are omitted to keep this preview small.'}
+              {' '}Use an advanced condition to filter the full column.
+            </div>
+          )}
           {preview && rangeColumn ? (
             <RangeFacet
               key={`${column.id}:${column.type}:${preview.valueHash}`}
@@ -661,7 +670,7 @@ function CollectionFacet({
   const facet = preview.listFacet ?? null;
   const selected = selectedListSelectors(condition);
   const selectedKeys = new Set(selected.map(listSelectorKey));
-  const searchable = Boolean(facet && (facet.distinct > ENUM_LIMIT || facet.search));
+  const searchable = Boolean(facet && (facet.distinct > ENUM_LIMIT || facet.search || preview.inventoryComplete === false));
   const acceptedSearch = facet?.search?.trim() ?? '';
   const actionsStale = loading || search.trim() !== acceptedSearch;
   const shown = facet?.choices ?? [];
@@ -751,7 +760,7 @@ function CollectionFacet({
       >
         {actionsStale ? 'Updating shown values… · ' : ''}
         {facet.truncated ? `Showing first ${shown.length.toLocaleString()} matches · ` : ''}
-        counts across the full sheet
+        {(preview.omittedRows ?? 0) > 0 ? 'counts exclude omitted cells' : 'counts across the full sheet'}
       </div>
       <div
         className={`friendly-checkbox-list${searchable ? ' is-searchable' : ''}`}
@@ -785,7 +794,7 @@ function CollectionFacet({
         })}
         {visible.length === 0 && (
           <div className="facets-empty">
-            {facet.search ? `No values match “${facet.search}”.` : 'No list values in this column.'}
+            {preview.inventoryComplete === false ? 'No selectable list values in this preview.' : facet.search ? `No values match “${facet.search}”.` : 'No list values in this column.'}
           </div>
         )}
       </div>
@@ -820,7 +829,7 @@ function CategoricalFacet({
 }) {
   const selected = selectedValues(condition);
   const selectedSet = new Set(selected);
-  const searchable = preview.distinct > ENUM_LIMIT || Boolean(preview.search);
+  const searchable = preview.distinct > ENUM_LIMIT || Boolean(preview.search) || preview.inventoryComplete === false;
   const shownValues = preview.values.map((entry) => entry.value);
   const acceptedSearch = preview.search?.trim() ?? '';
   const actionsStale = loading || search.trim() !== acceptedSearch;
@@ -907,7 +916,7 @@ function CategoricalFacet({
         {actionsStale ? 'Updating shown values… · ' : ''}
         {preview.truncated ? `Showing first ${shownValues.length.toLocaleString()} matches · ` : ''}
         {preview.missing > 0 ? `${preview.missing.toLocaleString()} blank · ` : ''}
-        counts across the full sheet
+        {(preview.omittedRows ?? 0) > 0 ? 'counts exclude omitted cells' : 'counts across the full sheet'}
       </div>
       <div
         className={`friendly-checkbox-list${searchable ? ' is-searchable' : ''}`}
@@ -958,7 +967,7 @@ function CategoricalFacet({
         })}
         {visible.length === 0 && (
           <div className="facets-empty">
-            {preview.search ? `No values match “${preview.search}”.` : 'No values in this column.'}
+            {preview.inventoryComplete === false ? 'No selectable values in this preview.' : preview.search ? `No values match “${preview.search}”.` : 'No values in this column.'}
           </div>
         )}
       </div>

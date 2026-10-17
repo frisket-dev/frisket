@@ -175,6 +175,7 @@ function sheetDataQuery(
 ): SheetDataContractQuery {
   const opts = options ?? {};
   const query: SheetDataContractQuery = { offset, limit };
+  if (opts.valueMode) query.value_mode = opts.valueMode;
   if (opts.columnIds != null) query.column_ids = opts.columnIds.map(Number).join(',');
   if (opts.scopeRowIds != null) query.scope_row_ids = opts.scopeRowIds.join(',');
   if (opts.parentRowId != null) query.parent_row_id = Number(opts.parentRowId);
@@ -281,7 +282,9 @@ export function createSheetGridDomainApi(
     const columns = data.columns.map((column) =>
       enrichAiColumn(project, sheetId, column),
     );
-    const rows = enrichRows(project, sheetId, offset, { ...data, columns });
+    const rows = enrichRows(project, sheetId, offset, { ...data, columns }).map((row) => (
+      options?.columnIds ? { ...row, loadedColumnIds: options.columnIds } : row
+    ));
     return { rows, total: data.total, columns };
   }
 
@@ -298,7 +301,9 @@ export function createSheetGridDomainApi(
       sheetDataQuery(offset, limit, options),
       errorFactory,
     );
-    return { rows: enrichRows(project, sheetId, offset, data) };
+    return { rows: enrichRows(project, sheetId, offset, data).map((row) => (
+      options?.columnIds ? { ...row, loadedColumnIds: options.columnIds } : row
+    )) };
   }
 
   async function listSheetsForProject(project: ProjectIdentity): Promise<SheetMeta[]> {

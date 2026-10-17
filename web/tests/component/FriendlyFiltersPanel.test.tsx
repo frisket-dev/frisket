@@ -167,8 +167,40 @@ describe('FriendlyFiltersPanel', () => {
       status: { eq: 'open' },
     });
     expect(columnValuesPreview).toHaveBeenCalledWith({
-      sheetId: '7', inputColumn: 'status', limit: 21,
+      sheetId: '7', inputColumn: 'status', limit: 21, valueMode: 'bounded',
     });
+  });
+
+  it('explains omitted large cells without claiming an empty column or definitive no matches', async () => {
+    mockFacets();
+    columnValuesPreview.mockImplementation(async (input) => valuesPreview(input.inputColumn, {
+      values: [], distinct: 0, missing: 0, valueHash: null,
+      inventoryComplete: false, omittedRows: 2,
+    }));
+    render(<FriendlyFiltersPanel sheets={[SHEET]} activeSheetId="7" onApplyFilterSpec={() => {}} />);
+    const facet = within(screen.getByTestId('friendly-facet-status'));
+    expect(await facet.findByText(/2 large cells omitted/)).toBeVisible();
+    expect(facet.getByText('No selectable values in this preview.')).toBeVisible();
+    expect(facet.queryByText('No values in this column.')).not.toBeInTheDocument();
+    expect(facet.getByRole('searchbox')).toBeVisible();
+    expect(facet.getByRole('button', { name: 'Select all shown' })).toBeDisabled();
+    expect(columnValuesPreview).toHaveBeenCalledWith({
+      sheetId: '7', inputColumn: 'status', limit: 21, valueMode: 'bounded',
+    });
+  });
+
+  it('keeps complete small choices selectable when the preview budget omits other choices', async () => {
+    mockFacets();
+    columnValuesPreview.mockImplementation(async (input) => valuesPreview(input.inputColumn, {
+      values: [{ value: 'small exact value', count: 2 }],
+      inventoryComplete: false, omittedRows: 0, truncated: true,
+    }));
+    const onApply = vi.fn();
+    render(<FriendlyFiltersPanel sheets={[SHEET]} activeSheetId="7" onApplyFilterSpec={onApply} />);
+    const facet = within(screen.getByTestId('friendly-facet-status'));
+    expect(await facet.findByText(/Some choices are omitted/)).toBeVisible();
+    fireEvent.click(facet.getByRole('checkbox'));
+    expect(onApply).toHaveBeenCalledWith({ status: { eq: 'small exact value' } });
   });
 
   it('clears one column from either affordance without widening the others', async () => {
@@ -607,7 +639,7 @@ describe('FriendlyFiltersPanel', () => {
 
     await waitFor(() => {
       expect(columnValuesPreview).toHaveBeenCalledWith({
-        sheetId: '7', inputColumn: 'region', limit: 50, search: 'late',
+        sheetId: '7', inputColumn: 'region', valueMode: 'bounded', limit: 50, search: 'late',
       });
     });
     await screen.findByTestId('facet-check-region-closed-late');
@@ -649,7 +681,7 @@ describe('FriendlyFiltersPanel', () => {
 
     await waitFor(() => {
       expect(columnValuesPreview).toHaveBeenCalledWith({
-        sheetId: '7', inputColumn: 'region', limit: 50, search: 'late',
+        sheetId: '7', inputColumn: 'region', valueMode: 'bounded', limit: 50, search: 'late',
       });
     });
     expect(screen.queryByText('Loading values…')).not.toBeInTheDocument();
@@ -721,7 +753,7 @@ describe('FriendlyFiltersPanel', () => {
     expect(firstContains).toBeDisabled();
     await waitFor(() => {
       expect(columnValuesPreview).toHaveBeenCalledWith({
-        sheetId: '7', inputColumn: 'region', limit: 50, search: 'second',
+        sheetId: '7', inputColumn: 'region', valueMode: 'bounded', limit: 50, search: 'second',
       });
     });
     expect(within(region).getByTestId('facet-values-region')).toHaveAttribute('aria-busy', 'true');

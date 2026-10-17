@@ -101,8 +101,8 @@ def _seed_image_project(tmp_path: Path) -> dict[str, Any]:
 
 
 def _fake_page_images():
-    async def fake_page_images(self, path, media, spec, scratch):
-        del self, media, spec, scratch
+    async def fake_page_images(self, path, media, spec, scratch, *, engine=None):
+        del self, media, spec, scratch, engine
         return [path]
 
     return fake_page_images

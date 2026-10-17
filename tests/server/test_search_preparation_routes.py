@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+import sqlite3
 from dataclasses import dataclass
 from dataclasses import replace
 import pytest
 
 from frisket.engine.jobs import model_pull_store
+from frisket.engine.jobs.projection import job_run_id
+from frisket.engine.store.receipts import ReceiptStore
 from frisket.server.app import create_app
 from frisket.server.services import search_preparation as preparation_module
 from frisket.server.services.search_preparation import SearchPreparationService
@@ -64,6 +67,64 @@ def _unbound_ocr_action(workspace: Workspace):
         child_key,
     )
     return project_id, service, batch, body
+
+
+@pytest.mark.parametrize("overflow", [False, True])
+def test_completed_preparation_exposes_bounded_receipt_warnings_without_result_scan(
+    tmp_path, monkeypatch, overflow
+):
+    monkeypatch.setattr(
+        preparation_module,
+        "_requirements",
+        lambda: (replace(_Requirement(), weights_ready=True),),
+    )
+    monkeypatch.setattr(
+        preparation_module, "index_work_marker", lambda *args, **kwargs: None
+    )
+    workspace = Workspace(tmp_path / "workspace")
+    project_id, service, batch, body = _unbound_ocr_action(workspace)
+    queued = service.action_runs.run_action(project_id, body)
+    [child] = service.store.children(batch.id)
+    service.store.bind_child(
+        child.id,
+        job_id=queued.payload["job_id"],
+        receipt_id=queued.payload["receipt_id"],
+    )
+    project = workspace.get(project_id)
+    receipts = ReceiptStore(project)
+    stored = receipts.find_by_id(queued.payload["receipt_id"])
+    warnings = (
+        [f"Page {page} failed during OCR." for page in range(120)]
+        if overflow
+        else ["Page 2 failed during OCR."] * 2
+    )
+    assert receipts.update_body_status(
+        stored.parsed().model_copy(update={"status": "completed", "warnings": warnings})
+    )
+
+    def deny_result_warning_reads(action, table, column, *_):
+        return (
+            sqlite3.SQLITE_DENY
+            if action == sqlite3.SQLITE_READ
+            and table == "results"
+            and column == "warnings"
+            else sqlite3.SQLITE_OK
+        )
+
+    project.db.set_authorizer(deny_result_warning_reads)
+    try:
+        terminal = service.get(project_id, batch.id)
+        assert service.get(project_id, batch.id).warnings == terminal.warnings
+    finally:
+        project.db.set_authorizer(None)
+    assert terminal.status == "complete"
+    assert terminal.groups[0].status == "complete"
+    assert terminal.errors == []
+    assert terminal.warnings == (
+        [*warnings[:99], "Additional preparation warnings omitted."]
+        if overflow
+        else [warnings[0]]
+    )
 
 
 def test_explicit_preparation_is_reconnectable_and_double_click_safe(
@@ -137,6 +198,7 @@ def test_preparation_list_projects_durable_indexing_work(tmp_path, monkeypatch) 
     sheet_id = project.add_sheet("Notes")
     text_column = project.add_column(sheet_id, "Note", type="text")
     project.add_rows(sheet_id, [{"Note": "new text"}], {"Note": text_column})
+    project._frisket_schedule_search_index()
 
     active = client.get(f"/api/projects/{project_id}/search-preparation").json()[
         "indexing"
@@ -191,6 +253,7 @@ def test_search_recovers_index_work_without_a_queued_job(tmp_path, monkeypatch, 
     sheet_id = project.add_sheet("Notes")
     column_id = project.add_column(sheet_id, "Note", type="text")
     project.add_rows(sheet_id, [{"Note": "blue wharf"}], {"Note": column_id})
+    project._frisket_schedule_search_index()
     job = workspace.queue.find_job_by_refs("search.index", project_id=project_id)
     assert job is not None
     assert workspace.queue.cancel(job.id)
@@ -622,6 +685,111 @@ def test_recovery_adopts_unbound_real_action_reservation(tmp_path, monkeypatch) 
     assert service.get(project_id, batch.id).errors == []
 
 
+def test_live_action_progress_overrides_a_stale_queued_receipt(
+    tmp_path, monkeypatch
+) -> None:
+    ready = replace(_Requirement(), weights_ready=True)
+    monkeypatch.setattr(preparation_module, "_requirements", lambda: (ready,))
+    workspace = Workspace(tmp_path / "workspace")
+    project_id = workspace.create("Live preparation")["id"]
+    project = workspace.get(project_id)
+    sheet_id = project.add_sheet("Files")
+    image_column = project.add_column(sheet_id, "Image", type="image")
+    rows = []
+    for number in range(3):
+        digest = project.add_blob(
+            f"image-{number}".encode(),
+            filename=f"scan-{number}.png",
+            mime="image/png",
+        )
+        rows.append(
+            {
+                "Image": {
+                    "blob": digest,
+                    "filename": f"scan-{number}.png",
+                    "mime": "image/png",
+                }
+            }
+        )
+    row_ids = project.add_rows(sheet_id, rows, {"Image": image_column})
+    service = SearchPreparationService(workspace)
+
+    batch = service.create(project_id, sheet_id=sheet_id, row_ids=None, force_ocr=False)
+    [child] = service.store.children(batch.id)
+    assert child.job_id is not None and child.receipt_id is not None
+    stored = ReceiptStore(project).find_by_id(child.receipt_id)
+    assert stored is not None and stored.status == "queued"
+
+    claimed = workspace.queue.claim("ocr-worker")
+    while claimed is not None and claimed.id != child.job_id:
+        assert workspace.queue.complete(
+            claimed.id, "ocr-worker", {"skipped_by_test": True}
+        )
+        claimed = workspace.queue.claim("ocr-worker")
+    assert claimed is not None and claimed.id == child.job_id
+    run_id = job_run_id(claimed)
+    assert run_id is not None
+    output_columns = {
+        column["name"]: column["id"]
+        for column in project.columns(sheet_id, include_hidden=True)
+    }
+    project.db.execute(
+        "INSERT INTO results "
+        "(run_id,row_id,column_id,value_kind,value,error,error_code,outcome,"
+        "publication_effect) VALUES (?,?,?,?,?,?,?,?,?)",
+        (
+            run_id,
+            row_ids[0],
+            output_columns["OCR text · Image"],
+            None,
+            None,
+            "OCR found no readable text",
+            "empty_output",
+            "empty_output",
+            "publish_error",
+        ),
+    )
+    project.db.execute(
+        "UPDATE runs SET completed_rows=1, failed_rows=1 WHERE id=?", (run_id,)
+    )
+    project.db.commit()
+
+    active = service.get(project_id, batch.id)
+
+    assert active.groups[0].status == "running"
+    assert active.jobs[0].status == "running"
+    assert active.jobs[0].progress is not None
+    assert active.jobs[0].progress.status == "running"
+    assert active.jobs[0].progress.total == 3
+    assert active.jobs[0].progress.completed == 1
+    assert active.jobs[0].progress.failed == 1
+    assert active.jobs[0].progress.row_errors is not None
+    [error_group] = active.jobs[0].progress.row_errors.groups
+    assert error_group.message == "OCR found no readable text"
+    assert error_group.count == 1
+    assert error_group.terminal is True
+    assert ReceiptStore(project).find_by_id(child.receipt_id).status == "queued"
+
+    project.db.execute(
+        "UPDATE runs SET status='completed', completed_rows=3, failed_rows=1, "
+        "finished_at=CURRENT_TIMESTAMP WHERE id=?",
+        (run_id,),
+    )
+    project.db.commit()
+
+    terminal = service.get(project_id, batch.id)
+
+    assert terminal.status == "failed"
+    assert terminal.groups[0].status == "failed"
+    assert terminal.jobs[0].status == "failed"
+    assert terminal.jobs[0].progress is not None
+    assert terminal.jobs[0].progress.status == "completed"
+    assert terminal.jobs[0].progress.total == 3
+    assert terminal.jobs[0].progress.completed == 3
+    assert terminal.jobs[0].progress.failed == 1
+    assert ReceiptStore(project).find_by_id(child.receipt_id).status == "queued"
+
+
 def test_recovery_resumes_prepared_action_with_no_queue_job(
     tmp_path, monkeypatch
 ) -> None:
@@ -811,3 +979,58 @@ def test_recovery_observes_setup_completed_by_another_process(
     assert resumed.status == "preparing"
     assert len(resumed.jobs) == 1
     assert resumed.jobs[0].status == "queued"
+
+
+def test_empty_project_does_not_queue_or_report_search_preparation(tmp_path):
+    client = TestClient(create_app(tmp_path / "workspace"))
+    response = client.post("/api/projects", json={"name": "Empty"})
+    assert response.status_code == 200, response.text
+    project_id = response.json()["id"]
+    workspace = client.app.state.workspace
+    project = workspace.get(project_id)
+    sheet = project.add_sheet("Documents")
+    column = project.add_column(sheet, "body")
+    url = f"/api/projects/{project_id}/search-preparation"
+    for _ in range(2):
+        status = client.get(url)
+        assert status.status_code == 200, status.text
+        assert status.json() == {
+            "batches": [],
+            "indexing": {"status": "idle", "job_id": None, "error": None},
+        }
+    assert workspace.queue.counts()["queued"] == 0
+
+    for mode in ("lexical", "semantic", "hybrid"):
+        searched = client.post(
+            f"/api/projects/{project_id}/search",
+            json={
+                "scope": {"kind": "project"},
+                "query": {"kind": "text", "text": "content", "lexical_syntax": "plain"},
+                "mode": mode,
+                "group_by": "source",
+                "limit": 10,
+                "ranking": {"rerank": "off"},
+            },
+        )
+        assert searched.status_code == 200, searched.text
+        assert searched.json()["coverage"]["state"] == "complete"
+    assert workspace.queue.counts()["queued"] == 0
+
+    project.add_rows(sheet, [{"body": "first searchable content"}], {"body": column})
+    # Direct library writes record work; a search is a normal enqueue recovery
+    # boundary (production imports also schedule at their commit boundary).
+    searched = client.post(
+        f"/api/projects/{project_id}/search",
+        json={
+            "scope": {"kind": "project"},
+            "query": {"kind": "text", "text": "content", "lexical_syntax": "plain"},
+            "mode": "lexical",
+            "group_by": "source",
+            "limit": 10,
+            "ranking": {"rerank": "off"},
+        },
+    )
+    assert searched.status_code == 200, searched.text
+    status = client.get(url).json()["indexing"]
+    assert status["status"] == "queued"
+    assert status["job_id"] is not None

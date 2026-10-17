@@ -35,7 +35,7 @@ from frisket.engine.store.receipts import ReceiptStore
 from frisket.project_settings import read_project_settings
 from frisket.retrieval.source_adapter import resolve_cell_blob_source
 from frisket.server.route_errors import RouteError
-from frisket.server.services.action_runs import ActionRunService
+from frisket.server.services.action_runs import ActionRunRouteError, ActionRunService
 from frisket.server.services.search_preparation_planning import build_plan, sample_pdf
 
 
@@ -48,6 +48,24 @@ _LOCAL_TRANSCRIBE_TARGET = ExactExecutionMatch(
 )
 _SEMANTIC_REF = "engine-setup:embeddinggemma-2.local@1"
 LOG = logging.getLogger(__name__)
+
+_RECEIPT_TO_CHILD_STATE = {
+    "queued": "queued",
+    "running": "running",
+    "completed": "done",
+    "partial": "failed",
+    "failed": "failed",
+    "cancelled": "cancelled",
+}
+_JOB_TO_CHILD_STATE = {
+    "queued": "queued",
+    "running": "running",
+    "done": "done",
+    "failed": "failed",
+    "cancelled": "cancelled",
+}
+_ACTIVE_PROGRESS_STATES = frozenset({"queued", "running", "stalled", "orphaned"})
+_PREPARATION_WARNING_LIMIT = 100
 
 
 def _sha(value: object) -> str:
@@ -1319,6 +1337,7 @@ class SearchPreparationService:
         jobs: list[SearchPreparationJob] = []
         child_states: dict[int, str] = {}
         projection_errors = list(row.errors)
+        projection_warnings: dict[str, None] = {}
         for child in children:
             stored = (
                 receipts.find_by_id(child.receipt_id)
@@ -1330,31 +1349,66 @@ class SearchPreparationService:
                 if child.receipt_id is None
                 else "failed"
                 if stored is None
-                else {
-                    "queued": "queued",
-                    "running": "running",
-                    "completed": "done",
-                    "partial": "failed",
-                    "failed": "failed",
-                    "cancelled": "cancelled",
-                }.get(stored.status, "failed")
+                else _RECEIPT_TO_CHILD_STATE.get(stored.status, "failed")
             )
+            progress: Mapping[str, Any] | None = None
+            if (
+                child.job_id is not None
+                and stored is not None
+                and stored.status in {"queued", "running"}
+            ):
+                try:
+                    live_job = self.action_runs.job_detail(row.project_id, child.job_id)
+                except ActionRunRouteError:
+                    # The receipt remains the durable fallback if the queue job
+                    # was removed or belongs to a retired execution backend.
+                    pass
+                else:
+                    candidate = live_job.get("progress")
+                    if isinstance(candidate, Mapping):
+                        progress = candidate
+                        progress_status = str(candidate.get("status") or "")
+                        if progress_status in _ACTIVE_PROGRESS_STATES:
+                            state = (
+                                "queued" if progress_status == "queued" else "running"
+                            )
+                        elif progress_status in {"failed", "partial"}:
+                            state = "failed"
+                        elif progress_status == "cancelled":
+                            state = "cancelled"
+                        elif progress_status == "completed":
+                            state = (
+                                "failed"
+                                if int(candidate.get("failed") or 0) > 0
+                                else "done"
+                            )
+                    else:
+                        state = _JOB_TO_CHILD_STATE.get(
+                            str(live_job.get("status") or ""), state
+                        )
             child_states[child.id] = state
-            if stored is not None and state in {"failed", "cancelled"}:
+            if stored is not None and state in {"done", "failed", "cancelled"}:
                 try:
                     receipt = stored.parsed()
                 except Exception:
-                    projection_errors.append("Search preparation action failed.")
+                    if state != "done":
+                        projection_errors.append("Search preparation action failed.")
                 else:
-                    projection_errors.extend(
-                        error.message for error in receipt.errors if error.message
-                    )
+                    for warning in receipt.warnings:
+                        if len(projection_warnings) > _PREPARATION_WARNING_LIMIT:
+                            break
+                        projection_warnings.setdefault(warning, None)
+                    if state != "done":
+                        projection_errors.extend(
+                            error.message for error in receipt.errors if error.message
+                        )
             if child.job_id is not None and state != "planning":
                 jobs.append(
                     SearchPreparationJob(
                         job_id=child.job_id,
                         status=state,
                         action_kind=child.kind,
+                        progress=progress,
                     )
                 )
         current = setup.requirements_by_ref
@@ -1465,6 +1519,12 @@ class SearchPreparationService:
             else:
                 group_status = "planning"
             groups.append(SearchPreparationGroup(**group, status=group_status))
+        warnings = list(projection_warnings)
+        if len(warnings) > _PREPARATION_WARNING_LIMIT:
+            warnings = [
+                *warnings[: _PREPARATION_WARNING_LIMIT - 1],
+                "Additional preparation warnings omitted.",
+            ]
         return SearchPreparationBatch(
             id=row.id,
             sheet_id=row.sheet_id,
@@ -1478,6 +1538,7 @@ class SearchPreparationService:
             and status == "needs_consent"
             and any(m.required and not m.ready and m.can_setup for m in models),
             errors=list(dict.fromkeys(projection_errors)),
+            warnings=warnings,
         )
 
 

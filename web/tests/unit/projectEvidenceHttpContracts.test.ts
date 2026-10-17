@@ -169,6 +169,30 @@ function jsonResponse(payload: unknown, status = 200): Response {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('project evidence generated HTTP reads', () => {
+  it('forwards bounded annotation and citation window options without changing local highlight units', async () => {
+    const requests: string[] = [];
+    const window = { start: 500, end: 510, total_characters: 100000, total_bytes: 100003,
+      retrieval_revision: 9, previous_start: 0, next_start: 510, reached_start: false, reached_end: false };
+    vi.stubGlobal('fetch', vi.fn(async (input) => {
+      requests.push(String(input));
+      return jsonResponse(requests.length === 1 ? { ...annotationsFixture, window,
+        text: '😀 Ada', layers: [{ ...annotationsFixture.layers[0], spans: [{
+          ...annotationsFixture.layers[0].spans[0], start: 3, end: 6, source_start: 502, source_end: 505, quote_truncated: true,
+        }] }] } : viewerFixture);
+    }));
+    const api = createProjectEvidenceDomainApi((status) => new Error(String(status)), 'project');
+    const annotated = await api.getTextAnnotations('7', '5', { start: 500, limit: 10, revision: 9, occurrenceId: '1:2' });
+    expect(annotated.window).toEqual(window);
+    expect(annotated.layers[0].positioned && annotated.layers[0].spans[0]).toMatchObject({
+      start: 3, end: 6, sourceStart: 502, sourceEnd: 505, quoteTruncated: true,
+    });
+    const annotationQuery = new URL(requests[0], 'http://localhost').searchParams;
+    expect(Object.fromEntries(annotationQuery)).toMatchObject({ start: '500', limit: '10', revision: '9', occurrence_id: '1:2' });
+    await api.getEvidenceViewer('owner', { textArtifactId: 22, textStart: 90000, textLimit: 16384, textRevision: 9, textSpanId: 'span:tail' });
+    const evidenceQuery = new URL(requests[1], 'http://localhost').searchParams;
+    expect(Object.fromEntries(evidenceQuery)).toMatchObject({ text_artifact_id: '22', text_start: '90000', text_limit: '16384', text_revision: '9', text_span_id: 'span:tail' });
+  });
+
   it('preserves request bytes for four product-used JSON routes', async () => {
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     const responses = [cellFixture, annotationsFixture, columnFixture, viewerFixture];

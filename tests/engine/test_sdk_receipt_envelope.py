@@ -201,6 +201,14 @@ def test_deterministic_partial_status() -> None:
     assert prov.status == "partial"
 
 
+def test_successful_warning_is_carried_by_provenance() -> None:
+    facts = _facts(warnings=["Page 2 could not be read"])
+    prov = StandardReceipt().bind(_decl())(None, facts, _base_refs(facts))
+    assert prov.status == "completed"
+    assert prov.errors == []
+    assert prov.warnings == ["Page 2 could not be read"]
+
+
 def test_model_envelope_cites_and_errors(monkeypatch: Any) -> None:
     decl = _decl(model_map, form="demo")
     receipt = StandardReceipt(

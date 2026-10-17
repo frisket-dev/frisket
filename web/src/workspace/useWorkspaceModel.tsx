@@ -53,6 +53,7 @@ import { backfillWithConfirmation } from '../api/backfillWithConfirmation';
 import { subscribeMapPointsMeta } from '../api/mapPointsMeta';
 import type { ColumnGroupViewSpec } from '../grid/SheetGrid';
 import { applyColumnTypeRegistry } from '../grid/typeRegistry';
+import { gridReadColumnIds } from '../components/fieldValueDependencies';
 import { computeRowCacheKey, resolveRowCacheScope } from '../grid/rowCacheStore';
 import { PanelLoading } from '../components/PanelPrimitives';
 import { documentMediaColumns } from '../workbench/documentMedia';
@@ -102,6 +103,7 @@ import {
   selectSheetTabTransition,
   toggleProvenanceWithDrawersTransition,
   openRowPanelTransition,
+  openSearchTextHitTransition,
   openColumnPanelTransition,
   openRowRefTransition,
   closeRoutePanelTransition,
@@ -1015,7 +1017,7 @@ export function useWorkspaceModel({
     activeGridFilter,
     activeGridSort,
     activeGridScopeRowIds: scopeRowIds,
-    rowDrawerId: rowDrawer?.id ?? null,
+    rowDrawerId: rowDrawer?.loadedColumnIds ? null : rowDrawer?.id ?? null,
     showError,
   });
 
@@ -1046,7 +1048,7 @@ export function useWorkspaceModel({
         sort: activeGridSort,
       };
       void projectApi
-        .getSheetData(sheet.id, targetIndex, 1, scope)
+        .getSheetData(sheet.id, targetIndex, 1, { ...scope, valueMode: 'bounded' })
         .then((page) => {
           const nextRow = page.rows[0];
           if (!nextRow) return;
@@ -1157,6 +1159,21 @@ export function useWorkspaceModel({
             : {}),
         });
       } else if (navigation.column_id !== null && navigation.column_id !== undefined) {
+        const columnId = String(navigation.column_id);
+        const column = sheets.find((candidate) => candidate.id === sheetId)?.columns
+          .find((candidate) => candidate.id === columnId);
+        const dependency = hit.binding.dependencies.find((item) => (
+          String(item.row_id) === rowId && String(item.column_id) === columnId
+        ));
+        // Search indexes JSON's decoded representation, not its stored encoding.
+        // Only direct text with its authoritative revision can share these offsets.
+        if (navigation.text_range && column?.type === 'text' && dependency) {
+          openSearchTextHitTransition({ detail, selection }, writeRoute, project.id, { sheetId, rowId, columnId,
+            range: { start: navigation.text_range.start, end: navigation.text_range.end,
+              highlight: hit.location.precision === 'exact' },
+            retrievalRevision: dependency.retrieval_revision, requestKey: crypto.randomUUID() });
+          return;
+        }
         requestGridCellReveal({
           projectId: project.id,
           sheetId,
@@ -1171,11 +1188,15 @@ export function useWorkspaceModel({
       );
     },
     [
+      detail,
       openEvidenceViewerForWorkspace,
       project.id,
       selectSheet,
+      selection,
       setDocumentView,
       setOpenSplit,
+      sheets,
+      writeRoute,
     ],
   );
 
@@ -1825,7 +1846,7 @@ export function useWorkspaceModel({
         const pageSize = 1000;
         const rowIds: number[] = [];
         for (let offset = 0; ; ) {
-          const page = await projectApi.getSheetData(sheet.id, offset, pageSize, { filter });
+          const page = await projectApi.getSheetData(sheet.id, offset, pageSize, { filter, columnIds: [], valueMode: 'bounded' });
           for (const row of page.rows) rowIds.push(Number(row.id));
           offset += page.rows.length;
           if (page.rows.length === 0 || offset >= page.total) break;
@@ -2872,15 +2893,18 @@ export function useWorkspaceModel({
         ? activeChildFilter.count
         : sheet?.rowCount ?? 0;
   const activeRowCacheOptions = useMemo(
-    () =>
-      resolveRowCacheScope({
+    () => ({
+      ...resolveRowCacheScope({
         parentRowId: activeChildFilter?.parentRowId,
         filter: activeGridFilter,
         sort: activeGridSort,
         lensRowIds: activeGridLensRowIds,
         scopeRowIds,
       }),
-    [activeChildFilter?.parentRowId, activeGridFilter, activeGridSort, activeGridLensRowIds, scopeRowIds],
+      columnIds: sheet ? gridReadColumnIds(sheet.columns, hiddenColumnNames) : [],
+      valueMode: 'bounded' as const,
+    }),
+    [activeChildFilter?.parentRowId, activeGridFilter, activeGridSort, activeGridLensRowIds, scopeRowIds, sheet, hiddenColumnNames],
   );
   const activeRowCacheKey = sheet
     ? computeRowCacheKey(sheet.id, dataVersion, activeRowCacheOptions)
@@ -3373,7 +3397,9 @@ export function useWorkspaceModel({
   const loadReplayPending = useCallback(
     async (columnId: string): Promise<ReplayReviewEntry[]> => {
       if (!sheet) return [];
-      const page = await projectApi.getSheetData(sheet.id, 0, REPLAY_REVIEW_PAGE_SIZE);
+      const page = await projectApi.getSheetData(sheet.id, 0, REPLAY_REVIEW_PAGE_SIZE, {
+        columnIds: [columnId], valueMode: 'bounded',
+      });
       const entries: ReplayReviewEntry[] = [];
       for (const row of page.rows) {
         const pending = row.replayPending?.[columnId];

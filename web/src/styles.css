@@ -5121,6 +5121,12 @@ li.panel-empty { list-style: none; }
   min-width: 0;
   width: 100%;
 }
+.status-notice-dismiss {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+}
+.active-run-banner:has(> .status-notice-dismiss) { padding-right: 38px; }
 .active-run-main {
   display: flex;
   align-items: center;
@@ -7890,6 +7896,9 @@ dialog.import-workspace-layer::backdrop {
   grid-template-columns: minmax(0, 1fr);
   overflow: hidden;
 }
+.import-workspace-main-preparation {
+  grid-template-columns: minmax(0, 1fr);
+}
 .import-workspace-receipt .import-workspace-content {
   max-height: calc(100vh - 32px);
 }
@@ -7975,6 +7984,64 @@ dialog.import-workspace-layer::backdrop {
 .import-file-choose {
   min-height: 46px;
   margin-top: 4px;
+}
+.import-source-toggle {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  flex-wrap: nowrap;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-8);
+  background: var(--bg-hover);
+}
+.import-source-toggle button {
+  min-width: 88px;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--radius-6);
+  background: transparent;
+}
+.import-source-toggle button.active {
+  border-color: transparent;
+  background: var(--bg);
+  box-shadow: var(--shadow-sm);
+}
+.import-files-chooser {
+  flex: 1 0 300px;
+  width: 100%;
+  min-height: 300px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 40px 24px;
+  border: 2px dashed var(--border-strong);
+  border-radius: 12px;
+  color: var(--text-light);
+  text-align: center;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+.import-files-chooser[data-dragging] {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+.import-files-chooser h2 {
+  margin: 2px 0 0;
+  color: var(--text);
+  font-size: 20px;
+}
+.import-files-chooser p {
+  margin: 0 0 8px;
+  color: var(--text-light);
+  font-size: 12px;
+}
+.import-files-chooser-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
 }
 .import-feed-form {
   width: min(620px, 100%);
@@ -8458,7 +8525,9 @@ dialog.import-workspace-layer::backdrop {
   font-size: 13px;
 }
 
-.search-preparation-receipt > header,
+.search-preparation-receipt-body { display: contents; }
+
+.search-preparation-receipt-body > header,
 .search-preparation-text-preview > header {
   display: flex;
   align-items: flex-start;
@@ -8477,6 +8546,12 @@ dialog.import-workspace-layer::backdrop {
   font-size: 17px;
 }
 .search-preparation-receipt h3 { font-size: 16px; }
+.search-preparation-section-heading {
+  color: var(--text-mid);
+  font-size: 12px !important;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
 
 .search-preparation-groups { border-top: 1px solid var(--border); }
 .search-preparation-group {
@@ -8489,6 +8564,14 @@ dialog.import-workspace-layer::backdrop {
   border-bottom: 1px solid var(--border);
   line-height: 1.35;
 }
+.search-preparation-group-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  text-align: right;
+}
+.search-preparation-group-status small { color: var(--text-light); }
 .search-preparation-group > span {
   min-width: 0;
   font-size: 13px;
@@ -8565,6 +8648,34 @@ dialog.import-workspace-layer::backdrop {
   padding: 14px 22px;
   background: var(--bg-panel);
 }
+.import-workspace-main-preparation .import-workspace-panel {
+  overflow: hidden;
+  padding: 0;
+}
+.import-workspace-main-preparation .search-preparation-receipt {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+.import-workspace-main-preparation .search-preparation-receipt-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 20px 22px;
+  overflow-y: auto;
+}
+.import-workspace-main-preparation .search-preparation-receipt > footer {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 14px 22px;
+  background: var(--bg-panel);
+}
 .search-preparation-pulls { display: grid; gap: 8px; }
 
 .search-preparation-text-preview {
@@ -8628,6 +8739,8 @@ dialog.import-workspace-layer::backdrop {
 
 @media (max-width: 700px) {
   .search-preparation-receipt { padding: 16px; }
+  .import-workspace-main-preparation .search-preparation-receipt-body { padding: 16px; }
+  .import-workspace-main-preparation .search-preparation-receipt > footer { padding: 14px 16px; }
   .import-workspace-receipt .search-preparation-receipt > footer { margin: 2px -16px -16px; }
   .search-preparation-group { align-items: flex-start; flex-direction: column; gap: 3px; padding: 8px 0; }
   .search-preparation-text-preview .pdf-packet-page-and-text { grid-template-columns: 1fr; }

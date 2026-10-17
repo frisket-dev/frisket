@@ -3,6 +3,7 @@ import {
   type HttpContractSuccessResponse,
 } from '../httpContract';
 import type {
+  BoundedCellValue,
   CellValue,
   CellValueRef,
   ColumnStats,
@@ -32,6 +33,7 @@ export interface SheetDataContractQuery {
   offset?: number;
   limit?: number;
   column_ids?: string;
+  value_mode?: 'exact' | 'bounded';
   parent_row_id?: number;
   filter?: string;
   sort?: string;
@@ -98,7 +100,8 @@ function mapSheetColumn(column: SheetColumnWire): SheetMeta['columns'][number] {
     mixedOrigins: column.mixed_origins,
     transcriptStatus: column.transcript_status,
     mediaDownloadCandidate: column.media_download_candidate,
-    replayPendingCount: column.replay_pending_count ?? 0,
+    replayPendingCount: column.replay_comparison_available === false ? null : column.replay_pending_count ?? 0,
+    ...(column.replay_comparison_available === false ? { replayComparisonAvailable: false } : {}),
     ...(column.ai_generated ? {
       ai: {
         actionName: 'AI run',
@@ -176,7 +179,11 @@ function mapSheetRows(wire: SheetDataWire): SheetRowsContractPage {
       const cellOutcomes: Record<string, string> = {};
       const invalidCells: Record<string, true> = {};
       const replayPending: Record<string, ReplayPendingValue> = {};
+      const boundedValues: Record<string, BoundedCellValue> = {};
+      const replayComparisonUnavailable: Record<string, true> = {};
       for (const [columnId, meta] of Object.entries(row.meta)) {
+        if (meta.replay_comparison_unavailable) replayComparisonUnavailable[columnId] = true;
+        if (meta.bounded_value) boundedValues[columnId] = meta.bounded_value;
         if (meta.state) cellStates[columnId] = meta.state;
         if (meta.error) cellErrors[columnId] = meta.error;
         if (meta.outcome) cellOutcomes[columnId] = meta.outcome;
@@ -193,7 +200,7 @@ function mapSheetRows(wire: SheetDataWire): SheetRowsContractPage {
           ? meta.confidence
           : null;
         const column = columnById.get(columnId);
-        if (ref || confidence !== null || meta.justification || meta.error) {
+        if (ref || confidence !== null || meta.justification || meta.error || meta.warnings?.length) {
           provenance[columnId] = {
             currentValueRef: ref ?? {
               kind: 'missing',
@@ -207,6 +214,7 @@ function mapSheetRows(wire: SheetDataWire): SheetRowsContractPage {
             cost: 0,
             confidence,
             justification: meta.justification ?? (meta.error ? `Error: ${meta.error}` : ''),
+            ...(meta.warnings?.length ? { warnings: meta.warnings } : {}),
             runId: ref?.kind === 'run_result' && ref.runId ? ref.runId : '',
           };
         }
@@ -215,6 +223,8 @@ function mapSheetRows(wire: SheetDataWire): SheetRowsContractPage {
         id: String(row.id),
         index,
         cells,
+        ...(Object.keys(boundedValues).length > 0 ? { boundedValues } : {}),
+        ...(Object.keys(replayComparisonUnavailable).length > 0 ? { replayComparisonUnavailable } : {}),
         provenance,
         cellStates,
         cellErrors,

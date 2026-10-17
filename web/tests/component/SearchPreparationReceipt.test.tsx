@@ -90,6 +90,36 @@ const consentBatch: SearchPreparationBatch = {
   errors: [],
 };
 
+type PreparationProgress = NonNullable<SearchPreparationBatch['jobs'][number]['progress']>;
+
+function preparationProgress(overrides: Partial<PreparationProgress> = {}): PreparationProgress {
+  return {
+    action_kind: 'document.ocr',
+    action_name: 'Read PDF text',
+    completed: 2,
+    cost: null,
+    failed: 1,
+    live: true,
+    run_id: 92,
+    sheet_id: 7,
+    status: 'running',
+    timing: {
+      elapsed_seconds: 3,
+      estimated_finish_at: null,
+      eta_seconds: 2,
+      finished_at: null,
+      job_elapsed_seconds: 3,
+      processed_rows: 2,
+      processed_rows_per_second: 0.5,
+      queue_wait_seconds: 0,
+      remaining_rows: 1,
+      started_at: '2026-10-16T12:00:01Z',
+    },
+    total: 3,
+    ...overrides,
+  };
+}
+
 beforeEach(() => {
   getSearchPreparationTextSamples.mockResolvedValue({
     schemaVersion: 'frisket.search_preparation_text_samples.v1',
@@ -105,6 +135,38 @@ afterEach(() => {
 });
 
 describe('SearchPreparationReceipt', () => {
+  it('shows partial page warnings without claiming all text is ready', async () => {
+    getSearchPreparation.mockResolvedValue({
+      ...consentBatch, status: 'complete',
+      groups: [{ kind: 'ocr', count: 1, status: 'complete' }],
+      warnings: ['Page 2 failed during OCR.'],
+    });
+    render(<SearchPreparationReceipt projectId="project-1" batchId="prep-1"
+      onDone={vi.fn()} onError={vi.fn()} />);
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Text prepared with warnings' })).toBeTruthy());
+    expect(screen.getByRole('note', { name: 'Preparation warnings' }).textContent).toContain('Page 2 failed during OCR.');
+    expect(screen.queryByRole('heading', { name: 'Text ready for keyword search' })).toBeNull();
+  });
+
+  it('shows processed and failed counts from the live OCR action', async () => {
+    getSearchPreparation.mockResolvedValue({
+      ...consentBatch,
+      status: 'preparing',
+      groups: [{ kind: 'ocr', count: 3, status: 'running' }],
+      jobs: [{
+        job_id: 473,
+        action_kind: 'ocr',
+        status: 'running',
+        progress: preparationProgress(),
+      }],
+    });
+    render(<SearchPreparationReceipt projectId="project-1" batchId="prep-1" onDone={vi.fn()} onError={vi.fn()} />);
+
+    const group = await screen.findByTestId('search-preparation-group-ocr');
+    expect(group.textContent).toContain('Running OCR');
+    expect(group.textContent).toContain('2/3 processed · 1 failed');
+  });
+
   it('keeps an empty planning response visibly active instead of calling it ready', async () => {
     getSearchPreparation.mockResolvedValue({
       ...consentBatch,
@@ -198,7 +260,7 @@ describe('SearchPreparationReceipt', () => {
       batch_id: 'prep-1', samples: [{
         row_id: 42, column_id: 5, filename: 'native.pdf', page_number: 1,
         page_count: 1, page_scoped: true, preview_url: '/preview',
-        text: 'Correct native text', source: 'prepared', truncated: false,
+        text: 'Correct native text', source: 'native', truncated: false,
       }],
     });
     render(<SearchPreparationReceipt projectId="project-1" batchId="prep-1" onDone={vi.fn()} onError={vi.fn()} />);
@@ -387,6 +449,7 @@ describe('SearchPreparationReceipt', () => {
   it('prepares without download wording when every required model is ready', async () => {
     const readyBatch = {
       ...consentBatch,
+      can_setup: false,
       models: consentBatch.models.map((model) => ({ ...model, ready: true, can_setup: false })),
     } satisfies SearchPreparationBatch;
     getSearchPreparation.mockResolvedValue(readyBatch);
@@ -401,9 +464,59 @@ describe('SearchPreparationReceipt', () => {
       />,
     );
 
-    expect(await screen.findByText('Prepare files?')).not.toBeNull();
+    expect(await screen.findByText('Extract text with OCR?')).not.toBeNull();
     expect(screen.queryByText('Download local models?')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Prepare files' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Extract text with OCR' }));
+    await waitFor(() => expect(decideSearchPreparation).toHaveBeenCalledWith(
+      'project-1',
+      'prep-1',
+      { plan_hash: 'sha256:plan', decision: 'prepare', selected_setup_refs: [] },
+    ));
+  });
+
+  it('shows a scanned PDF before OCR and keeps the explicit extraction decision enabled when OCR is installed', async () => {
+    const readyBatch = {
+      ...consentBatch,
+      can_setup: false,
+      groups: [{ kind: 'ocr', count: 1, status: 'needs_consent' as const }],
+      models: consentBatch.models.map((model) => ({ ...model, ready: true, can_setup: false })),
+    } satisfies SearchPreparationBatch;
+    getSearchPreparation.mockResolvedValue(readyBatch);
+    getSearchPreparationTextSamples.mockResolvedValue({
+      schemaVersion: 'frisket.search_preparation_text_samples.v1',
+      batch_id: 'prep-1',
+      samples: [{
+        row_id: 42,
+        column_id: 5,
+        filename: 'scan.pdf',
+        page_number: 1,
+        page_count: 3,
+        page_scoped: false,
+        preview_url: '/api/projects/project-1/blobs/hash/pages/1/image',
+        text: '',
+        source: 'native',
+        truncated: false,
+      }],
+    });
+    decideSearchPreparation.mockResolvedValue({ ...readyBatch, status: 'preparing' });
+
+    render(
+      <SearchPreparationReceipt
+        projectId="project-1"
+        batchId="prep-1"
+        onDone={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText('No embedded text found')).not.toBeNull();
+    expect(screen.getByAltText('Page 1').getAttribute('src')).toBe(
+      '/api/projects/project-1/blobs/hash/pages/1/image',
+    );
+    expect(screen.getByText('This page needs OCR before Frisket can read it.')).not.toBeNull();
+    const extract = screen.getByRole('button', { name: 'Extract text with OCR' });
+    expect((extract as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(extract);
     await waitFor(() => expect(decideSearchPreparation).toHaveBeenCalledWith(
       'project-1',
       'prep-1',
@@ -544,6 +657,37 @@ describe('SearchPreparationReceipt', () => {
       row_ids: [42],
       force_ocr: true,
     }));
+  });
+
+  it('reviews the visible prepared native PDF independently of another document requiring OCR', async () => {
+    getSearchPreparation.mockResolvedValue({
+      ...consentBatch, status: 'complete',
+      groups: [{ kind: 'native_pdf', count: 1, status: 'complete' }, { kind: 'ocr', count: 1, status: 'complete' }],
+    });
+    const sample = {
+      row_id: 42, column_id: 5, filename: 'native.pdf', page_number: 1,
+      page_count: 1, page_scoped: true, preview_url: '/native-preview',
+      text: 'Native PDF text stored as prepared content', source: 'prepared', truncated: false,
+    };
+    getSearchPreparationTextSamples.mockResolvedValue({
+      batch_id: 'prep-1', samples: [sample, { ...sample, row_id: 43, filename: 'scanned.pdf', text: 'Other document OCR text' }],
+    });
+    const replacement = deferred<SearchPreparationBatch>();
+    createSearchPreparation.mockReturnValue(replacement.promise);
+    render(<SearchPreparationReceipt projectId="project-1" batchId="prep-1" onDone={vi.fn()} onError={vi.fn()} />);
+
+    await screen.findByText(sample.text);
+    expect(screen.getByText('Does this text look right?')).not.toBeNull();
+    expect(screen.getByText('Extracted text')).not.toBeNull();
+    expect(screen.queryByText('Check the OCR text')).toBeNull();
+    expect(screen.getByTestId('search-preparation-keep-text')).not.toBeNull();
+    fireEvent.click(screen.getByTestId('search-preparation-force-ocr'));
+    expect(createSearchPreparation).toHaveBeenCalledWith('project-1', {
+      sheet_id: 7, row_ids: [42], force_ocr: true,
+    });
+    expect((screen.getByTestId('search-preparation-force-ocr') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId('search-preparation-keep-text') as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => { replacement.resolve({ ...consentBatch, id: 'prep-replace-native' }); });
   });
 
   it('does not overlap a slow automatic text sample read', async () => {

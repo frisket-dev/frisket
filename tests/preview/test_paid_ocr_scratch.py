@@ -138,8 +138,9 @@ def test_paid_ocr_image_plan_binds_source_and_returns_ephemeral_rows(
         assert attempt_identity(plan.recipe, plan.spec)
         assert tuple(project.db.iterdump()) == before
 
-        async def pages(self, path, media, options, scratch):
+        async def pages(self, path, media, options, scratch, *, engine=None):
             assert path.read_bytes() == source
+            assert engine == "openai/gpt-4.1-mini"
             assert media["mime"] == "image/png"
             assert options["dpi"] == 200
             rendered = scratch / "page-1.png"
@@ -222,8 +223,9 @@ def test_paid_ocr_pdf_searchable_output_is_an_ephemeral_artifact(
             assert len(digest) == 64
             return 3
 
-        async def pages(self, path, media, options, scratch):
+        async def pages(self, path, media, options, scratch, *, engine=None):
             assert options["_selected_pages"] == [1, 3]
+            assert engine == "tesseract"
             rendered = []
             for page in (1, 3):
                 target = scratch / f"page-{page}.png"

@@ -73,9 +73,16 @@ def _raise_if_cancelled(cancel_event: threading.Event | None) -> None:
 def index_needs_work(project: Project) -> bool:
     """Return a read-only scheduling hint for lexical source maintenance."""
 
+    path = project.path / RETRIEVAL_DB_NAME
+    # Fresh bundles carry a bootstrap dirty scope, but have nothing to index.
+    # An existing sidecar still needs maintenance after the last cell is removed.
+    if (
+        not path.exists()
+        and project.db.execute("SELECT 1 FROM current_cells LIMIT 1").fetchone() is None
+    ):
+        return False
     if read_dirty_scopes(project.db, limit=1):
         return True
-    path = project.path / RETRIEVAL_DB_NAME
     sidecar_id = read_sidecar_id(path)
     if sidecar_id is None or project.get_meta(RETRIEVAL_SIDECAR_META_KEY) != sidecar_id:
         return True

@@ -8,7 +8,7 @@
 // private one for a standalone/test render).
 
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
-import { type Row, type SheetDataOptions } from '../api/open';
+import { type ColumnDef, type Row, type SheetDataOptions } from '../api/open';
 import type { GridApiPort } from '../api/ports';
 import { computeRowCacheKey, type RowCacheStoreHandle } from './rowCacheStore';
 
@@ -34,6 +34,8 @@ export interface RowCache {
   version: number;
   /** Server-reported total for the current filter/sort/page scope. */
   rowCount: number;
+  /** Scope-wide display metadata from the bounded anchor response. */
+  columns?: ColumnDef[];
 }
 
 export function useRowCache(
@@ -74,7 +76,7 @@ export function useRowCache(
             PAGE_SIZE,
             optionsRef.current,
           );
-          return store.setPage(resetKey, epoch, page, data.rows, data.total);
+          return store.setPage(resetKey, epoch, page, data.rows, data.total, data.columns);
         }
         const data = await gridApi.getSheetRows(
           sheetId,
@@ -206,7 +208,8 @@ export function useRowCache(
   }, [store]);
 
   return useMemo(
-    () => ({ getRow, onVisibleRowsChanged, refresh, version: snapshot.version, rowCount: totalRows }),
-    [getRow, onVisibleRowsChanged, refresh, snapshot.version, totalRows],
+    () => ({ getRow, onVisibleRowsChanged, refresh, version: snapshot.version, rowCount: totalRows,
+      columns: snapshot.key === resetKey ? snapshot.columns : undefined }),
+    [getRow, onVisibleRowsChanged, refresh, snapshot.version, snapshot.key, snapshot.columns, resetKey, totalRows],
   );
 }

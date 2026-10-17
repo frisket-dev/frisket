@@ -113,6 +113,42 @@ function renderReader(overrides: Partial<Parameters<typeof AnnotatedTextReader>[
 }
 
 describe('AnnotatedTextReader', () => {
+  it('navigates by absolute codepoints while drawing only local UTF-16 marks', async () => {
+    const first = { ...payload([ENTITIES_LAYER]), window: { start: 0, end: 50, total_characters: 100000,
+      total_bytes: 100003, retrieval_revision: 9, previous_start: null, next_start: 50, reached_start: true, reached_end: false } };
+    const next = { ...first, text: '😀 Ada at the tail', window: { ...first.window, start: 50, end: 67, previous_start: 0, next_start: 67 },
+      layers: [{ ...ENTITIES_LAYER, spans: [{ occurrenceId: '9:1', start: 3, end: 6, sourceStart: 52, sourceEnd: 55,
+        quote: 'Ada', entityType: 'person', entityFingerprint: 'person:ada' }], counts: { shown: 1, total: 100, invalid: 0 } }] };
+    mockApi.getTextAnnotations.mockResolvedValueOnce(first).mockResolvedValueOnce(next);
+    renderReader();
+    await screen.findByTestId('text-passage-navigation');
+    fireEvent.click(screen.getByRole('button', { name: 'Next passage' }));
+    await screen.findByText('1 of 100 entities shown');
+    expect(screen.getByTestId('annotation-mark')).toHaveTextContent('Ada');
+    expect(screen.getByTestId('annotated-text-content').textContent).toBe('😀 Ada at the tail');
+    expect(mockApi.getTextAnnotations).toHaveBeenLastCalledWith('3', '11', expect.objectContaining({ start: 50, limit: 16384, revision: 9 }));
+  });
+
+  it('resolves a requested offscreen occurrence through its stable server identity', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    mockApi.getTextAnnotations.mockResolvedValue(payload([ENTITIES_LAYER]));
+    renderReader({ activeOccurrenceId: '2:1' });
+    await screen.findByTestId('annotated-text-content');
+    expect(mockApi.getTextAnnotations).toHaveBeenCalledWith('3', '11', expect.objectContaining({ occurrenceId: '2:1' }));
+  });
+
+  it('keeps a truncated unfingerprinted quote read-only instead of using it as an exact mention selector', async () => {
+    const layer = { ...ENTITIES_LAYER, spans: [{ occurrenceId: '1:1', start: 0, end: 3, quote: 'Ada', quoteTruncated: true,
+      entityType: 'person', entityFingerprint: null }] };
+    mockApi.getTextAnnotations.mockResolvedValue(payload([layer]));
+    const onOpenMention = vi.fn();
+    renderReader({ onOpenMention });
+    const mark = await screen.findByTestId('annotation-mark');
+    expect(mark.tagName).toBe('MARK');
+    fireEvent.click(mark);
+    expect(onOpenMention).not.toHaveBeenCalled();
+  });
+
   it('renders the exact text and marks it at the SERVER offsets', async () => {
     mockApi.getTextAnnotations.mockResolvedValue(payload([ENTITIES_LAYER]));
     renderReader();
@@ -136,7 +172,7 @@ describe('AnnotatedTextReader', () => {
     renderReader();
     await screen.findByTestId('annotated-text-content');
     expect(mockApi.getTextAnnotations).toHaveBeenCalledTimes(1);
-    expect(mockApi.getTextAnnotations).toHaveBeenCalledWith('3', '11');
+    expect(mockApi.getTextAnnotations).toHaveBeenCalledWith('3', '11', { signal: expect.any(AbortSignal) });
   });
 
   it('keeps a NESTED pair as two marks, with the inner one owning the click', async () => {

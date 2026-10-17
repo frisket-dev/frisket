@@ -87,14 +87,17 @@ class ImportBulkService:
                     deps=executor_deps,
                     max_rows=max_rows,
                 )
-                if self.search_preparation is not None:
-                    for created in result["created"]:
+                for created in result["created"]:
+                    created["search_preparation_batch_id"] = None
+                    if self.search_preparation is not None:
                         sheet_id = int(created["sheet_id"])
                         try:
-                            self.search_preparation.create_after_materialization(
-                                project_id,
-                                sheet_id=sheet_id,
-                                row_ids=project.visible_row_ids(sheet_id),
+                            created["search_preparation_batch_id"] = (
+                                self.search_preparation.create_after_materialization(
+                                    project_id,
+                                    sheet_id=sheet_id,
+                                    row_ids=project.visible_row_ids(sheet_id),
+                                )
                             )
                         except Exception:
                             LOG.warning(

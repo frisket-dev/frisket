@@ -2,7 +2,7 @@
 
 from typing import Any, ClassVar, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, RootModel
 from typing_extensions import TypedDict
 
 from frisket.actions.media_options import OcrOptions, TranscriptionOptions
@@ -37,8 +37,13 @@ class RecognizedDocument(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     text: OcrText
-    blocks: list[dict[str, Any]]
+    blocks: list[dict[str, Any]] = Field(json_schema_extra={"default_hidden": True})
     pdf: Outcome[StagedFile | None] = Field(default_factory=lambda: Outcome.ok(None))
+    _warnings: tuple[str, ...] = PrivateAttr(default=())
+
+    @property
+    def warnings(self) -> tuple[str, ...]:
+        return self._warnings
 
 
 class TranscriptWord(TypedDict, total=False):

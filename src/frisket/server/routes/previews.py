@@ -471,6 +471,7 @@ def register_preview_routes(
                 search=body.search,
                 limit=body.limit,
                 offset=body.offset,
+                value_mode=body.value_mode,
             )
         except PreviewRequestError as exc:
             return _preview_error_response(exc)

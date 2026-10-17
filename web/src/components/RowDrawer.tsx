@@ -1,4 +1,4 @@
-import { Check, ChevronDown, ChevronRight, Copy, FileSearch2, MapPin, Pause, Pencil, Play, RefreshCcw, X, Zap } from 'lucide-react';
+import { AlertTriangle, Check, ChevronDown, ChevronRight, Copy, FileSearch2, MapPin, Pause, Pencil, Play, RefreshCcw, X, Zap } from 'lucide-react';
 import { useCallback, useEffect, useReducer, useRef, useState, type CSSProperties, type FocusEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from 'react';
 import { type CellEvidencePayload, type CellProvenance, type CellValue, type ColumnDef, type Row, type RunTraceRowEvidence, type SheetMeta } from '../api/open';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
@@ -37,6 +37,8 @@ import structuredStyles from './StructuredValue.module.css';
 import { useAnchoredPosition } from '../hooks/useAnchoredPosition';
 import { useNativePopover } from '../hooks/useNativePopover';
 import { createAudioPlaybackSource } from '../state/audioPlaybackStore';
+import type { RowTextTarget } from '../state/detailStore';
+import { LargeCellValue } from './LargeCellValue';
 import { captionColumnScore, fieldValueDependencyColumnIds } from './fieldValueDependencies';
 
 const EMPTY_CONTRIBUTIONS: WorkbenchResolvedLayoutContribution[] = [];
@@ -97,6 +99,8 @@ export function RowDrawerBody({
   expandedRunResultFields,
   onToggleRunResultField,
 }: RowDrawerBodyProps) {
+  const { detail } = useWorkspaceStores();
+  const rowTextTarget = useSelector(detail.store, (state) => state.rowTextTarget);
   const fallbackRef = useRef<HTMLDivElement>(null);
   const drawerBodyRef = bodyRef ?? fallbackRef;
   const documentColumn = onOpenInDocumentView ? documentMediaColumns(sheet)[0] ?? null : null;
@@ -172,6 +176,8 @@ export function RowDrawerBody({
             row={row}
             sheetId={sheet.id}
             selected={col.id === selectedColumnId}
+            textTarget={selectedColumnId === col.id && rowTextTarget?.sheetId === sheet.id && rowTextTarget.rowId === row.id
+              && rowTextTarget.columnId === col.id ? rowTextTarget : undefined}
             onEdit={onEdit}
             onRetryCell={onRetryCell}
             runResultExpanded={expandedRunResultFields.has(fieldKey)}
@@ -297,6 +303,7 @@ export function RowField({
   row,
   sheetId = '',
   selected,
+  textTarget,
   onEdit,
   onRetryCell,
   runResultExpanded,
@@ -307,6 +314,7 @@ export function RowField({
   row: Row;
   sheetId?: string;
   selected: boolean;
+  textTarget?: RowTextTarget;
   onEdit(row: Row, col: ColumnDef, value: CellValue): Promise<void>;
   onRetryCell?(columnName: string): Promise<void>;
   /** Controlled by RowDrawerBody so this field stays expanded across rows. */
@@ -326,9 +334,11 @@ export function RowField({
   const temporalDraftResult = editableTimelineType
     ? replaceTimelineItemsFromDraft(displayValue, editableTimelineType, draft)
     : null;
-  const canEdit = editableTimelineType
+  const bounded = row.boundedValues?.[col.id];
+  const loaded = !row.loadedColumnIds || row.loadedColumnIds.includes(col.id);
+  const canEdit = loaded && !bounded && (editableTimelineType
     ? temporalDraftText !== null
-    : !col.ai && !isTemporalColumnType(col.type);
+    : !col.ai && !isTemporalColumnType(col.type));
   const copyText = editableTimelineType
     ? temporalDraftText ?? ''
     : isTemporalColumnType(col.type)
@@ -419,7 +429,7 @@ export function RowField({
             )}
           </span>
           <span className="row-field-action-slot">
-            {actionsVisible ? (
+            {actionsVisible && loaded && !bounded ? (
               <button
                 type="button"
                 className="row-field-icon"
@@ -436,7 +446,7 @@ export function RowField({
           </span>
         </div>
       </header>
-      {editing ? (
+      {editing && canEdit ? (
         <form
           className="row-field-editor"
           onSubmit={(e) => {
@@ -482,6 +492,8 @@ export function RowField({
             <Check size={12} /> Save
           </button>
         </form>
+      ) : bounded || textTarget ? (
+        <FieldValue col={col} columns={columns} row={row} sheetId={sheetId} value={displayValue} textTarget={textTarget} />
       ) : (
         <ClampedField>
           <FieldValue
@@ -493,6 +505,15 @@ export function RowField({
           />
         </ClampedField>
       )}
+      {row.replayComparisonUnavailable?.[col.id] && (
+        <p className="muted" data-testid="replay-comparison-unavailable">Updated-value comparison is unavailable above 64 KiB.</p>
+      )}
+      {prov?.warnings?.length ? (
+        <aside className="form-hint" role="note" aria-label={`${col.name} run warnings`} data-testid="cell-warnings">
+          <strong><AlertTriangle size={14} className="run-warning-icon" aria-hidden /> Run warnings</strong>
+          <ul>{prov.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
+        </aside>
+      ) : null}
       {col.ai && prov && (
         <ProvenanceBlock
           prov={prov}
@@ -716,6 +737,7 @@ export function FieldValue({
   value,
   onSelectItem,
   selectableItemIndices,
+  textTarget,
 }: {
   col: ColumnDef;
   columns: ColumnDef[];
@@ -724,8 +746,12 @@ export function FieldValue({
   value: Row['cells'][string];
   onSelectItem?(index: number): void;
   selectableItemIndices?: ReadonlySet<number>;
+  textTarget?: RowTextTarget;
 }) {
   const { chromePreferences: { projectId } } = useWorkspaceStores();
+  if (row.loadedColumnIds && !row.loadedColumnIds.includes(col.id)) return <p role="status">Loading value…</p>;
+  const bounded = row.boundedValues?.[col.id];
+  if (bounded || textTarget) return <LargeCellValue projectId={projectId} rowId={row.id} columnId={col.id} descriptor={bounded} textTarget={textTarget} />;
   // Explicit "(empty)" for a real null/empty value so the detail panel never
   // shows blank (or, pre-coercion, the literal string "null") as if it were
   // text. Styled by .row-field-empty (dim, italic, --text-light).

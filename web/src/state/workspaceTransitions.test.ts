@@ -19,6 +19,8 @@ import { dirname, resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { createGridViewStore } from './gridViewStore';
 import { createSelectionStore } from './selectionStore';
+import { createRouteStore } from './routeStore';
+import { createPreviewViewStore } from './previewViewStore';
 import { createDetailStore } from './detailStore';
 import { createWorkViewStore } from './workViewStore';
 import { createCompareViewStore } from './compareViewStore';
@@ -34,6 +36,8 @@ import {
   focusCompareTabTransition,
   toggleProvenanceWithDrawersTransition,
   openRowPanelTransition,
+  openSearchTextHitTransition,
+  resetForRouteSheetChange,
   openColumnPanelTransition,
   openRowRefTransition,
   runActionFromSurfaceTransition,
@@ -541,6 +545,30 @@ describe('workspaceTransitions.ts — invariant 10b closure sweep (workspace-sub
       ...baseRoute,
       panel: { kind: 'row', rowId: 'r2', columnId: undefined },
     });
+  });
+
+  it('keeps the revision-pinned search passage and selected field after a real cross-sheet reset', () => {
+    const stores = {
+      detail: createDetailStore(), selection: createSelectionStore(), gridView: createGridViewStore(),
+      workView: createWorkViewStore(), lensView: createLensViewStore(),
+      previewView: createPreviewViewStore({ startPreview: vi.fn(), getPreview: vi.fn(), cancelPreview: vi.fn() }),
+    };
+    const route = createRouteStore('p1', {
+      resetForSheetChange: (sheetId) => resetForRouteSheetChange(stores, sheetId),
+    });
+    route.navigate(baseRoute);
+    stores.detail.openRow({ id: 'old-row' } as Row);
+    stores.selection.setSelectedColumnId('old-column');
+    const target = { sheetId: 's2', rowId: 'r2', columnId: 'c2', retrievalRevision: 9,
+      range: { start: 20_971_506, end: 20_971_512, highlight: true }, requestKey: 'tail-hit' };
+
+    openSearchTextHitTransition(stores, route.navigate, 'p1', target);
+
+    expect(route.store.get()).toEqual({ ...baseRoute, sheetId: 's2',
+      panel: { kind: 'row', rowId: 'r2', columnId: 'c2' } });
+    expect(stores.detail.store.get().rowDrawer).toBeNull();
+    expect(stores.selection.store.get().selectedColumnId).toBe('c2');
+    expect(stores.detail.store.get().rowTextTarget).toBe(target);
   });
 
   it('openColumnPanelTransition: opens the column drawer, clears the selected column, and writes the /column route panel', () => {

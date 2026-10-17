@@ -18,6 +18,7 @@ import sqlalchemy as sa
 from fastapi.testclient import TestClient
 
 from frisket.engine.jobs import Worker
+from frisket.engine.jobs.queue import SEARCH_INDEX_KIND
 from frisket.ai.llm import LLMError, LLMResponse
 from frisket.engine.store.runs import RunResultStore
 from frisket.team.app import TeamConfig, create_team_app
@@ -524,7 +525,12 @@ def test_direct_reduce_quota_error_keeps_named_resumable_receipt_over_http(
     receipt_body = receipt.json()
     assert receipt_body["status"] in {"failed", "needs_user_action"}
     assert receipt_body["errors"] == body["errors"]
-    assert app.state.workspace.queue.list_project_jobs(pid) == before_jobs
+    # Direct execution creates no action job; its writes may schedule indexing.
+    assert [
+        job
+        for job in app.state.workspace.queue.list_project_jobs(pid)
+        if job.kind != SEARCH_INDEX_KIND
+    ] == [job for job in before_jobs if job.kind != SEARCH_INDEX_KIND]
 
 
 def test_provider_quota_error_is_named_resumable_and_does_not_become_402(

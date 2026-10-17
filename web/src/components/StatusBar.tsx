@@ -10,7 +10,10 @@ import { useNativePopover } from '../hooks/useNativePopover';
 import { useAnchoredPosition } from '../hooks/useAnchoredPosition';
 import type { WorkbenchProjectionStatus } from '../workbench/WorkbenchBottomDock';
 import { useEditionModule } from '../editions/module';
-import { useSearchPreparationNotice } from './useSearchPreparationNotice';
+import {
+  useSearchPreparationNotice,
+  type SearchPreparationNotice as SearchPreparationNoticeModel,
+} from './useSearchPreparationNotice';
 
 // A queued run whose worker never showed up must not spin forever: the
 // reconciler flags no_live_worker so we can show a fix-it warning instead.
@@ -19,7 +22,11 @@ function isNoLiveWorker(run: RunProgress): boolean {
 }
 
 function rowsProgress(run: RunProgress): string {
-  return `${run.completedRows.toLocaleString()}/${run.totalRows.toLocaleString()} rows`;
+  const rows = `${run.completedRows.toLocaleString()}/${run.totalRows.toLocaleString()} rows`;
+  const pages = run.workProgress;
+  return pages && run.status === 'running'
+    ? `${rows} · ${pages.completed.toLocaleString()}/${pages.total.toLocaleString()} pages in current file`
+    : rows;
 }
 
 function activeStatusCopy(run: RunProgress): string {
@@ -97,7 +104,7 @@ export function StatusBar({
   run, history, reviewCount, projectionStatus, onUndo, onRedo, onOpenReview, onCancelRun,
   onShowFailedRows, onRetryFailedRows,
 }: StatusBarProps) {
-  const { chrome, chromePreferences: { projectId } } = useWorkspaceStores();
+  const { actSurface, chromePreferences: { projectId } } = useWorkspaceStores();
   const { descriptor } = useEditionModule();
   const searchPreparationNotice = useSearchPreparationNotice(
     projectId,
@@ -116,6 +123,21 @@ export function StatusBar({
     open: false,
   });
   const runActive = run ? isActiveRunStatus(run.status) : false;
+  const activityKeys = [
+    runActive ? `run:${run?.runId ?? ''}` : null,
+    searchPreparationNotice
+      ? `search:${searchPreparationNotice.activityKey}`
+      : null,
+  ].filter((key): key is string => key !== null);
+  const [noticeVisibility, setNoticeVisibility] = useState<{ keys: string[]; open: boolean }>({
+    keys: [],
+    open: true,
+  });
+  const noticesOpen = activityKeys.length > 0
+    && (noticeVisibility.open || activityKeys.some((key) => !noticeVisibility.keys.includes(key)));
+  const setNoticesOpen = (open: boolean) => {
+    setNoticeVisibility({ keys: activityKeys, open });
+  };
   const watcherOpen = Boolean(run && !runActive && watcherState.runId === run.runId && watcherState.open);
   const watcherTriggerRef = useRef<HTMLButtonElement>(null);
   const setCurrentWatcherOpen = (open: boolean | ((current: boolean) => boolean)) => {
@@ -131,7 +153,7 @@ export function StatusBar({
 
   return (
     <>
-    {(run && runActive || searchPreparationNotice) && (
+    {(run && runActive || searchPreparationNotice) && noticesOpen && (
       <div className="status-notice-stack" data-testid="status-notice-stack">
         {run && runActive && (
           <section
@@ -141,6 +163,15 @@ export function StatusBar({
             aria-live="polite"
             aria-atomic="true"
           >
+            <button
+              type="button"
+              className="icon-btn status-notice-dismiss"
+              data-testid="active-run-dismiss"
+              aria-label="Dismiss activity notification"
+              onClick={() => setNoticesOpen(false)}
+            >
+              <X size={14} aria-hidden />
+            </button>
             <div className="active-run-main">
               {isNoLiveWorker(run) ? (
                 <AlertTriangle size={16} className="run-warning-icon" aria-hidden data-testid="run-no-worker-warning" />
@@ -166,7 +197,8 @@ export function StatusBar({
         {searchPreparationNotice && (
           <SearchPreparationNotice
             notice={searchPreparationNotice}
-            onReviewApproval={chrome.openCommandPalette}
+            onReviewPreparation={actSurface.openImportPreparation}
+            onDismiss={() => setNoticesOpen(false)}
           />
         )}
       </div>
@@ -178,16 +210,19 @@ export function StatusBar({
             <button
               type="button"
               ref={watcherTriggerRef}
-              className={`run-summary${watcherOpen ? ' run-summary-open' : ''}`}
+              className={`run-summary${runActive ? (noticesOpen ? ' run-summary-open' : '') : (watcherOpen ? ' run-summary-open' : '')}`}
               data-testid="run-watcher-toggle"
               data-run-status={run.status}
               data-run-completed-rows={run.completedRows}
               data-run-total-rows={run.totalRows}
               data-run-failed-rows={run.failedRows}
-              title={runActive ? 'Run status shown above' : 'Run details'}
-              aria-expanded={watcherOpen}
+              title={runActive
+                ? (noticesOpen ? 'Hide activity notifications' : 'Show activity notifications')
+                : 'Run details'}
+              aria-expanded={runActive ? noticesOpen : watcherOpen}
               onClick={() => {
-                if (!runActive) setCurrentWatcherOpen((o) => !o);
+                if (runActive) setNoticesOpen(!noticesOpen);
+                else setCurrentWatcherOpen((o) => !o);
               }}
             >
               {isActiveRunStatus(run.status) ? (
@@ -252,8 +287,21 @@ export function StatusBar({
               />
             )}
           </>
+        ) : searchPreparationNotice ? (
+          <SearchActivityToggle
+            notice={searchPreparationNotice}
+            open={noticesOpen}
+            onToggle={() => setNoticesOpen(!noticesOpen)}
+          />
         ) : (
           <span className="run-label muted">idle</span>
+        )}
+        {run && !runActive && searchPreparationNotice && (
+          <SearchActivityToggle
+            notice={searchPreparationNotice}
+            open={noticesOpen}
+            onToggle={() => setNoticesOpen(!noticesOpen)}
+          />
         )}
         {projectionStatus && <ProjectionChip status={projectionStatus} />}
       </div>
@@ -293,6 +341,37 @@ export function StatusBar({
       </div>
     </footer>
     </>
+  );
+}
+
+function SearchActivityToggle({
+  notice,
+  open,
+  onToggle,
+}: {
+  notice: SearchPreparationNoticeModel;
+  open: boolean;
+  onToggle(): void;
+}) {
+  return (
+    <button
+      type="button"
+      className={`run-summary${open ? ' run-summary-open' : ''}`}
+      data-testid="search-activity-toggle"
+      aria-expanded={open}
+      title={open ? 'Hide activity notifications' : 'Show activity notifications'}
+      onClick={onToggle}
+    >
+      {notice.tone === 'error' || notice.tone === 'warning' ? (
+        <AlertTriangle size={12} className="run-warning-icon" aria-hidden />
+      ) : notice.tone === 'complete' ? (
+        <span aria-hidden>✓</span>
+      ) : (
+        <span className="run-spinner" aria-hidden />
+      )}
+      <span className="run-label">{notice.title} · {notice.detail}</span>
+      <ChevronUp size={12} className="run-chevron" aria-hidden />
+    </button>
   );
 }
 
@@ -534,6 +613,10 @@ function RunWatcherBody({
         <span>
           {run.completedRows.toLocaleString()} / {run.totalRows.toLocaleString()} ({pct.toFixed(0)}%)
         </span>
+        {run.status === 'running' && run.workProgress && <>
+          <span className="prov-key">pages in current file</span>
+          <span>{run.workProgress.completed.toLocaleString()} / {run.workProgress.total.toLocaleString()}</span>
+        </>}
         <span className="prov-key">failed</span>
         <span className={run.failedRows > 0 ? 'run-failed' : undefined}>
           {run.failedRows.toLocaleString()}

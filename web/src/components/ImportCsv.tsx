@@ -51,6 +51,7 @@ import {
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { usePoll } from '../hooks/usePoll';
 import { PanelSelect } from './PanelSelect';
+import { SegmentedToggle } from './PanelPrimitives';
 import { ImportDraftMappingPanel } from './importWorkspace/ImportDraftMappingPanel';
 import { ImportModeRail } from './importWorkspace/ImportModeRail';
 import { ImportPasteDetectPanel } from './importWorkspace/ImportPasteDetectPanel';
@@ -941,6 +942,7 @@ type ImportWorkspaceDialogProps = ImportHandlers & {
   open: boolean;
   initialCsv?: { file: File; preview: ImportCsvPreview } | null;
   initialFiles?: File[] | null;
+  initialPreparationBatchId?: string | null;
   /** The resolved `ner` catalog entry, for its engine availability. Absent
    *  (no catalog yet) means the prompt simply does not offer. */
   nerTemplate?: ActionTemplate;
@@ -963,6 +965,7 @@ export function ImportWorkspaceDialog({ open, ...props }: ImportWorkspaceDialogP
 
   return open ? (
     <OpenImportWorkspaceSession
+      key={props.initialPreparationBatchId ?? 'import'}
       {...props}
       initialMode={initialMode}
       onSessionModeChange={setLastMode}
@@ -975,6 +978,7 @@ function OpenImportWorkspaceSession({
   onSessionModeChange,
   initialCsv = null,
   initialFiles = null,
+  initialPreparationBatchId = null,
   onClose,
   onImported,
   onError,
@@ -1047,7 +1051,12 @@ function OpenImportWorkspaceSession({
     sheetId: number | null;
     batchId: string | null;
     importRef: string | null;
-  } | null>(null);
+    bulkOutputs?: { sheetId: number; sheetName: string; batchId: string | null }[];
+  } | null>(() => initialPreparationBatchId === null ? null : {
+    sheetId: null,
+    batchId: initialPreparationBatchId,
+    importRef: null,
+  });
   const [preparationFollowupError, setPreparationFollowupError] = useState<string | null>(null);
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [singleFileFormat, setSingleFileFormat] = useState<SingleFileFormat>('csv');
@@ -1072,6 +1081,7 @@ function OpenImportWorkspaceSession({
   const [bulkFailures, setBulkFailures] = useState<BulkImportFailedOutput[]>([]);
   const [bulkFailuresOmitted, setBulkFailuresOmitted] = useState(0);
   const [selectionPreparing, setSelectionPreparing] = useState(false);
+  const [filesDragging, setFilesDragging] = useState(false);
   const selectionPreparationGeneration = useRef(0);
   const [destinationSheets, setDestinationSheets] = useState<SheetMeta[]>([]);
   const [destinationSheetId, setDestinationSheetId] = useState('');
@@ -1380,6 +1390,7 @@ function OpenImportWorkspaceSession({
     if (busy) return;
     selectionPreparationGeneration.current += 1;
     setSelectionPreparing(false);
+    setFilesDragging(false);
     resetCsvPreview();
     resetBulkPlan();
     setPdfPacketContext({ active: false, stage: 'check', subtitle: null, busy: false });
@@ -1540,6 +1551,25 @@ function OpenImportWorkspaceSession({
     ).then(async (result) => {
       if (controller.signal.aborted || bulkGenerationRef.current !== generation) return;
       const hasFailures = result.failed.length > 0 || result.failed_omitted > 0;
+      const bulkOutputs = result.created.map((output) => ({
+        sheetId: output.sheet_id,
+        sheetName: output.sheet_name,
+        batchId: output.search_preparation_batch_id ?? null,
+      }));
+      const firstPreparation = bulkOutputs.find((output) => output.batchId !== null);
+      if (firstPreparation && typeof result.first_sheet_id === 'number') {
+        await onImported(result.first_sheet_id);
+        if (controller.signal.aborted || bulkGenerationRef.current !== generation) return;
+        setBulkPlan(null);
+        setBulkDecisions({});
+        setBulkError(hasFailures ? result.message : null);
+        setBulkSuccessMessage(hasFailures ? null : result.message);
+        setBulkWarnings(result.warnings);
+        setBulkFailures(result.failed);
+        setBulkFailuresOmitted(result.failed_omitted);
+        setPreparationReceipt({ ...firstPreparation, importRef: null, bulkOutputs });
+        return;
+      }
       if (hasFailures) {
         // A 200 can still represent a partial (or total) import failure. The
         // server has consumed this one-shot plan, so remove its ready state
@@ -1633,6 +1663,43 @@ function OpenImportWorkspaceSession({
     });
   }, [busy, executeBulkPlan, invalidateBulkRequests, projectId]);
 
+  const handlePickedFiles = useCallback((files: File[]) => {
+    if (!files.length) return;
+    const selectedFile = files[0];
+    prepareSelection(files, (prepared) => {
+      if (prepared.directNeedsBulkPlan) {
+        resetCsvPreview();
+        startBulkPlan(files, directSelectionExpandsArchive(files));
+      } else if (fileMode === 'csv' && singleFileFormat === 'csv' && selectedFile && classifySingleImportFile(selectedFile)) {
+        resetBulkPlan();
+        setAppendRequestKey(crypto.randomUUID());
+        setCsvFile(selectedFile);
+        setCsvEncoding('');
+        setCsvPreview(null);
+        setCsvPreviewError(null);
+        loadCsvPreview(selectedFile, '');
+      } else {
+        resetCsvPreview();
+        resetBulkPlan();
+        void uploadFiles(
+          singleFileFormat === 'ftm' ? 'ftm' : fileMode,
+          files, undefined, ftmDatasetName, undefined, undefined, undefined, prepared,
+        ).then(finishFileImport);
+      }
+    });
+  }, [
+    fileMode,
+    finishFileImport,
+    ftmDatasetName,
+    loadCsvPreview,
+    prepareSelection,
+    resetBulkPlan,
+    resetCsvPreview,
+    singleFileFormat,
+    startBulkPlan,
+    uploadFiles,
+  ]);
+
   useEffect(() => {
     if (initialFilesConsumedRef.current || !initialFiles?.length) return;
     initialFilesConsumedRef.current = true;
@@ -1649,6 +1716,35 @@ function OpenImportWorkspaceSession({
     }
     executeBulkPlan(bulkPlan, bulkDecisions);
   };
+
+  const bulkReceiptSummary = preparationReceipt?.bulkOutputs ? (
+    <>
+      <BulkImportPlanPanel
+        plan={null} decisions={{}} busy={false} error={bulkError}
+        successMessage={bulkSuccessMessage} warnings={bulkWarnings}
+        failures={bulkFailures} failuresOmitted={bulkFailuresOmitted}
+        onDecisionChange={() => {}} onExecute={() => {}}
+      />
+      {preparationReceipt.bulkOutputs.length > 1 && (
+        <label>
+          Review imported sheet
+          <PanelSelect
+            ariaLabel="Review imported sheet"
+            topLayer
+            value={preparationReceipt.sheetId ?? ''}
+            onValueChange={(value) => {
+              const selected = preparationReceipt.bulkOutputs?.find((output) => output.sheetId === Number(value));
+              if (selected) setPreparationReceipt((current) => current ? { ...current, ...selected } : current);
+            }}
+          >
+            {preparationReceipt.bulkOutputs.map((output) => (
+              <option key={output.sheetId} value={output.sheetId}>{output.sheetName}</option>
+            ))}
+          </PanelSelect>
+        </label>
+      )}
+    </>
+  ) : null;
 
   return (
     <dialog
@@ -1671,7 +1767,7 @@ function OpenImportWorkspaceSession({
         onMouseDown={closeWorkspaceFromUser}
       />
       <section
-        className={`import-workspace${pdfPacketContext.active ? ' pdf-packet-workspace' : ''}${preparationReceipt ? ' import-workspace-receipt' : ''}`}
+        className={`import-workspace${pdfPacketContext.active ? ' pdf-packet-workspace' : ''}`}
         data-testid="import-workspace"
         aria-label="Import"
         tabIndex={-1}
@@ -1686,30 +1782,8 @@ function OpenImportWorkspaceSession({
           data-testid={mode === 'csv' ? 'import-csv-input' : 'import-file-input'}
           onChange={(e) => {
             const files = snapshotImportFiles(e.target.files);
-            const selectedFile = files[0];
             e.target.value = '';
-            if (!files.length) return;
-            prepareSelection(files, (prepared) => {
-              if (prepared.directNeedsBulkPlan) {
-                resetCsvPreview();
-                startBulkPlan(files, directSelectionExpandsArchive(files));
-              } else if (fileMode === 'csv' && singleFileFormat === 'csv' && selectedFile && classifySingleImportFile(selectedFile)) {
-                resetBulkPlan();
-                setAppendRequestKey(crypto.randomUUID());
-                setCsvFile(selectedFile);
-                setCsvEncoding('');
-                setCsvPreview(null);
-                setCsvPreviewError(null);
-                loadCsvPreview(selectedFile, '');
-              } else {
-                resetCsvPreview();
-                resetBulkPlan();
-                void uploadFiles(
-                  singleFileFormat === 'ftm' ? 'ftm' : fileMode,
-                  files, undefined, ftmDatasetName, undefined, undefined, undefined, prepared,
-                ).then(finishFileImport);
-              }
-            });
+            handlePickedFiles(files);
           }}
         />
         <input
@@ -1758,15 +1832,15 @@ function OpenImportWorkspaceSession({
             e.target.value = '';
           }}
         />
-        <header className={`import-workspace-header${preparationReceipt ? ' import-workspace-header-receipt' : ''}`}>
-          {!preparationReceipt ? (
-            <div>
-              <div className="import-workspace-title">Import</div>
-              <div className="import-workspace-kicker">
-                {pdfPacketContext.active ? pdfPacketContext.subtitle : 'Project data intake'}
-              </div>
+        <header className="import-workspace-header">
+          <div>
+            <div className="import-workspace-title">Import</div>
+            <div className="import-workspace-kicker">
+              {pdfPacketContext.active
+                ? pdfPacketContext.subtitle
+                : preparationReceipt ? 'Review text and search setup' : 'Project data intake'}
             </div>
-          ) : null}
+          </div>
           {pdfPacketContext.active && !preparationReceipt ? (
             <ImportStageStepper stages={[...PDF_PACKET_STAGES]} stage={pdfPacketContext.stage} />
           ) : null}
@@ -1781,7 +1855,7 @@ function OpenImportWorkspaceSession({
             <X size={16} />
           </button>
         </header>
-        <div className={`import-workspace-main${pdfPacketContext.active ? ' pdf-packet-workspace-main' : ''}${preparationReceipt ? ' import-workspace-main-receipt' : ''}`}>
+        <div className={`import-workspace-main${pdfPacketContext.active ? ' pdf-packet-workspace-main' : ''}${preparationReceipt ? ' import-workspace-main-preparation' : ''}`}>
           {!pdfPacketContext.active && !preparationReceipt ? (
             <aside className="import-workspace-sidebar">
               <ImportModeRail modes={IMPORT_MODES} mode={railMode} onSelectMode={selectMode} />
@@ -1799,6 +1873,19 @@ function OpenImportWorkspaceSession({
               <ImportStageStepper stages={IMPORT_WORKSPACE_STAGES} stage={stage} />
             ) : null}
             <div className={`import-workspace-panel${mode === 'pdf_split' ? ' pdf-packet-workspace-panel' : ''}`}>
+              {railMode === 'files' && !preparationReceipt ? (
+                <SegmentedToggle
+                  fullWidth={false}
+                  ariaLabel="File import source"
+                  value={mode === 'urls' ? 'urls' : 'files'}
+                  onValueChange={(value) => selectMode(value as 'files' | 'urls')}
+                  options={[{ value: 'files', label: 'Files' }, { value: 'urls', label: 'URLs' }]}
+                  buttonTestId={(value) => `import-source-${value}`}
+                  testId="import-source-toggle"
+                  className="import-source-toggle"
+                  disabled={busy || bulkBusy || selectionPreparing}
+                />
+              ) : null}
               {selectionPreparing ? <div role="status">Preparing selected files…</div> : null}
               {preparationReceipt ? (
                 preparationReceipt.batchId ? (
@@ -1806,23 +1893,36 @@ function OpenImportWorkspaceSession({
                     key={preparationReceipt.batchId}
                     projectId={projectId}
                     batchId={preparationReceipt.batchId}
+                    importSummary={bulkReceiptSummary}
                     onBatchChange={(batch) => setPreparationReceipt((current) => current ? {
                       ...current,
-                      batchId: batch.id,
+                      batchId: current.sheetId === null || current.sheetId === batch.sheet_id
+                        ? batch.id : current.batchId,
+                      bulkOutputs: current.bulkOutputs?.map((output) => output.sheetId === batch.sheet_id
+                        ? { ...output, batchId: batch.id } : output),
                     } : current)}
                     onDone={closeWorkspace}
                     onError={onError}
                   />
                 ) : (
                   <div className="search-preparation-receipt" data-testid="search-preparation-receipt">
-                    <div role="status"><span className="run-spinner" aria-hidden /> Finishing import…</div>
-                    <p>Files are saved. Frisket is checking what can be prepared for search.</p>
-                    {preparationFollowupError && (
-                      <div className="import-field-error" role="alert">{preparationFollowupError}</div>
-                    )}
-                    <button type="button" className="btn" data-testid="search-preparation-done" onClick={closeWorkspace}>
-                      Done
-                    </button>
+                    <div className="search-preparation-receipt-body">
+                      {bulkReceiptSummary}
+                      {preparationReceipt.bulkOutputs ? (
+                        <p>Files imported. Search preparation is not available for this sheet.</p>
+                      ) : <>
+                        <div role="status"><span className="run-spinner" aria-hidden /> Finishing import…</div>
+                        <p>Files are saved. Frisket is checking what can be prepared for search.</p>
+                      </>}
+                      {preparationFollowupError && (
+                        <div className="import-field-error" role="alert">{preparationFollowupError}</div>
+                      )}
+                    </div>
+                    <footer className="search-preparation-actions">
+                      <button type="button" className="btn btn-primary" data-testid="search-preparation-done" onClick={closeWorkspace}>
+                        Done
+                      </button>
+                    </footer>
                   </div>
                 )
               ) : downloadPrompt ? (
@@ -1917,10 +2017,6 @@ function OpenImportWorkspaceSession({
                 )
               ) : mode === 'urls' ? (
                 <>
-                  <div className="import-mode-summary">
-                    <Link2 size={16} aria-hidden />
-                    <strong>URLs</strong>
-                  </div>
                   <label className="import-field-label" htmlFor="import-url-list">
                     URLs
                   </label>
@@ -1951,11 +2047,13 @@ function OpenImportWorkspaceSession({
                 <FeedSourceForm onCreated={onClose} onImported={onImported} onError={onError} />
               ) : (
                 <>
-                  <div className="import-mode-summary">
-                    <Upload size={16} aria-hidden />
-                    <strong>{active.label}</strong>
-                    <span>{active.hint}</span>
-                  </div>
+                  {railMode !== 'files' ? (
+                    <div className="import-mode-summary">
+                      <Upload size={16} aria-hidden />
+                      <strong>{active.label}</strong>
+                      <span>{active.hint}</span>
+                    </div>
+                  ) : null}
                   {railMode === 'csv' ? (
                     <>
                       <label className="import-field-label" htmlFor="import-file-format">
@@ -1991,16 +2089,71 @@ function OpenImportWorkspaceSession({
                       ) : null}
                     </>
                   ) : null}
-                  <button
-                    type="button"
-                    className="btn btn-primary import-primary import-file-choose"
-                    data-testid="import-file-picker"
-                    disabled={busy || bulkBusy}
-                    onClick={() => inputRef.current?.click()}
-                  >
-                    <Upload size={13} /> {railMode === 'files' ? 'Choose files' : 'Choose one file'}
-                  </button>
-                  {(railMode === 'csv' || railMode === 'files') && (
+                  {railMode === 'files' ? (
+                    <div
+                      className="import-files-chooser"
+                      data-testid="import-files-chooser"
+                      data-dragging={filesDragging || undefined}
+                      onDragOver={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        event.dataTransfer.dropEffect = busy || bulkBusy || selectionPreparing ? 'none' : 'copy';
+                        if (!busy && !bulkBusy && !selectionPreparing) setFilesDragging(true);
+                      }}
+                      onDragLeave={(event) => {
+                        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFilesDragging(false);
+                      }}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setFilesDragging(false);
+                        if (busy || bulkBusy || selectionPreparing) return;
+                        handlePickedFiles(snapshotImportFiles(event.dataTransfer.files));
+                      }}
+                    >
+                      <Upload size={34} aria-hidden />
+                      <h2>Drop files here</h2>
+                      <p>Drop files or a ZIP archive here, or choose a folder.</p>
+                      <div className="import-files-chooser-actions">
+                        <button
+                          type="button"
+                          className="btn btn-primary"
+                          data-testid="import-file-picker"
+                          disabled={busy || bulkBusy || selectionPreparing}
+                          onClick={() => inputRef.current?.click()}
+                        >
+                          Pick files
+                        </button>
+                        <button
+                          type="button"
+                          className="btn"
+                          disabled={busy || bulkBusy || selectionPreparing}
+                          onClick={() => folderInputRef.current?.click()}
+                        >
+                          Choose folder
+                        </button>
+                        <button
+                          type="button"
+                          className="btn"
+                          disabled={busy || bulkBusy || selectionPreparing}
+                          onClick={() => zipInputRef.current?.click()}
+                        >
+                          Upload ZIP
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn btn-primary import-primary import-file-choose"
+                      data-testid="import-file-picker"
+                      disabled={busy || bulkBusy}
+                      onClick={() => inputRef.current?.click()}
+                    >
+                      <Upload size={13} /> Choose one file
+                    </button>
+                  )}
+                  {railMode === 'csv' && (
                     <div className="import-step-actions">
                       <button
                         type="button"
@@ -2138,21 +2291,6 @@ function OpenImportWorkspaceSession({
                         onClick={() => selectMode('paste')}
                       >
                         Paste rows instead
-                      </button>
-                    </>
-                  )}
-                  {railMode === 'files' && (
-                    <>
-                      <p className="form-hint import-entry-note" data-testid="import-multiple-supported">
-                        PDFs are added as documents. Import does not extract PDF tables.
-                      </p>
-                      <button
-                        type="button"
-                        className="mini-btn import-secondary"
-                        data-testid="import-mode-urls"
-                        onClick={() => selectMode('urls')}
-                      >
-                        Import a list of URLs instead
                       </button>
                     </>
                   )}

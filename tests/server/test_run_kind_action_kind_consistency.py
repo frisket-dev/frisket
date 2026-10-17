@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 from frisket.authoring.action_metadata import action_metadata_for_action_kind
@@ -32,6 +33,27 @@ def test_action_metadata_refuses_retired_implementation_aliases() -> None:
     assert action_metadata_for_action_kind(None) == {
         "action_kind": "unknown",
         "action_name": "Unknown action",
+    }
+
+
+@pytest.mark.parametrize(
+    ("kind", "canonical_kind", "title"),
+    [
+        ("map.python", "map.python", "Run trusted local Python"),
+        ("map.regex_extract", "map.regex_extract", "Extract text with regex"),
+        (" map.python ", "map.python", "Run trusted local Python"),
+        ("plugin.custom", "plugin.custom", "Unknown action"),
+        ("unknown", "unknown", "Unknown action"),
+        ("", "unknown", "Unknown action"),
+        (None, "unknown", "Unknown action"),
+    ],
+)
+def test_action_metadata_preserves_titles_and_unknown_kinds(
+    kind, canonical_kind, title
+):
+    assert action_metadata_for_action_kind(kind) == {
+        "action_kind": canonical_kind,
+        "action_name": title,
     }
 
 

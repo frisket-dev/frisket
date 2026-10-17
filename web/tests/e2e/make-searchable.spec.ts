@@ -392,7 +392,7 @@ test('turning automatic preparation off leaves an imported PDF untouched until S
   await expect(page.getByTestId('search-preparation-receipt')).toBeVisible();
 });
 
-test('a resumable file import publishes its terminal preparation receipt and reopens it after reload', async ({
+test('a resumable file import keeps its preparation receipt in the import flow and clears the recovery bar', async ({
   page,
 }) => {
   const pid = await createProject(page.request, uniqueName('make-searchable-resumable'));
@@ -439,13 +439,8 @@ test('a resumable file import publishes its terminal preparation receipt and reo
   await receipt.getByTestId('search-preparation-done').click();
   await page.reload();
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
-  const completedImport = page.getByTestId('import-progress-completed').filter({
-    hasText: '2 rows added',
-  });
-  const reopen = completedImport.getByTestId('import-progress-open-preparation');
-  await expect(reopen).toBeVisible({ timeout: 15_000 });
-  await reopen.click();
-  await expect(page.getByTestId('search-preparation-receipt')).toBeVisible();
+  await expect(page.getByTestId('import-progress-completed')).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Import progress' })).toHaveCount(0);
 });
 
 test('native PDF import becomes searchable without starting a model setup', async ({

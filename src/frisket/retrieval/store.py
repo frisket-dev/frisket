@@ -658,6 +658,28 @@ class RetrievalStore:
         )
         return changed.rowcount == 1
 
+    def mark_pending_encoder_unavailable(
+        self, *, space_id: str, channels: tuple[str, ...]
+    ) -> int:
+        """Defer unstarted work for one missing encoder without stealing a pass.
+
+        Preparing targets may belong to another claim. Keep their status and
+        cursor, along with ready/failed and other encoder/channel state.
+        """
+        _validate_space_id(space_id)
+        if not channels:
+            return 0
+        placeholders = ",".join("?" for _ in channels)
+        changed = self.db.execute(
+            "UPDATE preparation SET status='unavailable',"
+            "error_code='encoder_unavailable',"
+            "error_message='the configured local retrieval encoder is unavailable' "
+            "WHERE status='pending' AND space_id=? "
+            f"AND channel IN ({placeholders})",
+            (space_id, *channels),
+        )
+        return changed.rowcount
+
     def requeue_unavailable(
         self,
         *,

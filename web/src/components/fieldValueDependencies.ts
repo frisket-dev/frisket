@@ -46,3 +46,12 @@ export function fieldValueDependencyColumnIds(
     ))
     .map((candidate) => String(candidate.id));
 }
+
+/** Grid images use the same sibling-region scan as the inspector. All fetched
+ * values still use bounded mode; ordinary grids only request visible columns. */
+export function gridReadColumnIds(columns: ColumnDef[], hiddenColumnNames: readonly string[]): string[] {
+  const visible = columns.filter((column) => !hiddenColumnNames.includes(column.name));
+  return [...new Set(visible.flatMap((column) => [column.id,
+    ...(column.type === 'image' ? fieldValueDependencyColumnIds(columns, column) : []),
+  ]))];
+}

@@ -7,7 +7,7 @@ import { ReviewInputSources } from './ReviewInputSources';
 import { FieldValue } from '../RowDrawer';
 import { reviewItemLocations, type ReviewItemLocation, type ReviewItemSelection } from './reviewItemLocations';
 import { OverflowRow } from '../OverflowRow';
-import { reviewCitationSources, sourceLocation, sourcesForField, type ReviewCitationPayload } from './reviewCitationSources';
+import { focusedReviewArtifact, reviewTextPassageTargets, reviewCitationSources, sourceLocation, sourcesForField, type ReviewCitationPayload } from './reviewCitationSources';
 import styles from './ReviewSourcePreview.module.css';
 
 const LazyArtifactSource = lazy(() => import('../EvidenceViewer').then(({ ArtifactSource }) => ({ default: ArtifactSource })));
@@ -166,7 +166,9 @@ function FocusedArtifactSource({ activeSource, activeFieldId, focusedSpanIds, se
     viewer.querySelector<HTMLButtonElement>('.evidence-temporal-segment-emphasized')?.click();
   }, [activeFieldId, activeSource, focusedSpanIds, selectedItem, viewerRef]);
 
-  return <LazyArtifactSource artifact={activeSource.artifact}
+  return <LazyArtifactSource artifact={focusedReviewArtifact(activeSource, activeFieldId, focusedSpanIds)}
+    textPassageTargets={reviewTextPassageTargets(activeSource)}
+    playFocusedPassage={Boolean(selectedItem && focusedSpanIds.length && activeSource.artifact.text_context?.window)}
     emphasizedSpanIds={focusedSpanIds.length ? focusedSpanIds : selectedSpanIds(activeSource, activeFieldId)} />;
 }
 

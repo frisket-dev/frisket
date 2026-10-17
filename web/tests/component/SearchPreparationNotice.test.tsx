@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ModelPullDto } from '../../src/api/types';
 import type { SearchPreparationBatch } from '../../src/api/searchPreparation';
@@ -16,6 +16,7 @@ import {
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -63,6 +64,36 @@ function batch(overrides: Partial<SearchPreparationBatch> = {}): SearchPreparati
   };
 }
 
+type PreparationProgress = NonNullable<SearchPreparationBatch['jobs'][number]['progress']>;
+
+function preparationProgress(overrides: Partial<PreparationProgress> = {}): PreparationProgress {
+  return {
+    action_kind: 'document.ocr',
+    action_name: 'Read PDF text',
+    completed: 2,
+    cost: null,
+    failed: 1,
+    live: true,
+    run_id: 92,
+    sheet_id: 7,
+    status: 'running',
+    timing: {
+      elapsed_seconds: 3,
+      estimated_finish_at: null,
+      eta_seconds: 2,
+      finished_at: null,
+      job_elapsed_seconds: 3,
+      processed_rows: 2,
+      processed_rows_per_second: 0.5,
+      queue_wait_seconds: 0,
+      remaining_rows: 1,
+      started_at: '2026-10-16T12:00:01Z',
+    },
+    total: 3,
+    ...overrides,
+  };
+}
+
 function snapshot(overrides: Partial<SearchPreparationSnapshot> = {}): SearchPreparationSnapshot {
   return {
     batches: [],
@@ -73,6 +104,114 @@ function snapshot(overrides: Partial<SearchPreparationSnapshot> = {}): SearchPre
 }
 
 describe('search preparation notice projection', () => {
+  it('preserves the failed activity identity through retry, warned completion, expiry and later polls', async () => {
+    vi.useFakeTimers();
+    const list = vi.spyOn(preparationApi, 'listSearchPreparations').mockResolvedValue({
+      batches: [batch()], indexing: { status: 'idle', job_id: null, error: null },
+    });
+    vi.spyOn(openApi, 'listModelPulls').mockResolvedValue({
+      schemaVersion: 'frisket.model_pull_list.v1', pulls: [],
+    });
+    const { result } = renderHook(() => useSearchPreparationNotice('project-1', false));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    list.mockResolvedValue({
+      batches: [batch({ status: 'failed', groups: [{ kind: 'ocr', count: 1, status: 'failed' }],
+        errors: ['Model setup failed.'] })], indexing: { status: 'idle', job_id: null, error: null },
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(result.current?.activityKey).toBe('preparation:prep-1:failed');
+    list.mockResolvedValue({
+      batches: [batch()], indexing: { status: 'running', job_id: 781, error: null },
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(result.current?.stage).toBe('prepare');
+    list.mockResolvedValue({
+      batches: [batch({ status: 'complete', jobs: [],
+        groups: [{ kind: 'ocr', count: 1, status: 'complete' }],
+        warnings: ['Page 2 failed during OCR.'] })],
+      indexing: { status: 'idle', job_id: null, error: null },
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(result.current).toMatchObject({ tone: 'warning', activityKey: 'preparation:prep-1:failed' });
+    await act(async () => { await vi.advanceTimersByTimeAsync(12_000); });
+    expect(result.current).toMatchObject({ tone: 'warning', activityKey: 'preparation:prep-1:failed',
+      reviewBatchId: 'prep-1', detail: 'Page 2 failed during OCR.' });
+  });
+
+  it('retains observed page warnings without resurfacing historical warnings after reconnecting', async () => {
+    vi.useFakeTimers();
+    const list = vi.spyOn(preparationApi, 'listSearchPreparations').mockResolvedValue({
+      batches: [batch()], indexing: { status: 'running', job_id: 781, error: null },
+    });
+    vi.spyOn(openApi, 'listModelPulls').mockResolvedValue({
+      schemaVersion: 'frisket.model_pull_list.v1', pulls: [],
+    });
+    const { result, unmount } = renderHook(() => useSearchPreparationNotice('project-1', false));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    list.mockResolvedValue({ batches: [batch({ status: 'complete', jobs: [],
+      groups: [{ kind: 'ocr', count: 1, status: 'complete' }],
+      warnings: ['Page 2 failed during OCR.'] })],
+      indexing: { status: 'idle', job_id: null, error: null } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(result.current).toMatchObject({ tone: 'warning', title: 'Search prepared with warnings',
+      activityKey: 'preparation:prep-1', detail: 'Page 2 failed during OCR.' });
+    unmount();
+    const reopened = renderHook(() => useSearchPreparationNotice('project-1', false));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(reopened.result.current).toBeNull();
+  });
+
+  it('keeps a successful preparation with page warnings visibly distinct from clean completion', () => {
+    const warned = batch({ status: 'complete', groups: [{ kind: 'ocr', count: 1, status: 'complete' }],
+      jobs: [], warnings: ['Page 2 failed during OCR.'] });
+    const notice = deriveSearchPreparationNotice(snapshot({ batches: [warned] }), 'Search index ready');
+    expect(notice).toMatchObject({ stage: 'complete', tone: 'warning',
+      title: 'Search prepared with warnings', detail: 'Page 2 failed during OCR.', reviewBatchId: warned.id });
+    expect(deriveSearchPreparationNotice(snapshot({ batches: [batch(), warned] }))).toMatchObject({ stage: 'prepare', tone: 'active' });
+  });
+
+  it('keeps one activity across OCR, indexing and completion and gives a later index its own identity', async () => {
+    vi.useFakeTimers();
+    const list = vi.spyOn(preparationApi, 'listSearchPreparations').mockResolvedValue({
+      schemaVersion: 'frisket.search_preparation_list.v1', batches: [batch()],
+      indexing: { status: 'queued', job_id: 781, error: null },
+    });
+    vi.spyOn(openApi, 'listModelPulls').mockResolvedValue({
+      schemaVersion: 'frisket.model_pull_list.v1', pulls: [],
+    });
+    const { result } = renderHook(() => useSearchPreparationNotice('project-1', false));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(result.current).toMatchObject({ stage: 'prepare', activityKey: 'preparation:prep-1' });
+
+    list.mockResolvedValue({
+      schemaVersion: 'frisket.search_preparation_list.v1', batches: [],
+      indexing: { status: 'running', job_id: 781, error: null },
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(result.current).toMatchObject({ stage: 'index', activityKey: 'preparation:prep-1' });
+    list.mockResolvedValue({
+      schemaVersion: 'frisket.search_preparation_list.v1', batches: [],
+      indexing: { status: 'idle', job_id: null, error: null },
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(result.current).toMatchObject({ stage: 'complete', activityKey: 'preparation:prep-1' });
+
+    list.mockResolvedValue({
+      schemaVersion: 'frisket.search_preparation_list.v1', batches: [],
+      indexing: { status: 'running', job_id: 782, error: null },
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(result.current).toMatchObject({ stage: 'index', activityKey: 'index:782' });
+    list.mockResolvedValue({
+      schemaVersion: 'frisket.search_preparation_list.v1', batches: [],
+      indexing: { status: 'failed', job_id: 782, error: 'Could not index' },
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(result.current).toMatchObject({ stage: 'failed', activityKey: 'index:782:failed' });
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(result.current?.activityKey).toBe('index:782:failed');
+  });
+
   it('shows a durable model setup with determinate byte progress', () => {
     const notice = deriveSearchPreparationNotice(snapshot({
       pulls: [{ scope: 'workspace', pull: pull() }],
@@ -101,18 +240,87 @@ describe('search preparation notice projection', () => {
     expect(screen.getByText('Job 781')).toBeInTheDocument();
   });
 
+  it('shows active OCR ahead of indexing that is only queued behind it', () => {
+    const notice = deriveSearchPreparationNotice(snapshot({
+      batches: [batch()],
+      indexing: { status: 'queued', job_id: 781, error: null },
+    }));
+
+    expect(notice).toMatchObject({
+      activityKey: 'preparation:prep-1',
+      stage: 'prepare',
+      detail: 'Reading scanned PDFs · 2 files',
+    });
+  });
+
+  it('surfaces failed OCR rows while the remaining files continue', () => {
+    const notice = deriveSearchPreparationNotice(snapshot({
+      batches: [batch({
+        jobs: [{
+          job_id: 473,
+          action_kind: 'ocr',
+          status: 'running',
+          progress: preparationProgress({
+            row_errors: {
+              total_failed_rows: 1,
+              groups: [{
+                code: 'image_result_invalid',
+                count: 1,
+                message: 'One PDF page could not be recognized.',
+                row_ids: [14],
+                terminal: true,
+              }],
+            },
+          }),
+        }],
+      })],
+      indexing: { status: 'queued', job_id: 474, error: null },
+    }));
+
+    expect(notice).toMatchObject({
+      activityKey: 'preparation:prep-1:failed',
+      stage: 'failed',
+      tone: 'error',
+      detail: '1 of 3 files failed · 2/3 processed',
+      progress: 67,
+    });
+    render(<SearchPreparationNotice notice={notice!} />);
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '67');
+    fireEvent.click(screen.getByTestId('search-preparation-details'));
+    expect(screen.getByText('One PDF page could not be recognized.')).toBeInTheDocument();
+    expect(screen.getByText('Reading scanned PDFs · 2 files')).toBeInTheDocument();
+    expect(screen.getByText('Search indexing queued')).toBeInTheDocument();
+  });
+
   it('keeps required approval actionable ahead of background indexing', () => {
-    const onReviewApproval = vi.fn();
+    const onReviewPreparation = vi.fn();
     const notice = deriveSearchPreparationNotice(snapshot({
       batches: [batch({ status: 'needs_consent' })],
       indexing: { status: 'running', job_id: 781, error: null },
     }));
-    render(<SearchPreparationNotice notice={notice!} onReviewApproval={onReviewApproval} />);
+    render(<SearchPreparationNotice notice={notice!} onReviewPreparation={onReviewPreparation} />);
 
     const banner = screen.getByTestId('search-preparation-banner');
     expect(banner).toHaveAttribute('data-stage', 'approval');
     fireEvent.click(screen.getByTestId('search-preparation-review'));
-    expect(onReviewApproval).toHaveBeenCalledOnce();
+    expect(onReviewPreparation).toHaveBeenCalledWith('prep-1');
+  });
+
+  it('keeps a preparation failure ahead of another active batch and reports concurrent indexing in details', () => {
+    const notice = deriveSearchPreparationNotice(snapshot({
+      batches: [
+        batch({ id: 'still-running', status: 'preparing' }),
+        batch({ id: 'ocr-failed', status: 'failed', errors: ['OCR could not read row 1 of 3.'] }),
+      ],
+      indexing: { status: 'running', job_id: 781, error: null },
+    }));
+    render(<SearchPreparationNotice notice={notice!} />);
+
+    const banner = screen.getByTestId('search-preparation-banner');
+    expect(banner).toHaveAttribute('data-stage', 'failed');
+    expect(banner).toHaveTextContent('OCR could not read row 1 of 3.');
+    fireEvent.click(screen.getByTestId('search-preparation-details'));
+    expect(screen.getByText('Indexing search content')).toBeInTheDocument();
   });
 
   it('keeps the latest failed setup visible with its backend error message', () => {
@@ -192,6 +400,51 @@ describe('search preparation notice projection', () => {
     const { result } = renderHook(() => useSearchPreparationNotice('project-1', false));
 
     await waitFor(() => expect(result.current?.detail).toContain('Install the local audio runtime.'));
+  });
+
+  it('does not resurface a historical failure during unrelated pending indexing', async () => {
+    vi.spyOn(preparationApi, 'listSearchPreparations').mockResolvedValue({
+      schemaVersion: 'frisket.search_preparation_list.v1',
+      batches: [batch({
+        id: 'just-failed',
+        status: 'failed',
+        groups: [{ kind: 'ocr', count: 3, status: 'failed' }],
+        errors: ['OCR could not read the imported PDFs.'],
+      })],
+      indexing: { status: 'pending', job_id: null, error: null },
+    });
+    vi.spyOn(openApi, 'listModelPulls').mockResolvedValue({
+      schemaVersion: 'frisket.model_pull_list.v1', pulls: [],
+    });
+
+    const { result } = renderHook(() => useSearchPreparationNotice('project-1', false));
+
+    await waitFor(() => expect(result.current).toMatchObject({
+      stage: 'index',
+      activityKey: 'index:pending',
+    }));
+  });
+
+  it('does not attach historical warnings to unrelated indexing after reload', async () => {
+    vi.useFakeTimers();
+    const historical = batch({ status: 'complete', jobs: [],
+      groups: [{ kind: 'ocr', count: 1, status: 'complete' }],
+      warnings: ['An old PDF page failed.'] });
+    const list = vi.spyOn(preparationApi, 'listSearchPreparations').mockResolvedValue({
+      batches: [historical], indexing: { status: 'running', job_id: 900, error: null },
+    });
+    vi.spyOn(openApi, 'listModelPulls').mockResolvedValue({
+      schemaVersion: 'frisket.model_pull_list.v1', pulls: [],
+    });
+    const { result } = renderHook(() => useSearchPreparationNotice('project-1', false));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(result.current).toMatchObject({ stage: 'index', activityKey: 'index:900' });
+    list.mockResolvedValue({ batches: [historical], indexing: { status: 'idle', job_id: null, error: null } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(result.current).toMatchObject({ tone: 'complete', activityKey: 'index:900', reviewBatchId: null });
+    expect(result.current?.details).not.toContain('An old PDF page failed.');
+    await act(async () => { await vi.advanceTimersByTimeAsync(12_000); });
+    expect(result.current).toBeNull();
   });
 
   it('keeps a failed project index visible with its exact job error', () => {

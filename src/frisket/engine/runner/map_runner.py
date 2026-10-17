@@ -15,6 +15,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
+import sqlite3
+import time
 from collections.abc import Mapping
 from contextlib import nullcontext
 from dataclasses import dataclass, field, replace
@@ -117,6 +120,8 @@ from frisket.execution.provider import (
     open_execution_composition,
 )
 from frisket.operability.trace import TraceWriter
+
+_log = logging.getLogger(__name__)
 
 DEFAULT_CONCURRENCY = 8
 # Consecutive row failures before the run halts resumably (successes reset
@@ -1058,6 +1063,35 @@ class MapRunner:
                 close_out_pre_dispatch_failure(exc)
                 raise
 
+        last_work_progress = 0.0
+        work_progress_row_id: int | None = None
+
+        def report_work_progress(
+            *, kind: str, row_id: int, completed: int, total: int
+        ) -> None:
+            nonlocal last_work_progress, work_progress_row_id
+            now = time.monotonic()
+            if completed not in (0, 1, total) and now - last_work_progress < 0.5:
+                return
+            try:
+                self.run_store.set_work_progress(
+                    run_id, kind=kind, row_id=row_id, completed=completed, total=total
+                )
+            except sqlite3.Error:
+                _log.warning("work_progress_write_failed", exc_info=True)
+            last_work_progress = now
+            work_progress_row_id = row_id
+
+        def clear_work_progress() -> None:
+            nonlocal work_progress_row_id
+            if work_progress_row_id is None:
+                return
+            try:
+                self.run_store.clear_work_progress(run_id)
+            except sqlite3.Error:
+                _log.warning("work_progress_write_failed", exc_info=True)
+            work_progress_row_id = None
+
         # remote-engine ops (ocr's VLM tier) reach the router via extras
         ctx = OpContext(
             project=self.project,
@@ -1078,6 +1112,7 @@ class MapRunner:
                 "claim_token": claim_token,
                 "router": self.router,
                 "cancelled": cancelled,
+                "report_work_progress": report_work_progress,
                 "source_column_types": source_column_types,
                 "output_columns": dict(out_cols),
                 # Shared only by row contexts in this run; recipe singletons
@@ -1377,6 +1412,7 @@ class MapRunner:
             await self._throttle.wait()
             if cancelled():
                 return
+            clear_work_progress()
             input_capture: dict[str, dict[str, Any]] | None = (
                 {} if callable(capture_result_evidence) else None
             )

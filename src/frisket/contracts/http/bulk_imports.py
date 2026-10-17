@@ -44,6 +44,7 @@ class BulkImportCreatedOutput(WireModel):
     sheet_name: str
     logical_paths: list[str]
     rows: int
+    search_preparation_batch_id: str | None = None
 
 
 class BulkImportFailedOutput(WireModel):

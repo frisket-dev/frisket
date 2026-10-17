@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import errno
+import io
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -18,8 +20,294 @@ from frisket.engine._workers.indra_ocr_model import (
     MODEL_REVISION,
 )
 from frisket.engine._workers.indra_ocr_worker import _original_box, _page_result
+from frisket.engine._workers import indra_ocr_worker, pdf_render_worker
 from frisket.engine.sandbox.shim import SandboxResult
+from frisket.engine.sandbox.shim import SandboxTeardownError
 from frisket.ops import ocr_engines_local
+
+
+def test_indra_pdf_worker_loads_once_and_releases_each_page(
+    tmp_path, monkeypatch, capsys
+):
+    import sys
+
+    rendered, loaded, closed = [], [], []
+
+    class Document:
+        def __len__(self):
+            return 500
+
+        def close(self):
+            closed.append(True)
+
+    def render(doc, number, output, *, dpi):
+        assert dpi == 200
+        assert not list(tmp_path.glob("*.png"))
+        output.write_bytes(b"page fixture")
+        rendered.append(number)
+        if number == 2:
+            raise RuntimeError("private renderer failure")
+        if number == 6:
+            raise MemoryError("private raster allocation")
+        if 10 <= number <= 14 or number >= 401:
+            raise RuntimeError("private damaged page")
+        return (100, 200)
+
+    class Converter:
+        def convert(self, path):
+            assert Path(path).exists()
+            number = rendered[-1]
+            if number == 4:
+                raise RuntimeError("private model failure")
+            yield (
+                0,
+                SimpleNamespace(
+                    source="ocr",
+                    rotation=0,
+                    lines=[]
+                    if number == 3
+                    else [
+                        SimpleNamespace(
+                            text=f"Page {number}",
+                            box=[10, 20, 30, 40],
+                            conf=0.9,
+                        )
+                    ],
+                ),
+            )
+
+    converter = Converter()
+
+    def load(**kwargs):
+        loaded.append(kwargs)
+        return converter
+
+    monkeypatch.setitem(sys.modules, "indra_ocr", SimpleNamespace(load=load))
+    monkeypatch.setitem(
+        sys.modules,
+        "cv2",
+        SimpleNamespace(
+            IMREAD_GRAYSCALE=0,
+            imread=lambda *args: SimpleNamespace(shape=(200, 100)),
+        ),
+    )
+    monkeypatch.setitem(
+        sys.modules, "pypdfium2", SimpleNamespace(PdfDocument=lambda path: Document())
+    )
+    monkeypatch.setattr(pdf_render_worker, "render_page", render)
+    output = tmp_path / "result.json"
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.StringIO(
+            json.dumps(
+                {
+                    "out": str(output),
+                    "pdf": str(tmp_path / "source.pdf"),
+                    "dpi": 200,
+                    "model_dir": "/offline/model",
+                    "threads": 1,
+                }
+            )
+        ),
+    )
+    indra_ocr_worker.main()
+    pages = json.loads(output.read_text())["pages"]
+    assert len(loaded) == len(closed) == 1
+    assert rendered == list(range(1, 451))
+    assert len(pages) == 500 and pages[399]["text"] == "Page 400"
+    assert all(page["error"]["code"] == "ocr_page_skipped" for page in pages[450:])
+    assert pages[1]["error"]["stage"] == "rendering"
+    assert pages[3]["error"]["stage"] == "recognition"
+    assert pages[5]["error"]["stage"] == "rendering"
+    assert all(
+        pages[number - 1]["error"]["stage"] == "rendering" for number in range(10, 15)
+    )
+    assert pages[8]["text"] == "Page 9" and pages[14]["text"] == "Page 15"
+    assert pages[2]["text"] == "" and "error" not in pages[2]
+    assert pages[399]["width"] == 100 and pages[399]["height"] == 200
+    assert not list(tmp_path.glob("*.png"))
+    progress = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert [event["completed"] for event in progress] == list(range(1, 451))
+    assert all(event["total"] == 500 for event in progress)
+
+
+@pytest.mark.parametrize("failure_stage", ["rendering", "recognition"])
+@pytest.mark.parametrize("failure", ["storage", "teardown", "persistent"])
+def test_indra_pdf_stops_fatal_or_repeated_failures_and_releases_raster(
+    tmp_path, monkeypatch, failure_stage, failure
+):
+    import sys
+
+    observed, closed = [], []
+
+    class Document:
+        def __len__(self):
+            return 30
+
+        def close(self):
+            closed.append(True)
+
+    def fail(number):
+        if number == 1 and failure != "persistent":
+            return
+        if failure == "storage":
+            raise OSError(errno.ENOSPC, "private storage path")
+        if failure == "teardown":
+            raise SandboxTeardownError("unverified process tree")
+        raise RuntimeError("private page failure")
+
+    def render(doc, number, output, *, dpi):
+        observed.append(number)
+        output.write_bytes(b"page fixture")
+        if failure_stage == "rendering":
+            fail(number)
+        return 12, 8
+
+    def recognize(*args, **kwargs):
+        if failure_stage == "recognition":
+            fail(observed[-1])
+        return {"text": "", "blocks": []}
+
+    monkeypatch.setitem(
+        sys.modules, "pypdfium2", SimpleNamespace(PdfDocument=lambda path: Document())
+    )
+    monkeypatch.setattr(pdf_render_worker, "render_page", render)
+    monkeypatch.setattr(indra_ocr_worker, "_recognize_page", recognize)
+    expected = (
+        OSError
+        if failure == "storage"
+        else SandboxTeardownError
+        if failure == "teardown"
+        else RuntimeError
+    )
+    with pytest.raises(expected):
+        indra_ocr_worker._pdf_pages(
+            None,
+            {"pdf": "fixture.pdf", "out": str(tmp_path / "result.json"), "dpi": 200},
+            lambda *args: None,
+        )
+    assert observed == list(range(1, 6 if failure == "persistent" else 3))
+    assert closed == [True] and not list(tmp_path.glob("*.png"))
+
+
+@pytest.mark.parametrize(
+    ("pdf_mode", "failure_stage"),
+    [
+        (True, "rendering"),
+        (True, "result_write"),
+        (True, "teardown"),
+        (False, "result_write"),
+        (True, "model_memory"),
+        (True, "recognition_memory"),
+    ],
+)
+def test_indra_fatal_failure_crosses_main_and_host_without_writable_result(
+    tmp_path, monkeypatch, pdf_mode, failure_stage
+):
+    import sys
+    from contextlib import redirect_stdout
+    from frisket.engine._workers import indra_ocr_artifacts
+    from frisket.ops.base import RecipeInvocationHalt
+    from frisket.runtime import indra_ocr_install
+
+    model_dir = tmp_path / "cache" / "snapshots" / MODEL_REVISION
+    model_dir.mkdir(parents=True)
+    monkeypatch.setattr(indra_ocr_artifacts, "cached_indra_ocr_path", lambda: model_dir)
+    runtime = tmp_path / "python"
+    runtime.touch(mode=0o755)
+    monkeypatch.setattr(indra_ocr_install, "runtime_python", lambda: runtime)
+    monkeypatch.setattr(ocr_engines_local, "indra_ocr_available", lambda: (True, None))
+    loaded, rendered, closed, signals = [], [], [], []
+
+    def load(**kwargs):
+        loaded.append(True)
+        if failure_stage == "model_memory":
+            raise MemoryError("private model allocation")
+        return object()
+
+    class Document:
+        def __len__(self):
+            return 2
+
+        def close(self):
+            closed.append(True)
+
+    def render(doc, number, output, *, dpi):
+        rendered.append(number)
+        output.write_bytes(b"page fixture")
+        if number == 2 and failure_stage == "rendering":
+            raise OSError(errno.ENOSPC, "private storage path")
+        if number == 2 and failure_stage == "teardown":
+            raise SandboxTeardownError("unverified process tree")
+        return 12, 8
+
+    def write(*args, **kwargs):
+        raise OSError(errno.ENOSPC, "private result path")
+
+    def recognize(*args, **kwargs):
+        if failure_stage == "recognition_memory" and rendered[-1] == 2:
+            raise MemoryError("private model allocation")
+        return {"text": "", "blocks": []}
+
+    monkeypatch.setitem(sys.modules, "indra_ocr", SimpleNamespace(load=load))
+    monkeypatch.setitem(
+        sys.modules,
+        "cv2",
+        SimpleNamespace(
+            IMREAD_GRAYSCALE=0, imread=lambda *args: SimpleNamespace(shape=(8, 12))
+        ),
+    )
+    monkeypatch.setitem(
+        sys.modules, "pypdfium2", SimpleNamespace(PdfDocument=lambda path: Document())
+    )
+    monkeypatch.setattr(pdf_render_worker, "render_page", render)
+    monkeypatch.setattr(
+        indra_ocr_worker,
+        "_recognize_page",
+        recognize,
+    )
+    if failure_stage == "result_write":
+        monkeypatch.setattr(indra_ocr_worker, "_write", write)
+
+    async def launch(argv, **kwargs):
+        monkeypatch.setattr(sys, "stdin", io.StringIO(kwargs["stdin_data"].decode()))
+        stream = io.StringIO()
+        with redirect_stdout(stream):
+            indra_ocr_worker.main()
+        wire = stream.getvalue()
+        signals.extend(json.loads(line) for line in wire.splitlines())
+        if pdf_mode:
+            for line in wire.splitlines():
+                kwargs["on_stdout_line"](line)
+        return SandboxResult(returncode=0, stdout="" if pdf_mode else wire, stderr="")
+
+    monkeypatch.setattr(
+        ocr_engines_local,
+        "run_sandboxed_stdout_lines" if pdf_mode else "run_sandboxed",
+        launch,
+    )
+    with pytest.raises(RecipeInvocationHalt) as raised:
+        asyncio.run(
+            ocr_engines_local.ocr_indra(
+                [] if pdf_mode else [tmp_path / "page.png"],
+                tmp_path,
+                **(
+                    {"pdf": tmp_path / "source.pdf", "page_count": 2}
+                    if pdf_mode
+                    else {}
+                ),
+            )
+        )
+    assert raised.value.code == "local_session_failed"
+    assert loaded == [True]
+    assert signals[-1] == {"error": "environment_failed"}
+    assert not (tmp_path / "indra-ocr-result.json").exists()
+    assert not list(tmp_path.glob("*.png"))
+    if failure_stage == "model_memory":
+        assert not rendered and not closed
+    elif pdf_mode:
+        assert rendered == [1, 2] and closed == [True]
 
 
 @pytest.mark.parametrize(
@@ -86,8 +374,9 @@ def test_indra_model_manifest_is_revision_pinned_with_exact_files():
     assert artifact.hf_snapshot.files == MODEL_FILES
 
 
+@pytest.mark.parametrize("pdf_mode", [False, True])
 def test_indra_local_adapter_uses_private_runtime_offline_and_validates_pages(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, pdf_mode
 ):
     from frisket.engine._workers import indra_ocr_artifacts
     from frisket.runtime import indra_ocr_install
@@ -106,23 +395,62 @@ def test_indra_local_adapter_uses_private_runtime_offline_and_validates_pages(
     monkeypatch.setattr(indra_ocr_artifacts, "cached_indra_ocr_path", lambda: model_dir)
     monkeypatch.setattr(indra_ocr_install, "runtime_python", lambda: runtime)
     captured = {}
+    expected = [{"text": "local", "blocks": []}] * (2 if pdf_mode else 1)
+    progress = []
 
     async def run_sandboxed(argv, **kwargs):
         captured["argv"] = argv
         captured.update(kwargs)
         payload = json.loads(kwargs["stdin_data"])
         Path(payload["out"]).write_text(
-            json.dumps({"pages": [{"text": "local", "blocks": []}]}),
+            json.dumps({"pages": expected}),
             encoding="utf-8",
         )
         captured["payload"] = payload
+        if pdf_mode:
+            kwargs["on_stdout_line"]("not a progress event")
+            for number in (1, 2):
+                kwargs["on_stdout_line"](
+                    json.dumps(
+                        {
+                            "kind": "ocr_pages",
+                            "completed": number,
+                            "total": 2,
+                        }
+                    )
+                )
         return SandboxResult(returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(ocr_engines_local, "run_sandboxed", run_sandboxed)
+    monkeypatch.setattr(ocr_engines_local, "run_sandboxed_stdout_lines", run_sandboxed)
 
-    result = asyncio.run(ocr_engines_local.ocr_indra([page], scratch))
+    result = asyncio.run(
+        ocr_engines_local.ocr_indra(
+            [] if pdf_mode else [page],
+            scratch,
+            **(
+                {
+                    "pdf": page,
+                    "dpi": 150,
+                    "page_count": 2,
+                    "report_progress": lambda done, total: progress.append(
+                        (done, total)
+                    ),
+                }
+                if pdf_mode
+                else {}
+            ),
+        )
+    )
 
-    assert result == [{"text": "local", "blocks": []}]
+    assert result == expected
+    if pdf_mode:
+        assert captured["payload"]["pdf"] == str(page)
+        assert captured["payload"]["dpi"] == 150
+        assert "paths" not in captured["payload"]
+        assert progress == [(1, 2), (2, 2)]
+    else:
+        assert captured["payload"]["paths"] == [str(page)]
     assert captured["argv"][0] == str(runtime)
     assert captured["argv"][3] == "indra-ocr"
     assert captured["payload"]["model_dir"] == str(model_dir)

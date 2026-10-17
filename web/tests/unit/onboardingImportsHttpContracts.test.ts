@@ -240,11 +240,11 @@ describe('onboarding/import generated HTTP contracts', () => {
             created: [
               {
                 id: 'inbox', kind: 'sheet', sheet_id: 23, sheet_name: 'Inbox',
-                logical_paths: ['mail/inbox.csv'],
+                logical_paths: ['mail/inbox.csv'], search_preparation_batch_id: 'existing-prep',
               },
               {
                 id: 'sent', kind: 'sheet', sheet_id: 29, sheet_name: 'Sent',
-                logical_paths: ['mail/sent.csv'],
+                logical_paths: ['mail/sent.csv'], search_preparation_batch_id: null,
               },
             ],
             failed: [],
@@ -297,8 +297,8 @@ describe('onboarding/import generated HTTP contracts', () => {
       'matching-csv': 'separate',
     }, options);
     expect(execution.created).toEqual([
-      { id: 'inbox', kind: 'sheet', sheet_id: 23, sheet_name: 'Inbox', logical_paths: ['mail/inbox.csv'] },
-      { id: 'sent', kind: 'sheet', sheet_id: 29, sheet_name: 'Sent', logical_paths: ['mail/sent.csv'] },
+      { id: 'inbox', kind: 'sheet', sheet_id: 23, sheet_name: 'Inbox', logical_paths: ['mail/inbox.csv'], search_preparation_batch_id: 'existing-prep' },
+      { id: 'sent', kind: 'sheet', sheet_id: 29, sheet_name: 'Sent', logical_paths: ['mail/sent.csv'], search_preparation_batch_id: null },
     ]);
     expect(execution).toMatchObject({ failed: [], first_sheet_id: 23, message: 'Imported 2 files.' });
     expect(execution.warnings).toEqual([]);

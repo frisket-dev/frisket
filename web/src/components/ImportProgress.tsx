@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { X } from 'lucide-react';
 import {
   cancelImportSession,
   listImportSessions,
@@ -19,7 +18,6 @@ import {
   setImportSessionBrowserUploading,
   subscribeImportSessions,
 } from './importProgressSession';
-import { SearchPreparationReceipt } from './SearchPreparationReceipt';
 
 const POLL_MS = 2_000;
 
@@ -52,19 +50,11 @@ export function ImportProgress({ projectId, onOpenSheet, onChanged, onError }: {
   const [busyRef, setBusyRef] = useState<string | null>(null);
   const [preparingRef, setPreparingRef] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [preparation, setPreparation] = useState<{ projectId: string; batchId: string | null }>({
-    projectId, batchId: null,
-  });
-  if (preparation.projectId !== projectId) setPreparation({ projectId, batchId: null });
-  const openPreparationBatchId = preparation.projectId === projectId ? preparation.batchId : null;
-  const setOpenPreparationBatchId = (batchId: string | null) => setPreparation({ projectId, batchId });
   const browserUploadVersion = useSyncExternalStore(
     subscribeImportSessions,
     importSessionSnapshot,
     importSessionSnapshot,
   );
-  const preparationDialogRef = useRef<HTMLDialogElement | null>(null);
-  const preparationCloseRef = useRef<HTMLButtonElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const continueRef = useRef<ImportSessionStatus | null>(null);
   const preparationGeneration = useRef(0);
@@ -73,14 +63,6 @@ export function ImportProgress({ projectId, onOpenSheet, onChanged, onError }: {
   useEffect(() => () => {
     preparationGeneration.current += 1;
   }, [projectId]);
-
-  useEffect(() => {
-    const dialog = preparationDialogRef.current;
-    if (openPreparationBatchId && dialog && !dialog.open) {
-      dialog.showModal();
-      preparationCloseRef.current?.focus();
-    }
-  }, [openPreparationBatchId]);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -163,7 +145,12 @@ export function ImportProgress({ projectId, onOpenSheet, onChanged, onError }: {
     }
   };
 
-  if (!sessions.length) return null;
+  // Completed sessions require no recovery action. The Import workspace owns
+  // their text/OCR handoff and already navigates to the resulting sheet; the
+  // global search-preparation notice remains the durable way back to any
+  // approval or failure. Keep this bar for resumable, cancellable work only.
+  const visibleSessions = sessions.filter((session) => session.state !== 'completed');
+  if (!visibleSessions.length) return null;
   const banner = (
     <section className="notification-settings-notice" aria-label="Import progress" data-testid="import-progress">
       <input
@@ -203,7 +190,7 @@ export function ImportProgress({ projectId, onOpenSheet, onChanged, onError }: {
       />
       <div>
         <strong>Imports</strong>
-        {sessions.map((session) => {
+        {visibleSessions.map((session) => {
           const busy = busyRef === session.import_ref;
           const preparing = preparingRef === session.import_ref;
           const browserUploading = isImportSessionBrowserUploading(session.import_ref);
@@ -217,16 +204,6 @@ export function ImportProgress({ projectId, onOpenSheet, onChanged, onError }: {
               {session.sheet_id != null && session.committed_rows > 0 ? (
                 <button type="button" className="mini-btn" onClick={() => onOpenSheet(session.sheet_id!)}>
                   Open sheet
-                </button>
-              ) : null}{' '}
-              {session.search_preparation_batch_id ? (
-                <button
-                  type="button"
-                  className="mini-btn"
-                  data-testid="import-progress-open-preparation"
-                  onClick={() => setOpenPreparationBatchId(session.search_preparation_batch_id)}
-                >
-                  Open preparation
                 </button>
               ) : null}{' '}
               {browserUploading ? <span> · Uploading files… You can close the importer.</span> : null}
@@ -277,59 +254,5 @@ export function ImportProgress({ projectId, onOpenSheet, onChanged, onError }: {
       </div>
     </section>
   );
-  return (
-    <>
-      {banner}
-      {openPreparationBatchId && (
-        <dialog
-          ref={preparationDialogRef}
-          className="import-workspace-layer"
-          aria-label="Search preparation"
-          onCancel={(event) => {
-            event.preventDefault();
-            setOpenPreparationBatchId(null);
-          }}
-          onClose={() => setOpenPreparationBatchId(null)}
-        >
-          <button
-            type="button"
-            className="import-workspace-backdrop"
-            tabIndex={-1}
-            aria-label="Close preparation backdrop"
-            onMouseDown={() => setOpenPreparationBatchId(null)}
-          />
-          <section className="import-workspace import-workspace-receipt">
-            <header className="import-workspace-header import-workspace-header-receipt">
-              <button
-                type="button"
-                className="icon-btn"
-                ref={preparationCloseRef}
-                aria-label="Close preparation"
-                onClick={() => setOpenPreparationBatchId(null)}
-              >
-                <X size={16} />
-              </button>
-            </header>
-            <div className="import-workspace-main import-workspace-main-receipt">
-              <div className="import-workspace-content">
-                <div className="import-workspace-panel">
-                  <SearchPreparationReceipt
-                    key={openPreparationBatchId}
-                    projectId={projectId}
-                    batchId={openPreparationBatchId}
-                    onBatchChange={(batch) => setOpenPreparationBatchId(batch.id)}
-                    onDone={() => setOpenPreparationBatchId(null)}
-                    onError={(text) => {
-                      setMessage(text);
-                      onError?.(text);
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
-          </section>
-        </dialog>
-      )}
-    </>
-  );
+  return banner;
 }

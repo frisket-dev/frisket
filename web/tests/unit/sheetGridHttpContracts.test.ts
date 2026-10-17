@@ -82,6 +82,50 @@ afterEach(() => {
 });
 
 describe('sheet and grid HTTP contracts', () => {
+  it('keeps successful cell warnings in provenance without inventing an error', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
+      total: 1, columns: [{ ...sheetColumnWire, ai_generated: true }],
+      rows: [{ id: 11, cells: { 9: 'Pages one and three' }, meta: { 9: {
+        warnings: ['Page 2 failed during OCR.'],
+        current_value_ref: { kind: 'run_result', row_id: 11, column_id: 9, run_id: 4, op_id: 5 },
+      } }, parent_row_id: null, child_count: 0 }],
+    })));
+    const page = await realApi.getSheetData('7', 0, 25, { valueMode: 'bounded' });
+    expect(page.rows[0].provenance['9'].warnings).toEqual(['Page 2 failed during OCR.']);
+    expect(page.rows[0].cells['9']).toBe('Pages one and three');
+    expect(page.rows[0].cellErrors?.['9']).toBeUndefined();
+  });
+
+  it('preserves bounded descriptors separately from exact cells and projects display reads', async () => {
+    const descriptor = { preview: 'A display excerpt', value_kind: 'text', total_characters: 100000,
+      total_bytes: 100001, retrieval_revision: 3, truncated: true, manual_editable: false, manual_edit_byte_limit: 65536 };
+    const fetchMock = vi.fn(async () => jsonResponse({ columns: [sheetColumnWire], total: 1,
+      rows: [{ id: 11, cells: {}, meta: { 9: { bounded_value: descriptor,
+        current_value_ref: { kind: 'source_cell', row_id: 11, column_id: 9, run_id: null, op_id: null } } },
+        parent_row_id: null, child_count: 0 }] }));
+    vi.stubGlobal('fetch', fetchMock);
+    const page = await realApi.getSheetData('7', 0, 25, { columnIds: ['9'], valueMode: 'bounded' });
+    const url = new URL(String(fetchMock.mock.calls[0][0]), 'http://localhost');
+    expect(url.searchParams.get('value_mode')).toBe('bounded');
+    expect(url.searchParams.get('column_ids')).toBe('9');
+    expect(page.rows[0].cells).toEqual({});
+    expect(page.rows[0].boundedValues).toEqual({ 9: descriptor });
+    expect(page.rows[0].loadedColumnIds).toEqual(['9']);
+  });
+
+  it('keeps unavailable large-value replay comparisons distinct from a zero count', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
+      total: 1, columns: [{ ...sheetColumnWire, replay_pending_count: null, replay_comparison_available: false }],
+      rows: [{ id: 11, cells: { 9: 'small manual value' }, meta: { 9: { replay_comparison_unavailable: true,
+        current_value_ref: { kind: 'manual_edit', row_id: 11, column_id: 9, run_id: null, op_id: 3 } } },
+        parent_row_id: null, child_count: 0 }],
+    })));
+    const page = await realApi.getSheetData('7', 0, 25, { valueMode: 'bounded' });
+    expect(page.columns[0]).toMatchObject({ replayPendingCount: null, replayComparisonAvailable: false });
+    expect(page.rows[0].replayComparisonUnavailable).toEqual({ 9: true });
+    expect(page.rows[0].replayPending).toBeUndefined();
+  });
+
   it('preserves the canonical URL-download launcher hint from the sheet contract', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
       total: 0, rows: [], columns: [{

@@ -65,7 +65,8 @@ export interface RowTitleOptions extends ResolveTitleColumnOptions {
  *  falling back to the row's media filename/label, falling back to `Row N`. */
 export function rowTitle(sheet: SheetMeta, row: Row, options?: RowTitleOptions): string {
   const titleColumn = resolveTitleColumn(sheet, options);
-  const raw = titleColumn ? row.cells[String(titleColumn.id)] : null;
+  const bounded = titleColumn ? row.boundedValues?.[titleColumn.id] : null;
+  const raw = bounded ? `${bounded.preview}…` : titleColumn ? row.cells[String(titleColumn.id)] : null;
   if (raw !== null && raw !== undefined && String(raw).trim() !== '' && !String(raw).startsWith('{')) {
     return String(raw);
   }

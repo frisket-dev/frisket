@@ -27,7 +27,21 @@ def _fresh_schema_statement(prefix: str) -> str:
     for line in SCHEMA[start:].splitlines(keepends=True):
         statement += line
         if sqlite3.complete_statement(statement):
-            return statement.strip()
+            # This endpoint predates result warnings. Do not introduce the
+            # column before the intervening prepared-content table rebuild,
+            # whose pinned destination deliberately has the older columns.
+            return (
+                statement.replace(
+                    "  warnings TEXT NOT NULL DEFAULT '[]' CHECK (\n"
+                    "    json_valid(warnings) AND json_type(warnings)='array'\n"
+                    "  ),\n",
+                    "",
+                )
+                .replace("  warnings, error,", "  error,")
+                .replace("        OR NEW.warnings IS NOT OLD.warnings\n", "")
+                .replace("    OR NEW.warnings IS NOT OLD.warnings\n", "")
+                .strip()
+            )
     raise RuntimeError(f"incomplete schema statement starting with {prefix!r}")
 
 

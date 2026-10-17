@@ -183,3 +183,16 @@ def test_concurrent_edit_during_publication_remains_dirty_and_is_reconciled(
         search_project(project, "concurrentneedle", rerank="off")[0]["row_id"]
         == rows[0]
     )
+
+
+def test_removing_last_content_still_schedules_existing_index_cleanup(documents):
+    from frisket.engine.jobs.search_index import index_work_marker
+
+    project, *_ = documents
+    drain_index(project)
+    assert search_project(project, "needle", rerank="off")
+    project.undo()
+    assert index_work_marker(project) is not None
+    drain_index(project)
+    assert search_project(project, "needle", rerank="off") == []
+    assert index_work_marker(project, include_preparation=False) is None

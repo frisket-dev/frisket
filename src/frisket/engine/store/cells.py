@@ -28,6 +28,7 @@ from frisket.engine.store.current_cells import (
     decoded_cell_validity,
     refresh_current_cells,
 )
+from frisket.engine.store.current_value_windows import prepared_text_sizes
 from frisket.engine.store.prepared_content import decode_logical_value
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.value_codec import decode_stored_value
@@ -902,6 +903,143 @@ def pending_replay_count(project: Any, sheet_id: int, column_id: int) -> int:
     return len(_replay_pending_candidates(project, sheet_id, column_id, None))
 
 
+def bounded_pending_replay_values(
+    project: Any,
+    sheet_id: int,
+    column_id: int,
+    row_ids: list[int],
+    *,
+    include_count: bool,
+    byte_limit: int,
+) -> tuple[dict[int, dict[str, Any]], int | None, set[int]]:
+    """Keep small replay comparisons exact and explicitly fence large operands.
+
+    A separate read snapshot keeps the size probe and decode on the same
+    authoritative edits. Oversized comparisons have an unavailable count,
+    rather than a fabricated zero or a silently truncated fresh value.
+    """
+    with project.read_snapshot() as snapshot:
+        projection = (
+            "SELECT res.row_id,length(CAST(res.value AS BLOB)) AS result_bytes,"
+            "length(CAST(e.value AS BLOB)) AS edit_bytes,"
+            "CASE WHEN res.value_kind='prepared_content_ref' THEN res.value END AS result_ref,"
+            "CASE WHEN e.value_kind='prepared_content_ref' THEN e.value END AS edit_ref "
+        )
+        query = _replay_candidate_query(
+            snapshot,
+            sheet_id,
+            column_id,
+            None if include_count else row_ids,
+            projection,
+        )
+        if query is None:
+            return {}, 0, set()
+        sql, params, _run_id = query
+        # Header counts must not turn a viewport read into an unbounded
+        # comparison over the whole column. Keep cheap counts exact; larger
+        # comparisons remain available through the deliberate replay API.
+        count_available = include_count
+        rows = snapshot.db.execute(
+            sql + (" LIMIT 129" if include_count else ""), params
+        ).fetchall()
+        if include_count and len(rows) > 128:
+            count_available = False
+            query = _replay_candidate_query(
+                snapshot, sheet_id, column_id, row_ids, projection
+            )
+            rows = snapshot.db.execute(query[0], query[1]).fetchall() if query else []
+        ref_ids = {
+            int(row[key])
+            for row in rows
+            for key in ("result_ref", "edit_ref")
+            if row[key] is not None
+        }
+        prepared_sizes = {}
+        ordered_refs = sorted(ref_ids)
+        for start in range(0, len(ordered_refs), 400):
+            prepared_sizes.update(
+                prepared_text_sizes(snapshot.db, ordered_refs[start : start + 400])
+            )
+        oversized = set()
+        comparison_bytes = 0
+        for row in rows:
+            sizes = [
+                prepared_sizes[int(row[f"{kind}_ref"])][1]
+                if row[f"{kind}_ref"] is not None
+                else int(row[f"{kind}_bytes"] or 0)
+                for kind in ("result", "edit")
+            ]
+            comparison_bytes += sum(sizes)
+            if max(sizes) > byte_limit:
+                oversized.add(int(row["row_id"]))
+        values = pending_replay_values(
+            snapshot,
+            sheet_id,
+            column_id,
+            [row_id for row_id in row_ids if row_id not in oversized],
+        )
+        count = (
+            None
+            if oversized
+            or (
+                include_count and (not count_available or comparison_bytes > byte_limit)
+            )
+            else (
+                pending_replay_count(snapshot, sheet_id, column_id)
+                if include_count
+                else 0
+            )
+        )
+        return values, count, oversized.intersection(row_ids)
+
+
+def _replay_candidate_query(
+    project: Any,
+    sheet_id: int,
+    column_id: int,
+    row_ids: list[int] | None,
+    projection: str,
+) -> tuple[str, list[Any], int] | None:
+    col = project.db.execute(
+        "SELECT id, sheet_id, current_run_id, ai_generated FROM columns WHERE id=?",
+        (column_id,),
+    ).fetchone()
+    if col is None or not col["ai_generated"]:
+        return None
+    generation_managed, managed_origin_run_id = _managed_replay_origin_run_id(
+        project, column_id
+    )
+    source_run_id = (
+        managed_origin_run_id if generation_managed else col["current_run_id"]
+    )
+    if source_run_id is None:
+        return None
+    run_id = int(source_run_id)
+    head_join = (
+        "JOIN cell_result_heads head ON head.column_id=res.column_id "
+        "AND head.row_id=res.row_id AND head.run_id=res.run_id "
+        if generation_managed
+        else ""
+    )
+    row_filter = ""
+    if row_ids is not None:
+        if not row_ids:
+            return None
+        row_filter = f" AND res.row_id IN ({','.join('?' * len(row_ids))})"
+    sql = projection + (
+        "FROM results res "
+        + head_join
+        + "JOIN rows rr ON rr.id = res.row_id AND rr.sheet_id = ? AND rr.hidden = 0 "
+        "JOIN current_cells current ON current.row_id=res.row_id "
+        "AND current.column_id=res.column_id AND current.origin_kind='manual_edit' "
+        "JOIN edits e ON e.op_id=current.origin_op_id "
+        "AND e.row_id=current.row_id AND e.column_id=current.column_id "
+        "WHERE res.run_id = ? AND res.column_id = ? "
+        "AND res.error IS NULL AND res.value IS NOT NULL" + row_filter
+    )
+    return sql, [col["sheet_id"], run_id, column_id, *(row_ids or [])], run_id
+
+
 def _replay_pending_candidates(
     project: Any, sheet_id: int, column_id: int, row_ids: list[int] | None
 ) -> list[dict[str, Any]]:
@@ -914,58 +1052,30 @@ def _replay_pending_candidates(
     values diff correctly. ``row_ids=None`` scans the whole column (the
     full-column count promise, dispositions #2); a page list scopes it.
     """
-    col = project.db.execute(
-        "SELECT id, sheet_id, current_run_id, ai_generated FROM columns WHERE id=?",
-        (column_id,),
-    ).fetchone()
-    if col is None or not col["ai_generated"]:
-        return []
-    generation_managed, managed_origin_run_id = _managed_replay_origin_run_id(
-        project, column_id
-    )
-    source_run_id = (
-        managed_origin_run_id if generation_managed else col["current_run_id"]
-    )
-    if source_run_id is None:
-        return []
-    run_id = int(source_run_id)
-    head_join = (
-        "JOIN cell_result_heads head ON head.column_id=res.column_id "
-        "AND head.row_id=res.row_id AND head.run_id=res.run_id "
-        if generation_managed
-        else ""
-    )
-    row_filter = ""
-    if row_ids is not None:
-        if not row_ids:
-            return []
-        row_filter = f" AND res.row_id IN ({','.join('?' * len(row_ids))})"
-    rows = project.db.execute(
+    query = _replay_candidate_query(
+        project,
+        sheet_id,
+        column_id,
+        row_ids,
         "SELECT res.row_id AS row_id, res.value_kind AS result_value_kind, "
         "res.value AS result_value, e.value_kind AS edit_value_kind, "
-        "e.value AS edit_value "
-        "FROM results res "
-        + head_join
-        + "JOIN rows rr ON rr.id = res.row_id AND rr.sheet_id = ? AND rr.hidden = 0 "
-        "JOIN current_cells current ON current.row_id=res.row_id "
-        "AND current.column_id=res.column_id AND current.origin_kind='manual_edit' "
-        "JOIN edits e ON e.op_id=current.origin_op_id "
-        "AND e.row_id=current.row_id AND e.column_id=current.column_id "
-        "WHERE res.run_id = ? AND res.column_id = ? "
-        "AND res.error IS NULL AND res.value IS NOT NULL" + row_filter,
-        [
-            col["sheet_id"],
-            run_id,
-            column_id,
-            *(row_ids or []),
-        ],
-    ).fetchall()
+        "e.value AS edit_value ",
+    )
+    if query is None:
+        return []
+    sql, params, run_id = query
+    rows = project.db.execute(sql, params).fetchall()
     dismissed = {
         (int(d["row_id"]), str(d["generated_value_hash"]))
         for d in project.db.execute(
             "SELECT row_id, generated_value_hash FROM replay_edit_dismissals "
-            "WHERE column_id=?",
-            (column_id,),
+            "WHERE column_id=?"
+            + (
+                f" AND row_id IN ({','.join('?' * len(row_ids))})"
+                if row_ids is not None
+                else ""
+            ),
+            [column_id, *(row_ids or [])],
         )
     }
     candidates: list[dict[str, Any]] = []

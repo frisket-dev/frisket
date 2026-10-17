@@ -53,6 +53,14 @@ class InvalidLanguageError(ValueError):
     pass
 
 
+class RapidOCRPageError(RuntimeError):
+    """A safe row-local failure for one page in an OCR request."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
 def _protocol_stdout() -> BinaryIO:
     """Reserve the protocol pipe before third-party libraries can print."""
 
@@ -291,7 +299,7 @@ def _ocr_pages(
     max_page_pixels = 0
     max_page_width = 0
     max_page_height = 0
-    for path in paths:
+    for page_index, path in enumerate(paths, 1):
         width = height = 0
         try:
             with Image.open(path) as source_image:
@@ -300,50 +308,70 @@ def _ocr_pages(
             # Header telemetry must not redefine OCR's row-level error
             # semantics.  RapidOCR remains the authority on readability.
             width = height = 0
-        result = engine(path)
-        txts = list(getattr(result, "txts", None) or [])
-        boxes = getattr(result, "boxes", None)
-        scores = list(getattr(result, "scores", None) or [])
-        recognized_blocks += len(txts)
-        if width <= 0 or height <= 0:
-            image = getattr(result, "img", None)
-            shape = getattr(image, "shape", None)
-            if isinstance(shape, tuple) and len(shape) >= 2:
-                try:
-                    height = int(shape[0])
-                    width = int(shape[1])
-                except (TypeError, ValueError):
-                    height = width = 0
-        if height > 0 and width > 0:
-            pixels = height * width
-            input_pixels += pixels
-            max_page_pixels = max(max_page_pixels, pixels)
-            max_page_width = max(max_page_width, width)
-            max_page_height = max(max_page_height, height)
-        elapse_list = getattr(result, "elapse_list", None)
-        if isinstance(elapse_list, (list, tuple)):
-            for index, value in enumerate(elapse_list[:3]):
-                if (
-                    not isinstance(value, bool)
-                    and isinstance(value, (int, float))
-                    and math.isfinite(float(value))
-                    and float(value) >= 0
-                ):
-                    native_seconds[index] += float(value)
-        blocks: list[dict[str, Any]] = []
-        for index, text in enumerate(txts):
-            block: dict[str, Any] = {"text": text}
-            if boxes is not None and index < len(boxes):
-                block["bbox"] = [[int(x), int(y)] for x, y in boxes[index]]
-            if index < len(scores):
-                block["score"] = round(float(scores[index]), 4)
-            blocks.append(block)
-        pages.append(
-            {
+        try:
+            result = engine(path)
+        except Exception as error:
+            raise RapidOCRPageError(
+                "image_recognition_failed",
+                f"RapidOCR could not process OCR input page {page_index} "
+                "during recognition",
+            ) from error
+        try:
+            txts = list(getattr(result, "txts", None) or [])
+            boxes = getattr(result, "boxes", None)
+            scores = list(getattr(result, "scores", None) or [])
+            recognized_blocks += len(txts)
+            if width <= 0 or height <= 0:
+                image = getattr(result, "img", None)
+                shape = getattr(image, "shape", None)
+                if isinstance(shape, tuple) and len(shape) >= 2:
+                    try:
+                        height = int(shape[0])
+                        width = int(shape[1])
+                    except (TypeError, ValueError):
+                        height = width = 0
+            if height > 0 and width > 0:
+                pixels = height * width
+                input_pixels += pixels
+                max_page_pixels = max(max_page_pixels, pixels)
+                max_page_width = max(max_page_width, width)
+                max_page_height = max(max_page_height, height)
+            elapse_list = getattr(result, "elapse_list", None)
+            if isinstance(elapse_list, (list, tuple)):
+                for index, value in enumerate(elapse_list[:3]):
+                    if (
+                        not isinstance(value, bool)
+                        and isinstance(value, (int, float))
+                        and math.isfinite(float(value))
+                        and float(value) >= 0
+                    ):
+                        native_seconds[index] += float(value)
+            blocks: list[dict[str, Any]] = []
+            for index, text in enumerate(txts):
+                if not isinstance(text, str):
+                    raise TypeError("OCR text is not a string")
+                block: dict[str, Any] = {"text": text}
+                if boxes is not None and index < len(boxes):
+                    block["bbox"] = [[int(x), int(y)] for x, y in boxes[index]]
+                if index < len(scores):
+                    score = float(scores[index])
+                    if not math.isfinite(score):
+                        raise ValueError("OCR score is not finite")
+                    block["score"] = round(score, 4)
+                blocks.append(block)
+            page = {
                 "text": "\n".join(text.strip() for text in txts).strip(),
                 "blocks": blocks,
             }
-        )
+            # Keep model-output defects row-local. Result-file I/O remains a
+            # session failure because its publication state is unknown.
+            json.dumps(page, allow_nan=False, ensure_ascii=False)
+            pages.append(page)
+        except Exception as error:
+            raise RapidOCRPageError(
+                "image_result_invalid",
+                f"RapidOCR returned invalid output for OCR input page {page_index}",
+            ) from error
     return pages, {
         "det_ms": round(native_seconds[0] * 1000, 3),
         "cls_ms": round(native_seconds[1] * 1000, 3),
@@ -575,18 +603,21 @@ def framed_main() -> None:
             started = time.perf_counter()
             try:
                 pages, native_metrics = _ocr_pages(engine, paths)
-                _write_result_file(output_path, pages)
-            except Exception:
+            except RapidOCRPageError as error:
                 response = {
                     **_base_frame("result"),
                     "request_id": request_id,
                     "ok": False,
                     "error": {
-                        "code": "image_ocr_failed",
-                        "message": "images could not be read or recognized",
+                        "code": error.code,
+                        "message": str(error),
                     },
                 }
             else:
+                # Publication is part of the worker/session protocol. A failure
+                # here cannot be attributed to the source image or retried on a
+                # session whose output state is unknown.
+                _write_result_file(output_path, pages)
                 response = {
                     **_base_frame("result"),
                     "request_id": request_id,

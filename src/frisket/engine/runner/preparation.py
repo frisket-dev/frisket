@@ -142,8 +142,8 @@ def _validate_managed_resume(
     column_ids = sorted(binding.column_id for binding in bindings)
     placeholders = ",".join("?" for _ in column_ids)
     rows = project.db.execute(
-        "SELECT id,sheet_id,name,type,format,semantic_type,ai_generated,hidden,"
-        "default_hidden FROM columns "
+        "SELECT id,sheet_id,name,type,format,semantic_type,ai_generated,hidden "
+        "FROM columns "
         f"WHERE active=1 AND id IN ({placeholders}) ORDER BY id",
         column_ids,
     ).fetchall()
@@ -211,7 +211,6 @@ def _validate_managed_resume(
             or not descriptor_matches
             or bool(row["hidden"])
             != (int(row["id"]) in staged_columns or bool(field.get("hidden", False)))
-            or bool(row["default_hidden"]) != bool(field.get("default_hidden", False))
         ):
             raise GenerationStateError(
                 f"generation-managed run {run_id} changed its output descriptors"

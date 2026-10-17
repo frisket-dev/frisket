@@ -200,34 +200,39 @@ async def _render_and_run_engines(
     warnings: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
     results: list[dict[str, Any]] = []
+    page_count = source.page_count
 
     with tempfile.TemporaryDirectory(prefix="frisket-ocr-compare-") as tmp:
-        rendered = await render_selected_pdf_pages(
-            source,
-            pages,
-            dpi=dpi,
-            scratch=Path(tmp),
-        )
-        page_count = (
-            rendered.page_count
-            if rendered.page_count is not None
-            else source.page_count
-        )
-        if page_count is not None:
-            _reject_pages_past_page_count(pages, page_count)
-        rendered_by_page = {page.page: page for page in rendered.pages}
-        missing_rendered = [page for page in pages if page not in rendered_by_page]
-        if missing_rendered:
-            raise OcrComparePreviewError(
-                "invalid_page_ref",
-                "OCR preview pages must exist in the selected PDF",
-                field="pages",
-                details={"missing_pages": missing_rendered, "page_count": page_count},
-            )
-
-        for engine, descriptor in zip(
-            canonical_engines, engine_descriptors, strict=True
+        for engine_index, (engine, descriptor) in enumerate(
+            zip(canonical_engines, engine_descriptors, strict=True)
         ):
+            engine_scratch = Path(tmp) / f"engine-{engine_index}"
+            engine_scratch.mkdir()
+            rendered = await render_selected_pdf_pages(
+                source,
+                pages,
+                dpi=dpi,
+                scratch=engine_scratch,
+                engine=engine,
+            )
+            if rendered.page_count is not None:
+                if page_count is not None and rendered.page_count != page_count:
+                    raise RuntimeError("PDF page count changed during OCR preview")
+                page_count = rendered.page_count
+            if page_count is not None:
+                _reject_pages_past_page_count(pages, page_count)
+            rendered_by_page = {page.page: page for page in rendered.pages}
+            missing_rendered = [page for page in pages if page not in rendered_by_page]
+            if missing_rendered:
+                raise OcrComparePreviewError(
+                    "invalid_page_ref",
+                    "OCR preview pages must exist in the selected PDF",
+                    field="pages",
+                    details={
+                        "missing_pages": missing_rendered,
+                        "page_count": page_count,
+                    },
+                )
             started = time.perf_counter()
             try:
                 engine_output = await run_ocr_engine_preview(
@@ -235,7 +240,7 @@ async def _render_and_run_engines(
                     rendered.pages,
                     project=project,
                     language=language,
-                    scratch=Path(tmp),
+                    scratch=engine_scratch,
                 )
                 engine_pages = engine_output.pages
             except BillablePreviewDispatch:
@@ -409,6 +414,7 @@ async def render_selected_pdf_pages(
     dpi: int,
     scratch: Path,
     max_pdf_pages: int | None = None,
+    engine: str | None = None,
 ) -> RenderedPreviewDocument:
     """Rasterize a PDF and return only the selected 1-based page numbers."""
 
@@ -469,6 +475,7 @@ async def render_selected_pdf_pages(
         source.media,
         {"dpi": dpi, **({"_selected_pages": render_pages} if is_pdf else {})},
         scratch,
+        engine=engine,
     )
     if page_count is None and not is_pdf:
         page_count = len(page_paths)

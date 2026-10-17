@@ -1216,6 +1216,12 @@ class _TypedMapRowsProgram(Recipe):
             if raw_value.warnings:
                 cell["warnings"] = list(raw_value.warnings)
             cells[final_name] = cell
+        if produced.warnings:
+            for cell in cells.values():
+                if not cell.get("error"):
+                    cell["warnings"] = list(
+                        dict.fromkeys((*cell.get("warnings", ()), *produced.warnings))
+                    )
         if topic_reader is not None:
             cells.update(
                 topic_reader.publication_cells(

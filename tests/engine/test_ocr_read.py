@@ -2,6 +2,7 @@
 
 import asyncio
 import copy
+import errno
 import json
 from contextlib import asynccontextmanager, closing
 from io import BytesIO
@@ -13,6 +14,9 @@ from PIL import Image
 from frisket.actions.media_options import OcrOptions
 from frisket.actions.types import ColumnRef, Row, RowError, StagedFile
 from frisket.engine.executor import ocr_read as module
+from frisket.engine.pdf_render import PdfRenderResult
+from frisket.engine.sandbox.fence import SandboxEnforcementUnavailable
+from frisket.engine.sandbox.shim import SandboxTeardownError
 from frisket.ops import ocr_engines as engines
 from frisket.ops import ocr_engines_local as local_engines
 from frisket.ops import ocr_engines_sidecar as sidecar_engines
@@ -219,7 +223,15 @@ async def test_actual_source_and_read_survive_returned_sibling_mutation(
     source, recognition
 ):
     async with _reader(source) as (owner, reader, row, options):
+        progress = []
+        reader._ctx.extras["report_work_progress"] = lambda **value: progress.append(
+            value
+        )
         result = await reader.recognize(row, ColumnRef("scan"), options=options)
+        assert [(event["completed"], event["total"]) for event in progress] == [
+            (0, 1),
+            (1, 1),
+        ]
         assert result.text.root == "Revenue 42"
         result.blocks[0]["blocks"][0]["bbox"][0] = 999
         (fact,) = owner.calls_by_row[source[3]]
@@ -305,19 +317,26 @@ async def test_pdf_retains_geometry_without_display_blob_and_stages_searchable_p
 
     monkeypatch.setattr(type(project.blob_store), "put_path", forbid_display_blob)
 
-    async def pages(self, path, media, options, scratch):
+    async def pages(self, path, media, options, scratch, *, engine=None):
+        del engine
         renders.append(path)
         output = scratch / "page-1.png"
         output.write_bytes(_png(2200, 1100))
         return [output]
 
     monkeypatch.setattr(engines.OcrEngines, "_page_images", pages)
-    monkeypatch.setattr(
-        "frisket.ops.searchable_pdf.compose_searchable_pdf",
-        lambda *args, **kwargs: (
+    monkeypatch.setattr(engines.OcrEngines, "_pdf_page_count", lambda *args: 1)
+
+    def compose(*args, **kwargs):
+        assert kwargs["raster_dimensions"] == [(2200, 1100)]
+        return (
             b"%PDF-searchable",
             [SimpleNamespace(index=1, degraded=False, painted_count=1)],
-        ),
+        )
+
+    monkeypatch.setattr(
+        "frisket.ops.searchable_pdf.compose_searchable_pdf",
+        compose,
     )
     async with _reader(source, options=OcrOptions(searchable_pdf=True)) as (
         owner,
@@ -353,7 +372,8 @@ async def test_pdf_page_source_ocr_remaps_facts_to_original_page(
     project.db.commit()
     source = (project, sheet, column, row_id, value)
 
-    async def pages(self, path, media, options, scratch):
+    async def pages(self, path, media, options, scratch, *, engine=None):
+        del engine
         selected = pypdf.PdfReader(path)
         assert len(selected.pages) == 1
         assert float(selected.pages[0].mediabox.width) == 333
@@ -364,6 +384,7 @@ async def test_pdf_page_source_ocr_remaps_facts_to_original_page(
     def compose(pdf, pages, **kwargs):
         assert len(pypdf.PdfReader(BytesIO(pdf)).pages) == 1
         assert "page_number" not in pages[0]
+        assert kwargs["raster_dimensions"] == [(300, 400)]
         return (
             b"%PDF-searchable",
             [SimpleNamespace(index=1, degraded=False, painted_count=1)],
@@ -405,19 +426,21 @@ async def test_pdf_ocr_preserves_blank_page_separators(source, monkeypatch):
     project.db.commit()
     source = (project, sheet, column, row_id, value)
 
-    async def page_images(self, path, media, options, scratch):
-        outputs = []
-        for page in range(1, 4):
-            output = scratch / f"page-{page}.png"
-            output.write_bytes(_png())
-            outputs.append(output)
-        return outputs
+    async def page_images(self, path, media, options, scratch, *, engine=None):
+        del engine
+        [page] = options["_selected_pages"]
+        output = scratch / f"page-{page}.png"
+        output.write_bytes(_png())
+        return [output]
 
     async def recognize(self, engine, pages, ctx, **kwargs):
+        number = int(pages[0].stem.split("-")[-1])
         return [
-            {"text": "First", "blocks": []},
-            {"text": "", "blocks": []},
-            {"text": "Third", "blocks": []},
+            [
+                {"text": "First", "blocks": []},
+                {"text": "", "blocks": []},
+                {"text": "Third", "blocks": []},
+            ][number - 1]
         ]
 
     monkeypatch.setattr(engines.OcrEngines, "_page_images", page_images)
@@ -430,6 +453,612 @@ async def test_pdf_ocr_preserves_blank_page_separators(source, monkeypatch):
         assert fact["source"]["page_count"] == 3
         assert [page["page_number"] for page in fact["pages"]] == [1, 2, 3]
         assert list(fact["page_images"]) == ["1", "2", "3"]
+
+
+def _pdf_source(source, page_count):
+    project, sheet, column, row_id, _ = source
+    digest = project.add_blob(
+        _pdf_bytes(*[(100, 200)] * page_count),
+        filename="pages.pdf",
+        mime="application/pdf",
+    )
+    project.db.execute("UPDATE columns SET type='file' WHERE id=?", (column,))
+    project.db.commit()
+    return (
+        project,
+        sheet,
+        column,
+        row_id,
+        {"blob": digest, "filename": "pages.pdf", "mime": "application/pdf"},
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("selected_page", [None, 2])
+async def test_indra_pdf_uses_one_worker_and_preserves_physical_geometry(
+    source, monkeypatch, selected_page
+):
+    source = _pdf_source(source, 3)
+    if selected_page is not None:
+        source[-1]["page"] = selected_page
+    calls, progress = [], []
+
+    async def forbidden_raster(*args, **kwargs):
+        raise AssertionError("Indra PDF rendering belongs inside its model worker")
+
+    async def recognize(self, path, scratch, *, dpi, page_count, report_progress):
+        calls.append(path)
+        assert len(pypdf.PdfReader(path).pages) == page_count
+        assert page_count == (1 if selected_page else 3)
+        pages = []
+        for number in range(1, page_count + 1):
+            pages.append(
+                {
+                    "text": "",
+                    "blocks": [],
+                    "error": {
+                        "code": "ocr_page_failed",
+                        "stage": "rendering",
+                    },
+                }
+                if number == 2
+                else {
+                    "text": f"Page {selected_page or number}",
+                    "blocks": [],
+                    "width": 100,
+                    "height": 200,
+                }
+            )
+            report_progress(number, page_count)
+        return pages
+
+    monkeypatch.setattr(engines.OcrEngines, "_page_images", forbidden_raster)
+    monkeypatch.setattr(engines.OcrEngines, "_ocr_indra_pdf", recognize)
+    async with _reader(source, engine="indra-ocr") as (owner, reader, row, options):
+        reader._ctx.extras["report_work_progress"] = lambda **value: progress.append(
+            value
+        )
+        result = await reader.recognize(row, ColumnRef("scan"), options=options)
+        [fact] = owner.calls_by_row[source[3]]
+        if selected_page:
+            assert result.text.root == "Page 2"
+            assert result.blocks[0]["page"] == 2
+            assert list(fact["page_images"]) == ["2"]
+            assert result.warnings == ()
+        else:
+            assert result.text.root == "Page 1\n\n\n\nPage 3"
+            assert result.warnings == ("Page 2 failed during rendering.",)
+            assert list(fact["page_images"]) == ["1", "3"]
+        assert all(
+            frame["source_height"] == 200 for frame in fact["page_images"].values()
+        )
+        assert len(calls) == 1
+        assert progress[0]["completed"] == 0
+        assert progress[-1]["completed"] == progress[-1]["total"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("engine", ["rapidocr", "tesseract"])
+async def test_many_page_pdf_consumes_and_removes_each_raster_before_next(
+    source, monkeypatch, engine
+):
+    source = _pdf_source(source, 500)
+    seen, scratch_roots, progress = [], [], []
+
+    @asynccontextmanager
+    async def pool(**kwargs):
+        yield object()
+
+    monkeypatch.setattr(engines, "rapidocr_execution_scope", pool)
+
+    async def render(self, path, media, options, scratch, *, engine=None):
+        [number] = options["_selected_pages"]
+        assert not list(scratch.parent.rglob("*.png"))
+        scratch_roots.append(scratch.parent)
+        output = scratch / f"page-{number}.png"
+        output.write_bytes(_png(number + 1, 20))
+        return [output]
+
+    async def recognize(self, engine, paths, ctx, **kwargs):
+        [path] = paths
+        assert len(list(path.parent.parent.rglob("*.png"))) == 1
+        number = int(path.stem.split("-")[-1])
+        seen.append(path)
+        return [{"text": f"Page {number}", "blocks": []}]
+
+    monkeypatch.setattr(engines.OcrEngines, "_page_images", render)
+    monkeypatch.setattr(engines.OcrEngines, "run_engine_on_pages", recognize)
+    async with _reader(source, engine=engine) as (owner, reader, row, options):
+        reader._ctx.extras["report_work_progress"] = lambda **value: progress.append(
+            value
+        )
+        result = await reader.recognize(row, ColumnRef("scan"), options=options)
+        assert result.text.root == "\n\n".join(f"Page {i}" for i in range(1, 501))
+        assert not result.warnings
+        [fact] = owner.calls_by_row[source[3]]
+        assert [p["page_number"] for p in fact["pages"]] == list(range(1, 501))
+        assert fact["page_images"]["500"]["source_width"] == 501
+        [call] = owner.accounting_by_row[source[3]]["model_calls"]
+        assert call["units"]["pages"] == 500
+    assert len(seen) == 500 and all(not path.exists() for path in seen)
+    assert all(not path.exists() for path in scratch_roots)
+    assert [p["completed"] for p in progress] == list(range(0, 501))
+    assert all(p["total"] == 500 and p["row_id"] == source[3] for p in progress)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure_stage", ["rendering", "recognition"])
+async def test_failed_pdf_page_preserves_neighbors_and_warns_explicitly(
+    source, monkeypatch, failure_stage
+):
+    source = _pdf_source(source, 3)
+    observed = []
+
+    async def render(self, path, media, options, scratch, *, engine=None):
+        [number] = options["_selected_pages"]
+        output = scratch / f"page-{number}.png"
+        output.write_bytes(_png())
+        observed.append(output)
+        if number == 2 and failure_stage == "rendering":
+            raise RuntimeError("private renderer exception must never escape")
+        return [output]
+
+    async def recognize(self, engine, paths, ctx, **kwargs):
+        number = int(paths[0].stem.split("-")[-1])
+        if number == 2:
+            raise RuntimeError("private OCR exception must never escape")
+        return [{"text": f"Page {number}", "blocks": []}]
+
+    monkeypatch.setattr(engines.OcrEngines, "_page_images", render)
+    monkeypatch.setattr(engines.OcrEngines, "run_engine_on_pages", recognize)
+    async with _reader(source) as (owner, reader, row, options):
+        result = await reader.recognize(row, ColumnRef("scan"), options=options)
+        assert result.text.root == "Page 1\n\n\n\nPage 3"
+        assert result.warnings == (f"Page 2 failed during {failure_stage}.",)
+        assert [p["page"] for p in result.blocks] == [1, 2, 3]
+        [fact] = owner.calls_by_row[source[3]]
+        assert fact["pages"][1]["error"]["stage"] == failure_stage
+        assert fact["warnings"] == list(result.warnings)
+        assert "private" not in str(fact)
+    assert all(not path.exists() for path in observed)
+
+
+@pytest.mark.parametrize("page_count", [3, 8, 40, 60])
+def test_partial_pdf_action_persists_text_and_warns_every_successful_output(
+    source, monkeypatch, page_count
+):
+    project = source[0]
+    sheet = project.add_sheet("PDF documents")
+    column = project.add_column(sheet, "scan", type="file")
+    digest = project.add_blob(
+        _pdf_bytes(*[(100, 100)] * page_count),
+        filename="three.pdf",
+        mime="application/pdf",
+    )
+    value = {"blob": digest, "filename": "three.pdf", "mime": "application/pdf"}
+    row_id = project.add_rows(sheet, [{"scan": value}], {"scan": column})[0]
+    failed_pages = {
+        3: {2},
+        8: set(range(2, 7)),
+        40: set(range(10, 15)),
+        60: {number for number in range(1, 61) if number % 3 != 0},
+    }[page_count]
+
+    def text(number):
+        # A blank first page is still successful and protects later good pages.
+        return (
+            ""
+            if number in failed_pages or (page_count == 8 and number == 1)
+            else f"Page {number}"
+        )
+
+    async def render(self, path, media, options, scratch, *, engine=None):
+        [number] = options["_selected_pages"]
+        if number in failed_pages:
+            raise RuntimeError("private document detail")
+        output = scratch / f"page-{number}.png"
+        output.write_bytes(_png())
+        return [output]
+
+    async def recognize(self, engine, pages, ctx, **kwargs):
+        number = int(pages[0].stem.split("-")[-1])
+        return [{"text": text(number), "blocks": []}]
+
+    monkeypatch.setattr(engines.OcrEngines, "_page_images", render)
+    monkeypatch.setattr(engines.OcrEngines, "run_engine_on_pages", recognize)
+    result = _execute((project, sheet, column, row_id, value), monkeypatch, "tesseract")
+    assert result.status == "completed", result.errors
+    outputs = {output.name: output.column_id for output in result.outputs}
+    assert set(outputs) == {"recognized", "geometry"}
+    assert project.get_values(sheet, outputs["recognized"])[row_id] == "\n\n".join(
+        text(number) for number in range(1, page_count + 1)
+    )
+    assert [
+        page["page"] for page in project.get_values(sheet, outputs["geometry"])[row_id]
+    ] == list(range(1, page_count + 1))
+    expected_warnings = [
+        f"Page {number} failed during rendering."
+        for number in sorted(failed_pages)[:19]
+    ]
+    if page_count == 60:
+        expected_warnings.append(
+            "40 pages failed; 21 additional page warnings omitted."
+        )
+    warning = expected_warnings[0]
+    rows = project.db.execute(
+        "SELECT warnings,error FROM results WHERE run_id=?", (result.run_id,)
+    ).fetchall()
+    assert len(rows) == 2
+    assert all(
+        json.loads(row["warnings"]) == expected_warnings and not row["error"]
+        for row in rows
+    )
+    receipt = json.loads(
+        project.db.execute(
+            "SELECT body FROM receipts WHERE id=?", (result.receipt_id,)
+        ).fetchone()["body"]
+    )
+    assert any(warning in item for item in receipt["warnings"])
+    assert any(warning in item for item in result.warnings)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("engine", ["tesseract", "indra-ocr"])
+async def test_pdf_bad_tail_stops_partial_with_truthful_skipped_pages_and_progress(
+    source, monkeypatch, engine
+):
+    import sys
+    from frisket.engine._workers import indra_ocr_worker, pdf_render_worker
+
+    source = _pdf_source(source, 100)
+    rendered, rasters, progress = [], [], []
+
+    def render(number, output):
+        raster_root = output.parent if engine == "indra-ocr" else output.parent.parent
+        assert not list(raster_root.rglob("*.png"))
+        rendered.append(number)
+        rasters.append(output)
+        output.write_bytes(_png())
+        if number > 1:
+            raise RuntimeError("private corrupt tail")
+        return 12, 8
+
+    async def page_images(self, path, media, options, scratch, *, engine=None):
+        [number] = options["_selected_pages"]
+        output = scratch / f"page-{number}.png"
+        render(number, output)
+        return [output]
+
+    def recognize(*args, **kwargs):
+        return {"text": "Page 1", "blocks": []}
+
+    async def recognize_pages(*args, **kwargs):
+        return [recognize()]
+
+    class Document:
+        def __len__(self):
+            return 100
+
+        def close(self):
+            pass
+
+    async def indra(self, path, scratch, *, dpi, page_count, report_progress):
+        return indra_ocr_worker._pdf_pages(
+            None,
+            {"pdf": str(path), "out": str(scratch / "result.json"), "dpi": dpi},
+            report_progress,
+        )
+
+    monkeypatch.setitem(
+        sys.modules, "pypdfium2", SimpleNamespace(PdfDocument=lambda path: Document())
+    )
+    monkeypatch.setattr(
+        pdf_render_worker,
+        "render_page",
+        lambda doc, number, output, **kwargs: render(number, output),
+    )
+    monkeypatch.setattr(indra_ocr_worker, "_recognize_page", recognize)
+    monkeypatch.setattr(engines.OcrEngines, "_ocr_indra_pdf", indra)
+    monkeypatch.setattr(engines.OcrEngines, "_page_images", page_images)
+    monkeypatch.setattr(engines.OcrEngines, "run_engine_on_pages", recognize_pages)
+    async with _reader(source, engine=engine) as (owner, reader, row, options):
+        reader._ctx.extras["report_work_progress"] = lambda **value: progress.append(
+            value
+        )
+        result = await reader.recognize(row, ColumnRef("scan"), options=options)
+        assert result.text.root == "Page 1" + "\n\n" * 99
+        assert len(result.warnings) == 20
+        assert result.warnings[-1] == (
+            "OCR stopped after 50 consecutive page failures at page 51; "
+            "50 pages failed; 49 later pages were not attempted."
+        )
+        [fact] = owner.calls_by_row[source[3]]
+        assert [page["page_number"] for page in fact["pages"]] == list(range(1, 101))
+        assert all(
+            page["error"]["code"] == "ocr_page_failed" for page in fact["pages"][1:51]
+        )
+        assert all(
+            page["error"]["code"] == "ocr_page_skipped" for page in fact["pages"][51:]
+        )
+        assert (
+            owner.accounting_by_row[source[3]]["model_calls"][0]["units"]["pages"] == 1
+        )
+    assert rendered == list(range(1, 52))
+    assert [tick["completed"] for tick in progress] == list(range(52))
+    assert all(tick["total"] == 100 for tick in progress)
+    assert all(not raster.exists() for raster in rasters)
+
+
+@pytest.mark.asyncio
+async def test_worker_raster_memory_failure_preserves_neighboring_pdf_pages(
+    source, monkeypatch
+):
+    import io
+    import sys
+    from contextlib import redirect_stdout
+    from frisket.engine import pdf_render
+    from frisket.engine._workers import pdf_render_worker
+    from frisket.engine.sandbox.shim import SandboxResult
+
+    source = _pdf_source(source, 3)
+    rendered, closed, rasters, progress = [], [], [], []
+
+    class Document:
+        def __len__(self):
+            return 3
+
+        def close(self):
+            closed.append(True)
+
+    def render(document, number, output, *, dpi, max_edge):
+        assert max_edge is None  # Tesseract retains its requested resolution.
+        assert not list(output.parent.parent.rglob("*.png"))
+        rendered.append(number)
+        rasters.append(output)
+        output.write_bytes(_png(number + 10, 20))
+        if number == 2:
+            raise MemoryError("private page allocation")
+        return number + 10, 20
+
+    async def launch(argv, **kwargs):
+        monkeypatch.setattr(sys, "stdin", io.StringIO(kwargs["stdin_data"].decode()))
+        stream = io.StringIO()
+        with redirect_stdout(stream):
+            pdf_render_worker.main()
+        return SandboxResult(returncode=0, stdout=stream.getvalue(), stderr="")
+
+    async def recognize(self, engine, paths, ctx, **kwargs):
+        number = int(paths[0].stem.split("-")[-1])
+        return [{"text": f"Page {number}", "blocks": []}]
+
+    monkeypatch.setitem(
+        sys.modules, "pypdfium2", SimpleNamespace(PdfDocument=lambda path: Document())
+    )
+    monkeypatch.setattr(pdf_render_worker, "render_page", render)
+    monkeypatch.setattr(pdf_render, "run_sandboxed", launch)
+    monkeypatch.setattr(engines.OcrEngines, "run_engine_on_pages", recognize)
+    async with _reader(source) as (owner, reader, row, options):
+        reader._ctx.extras["report_work_progress"] = lambda **value: progress.append(
+            value
+        )
+        result = await reader.recognize(row, ColumnRef("scan"), options=options)
+        assert result.text.root == "Page 1\n\n\n\nPage 3"
+        assert result.warnings == ("Page 2 failed during rendering.",)
+        [fact] = owner.calls_by_row[source[3]]
+        assert [page["page_number"] for page in fact["pages"]] == [1, 2, 3]
+        assert fact["pages"][1]["error"]["stage"] == "rendering"
+        assert fact["page_images"]["3"]["source_width"] == 13
+        assert (
+            owner.accounting_by_row[source[3]]["model_calls"][0]["units"]["pages"] == 2
+        )
+    assert rendered == [1, 2, 3] and closed == [True, True, True]
+    assert all(not raster.exists() for raster in rasters)
+    assert [tick["completed"] for tick in progress] == [0, 1, 2, 3]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("page_count", [3, 30])
+async def test_pdf_all_failed_is_row_error_and_broken_renderer_stops_early(
+    source, monkeypatch, page_count
+):
+    source = _pdf_source(source, page_count)
+    observed = []
+
+    async def fail(self, path, media, options, scratch, *, engine=None):
+        observed.extend(options["_selected_pages"])
+        raise RuntimeError("private page failure")
+
+    async def recognize(*args, **kwargs):
+        return [{"text": "Surviving page", "blocks": []}]
+
+    monkeypatch.setattr(engines.OcrEngines, "_page_images", fail)
+    monkeypatch.setattr(engines.OcrEngines, "run_engine_on_pages", recognize)
+    async with _reader(source) as (owner, reader, row, options):
+        message = (
+            "OCR failed for all 3 pages"
+            if page_count == 3
+            else "5 consecutive page failures"
+        )
+        with pytest.raises(RowError, match=message):
+            await reader.recognize(row, ColumnRef("scan"), options=options)
+        assert source[3] not in owner.calls_by_row
+    assert observed == list(range(1, min(5, page_count) + 1))
+
+
+@pytest.mark.asyncio
+async def test_fatal_local_session_error_stops_without_fake_failed_pages(
+    source, monkeypatch
+):
+    source = _pdf_source(source, 30)
+    observed = []
+
+    async def render(self, path, media, options, scratch, *, engine=None):
+        observed.append(options["_selected_pages"])
+        raise RecipeInvocationHalt("local_artifact_unavailable", "Unavailable runtime")
+
+    monkeypatch.setattr(engines.OcrEngines, "_page_images", render)
+    async with _reader(source) as (owner, reader, row, options):
+        with pytest.raises(RecipeInvocationHalt, match="Unavailable runtime"):
+            await reader.recognize(row, ColumnRef("scan"), options=options)
+        assert source[3] not in owner.calls_by_row
+    assert observed == [[1]]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure_stage", ["rendering", "recognition"])
+@pytest.mark.parametrize("failure", ["teardown", "enforcement", "storage"])
+async def test_pdf_environment_failure_discards_partial_and_stops_immediately(
+    source, monkeypatch, failure_stage, failure
+):
+    source = _pdf_source(source, 30)
+    observed = []
+    error = {
+        "teardown": SandboxTeardownError("unverified process tree"),
+        "enforcement": SandboxEnforcementUnavailable("unavailable sandbox"),
+        "storage": OSError(errno.ENOSPC, "private storage path"),
+    }[failure]
+
+    async def render(self, path, media, options, scratch, *, engine=None):
+        [number] = options["_selected_pages"]
+        observed.append(scratch)
+        output = scratch / f"page-{number}.png"
+        output.write_bytes(_png())
+        if number == 2 and failure_stage == "rendering":
+            raise error
+        return [output]
+
+    async def recognize(self, engine, paths, ctx, **kwargs):
+        if paths[0].stem == "page-2" and failure_stage == "recognition":
+            raise error
+        return [{"text": "Good page", "blocks": []}]
+
+    monkeypatch.setattr(engines.OcrEngines, "_page_images", render)
+    monkeypatch.setattr(engines.OcrEngines, "run_engine_on_pages", recognize)
+    expected = type(error) if failure == "teardown" else RecipeInvocationHalt
+    async with _reader(source) as (owner, reader, row, options):
+        with pytest.raises(expected):
+            await reader.recognize(row, ColumnRef("scan"), options=options)
+        assert source[3] not in owner.calls_by_row
+    assert len(observed) == 2 and all(not path.exists() for path in observed)
+
+
+@pytest.mark.parametrize("failure", ["teardown", "enforcement", "storage"])
+def test_pdf_fatal_failure_retains_run_halt_without_publishing_partial(
+    source, monkeypatch, failure
+):
+    source = _pdf_source(source, 3)
+    project, _, _, _, value = source
+    sheet = project.add_sheet("Teardown PDF")
+    column = project.add_column(sheet, "scan", type="file")
+    row_id = project.add_rows(sheet, [{"scan": value}], {"scan": column})[0]
+    source = project, sheet, column, row_id, value
+    observed = []
+
+    async def render(self, path, media, options, scratch, *, engine=None):
+        [number] = options["_selected_pages"]
+        observed.append(number)
+        if number == 2:
+            raise {
+                "teardown": SandboxTeardownError("unverified process tree"),
+                "enforcement": SandboxEnforcementUnavailable("unavailable sandbox"),
+                "storage": OSError(errno.ENOSPC, "private storage path"),
+            }[failure]
+        output = scratch / f"page-{number}.png"
+        output.write_bytes(_png())
+        return [output]
+
+    async def recognize(*args, **kwargs):
+        return [{"text": "Good page", "blocks": []}]
+
+    monkeypatch.setattr(engines.OcrEngines, "_page_images", render)
+    monkeypatch.setattr(engines.OcrEngines, "run_engine_on_pages", recognize)
+    result = _execute(source, monkeypatch, "tesseract")
+    assert result.status == "failed", result.errors
+    run_id = result.run_id
+    run = (
+        source[0]
+        .db.execute("SELECT halted_code FROM runs WHERE id=?", (run_id,))
+        .fetchone()
+    )
+    assert run["halted_code"] == "local_session_failed"
+    assert (
+        source[0]
+        .db.execute("SELECT COUNT(*) FROM results WHERE run_id=?", (run_id,))
+        .fetchone()[0]
+        == 0
+    )
+    assert observed == [1, 2]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("engine", ["tesseract", "indra-ocr"])
+async def test_pdf_without_probe_count_uses_bounded_renderer_count(
+    source, monkeypatch, engine
+):
+    source = _pdf_source(source, 3)
+    first_chunks = []
+    monkeypatch.setattr(module.MediaBlobStore, "probe_metadata", lambda *args: {})
+    monkeypatch.setattr(engines.OcrEngines, "_pdf_page_count", lambda *args: None)
+
+    async def count(path, scratch, **kwargs):
+        assert kwargs["pages"] == [1]
+        first_chunks.append(scratch)
+        output = scratch / "page-1.png"
+        output.write_bytes(_png())
+        return PdfRenderResult(3, ((1, output),))
+
+    async def render(self, path, media, options, scratch, *, engine=None):
+        assert not first_chunks[0].exists()
+        [number] = options["_selected_pages"]
+        output = scratch / f"page-{number}.png"
+        output.write_bytes(_png())
+        return [output]
+
+    async def recognize(*args, **kwargs):
+        return [{"text": "", "blocks": []}]
+
+    async def indra(self, path, scratch, *, dpi, page_count, report_progress):
+        assert page_count == 3 and not first_chunks[0].exists()
+        return [{"text": "", "blocks": [], "width": 12, "height": 8} for _ in range(3)]
+
+    monkeypatch.setattr(module, "render_pdf_pages", count)
+    monkeypatch.setattr(engines.OcrEngines, "_page_images", render)
+    monkeypatch.setattr(engines.OcrEngines, "run_engine_on_pages", recognize)
+    monkeypatch.setattr(engines.OcrEngines, "_ocr_indra_pdf", indra)
+    async with _reader(source, engine=engine) as (owner, reader, row, options):
+        result = await reader.recognize(row, ColumnRef("scan"), options=options)
+        assert result.text.root == "\n\n\n\n" and not result.warnings
+        assert owner.calls_by_row[source[3]][0]["source"]["page_count"] == 3
+    assert len(first_chunks) == 1 and not first_chunks[0].exists()
+
+
+@pytest.mark.asyncio
+async def test_cancellation_discards_pdf_partial_output_and_cleans_raster(
+    source, monkeypatch
+):
+    source = _pdf_source(source, 3)
+    cancelled, observed = False, []
+
+    async def render(self, path, media, options, scratch, *, engine=None):
+        [number] = options["_selected_pages"]
+        output = scratch / f"page-{number}.png"
+        output.write_bytes(_png())
+        observed.append(output)
+        return [output]
+
+    async def recognize(self, engine, paths, ctx, **kwargs):
+        nonlocal cancelled
+        cancelled = len(observed) == 2
+        return [{"text": "Completed page", "blocks": []}]
+
+    monkeypatch.setattr(engines.OcrEngines, "_page_images", render)
+    monkeypatch.setattr(engines.OcrEngines, "run_engine_on_pages", recognize)
+    async with _reader(source) as (owner, reader, row, options):
+        owner._ctx.extras["cancelled"] = lambda: cancelled
+        with pytest.raises(asyncio.CancelledError):
+            await reader.recognize(row, ColumnRef("scan"), options=options)
+        assert source[3] not in owner.calls_by_row
+    assert len(observed) == 2 and all(not p.exists() for p in observed)
 
 
 @pytest.mark.asyncio

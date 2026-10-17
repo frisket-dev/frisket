@@ -43,6 +43,7 @@ from frisket.engine.sandbox.shim import (
     SandboxPolicy,
     SandboxTeardownError,
     run_sandboxed,
+    run_sandboxed_stdout_lines,
 )
 from frisket.runtime.launch import PythonRuntime, worker_argv
 from frisket.ops.base import RecipeInvocationHalt
@@ -479,7 +480,9 @@ def indra_ocr_available() -> tuple[bool, str | None]:
 
 async def ocr_rapidocr(pool, pages, scratch, language=None):
     if pool is None:
-        raise RuntimeError("RapidOCR requires its invocation pool")
+        raise RecipeInvocationHalt(
+            "local_session_failed", "RapidOCR requires its invocation pool"
+        )
     return await run_rapidocr_pool(pool, pages)
 
 
@@ -507,29 +510,57 @@ async def ocr_tesseract(
     deep in the worker."""
     available, err = tesseract_available()
     if not available:
-        raise RuntimeError(err)
+        raise RecipeInvocationHalt(
+            "local_artifact_unavailable", err or "Tesseract is unavailable"
+        )
     out = scratch / "ocr-result.json"
-    result = await run_sandboxed(
-        worker_argv("tesseract"),
-        policy=SandboxPolicy(
-            cpu_seconds=1800,
-            wall_seconds=3600,
-            memory_mb=4096,
-            # PATH so the worker finds the brew/apt tesseract binary
-            env_passthrough=["PATH"],
-        ),
-        stdin_data=json.dumps(
-            {
-                "paths": [str(p) for p in pages],
-                "out": str(out),
-                "language": _tesseract_language_code(language),
-            }
-        ).encode(),
-        should_cancel=cancelled,
-    )
+    try:
+        argv = worker_argv("tesseract")
+    except ValueError as exc:
+        raise RecipeInvocationHalt(
+            "local_session_failed", "The local OCR worker runtime is unavailable"
+        ) from exc
+    try:
+        result = await run_sandboxed(
+            argv,
+            policy=SandboxPolicy(
+                cpu_seconds=1800,
+                wall_seconds=3600,
+                memory_mb=4096,
+                # PATH so the worker finds the brew/apt tesseract binary
+                env_passthrough=["PATH"],
+            ),
+            stdin_data=json.dumps(
+                {
+                    "paths": [str(p) for p in pages],
+                    "out": str(out),
+                    "language": _tesseract_language_code(language),
+                }
+            ).encode(),
+            should_cancel=cancelled,
+        )
+    except (OSError, fence.SandboxEnforcementUnavailable) as exc:
+        raise RecipeInvocationHalt(
+            "local_session_failed",
+            "The local OCR worker could not start; repair the local runtime before resuming.",
+        ) from exc
     if result.cancelled:
         raise OcrCancelled("OCR cancelled")
+    try:
+        signal = json.loads(result.stdout)
+    except (TypeError, ValueError):
+        signal = None
+    if isinstance(signal, dict) and signal.get("error") == "environment_failed":
+        raise RecipeInvocationHalt(
+            "local_session_failed",
+            "The local OCR environment failed; repair local storage or runtime before resuming.",
+        )
     if not result.ok or not out.exists():
+        if fence.refusal_reason(result.stderr) is not None:
+            raise RecipeInvocationHalt(
+                "local_session_failed",
+                "The local OCR sandbox is unavailable; repair the local runtime before resuming.",
+            )
         raise RuntimeError(
             f"tesseract worker failed: {(result.stderr or result.stdout)[:300]}"
         )
@@ -540,7 +571,14 @@ async def ocr_tesseract(
 
 
 async def ocr_indra(
-    pages: list[Path], scratch: Path, *, cancelled=None
+    pages: list[Path],
+    scratch: Path,
+    *,
+    cancelled=None,
+    pdf: Path | None = None,
+    dpi: int = 200,
+    page_count: int | None = None,
+    report_progress=None,
 ) -> list[dict[str, Any]]:
     from frisket.engine._workers.indra_ocr_artifacts import cached_indra_ocr_path
     from frisket.runtime.indra_ocr_install import runtime_python
@@ -557,40 +595,81 @@ async def ocr_indra(
     output = scratch / "indra-ocr-result.json"
     runtime = PythonRuntime(runtime_python(), PythonRuntime.current().app_code_root)
     topology = rapidocr_topology(expected_rows=1)
-    result = await run_sandboxed(
-        worker_argv("indra-ocr", runtime=runtime),
-        policy=SandboxPolicy(
-            cpu_seconds=1800,
-            wall_seconds=3600,
-            memory_mb=4096,
-            trusted_python_netwall=True,
-            confine=fence.Confinement(
-                op="ocr (indra worker)",
-                read=(
-                    *(str(page) for page in pages),
-                    # Hub snapshot entries are symlinks into this repository's
-                    # sibling blobs directory, so confine the one repo cache.
-                    str(model_dir.parent.parent),
-                    "/proc/cpuinfo",
-                    "/sys/devices/system/cpu",
+    payload = {
+        "paths": [str(page) for page in pages],
+        "out": str(output),
+        "model_dir": str(model_dir),
+        "threads": topology.onnx_intra_threads,
+    }
+    if pdf is not None:
+        if type(page_count) is not int or page_count < 1:
+            raise ValueError("Indra PDF OCR requires a positive page count")
+        payload.pop("paths")
+        payload.update({"pdf": str(pdf.absolute()), "dpi": dpi})
+
+    environment_failed = False
+
+    def progress_line(line):
+        nonlocal environment_failed
+        try:
+            event = json.loads(line)
+        except ValueError:
+            return
+        if isinstance(event, dict) and event.get("error") == "environment_failed":
+            environment_failed = True
+            return
+        if (
+            isinstance(event, dict)
+            and event.get("kind") == "ocr_pages"
+            and type(event.get("completed")) is int
+            and event.get("total") == page_count
+            and 0 < event["completed"] <= page_count
+            and callable(report_progress)
+        ):
+            report_progress(event["completed"], page_count)
+
+    runner = run_sandboxed_stdout_lines if pdf is not None else run_sandboxed
+    try:
+        result = await runner(
+            worker_argv("indra-ocr", runtime=runtime),
+            policy=SandboxPolicy(
+                cpu_seconds=1800,
+                wall_seconds=3600,
+                memory_mb=4096,
+                trusted_python_netwall=True,
+                confine=fence.Confinement(
+                    op="ocr (indra worker)",
+                    read=(
+                        *(str(page) for page in pages),
+                        *((str(pdf.absolute()),) if pdf is not None else ()),
+                        # Hub snapshot entries are symlinks into this repository's
+                        # sibling blobs directory, so confine the one repo cache.
+                        str(model_dir.parent.parent),
+                        "/proc/cpuinfo",
+                        "/sys/devices/system/cpu",
+                    ),
+                    write=(str(scratch),),
                 ),
-                write=(str(scratch),),
             ),
-        ),
-        stdin_data=json.dumps(
-            {
-                "paths": [str(page) for page in pages],
-                "out": str(output),
-                "model_dir": str(model_dir),
-                "threads": topology.onnx_intra_threads,
-            },
-            separators=(",", ":"),
-        ).encode(),
-        scratch_dir=scratch,
-        should_cancel=cancelled,
-    )
+            stdin_data=json.dumps(payload, separators=(",", ":")).encode(),
+            scratch_dir=scratch,
+            should_cancel=cancelled,
+            **({"on_stdout_line": progress_line} if pdf is not None else {}),
+        )
+    except (OSError, ValueError, fence.SandboxEnforcementUnavailable) as exc:
+        raise RecipeInvocationHalt(
+            "local_session_failed",
+            "The local OCR worker could not start; repair the local runtime before resuming.",
+        ) from exc
     if result.cancelled:
         raise OcrCancelled("OCR cancelled")
+    if pdf is None:
+        progress_line(result.stdout)
+    if environment_failed:
+        raise RecipeInvocationHalt(
+            "local_session_failed",
+            "The local OCR environment failed; repair local storage or runtime before resuming.",
+        )
     if not result.ok or not output.is_file():
         raise RuntimeError("Indra OCR worker failed")
     try:
@@ -602,6 +681,7 @@ async def ocr_indra(
     if data.get("error"):
         raise RuntimeError(str(data["error"]))
     output_pages = data.get("pages")
-    if not isinstance(output_pages, list) or len(output_pages) != len(pages):
+    expected = page_count if pdf is not None else len(pages)
+    if not isinstance(output_pages, list) or len(output_pages) != expected:
         raise RuntimeError("Indra OCR worker returned the wrong page count")
     return output_pages

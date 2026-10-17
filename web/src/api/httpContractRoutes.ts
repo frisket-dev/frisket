@@ -44,3 +44,6 @@ export type {
 } from './httpContractRoutes/actionRuns';
 export { getWorkbenchPluginRuntimeIndexContract } from './httpContractRoutes/workbench';
 export type { WorkbenchContractOptions } from './httpContractRoutes/workbench';
+
+export { getCellTextWindowContract } from './httpContractRoutes/cells';
+export type { CellTextWindow } from './httpContractRoutes/cells';

@@ -32,6 +32,7 @@ export interface ColumnValuesPreviewInput {
   search?: string;
   limit?: number;
   offset?: number;
+  valueMode?: 'exact' | 'bounded';
 }
 
 export interface ReplaceRulesPreviewInput {
@@ -189,6 +190,8 @@ function columnValuesResult(wire: ColumnValuesPreviewWire): ColumnValuesPreview 
     limit: wire.limit,
     truncated: wire.truncated,
     valueHash: wire.value_hash,
+    ...(typeof wire.inventory_complete === 'boolean' ? { inventoryComplete: wire.inventory_complete } : {}),
+    ...(typeof wire.omitted_rows === 'number' ? { omittedRows: wire.omitted_rows } : {}),
     search: wire.search,
     // Keep the browser shape backwards-compatible with servers that predate
     // this additive wire field. A supplied but invalid facet remains explicit
@@ -294,6 +297,7 @@ export function createResolvePreviewsApi(
             ...(input.search?.trim() ? { search: input.search } : {}),
             ...(input.limit != null ? { limit: input.limit } : {}),
             ...(input.offset != null ? { offset: input.offset } : {}),
+            ...(input.valueMode != null ? { value_mode: input.valueMode } : {}),
           },
           signal: options.signal,
           headers: options.headers,

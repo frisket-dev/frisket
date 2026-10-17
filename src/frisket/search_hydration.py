@@ -12,6 +12,7 @@ from frisket.engine.store.project import ProjectReadSnapshot
 
 
 MAX_SNIPPET_CANDIDATES = 1_000
+MAX_SNIPPET_CHARACTERS = 512
 _SNIPPET_TABLE = "temp.frisket_search_snippets"
 
 
@@ -77,6 +78,41 @@ def hydrate_candidates(
         for candidate in pending
         if int(candidate["index_id"]) in hydrated_by_id
     ]
+
+
+def bounded_snippet(snippet: str, *, start_marker: str, end_marker: str) -> str:
+    """Bound display context while keeping generated highlights balanced.
+
+    Input markers must not occur in source text. Full-source match locations
+    are derived before this display-only crop. Source remains plain text for
+    consumers that render text nodes; only supplied markers become bold tags.
+    """
+    first = snippet.find(start_marker)
+    left = max(0, first - MAX_SNIPPET_CHARACTERS // 4) if first >= 0 else 0
+    if len(snippet) <= MAX_SNIPPET_CHARACTERS:
+        left = 0
+    right = min(len(snippet), left + MAX_SNIPPET_CHARACTERS)
+    parts = ["…"] if left else []
+    cursor = left
+    highlighted = False
+    while cursor < right:
+        start = snippet.find(start_marker, cursor)
+        end = snippet.find(end_marker, cursor)
+        marker = min(
+            (index for index in (start, end) if index >= 0), default=len(snippet)
+        )
+        if marker >= right:
+            parts.append(snippet[cursor:right])
+            break
+        parts.append(snippet[cursor:marker])
+        highlighted = marker == start
+        parts.append("<b>" if highlighted else "</b>")
+        cursor = marker + len(start_marker if highlighted else end_marker)
+    if highlighted:
+        parts.append("</b>")
+    if right < len(snippet):
+        parts.append("…")
+    return "".join(parts)
 
 
 def native_snippets(

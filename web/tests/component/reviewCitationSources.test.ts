@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { EvidenceViewerPayload } from '../../src/api/types';
 import { evidenceArtifact, evidenceSpan } from '../support/evidenceFixtures';
-import { reviewCitationSources, sourceLocation, sourcesForField } from '../../src/components/review/reviewCitationSources';
+import { focusedReviewArtifact, reviewTextPassageTargets, reviewCitationSources, sourceLocation, sourcesForField } from '../../src/components/review/reviewCitationSources';
 
 function payload(role: string, artifact: ReturnType<typeof evidenceArtifact>): EvidenceViewerPayload {
   return {
@@ -16,6 +16,27 @@ function payload(role: string, artifact: ReturnType<typeof evidenceArtifact>): E
 }
 
 describe('review citation source tabs', () => {
+  it('does not combine equal-looking passages at different source positions and retains each citation owner', () => {
+    const window = { start: 0, end: 14, total_characters: 100000, total_bytes: 100000,
+      retrieval_revision: null, previous_start: null, next_start: 14, reached_start: true, reached_end: false };
+    const first = evidenceArtifact({ id: 22, stable_id: 'source:shared', media_type: 'text/plain', spans: [evidenceSpan({ stable_id: 'span:first' })],
+      text_context: { text: 'Same quotation', offset_unit: 'utf16_code_unit', content_hash: 'sha256:snapshot',
+        artifact_stable_id: 'source:shared', evidence_link_id: 'owner:first', window,
+        ranges: [{ span_id: 'span:first', start: 0, end: 4 }] } });
+    const second = { ...first, spans: [evidenceSpan({ stable_id: 'span:tail' })], text_context: { ...first.text_context!,
+      evidence_link_id: 'owner:tail', window: { ...window, start: 90000, end: 90014 },
+      ranges: [{ span_id: 'span:tail', start: 5, end: 14 }] } };
+    const a = payload('citation', first); a.link.stable_id = 'owner:first';
+    const b = payload('citation', second); b.link.stable_id = 'owner:tail';
+    const [source] = reviewCitationSources([{ fieldId: 'first', payload: a }, { fieldId: 'tail', payload: b }]);
+    expect(source.artifact.text_context?.ranges.map((range) => range.span_id)).toEqual(['span:first']);
+    expect(focusedReviewArtifact(source, 'tail', ['span:tail']).text_context).toBe(second.text_context);
+    expect(reviewTextPassageTargets(source)).toEqual([
+      { spanId: 'span:first', evidenceLinkId: 'owner:first', artifactId: 22 },
+      { spanId: 'span:tail', evidenceLinkId: 'owner:tail', artifactId: 22 },
+    ]);
+  });
+
   it('groups a shared cited artifact across fields and omits provenance-only artifacts', () => {
     const shared = evidenceArtifact({
       stable_id: 'source:markdown', title: 'filing.md', media_type: 'text/markdown',

@@ -63,12 +63,12 @@ def _project_with_media(
 
 
 def _patch_engine(monkeypatch: pytest.MonkeyPatch, pages: list[dict[str, Any]]) -> None:
-    async def fake_page_images(self, path, media, spec, scratch):  # noqa: ANN001
-        del self, path, media
+    async def fake_page_images(self, path, media, spec, scratch, *, engine=None):  # noqa: ANN001
+        del self, path, media, engine
         # Match the renderer's PNG contract even though OCR itself is stubbed.
         size = (round(612 * spec["dpi"] / 72), round(792 * spec["dpi"] / 72))
         rendered = []
-        for number in range(1, len(pages) + 1):
+        for number in spec.get("_selected_pages", range(1, len(pages) + 1)):
             target = scratch / f"page-{number}.png"
             with Image.new("RGB", size, "white") as image:
                 image.save(target)
@@ -76,11 +76,14 @@ def _patch_engine(monkeypatch: pytest.MonkeyPatch, pages: list[dict[str, Any]]) 
         return rendered
 
     async def fake_rapidocr(self, page_paths, scratch, language=None):  # noqa: ANN001
-        del self, page_paths, scratch, language
-        return [dict(p) for p in pages]
+        del self, scratch, language
+        return [dict(pages[int(path.stem.split("-")[-1]) - 1]) for path in page_paths]
 
     monkeypatch.setattr(OcrEngines, "_page_images", fake_page_images)
     monkeypatch.setattr(OcrEngines, "_ocr_rapidocr", fake_rapidocr)
+    # Composition-failure fixtures intentionally have invalid PDF bodies;
+    # their renderer and metadata probes are both replaced by this fixture.
+    monkeypatch.setattr(OcrEngines, "_pdf_page_count", lambda *args: len(pages))
     stub_rapidocr_run_scope(monkeypatch)
 
 
@@ -138,6 +141,18 @@ def _fields(**params):
 def test_output_fields_default_off_is_unchanged() -> None:
     assert [f.key for f in _fields()] == ["text", "blocks"]
     assert _fields() == _fields(searchable_pdf=False)
+
+
+def test_internal_page_warnings_do_not_become_ocr_outputs_or_sdk_fields():
+    from frisket.actions.registry import ACTION_REGISTRY
+
+    entry = ACTION_REGISTRY.get("media.ocr").catalog_entry()
+    assert [field["key"] for field in entry["ui_hints"]["logical_outputs"]] == [
+        "text",
+        "blocks",
+        "pdf",
+    ]
+    assert set(entry["output_schema"]["properties"]) == {"text", "blocks", "pdf"}
 
 
 def test_output_fields_searchable_pdf_appends_file_column() -> None:

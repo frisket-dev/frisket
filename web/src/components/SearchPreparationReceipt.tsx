@@ -1,5 +1,5 @@
 import { CircleAlert, LoaderCircle, Square } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   createSearchPreparation,
   decideSearchPreparation,
@@ -22,24 +22,50 @@ const TERMINAL = new Set<SearchPreparationBatch['status']>(['complete', 'stopped
 function groupLabel(group: SearchPreparationGroup): { primary: string; qualifier: string } {
   const noun = group.count === 1 ? 'file' : 'files';
   if (group.kind === 'native_pdf') {
-    return { primary: `${group.count} ${group.count === 1 ? 'PDF' : 'PDFs'}`, qualifier: 'with embedded text' };
+    return { primary: `${group.count} ${group.count === 1 ? 'PDF' : 'PDFs'}`, qualifier: 'with embedded text to check' };
   }
-  if (group.kind === 'ocr') return { primary: `${group.count} ${noun}`, qualifier: 'to read with OCR' };
+  if (group.kind === 'ocr') return { primary: `${group.count} ${noun}`, qualifier: 'requiring OCR' };
   return { primary: `${group.count} ${noun}`, qualifier: 'to transcribe' };
 }
 
 function groupStatus(group: SearchPreparationGroup): string {
   switch (group.status) {
     case 'waiting_for_download': return 'Waiting for download';
-    case 'queued': return 'Queued';
-    case 'running': return group.kind === 'transcribe' ? 'Transcribing' : 'Reading text';
-    case 'complete': return 'Text prepared';
+    case 'queued': return group.kind === 'ocr'
+      ? 'OCR queued'
+      : group.kind === 'transcribe' ? 'Transcription queued' : 'Text extraction queued';
+    case 'running': return group.kind === 'ocr'
+      ? 'Running OCR'
+      : group.kind === 'transcribe' ? 'Transcribing' : 'Extracting text';
+    case 'complete': return group.kind === 'ocr' ? 'OCR text ready' : 'Text ready';
     case 'not_prepared': return 'Not prepared';
     case 'stopped': return 'Stopped';
     case 'failed': return 'Needs attention';
     case 'needs_consent': return 'Needs your approval';
     default: return 'Checking';
   }
+}
+
+function groupProgress(
+  batch: SearchPreparationBatch,
+  group: SearchPreparationGroup,
+): { completed: number; failed: number; total: number } | null {
+  const progress = batch.jobs
+    .filter((job) => job.action_kind === group.kind && job.progress !== null && job.progress !== undefined)
+    .map((job) => job.progress!);
+  if (progress.length === 0) return null;
+  return progress.reduce((summary, item) => ({
+    completed: summary.completed + item.completed,
+    failed: summary.failed + item.failed,
+    total: summary.total + item.total,
+  }), { completed: 0, failed: 0, total: 0 });
+}
+
+function groupProgressLabel(progress: { completed: number; failed: number; total: number }): string {
+  const processed = `${progress.completed.toLocaleString()}/${progress.total.toLocaleString()} processed`;
+  return progress.failed > 0
+    ? `${processed} · ${progress.failed.toLocaleString()} failed`
+    : processed;
 }
 
 function modelPurposeLabel(purpose: SearchPreparationBatch['models'][number]['purpose']): string {
@@ -104,10 +130,12 @@ function TextReview({
   const [loading, setLoading] = useState(true);
   const [forcing, setForcing] = useState(false);
   const loadGeneration = useRef(0);
+  const forceGeneration = useRef(0);
   const loadController = useRef<AbortController | null>(null);
 
   useEffect(() => () => {
     loadGeneration.current += 1;
+    forceGeneration.current += 1;
     loadController.current?.abort();
   }, [batch.id, projectId]);
 
@@ -164,20 +192,25 @@ function TextReview({
   const forceOcr = async () => {
     if (!sample || forcing) return;
     setForcing(true);
+    const generation = forceGeneration.current;
     try {
       const next = await createSearchPreparation(projectId, {
         sheet_id: batch.sheet_id,
         row_ids: [sample.row_id],
         force_ocr: true,
       });
+      if (generation !== forceGeneration.current) return;
       onBatchChange(next);
       setDismissed(true);
     } catch (error) {
-      onError(error instanceof Error ? error.message : String(error));
+      if (generation === forceGeneration.current) onError(error instanceof Error ? error.message : String(error));
     } finally {
-      setForcing(false);
+      if (generation === forceGeneration.current) setForcing(false);
     }
   };
+  const hasText = Boolean(sample?.text.trim());
+  const ocrGroup = batch.groups.find((group) => group.kind === 'ocr' && group.count > 0);
+  const waitingForOcrChoice = Boolean(ocrGroup && !hasText && batch.status === 'needs_consent');
 
   return (
     <>
@@ -185,7 +218,9 @@ function TextReview({
         <section className="search-preparation-text-preview" data-testid="search-preparation-text-preview">
           <header>
             <div>
-              <strong>Does this text look right?</strong>
+              <strong>{waitingForOcrChoice
+                ? 'No embedded text found'
+                : 'Does this text look right?'}</strong>
               <span>{sample?.filename ?? 'Imported PDF'}</span>
             </div>
           </header>
@@ -220,31 +255,40 @@ function TextReview({
                 page={sample.page_number}
                 thumbnailUrl={sample.preview_url}
                 text={sample.text}
+                heading="Extracted text"
+                emptyCopy={waitingForOcrChoice
+                  ? 'This page needs OCR before Frisket can read it.'
+                  : 'No extracted text is available on this page.'}
                 truncated={sample.truncated}
                 loading={loading}
               />
               <p className="form-hint">
-                OCR replaces the text Frisket uses for search. Your PDF stays unchanged.
+                {waitingForOcrChoice
+                  ? 'Review the page image, then choose below whether to extract its text with OCR.'
+                  : 'OCR replaces the text Frisket uses for search. Your PDF stays unchanged.'}
               </p>
-              <div className="search-preparation-actions">
-                <button
-                  type="button"
-                  className="btn"
-                  data-testid="search-preparation-force-ocr"
-                  disabled={forcing}
-                  onClick={() => void forceOcr()}
-                >
-                  {forcing ? 'Starting…' : 'No, replace with OCR'}
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  data-testid="search-preparation-keep-text"
-                  onClick={() => setDismissed(true)}
-                >
-                  Yes, keep it
-                </button>
-              </div>
+              {hasText ? (
+                <div className="search-preparation-actions">
+                  <button
+                    type="button"
+                    className="btn"
+                    data-testid="search-preparation-force-ocr"
+                    disabled={forcing}
+                    onClick={() => void forceOcr()}
+                  >
+                    {forcing ? 'Starting…' : 'No, replace with OCR'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    data-testid="search-preparation-keep-text"
+                    disabled={forcing}
+                    onClick={() => setDismissed(true)}
+                  >
+                    Yes, keep it
+                  </button>
+                </div>
+              ) : null}
             </>
           ) : loading ? (
             <div role="status"><LoaderCircle className="spin" size={18} /> Reading PDF text…</div>
@@ -262,6 +306,7 @@ export function SearchPreparationReceipt({
   onDone,
   onError,
   onViewJobs,
+  importSummary,
 }: {
   projectId: string;
   batchId: string;
@@ -269,6 +314,7 @@ export function SearchPreparationReceipt({
   onDone(): void;
   onError(message: string): void;
   onViewJobs?(): void;
+  importSummary?: ReactNode;
 }) {
   const [batch, setBatch] = useState<SearchPreparationBatch | null>(null);
   const [loadingError, setLoadingError] = useState<string | null>(null);
@@ -370,133 +416,163 @@ export function SearchPreparationReceipt({
   if (!batch) {
     return (
       <section className="search-preparation-receipt" data-testid="search-preparation-receipt">
-        <div role="status"><LoaderCircle className="spin" size={18} /> Checking search preparation…</div>
-        {loadingError && <div className="import-field-error" role="alert">{loadingError}</div>}
+        <div className="search-preparation-receipt-body">
+          {importSummary}
+          <div role="status"><LoaderCircle className="spin" size={18} /> Checking search preparation…</div>
+          {loadingError && <div className="import-field-error" role="alert">{loadingError}</div>}
+        </div>
+        <footer className="search-preparation-actions">
+          <button type="button" className="btn" onClick={onDone}>Close</button>
+        </footer>
       </section>
     );
   }
 
-  const nativeGroup = batch.groups.find((group) => group.kind === 'native_pdf' && group.count > 0);
+  const pdfGroup = batch.groups.find((group) => (
+    (group.kind === 'native_pdf' || group.kind === 'ocr') && group.count > 0
+  ));
+  const ocrGroup = batch.groups.find((group) => group.kind === 'ocr' && group.count > 0);
   const fullyPrepared = batch.status === 'complete'
     && batch.groups.length > 0
     && batch.groups.every((group) => group.status === 'complete');
   const active = !TERMINAL.has(batch.status);
   const missingModels = batch.models.filter((model) => !model.ready);
   const unavailableModels = missingModels.filter((model) => model.required && !model.can_setup);
+  const allRequiredModelsReady = batch.models.every((model) => !model.required || model.ready);
+  const canPrepare = batch.can_setup || allRequiredModelsReady;
+  const warnings = batch.warnings ?? [];
   return (
     <section className="search-preparation-receipt" data-testid="search-preparation-receipt">
-      <header>
-        <div>
-          <h2>{fullyPrepared
-            ? 'Text ready for keyword search'
-            : batch.status === 'planning'
-              ? 'Planning search preparation'
-            : batch.status === 'complete' || batch.status === 'stopped'
-              ? 'Files imported'
-              : 'Make these files searchable'}</h2>
-        </div>
-      </header>
+      <div className="search-preparation-receipt-body">
+        {importSummary}
+        <header>
+          <div>
+            <h2>{fullyPrepared && warnings.length > 0
+              ? 'Text prepared with warnings'
+              : fullyPrepared
+              ? 'Text ready for keyword search'
+              : batch.status === 'planning'
+                ? 'Planning search preparation'
+              : batch.status === 'complete' || batch.status === 'stopped'
+                ? 'Files imported'
+                : 'Make these files searchable'}</h2>
+          </div>
+        </header>
 
-      <div className="search-preparation-groups">
-        {batch.groups.map((group) => {
-          const label = groupLabel(group);
-          return (
-            <div
-              key={group.kind}
-              className="search-preparation-group"
-              data-testid={`search-preparation-group-${group.kind}`}
-              data-status={group.status}
-            >
-              <span><strong>{label.primary}</strong> <small>{label.qualifier}</small></span>
-              <strong>{groupStatus(group)}</strong>
-            </div>
-          );
-        })}
+        {warnings.length > 0 && (
+          <aside className="form-hint" role="note" aria-label="Preparation warnings" data-testid="search-preparation-warnings">
+            <strong><CircleAlert size={14} className="run-warning-icon" aria-hidden /> Some results need attention</strong>
+            <ul>{warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
+          </aside>
+        )}
+
+        {batch.groups.length > 0 && <h3 className="search-preparation-section-heading">Text extraction</h3>}
+        <div className="search-preparation-groups">
+          {batch.groups.map((group) => {
+            const label = groupLabel(group);
+            const progress = groupProgress(batch, group);
+            return (
+              <div
+                key={group.kind}
+                className="search-preparation-group"
+                data-testid={`search-preparation-group-${group.kind}`}
+                data-status={group.status}
+              >
+                <span><strong>{label.primary}</strong> <small>{label.qualifier}</small></span>
+                <span className="search-preparation-group-status">
+                  <strong>{groupStatus(group)}</strong>
+                  {progress && <small>{groupProgressLabel(progress)}</small>}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+
+        {active && batch.groups.length === 0 && (
+          <div className="search-preparation-status" role="status">
+            <LoaderCircle className="spin" size={16} /> Checking files and planning preparation…
+          </div>
+        )}
+
+        {batch.status !== 'needs_consent' && unavailableModels.length > 0 && (
+          <div className="import-field-error" role="alert">
+            {unavailableModels.map((model) => (
+              <p key={model.setup_ref}>
+                <strong>{model.display_name} is unavailable on this device.</strong>{' '}
+                {model.remediation || 'Install its local runtime, then prepare these files again.'}
+              </p>
+            ))}
+          </div>
+        )}
+
+        {pdfGroup && (
+          <TextReview
+            key={batch.id}
+            projectId={projectId}
+            batch={batch}
+            onBatchChange={publish}
+            onError={onError}
+          />
+        )}
+
+        {batch.status === 'needs_consent' && (
+          <section className="search-preparation-consent" data-testid="search-preparation-model-consent">
+            <h3>{missingModels.length > 0
+              ? 'Set up text extraction'
+              : ocrGroup ? 'Extract text with OCR?' : 'Prepare file text?'}</h3>
+            {missingModels.length > 0 && (
+              <div className="search-preparation-model-list">
+                {missingModels.map((model) => (
+                  <label
+                    className="search-preparation-model"
+                    key={model.setup_ref}
+                    data-testid={model.required
+                      ? `search-preparation-model-${model.purpose}`
+                      : undefined}
+                  >
+                    <input
+                      type="checkbox"
+                      data-testid={model.required ? undefined : 'search-preparation-semantic-model'}
+                      checked={model.can_setup && (model.required || semanticSelected)}
+                      disabled={model.required || !model.can_setup}
+                      onChange={(event) => setSemanticSelected(event.currentTarget.checked)}
+                    />
+                    <span>
+                      <strong>{model.display_name}</strong>
+                      <small className="search-preparation-model-purpose">{modelPurposeLabel(model.purpose)}</small>
+                      {!model.can_setup && model.remediation && (
+                        <small className="search-preparation-model-remediation">{model.remediation}</small>
+                      )}
+                    </span>
+                    <b>{model.download_bytes == null
+                      ? 'Size not measured'
+                      : `About ${formatNumberDisplay(model.download_bytes, 'filesize')}`}</b>
+                  </label>
+                ))}
+              </div>
+            )}
+            {!canPrepare && (
+              <div className="import-field-error" role="alert">
+                Model setup is unavailable. See the model details above.
+              </div>
+            )}
+          </section>
+        )}
+
+        {batch.models.some((model) => model.pull_id != null) && (
+          <div className="search-preparation-pulls">
+            {batch.models.map((model) => model.pull_id == null ? null : (
+              <PullProgress key={model.pull_id} pullId={model.pull_id} onChange={() => void refresh()} />
+            ))}
+          </div>
+        )}
+
+        {batch.errors.length > 0 && (
+          <div className="import-field-error" role="alert">
+            <CircleAlert size={14} /> {batch.errors.join(' ')}
+          </div>
+        )}
       </div>
-
-      {active && batch.groups.length === 0 && (
-        <div className="search-preparation-status" role="status">
-          <LoaderCircle className="spin" size={16} /> Checking files and planning preparation…
-        </div>
-      )}
-
-      {batch.status !== 'needs_consent' && unavailableModels.length > 0 && (
-        <div className="import-field-error" role="alert">
-          {unavailableModels.map((model) => (
-            <p key={model.setup_ref}>
-              <strong>{model.display_name} is unavailable on this device.</strong>{' '}
-              {model.remediation || 'Install its local runtime, then prepare these files again.'}
-            </p>
-          ))}
-        </div>
-      )}
-
-      {nativeGroup && (
-        <TextReview
-          key={batch.id}
-          projectId={projectId}
-          batch={batch}
-          onBatchChange={publish}
-          onError={onError}
-        />
-      )}
-
-      {batch.status === 'needs_consent' && (
-        <section className="search-preparation-consent" data-testid="search-preparation-model-consent">
-          <h3>{missingModels.length > 0 ? 'Download local models?' : 'Prepare files?'}</h3>
-          {missingModels.length > 0 && (
-            <div className="search-preparation-model-list">
-              {missingModels.map((model) => (
-                <label
-                  className="search-preparation-model"
-                  key={model.setup_ref}
-                  data-testid={model.required
-                    ? `search-preparation-model-${model.purpose}`
-                    : undefined}
-                >
-                  <input
-                    type="checkbox"
-                    data-testid={model.required ? undefined : 'search-preparation-semantic-model'}
-                    checked={model.can_setup && (model.required || semanticSelected)}
-                    disabled={model.required || !model.can_setup}
-                    onChange={(event) => setSemanticSelected(event.currentTarget.checked)}
-                  />
-                  <span>
-                    <strong>{model.display_name}</strong>
-                    <small className="search-preparation-model-purpose">{modelPurposeLabel(model.purpose)}</small>
-                    {!model.can_setup && model.remediation && (
-                      <small className="search-preparation-model-remediation">{model.remediation}</small>
-                    )}
-                  </span>
-                  <b>{model.download_bytes == null
-                    ? 'Size not measured'
-                    : `About ${formatNumberDisplay(model.download_bytes, 'filesize')}`}</b>
-                </label>
-              ))}
-            </div>
-          )}
-          {!batch.can_setup && (
-            <div className="import-field-error" role="alert">
-              Model setup is unavailable. See the model details above.
-            </div>
-          )}
-        </section>
-      )}
-
-      {batch.models.some((model) => model.pull_id != null) && (
-        <div className="search-preparation-pulls">
-          {batch.models.map((model) => model.pull_id == null ? null : (
-            <PullProgress key={model.pull_id} pullId={model.pull_id} onChange={() => void refresh()} />
-          ))}
-        </div>
-      )}
-
-      {batch.errors.length > 0 && (
-        <div className="import-field-error" role="alert">
-          <CircleAlert size={14} /> {batch.errors.join(' ')}
-        </div>
-      )}
-
       {batch.status === 'needs_consent' ? (
         <footer className="search-preparation-actions">
           <button
@@ -512,10 +588,14 @@ export function SearchPreparationReceipt({
             type="button"
             className="btn btn-primary"
             data-testid="search-preparation-decision-prepare"
-            disabled={busy || !batch.can_setup}
+            disabled={busy || !canPrepare}
             onClick={() => void decide('prepare')}
           >
-            {busy ? 'Starting…' : hasSelectedDownloads ? 'Download and prepare' : 'Prepare files'}
+            {busy
+              ? 'Starting…'
+              : hasSelectedDownloads
+                ? 'Download and prepare'
+                : ocrGroup ? 'Extract text with OCR' : 'Prepare file text'}
           </button>
         </footer>
       ) : (

@@ -104,6 +104,26 @@ describe('columnValuesPreview', () => {
     });
   });
 
+  it('requests bounded facets and preserves incomplete inventory facts without an action hash', async () => {
+    const fetchMock = stubFetch({
+      ...COLUMN_VALUES_WIRE,
+      value_hash: null,
+      inventory_complete: false,
+      omitted_rows: 3,
+      values: [],
+    });
+    const out = await api.columnValuesPreview({
+      sheetId: '7', inputColumn: 'city', valueMode: 'bounded',
+    });
+    expect(requestBody(fetchMock)).toEqual({
+      sheet_id: 7, input_column: 'city', value_mode: 'bounded',
+    });
+    expect(out.valueHash).toBeNull();
+    expect(out.inventoryComplete).toBe(false);
+    expect(out.omittedRows).toBe(3);
+    expect(out.values).toEqual([]);
+  });
+
   it('omits search/limit/offset when unset so server defaults apply', async () => {
     const fetchMock = stubFetch({ ...COLUMN_VALUES_WIRE, search: 'ny' });
     const out = await api.columnValuesPreview({ sheetId: '7', inputColumn: 'city' });

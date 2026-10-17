@@ -53,6 +53,8 @@ def test_media_catalog_is_projected_from_typed_outputs(kind, expected):
         )
     )
     assert {output.key: output.column_type for output in outputs} == expected
+    if kind == "media.ocr":
+        assert {output.key for output in outputs if output.default_hidden} == {"blocks"}
 
 
 def test_media_authoring_types_are_public_sdk_imports():

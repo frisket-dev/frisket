@@ -154,6 +154,7 @@ export interface BulkImportPlan {
 }
 
 export interface BulkImportCreatedOutput {
+  search_preparation_batch_id?: string | null;
   id: string;
   kind: string;
   sheet_id: number;

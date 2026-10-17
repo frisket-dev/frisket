@@ -1,7 +1,7 @@
-import type { EvidenceArtifact, EvidenceCitationRun, EvidenceSpan, EvidenceViewerPayload } from '../../api/types';
+import type { EvidenceArtifact, EvidenceCitationRun, EvidenceTextPassageTarget, EvidenceSpan, EvidenceViewerPayload } from '../../api/types';
 
 export interface ReviewCitationPayload { fieldId: string; payload: EvidenceViewerPayload; }
-interface SourceMember { fieldId: string; itemIndex?: number | null; artifact: EvidenceArtifact; spans: EvidenceSpan[]; }
+interface SourceMember { fieldId: string; evidenceLinkId: string; itemIndex?: number | null; artifact: EvidenceArtifact; spans: EvidenceSpan[]; }
 export interface ReviewCitationSource {
   id: string; artifact: EvidenceArtifact; fieldIds: string[]; members: SourceMember[];
   kind: 'MD' | 'TXT' | 'PDF' | 'AUDIO' | 'VIDEO' | 'IMAGE' | 'FILE'; title: string;
@@ -19,7 +19,7 @@ export function reviewCitationSources(payloads: readonly ReviewCitationPayload[]
       const spans = citedSpans(artifact);
       if (spans.length === 0 && !provenance) continue;
       const members = bySource.get(artifact.stable_id) ?? [];
-      members.push({ fieldId, itemIndex: payload.link.item_index, artifact, spans });
+      members.push({ fieldId, evidenceLinkId: payload.link.stable_id, itemIndex: payload.link.item_index, artifact, spans });
       bySource.set(artifact.stable_id, members);
     }
   }
@@ -85,10 +85,38 @@ function mergeArtifacts(members: readonly SourceMember[]): EvidenceArtifact {
 function mergeTextContext(members: readonly SourceMember[], spanIds: ReadonlySet<string>) {
   const first = members.map((member) => member.artifact.text_context).find((context) => context !== null && context !== undefined);
   if (!first) return null;
-  const ranges = uniqueBy(members.flatMap((member) => member.artifact.text_context?.text === first.text
-    ? member.artifact.text_context.ranges.filter((range) => spanIds.has(range.span_id)) : []),
+  const ranges = uniqueBy(members.flatMap((member) => sameTextPassage(member.artifact.text_context, first)
+    ? member.artifact.text_context?.ranges.filter((range) => spanIds.has(range.span_id)) ?? [] : []),
   (range) => `${range.span_id}:${range.start}:${range.end}`);
   return { ...first, ranges };
+}
+
+/** Window offsets belong to their owning source/version, even for repeated text. */
+function sameTextPassage(context: EvidenceArtifact['text_context'], first: NonNullable<EvidenceArtifact['text_context']>): boolean {
+  if (!context || context.text !== first.text) return false;
+  if (!context.window && !first.window) return true;
+  return Boolean(context.window && first.window
+    && context.artifact_stable_id === first.artifact_stable_id
+    && ((context.window.retrieval_revision !== null && context.window.retrieval_revision === first.window.retrieval_revision)
+      || Boolean(context.content_hash && context.content_hash === first.content_hash))
+    && context.window.start === first.window.start && context.window.end === first.window.end
+    && context.window.retrieval_revision === first.window.retrieval_revision);
+}
+
+export function reviewTextPassageTargets(source: ReviewCitationSource): EvidenceTextPassageTarget[] {
+  return uniqueBy(source.members.flatMap((member) => member.spans.map((span) => ({
+    spanId: span.stable_id, evidenceLinkId: member.evidenceLinkId, artifactId: member.artifact.id,
+  }))), (target) => `${target.evidenceLinkId}:${target.spanId}`);
+}
+
+/** A focused field retains the original citation owner for passage fetches. */
+export function focusedReviewArtifact(source: ReviewCitationSource, fieldId: string | undefined, spanIds: readonly string[]): EvidenceArtifact {
+  const member = source.members.find((item) => item.fieldId === fieldId && item.spans.some((span) => spanIds.includes(span.stable_id)))
+    ?? source.members.find((item) => item.fieldId === fieldId)
+    ?? source.members[0];
+  return member?.artifact.text_context && (member.artifact.text_context.window || source.artifact.text_context?.window)
+    ? { ...source.artifact, text_context: member.artifact.text_context }
+    : source.artifact;
 }
 
 function uniqueBy<T>(items: readonly T[], key: (item: T) => string): T[] {

@@ -1640,6 +1640,7 @@ class RowResult(BaseModel, Generic[T]):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     output: T
+    warnings: tuple[str, ...] = Field(default=(), exclude_if=lambda value: not value)
 
 
 @dataclass(frozen=True)

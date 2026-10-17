@@ -1023,6 +1023,10 @@ const WorkspaceActRegion = memo(function WorkspaceActRegion() {
   const importDialogEntryMode = useSelector(actSurface.store, (s) => s.importDialogEntryMode);
   const importDialogCsv = useSelector(actSurface.store, (s) => s.importDialogCsv);
   const importDialogFiles = useSelector(actSurface.store, (s) => s.importDialogFiles);
+  const importPreparationBatchId = useSelector(
+    actSurface.store,
+    (s) => s.importPreparationBatchId,
+  );
   const nerTemplate = useSelector(actionCatalog.store, (state) =>
     state.status === 'ready'
       ? state.resolvedTemplates.find((template) => template.kind === 'map.ner')
@@ -1075,6 +1079,7 @@ const WorkspaceActRegion = memo(function WorkspaceActRegion() {
         entryMode={importDialogEntryMode}
         initialCsv={importDialogCsv}
         initialFiles={importDialogFiles}
+        initialPreparationBatchId={importPreparationBatchId}
         onClose={closeImportDialog}
         onImported={onImported}
         onError={showError}
@@ -3594,6 +3599,7 @@ function WorkspacePrimarySurface() {
   const queryImageGalleryRows = useCallback(
     (args: { columnIds?: string[]; offset: number; limit: number }) =>
       projectApi.getSheetData(sheetIdForGallery, args.offset, args.limit, {
+        columnIds: args.columnIds, valueMode: 'bounded',
         filter: activeGridFilter,
         scopeRowIds,
         sort: activeGridSort,
@@ -3644,7 +3650,7 @@ function WorkspacePrimarySurface() {
     });
     const hydrateDocumentRow = async (rowId: string, columnIds: string[]) => {
       const page = await projectApi.getSheetData(sheet.id, 0, 1, {
-        rowIds: [Number(rowId)], columnIds,
+        rowIds: [Number(rowId)], columnIds, valueMode: 'bounded',
       });
       return page.rows[0] ?? null;
     };
@@ -3860,6 +3866,7 @@ function WorkspacePromotedView() {
   const queryRows = useCallback(
     (args: { columnIds?: string[]; offset: number; limit: number }) =>
       projectApi.getSheetData(sheetId, args.offset, args.limit, {
+        columnIds: args.columnIds, valueMode: 'bounded',
         filter: activeGridFilter,
         scopeRowIds,
         sort: activeGridSort,
@@ -4283,6 +4290,7 @@ const WorkspaceActionDrawerRegion = memo(function WorkspaceActionDrawerRegion() 
         let expectedTotal: number | null = null;
         for (let offset = 0; ; ) {
           const page = await projectApi.getSheetData(scopeSheetId, offset, pageSize, {
+            columnIds: [], valueMode: 'bounded',
             parentRowId,
             filter,
             scopeRowIds,
@@ -4604,7 +4612,6 @@ const WorkspaceBottomDockRegion = memo(function WorkspaceBottomDockRegion() {
                 jobs={actionJobs}
                 loading={actionJobsLoading}
                 error={actionJobsError}
-                liveActionJobs={job.liveActionJobs}
                 mode="jobs"
                 onResumeHaltedRun={resumeHaltedDockJob}
               />
@@ -4617,7 +4624,6 @@ const WorkspaceBottomDockRegion = memo(function WorkspaceBottomDockRegion() {
                 jobs={errorJobs}
                 loading={actionJobsLoading}
                 error={actionJobsError}
-                liveActionJobs={job.liveActionJobs}
                 mode="errors"
                 onResumeHaltedRun={resumeHaltedDockJob}
               />
@@ -4676,7 +4682,6 @@ const WorkspaceBottomDockRegion = memo(function WorkspaceBottomDockRegion() {
       bottomDockPluginPanelDescriptors,
       doStepTo,
       history,
-      job.liveActionJobs,
       loadHistoryPage,
       refreshSheets,
       resumeHaltedDockJob,
@@ -4695,6 +4700,7 @@ const WorkspaceBottomDockRegion = memo(function WorkspaceBottomDockRegion() {
           onSelectTab={selectBottomDockTab}
           onCloseTab={closeDockTab}
           renderContribution={renderDockContribution}
+          liveActionJobs={job.liveActionJobs}
           runSummary={runSummary}
           tabBadges={tabBadges}
         />

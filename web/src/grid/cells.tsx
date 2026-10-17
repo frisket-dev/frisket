@@ -747,6 +747,7 @@ export function oneClickFacetValue(
 ): OneClickFacetValue | null {
   const facet = facetBehaviorFor(col.type);
   if (!facet?.oneClick) return null;
+  if (row.boundedValues?.[col.id]) return null;
   if (row.cellErrors?.[col.id]) return null;
   if (row.cellOutcomes?.[col.id] === 'withheld_unverified') return null;
   if (row.cellStates?.[col.id] === 'incomplete') return null;
@@ -1103,6 +1104,18 @@ const EMPTY_MARKER_RENDERERS = new Set(['text', 'number', 'integer', 'stars', 'l
 export function buildCell(col: ColumnDef, row: Row | undefined, opts: BuildCellOptions = {}): GridCell {
   if (row === undefined) {
     return { kind: GridCellKind.Loading, allowOverlay: false };
+  }
+  const bounded = row.boundedValues?.[col.id];
+  if (bounded) {
+    return {
+      kind: GridCellKind.Text,
+      data: '',
+      displayData: `${bounded.preview}… [excerpt]`,
+      copyData: '[Large value: open row details to copy or download the full value]',
+      allowOverlay: false,
+      readonly: true,
+      allowWrapping: opts.wrap,
+    };
   }
   const palette = opts.gridCellPalette ?? DEFAULT_GRID_CELL_PALETTE;
   // A deliberately withheld value (citation-required grounding, or a required

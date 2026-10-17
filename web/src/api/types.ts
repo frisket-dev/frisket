@@ -468,7 +468,9 @@ export interface ColumnDef {
    * whose fresh current-run value differs from the human edit — feeds the "N
    * updated values · Review" header chip. 0/undefined when nothing is
    * pending. This count is the full-column promise, not the loaded page. */
-  replayPendingCount?: number;
+  replayPendingCount?: number | null;
+  /** False when a size-limited display read cannot compare every value. */
+  replayComparisonAvailable?: boolean;
 }
 
 export type ColumnDisplayFormat = 'markdown' | 'filesize' | 'currency' | 'percent';
@@ -633,14 +635,56 @@ export interface DeleteSheetResult {
  *  `TextAnnotations.text` — the SAME index unit a JavaScript string uses, so
  *  `text.slice(start, end)` is the mark, with no conversion and no re-location
  *  by quote search (the reader's D1: flat text + server offsets). */
+export interface TextPassageWindow {
+  /** Absolute Unicode codepoint offsets; passage highlights remain local UTF-16. */
+  start: number;
+  end: number;
+  total_characters: number;
+  total_bytes: number;
+  retrieval_revision: number | null;
+  previous_start: number | null;
+  next_start: number | null;
+  reached_start: boolean;
+  reached_end: boolean;
+}
+
+export interface TextAnnotationsOptions {
+  start?: number;
+  limit?: number;
+  revision?: number;
+  occurrenceId?: string;
+  signal?: AbortSignal;
+  headers?: HeadersInit;
+}
+
+export interface EvidenceViewerReadOptions {
+  locateCurrent?: boolean;
+  textArtifactId?: number;
+  textStart?: number;
+  textLimit?: number;
+  textRevision?: number;
+  textSpanId?: string;
+  signal?: AbortSignal;
+  headers?: HeadersInit;
+}
+
+export interface EvidenceTextPassageTarget {
+  spanId: string;
+  evidenceLinkId: string | number;
+  artifactId: number;
+}
+
 export interface TextAnnotationSpan {
   /** Stable within one response: `${spanId}:${linkId}`. Identifies the
    *  occurrence across the fragments a single mark may be split into. */
   occurrenceId: string;
+  sourceStart?: number;
+  sourceEnd?: number;
+  quoteTruncated?: boolean;
   start: number;
   end: number;
-  /** The slice of the CURRENT text, re-derived server-side — never the stored
-   *  quote, so a drifted cell can never render text it does not contain. */
+  /** Source occurrence quote; quoteTruncated marks a bounded display excerpt.
+   *  The local start/end range still indexes the exact returned passage. */
   quote: string;
   entityType: string | null;
   /** The identity the Mentions panel groups by, resolved server-side from the
@@ -686,10 +730,12 @@ export interface TextAnnotations {
   sheetId: string;
   rowId: string;
   columnId: string;
-  /** The exact cell string the offsets index, or null when there is nothing to
-   *  render (hidden/absent cell, or a non-text value). */
+  /** Exact returned passage indexed by local UTF-16 offsets. A window denotes
+   *  an excerpt; null means no renderable text. */
   text: string | null;
+  /** Authority for the entire source value, including a bounded passage read. */
   contentHash: string | null;
+  window?: TextPassageWindow;
   layers: TextAnnotationLayer[];
 }
 
@@ -827,6 +873,7 @@ export interface CellProvenance {
   cost: number; // USD, this cell's share
   confidence: number | null; // 0–1 self-reported, null if not requested
   justification: string;
+  warnings?: string[];
   runId: string;
 }
 
@@ -881,10 +928,25 @@ export type EvidenceRegion = EvidencePage['regions'][number];
 export type EvidenceSpan = EvidenceArtifact['spans'][number];
 export type EvidenceCitationRun = EvidenceArtifact['runs'][number];
 
+/** A display excerpt, never an editable value or an exact clipboard value. */
+export interface BoundedCellValue {
+  preview: string;
+  value_kind: string;
+  total_characters: number;
+  total_bytes: number;
+  retrieval_revision: number;
+  truncated: true;
+  manual_editable: false;
+  manual_edit_byte_limit: number;
+}
+
 export interface Row {
   id: string;
   index: number;
-  cells: Record<string, CellValue>; // columnId -> value
+  cells: Record<string, CellValue>; // columnId -> exact value
+  boundedValues?: Record<string, BoundedCellValue>;
+  /** Present only on a projected row; missing columns are unloaded, not empty. */
+  loadedColumnIds?: string[];
   provenance: Record<string, CellProvenance>; // columnId -> current value refs/provenance
   /** Backend per-cell state from /data meta: complete/error/incomplete. */
   cellStates?: Record<string, string>;
@@ -908,6 +970,7 @@ export interface Row {
    *  popover read this. Absent columns have no pending value. Page-local
    *  (badges); the column chip count is the full-column promise. */
   replayPending?: Record<string, ReplayPendingValue>;
+  replayComparisonUnavailable?: Record<string, true>;
 }
 
 export interface ReplayPendingValue {
@@ -2134,6 +2197,8 @@ export interface GridSortRule {
 export type GridSortSpec = GridSortRule[];
 
 export interface SheetDataOptions {
+  /** Display reads omit large values and return explicit bounded descriptors. */
+  valueMode?: 'exact' | 'bounded';
   /** Narrow read projection. Omitted retains the grid's full visible-column payload. */
   columnIds?: string[] | null;
   /** Exact row restriction, intersected with normal filter/sort. */
@@ -2960,6 +3025,7 @@ export interface RunProgress {
   /** Present only while a zero-row run is preparing an automatically
    * provisioned local artifact. The server owns the preparation decision. */
   preparation?: { message: string } | null;
+  workProgress?: { kind: 'ocr_pages'; row_id: number; completed: number; total: number } | null;
   /** Reconciler's reason a run is stalled/orphaned (e.g. 'no_live_worker'). */
   staleReason?: string | null;
   /** A typed recipe/session halt behind a resumable 'cancelled' (e.g.
@@ -3210,7 +3276,10 @@ export interface ColumnValuesPreview {
   offset: number;
   limit: number;
   truncated: boolean;
-  valueHash: string;
+  valueHash: string | null;
+  /** False when large cells or the response budget prevent a full inventory. */
+  inventoryComplete?: boolean;
+  omittedRows?: number;
   search: string | null;
   distribution: ColumnDistribution | null;
   /** Additive member inventory for a list-valued JSON column. `values` keeps
@@ -4767,6 +4836,7 @@ export interface FrisketApi {
     search?: string;
     limit?: number;
     offset?: number;
+    valueMode?: 'exact' | 'bounded';
   }): Promise<ColumnValuesPreview>;
   /** Read-only fingerprint-grouped mention inventory for the Mentions panel
    *  (POST /entity-mentions/v1/preview). The column must be a `json` column
@@ -4799,7 +4869,7 @@ export interface FrisketApi {
    *  of `getCellEvidence`'s "what supports
    *  this output". Fetched lazily for the ACTIVE cell only; a cell with no
    *  layers resolves with `layers: []` rather than throwing. */
-  getTextAnnotations(rowId: string, columnId: string): Promise<TextAnnotations>;
+  getTextAnnotations(rowId: string, columnId: string, options?: TextAnnotationsOptions): Promise<TextAnnotations>;
   /** The documents ONE normalized mention appears in, paged (POST
    *  /entity-mentions/v1/documents). The SCOPED counterpart to
    *  `entityMentionsPreview`: identity is exactly one of `fingerprint` or
@@ -4857,7 +4927,7 @@ export interface FrisketApi {
   ): Promise<ColumnEvidenceBatchPayload>;
   getEvidenceViewer(
     evidenceLinkId: string | number,
-    options?: { locateCurrent?: boolean },
+    options?: EvidenceViewerReadOptions,
   ): Promise<EvidenceViewerPayload>;
   /** Project-level data-flow manifest: which providers/models/actions/runs touched data. */
   getProvenanceManifest(runsOffset?: number, runsLimit?: number, receiptsOffset?: number, receiptsLimit?: number): Promise<ProvenanceManifest>;

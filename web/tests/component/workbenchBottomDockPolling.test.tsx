@@ -53,7 +53,6 @@ function renderDock(activeTabPlacementId: string, liveActionJobs: {
             jobs={[]}
             loading={false}
             error={null}
-            liveActionJobs={liveActionJobs}
             mode={active.contributionId === 'frisket.core.panel.errors' ? 'errors' : 'jobs'}
           />
         )
@@ -66,6 +65,7 @@ function renderDock(activeTabPlacementId: string, liveActionJobs: {
       onSelectTab={() => undefined}
       onCloseTab={() => undefined}
       renderContribution={renderContribution}
+      liveActionJobs={liveActionJobs}
     />,
   );
 }
@@ -78,7 +78,7 @@ afterEach(() => {
 });
 
 describe('WorkbenchBottomDock — live Jobs/Errors resource interest', () => {
-  it('activates only while Jobs or Errors is mounted and expanded', async () => {
+  it('keeps the shared job subscription while another tab is selected or the dock is collapsed', async () => {
     const liveActionJobs = { start: vi.fn(), dispose: vi.fn() };
     const view = renderDock('jobs', liveActionJobs);
     await waitFor(() => expect(liveActionJobs.start).toHaveBeenCalledTimes(1));
@@ -89,6 +89,7 @@ describe('WorkbenchBottomDock — live Jobs/Errors resource interest', () => {
         activeTabPlacementId="history"
         onSelectTab={() => undefined}
         onCloseTab={() => undefined}
+        liveActionJobs={liveActionJobs}
         renderContribution={(active) => active.contributionId === 'frisket.core.panel.history'
           ? <div>{active.title}</div>
           : (
@@ -96,81 +97,49 @@ describe('WorkbenchBottomDock — live Jobs/Errors resource interest', () => {
                 jobs={[]}
                 loading={false}
                 error={null}
-                liveActionJobs={liveActionJobs}
                 mode={active.contributionId === 'frisket.core.panel.errors' ? 'errors' : 'jobs'}
               />
             )}
       />,
     );
-    await waitFor(() => expect(liveActionJobs.dispose).toHaveBeenCalledTimes(1));
-
-    view.rerender(
-      <WorkbenchBottomDock
-        region={region}
-        activeTabPlacementId="errors"
-        onSelectTab={() => undefined}
-        onCloseTab={() => undefined}
-        renderContribution={(active) => active.contributionId === 'frisket.core.panel.history'
-          ? <div>{active.title}</div>
-          : (
-              <WorkbenchJobSplitPanel
-                jobs={[]}
-                loading={false}
-                error={null}
-                liveActionJobs={liveActionJobs}
-                mode={active.contributionId === 'frisket.core.panel.errors' ? 'errors' : 'jobs'}
-              />
-            )}
-      />,
-    );
-    await waitFor(() => expect(liveActionJobs.start).toHaveBeenCalledTimes(2));
+    expect(liveActionJobs.start).toHaveBeenCalledTimes(1);
+    expect(liveActionJobs.dispose).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: 'Minimize the Monitor dock' }));
-    await waitFor(() => expect(liveActionJobs.dispose).toHaveBeenCalledTimes(2));
-  });
-
-  it('reuses one lane across Jobs to Errors without cleanup/start flapping', async () => {
-    const liveActionJobs = { start: vi.fn(), dispose: vi.fn() };
-    const view = renderDock('jobs', liveActionJobs);
-    await waitFor(() => expect(liveActionJobs.start).toHaveBeenCalledTimes(1));
-
-    view.rerender(
-      <WorkbenchBottomDock
-        region={region}
-        activeTabPlacementId="errors"
-        onSelectTab={() => undefined}
-        onCloseTab={() => undefined}
-        renderContribution={(active) => (
-          <WorkbenchJobSplitPanel
-            jobs={[]}
-            loading={false}
-            error={null}
-            liveActionJobs={liveActionJobs}
-            mode={active.contributionId === 'frisket.core.panel.errors' ? 'errors' : 'jobs'}
-          />
-        )}
-      />,
-    );
-
     expect(liveActionJobs.start).toHaveBeenCalledTimes(1);
     expect(liveActionJobs.dispose).not.toHaveBeenCalled();
     view.unmount();
     expect(liveActionJobs.dispose).toHaveBeenCalledTimes(1);
   });
 
-  it('does not activate for a selected contribution whose panel is not rendered', () => {
-    const liveActionJobs = { start: vi.fn(), dispose: vi.fn() };
-    render(
+  it('releases the previous project subscription before starting its replacement', async () => {
+    const first = { start: vi.fn(), dispose: vi.fn() };
+    const second = { start: vi.fn(), dispose: vi.fn() };
+    const view = renderDock('jobs', first);
+    await waitFor(() => expect(first.start).toHaveBeenCalledTimes(1));
+
+    view.rerender(
       <WorkbenchBottomDock
         region={region}
         activeTabPlacementId="jobs"
         onSelectTab={() => undefined}
         onCloseTab={() => undefined}
-        renderContribution={() => null}
+        liveActionJobs={second}
+        renderContribution={(active) => (
+          <WorkbenchJobSplitPanel
+            jobs={[]}
+            loading={false}
+            error={null}
+            mode={active.contributionId === 'frisket.core.panel.errors' ? 'errors' : 'jobs'}
+          />
+        )}
       />,
     );
-    expect(liveActionJobs.start).not.toHaveBeenCalled();
-    expect(liveActionJobs.dispose).not.toHaveBeenCalled();
+
+    await waitFor(() => expect(second.start).toHaveBeenCalledTimes(1));
+    expect(first.dispose).toHaveBeenCalledTimes(1);
+    view.unmount();
+    expect(second.dispose).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -196,7 +165,6 @@ it('shows the preparation hint in a zero-row running job detail', () => {
       jobs={[job]}
       loading={false}
       error={null}
-      liveActionJobs={{ start: vi.fn(), dispose: vi.fn() }}
       mode="jobs"
     />,
   );

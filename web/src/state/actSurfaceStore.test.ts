@@ -45,6 +45,7 @@ describe('createActSurfaceStore', () => {
       openImportDialog,
       openCsvImport,
       openBulkImport,
+      openImportPreparation,
       closeImportDialog,
       setImportDialogOpen,
     } = createActSurfaceStore();
@@ -73,6 +74,16 @@ describe('createActSurfaceStore', () => {
     expect(store.get().importDialogFiles).toEqual(files);
     closeImportDialog();
     expect(store.get().importDialogFiles).toBeNull();
+    openImportPreparation('prep-17');
+    expect(store.get()).toMatchObject({
+      importDialogOpen: true,
+      importDialogEntryMode: null,
+      importDialogCsv: null,
+      importDialogFiles: null,
+      importPreparationBatchId: 'prep-17',
+    });
+    openImportDialog();
+    expect(store.get().importPreparationBatchId).toBeNull();
     setImportDialogOpen(true);
     expect(store.get().importDialogOpen).toBe(true);
   });

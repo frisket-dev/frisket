@@ -30,6 +30,7 @@ class ClusterPreviewRequest(_CompatibleRequest):
 
 
 class ColumnValuesPreviewRequest(_CompatibleRequest):
+    value_mode: Any = "exact"
     sheet_id: Any = None
     input_column: Any = None
     search: Any = None
@@ -178,7 +179,7 @@ class ColumnValuesPreviewResponse(_OpenPreviewResponse):
     offset: int
     limit: int
     truncated: bool
-    value_hash: str
+    value_hash: str | None
     search: str | None
     distribution: (
         NumberColumnDistribution
@@ -187,6 +188,8 @@ class ColumnValuesPreviewResponse(_OpenPreviewResponse):
         | None
     )
     list_facet: ListFacetPreview | None = None
+    inventory_complete: bool = True
+    omitted_rows: int = 0
 
 
 class ReplaceRuleMatchCount(_OpenPreviewResponse):

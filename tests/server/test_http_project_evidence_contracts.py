@@ -47,7 +47,9 @@ class _EvidenceService:
             "stale_count": 2,
         }
 
-    def cell_text_annotations(self, _pid: str, *, row_id: int, column_id: int) -> dict:
+    def cell_text_annotations(
+        self, _pid: str, *, row_id: int, column_id: int, **_window
+    ) -> dict:
         return {
             "sheet_id": 7,
             "row_id": row_id,
@@ -80,7 +82,7 @@ class _EvidenceService:
         }
 
     def evidence_viewer(
-        self, _pid: str, _link_id: str, *, locate_current: bool = False
+        self, _pid: str, _link_id: str, *, locate_current: bool = False, **_window
     ) -> dict:
         return {
             "schema_version": "frisket.evidence_viewer.v1",

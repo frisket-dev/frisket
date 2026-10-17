@@ -11,6 +11,7 @@ import type { ActionLaunchPrefill } from '../actions/actionFormInitial';
 import { type RouteState } from '../core/route/RouteState';
 import type { ColumnDef, PreviewCellDetail, Row } from '../api/open';
 import type { LensGridView } from './lensViewStore';
+import type { RowTextTarget } from './detailStore';
 import type { CompareKind } from './compareViewStore';
 
 type FilterSortStores = Pick<WorkspaceStores, 'gridView' | 'detail' | 'selection'>;
@@ -321,6 +322,19 @@ export function openRowPanelTransition(
   writeRoute({ ...base, panel: { kind: 'row', rowId: row.id, columnId: col?.id } });
   stores.detail.openRow(row, preview);
   stores.selection.setSelectedColumnId(col?.id ?? null);
+}
+
+/** Install search focus after the route's synchronous sheet reset. */
+export function openSearchTextHitTransition(
+  stores: Pick<WorkspaceStores, 'detail' | 'selection'>,
+  writeRoute: (next: RouteState) => void,
+  projectId: string,
+  target: RowTextTarget,
+): void {
+  writeRoute({ projectId, sheetId: target.sheetId, actionKind: null, review: false,
+    panel: { kind: 'row', rowId: target.rowId, columnId: target.columnId } });
+  stores.selection.setSelectedColumnId(target.columnId);
+  stores.detail.setRowTextTarget(target);
 }
 
 /** Commit the column route before hydrating drawer state. */

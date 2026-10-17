@@ -22,6 +22,9 @@ from frisket.engine.store.retrieval_lifecycle_migration import (
     RETRIEVAL_LIFECYCLE_TO_DIGEST,
     migrate_retrieval_lifecycle,
 )
+from frisket.engine.store.execution_metadata_migration import (
+    EXECUTION_METADATA_FROM_DIGEST,
+)
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
 from frisket.engine.store.search_index_work import latest_revision
 from frisket.engine.store.value_codec import encode_stored_value
@@ -288,7 +291,7 @@ def test_fresh_schema_revision_column_is_constrained() -> None:
     from frisket.engine.store.schema import SCHEMA
 
     db.executescript(SCHEMA)
-    assert RETRIEVAL_LIFECYCLE_TO_DIGEST == SCHEMA_DIGEST
+    assert RETRIEVAL_LIFECYCLE_TO_DIGEST == EXECUTION_METADATA_FROM_DIGEST
     sql = str(
         db.execute(
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='current_cells'"

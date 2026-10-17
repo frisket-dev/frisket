@@ -52,6 +52,8 @@ MODEL_CALL_CHECKPOINT_FAMILY = "model_call"
 # /actions/runs/{id}/rows?status=error on-demand endpoint).
 ROW_ERROR_SUMMARY_MAX_GROUPS = 10
 ROW_ERROR_SUMMARY_MAX_EXAMPLES = 5
+RESULT_WARNING_MAX_ITEMS = 20
+RESULT_WARNING_MAX_CHARS = 2_000
 
 
 @dataclass(frozen=True)
@@ -232,6 +234,32 @@ def _safe_result_error(value: Any, error_code: object = None) -> str | None:
     return redact_text(value, max_chars=500)
 
 
+def _encoded_result_warnings(value: Any) -> str:
+    """Validate, redact, deduplicate, and bound one cell's durable warnings."""
+
+    if value is None:
+        return "[]"
+    if isinstance(value, (str, bytes)):
+        raise TypeError("result warnings must be an iterable of strings")
+    retained: list[str] = []
+    seen: set[str] = set()
+    omitted = 0
+    for warning in value:
+        if not isinstance(warning, str):
+            raise TypeError("result warnings must contain strings")
+        safe = redact_text(warning, max_chars=RESULT_WARNING_MAX_CHARS)
+        if safe in seen:
+            continue
+        seen.add(safe)
+        if len(retained) < RESULT_WARNING_MAX_ITEMS:
+            retained.append(safe)
+        else:
+            omitted += 1
+    if omitted:
+        retained[-1] = f"{omitted + 1} additional warnings omitted"
+    return json.dumps(retained, ensure_ascii=False, separators=(",", ":"))
+
+
 class RunResultStore:
     def __init__(self, project: Any):
         self.project = project
@@ -341,6 +369,40 @@ class RunResultStore:
         )
         if cur.rowcount != 1:
             raise RuntimeError(f"run {run_id} vanished before the result write")
+
+    def set_work_progress(
+        self, run_id: int, *, kind: str, row_id: int, completed: int, total: int
+    ) -> None:
+        """Replace the active row's bounded progress facts without touching its inputs."""
+        if kind != "ocr_pages" or not 0 <= completed <= total or row_id <= 0:
+            raise ValueError("invalid action work progress")
+        value = json.dumps(
+            {"kind": kind, "row_id": row_id, "completed": completed, "total": total}
+        )
+        self._write_work_progress(run_id, value)
+
+    def clear_work_progress(self, run_id: int) -> None:
+        """Drop the preceding row's page counter before starting another row."""
+        self._write_work_progress(run_id, None)
+
+    def _write_work_progress(self, run_id: int, value: str | None) -> None:
+        # Telemetry must neither commit a caller's transaction nor wait behind
+        # another writer on the runner's event loop. The hook drops failed ticks.
+        if self.db.in_transaction:
+            return
+        timeout = int(self.db.execute("PRAGMA busy_timeout").fetchone()[0])
+        try:
+            self.db.execute("PRAGMA busy_timeout=0")
+            self.db.execute(
+                "UPDATE runs SET work_progress=? WHERE id=? AND status='running'",
+                (value, run_id),
+            )
+            self.db.commit()
+        except sqlite3.Error:
+            self.db.rollback()
+            raise
+        finally:
+            self.db.execute(f"PRAGMA busy_timeout={timeout}")
 
     def set_run_halt(
         self,
@@ -1270,13 +1332,14 @@ class RunResultStore:
             encoded_batch.append((result, value_kind, value))
         self.db.executemany(
             "INSERT INTO results (run_id, row_id, column_id, value_kind, value, tokens_in, "
-            "tokens_out, confidence, justification, error, error_code, outcome, "
+            "tokens_out, confidence, justification, warnings, error, error_code, outcome, "
             "publication_effect) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(run_id, row_id, column_id) DO UPDATE SET "
             "value_kind=excluded.value_kind,value=excluded.value, "
             "tokens_in=excluded.tokens_in, tokens_out=excluded.tokens_out, "
             "confidence=excluded.confidence, justification=excluded.justification, "
+            "warnings=excluded.warnings, "
             "error=excluded.error, error_code=excluded.error_code, "
             "outcome=excluded.outcome, "
             "publication_effect=excluded.publication_effect",
@@ -1291,6 +1354,7 @@ class RunResultStore:
                     r.get("tokens_out"),
                     r.get("confidence"),
                     r.get("justification"),
+                    _encoded_result_warnings(r.get("warnings")),
                     _safe_result_error(r.get("error"), r.get("error_code")),
                     r.get("error_code"),
                     _result_outcome(r),
@@ -3178,7 +3242,7 @@ class RunResultStore:
                 row["cancel_requested_at"] if status == "running" else None
             )
             self.db.execute(
-                "UPDATE runs SET status='running', finished_at=NULL, params=?, "
+                "UPDATE runs SET status='running', finished_at=NULL, work_progress=NULL, params=?, "
                 "cancel_requested_at=?, halted_code=NULL, "
                 "halted_reason=NULL WHERE id=?",
                 (transient_params, transient_cancel_requested_at, run_id),

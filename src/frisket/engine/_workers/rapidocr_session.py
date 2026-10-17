@@ -389,8 +389,10 @@ def _validate_ack(
             {"schema_version", "type", "request_id", "ok", "error"},
             frame="row error",
         )
-        _validate_error(frame.get("error"))
-        raise RapidOCRRowError("images could not be read or recognized")
+        # The sandboxed worker emits fixed, content-free row messages. Preserve
+        # that bounded diagnostic instead of replacing it with a generic error.
+        error = _validate_error(frame.get("error"))
+        raise RapidOCRRowError(error["message"])
     _require_exact_fields(
         frame,
         {"schema_version", "type", "request_id", "ok", "metrics"},

@@ -88,6 +88,7 @@ def test_project_lifecycle_routes_preserve_http_contract(tmp_path) -> None:
                     "transcript_status": None,
                     "media_download_candidate": None,
                     "replay_pending_count": 0,
+                    "replay_comparison_available": True,
                     "default_hidden": False,
                 }
             ],

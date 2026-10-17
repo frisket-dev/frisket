@@ -56,8 +56,8 @@ def _seed(tmp_path: Path) -> dict[str, Any]:
 
 
 def _fake_engine():
-    async def fake_page_images(self, path, media, spec, scratch):
-        del self, media, spec, path
+    async def fake_page_images(self, path, media, spec, scratch, *, engine=None):
+        del self, media, spec, path, engine
         page1 = scratch / "page-1.png"
         Image.new("RGB", (1000, 1000), "white").save(page1)
         return [page1]

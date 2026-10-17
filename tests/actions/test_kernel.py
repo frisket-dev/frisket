@@ -555,8 +555,9 @@ def test_outcome_keeps_successful_absence_distinct_from_failure() -> None:
 
 def test_result_annotations_validate_at_the_cell_outcome_boundary() -> None:
     output = TemplateOutput(rendered="value")
-    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
-        RowResult[TemplateOutput](output=output, warnings=("later",))
+    result = RowResult[TemplateOutput](output=output, warnings=("later",))
+    assert result.output == output
+    assert result.warnings == ("later",)
     with pytest.raises(ValidationError, match="EvidenceClaim"):
         Outcome[str](status="ok", value="value", evidence=("later",))
     claim = EvidenceClaim(quote="value", segment_indices=(0,))
@@ -565,3 +566,18 @@ def test_result_annotations_validate_at_the_cell_outcome_boundary() -> None:
     assert assessed.warnings == ("unverified",)
     with pytest.raises(ValidationError, match="code and message"):
         Outcome[str](status="failed", code="invalid", message="bad", evidence=(claim,))
+
+
+@pytest.mark.parametrize("warnings", [(), ("Page 2 could not be read",)])
+def test_row_result_serializes_only_present_warnings_and_roundtrips(warnings) -> None:
+    result = RowResult[TemplateOutput](
+        output=TemplateOutput(rendered="usable text"), warnings=warnings
+    )
+    expected = {"output": {"rendered": "usable text"}}
+    if warnings:
+        expected["warnings"] = list(warnings)
+    assert result.model_dump(mode="json") == expected
+    assert (
+        RowResult[TemplateOutput].model_validate_json(result.model_dump_json())
+        == result
+    )

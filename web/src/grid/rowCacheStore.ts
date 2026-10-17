@@ -16,7 +16,7 @@
 // createWorkspaceStores(projectId) assembles one registry per project,
 // disposed on project switch, exactly like every other domain store.
 
-import type { GridFilterSpec, GridSortSpec, Row, SheetDataOptions } from '../api/open';
+import type { ColumnDef, GridFilterSpec, GridSortSpec, Row, SheetDataOptions } from '../api/open';
 
 export type CachedPage = Row[] | 'loading';
 
@@ -24,6 +24,7 @@ export interface RowCacheSnapshot {
   key: string;
   version: number;
   totalRows: number | null;
+  columns?: ColumnDef[];
 }
 
 export interface RowCacheSlot {
@@ -46,6 +47,7 @@ export interface RowCacheSlot {
     page: number,
     rows: Row[],
     totalRows?: number,
+    columns?: ColumnDef[],
   ): boolean;
   subscribe(listener: () => void): () => void;
 }
@@ -124,7 +126,7 @@ function createRowCacheSlot(): RowCacheSlot {
     setLoading(page: number) {
       pages.set(page, 'loading');
     },
-    setPage(key, epoch, page, rows, totalRows) {
+    setPage(key, epoch, page, rows, totalRows, columns) {
       if (snapshot.key !== key || activeEpoch !== epoch) return false;
       pages.set(page, rows);
       if (totalRows !== undefined) metadataReadyEpoch = epoch;
@@ -132,6 +134,7 @@ function createRowCacheSlot(): RowCacheSlot {
         key,
         version: snapshot.version + 1,
         totalRows: totalRows ?? snapshot.totalRows,
+        ...(columns ? { columns } : snapshot.columns ? { columns: snapshot.columns } : {}),
       };
       emit();
       return true;
@@ -183,6 +186,8 @@ export function computeRowCacheKey(
     sheetId,
     dataVersion,
     o.parentRowId ?? '',
+    JSON.stringify(o.columnIds ? [...o.columnIds].sort() : null),
+    o.valueMode ?? 'exact',
     JSON.stringify(o.filter ?? null),
     JSON.stringify(o.sort ?? null),
     JSON.stringify(o.rowIds ?? null),
