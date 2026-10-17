@@ -124,7 +124,16 @@ def _seed_grounded_ocr(project: Project) -> dict[str, object]:
         source_column_id=source_column,
         metadata={"engine": "rapidocr", "page_images": {}},
     )
-    span = record_source_span(
+    heading_span = record_source_span(
+        project,
+        artifact_id=int(artifact["id"]),
+        span_kind="region",
+        page_start=2,
+        page_end=2,
+        quote="CITYCOUNCIL MEMORANDUM",
+        bbox=[{"x0": 0.1, "y0": 0.1, "x1": 0.6, "y1": 0.2}],
+    )
+    phrase_span = record_source_span(
         project,
         artifact_id=int(artifact["id"]),
         span_kind="region",
@@ -138,7 +147,10 @@ def _seed_grounded_ocr(project: Project) -> dict[str, object]:
         project,
         subject_kind="cell",
         subject_ref=refs[row],
-        spans=[{"span_id": int(span["id"])}],
+        spans=[
+            {"span_id": int(heading_span["id"])},
+            {"span_id": int(phrase_span["id"])},
+        ],
         sheet_id=sheet,
         row_id=row,
         column_id=text_column,
@@ -157,7 +169,8 @@ def _seed_grounded_ocr(project: Project) -> dict[str, object]:
         "ordinary_json": ordinary_json,
         "blocks": blocks,
         "artifact": artifact,
-        "span": span,
+        "heading_span": heading_span,
+        "phrase_span": phrase_span,
         "link": link,
     }
 
@@ -174,6 +187,8 @@ def test_search_then_row_read_keeps_grounded_ocr_sources_and_hides_only_blocks(
 
         hits = tools.search_cells("turquoise lighthouse", int(seeded["sheet"]))["hits"]
         hit = next(item for item in hits if item["navigation"]["kind"] == "evidence")
+        assert hit["navigation"]["span_id"] == seeded["phrase_span"]["stable_id"]
+        assert hit["navigation"]["span_id"] != seeded["heading_span"]["stable_id"]
         opened = tools.open_source(hit["citation_id"])
         prepared = next(
             passage
@@ -226,7 +241,7 @@ def test_search_then_row_read_keeps_grounded_ocr_sources_and_hides_only_blocks(
             "column_id": seeded["text_column"],
             "evidence_link_id": seeded["link"]["stable_id"],
             "artifact_id": seeded["artifact"]["stable_id"],
-            "span_id": seeded["span"]["stable_id"],
+            "span_id": hit["navigation"]["span_id"],
         }
 
         explicit = tools.read_rows(
