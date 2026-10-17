@@ -108,7 +108,7 @@ heads AS MATERIALIZED (
     ON head.row_id=r.id AND head.column_id=:column_id
   WHERE r.sheet_id=:sheet_id AND r.hidden=0 AND r.id IN ({row_ids})
 ),
-authority AS MATERIALIZED (
+authority AS NOT MATERIALIZED (
   SELECT head.*,
     CASE head.origin_kind
       WHEN 'source_cell' THEN (
