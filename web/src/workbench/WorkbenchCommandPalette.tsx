@@ -223,60 +223,81 @@ export function WorkbenchCommandPalette({
   );
   const anchored = anchor !== null;
   const preparationScope = JSON.stringify([projectId, activeSearchSheetId]);
-  const [preparationTarget, setPreparationTarget] = useState<{
-    scope: string; sheetId: number; batchId: string;
+  const [preparationState, setPreparationState] = useState<{
+    scope: string;
+    signal: AbortSignal;
+    target: { sheetId: number; batchId: string } | null;
+    busy: boolean;
+    error: string | null;
   } | null>(null);
-  const currentPreparation = preparationTarget?.scope === preparationScope ? preparationTarget : null;
+  const ownedPreparation = preparationState?.scope === preparationScope && !preparationState.signal.aborted
+    ? preparationState : null;
+  const currentPreparation = ownedPreparation?.target ?? null;
+  const preparationBusy = ownedPreparation?.busy ?? false;
+  const preparationError = ownedPreparation?.error ?? null;
   const preparationRevision = useRef<string | null>(null);
   const preparationController = useRef<AbortController | null>(null);
-  useEffect(() => () => preparationController.current?.abort(), [projectId]);
-  const [preparationBusy, setPreparationBusy] = useState(false);
-  const [preparationError, setPreparationError] = useState<string | null>(null);
+  const preparationGeneration = useRef(0);
   useEffect(() => {
     if (!projectId) return undefined;
-    const controller = new AbortController();
-    preparationController.current = controller;
-    void listSearchPreparations(projectId, { signal: controller.signal })
-      .then(({ batches }) => {
-        if (controller.signal.aborted) return;
-        const awaitingApproval = batches.find((batch) => (
-          batch.sheet_id === Number(activeSearchSheetId) && batch.status === 'needs_consent'
-        ));
-        if (awaitingApproval) {
-          setPreparationTarget({ scope: preparationScope, sheetId: awaitingApproval.sheet_id, batchId: awaitingApproval.id });
-        }
-      })
-      .catch((error: Error) => {
-        if (!controller.signal.aborted && error.name !== 'AbortError') setPreparationError(error.message);
-      });
-    return () => controller.abort();
-  }, [projectId, activeSearchSheetId, preparationScope]);
-  const prepareSearchGap = (sheetId: number) => {
-    if (!projectId || !Number.isInteger(sheetId) || sheetId <= 0 || preparationBusy) return;
-    setPreparationBusy(true);
-    setPreparationError(null);
-    setPreparationTarget(null);
+    const generation = ++preparationGeneration.current;
     preparationController.current?.abort();
     const controller = new AbortController();
     preparationController.current = controller;
+    const isCurrent = () => !controller.signal.aborted && generation === preparationGeneration.current;
+    void listSearchPreparations(projectId, { signal: controller.signal })
+      .then(({ batches }) => {
+        if (!isCurrent()) return;
+        const awaitingApproval = batches.find((batch) => (
+          batch.sheet_id === Number(activeSearchSheetId) && batch.status === 'needs_consent'
+        ));
+        setPreparationState({
+          scope: preparationScope, signal: controller.signal, busy: false, error: null,
+          target: awaitingApproval ? { sheetId: awaitingApproval.sheet_id, batchId: awaitingApproval.id } : null,
+        });
+      })
+      .catch((error: Error) => {
+        if (isCurrent() && error.name !== 'AbortError') {
+          setPreparationState({ scope: preparationScope, signal: controller.signal, target: null, busy: false, error: error.message });
+        }
+      });
+    return () => {
+      preparationGeneration.current += 1;
+      preparationController.current?.abort();
+    };
+  }, [projectId, activeSearchSheetId, preparationScope]);
+  const prepareSearchGap = (sheetId: number) => {
+    if (!projectId || !Number.isInteger(sheetId) || sheetId <= 0 || preparationBusy) return;
+    const generation = ++preparationGeneration.current;
+    preparationController.current?.abort();
+    const controller = new AbortController();
+    preparationController.current = controller;
+    const isCurrent = () => !controller.signal.aborted && generation === preparationGeneration.current;
+    setPreparationState({ scope: preparationScope, signal: controller.signal, target: null, busy: true, error: null });
     void listSearchPreparations(projectId, { signal: controller.signal })
       .then(async ({ batches }) => {
-        if (controller.signal.aborted) return;
+        if (!isCurrent()) return;
         const running = batches.find((batch) => batch.sheet_id === sheetId && batch.status === 'preparing');
         if (running) {
           onClose();
           return;
         }
         const batch = await createSearchPreparation(projectId, { sheet_id: sheetId }, { signal: controller.signal });
-        if (controller.signal.aborted) return;
+        if (!isCurrent()) return;
         if (batch.status === 'preparing') onClose();
-        else setPreparationTarget({ scope: preparationScope, sheetId, batchId: batch.id });
+        else setPreparationState({
+          scope: preparationScope, signal: controller.signal,
+          target: { sheetId, batchId: batch.id }, busy: false, error: null,
+        });
       })
       .catch((error) => {
-        if (!controller.signal.aborted) setPreparationError(error instanceof Error ? error.message : String(error));
+        if (isCurrent()) setPreparationState({
+          scope: preparationScope, signal: controller.signal, target: null, busy: false,
+          error: error instanceof Error ? error.message : String(error),
+        });
       })
       .finally(() => {
-        if (!controller.signal.aborted) setPreparationBusy(false);
+        if (isCurrent()) setPreparationState((current) => current ? { ...current, busy: false } : current);
       });
   };
   const hasAnyFilteredResults =
@@ -560,8 +581,9 @@ export function WorkbenchCommandPalette({
                     if (batch.status !== 'needs_consent') refreshSearch();
                   }
                 }}
-                onDone={() => { setPreparationTarget(null); onClose(); }}
-                onError={setPreparationError}
+                onDone={() => { setPreparationState(null); onClose(); }}
+                onError={(error) => setPreparationState((current) => current?.scope === preparationScope && !current.signal.aborted
+                  ? { ...current, error } : current)}
 
               />
             ) : null}
