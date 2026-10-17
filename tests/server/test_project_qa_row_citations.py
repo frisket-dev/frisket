@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import frisket.retrieval.service as retrieval_service
 import pytest
 
@@ -393,6 +395,11 @@ def test_file_scope_attaches_prepared_search_source_only_to_its_file_cell(tmp_pa
             "column_id": text_column,
         }
         opened = tools.open_source(hit["citation_id"])
+        prepared = next(
+            passage
+            for passage in opened["passages"]
+            if passage["kind"] == "prepared_evidence"
+        )
         read = tools.read_rows(sheet, [row])
 
         assert [cell["column_id"] for cell in read["rows"][0]["cells"]] == [
@@ -400,8 +407,55 @@ def test_file_scope_attaches_prepared_search_source_only_to_its_file_cell(tmp_pa
         ]
         file_cell = _cell(read, "Document")
         source_ids = {source["citation_id"] for source in file_cell["sources"]}
-        assert {hit["citation_id"], opened["citation_id"]} <= source_ids
+        assert prepared["citation_id"] in source_ids
+        assert hit["citation_id"] not in source_ids
+        assert opened["citation_id"] not in source_ids
         with pytest.raises(ProjectQAScopeError, match="file scope"):
             tools.read_rows(sheet, [row], [text_column])
+    finally:
+        project.close()
+
+
+def test_read_rows_mints_a_fresh_citation_after_total_observation_truncation(
+    tmp_path,
+):
+    project = Project.create(tmp_path / "row-citation-excerpts.frisket", name="Rows")
+    try:
+        sheet = project.add_sheet("Documents")
+        columns = [project.add_column(sheet, f"Padding {index}") for index in range(10)]
+        target_column = project.add_column(sheet, "Target")
+        target = "exact target excerpt " * 75
+        values = {
+            **{f"Padding {index}": "x" * 4_000 for index in range(9)},
+            "Padding 9": "x" * 1_000,
+            "Target": target,
+        }
+        [row] = project.add_rows(
+            sheet,
+            [values],
+            {
+                **{f"Padding {index}": column for index, column in enumerate(columns)},
+                "Target": target_column,
+            },
+        )
+        store, turn = _turn(project)
+        tools = ProjectQATools(project, turn, store)
+
+        crowded = tools.read_rows(sheet, [row], [*columns, target_column])
+        crowded_target = _cell(crowded, "Target")
+        assert crowded_target["truncated"] is True
+        crowded_citation = store.get_citation(crowded_target["citation_id"])
+        assert crowded_citation["metadata"] == {"truncated": True}
+        assert crowded_citation["excerpt"] != json.dumps(target)
+
+        isolated = tools.read_rows(sheet, [row], [target_column])
+        isolated_target = _cell(isolated, "Target")
+        isolated_citation = store.get_citation(isolated_target["citation_id"])
+
+        assert isolated_target["truncated"] is False
+        assert isolated_target["value"] == target
+        assert isolated_citation["id"] != crowded_citation["id"]
+        assert isolated_citation["excerpt"] == json.dumps(target)
+        assert isolated_citation["metadata"] == {"truncated": False}
     finally:
         project.close()
