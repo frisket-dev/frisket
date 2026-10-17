@@ -10,7 +10,7 @@ import {
   type SearchPreparationTextSample,
 } from '../api/searchPreparation';
 import { formatNumberDisplay } from '../format';
-import { usePoll } from '../hooks/usePoll';
+import { usePoll, type PollResult } from '../hooks/usePoll';
 import { PdfTextPagePreview } from './importWorkspace/pdfPacket/PdfTextPagePreview';
 import { resamplePages, samplePages } from './importWorkspace/pdfPacket/model';
 
@@ -212,7 +212,7 @@ export function SearchPreparationReceipt({
     setBatch(next);
     setLoadingError(null);
   };
-  const refresh = async () => {
+  const refresh = async (): Promise<PollResult> => {
     if (handedOff.current) return 'stop';
     if (mutationGeneration.current !== null) return;
     const generation = ++requestGeneration.current;
