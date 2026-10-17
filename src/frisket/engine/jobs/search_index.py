@@ -10,10 +10,12 @@ from frisket.project_identity import ProjectStorageKey
 from frisket.retrieval.preparation import (
     AUDIO_CHANNEL,
     DEFAULT_TEXT_RECIPE,
+    DEFAULT_TEXT_SPACE,
     IMAGE_CHANNEL,
     OCR_TEXT_CHANNEL,
     PDF_PAGE_CHANNEL,
     TRANSCRIPT_CHANNEL,
+    TEXT_CHANNEL,
     VIDEO_CHANNEL,
     PreparationEncoder,
     preparation_work_marker,
@@ -23,6 +25,7 @@ from frisket.retrieval.preparation import (
     process_timed_media_preparation_batch,
     read_preparation_policy,
 )
+from frisket.retrieval.store import RetrievalStore
 from frisket.search_index import analyze_retrieval_store, index_batch, index_needs_work
 
 from .ports import JobHandlerContext
@@ -39,6 +42,23 @@ INDEX_BATCH_SIZE = 1000
 BATCHES_PER_CLAIM = 4
 INDEX_BATCH_MAX_BYTES = 4 * 1024 * 1024
 INDEX_BYTES_PER_CLAIM = INDEX_BATCH_MAX_BYTES * BATCHES_PER_CLAIM
+
+
+def _defer_unavailable_encoder_work(project: Project) -> bool:
+    with RetrievalStore(project).open() as store:
+        store.mark_pending_encoder_unavailable(
+            space_id=DEFAULT_TEXT_SPACE.identity,
+            channels=(
+                TEXT_CHANNEL,
+                TRANSCRIPT_CHANNEL,
+                OCR_TEXT_CHANNEL,
+                IMAGE_CHANNEL,
+                PDF_PAGE_CHANNEL,
+                VIDEO_CHANNEL,
+                AUDIO_CHANNEL,
+            ),
+        )
+    return preparation_work_marker(project.path) is None
 
 
 def process_index_batches(
@@ -65,6 +85,9 @@ def process_index_batches(
         if complete and not stopped() and embedding_encoder is not None:
             policy = read_preparation_policy(project)
             preparation_started = preparation_work_marker(project.path) is not None
+            if not embedding_encoder.available():
+                complete = _defer_unavailable_encoder_work(project)
+                break
             preparation_steps = (
                 lambda: process_text_preparation_batch(
                     project,
@@ -128,6 +151,8 @@ def process_index_batches(
                 processed += step.processed_parts
                 preparation_complete = preparation_complete and step.complete
             complete = preparation_complete and not stopped()
+            if not stopped() and not embedding_encoder.available():
+                complete = _defer_unavailable_encoder_work(project)
             # One pass gives each channel one bounded batch. Further work gets
             # another durable claim instead of letting one project monopolize
             # the worker after its lexical scopes have drained.

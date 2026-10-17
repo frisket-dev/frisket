@@ -22,6 +22,7 @@ from frisket.retrieval.encoding import EncodingError
 from frisket.retrieval.store import RETRIEVAL_DB_NAME, RetrievalStore
 from frisket.search import search_project
 from frisket.server.workspace import Workspace
+from frisket.server.services.search_preparation import SearchPreparationService
 
 
 def _project(root):
@@ -76,10 +77,12 @@ def test_unavailable_encoder_stops_continuations_until_setup_enqueues(tmp_path):
             {"body": column},
         )
 
-        project._frisket_schedule_search_index()
+        job_id = project._frisket_schedule_search_index()
+        assert job_id is not None
         worker = Worker(workspace.queue, workspace.registry)
         assert worker.run_once()
         assert workspace.queue.counts()["queued"] == 0
+        assert workspace.queue.get(job_id).result["complete"] is True
         with RetrievalStore(project).open() as store:
             statuses = dict(
                 store.db.execute(
@@ -87,11 +90,16 @@ def test_unavailable_encoder_stops_continuations_until_setup_enqueues(tmp_path):
                     "WHERE space_id IS NOT NULL GROUP BY status"
                 ).fetchall()
             )
-        assert statuses == {"pending": 8, "unavailable": 1}
+        assert statuses == {"unavailable": 9}
+        assert search_index.index_work_marker(project) is None
+        indexing = SearchPreparationService(workspace).list(project_id).indexing
+        assert indexing.status == "idle"
+        assert indexing.job_id is None
 
         encoder.installed = True
         workspace._embedding_setup_completed()
         assert workspace.queue.counts()["queued"] == 1
+        assert search_index.index_work_marker(project) is not None
         for _ in range(20):
             if not worker.run_once():
                 break
@@ -146,6 +154,63 @@ def test_installed_encoder_does_not_continue_policy_disabled_work(tmp_path):
             "SELECT status,error_code FROM preparation WHERE channel='audio'"
         ).fetchone()
     assert tuple(disabled) == ("unavailable", "policy_disabled")
+
+
+def test_missing_encoder_defers_only_unstarted_work_in_its_space_and_channels(tmp_path):
+    _project(tmp_path)
+    with closing(Project(tmp_path / "docs.frisket")) as project:
+        search_index.process_index_batches(project)
+        with RetrievalStore(project).open() as store:
+            sources = [
+                row[0]
+                for row in store.db.execute(
+                    "SELECT source_id FROM preparation WHERE channel='text' ORDER BY source_id"
+                )
+            ]
+            for source, status in zip(
+                sources, ("preparing", "ready", "failed", "unavailable")
+            ):
+                store.db.execute(
+                    "UPDATE preparation SET status=?,error_code='keep',cursor_json='{}' "
+                    "WHERE source_id=? AND channel='text'",
+                    (status, source),
+                )
+            store.db.execute(
+                "UPDATE preparation SET space_id='another-encoder' WHERE source_id=? AND channel='text'",
+                (sources[4],),
+            )
+            store.db.execute(
+                "UPDATE preparation SET channel='future-channel' WHERE source_id=? AND channel='text'",
+                (sources[5],),
+            )
+            before = [
+                tuple(row)
+                for row in store.db.execute(
+                    "SELECT * FROM preparation WHERE source_id IN (?,?,?,?,?,?) ORDER BY source_id,channel",
+                    sources[:6],
+                )
+            ]
+            assert (
+                store.mark_pending_encoder_unavailable(
+                    space_id=search_index.DEFAULT_TEXT_SPACE.identity,
+                    channels=(search_index.TEXT_CHANNEL,),
+                )
+                == 3
+            )
+            after = [
+                tuple(row)
+                for row in store.db.execute(
+                    "SELECT * FROM preparation WHERE source_id IN (?,?,?,?,?,?) ORDER BY source_id,channel",
+                    sources[:6],
+                )
+            ]
+            assert after == before
+            assert (
+                store.db.execute(
+                    "SELECT COUNT(*) FROM preparation WHERE status='unavailable' AND error_code='encoder_unavailable'"
+                ).fetchone()[0]
+                == 3
+            )
 
 
 def test_engine_busy_retries_job_and_resumes_without_source_edit(tmp_path):
