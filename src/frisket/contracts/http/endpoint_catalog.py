@@ -618,6 +618,7 @@ _TENANT_SKILLS: tuple[RouteSpec, ...] = (
 _TENANT_EDITOR: tuple[RouteSpec, ...] = (
     ("create_search_preparation", "POST"),
     ("decide_search_preparation", "POST"),
+    ("replan_search_preparation", "POST"),
     ("stop_search_preparation", "POST"),
     ("extraction_preview", "POST"),
     ("extraction_template_save", "POST"),
@@ -791,6 +792,7 @@ _BROWSER_CLIENT_IDS = (
             "tenant.list_search_preparations.get",
             "tenant.get_search_preparation.get",
             "tenant.decide_search_preparation.post",
+            "tenant.replan_search_preparation.post",
             "tenant.stop_search_preparation.post",
             "tenant.get_search_preparation_text_samples.get",
             "tenant.extraction_document_get.get",
