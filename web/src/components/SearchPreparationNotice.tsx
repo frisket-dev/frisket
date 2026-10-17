@@ -70,7 +70,7 @@ export function SearchPreparationNotice({
         </div>
       </div>
 
-      {((active && (notice.stage === 'download' || notice.progress !== null))
+      {((active && (notice.stage === 'download' || notice.stage === 'index' || notice.progress !== null))
         || (notice.tone === 'error' && notice.progress !== null)) && (
         <div className="search-preparation-progress" data-testid="search-preparation-progress">
           <span
@@ -96,7 +96,9 @@ export function SearchPreparationNotice({
             <div className="run-file-progress" key={file.source_id}>
               <div className="run-file-progress-copy">
                 <span className="run-file-progress-name">{file.filename || 'PDF document'}</span>
-                <span className="run-file-progress-count">{file.completed.toLocaleString()} / {file.total.toLocaleString()} pages</span>
+                <span className="run-file-progress-count">
+                  {file.completed.toLocaleString()} / {file.total.toLocaleString()} pages · {(file.total - file.completed).toLocaleString()} remaining
+                </span>
               </div>
               <progress
                 className="run-file-progress-bar"

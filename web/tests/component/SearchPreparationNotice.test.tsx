@@ -167,8 +167,8 @@ describe('search preparation notice projection', () => {
     expect(first).toHaveAttribute('max', '24909');
     expect(first).toHaveAttribute('value', '1896');
     expect(screen.getByRole('progressbar', { name: 'Indexing pages for Short report.pdf' })).toHaveAttribute('value', '192');
-    expect(screen.getByText('1,896 / 24,909 pages')).toBeVisible();
-    expect(screen.getByText('192 / 196 pages')).toBeVisible();
+    expect(screen.getByText('1,896 / 24,909 pages · 23,013 remaining')).toBeVisible();
+    expect(screen.getByText('192 / 196 pages · 4 remaining')).toBeVisible();
     expect(screen.getByText('More PDFs are being indexed.')).toBeVisible();
     expect(screen.queryByTestId('search-preparation-progress')).toBeNull();
     expect(screen.getByTestId('search-preparation-banner')).not.toHaveTextContent(/%|ETA|source:first/);
@@ -184,8 +184,8 @@ describe('search preparation notice projection', () => {
 
     const starting = deriveSearchPreparationNotice(snapshot({ indexing: { status: 'pending', job_id: null, error: null } }));
     view.rerender(<SearchPreparationNotice notice={starting!} />);
-    expect(screen.queryByRole('progressbar')).toBeNull();
-    expect(screen.getByTestId('search-preparation-banner')).toHaveTextContent('Waiting to index');
+    expect(screen.getByRole('progressbar')).not.toHaveAttribute('aria-valuenow');
+    expect(screen.getByTestId('search-preparation-banner')).toHaveTextContent('Indexing search content');
   });
 
   it('shows concurrent OCR page counters separately and drops only the finished file', () => {
@@ -308,11 +308,26 @@ describe('search preparation notice projection', () => {
 
     list.mockResolvedValue({
       schemaVersion: 'frisket.search_preparation_list.v1', batches: [],
+      indexing: { status: 'queued', job_id: 781, error: null },
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(result.current).toMatchObject({ stage: 'index', activityKey: 'preparation:prep-1',
+      detail: 'Indexing search content', progress: null });
+    const view = render(<SearchPreparationNotice notice={result.current!} />);
+    const progress = screen.getByRole('progressbar', { name: 'Preparing search' });
+    expect(progress).toHaveClass('indeterminate');
+    expect(progress).not.toHaveAttribute('aria-valuenow');
+
+    list.mockResolvedValue({
+      schemaVersion: 'frisket.search_preparation_list.v1', batches: [],
       indexing: { status: 'running', job_id: 781, error: null,
         pdf_files: [{ source_id: 'pdf:one', filename: 'Council papers.pdf', completed: 1_896, total: 24_909 }] },
     });
     await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
-    expect(result.current).toMatchObject({ stage: 'index', activityKey: 'preparation:prep-1' });
+    expect(result.current).toMatchObject({ stage: 'index', activityKey: 'preparation:prep-1',
+      detail: 'Indexing search content', progress: null });
+    view.rerender(<SearchPreparationNotice notice={result.current!} />);
+    expect(screen.getByRole('progressbar', { name: 'Preparing search' })).toBe(progress);
     list.mockResolvedValue({
       schemaVersion: 'frisket.search_preparation_list.v1', batches: [],
       indexing: { status: 'queued', job_id: 782, error: null,
@@ -320,13 +335,20 @@ describe('search preparation notice projection', () => {
     });
     await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
     expect(result.current).toMatchObject({ stage: 'index', activityKey: 'preparation:prep-1',
+      detail: 'Indexing search content', progress: null,
       pdfFiles: [{ source_id: 'pdf:one', completed: 1_897, total: 24_909 }] });
+    view.rerender(<SearchPreparationNotice notice={result.current!} />);
+    expect(screen.getByRole('progressbar', { name: 'Preparing search' })).toBe(progress);
+    expect(progress).not.toHaveAttribute('aria-valuenow');
+    expect(screen.getByTestId('search-preparation-banner')).not.toHaveTextContent(/queued|finished|ready|%/);
     list.mockResolvedValue({
       schemaVersion: 'frisket.search_preparation_list.v1', batches: [],
       indexing: { status: 'idle', job_id: null, error: null },
     });
     await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
     expect(result.current).toMatchObject({ stage: 'complete', activityKey: 'preparation:prep-1' });
+    view.rerender(<SearchPreparationNotice notice={result.current!} />);
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
 
     list.mockResolvedValue({
       schemaVersion: 'frisket.search_preparation_list.v1', batches: [],
@@ -421,7 +443,7 @@ describe('search preparation notice projection', () => {
     fireEvent.click(screen.getByTestId('search-preparation-details'));
     expect(screen.getByText('One PDF page could not be recognized.')).toBeInTheDocument();
     expect(screen.getByText('Extracting text · 2 files')).toBeInTheDocument();
-    expect(screen.getByText('Search indexing queued')).toBeInTheDocument();
+    expect(screen.getByText('Indexing search content')).toBeInTheDocument();
   });
 
   it('keeps required approval actionable ahead of background indexing', () => {
