@@ -456,6 +456,29 @@ describe('history and review generated HTTP reads', () => {
     expect(page.bundles[0].fields[0].canEdit).toBe(false);
   });
 
+  it('keeps bounded review metadata separate from exact values and uses only server download links', async () => {
+    const descriptor = { preview: 'Only an excerpt', total_characters: 90_000, total_bytes: 90_000,
+      truncated: true, download_href: '/api/projects/p/cells/7/2/download?revision=21' };
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ ...reviewBundlesFixture, bundles: [{
+      ...reviewBundlesFixture.bundles[0], source: { headline: null },
+      sources: [{ ...reviewBundlesFixture.bundles[0].sources[0], value: null, bounded_value: descriptor }],
+      fields: [{ ...reviewItem, value: null, can_edit: true, justification: null,
+        bounded_value: { ...descriptor, download_href: null }, bounded_justification: { ...descriptor, download_href: null } }],
+    }] })));
+    const page = await historyReviewDomain('bounded-review').getReviewBundles();
+    const row = page.bundles[0];
+    expect(row.source).toEqual({ headline: null });
+    expect(row.context).toBe('headline: Only an excerpt');
+    expect(row.sources?.[0]).toMatchObject({ value: null, boundedValue: {
+      preview: 'Only an excerpt', totalCharacters: 90_000, totalBytes: 90_000,
+      downloadHref: '/api/projects/p/cells/7/2/download?revision=21',
+    } });
+    expect(row.fields[0]).toMatchObject({ value: null, canEdit: false, justification: '',
+      boundedValue: { preview: 'Only an excerpt', downloadHref: null },
+      boundedJustification: { preview: 'Only an excerpt', downloadHref: null },
+    });
+  });
+
   it('maps durable run status and exact per-field counts', async () => {
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

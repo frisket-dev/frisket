@@ -5,6 +5,7 @@ import { useEscapeDismiss } from '../../hooks/useEscapeDismiss';
 import { handleAutoResizeTextareaInput, resizeTextareaToContent } from '../action-panel/formControlHelpers';
 import { ReviewSourcePreview } from './ReviewSourcePreview';
 import { ReviewValue } from './ReviewValue';
+import { ReviewExcerpt } from './ReviewExcerpt';
 import type { ReviewItemLocation, ReviewItemSelection } from './reviewItemLocations';
 import { decisionLabel, isDecided } from './reviewDecisions';
 import { isPlainTextReviewField, useReviewSession, type ReviewSessionController, type ReviewSessionOptions } from './useReviewSession';
@@ -34,8 +35,10 @@ function FieldDecision({ field, controller: c, onSelectItem, selectableItemIndic
     if (selected) sectionRef.current?.scrollIntoView?.({ block: 'nearest' });
   }, [selected]);
   const editable = isPlainTextReviewField(field);
-  const editUnavailable = field.canEdit === false;
-  const editUnavailableMessage = 'This output was replaced or edited after the run. Editing it would not safely update the latest cell.';
+  const editUnavailable = Boolean(field.boundedValue) || field.canEdit === false;
+  const editUnavailableMessage = field.boundedValue
+    ? 'Only an excerpt is shown; editing is unavailable.'
+    : 'This output was replaced or edited after the run. Editing it would not safely update the latest cell.';
   return <section ref={sectionRef} className={styles.field} data-selected={selected} data-review-state={field.reviewState}
     data-testid={`review-field-${field.columnName}`} data-review-changed={field.changed ? 'true' : 'false'} data-review-decision={field.reviewDecision}>
     <button type="button" className={styles.fieldSelect} aria-pressed={selected}
@@ -63,8 +66,9 @@ function FieldDecision({ field, controller: c, onSelectItem, selectableItemIndic
     }}>
       <ReviewValue field={field} onSelectItem={c.busy ? undefined : onSelectItem} selectableItemIndices={selectableItemIndices} />
     </div>
-    {editUnavailable && <p className={styles.editUnavailable}>{editUnavailableMessage} Accept, reject, clear, and notes are still available.</p>}
-    {editing && <div className={styles.editor}>
+    {editUnavailable && <p className={styles.editUnavailable}>{editUnavailableMessage} {field.boundedValue
+      ? 'Accept, reject, and notes are still available.' : 'Accept, reject, clear, and notes are still available.'}</p>}
+    {editing && !editUnavailable && <div className={styles.editor}>
       <textarea ref={(node) => { if (node && document.activeElement !== node) { node.focus(); resizeTextareaToContent(node); } }}
         className="form-input form-textarea form-textarea-autogrow" rows={2}
         aria-label={`Edit proposed ${field.columnName} value`} data-testid="review-edit-input"
@@ -77,7 +81,9 @@ function FieldDecision({ field, controller: c, onSelectItem, selectableItemIndic
       <button className="btn" disabled={c.busy} onClick={() => { void c.resolve([field], 'edit', c.editValue); }}>Save edit</button>
       <button className="btn" disabled={c.busy} onClick={c.cancelEdit}>Cancel</button>
     </div>}
-    {selected && field.justification && <p className={styles.justification}>{field.justification}</p>}
+    {selected && (field.boundedJustification
+      ? <div className={styles.justification} aria-label="Reason excerpt"><ReviewExcerpt excerpt={field.boundedJustification} /></div>
+      : field.justification && <p className={styles.justification}>{field.justification}</p>)}
   </section>;
 }
 

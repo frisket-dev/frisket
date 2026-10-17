@@ -518,6 +518,7 @@ def read_current_column(
     column_id: int,
     row_ids: list[int],
     bounded: bool,
+    preserve_invalid: bool = False,
 ) -> dict[int, CurrentCellRead]:
     """Read one column for a row page, omitting only oversized bounded values."""
 
@@ -625,6 +626,11 @@ def read_current_column(
                 )
                 value = None
                 value_present = False
+            elif stored_kind == "legacy_invalid" and preserve_invalid:
+                try:
+                    value = decode_stored_value(stored_kind, stored_value)
+                except (TypeError, ValueError, OverflowError, RecursionError):
+                    value = stored_value
             else:
                 value = decode_stored_value(stored_kind, stored_value)
             output[row_id] = CurrentCellRead(

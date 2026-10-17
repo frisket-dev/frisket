@@ -1163,6 +1163,14 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
         ReviewDecisionActionOutput,
         _project_errors(
             ("review_value_required", "Edit decisions require a replacement value."),
+            (
+                "review_value_too_large",
+                "The replacement value exceeds the Review edit limit.",
+            ),
+            (
+                "review_value_truncated",
+                "A value shown only as an excerpt cannot be edited in Review.",
+            ),
             ("review_target_not_found", "The current result cell was not found."),
             ("review_complete", "Reopen this review to make more decisions."),
             ("output_column_busy", "The result column is claimed by a running action."),

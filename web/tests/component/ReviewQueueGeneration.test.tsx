@@ -237,6 +237,48 @@ it('keeps historical decisions and notes available while explaining why edit is 
   await waitFor(() => expect(decide).toHaveBeenLastCalledWith('9:3:4', 'accept', undefined));
 });
 
+it('refuses an edit over 64 KiB in UTF-8 while keeping the draft available', async () => {
+  vi.spyOn(stores.projectApi, 'getReviewBundles').mockResolvedValue(page('text'));
+  const decide = vi.spyOn(stores.projectApi, 'reviewItem').mockResolvedValue();
+  mount();
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit text', exact: true }));
+  const input = screen.getByRole('textbox', { name: 'Edit proposed text value' });
+  fireEvent.change(input, { target: { value: 'é'.repeat(32_769) } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save edit' }));
+
+  expect(screen.getByRole('alert')).toHaveTextContent('Edits must be 64 KiB or smaller.');
+  expect(input).toBeVisible();
+  expect(decide).not.toHaveBeenCalled();
+});
+
+it('keeps excerpted output read-only for the pencil and E shortcut while allowing decisions and notes', async () => {
+  const value = page('excerpt');
+  Object.assign(value.bundles[0].fields[0], { value: null, canEdit: true,
+    boundedValue: { preview: 'A partial result', totalCharacters: 90_000, totalBytes: 90_000, downloadHref: null },
+    justification: '', boundedJustification: { preview: 'A partial reason', totalCharacters: 80_000, totalBytes: 80_000, downloadHref: null },
+  });
+  vi.spyOn(stores.projectApi, 'getReviewBundles').mockResolvedValue(value);
+  const decide = vi.spyOn(stores.projectApi, 'reviewItem').mockResolvedValue();
+  vi.spyOn(stores.projectApi, 'getReviewCount').mockResolvedValue(1);
+  mount();
+
+  const edit = await screen.findByRole('button', { name: 'Edit excerpt', exact: true });
+  expect(edit).toBeDisabled();
+  expect(edit).toHaveAttribute('title', 'Only an excerpt is shown; editing is unavailable.');
+  expect(screen.queryByText(/replaced or edited after the run/)).toBeNull();
+  expect(screen.getByLabelText('Reason excerpt')).toHaveTextContent('A partial reason');
+  fireEvent.click(edit);
+  fireEvent.keyDown(window, { key: 'e' });
+  expect(screen.queryByTestId('review-edit-input')).toBeNull();
+  expect(decide).not.toHaveBeenCalled();
+  expect(screen.getByTestId('review-note-input')).toBeEnabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Accept excerpt', exact: true }));
+  await waitFor(() => expect(decide).toHaveBeenLastCalledWith('9:3:4', 'accept', undefined));
+  fireEvent.click(screen.getByRole('button', { name: 'Reject excerpt', exact: true }));
+  await waitFor(() => expect(decide).toHaveBeenLastCalledWith('9:3:4', 'reject', undefined));
+  expect(screen.queryByRole('button', { name: 'Reject and clear' })).toBeNull();
+});
+
 it('allows edits only for plain text results through both buttons and keyboard shortcuts', async () => {
   const value = multiPage();
   value.bundles[0].fields[1] = {
