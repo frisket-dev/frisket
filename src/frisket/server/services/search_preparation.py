@@ -1349,9 +1349,12 @@ class SearchPreparationService:
                 if stored is None
                 else _RECEIPT_TO_CHILD_STATE.get(stored.status, "failed")
             )
-            live_job: Mapping[str, Any] | None = None
             progress: Mapping[str, Any] | None = None
-            if child.job_id is not None:
+            if (
+                child.job_id is not None
+                and stored is not None
+                and stored.status in {"queued", "running"}
+            ):
                 try:
                     live_job = self.action_runs.job_detail(row.project_id, child.job_id)
                 except ActionRunRouteError:
@@ -1392,13 +1395,10 @@ class SearchPreparationService:
                         error.message for error in receipt.errors if error.message
                     )
             if child.job_id is not None and state != "planning":
-                job_status = (
-                    str(live_job.get("status")) if live_job is not None else state
-                )
                 jobs.append(
                     SearchPreparationJob(
                         job_id=child.job_id,
-                        status=job_status,
+                        status=state,
                         action_kind=child.kind,
                         progress=progress,
                     )

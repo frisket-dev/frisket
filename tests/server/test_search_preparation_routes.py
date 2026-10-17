@@ -652,7 +652,7 @@ def test_live_action_progress_overrides_a_stale_queued_receipt(
                 }
             }
         )
-    project.add_rows(sheet_id, rows, {"Image": image_column})
+    row_ids = project.add_rows(sheet_id, rows, {"Image": image_column})
     service = SearchPreparationService(workspace)
 
     batch = service.create(project_id, sheet_id=sheet_id, row_ids=None, force_ocr=False)
@@ -670,6 +670,26 @@ def test_live_action_progress_overrides_a_stale_queued_receipt(
     assert claimed is not None and claimed.id == child.job_id
     run_id = job_run_id(claimed)
     assert run_id is not None
+    output_columns = {
+        column["name"]: column["id"]
+        for column in project.columns(sheet_id, include_hidden=True)
+    }
+    project.db.execute(
+        "INSERT INTO results "
+        "(run_id,row_id,column_id,value_kind,value,error,error_code,outcome,"
+        "publication_effect) VALUES (?,?,?,?,?,?,?,?,?)",
+        (
+            run_id,
+            row_ids[0],
+            output_columns["OCR text · Image"],
+            None,
+            None,
+            "OCR found no readable text",
+            "empty_output",
+            "empty_output",
+            "publish_error",
+        ),
+    )
     project.db.execute(
         "UPDATE runs SET completed_rows=1, failed_rows=1 WHERE id=?", (run_id,)
     )
@@ -684,10 +704,15 @@ def test_live_action_progress_overrides_a_stale_queued_receipt(
     assert active.jobs[0].progress.total == 3
     assert active.jobs[0].progress.completed == 1
     assert active.jobs[0].progress.failed == 1
+    assert active.jobs[0].progress.row_errors is not None
+    [error_group] = active.jobs[0].progress.row_errors.groups
+    assert error_group.message == "OCR found no readable text"
+    assert error_group.count == 1
+    assert error_group.terminal is True
     assert ReceiptStore(project).find_by_id(child.receipt_id).status == "queued"
 
     project.db.execute(
-        "UPDATE runs SET status='completed', completed_rows=2, failed_rows=1, "
+        "UPDATE runs SET status='completed', completed_rows=3, failed_rows=1, "
         "finished_at=CURRENT_TIMESTAMP WHERE id=?",
         (run_id,),
     )
@@ -697,11 +722,11 @@ def test_live_action_progress_overrides_a_stale_queued_receipt(
 
     assert terminal.status == "failed"
     assert terminal.groups[0].status == "failed"
-    assert terminal.jobs[0].status == "running"
+    assert terminal.jobs[0].status == "failed"
     assert terminal.jobs[0].progress is not None
     assert terminal.jobs[0].progress.status == "completed"
     assert terminal.jobs[0].progress.total == 3
-    assert terminal.jobs[0].progress.completed == 2
+    assert terminal.jobs[0].progress.completed == 3
     assert terminal.jobs[0].progress.failed == 1
     assert ReceiptStore(project).find_by_id(child.receipt_id).status == "queued"
 
