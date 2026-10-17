@@ -233,6 +233,7 @@ export function WorkbenchCommandPalette({
   useEffect(() => {
     if (!projectId) return undefined;
     const controller = new AbortController();
+    preparationController.current = controller;
     void listSearchPreparations(projectId, { signal: controller.signal })
       .then(({ batches }) => {
         if (controller.signal.aborted) return;
@@ -243,7 +244,7 @@ export function WorkbenchCommandPalette({
         }
       })
       .catch((error: Error) => {
-        if (error.name !== 'AbortError') setPreparationError(error.message);
+        if (!controller.signal.aborted && error.name !== 'AbortError') setPreparationError(error.message);
       });
     return () => controller.abort();
   }, [projectId]);

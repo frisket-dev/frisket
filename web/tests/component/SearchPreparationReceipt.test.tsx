@@ -406,7 +406,7 @@ describe('SearchPreparationReceipt', () => {
       />,
     );
 
-    expect(await screen.findByText('Check a sampled PDF page')).not.toBeNull();
+    expect(await screen.findByText('Does this text look right?')).not.toBeNull();
     expect(screen.getByAltText('Page 1').getAttribute('src')).toBe(
       '/api/projects/project-1/blobs/hash/pages/1/image',
     );

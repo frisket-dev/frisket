@@ -112,7 +112,7 @@ function TextReview({
         <section className="search-preparation-text-preview" data-testid="search-preparation-text-preview">
           <header>
             <div>
-              <strong>Check a sampled PDF page</strong>
+              <strong>Does this text look right?</strong>
               <span>{sample?.filename ?? 'Imported PDF'}</span>
             </div>
           </header>
@@ -152,10 +152,6 @@ function TextReview({
                 truncated={sample.truncated}
                 loading={loading}
               />
-              <p className="form-hint">
-                This is one sampled page. The choice below applies to all PDFs in this batch.
-                Re-scanning replaces their searchable text with OCR; the PDF files stay unchanged.
-              </p>
             </>
           ) : loading ? (
             <div role="status"><LoaderCircle className="spin" size={18} /> Reading PDF text…</div>
@@ -168,9 +164,10 @@ function TextReview({
               aria-pressed={batch.force_ocr} disabled={busy}
               onClick={() => onReplan(true)}>Re-scan PDFs with OCR</button>
           </div>
-          <p className="form-hint">{batch.force_ocr
-            ? 'All PDFs will be re-scanned with OCR when you prepare this batch.'
-            : 'Keep embedded text where available; use OCR for PDFs that need it.'}</p>
+          <p className="form-hint">
+            This choice applies to all PDFs in this batch. Keep embedded text where available,
+            or re-scan every PDF with OCR.
+          </p>
         </section>
     </>
   );
