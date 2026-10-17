@@ -52,6 +52,8 @@ MODEL_CALL_CHECKPOINT_FAMILY = "model_call"
 # /actions/runs/{id}/rows?status=error on-demand endpoint).
 ROW_ERROR_SUMMARY_MAX_GROUPS = 10
 ROW_ERROR_SUMMARY_MAX_EXAMPLES = 5
+RESULT_WARNING_MAX_ITEMS = 20
+RESULT_WARNING_MAX_CHARS = 2_000
 
 
 @dataclass(frozen=True)
@@ -230,6 +232,32 @@ def _safe_result_error(value: Any, error_code: object = None) -> str | None:
     if value is None:
         return None
     return redact_text(value, max_chars=500)
+
+
+def _encoded_result_warnings(value: Any) -> str:
+    """Validate, redact, deduplicate, and bound one cell's durable warnings."""
+
+    if value is None:
+        return "[]"
+    if isinstance(value, (str, bytes)):
+        raise TypeError("result warnings must be an iterable of strings")
+    retained: list[str] = []
+    seen: set[str] = set()
+    omitted = 0
+    for warning in value:
+        if not isinstance(warning, str):
+            raise TypeError("result warnings must contain strings")
+        safe = redact_text(warning, max_chars=RESULT_WARNING_MAX_CHARS)
+        if safe in seen:
+            continue
+        seen.add(safe)
+        if len(retained) < RESULT_WARNING_MAX_ITEMS:
+            retained.append(safe)
+        else:
+            omitted += 1
+    if omitted:
+        retained[-1] = f"{omitted + 1} additional warnings omitted"
+    return json.dumps(retained, ensure_ascii=False, separators=(",", ":"))
 
 
 class RunResultStore:
@@ -1286,13 +1314,14 @@ class RunResultStore:
             encoded_batch.append((result, value_kind, value))
         self.db.executemany(
             "INSERT INTO results (run_id, row_id, column_id, value_kind, value, tokens_in, "
-            "tokens_out, confidence, justification, error, error_code, outcome, "
+            "tokens_out, confidence, justification, warnings, error, error_code, outcome, "
             "publication_effect) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(run_id, row_id, column_id) DO UPDATE SET "
             "value_kind=excluded.value_kind,value=excluded.value, "
             "tokens_in=excluded.tokens_in, tokens_out=excluded.tokens_out, "
             "confidence=excluded.confidence, justification=excluded.justification, "
+            "warnings=excluded.warnings, "
             "error=excluded.error, error_code=excluded.error_code, "
             "outcome=excluded.outcome, "
             "publication_effect=excluded.publication_effect",
@@ -1307,6 +1336,7 @@ class RunResultStore:
                     r.get("tokens_out"),
                     r.get("confidence"),
                     r.get("justification"),
+                    _encoded_result_warnings(r.get("warnings")),
                     _safe_result_error(r.get("error"), r.get("error_code")),
                     r.get("error_code"),
                     _result_outcome(r),

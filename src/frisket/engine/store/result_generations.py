@@ -78,6 +78,7 @@ class PublishedCellHead:
     review_state: str
     confidence: float | None
     justification: str | None
+    warnings: tuple[str, ...]
     op_id: int
     prepared_ref_id: int | None
 
@@ -97,6 +98,18 @@ def decode_published_result_value(
     if value_kind is None:
         raise ValueError("publish_value result has no stored value kind")
     return decode_logical_value(db, value_kind, stored_value)
+
+
+def decode_result_warnings(raw: object) -> tuple[str, ...]:
+    """Decode bounded result metadata without reading its cell value."""
+
+    try:
+        value = json.loads(str(raw))
+    except (TypeError, ValueError, RecursionError) as exc:
+        raise ValueError("result warnings are not valid JSON") from exc
+    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+        raise ValueError("result warnings must be a JSON array of strings")
+    return tuple(value)
 
 
 def _chunks(
@@ -1131,7 +1144,7 @@ class ResultGenerationStore:
                 "SELECT head.run_id,head.row_id,head.column_id,"
                 "result.publication_effect,result.value_kind,result.value,result.error,"
                 "result.error_code,result.outcome,result.review_state,"
-                "result.confidence,result.justification,run.op_id "
+                "result.confidence,result.justification,result.warnings,run.op_id "
                 "FROM cell_result_heads head "
                 "JOIN results result ON result.run_id=head.run_id "
                 "AND result.row_id=head.row_id "
@@ -1165,6 +1178,7 @@ class ResultGenerationStore:
                         if row["justification"] is None
                         else str(row["justification"])
                     ),
+                    warnings=decode_result_warnings(row["warnings"]),
                     op_id=int(row["op_id"]),
                     prepared_ref_id=(
                         int(row["value"])

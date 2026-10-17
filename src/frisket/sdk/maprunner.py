@@ -603,6 +603,14 @@ def build_receipt_from_provenance(
 ) -> Receipt:
     """Build the durable receipt envelope from neutral MapRunner facts."""
 
+    warnings: list[str] = []
+    seen_warnings: set[str] = set()
+    for warning in [*provenance.warnings, *facts.warnings]:
+        if warning in seen_warnings:
+            continue
+        seen_warnings.add(warning)
+        warnings.append(warning)
+
     return Receipt(
         receipt_id=receipt_id,
         project_id=project_id,
@@ -631,7 +639,7 @@ def build_receipt_from_provenance(
         provider_use=provenance.provider_use,
         evidence=provenance.evidence,
         errors=provenance.errors,
-        warnings=provenance.warnings,
+        warnings=warnings,
     )
 
 

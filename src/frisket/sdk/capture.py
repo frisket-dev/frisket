@@ -1,11 +1,17 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from frisket.engine.store.runs import FAILURE_OUTCOMES, outcome_sql_list
+from frisket.engine.store.result_generations import decode_result_warnings
 from frisket.sdk.declaration import Op
 from frisket.sdk.replay import output_column_result_value_hash
+
+
+_RECEIPT_WARNING_ROW_LIMIT = 100
+_RECEIPT_WARNING_ITEM_LIMIT = 100
+_WARNINGS_OMITTED = "Additional cell warnings omitted"
 
 
 class MixedOriginInputProvenanceUnsupported(ValueError):
@@ -95,6 +101,38 @@ class CapturedFacts:
     # archetype.
     model_calls: list[Any]
     model_call_ids: list[int]
+    warnings: list[str] = field(default_factory=list)
+
+
+def _capture_result_warnings(project: Any, run_id: int) -> list[str]:
+    """Read a bounded warning sample once while terminal receipt facts are built."""
+
+    rows = project.db.execute(
+        "SELECT warnings FROM results WHERE run_id=? AND warnings<>'[]' "
+        "ORDER BY row_id,column_id LIMIT ?",
+        (run_id, _RECEIPT_WARNING_ROW_LIMIT + 1),
+    ).fetchall()
+    row_overflow = len(rows) > _RECEIPT_WARNING_ROW_LIMIT
+    retained: list[str] = []
+    seen: set[str] = set()
+    item_overflow = False
+    for row in rows[:_RECEIPT_WARNING_ROW_LIMIT]:
+        for warning in decode_result_warnings(row["warnings"]):
+            if warning in seen:
+                continue
+            seen.add(warning)
+            if len(retained) == _RECEIPT_WARNING_ITEM_LIMIT:
+                item_overflow = True
+                break
+            retained.append(warning)
+        if item_overflow:
+            break
+    if row_overflow or item_overflow:
+        if len(retained) == _RECEIPT_WARNING_ITEM_LIMIT:
+            retained[-1] = _WARNINGS_OMITTED
+        elif _WARNINGS_OMITTED not in seen:
+            retained.append(_WARNINGS_OMITTED)
+    return retained
 
 
 def maprunner_output_refs(
@@ -401,6 +439,7 @@ def capture_maprunner_facts(
 
     model_calls = RunResultStore(project).model_calls(run_id)
     model_call_ids = [row["id"] for row in model_calls]
+    warnings = _capture_result_warnings(project, run_id)
 
     return CapturedFacts(
         run=run,
@@ -425,4 +464,5 @@ def capture_maprunner_facts(
         runner_spec=runner_spec,
         model_calls=model_calls,
         model_call_ids=model_call_ids,
+        warnings=warnings,
     )

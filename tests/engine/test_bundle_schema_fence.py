@@ -161,6 +161,9 @@ def _without_typed_values(schema: str) -> str:
         schema = schema[:typed_view] + schema[search_work:]
     return (
         schema.replace("BEFORE UPDATE OF value_kind, value,", "BEFORE UPDATE OF value,")
+        .replace("  warnings, error,", "  error,")
+        .replace("        OR NEW.warnings IS NOT OLD.warnings\n", "")
+        .replace("    OR NEW.warnings IS NOT OLD.warnings\n", "")
         .replace("    OR NEW.value_kind IS NOT OLD.value_kind\n", "")
         .replace(
             "        NEW.value_kind IS NOT OLD.value_kind\n        OR NEW.value IS NOT OLD.value",
@@ -328,9 +331,32 @@ def _remove_prepared_content(db: sqlite3.Connection) -> None:
         db.execute(f"DROP TABLE IF EXISTS {table}")
 
 
+def _remove_result_warnings(db: sqlite3.Connection) -> None:
+    """Restore the historical results layout and its semantic triggers."""
+
+    columns = {row[1] for row in db.execute("PRAGMA table_info(results)")}
+    if "warnings" not in columns:
+        return
+    for name in (
+        "trg_results_semantic_update_open_generation",
+        "trg_results_published_semantics_immutable",
+    ):
+        statement = db.execute(
+            "SELECT sql FROM sqlite_master WHERE type='trigger' AND name=?", (name,)
+        ).fetchone()[0]
+        db.execute(f"DROP TRIGGER {name}")
+        db.execute(
+            statement.replace("  warnings, error,", "  error,")
+            .replace("        OR NEW.warnings IS NOT OLD.warnings\n", "")
+            .replace("    OR NEW.warnings IS NOT OLD.warnings\n", "")
+        )
+    db.execute("ALTER TABLE results DROP COLUMN warnings")
+
+
 def _restore_legacy_authorities(db: sqlite3.Connection) -> None:
     """Downgrade fresh typed fixtures before exercising historical upgrades."""
 
+    _remove_result_warnings(db)
     _remove_extraction_layouts(db)
     db.execute("DROP TABLE run_review_fields")
     db.execute("DROP INDEX idx_cell_result_heads_run")
