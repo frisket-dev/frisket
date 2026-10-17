@@ -347,11 +347,11 @@ def test_build_plan_is_async_safe_caches_pdf_inspection_and_rejects_bad_selector
 
         monkeypatch.setattr(planning, "sample_pdf_text", native_pages)
 
-        async def plan_on_route_loop():
+        async def plan_on_route_loop(selection=None):
             return planning.build_plan(
                 project,
                 sheet_id=sheet,
-                row_ids=rows,
+                row_ids=rows if selection is None else selection,
                 force_ocr=False,
                 requirements=(),
                 requirement_dict=lambda *_args, **_kwargs: {},
@@ -377,8 +377,13 @@ def test_build_plan_is_async_safe_caches_pdf_inspection_and_rejects_bad_selector
                 }
             ]
         )
+        partial = asyncio.run(plan_on_route_loop())
+        assert [item["row_id"] for item in partial["items"]] == [rows[0]]
+        assert {item["row_id"] for item in partial["sources"]} == set(rows)
+        assert len(partial["warnings"]) == 1
+        assert "PDF text preview could not be read" in partial["warnings"][0]
         with pytest.raises(RouteError, match="preview could not be read") as error:
-            asyncio.run(plan_on_route_loop())
+            asyncio.run(plan_on_route_loop([rows[1]]))
         assert error.value.status_code == 422
     finally:
         project.close()
