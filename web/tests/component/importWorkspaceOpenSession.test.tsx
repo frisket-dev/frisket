@@ -149,7 +149,7 @@ describe('ImportWorkspaceDialog controlled open session', () => {
 
     await waitFor(() => expect(onImported).toHaveBeenCalledWith(91));
     const receipt = await screen.findByTestId('search-preparation-receipt');
-    expect(receipt).toHaveTextContent('Ready to search');
+    expect(receipt).toHaveTextContent('Text ready for keyword search');
     expect(receipt.closest('.import-workspace-main')).toHaveClass('import-workspace-main-receipt');
     expect(screen.queryByText('Project data intake')).not.toBeInTheDocument();
     expect(screen.getByTestId('import-workspace')).toHaveAccessibleName('Import');
@@ -176,7 +176,7 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     });
 
     await waitFor(() => expect(onImported).toHaveBeenCalledWith(91));
-    expect(await screen.findByTestId('search-preparation-receipt')).toHaveTextContent('Ready to search');
+    expect(await screen.findByTestId('search-preparation-receipt')).toHaveTextContent('Text ready for keyword search');
     expect(getSearchPreparation).toHaveBeenCalledWith('open-session-project', 'resumable-prep');
   });
 
@@ -211,7 +211,7 @@ describe('ImportWorkspaceDialog controlled open session', () => {
       'Could not refresh import progress. Retrying…',
     );
     await waitFor(() => expect(getImportSession).toHaveBeenCalledTimes(2), { timeout: 2_500 });
-    expect(await screen.findByTestId('search-preparation-receipt')).toHaveTextContent('Ready to search');
+    expect(await screen.findByTestId('search-preparation-receipt')).toHaveTextContent('Text ready for keyword search');
     expect(onImported).toHaveBeenCalledWith(91);
   });
 
