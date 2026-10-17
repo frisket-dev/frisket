@@ -21,7 +21,7 @@ function apiWith(
 describe('fetchRouteRow', () => {
   it('uses the current grid scope when it contains the routed row', async () => {
     const locate = vi.fn().mockResolvedValue({ found: true, index: 7, pageOffset: 0, pageSize: 100 });
-    const read = vi.fn().mockResolvedValue({ rows: [row], total: 1 });
+    const read = vi.fn().mockResolvedValue({ rows: [{ ...row, index: 0 }], total: 1 });
 
     await expect(fetchRouteRow(apiWith(locate, read), 'sheet-1', row.id, scope)).resolves.toEqual(row);
     expect(locate).toHaveBeenCalledOnce();
@@ -32,7 +32,7 @@ describe('fetchRouteRow', () => {
     const locate = vi.fn()
       .mockResolvedValueOnce({ found: false, index: null, pageOffset: null, pageSize: 100 })
       .mockResolvedValueOnce({ found: true, index: 7, pageOffset: 0, pageSize: 100 });
-    const read = vi.fn().mockResolvedValue({ rows: [row], total: 1 });
+    const read = vi.fn().mockResolvedValue({ rows: [{ ...row, index: 0 }], total: 1 });
 
     await expect(fetchRouteRow(apiWith(locate, read), 'sheet-1', row.id, scope)).resolves.toEqual(row);
     expect(locate.mock.calls).toEqual([

@@ -6,10 +6,10 @@
 // affect those contracts.
 
 import '@testing-library/jest-dom/vitest';
-import { cleanup, screen } from '@testing-library/react';
+import { cleanup, fireEvent, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { FieldValue } from '../../src/components/RowDrawer';
+import { FieldValue, RowField } from '../../src/components/RowDrawer';
 import { fieldValueDependencyColumnIds } from '../../src/components/fieldValueDependencies';
 import { createProjectApi } from '../../src/api/real';
 import { aiMeta, columnDef, row } from '../support/domainFixtures';
@@ -27,6 +27,28 @@ afterEach(() => {
 });
 
 describe('FieldValue renderer', () => {
+  it('closes a manual editor when the refreshed value becomes a bounded read-only cell', () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ links: [], stale_count: 0 }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    })));
+    const col = columnDef({ id: 'text', name: 'Text', type: 'text' });
+    const small = row({ text: 'Small exact value' });
+    const onEdit = vi.fn();
+    const base = { col, columns: [col], selected: true, onEdit, runResultExpanded: false, onToggleRunResult: vi.fn() };
+    const mounted = render(<RowField {...base} row={small} />);
+    fireEvent.mouseEnter(screen.getByTestId('row-field-Text'));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Text' }));
+    expect(screen.getByRole('textbox', { name: 'Edit Text value' })).toBeInTheDocument();
+    mounted.rerender(<RowField {...base} row={{ ...small, cells: {}, boundedValues: {
+      text: { preview: 'Large excerpt', value_kind: 'text', total_characters: 100000, total_bytes: 100000,
+        retrieval_revision: 2, truncated: true, manual_editable: false, manual_edit_byte_limit: 65536 },
+    } }} />);
+    expect(screen.queryByRole('textbox', { name: 'Edit Text value' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('cell-action-copy')).not.toBeInTheDocument();
+    expect(screen.getByTestId('bounded-text-reader')).toBeInTheDocument();
+    expect(onEdit).not.toHaveBeenCalled();
+  });
+
   it('reports the same projected sibling cells used for media enhancements', () => {
     const image = columnDef({ id: 'image', name: 'photo', type: 'image' });
     const video = columnDef({ id: 'video', name: 'interview', type: 'video' });

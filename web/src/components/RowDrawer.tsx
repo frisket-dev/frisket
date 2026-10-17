@@ -439,7 +439,7 @@ export function RowField({
           </span>
         </div>
       </header>
-      {editing ? (
+      {editing && canEdit ? (
         <form
           className="row-field-editor"
           onSubmit={(e) => {
