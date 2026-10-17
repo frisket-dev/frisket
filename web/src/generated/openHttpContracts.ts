@@ -3951,6 +3951,18 @@ export type HttpCellEvidenceResponse = ({
   "stale_count": (number);
 });
 
+type HttpCellTextAnnotationsResponse_EvidenceTextWindow = ({
+  "end": (number);
+  "next_start": (((number)) | ((null)));
+  "previous_start": (((number)) | ((null)));
+  "reached_end": (boolean);
+  "reached_start": (boolean);
+  "retrieval_revision": (((number)) | ((null)));
+  "start": (number);
+  "total_bytes": (number);
+  "total_characters": (number);
+});
+
 type HttpCellTextAnnotationsResponse_TextAnnotationCounts = ({
   "invalid": (number);
   "shown": (number);
@@ -3983,6 +3995,9 @@ type HttpCellTextAnnotationsResponse_TextAnnotationSpan = ({
   "metadata": (HttpCellTextAnnotationsResponse_TextAnnotationSpanMetadata);
   "occurrence_id": (string);
   "quote": (string);
+  "quote_truncated"?: (boolean);
+  "source_end"?: (((number)) | ((null)));
+  "source_start"?: (((number)) | ((null)));
   "start": (number);
 });
 
@@ -4004,6 +4019,7 @@ export type HttpCellTextAnnotationsResponse = ({
   "row_id": (number);
   "sheet_id": (number);
   "text": (((string)) | ((null)));
+  "window"?: (((HttpCellTextAnnotationsResponse_EvidenceTextWindow)) | ((null)));
 });
 
 type HttpCellTextWindow_CellTextWindowRange = ({
@@ -5046,16 +5062,35 @@ type HttpEvidenceViewerResponse_EvidenceTemporalRun = ({
 });
 
 type HttpEvidenceViewerResponse_EvidenceTextContext = ({
+  "artifact_stable_id"?: (((string)) | ((null)));
+  "content_hash"?: (((string)) | ((null)));
+  "evidence_link_id"?: (((string)) | ((null)));
   "offset_unit": ("utf16_code_unit") & (string);
   "ranges": (Array<(HttpEvidenceViewerResponse_EvidenceTextRange)>);
+  "recovered"?: (boolean);
   "text": (string);
   "transcript"?: (((HttpEvidenceViewerResponse_EvidenceTranscriptContext)) | ((null)));
+  "window"?: (((HttpEvidenceViewerResponse_EvidenceTextWindow)) | ((null)));
 });
 
 type HttpEvidenceViewerResponse_EvidenceTextRange = ({
   "end": (number);
+  "source_end"?: (((number)) | ((null)));
+  "source_start"?: (((number)) | ((null)));
   "span_id": (string);
   "start": (number);
+});
+
+type HttpEvidenceViewerResponse_EvidenceTextWindow = ({
+  "end": (number);
+  "next_start": (((number)) | ((null)));
+  "previous_start": (((number)) | ((null)));
+  "reached_end": (boolean);
+  "reached_start": (boolean);
+  "retrieval_revision": (((number)) | ((null)));
+  "start": (number);
+  "total_bytes": (number);
+  "total_characters": (number);
 });
 
 type HttpEvidenceViewerResponse_EvidenceTranscriptContext = ({
@@ -5069,6 +5104,8 @@ type HttpEvidenceViewerResponse_EvidenceTranscriptContext = ({
 type HttpEvidenceViewerResponse_EvidenceTranscriptSegment = ({
   "end": (number);
   "end_ms": (number);
+  "source_end"?: (((number)) | ((null)));
+  "source_start"?: (((number)) | ((null)));
   "span_id": (string);
   "speaker"?: (((string)) | ((null)));
   "start": (number);
@@ -5089,7 +5126,8 @@ type HttpEvidenceViewerResponse_EvidenceViewerArtifact = ({
   "page_count": (((number)) | ((null)));
   "pages": (Array<(HttpEvidenceViewerResponse_EvidenceViewerPage)>);
   "recovery_notice"?: (((string)) | ((null)));
-  "recovery_status"?: ((("located" | "not_found" | "unsupported") & (string)) | ((null)));
+  "recovery_scanned_characters"?: (((number)) | ((null)));
+  "recovery_status"?: ((("located" | "not_found" | "unsupported" | "incomplete") & (string)) | ((null)));
   "runs": (Array<(HttpEvidenceViewerResponse_EvidenceTemporalRun)>);
   "source_cell": (((HttpEvidenceViewerResponse_EvidenceSourceCell)) | ((null)));
   "source_url": (((string)) | ((null)));
@@ -5140,12 +5178,14 @@ type HttpEvidenceViewerResponse_EvidenceViewerSpan = ({
   "note": (((string)) | ((null)));
   "preview": (HttpEvidenceViewerResponse_JsonValue);
   "quote": (((string)) | ((null)));
+  "quote_truncated"?: (boolean);
   "rank": (number);
   "raw": (HttpEvidenceViewerResponse_JsonValue);
   "required": (boolean);
   "run_index": (((number)) | ((null)));
   "selector": (HttpEvidenceViewerResponse_JsonValue);
   "snippet": (((string)) | ((null)));
+  "snippet_truncated"?: (boolean);
   "span_kind": (string);
   "span_role": (string);
   "stable_id": (string);
@@ -5920,10 +5960,6 @@ export type HttpInline_00e48418ac223a62 = ({
   "turn_id": (string);
 });
 
-export type HttpInline_0418581d483574b3 = ({
-  "locate_current"?: (boolean);
-});
-
 type HttpInline_08600a3f31630079_ActionError = ({
   "action_kind"?: (((string)) | ((null)));
   "code": (string);
@@ -6559,6 +6595,13 @@ type HttpInline_64f1fc6f91179544_AskThread = ({
 
 export type HttpInline_64f1fc6f91179544 = (Array<(HttpInline_64f1fc6f91179544_AskThread)>);
 
+export type HttpInline_713bc81b80af22de = ({
+  "limit"?: (((number)) | ((null)));
+  "occurrence_id"?: (((string)) | ((null)));
+  "revision"?: (((number)) | ((null)));
+  "start"?: (((number)) | ((null)));
+});
+
 export type HttpInline_71f070a8ac7483cb = ({
   "authorization_id": (string);
 });
@@ -6726,6 +6769,15 @@ export type HttpInline_847173c14adf5b62 = ({
 export type HttpInline_8527488b5f6abaa7 = ({
   "pid": (string);
   "ref": (string);
+});
+
+export type HttpInline_85aeb6f0ad4a1736 = ({
+  "locate_current"?: (boolean);
+  "text_artifact_id"?: (((number)) | ((null)));
+  "text_limit"?: (((number)) | ((null)));
+  "text_revision"?: (((number)) | ((null)));
+  "text_span_id"?: (((string)) | ((null)));
+  "text_start"?: (((number)) | ((null)));
 });
 
 export type HttpInline_86e1c5cbf35ec2ae = ({
@@ -10268,6 +10320,7 @@ export type HttpSearchPreparationBatch = ({
   "schemaVersion"?: ("frisket.search_preparation.v1") & (string);
   "sheet_id": (number);
   "status": ("planning" | "needs_consent" | "preparing" | "complete" | "stopped" | "failed") & (string);
+  "warnings"?: (Array<(string)>);
 });
 
 type HttpSearchPreparationBatchList_ActionJobProgress = ({
@@ -10370,6 +10423,7 @@ type HttpSearchPreparationBatchList_SearchPreparationBatch = ({
   "schemaVersion"?: ("frisket.search_preparation.v1") & (string);
   "sheet_id": (number);
   "status": ("planning" | "needs_consent" | "preparing" | "complete" | "stopped" | "failed") & (string);
+  "warnings"?: (Array<(string)>);
 });
 
 type HttpSearchPreparationBatchList_SearchPreparationGroup = ({
@@ -12808,13 +12862,14 @@ export type HttpContractOperationMap = {
       readonly "401": HttpError;
       readonly "403": HttpError;
       readonly "404": HttpInline_bd7c8e28768068e1;
+      readonly "409": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;
     };
   };
   readonly "tenant.cell_text_annotations.get": {
     readonly pathParams: HttpInline_f8fd7cf5145f948b;
-    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly query: HttpInline_713bc81b80af22de;
     readonly request: undefined;
     readonly responses: {
       readonly "200": HttpCellTextAnnotationsResponse;
@@ -12822,6 +12877,7 @@ export type HttpContractOperationMap = {
       readonly "401": HttpError;
       readonly "403": HttpError;
       readonly "404": HttpInline_49df75d0f202244e;
+      readonly "409": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;
     };
@@ -12866,6 +12922,7 @@ export type HttpContractOperationMap = {
       readonly "401": HttpError;
       readonly "403": HttpError;
       readonly "404": HttpInline_fedabfd6f2269abd;
+      readonly "409": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;
     };
@@ -13454,7 +13511,7 @@ export type HttpContractOperationMap = {
   };
   readonly "tenant.evidence_viewer.get": {
     readonly pathParams: HttpInline_841c7d86b3cf748c;
-    readonly query: HttpInline_0418581d483574b3;
+    readonly query: HttpInline_85aeb6f0ad4a1736;
     readonly request: undefined;
     readonly responses: {
       readonly "200": HttpEvidenceViewerResponse;
@@ -13462,6 +13519,7 @@ export type HttpContractOperationMap = {
       readonly "401": HttpError;
       readonly "403": HttpError;
       readonly "404": HttpInline_08f832331573f245;
+      readonly "409": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;
     };
