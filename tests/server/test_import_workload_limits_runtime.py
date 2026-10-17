@@ -696,6 +696,7 @@ def test_bulk_limit_refusal_preserves_a_valid_sibling_output(
             "sheet_name": "files",
             "logical_paths": files["logical_paths"],
             "rows": 1,
+            "search_preparation_batch_id": None,
         }
     ]
     assert result["first_sheet_id"] == 1

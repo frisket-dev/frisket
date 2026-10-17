@@ -256,12 +256,13 @@ def test_direct_call_requires_explicit_invocation_pool(
     lease = _FakeLease()
     _install_fakes(monkeypatch, lease, workers=3)
 
-    with pytest.raises(RuntimeError, match="invocation"):
+    with pytest.raises(RecipeInvocationHalt, match="invocation") as halted:
         asyncio.run(
             OcrEngines()._ocr_rapidocr(
                 [Path("/tmp/page.png")], Path("/tmp/scratch"), "korean"
             )
         )
+    assert halted.value.code == "local_session_failed"
     assert _FakePool.instances == []
     assert lease.released == 0
 
