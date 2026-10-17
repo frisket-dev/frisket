@@ -228,7 +228,7 @@ def project_run_status_payload(
             work_progress = json.loads(row["work_progress"] or "null")
         except (TypeError, ValueError, KeyError, IndexError):
             work_progress = None
-        if isinstance(work_progress, dict):
+        if isinstance(work_progress, dict) and work_progress.get("kind") == "ocr_pages":
             # A worker from the preceding release may have persisted one row.
             # Normalize that stored shape once; new writers only publish files.
             if "files" not in work_progress:

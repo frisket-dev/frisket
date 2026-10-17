@@ -273,6 +273,24 @@ def test_page_work_progress_survives_status_reads_and_stops_at_terminal(
     assert saved == saved_progress
 
 
+def test_status_ignores_optional_progress_with_missing_kind(tmp_path):
+    client = _client(tmp_path)
+    pid, _, run_id, job_id = _seed_queued_action_run(client)
+    job = client.app.state.workspace.queue.claim("malformed-pages", lease_seconds=600)
+    assert job is not None and job.id == job_id
+    project = client.app.state.workspace.get(pid)
+    project.db.execute(
+        "UPDATE runs SET work_progress=? WHERE id=?",
+        ('{"row_id":1,"completed":7,"total":300}', run_id),
+    )
+    project.db.commit()
+
+    body = _action_run_public_status(client, pid, run_id)
+    assert body["status"] == "running"
+    assert body["total"] == 2
+    assert body.get("work_progress") is None
+
+
 def test_ocr_file_counts_do_not_predict_global_finish_time(tmp_path):
     client = _client(tmp_path)
     pid, _, run_id, job_id = _seed_queued_action_run(client)
