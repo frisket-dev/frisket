@@ -252,6 +252,7 @@ export function WorkbenchCommandPalette({
     if (!projectId || !Number.isInteger(sheetId) || sheetId <= 0 || preparationBusy) return;
     setPreparationBusy(true);
     setPreparationError(null);
+    setPreparationBatchId(null);
     preparationController.current?.abort();
     const controller = new AbortController();
     preparationController.current = controller;
