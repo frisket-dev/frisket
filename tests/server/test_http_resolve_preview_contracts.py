@@ -64,6 +64,8 @@ _VALID_RESPONSES = {
         "search": None,
         "distribution": None,
         "list_facet": None,
+        "inventory_complete": True,
+        "omitted_rows": 0,
         "producer_extension": {"version": 2},
     },
     "replace": {
@@ -201,6 +203,7 @@ def test_resolve_preview_contracts_preserve_defaults_extras_and_bare_errors() ->
             "search": None,
             "limit": None,
             "offset": None,
+            "value_mode": "exact",
         },
     )
 

@@ -23,11 +23,13 @@ from frisket.preview.common import (
 )
 from frisket.querysets import ENTITY_MENTIONS_SEMANTIC_TYPE, column_semantic_type
 from frisket.engine.store import Project
+from frisket.engine.store.current_value_windows import read_current_column
 
 COLUMN_VALUES_PREVIEW_SCHEMA_VERSION = "frisket.column_values_preview.v1"
 COLUMN_VALUES_DEFAULT_LIMIT = 500
 COLUMN_VALUES_MAX_LIMIT = 2_000
 FACET_HISTOGRAM_BINS = 12
+COLUMN_VALUES_RESPONSE_BYTE_LIMIT = 64 * 1024
 _MAX_SAFE_JAVASCRIPT_INTEGER = 2**53 - 1
 
 
@@ -353,6 +355,35 @@ def _list_facet(
     }
 
 
+def _bound_response(payload: dict[str, Any]) -> None:
+    """Fit complete selectable entries within the automatic preview budget."""
+    values = payload["values"]
+    payload["values"] = []
+    facet = payload.get("list_facet")
+    choices = facet["choices"] if facet is not None else []
+    if facet is not None:
+        facet["choices"] = []
+    # Leave room for serialization defaults and response-model additions.
+    remaining = (
+        COLUMN_VALUES_RESPONSE_BYTE_LIMIT
+        - 2048
+        - len(json.dumps(payload, ensure_ascii=True).encode("utf-8"))
+    )
+    # Collection facets select members; whole-cell Resolve values are secondary.
+    for entries, target, envelope in (
+        (choices, facet["choices"] if facet is not None else [], facet),
+        (values, payload["values"], payload),
+    ):
+        for entry in entries:
+            cost = len(json.dumps(entry, ensure_ascii=True).encode("utf-8")) + 2
+            if cost > remaining:
+                payload["inventory_complete"] = False
+                envelope["truncated"] = True
+                break
+            target.append(entry)
+            remaining -= cost
+
+
 def resolve_column_values_preview(
     project: Project,
     *,
@@ -361,6 +392,7 @@ def resolve_column_values_preview(
     search: Any = None,
     limit: Any = None,
     offset: Any = None,
+    value_mode: Any = "exact",
 ) -> dict[str, Any]:
     """Compute the distinct-values payload for one column.
 
@@ -370,7 +402,10 @@ def resolve_column_values_preview(
     hashes the full column read (never the filtered page). Values are the
     EXACT cell surfaces (no stripping) because substitute/combine mapping keys
     match cells exactly; only null and blank/whitespace-only cells are set
-    aside as ``missing``.
+    aside as ``missing``. Automatic ``bounded`` previews omit cells above the
+    shared read limit and return no action hash. ``inventory_complete`` and
+    ``omitted_rows`` make partial counts explicit; complete entries may also
+    be paged earlier to fit the response budget. Exact authoring is unchanged.
     """
     snapshot_factory = getattr(project, "read_snapshot", None)
     if callable(snapshot_factory):
@@ -382,6 +417,7 @@ def resolve_column_values_preview(
                 search=search,
                 limit=limit,
                 offset=offset,
+                value_mode=value_mode,
             )
 
     if not isinstance(sheet_id, int) or isinstance(sheet_id, bool) or sheet_id < 1:
@@ -395,6 +431,10 @@ def resolve_column_values_preview(
             "invalid_input_ref",
             "column values preview requires a non-empty input_column",
             field="input_column",
+        )
+    if value_mode not in ("exact", "bounded"):
+        raise ColumnValuesPreviewError(
+            "invalid_params", "value_mode must be exact or bounded", field="value_mode"
         )
     column = input_column.strip()
     effective_search = _validated_search(search)
@@ -414,13 +454,31 @@ def resolve_column_values_preview(
     column_id = int(column_row["id"])
     row_ids = [int(rid) for rid in project.visible_row_ids(sheet_id)]
 
-    # One column read feeds enumeration plus the legacy cluster value hash.
-    raw_values = project.get_values(sheet_id, column_id, tolerate_decode_errors=True)
-    value_hash = hash_column_values(row_ids, raw_values)
+    omitted_rows = 0
+    if value_mode == "bounded":
+        reads = read_current_column(
+            project.db,
+            sheet_id=sheet_id,
+            column_id=column_id,
+            row_ids=row_ids,
+            bounded=True,
+        )
+        inspected_rows = [row_id for row_id in row_ids if reads[row_id].value_present]
+        omitted_rows = len(row_ids) - len(inspected_rows)
+        raw_values = {row_id: reads[row_id].value for row_id in inspected_rows}
+        # Automatic facets are not an action-authoring snapshot. Never hash
+        # omitted values or expose a partial hash as a legacy action guard.
+        value_hash = None
+    else:
+        inspected_rows = row_ids
+        raw_values = project.get_values(
+            sheet_id, column_id, tolerate_decode_errors=True
+        )
+        value_hash = hash_column_values(row_ids, raw_values)
 
     counts: Counter[str] = Counter()
     missing = 0
-    for row_id in row_ids:
+    for row_id in inspected_rows:
         raw = raw_values.get(row_id)
         if raw is None:
             missing += 1
@@ -456,12 +514,12 @@ def resolve_column_values_preview(
         "value_hash": value_hash,
         "search": effective_search,
         "distribution": _column_distribution(
-            str(column_row["type"]), row_ids, raw_values
+            str(column_row["type"]), inspected_rows, raw_values
         ),
     }
     if column_row["type"] == "json":
         payload["list_facet"] = _list_facet(
-            row_ids=row_ids,
+            row_ids=inspected_rows,
             raw_values=raw_values,
             is_entity_mentions=column_semantic_type(column_row)
             == ENTITY_MENTIONS_SEMANTIC_TYPE,
@@ -469,4 +527,8 @@ def resolve_column_values_preview(
             limit=effective_limit,
             offset=effective_offset,
         )
+    if value_mode == "bounded":
+        payload["inventory_complete"] = omitted_rows == 0
+        payload["omitted_rows"] = omitted_rows
+        _bound_response(payload)
     return payload

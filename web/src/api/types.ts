@@ -3276,7 +3276,10 @@ export interface ColumnValuesPreview {
   offset: number;
   limit: number;
   truncated: boolean;
-  valueHash: string;
+  valueHash: string | null;
+  /** False when large cells or the response budget prevent a full inventory. */
+  inventoryComplete?: boolean;
+  omittedRows?: number;
   search: string | null;
   distribution: ColumnDistribution | null;
   /** Additive member inventory for a list-valued JSON column. `values` keeps
@@ -4833,6 +4836,7 @@ export interface FrisketApi {
     search?: string;
     limit?: number;
     offset?: number;
+    valueMode?: 'exact' | 'bounded';
   }): Promise<ColumnValuesPreview>;
   /** Read-only fingerprint-grouped mention inventory for the Mentions panel
    *  (POST /entity-mentions/v1/preview). The column must be a `json` column

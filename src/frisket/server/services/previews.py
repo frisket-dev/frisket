@@ -150,6 +150,7 @@ class PreviewService:
         search: Any,
         limit: Any,
         offset: Any,
+        value_mode: Any = "exact",
     ) -> dict[str, Any]:
         """Synchronous, receipt-free distinct-values preview for one column.
 
@@ -164,6 +165,7 @@ class PreviewService:
                 search=search,
                 limit=limit,
                 offset=offset,
+                value_mode=value_mode,
             )
         except ColumnValuesPreviewError as exc:
             raise PreviewRequestError(
