@@ -330,24 +330,24 @@ def test_queued_find_publishes_designated_text_with_exact_page_citation(
                 producer={"action_kind": "media.read_pdf_text"},
             )
         else:
-            # Adoption keeps immutable page provenance without copying a
-            # grounding link onto the newly designated Text cell.
+            # Use the actual producer descriptor: a complete page snippet,
+            # with no quote and no copied cell grounding link.
+            from frisket.engine.executor.ocr_evidence import _page_spans
+
             prepared = PreparedContentStore(project).resolve(chosen[0])
             [pin] = prepared.pins
-            span = record_source_span(
-                project,
-                artifact_id=chosen[1],
-                span_kind="page_range",
-                page_start=2,
-                page_end=2,
-                quote="chosen second",
-                selector={
+            [descriptor] = _page_spans(
+                {"page": 2, "text": "chosen second", "blocks": []},
+                {},
+                "native_pdf_text",
+                prepared_selector={
                     "prepared_ref_id": prepared.ref_id,
                     "prepared_set_id": prepared.set_id,
                     "prepared_version_id": pin.version_id,
                     "page_number": pin.page_number,
                 },
             )
+            span = record_source_span(project, artifact_id=chosen[1], **descriptor)
         request = ActionRequest(
             action_id="map.find",
             scope={"kind": "sheet_rows", "sheet_id": cell[0], "row_ids": [cell[1]]},
@@ -413,7 +413,8 @@ def test_queued_find_publishes_designated_text_with_exact_page_citation(
             "page_end": 2,
             **({"data": source_span["selector"]} if source_span["selector"] else {}),
         }
-        assert span["quote"] == "chosen second"
+        assert span["quote"] == source_span["quote"]
+        assert span["snippet"] == "chosen second"
 
 
 @pytest.mark.parametrize("manual", [False, True])
@@ -563,3 +564,85 @@ def test_ask_manual_text_without_grounding_link_searches_and_resolves_citation(
                 "end": 13,
             },
         }
+
+
+def test_find_ignores_later_partial_quote_and_newline_only_prepared_page(tmp_path):
+    from frisket.actions.types import ActionRequest
+    from frisket.engine.executor.ocr_evidence import _page_spans
+    from tests.engine.test_map_find_runtime import _operation_for_request
+
+    with closing(Project.create(tmp_path / "find-full-page.frisket")) as project:
+        cell, text, other, blob, _chosen, _alternative = _document(project)
+        full_page = "Opening evidence. chosen second. Closing evidence."
+        chosen = _text_output(project, cell, text, blob, ["\n", full_page])
+        prepared = PreparedContentStore(project).resolve(chosen[0])
+        anchors = {}
+        for pin in prepared.pins:
+            selector = {
+                "prepared_ref_id": prepared.ref_id,
+                "prepared_set_id": prepared.set_id,
+                "prepared_version_id": pin.version_id,
+                "page_number": pin.page_number,
+            }
+            [descriptor] = _page_spans(
+                {
+                    "page": pin.page_number,
+                    "text": prepared.text[pin.start : pin.end],
+                    "blocks": [],
+                },
+                {},
+                "native_pdf_text",
+                prepared_selector=selector,
+            )
+            anchors[pin.page_number] = record_source_span(
+                project, artifact_id=chosen[1], **descriptor
+            )
+        # A later Extract citation correctly pins the same immutable page,
+        # but its partial quote is not the producer's complete text surface.
+        partial = record_source_span(
+            project,
+            artifact_id=chosen[1],
+            span_kind="region",
+            page_start=2,
+            page_end=2,
+            quote="chosen second",
+            bbox=[
+                {"x0": 0.1, "y0": 0.1, "x1": 0.5, "y1": 0.2, "space": "page_normalized"}
+            ],
+            selector=anchors[2]["selector"],
+        )
+        _, refs = project.get_values_with_refs(cell[0], other, [cell[1]])
+        record_evidence_link(
+            project,
+            subject_kind="cell_value",
+            subject_ref=refs[cell[1]],
+            spans=[{"span_id": partial["id"]}],
+            sheet_id=cell[0],
+            row_id=cell[1],
+            column_id=other,
+            producer={"action_kind": "map.extract"},
+        )
+        request = ActionRequest(
+            action_id="map.find",
+            scope={"kind": "sheet_rows", "sheet_id": cell[0], "row_ids": [cell[1]]},
+            sheet_name="Findings",
+            output_names={"match": "Match"},
+            params={
+                "source": "File",
+                "instruction": "Find Closing evidence.",
+                "model": "anthropic/claude-haiku-4-5",
+            },
+            idempotency_key="full-page-find",
+        )
+        span_count = project.db.execute("SELECT count(*) FROM source_spans").fetchone()[
+            0
+        ]
+        sources = resolve_find_sources(project, _operation_for_request(request))
+        assert isinstance(sources, tuple), sources
+        assert sources[0].artifact_id == chosen[1]
+        assert [unit.text for unit in sources[0].units] == [full_page]
+        assert sources[0].units[0].span_ids == (anchors[2]["id"],)
+        assert (
+            project.db.execute("SELECT count(*) FROM source_spans").fetchone()[0]
+            == span_count
+        )

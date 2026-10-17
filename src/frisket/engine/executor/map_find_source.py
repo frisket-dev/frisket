@@ -147,42 +147,36 @@ def _ocr_units(resolved: Any) -> tuple[AddressedUnit, ...]:
 
 
 def _prepared_units(project: Any, selected: Any) -> tuple[AddressedUnit, ...]:
-    """Read grounding from exact immutable page versions, without cell links."""
+    """Read complete producer page anchors, never downstream partial quotes."""
     rows = project.db.execute(
-        "SELECT member.page_number,span.id,span.stable_id,span.quote,span.snippet "
+        "SELECT span.id,span.stable_id,span.snippet "
         "FROM prepared_content_refs ref "
         "JOIN prepared_content_set_pages member ON member.set_id=ref.set_id "
         "AND (ref.page_number IS NULL OR member.page_number=ref.page_number) "
         "JOIN prepared_page_versions version ON version.id=member.version_id "
-        "LEFT JOIN source_spans span ON span.artifact_id=? "
-        "AND span.page_start=member.page_number AND span.page_end=member.page_number "
-        "AND span.span_kind IN ('region','page_range') "
-        "AND json_extract(span.selector_json,'$.prepared_version_id')=member.version_id "
-        "WHERE ref.id=? AND length(trim(version.prepared_text))>0 "
-        "ORDER BY member.page_number,span.id",
+        "LEFT JOIN source_spans span ON span.id=("
+        "SELECT anchor.id FROM source_spans anchor WHERE anchor.artifact_id=? "
+        "AND anchor.page_start=member.page_number AND anchor.page_end=member.page_number "
+        "AND anchor.span_kind='page_range' AND anchor.quote IS NULL "
+        "AND json_extract(anchor.selector_json,'$.prepared_version_id')=member.version_id "
+        "AND anchor.snippet=trim(version.prepared_text,char(9,10,11,12,13,32)) "
+        "ORDER BY anchor.id LIMIT 1) "
+        "WHERE ref.id=? "
+        "AND length(trim(version.prepared_text,char(9,10,11,12,13,32)))>0 "
+        "ORDER BY member.page_number",
         (selected.source_artifact_id, selected.prepared_ref_id),
     ).fetchall()
-    pages: dict[int, list[Any]] = {}
-    for row in rows:
-        pages.setdefault(int(row["page_number"]), []).append(row)
-    units = []
-    for spans in pages.values():
-        quoted = [span for span in spans if str(span["quote"] or "").strip()]
-        addressed = quoted or [
-            span for span in spans if str(span["snippet"] or "").strip()
-        ]
-        if not addressed:
-            # A partially grounded set must not silently omit other page text.
-            return ()
-        units.extend(
-            AddressedUnit(
-                unit_id=str(span["stable_id"]),
-                text=str(span["quote"] or span["snippet"]),
-                span_ids=(int(span["id"]),),
-            )
-            for span in addressed
+    if any(row["id"] is None for row in rows):
+        # A partially grounded set must not silently omit other page text.
+        return ()
+    return tuple(
+        AddressedUnit(
+            unit_id=str(row["stable_id"]),
+            text=str(row["snippet"]),
+            span_ids=(int(row["id"]),),
         )
-    return tuple(units)
+        for row in rows
+    )
 
 
 def resolve_find_sources(
