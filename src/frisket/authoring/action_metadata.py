@@ -122,17 +122,16 @@ def run_row_action_kind(row: object) -> str:
     return action_kind
 
 
-def _action_catalog_titles() -> dict[str, str]:
-    from frisket.actions.system import root_action_catalog
-
-    return {action.kind: action.title for action in root_action_catalog().actions}
-
-
 def action_metadata_for_action_kind(action_kind: object) -> dict[str, str]:
+    from frisket.actions.registry import ACTION_REGISTRY
+
     raw = str(action_kind or "").strip()
     action_kind = canonical_action_kind(raw) or "unknown"
-    catalog_titles = _action_catalog_titles()
+    try:
+        title = ACTION_REGISTRY.get(action_kind).definition.title
+    except KeyError:
+        title = None
     return {
         "action_kind": action_kind,
-        "action_name": catalog_titles.get(action_kind) or "Unknown action",
+        "action_name": title or "Unknown action",
     }
