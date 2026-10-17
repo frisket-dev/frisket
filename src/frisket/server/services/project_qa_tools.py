@@ -20,6 +20,7 @@ from frisket.retrieval.contracts import (
     SheetScope,
     TextQuery,
 )
+from frisket.retrieval.source_adapter import resolve_ocr_metadata_cells
 from frisket.actions.system import root_action_catalog_payload
 from frisket.features.watchlists.specs import canonical_json
 from frisket.server.services.project_qa_query import (
@@ -269,6 +270,13 @@ class ProjectQATools:
             sheet_id, row_ids, allowed_rows, file_cells, sheet_grants, limit
         )
         requested_columns = self._requested_columns(sheet_id, column_ids)
+        metadata_cells = (
+            resolve_ocr_metadata_cells(
+                self.project, sheet_id=sheet_id, row_ids=selected_rows
+            )
+            if column_ids is None
+            else frozenset()
+        )
 
         column_by_id = {
             int(column["id"]): column for column in self.project.columns(sheet_id)
@@ -287,6 +295,8 @@ class ProjectQATools:
             )
             cells: list[dict[str, Any]] = []
             for column_id in selected_columns:
+                if (row_id, column_id) in metadata_cells:
+                    continue
                 if remaining <= 0:
                     observation_truncated = True
                     break
@@ -302,8 +312,7 @@ class ProjectQATools:
                 excerpt = rendered[:allowed_chars] + ("…" if truncated else "")
                 remaining -= len(excerpt)
                 column = column_by_id[column_id]
-                citation = self.store.add_citation(
-                    self.turn_id,
+                citation = self._source_handle(
                     label=f"{self._sheet_name(sheet_id)} · row {row_id} · {column['name']}",
                     source_kind="cell",
                     locator={
@@ -315,13 +324,17 @@ class ProjectQATools:
                     excerpt=excerpt,
                     metadata={"truncated": truncated},
                 )
-                self._citation_ids.add(citation["id"])
+                sources = self._grounded_row_sources(
+                    (sheet_id, row_id, column_id), output_grants, limit=remaining
+                )
+                remaining -= sum(len(source["text"]) for source in sources)
                 cells.append(
                     {
                         "column_id": column_id,
                         "name": str(column["name"]),
                         "value": cell_value if not truncated else excerpt,
                         "citation_id": citation["id"],
+                        "sources": sources,
                         "truncated": truncated,
                     }
                 )
@@ -333,6 +346,56 @@ class ProjectQATools:
             "rows": rows,
             "observation_truncated": observation_truncated,
         }
+
+    def _grounded_row_sources(
+        self,
+        cell: tuple[int, int, int],
+        output_grants: tuple[OutputReadGrant, ...],
+        *,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        """Carry precise passages forward without assigning them to a whole cell.
+
+        Reuse only handles already observed in this turn. Resolution checks current
+        source versions, evidence and binding dependencies; authorization is still
+        on the original source cell, including file-scoped prepared-text reads.
+        """
+        from frisket.server.services.project_qa_citations import resolve_citation
+
+        sources = []
+        for citation in self._source_handles.values():
+            if limit <= 0 or len(sources) >= 5:
+                break
+            locator = citation["locator"]
+            addresses = [locator, locator.get("prepared_cell") or {}]
+            if not any(
+                tuple(address.get(key) for key in ("sheet_id", "row_id", "column_id"))
+                == cell
+                for address in addresses
+            ):
+                continue
+            if (
+                citation["source_kind"] != "evidence"
+                and (locator.get("navigation") or {}).get("kind") != "document"
+            ):
+                continue
+            try:
+                self._source_citation(citation["id"], output_grants)
+            except ProjectQAScopeError:
+                continue
+            current = resolve_citation(
+                self.project, str(self.turn["thread_id"]), citation["id"]
+            )
+            if current["status"] != "current":
+                continue
+            text = str(citation.get("excerpt") or "")[: min(limit, MAX_VALUE_CHARS)]
+            if not text:
+                continue
+            sources.append(
+                {"citation_id": citation["id"], "text": text, "label": current["label"]}
+            )
+            limit -= len(text)
+        return sources
 
     def query_rows(
         self,
@@ -572,8 +635,8 @@ class ProjectQATools:
                 }
                 if source_dependency not in dependency_payload:
                     dependency_payload.append(source_dependency)
-            evidence = self._retrieval_evidence(hit, source_cell)
             payload = _search_hit_payload(self.project, hit, column=dict(column))
+            evidence = self._retrieval_evidence(payload["navigation"], source_cell)
             location = payload["location"]
             text_range = location.get("text")
             locator = {
@@ -617,8 +680,7 @@ class ProjectQATools:
                 **(evidence or {}),
             }
             fts_anchor = self._retrieval_fts_anchor(query, hit)
-            citation = self.store.add_citation(
-                self.turn_id,
+            citation = self._source_handle(
                 label=(
                     f"Search hit · {self._sheet_name(source_cell[0])} "
                     f"· row {source_cell[1]} "
@@ -669,29 +731,27 @@ class ProjectQATools:
         return anchor or None
 
     def _retrieval_evidence(
-        self, hit: LocatedHit, cell: tuple[int, int, int]
+        self, navigation: Mapping[str, Any], cell: tuple[int, int, int]
     ) -> dict[str, Any] | None:
-        for span_id in hit.part.locator.source_span_ids:
-            row = self.project.db.execute(
-                "SELECT l.stable_id AS evidence_link_id,"
-                "a.stable_id AS artifact_id,sp.stable_id AS span_id "
-                "FROM source_spans sp "
-                "JOIN source_artifacts a ON a.id=sp.artifact_id "
-                "JOIN evidence_link_spans els ON els.span_id=sp.id "
-                "JOIN evidence_links l ON l.id=els.link_id "
-                "WHERE sp.stable_id=? AND l.status='active' "
-                "AND ((a.source_sheet_id=? AND a.source_row_id=? "
-                "AND a.source_column_id=?) OR (l.sheet_id=? AND l.row_id=? "
-                "AND l.column_id=?)) ORDER BY els.rank,l.id LIMIT 1",
-                (span_id, *cell, *cell),
-            ).fetchone()
-            if row is not None:
-                return {
-                    "evidence_link_id": str(row["evidence_link_id"]),
-                    "artifact_id": str(row["artifact_id"]),
-                    "span_id": str(row["span_id"]),
-                }
-        return None
+        """Use the passage chosen by shared search navigation, never the first span."""
+        if navigation["kind"] != "evidence":
+            return None
+        row = self.project.db.execute(
+            "SELECT l.stable_id AS evidence_link_id,"
+            "a.stable_id AS artifact_id,sp.stable_id AS span_id "
+            "FROM source_spans sp "
+            "JOIN source_artifacts a ON a.id=sp.artifact_id "
+            "JOIN evidence_link_spans els ON els.span_id=sp.id "
+            "JOIN evidence_links l ON l.id=els.link_id "
+            "WHERE sp.stable_id=? AND l.stable_id=? AND l.status='active' "
+            "AND ((a.source_sheet_id=? AND a.source_row_id=? "
+            "AND a.source_column_id=?) OR (l.sheet_id=? AND l.row_id=? "
+            "AND l.column_id=?)) LIMIT 1",
+            (navigation["span_id"], navigation["evidence_link_id"], *cell, *cell),
+        ).fetchone()
+        if row is None:
+            return None
+        return dict(row)
 
     def search_cells(
         self,
@@ -940,7 +1000,15 @@ class ProjectQATools:
         excerpt: str | None,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        key = canonical_json({"kind": source_kind, "locator": locator})
+        key = canonical_json(
+            {
+                "kind": source_kind,
+                "locator": locator,
+                "label": label,
+                "excerpt": excerpt,
+                "metadata": metadata or {},
+            }
+        )
         citation = self._source_handles.get(key)
         if citation is None:
             citation = self.store.add_citation(

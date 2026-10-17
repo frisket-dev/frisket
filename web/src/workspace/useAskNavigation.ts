@@ -40,6 +40,7 @@ export function useAskNavigation(
     if (target.kind === 'evidence') {
       commands.openEvidenceViewer(target.evidence_link_id, 'modalOrPeek', {
         scopeSpanId: target.span_id,
+        scopeSpanIds: target.span_ids,
         highlight: citation.status === 'current',
       });
       return;

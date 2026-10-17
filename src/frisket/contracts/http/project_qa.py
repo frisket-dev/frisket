@@ -193,6 +193,7 @@ class AskEvidenceTarget(WireModel):
     evidence_link_id: str
     artifact_id: str
     span_id: str
+    span_ids: list[str] = Field(default_factory=list)
 
 
 class AskQueryTarget(WireModel):

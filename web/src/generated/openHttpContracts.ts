@@ -3171,6 +3171,7 @@ type HttpAskCitation_AskEvidenceTarget = ({
   "row_id": (number);
   "sheet_id": (number);
   "span_id": (string);
+  "span_ids"?: (Array<(string)>);
 });
 
 type HttpAskCitation_AskQueryTarget = ({
@@ -3260,6 +3261,7 @@ type HttpAskEventsPage_AskEvidenceTarget = ({
   "row_id": (number);
   "sheet_id": (number);
   "span_id": (string);
+  "span_ids"?: (Array<(string)>);
 });
 
 type HttpAskEventsPage_AskFileSource = ({
@@ -3531,6 +3533,7 @@ type HttpAskThreadDetail_AskEvidenceTarget = ({
   "row_id": (number);
   "sheet_id": (number);
   "span_id": (string);
+  "span_ids"?: (Array<(string)>);
 });
 
 type HttpAskThreadDetail_AskFileSource = ({

@@ -169,10 +169,32 @@ def _resolve_evidence_target(
         or viewer["link"]["text_layer_hash_mismatch"]
     ):
         status = "changed"
+    # Shared search navigation can select several word boxes for one phrase.
+    # A newly opened single passage must not inherit a different primary's scope.
+    navigation = locator.get("navigation") or {}
+    span_ids = []
+    if (
+        navigation.get("kind") == "evidence"
+        and navigation.get("evidence_link_id") == locator["evidence_link_id"]
+        and navigation.get("span_id") == locator["span_id"]
+    ):
+        available = {
+            span["stable_id"]
+            for artifact in viewer["artifacts"]
+            for span in artifact["spans"]
+        }
+        span_ids = list(
+            dict.fromkeys(
+                span_id
+                for span_id in navigation.get("span_ids", [])
+                if span_id in available
+            )
+        )
     return {
         **target,
         "kind": "evidence",
         **{key: locator[key] for key in ("evidence_link_id", "artifact_id", "span_id")},
+        **({"span_ids": span_ids} if len(span_ids) > 1 else {}),
     }, status
 
 
