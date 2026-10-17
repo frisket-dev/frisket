@@ -382,7 +382,9 @@ def sample_pdf(
         blob_hash=str(item["blob_hash"]),
         page_number=item.get("page_number"),
     )
-    if row is not None:
+    # Flat manual Text is ready, but has no trustworthy physical-page partition.
+    # This page-inspection preview may still show explicitly labelled native text.
+    if row is not None and row["prepared_ref_id"] is not None:
         params = {"ref": int(row["prepared_ref_id"]), "page": page}
         select_value = (
             "SELECT version.prepared_text AS value FROM prepared_content_refs ref "

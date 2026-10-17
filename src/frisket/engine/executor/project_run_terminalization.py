@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from frisket.contracts.action import ActionError, Receipt
+from frisket.engine.store.document_text import DocumentTextPublicationRefused
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.review_stats import ensure_run_review_stats
 from frisket.engine.store.receipts import (
@@ -183,6 +184,7 @@ def terminalize_project_run(
     errors: Collection[ActionError] = (),
     receipt_source_statuses: Collection[str] | None = ("queued", "running"),
     commit: bool = True,
+    publication_refusal: DocumentTextPublicationRefused | None = None,
 ) -> ProjectRunTerminalizationResult:
     """Terminalize one project run under current, pre-dispatch, or recovery authority.
 
@@ -201,6 +203,13 @@ def terminalize_project_run(
     )
     if terminal_run_status not in {"completed", "failed", "cancelled"}:
         raise ValueError(f"unsupported terminal run status: {terminal_run_status}")
+    if publication_refusal is not None and (
+        not isinstance(publication_refusal, DocumentTextPublicationRefused)
+        or not isinstance(authority, CurrentWriterTerminalAuthority)
+        or status != "failed"
+        or terminal_run_status != "failed"
+    ):
+        raise ValueError("publication refusal requires the exact failed writer")
     if isinstance(authority, NeverDispatchedRunTerminalAuthority) and not commit:
         raise ValueError(
             "never-dispatched terminal authority requires its owned "
@@ -889,6 +898,12 @@ def terminalize_project_run(
 
         from frisket.engine.store.result_generations import ResultGenerationStore
 
+        if publication_refusal is not None:
+            from frisket.engine.store.runs import RunResultStore
+
+            RunResultStore(project).set_run_halt(
+                run_id, "source_changed", str(publication_refusal), commit=False
+            )
         generation_store = ResultGenerationStore(project)
         declared_bindings = generation_store.bindings_for_run(run_id)
         if any(binding.state != "sealed" for binding in declared_bindings):
@@ -916,10 +931,23 @@ def terminalize_project_run(
                 ),
                 # Only the host's coupled finalizer may expose these heads.
                 # Read its durable declaration, never the worker/job payload.
-                publish=json.loads(run["runner_spec"]).get("deferred_publication")
-                is not True,
+                publish=(
+                    publication_refusal is None
+                    and json.loads(run["runner_spec"]).get("deferred_publication")
+                    is not True
+                ),
                 commit=False,
             )
+            if publication_refusal is not None:
+                # Fresh generations can have published earlier rows before a
+                # later source refusal. Make this abort agree with history
+                # rebuilds without scanning unrelated rows or columns.
+                with generation_store.run_effect_key_table(
+                    run_id, [binding.column_id for binding in declared_bindings]
+                ) as key_table:
+                    generation_store.rebuild_heads_from_key_table(
+                        key_table, commit=False
+                    )
 
         receipt_disposition: ReceiptDisposition
         if receipt_source_statuses is None:

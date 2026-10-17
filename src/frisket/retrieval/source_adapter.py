@@ -14,6 +14,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from frisket.engine.store.document_text import document_text_role_for_text_column
 from frisket.engine.store.prepared_content import PreparedContentStore
 from frisket.retrieval.content import (
     PreparedDocumentSurface,
@@ -98,6 +99,7 @@ class ResolvedCellTextSource:
     binding: BindingRevision
     lexical_text: str
     surface: TextProducerSurface
+    source_binding: BindingRevision | None = None
 
     def __post_init__(self) -> None:
         _positive_id(self.sheet_id, "sheet_id")
@@ -510,6 +512,9 @@ def resolve_cell_text_sources(
     if descriptor is None:
         return {}
 
+    document_role = document_text_role_for_text_column(
+        project, text_column_id=selected_column
+    )
     placeholders = ",".join("?" for _ in selected_rows)
     rows = project.db.execute(
         "SELECT current.row_id,current.retrieval_revision,logical.prepared_ref_id,"
@@ -530,6 +535,29 @@ def resolve_cell_text_sources(
     }
     if not metadata:
         return {}
+
+    source_bindings: dict[int, BindingRevision] = {}
+    if document_role is not None:
+        selections = project.db.execute(
+            "SELECT row_id,source_retrieval_revision "
+            "FROM current_document_text_selections "
+            "WHERE source_sheet_id=? AND text_column_id=? AND text_hidden=0 "
+            f"AND row_id IN ({placeholders})",
+            (selected_sheet, selected_column, *selected_rows),
+        )
+        source_bindings = {
+            int(row["row_id"]): BindingRevision(
+                row_id=int(row["row_id"]),
+                column_id=document_role.source_column_id,
+                retrieval_revision=int(row["source_retrieval_revision"]),
+            )
+            for row in selections
+        }
+        metadata = {
+            row: value for row, value in metadata.items() if row in source_bindings
+        }
+        if not metadata:
+            return {}
 
     values = project.get_values(
         selected_sheet,
@@ -591,6 +619,7 @@ def resolve_cell_text_sources(
             ),
             lexical_text=text,
             surface=surface,
+            source_binding=source_bindings.get(row_id),
         )
     return resolved
 

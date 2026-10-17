@@ -1756,6 +1756,32 @@ def resolve_row_output_targets(
             is not None
         )
         if bool(column["ai_generated"]) and not generation_managed:
+            from frisket.engine.runner.preparation import (
+                is_generation_free_document_text_output,
+            )
+
+            first_document_text = (
+                request.replace_existing
+                and field.key == "text"
+                and field.column_type == "text"
+                and is_generation_free_document_text_output(
+                    project,
+                    sheet_id=sheet_id,
+                    action_kind=request.action_id,
+                    params=request.params,
+                    output_names=request.output_names,
+                    expected_output_columns=request.expected_output_columns,
+                    output_name=name,
+                    column_id=column_id,
+                )
+            )
+        else:
+            first_document_text = False
+        if (
+            bool(column["ai_generated"])
+            and not generation_managed
+            and not first_document_text
+        ):
             raise TypedMapRowsPlanError(
                 "output_column_exists",
                 "only generation-managed output columns can be replaced",

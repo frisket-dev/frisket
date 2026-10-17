@@ -17,6 +17,12 @@ from frisket.engine.store.current_cells import (
 )
 from frisket.engine.store.search_index_work import enqueue_dirty_scope
 from frisket.engine.store.prepared_content import decode_logical_value
+from frisket.engine.store.document_text import (
+    document_text_generation_authority,
+    document_text_result_eligibility_sql,
+    require_document_text_publication_key_table,
+    require_document_text_publication_sources,
+)
 
 PUBLICATION_EFFECTS = frozenset({"publish_value", "publish_null", "publish_error"})
 WRITE_MODES = frozenset({"create", "replace_scope"})
@@ -60,6 +66,7 @@ class RunOutputGeneration:
     # permanent writer authority: crash recovery may hold a successor claim.
     claim_token: str
     expected_base_run_id: int | None
+    document_text_authority: bool
     terminal_disposition: str | None
     declared_at: str
     sealed_at: str | None
@@ -173,6 +180,7 @@ class ResultGenerationStore:
                 if row["expected_base_run_id"] is None
                 else int(row["expected_base_run_id"])
             ),
+            document_text_authority=bool(row["document_text_authority"]),
             terminal_disposition=(
                 None
                 if row["terminal_disposition"] is None
@@ -670,8 +678,8 @@ class ResultGenerationStore:
                 self.db.execute(
                     "INSERT INTO run_output_generations "
                     "(run_id,column_id,output_role,compatibility_key,write_mode,"
-                    "state,claim_token,expected_base_run_id) "
-                    "VALUES (?,?,?,?,?,?,?,?)",
+                    "state,claim_token,expected_base_run_id,document_text_authority) "
+                    "VALUES (?,?,?,?,?,?,?,?,?)",
                     (
                         run_id,
                         column_id,
@@ -681,6 +689,11 @@ class ResultGenerationStore:
                         state,
                         claim_token,
                         expected_base_run_id,
+                        int(
+                            document_text_generation_authority(
+                                self.db, column_id=column_id
+                            )
+                        ),
                     ),
                 )
             except sqlite3.IntegrityError as exc:
@@ -736,7 +749,12 @@ class ResultGenerationStore:
                 "FROM target JOIN results result "
                 "ON result.row_id=target.row_id "
                 "AND result.column_id=target.column_id "
-                "WHERE result.run_id=? AND result.publication_effect IS NOT NULL "
+                "JOIN run_output_generations generation "
+                "ON generation.run_id=result.run_id "
+                "AND generation.column_id=result.column_id "
+                "WHERE result.run_id=? AND result.publication_effect IS NOT NULL AND "
+                + document_text_result_eligibility_sql()
+                + " "
                 "ON CONFLICT(column_id,row_id) DO UPDATE SET run_id=excluded.run_id "
                 "WHERE excluded.run_id > cell_result_heads.run_id",
                 (*params, int(run_id)),
@@ -753,7 +771,12 @@ class ResultGenerationStore:
             f"FROM {key_table} target JOIN results result "
             "ON result.row_id=target.row_id "
             "AND result.column_id=target.column_id "
-            "WHERE result.run_id=? AND result.publication_effect IS NOT NULL "
+            "JOIN run_output_generations generation "
+            "ON generation.run_id=result.run_id "
+            "AND generation.column_id=result.column_id "
+            "WHERE result.run_id=? AND result.publication_effect IS NOT NULL AND "
+            + document_text_result_eligibility_sql()
+            + " "
             "ON CONFLICT(column_id,row_id) DO UPDATE SET run_id=excluded.run_id "
             "WHERE excluded.run_id > cell_result_heads.run_id",
             (int(run_id),),
@@ -798,6 +821,9 @@ class ResultGenerationStore:
             return 0
         if claim_token is None:
             raise GenerationClaimError("active result publication has no claim token")
+        require_document_text_publication_sources(
+            self.db, run_id=int(run_id), keys=active_keys
+        )
         # RunResultStore already fenced every batch column under this claim;
         # this method is inside that same savepoint and only projects the exact
         # rows whose effect was just written.
@@ -1138,6 +1164,11 @@ class ResultGenerationStore:
             with self.run_effect_key_table(
                 int(run_id), open_column_ids
             ) as publication_key_table:
+                require_document_text_publication_key_table(
+                    self.db,
+                    run_id=int(run_id),
+                    key_table=publication_key_table,
+                )
                 projected = self._upsert_heads_from_key_table_uncommitted(
                     run_id=int(run_id), key_table=publication_key_table
                 )
@@ -1386,6 +1417,8 @@ class ResultGenerationStore:
                 "JOIN runs run ON run.id=generation.run_id "
                 "JOIN ops op ON op.id=run.op_id "
                 "WHERE result.publication_effect IS NOT NULL AND "
+                + document_text_result_eligibility_sql()
+                + " AND "
                 + _generation_publication_predicate(
                     generation_alias="generation", op_alias="op"
                 )
@@ -1467,7 +1500,9 @@ class ResultGenerationStore:
                 "AND generation.column_id=result.column_id "
                 "JOIN runs run ON run.id=generation.run_id "
                 "JOIN ops op ON op.id=run.op_id "
-                "WHERE result.publication_effect IS NOT NULL "
+                "WHERE result.publication_effect IS NOT NULL AND "
+                + document_text_result_eligibility_sql()
+                + " "
                 "AND "
                 + _generation_publication_predicate(
                     generation_alias="generation", op_alias="op"

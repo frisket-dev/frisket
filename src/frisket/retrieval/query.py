@@ -639,6 +639,7 @@ class RetrievalQueryService:
           GROUP BY retrieval_binding.binding_key
           HAVING MAX(dependency.retrieval_revision !=
                      COALESCE(current_head.retrieval_revision,0))=0
+             AND COUNT(dependency_column.id)=COUNT(*)
              AND ((retrieval_binding.column_id IS NOT NULL
                    AND MAX(binding_column.id IS NOT NULL)=1)
                OR (retrieval_binding.column_id IS NULL
@@ -1853,10 +1854,15 @@ def _binding_is_current(binding: str) -> str:
         f"WHERE required_dependency.binding_key={binding}.binding_key) AND NOT EXISTS ("
         "SELECT 1 FROM idx.binding_dependencies AS dependency "
         "WHERE dependency.binding_key="
-        f"{binding}.binding_key AND dependency.retrieval_revision != COALESCE(("
+        f"{binding}.binding_key AND (NOT EXISTS ("
+        "SELECT 1 FROM main.columns AS dependency_column "
+        "WHERE dependency_column.id=dependency.column_id "
+        f"AND dependency_column.sheet_id={binding}.sheet_id "
+        "AND dependency_column.hidden=0) "
+        "OR dependency.retrieval_revision != COALESCE(("
         "SELECT current_head.retrieval_revision FROM main.current_cells AS current_head "
         "WHERE current_head.column_id=dependency.column_id "
-        "AND current_head.row_id=dependency.row_id),0))"
+        "AND current_head.row_id=dependency.row_id),0)))"
     )
 
 

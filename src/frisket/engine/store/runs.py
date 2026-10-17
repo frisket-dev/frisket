@@ -19,6 +19,7 @@ from frisket.ai.models.metadata import (
     validate_provider_cost,
 )
 from frisket.engine.store.credentials import ProviderSpendDelta
+from frisket.engine.store.document_text import DocumentTextPublicationRefused
 from frisket.engine.store.effect_checkpoints import (
     EffectCheckpointRef,
     EffectCheckpointStore,
@@ -1043,11 +1044,37 @@ class RunResultStore:
                     batch,
                     claim_token=claim_token,
                 )
-        except BaseException:
+        except BaseException as exc:
             self.db.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
             self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
             if started_transaction:
                 self.db.rollback()
+            if isinstance(exc, DocumentTextPublicationRefused):
+                # Publication can refuse a known source mismatch after the
+                # provider returned. Its facts and spend remain historical
+                # truth even though no result/evidence/head may land.
+                fact_owner = authorized_attempt_id or writer_attempt_id
+                if checkpoint is not None:
+                    checkpoint_id, checkpoint_row_id, checkpoint_identity = checkpoint
+                    returned = self._effect_store()._verified_unit(
+                        checkpoint_id,
+                        family=ROW_EFFECT_CHECKPOINT_FAMILY,
+                        group_key=str(int(run_id)),
+                        unit_key=str(int(checkpoint_row_id)),
+                        action_kind=checkpoint_action_kind,
+                        identity=checkpoint_identity,
+                        expected_state="returned",
+                    )
+                    fact_owner = returned["authorized_attempt_id"]
+                self.write_returned_call_accounting(
+                    run_id,
+                    batch,
+                    writer_attempt_id=writer_attempt_id,
+                    claim_token=claim_token,
+                    claimless_direct_effect=claimless_direct_effect,
+                    authorized_attempt_id=fact_owner,
+                    commit=started_transaction,
+                )
             raise
         self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
         if started_transaction:

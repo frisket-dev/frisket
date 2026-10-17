@@ -15,6 +15,7 @@ import sqlite3
 import tempfile
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
+from itertools import groupby
 from pathlib import Path
 from typing import Protocol
 
@@ -176,6 +177,12 @@ def _binding(
     resolved: ResolvedProducerSource,
 ) -> StoredBinding:
     pinned = resolved.binding
+    dependencies = (pinned,)
+    if (
+        isinstance(resolved, ResolvedCellTextSource)
+        and resolved.source_binding is not None
+    ):
+        dependencies += (resolved.source_binding,)
     return StoredBinding(
         binding_id=cell_source_binding_id(
             sheet_id=resolved.sheet_id,
@@ -186,12 +193,13 @@ def _binding(
         sheet_id=resolved.sheet_id,
         row_id=pinned.row_id,
         column_id=pinned.column_id,
-        dependencies=(
+        dependencies=tuple(
             BindingDependency(
-                row_id=pinned.row_id,
-                column_id=pinned.column_id,
-                retrieval_revision=pinned.retrieval_revision,
-            ),
+                row_id=dependency.row_id,
+                column_id=dependency.column_id,
+                retrieval_revision=dependency.retrieval_revision,
+            )
+            for dependency in dependencies
         ),
     )
 
@@ -529,7 +537,9 @@ def _resolve_work_source(
     target = work.source_revision
     encoded, value_type = _encoded_version(target.version_value)
     bindings = store.db.execute(
-        "SELECT binding.sheet_id,dependency.row_id,dependency.column_id,"
+        "SELECT binding.binding_id,binding.sheet_id,binding.row_id,binding.column_id,"
+        "dependency.row_id AS dependency_row_id,"
+        "dependency.column_id AS dependency_column_id,"
         "dependency.retrieval_revision FROM bindings binding "
         "JOIN binding_dependencies dependency "
         "ON dependency.binding_key=binding.binding_key "
@@ -545,18 +555,41 @@ def _resolve_work_source(
         ),
     )
     with project.read_snapshot() as snapshot:
-        for binding in bindings:
+        for _binding_id, grouped in groupby(
+            bindings, key=lambda row: row["binding_id"]
+        ):
+            dependencies = list(grouped)
+            binding = dependencies[0]
             row_id = int(binding["row_id"])
             column_id = int(binding["column_id"])
             sheet_id = int(binding["sheet_id"])
-            current = snapshot.db.execute(
-                "SELECT retrieval_revision FROM current_cells "
-                "WHERE column_id=? AND row_id=?",
-                (column_id, row_id),
-            ).fetchone()
-            if current is None or int(current["retrieval_revision"]) != int(
-                binding["retrieval_revision"]
-            ):
+            current_dependencies = True
+            for dependency in dependencies:
+                current = snapshot.db.execute(
+                    "SELECT retrieval_revision FROM current_cells "
+                    "WHERE column_id=? AND row_id=?",
+                    (
+                        dependency["dependency_column_id"],
+                        dependency["dependency_row_id"],
+                    ),
+                ).fetchone()
+                if current is None or int(current["retrieval_revision"]) != int(
+                    dependency["retrieval_revision"]
+                ):
+                    current_dependencies = False
+                    break
+            if not current_dependencies:
+                continue
+            primary = next(
+                (
+                    dependency
+                    for dependency in dependencies
+                    if dependency["dependency_row_id"] == row_id
+                    and dependency["dependency_column_id"] == column_id
+                ),
+                None,
+            )
+            if primary is None:
                 continue
             if target.source_kind == "transcript":
                 resolved = resolve_cell_transcript_source(
@@ -589,7 +622,7 @@ def _resolve_work_source(
             if (
                 resolved is not None
                 and resolved.binding.retrieval_revision
-                == int(binding["retrieval_revision"])
+                == int(primary["retrieval_revision"])
                 and resolved.source == target
             ):
                 return resolved
@@ -619,6 +652,26 @@ def _produced_batch(
         cursor=cursor,
         cancelled=cancelled,
     )
+
+
+def _document_text_bindings_current(project, resolved: ResolvedCellTextSource) -> bool:
+    """Recheck a designated document's two compact pins after encoding."""
+    if resolved.source_binding is None:
+        return True
+    with project.read_snapshot() as snapshot:
+        for binding in (resolved.binding, resolved.source_binding):
+            current = snapshot.db.execute(
+                "SELECT current.retrieval_revision FROM current_cells current "
+                "JOIN columns descriptor ON descriptor.id=current.column_id "
+                "JOIN rows row ON row.id=current.row_id "
+                "JOIN sheets sheet ON sheet.id=row.sheet_id "
+                "WHERE current.row_id=? AND current.column_id=? "
+                "AND descriptor.hidden=0 AND row.hidden=0 AND sheet.hidden=0",
+                (binding.row_id, binding.column_id),
+            ).fetchone()
+            if current is None or int(current[0]) != binding.retrieval_revision:
+                return False
+    return True
 
 
 def _publication(
@@ -803,6 +856,20 @@ def process_text_preparation_batch(
             )
         if len(encoded) != len(batch.items):
             raise ValueError("encoder returned the wrong vector count")
+        if isinstance(
+            resolved, ResolvedCellTextSource
+        ) and not _document_text_bindings_current(project, resolved):
+            store.fail_preparation(
+                work.source_revision,
+                recipe_id=work.recipe_id,
+                channel=work.channel,
+                space_id=work.space_id,
+                error_code="stale_source",
+                error_message="the document source changed during text preparation",
+            )
+            return _remaining_progress(
+                store, channel=TEXT_CHANNEL, space_id=space.identity
+            )
         vectors = [tuple(vector) for vector in encoded]
         complete = batch.continuation is None
         published = store.publish_source(

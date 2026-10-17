@@ -12,6 +12,11 @@ from frisket.ai.vision.region_locator import ImageAsset, prepare_image_asset
 from frisket.contracts.action import ActionError
 from frisket.engine.executor.find_plan import FindOperation
 from frisket.actions.find_types import FindSourceColumn
+from frisket.engine.store.document_text import (
+    DocumentTextUnavailable,
+    document_text_role_for_text_column,
+    resolve_document_text_selection,
+)
 
 
 _MAX_UNIT_CHARS = 1_200
@@ -141,6 +146,39 @@ def _ocr_units(resolved: Any) -> tuple[AddressedUnit, ...]:
     )
 
 
+def _prepared_units(project: Any, selected: Any) -> tuple[AddressedUnit, ...]:
+    """Read complete producer page anchors, never downstream partial quotes."""
+    rows = project.db.execute(
+        "SELECT span.id,span.stable_id,span.snippet "
+        "FROM prepared_content_refs ref "
+        "JOIN prepared_content_set_pages member ON member.set_id=ref.set_id "
+        "AND (ref.page_number IS NULL OR member.page_number=ref.page_number) "
+        "JOIN prepared_page_versions version ON version.id=member.version_id "
+        "LEFT JOIN source_spans span ON span.id=("
+        "SELECT anchor.id FROM source_spans anchor WHERE anchor.artifact_id=? "
+        "AND anchor.page_start=member.page_number AND anchor.page_end=member.page_number "
+        "AND anchor.span_kind='page_range' AND anchor.quote IS NULL "
+        "AND json_extract(anchor.selector_json,'$.prepared_version_id')=member.version_id "
+        "AND anchor.snippet=trim(version.prepared_text,char(9,10,11,12,13,32)) "
+        "ORDER BY anchor.id LIMIT 1) "
+        "WHERE ref.id=? "
+        "AND length(trim(version.prepared_text,char(9,10,11,12,13,32)))>0 "
+        "ORDER BY member.page_number",
+        (selected.source_artifact_id, selected.prepared_ref_id),
+    ).fetchall()
+    if any(row["id"] is None for row in rows):
+        # A partially grounded set must not silently omit other page text.
+        return ()
+    return tuple(
+        AddressedUnit(
+            unit_id=str(row["stable_id"]),
+            text=str(row["snippet"]),
+            span_ids=(int(row["id"]),),
+        )
+        for row in rows
+    )
+
+
 def resolve_find_sources(
     project: Any,
     params: FindOperation,
@@ -156,8 +194,10 @@ def resolve_find_sources(
             action_kind=params.action_kind,
             field="params.source",
         )
-    column_id = int(column["id"])
-    column_type = str(column["type"])
+    source_column_id = int(column["id"])
+    source_column_type = str(column["type"])
+    column_id = source_column_id
+    column_type = source_column_type
     accepted_types = FindSourceColumn.accepted_column_types
     if accepted_types is not None and column_type not in accepted_types:
         return ActionError(
@@ -186,10 +226,70 @@ def resolve_find_sources(
     )
     sources: list[ResolvedFindSource] = []
     for row_id in row_ids:
+        column_id = source_column_id
+        column_type = source_column_type
         value = values.get(row_id)
         value_ref = dict(refs.get(row_id) or {})
         if value is None or (isinstance(value, str) and not value.strip()):
             continue
+        file_value_ref = None
+        selected = None
+        if column_type == "file" and isinstance(value, dict) and value.get("blob"):
+            blob = project.db.execute(
+                "SELECT mime FROM blobs WHERE hash=?", (str(value["blob"]),)
+            ).fetchone()
+            mime = str(value.get("mime") or (blob["mime"] if blob else "") or "")
+            # Image Find retains its visual source path. A document's selected
+            # Text uses the same addressed units and publication as explicit Text.
+            if not mime.startswith("image/"):
+                try:
+                    selected = resolve_document_text_selection(
+                        project, (params.sheet_id, row_id, source_column_id)
+                    )
+                except DocumentTextUnavailable as error:
+                    return ActionError(
+                        code="source_not_addressable",
+                        message="The selected file needs current document Text before Find.",
+                        action_kind=params.action_kind,
+                        field="params.source",
+                        details={
+                            "sheet_id": params.sheet_id,
+                            "row_id": row_id,
+                            "reason": error.reason,
+                        },
+                    )
+                if selected is not None:
+                    file_value_ref = value_ref
+                    column_id = selected.text_cell[2]
+                    column_type = "text"
+                    text_values, text_refs = project.get_values_with_refs(
+                        params.sheet_id, column_id, row_ids=[row_id]
+                    )
+                    value = text_values.get(row_id)
+                    value_ref = dict(text_refs.get(row_id) or {})
+                    if value is None or (isinstance(value, str) and not value.strip()):
+                        continue
+        if source_column_type == "text":
+            role = document_text_role_for_text_column(
+                project, text_column_id=source_column_id
+            )
+            if role is not None:
+                try:
+                    selected = resolve_document_text_selection(
+                        project, (params.sheet_id, row_id, role.source_column_id)
+                    )
+                except DocumentTextUnavailable as error:
+                    return ActionError(
+                        code="source_not_addressable",
+                        message="The selected document Text is no longer current.",
+                        action_kind=params.action_kind,
+                        field="params.source",
+                        details={
+                            "sheet_id": params.sheet_id,
+                            "row_id": row_id,
+                            "reason": error.reason,
+                        },
+                    )
         artifact_id: int | None = None
         source_kind = "text"
         image: ImageAsset | None = None
@@ -333,11 +433,21 @@ def resolve_find_sources(
                 resolve_current_ocr_evidence,
             )
 
-            ocr_sources = resolve_current_ocr_evidence(
-                project,
-                sheet_id=params.sheet_id,
-                row_id=row_id,
-                column_id=column_id,
+            prepared_units = (
+                _prepared_units(project, selected)
+                if selected is not None and selected.prepared_ref_id is not None
+                else ()
+            )
+            ocr_sources = (
+                resolve_current_ocr_evidence(
+                    project,
+                    sheet_id=params.sheet_id,
+                    row_id=row_id,
+                    column_id=column_id,
+                )
+                if not prepared_units
+                and (selected is None or selected.prepared_ref_id is not None)
+                else ()
             )
             if len(ocr_sources) > 1:
                 return ActionError(
@@ -347,7 +457,17 @@ def resolve_find_sources(
                     field="params.source",
                     details={"sheet_id": params.sheet_id, "row_id": row_id},
                 )
-            if ocr_sources:
+            if prepared_units:
+                units = prepared_units
+                artifact_id = selected.source_artifact_id
+                snapshot = _hash_json(
+                    {
+                        "value_ref": value_ref,
+                        "prepared_ref_id": selected.prepared_ref_id,
+                        "unit_ids": [unit.unit_id for unit in units],
+                    }
+                )
+            elif ocr_sources:
                 ocr_source = ocr_sources[0]
                 units = _ocr_units(ocr_source)
                 artifact_id = ocr_source.artifact_id
@@ -475,6 +595,10 @@ def resolve_find_sources(
                 action_kind=params.action_kind,
                 field="params.source",
                 details={"sheet_id": params.sheet_id, "row_id": row_id},
+            )
+        if file_value_ref is not None:
+            snapshot = _hash_json(
+                {"file_value_ref": file_value_ref, "text_snapshot": snapshot}
             )
         if units or source_kind == "image":
             sources.append(

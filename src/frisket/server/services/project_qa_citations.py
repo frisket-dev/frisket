@@ -121,7 +121,9 @@ def _resolve_prepared_target(
         _cell, _source, prepared = read_source_with_prepared(
             project,
             source_cell,
-            evidence_link_id=str(prepared_link_id),
+            evidence_link_id=(
+                str(prepared_link_id) if prepared_link_id is not None else None
+            ),
         )
     except (KeyError, TypeError, ValueError):
         return target, "changed"

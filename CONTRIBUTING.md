@@ -79,6 +79,15 @@ standalone PDF. Blob metadata and original-document viewing still describe the
 whole PDF. Prepared native/OCR text resolves through the ordinary value readers;
 consumers should not decode its internal storage reference themselves.
 
+Search preparation designates one ordinary Text column for each File/Image
+column. Native extraction and OCR write to that same destination through the
+normal action hosts; explicitly selected alternative outputs remain separate.
+Use `engine.store.document_text` to resolve a document's current text rather
+than picking the newest evidence link. A configured but stale or unavailable
+selection must not fall back to another output. Historical citations continue
+to use their pinned prepared references, and manual text corrections do not
+inherit page positions from the text they replace.
+
 Plugin actions are ordinary actions: an installed `action(...)` declares its
 source columns in its own typed Params, exactly as a built-in one does, and
 runs on the same native hosts. Internal `frisket.sdk` operations still use

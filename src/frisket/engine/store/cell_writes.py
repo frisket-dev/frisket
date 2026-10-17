@@ -445,6 +445,11 @@ def insert_edits(
         "VALUES (?,?,?,?,?)",
         encoded,
     )
+    # Import lazily: document_text owns optional role metadata while this
+    # generic writer also runs during migrations that predate that schema.
+    from .document_text import inherit_document_text_manual_pins
+
+    inherit_document_text_manual_pins(db, encoded)
     refresh_current_cell_pairs(
         db,
         {(row_id, column_id) for _op, row_id, column_id, _kind, _value in encoded},
