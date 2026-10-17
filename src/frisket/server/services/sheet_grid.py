@@ -30,7 +30,10 @@ from frisket.engine.store.current_value_windows import (
     read_current_column,
     read_current_value_window,
 )
-from frisket.engine.store.result_generations import ResultGenerationStore
+from frisket.engine.store.result_generations import (
+    ResultGenerationStore,
+    decode_result_warnings,
+)
 from frisket.engine.store.media_download_candidates import (
     compute_media_download_candidates,
 )
@@ -901,13 +904,14 @@ def _sheet_data_payload(
         column_id = int(c["id"])
         generation_managed = is_generation_managed(column_id)
         if value_mode == "bounded":
-            reads = read_current_column(
-                project.db,
-                sheet_id=sheet_id,
-                column_id=column_id,
-                row_ids=row_ids,
-                bounded=True,
-            )
+            with project.read_snapshot() as snapshot:
+                reads = read_current_column(
+                    snapshot.db,
+                    sheet_id=sheet_id,
+                    column_id=column_id,
+                    row_ids=row_ids,
+                    bounded=True,
+                )
             present_value_rows = {
                 row_id
                 for row_id, read in reads.items()
@@ -951,12 +955,17 @@ def _sheet_data_payload(
                 if row_id not in meta:
                     continue
                 is_error = head["publication_effect"] == "publish_error"
-                if is_error or any(
-                    value is not None
-                    for value in (
-                        head["confidence"],
-                        head["justification"],
-                        head["error"],
+                warnings = list(decode_result_warnings(head["warnings_json"]))
+                if (
+                    is_error
+                    or warnings
+                    or any(
+                        value is not None
+                        for value in (
+                            head["confidence"],
+                            head["justification"],
+                            head["error"],
+                        )
                     )
                 ):
                     meta[row_id].setdefault(str(column_id), {}).update(
@@ -965,6 +974,7 @@ def _sheet_data_payload(
                             "justification": head["justification"],
                             "error": head["error"],
                             "review_state": head["review_state"],
+                            "warnings": warnings,
                             "state": "error" if is_error else "complete",
                             **({"outcome": head["outcome"]} if is_error else {}),
                         }
@@ -1106,7 +1116,8 @@ def _result_metadata(project: Project, column_id: int, row_ids: list[int]) -> di
         placeholders = ",".join("?" for _ in chunk)
         rows = project.db.execute(
             "SELECT head.row_id,result.publication_effect,result.confidence,"
-            "result.justification,result.error,result.review_state,result.outcome "
+            "result.justification,result.error,result.review_state,result.outcome, "
+            "result.warnings AS warnings_json "
             "FROM cell_result_heads head JOIN results result "
             "ON result.run_id=head.run_id AND result.row_id=head.row_id "
             "AND result.column_id=head.column_id "

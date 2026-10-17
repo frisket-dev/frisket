@@ -326,6 +326,7 @@ class SheetDataBoundedValue(WireModel):
 
 class SheetDataCellMeta(WireModel):
     current_value_ref: SheetDataValueRef
+    warnings: list[str] = Field(default_factory=list)
     confidence: float | None = None
     justification: str | None = None
     error: str | None = None

@@ -919,20 +919,35 @@ def bounded_pending_replay_values(
     rather than a fabricated zero or a silently truncated fresh value.
     """
     with project.read_snapshot() as snapshot:
+        projection = (
+            "SELECT res.row_id,length(CAST(res.value AS BLOB)) AS result_bytes,"
+            "length(CAST(e.value AS BLOB)) AS edit_bytes,"
+            "CASE WHEN res.value_kind='prepared_content_ref' THEN res.value END AS result_ref,"
+            "CASE WHEN e.value_kind='prepared_content_ref' THEN e.value END AS edit_ref "
+        )
         query = _replay_candidate_query(
             snapshot,
             sheet_id,
             column_id,
             None if include_count else row_ids,
-            "SELECT res.row_id,length(CAST(res.value AS BLOB)) AS result_bytes,"
-            "length(CAST(e.value AS BLOB)) AS edit_bytes,"
-            "CASE WHEN res.value_kind='prepared_content_ref' THEN res.value END AS result_ref,"
-            "CASE WHEN e.value_kind='prepared_content_ref' THEN e.value END AS edit_ref ",
+            projection,
         )
         if query is None:
             return {}, 0, set()
         sql, params, _run_id = query
-        rows = snapshot.db.execute(sql, params).fetchall()
+        # Header counts must not turn a viewport read into an unbounded
+        # comparison over the whole column. Keep cheap counts exact; larger
+        # comparisons remain available through the deliberate replay API.
+        count_available = include_count
+        rows = snapshot.db.execute(
+            sql + (" LIMIT 129" if include_count else ""), params
+        ).fetchall()
+        if include_count and len(rows) > 128:
+            count_available = False
+            query = _replay_candidate_query(
+                snapshot, sheet_id, column_id, row_ids, projection
+            )
+            rows = snapshot.db.execute(query[0], query[1]).fetchall() if query else []
         ref_ids = {
             int(row[key])
             for row in rows
@@ -946,6 +961,7 @@ def bounded_pending_replay_values(
                 prepared_text_sizes(snapshot.db, ordered_refs[start : start + 400])
             )
         oversized = set()
+        comparison_bytes = 0
         for row in rows:
             sizes = [
                 prepared_sizes[int(row[f"{kind}_ref"])][1]
@@ -953,6 +969,7 @@ def bounded_pending_replay_values(
                 else int(row[f"{kind}_bytes"] or 0)
                 for kind in ("result", "edit")
             ]
+            comparison_bytes += sum(sizes)
             if max(sizes) > byte_limit:
                 oversized.add(int(row["row_id"]))
         values = pending_replay_values(
@@ -964,6 +981,9 @@ def bounded_pending_replay_values(
         count = (
             None
             if oversized
+            or (
+                include_count and (not count_available or comparison_bytes > byte_limit)
+            )
             else (
                 pending_replay_count(snapshot, sheet_id, column_id)
                 if include_count
@@ -1049,8 +1069,13 @@ def _replay_pending_candidates(
         (int(d["row_id"]), str(d["generated_value_hash"]))
         for d in project.db.execute(
             "SELECT row_id, generated_value_hash FROM replay_edit_dismissals "
-            "WHERE column_id=?",
-            (column_id,),
+            "WHERE column_id=?"
+            + (
+                f" AND row_id IN ({','.join('?' * len(row_ids))})"
+                if row_ids is not None
+                else ""
+            ),
+            [column_id, *(row_ids or [])],
         )
     }
     candidates: list[dict[str, Any]] = []

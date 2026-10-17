@@ -84,7 +84,7 @@ function remainingFileCount(batch: SearchPreparationBatch): number {
 
 function preparationDetail(batch: SearchPreparationBatch): string {
   const pageWork = batch.jobs.find((job) => job.progress?.status === 'running' && job.progress.work_progress)?.progress?.work_progress;
-  if (pageWork) return `Reading PDF · ${pageWork.completed.toLocaleString()} of ${pageWork.total.toLocaleString()} pages in current file`;
+  if (pageWork) return `Reading file · ${pageWork.completed.toLocaleString()} of ${pageWork.total.toLocaleString()} pages in current file`;
   const group = batch.groups.find((candidate) => (
     candidate.status === 'running'
       || candidate.status === 'queued'
