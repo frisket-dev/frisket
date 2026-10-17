@@ -25,6 +25,7 @@ import type {
   ReviewRunsPage,
   ReviewRunStatus,
   ReviewRunStatusResult,
+  ReviewValueExcerpt,
   RunRowErrorSummary,
 } from './types';
 
@@ -484,6 +485,17 @@ function mapHistory(wire: HistoryWire): HistoryState {
   };
 }
 
+function mapReviewValueExcerpt(
+  wire: ReviewBundlesWire['bundles'][number]['fields'][number]['bounded_value'],
+): ReviewValueExcerpt | undefined {
+  return wire ? {
+    preview: wire.preview,
+    totalCharacters: wire.total_characters,
+    totalBytes: wire.total_bytes,
+    downloadHref: wire.download_href ?? null,
+  } : undefined;
+}
+
 function mapReviewBundleField(
   wire: ReviewBundlesWire['bundles'][number]['fields'][number],
 ): ReviewBundleField {
@@ -497,15 +509,17 @@ function mapReviewBundleField(
     columnType: (wire.column_type as ColumnType | undefined) ?? 'text',
     semanticType: wire.semantic_type ?? null,
     format: wire.format ?? null,
-    value: toReviewCellValue(wire.value),
+    value: wire.bounded_value ? null : toReviewCellValue(wire.value),
+    boundedValue: mapReviewValueExcerpt(wire.bounded_value),
     confidence: wire.confidence,
-    justification: wire.justification ?? '',
+    justification: wire.bounded_justification ? '' : wire.justification ?? '',
+    boundedJustification: mapReviewValueExcerpt(wire.bounded_justification),
     reviewDecision: wire.review_decision ?? null,
     note: wire.review_note ?? null,
     reviewState: wire.review_state ?? 'unreviewed',
     role: wire.role,
     chore: wire.chore,
-    canEdit: wire.can_edit ?? true,
+    canEdit: wire.bounded_value ? false : wire.can_edit ?? true,
     changed: wire.changed,
   };
 }
@@ -536,7 +550,8 @@ function mapReviewBundles(wire: ReviewBundlesWire): ReviewBundlePage {
       columnType: (item.column_type as ColumnType | undefined) ?? 'text',
       semanticType: item.semantic_type ?? null,
       format: item.format ?? null,
-      value: toReviewCellValue(item.value),
+      value: item.bounded_value ? null : toReviewCellValue(item.value),
+      boundedValue: mapReviewValueExcerpt(item.bounded_value),
     }));
     return {
       id: bundle.id,
@@ -552,7 +567,7 @@ function mapReviewBundles(wire: ReviewBundlesWire): ReviewBundlePage {
       source,
       sources,
       context: Object.entries(source)
-        .map(([key, value]) => `${key}: ${String(value)}`)
+        .map(([key, value]) => `${key}: ${sources.find((item) => item.columnName === key)?.boundedValue?.preview ?? String(value)}`.slice(0, 400))
         .join('  ·  ')
         .slice(0, 400),
       reviewNote: bundle.review_note ?? null,

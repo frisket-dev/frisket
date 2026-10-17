@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { X } from 'lucide-react';
 import { type CellEvidencePayload, type CellValue, type ReviewBundle, type ReviewBundleField } from '../../api/open';
+import { ReviewExcerpt } from './ReviewExcerpt';
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
 import { PanelLoading } from '../PanelPrimitives';
 import { ReviewInputSources } from './ReviewInputSources';
@@ -228,7 +229,9 @@ function RowFieldsDrawer({ entries, bundle, onClose }: { entries: Array<[string,
     <p className={styles.drawerCopy}>Current values. Saved citations show what was used for this result.</p>
     <dl className={styles.rowFields}>{entries.map(([name, value]) => {
       const column = columns.find((item) => item.name === name) ?? { id: name, name, type: 'text' as const };
-      return <div key={name}><dt>{name}</dt><dd><FieldValue col={column} columns={columns} row={row} sheetId={bundle?.sheetId} value={value} /></dd></div>;
+      const excerpt = bundle?.sources?.find((source) => source.columnId === column.id)?.boundedValue;
+      return <div key={name}><dt>{name}</dt><dd>{excerpt ? <ReviewExcerpt excerpt={excerpt} />
+        : <FieldValue col={column} columns={columns} row={row} sheetId={bundle?.sheetId} value={value} />}</dd></div>;
     })}</dl>
   </aside>;
 }
