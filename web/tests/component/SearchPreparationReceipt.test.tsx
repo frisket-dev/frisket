@@ -411,11 +411,13 @@ describe('SearchPreparationReceipt', () => {
       />,
     );
 
-    expect(await screen.findByText('Does this text look right?')).not.toBeNull();
+    expect(await screen.findByText('No embedded text found')).not.toBeNull();
     expect(screen.getByAltText('Page 1').getAttribute('src')).toBe(
       '/api/projects/project-1/blobs/hash/pages/1/image',
     );
     expect(screen.getByText('No embedded text is available on this sampled page.')).not.toBeNull();
+    expect(screen.queryByTestId('search-preparation-keep-text')).toBeNull();
+    expect(screen.queryByTestId('search-preparation-force-ocr')).toBeNull();
     const extract = screen.getByRole('button', { name: 'Prepare files' });
     expect((extract as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(extract);
@@ -424,6 +426,18 @@ describe('SearchPreparationReceipt', () => {
       'prep-1',
       { plan_hash: 'sha256:plan', decision: 'prepare', selected_setup_refs: [] },
     ));
+  });
+
+  it('omits the PDF review when an image-only plan has no PDF samples', async () => {
+    getSearchPreparation.mockResolvedValue({ ...consentBatch,
+      groups: [{ kind: 'ocr', count: 1, status: 'needs_consent' }],
+    });
+    render(<SearchPreparationReceipt projectId="project-1" batchId="prep-1" onDone={vi.fn()} onError={vi.fn()} />);
+    await screen.findByTestId('search-preparation-model-consent');
+    await waitFor(() => expect(screen.queryByTestId('search-preparation-text-preview')).toBeNull());
+    expect(screen.queryByText('Imported PDF')).toBeNull();
+    expect(screen.queryByText('No PDF text sample is available.')).toBeNull();
+    expect(screen.getByTestId('search-preparation-decision-prepare')).not.toBeNull();
   });
 
   it('uses download wording and includes the optional model by default', async () => {
@@ -552,7 +566,11 @@ describe('SearchPreparationReceipt', () => {
 
   it('can restore embedded-text mode without deciding and polls only the replacement batch', async () => {
     vi.useFakeTimers();
-    const forced = { ...consentBatch, force_ocr: true };
+    const forced = { ...consentBatch, force_ocr: true, groups: [{ kind: 'ocr', count: 3, status: 'needs_consent' }] };
+    getSearchPreparationTextSamples.mockResolvedValue({ batch_id: 'prep-1', samples: [{
+      row_id: 42, column_id: 5, filename: 'scan.pdf', page_number: 1, page_count: 1,
+      page_scoped: true, preview_url: '/preview', text: '', source: 'native', truncated: false,
+    }] });
     const replacement = { ...consentBatch, id: 'prep-native', plan_hash: 'sha256:native' };
     getSearchPreparation.mockImplementation(async (_project, id) => id === 'prep-native' ? replacement : forced);
     replanSearchPreparation.mockResolvedValue(replacement);

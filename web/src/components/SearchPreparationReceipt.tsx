@@ -108,12 +108,16 @@ function TextReview({
     void load(sample.row_id, page);
   };
 
+  if (!loading && !sample) return null;
+  const needsOcr = !sample?.text.trim() && !batch.force_ocr
+    && !batch.groups.some((group) => group.kind === 'native_pdf' && group.count > 0);
+
   return (
     <section className="search-preparation-text-preview" data-testid="search-preparation-text-preview">
       <header>
         <div>
-          <strong>Does this text look right?</strong>
-          <span>{sample?.filename ?? 'Imported PDF'}</span>
+          <strong>{needsOcr ? 'No embedded text found' : 'Does this text look right?'}</strong>
+          <span>{sample?.filename}</span>
         </div>
       </header>
       {sample ? (
@@ -155,19 +159,23 @@ function TextReview({
         </>
       ) : loading ? (
         <div role="status"><LoaderCircle className="spin" size={18} /> Reading PDF text…</div>
-      ) : <p>No PDF text sample is available.</p>}
-      <div className="search-preparation-actions">
-        <button type="button" className={batch.force_ocr ? 'btn' : 'btn btn-primary'} data-testid="search-preparation-keep-text"
-          aria-pressed={!batch.force_ocr} disabled={busy}
-          onClick={() => onReplan(false)}>Keep embedded text</button>
-        <button type="button" className={batch.force_ocr ? 'btn btn-primary' : 'btn'} data-testid="search-preparation-force-ocr"
-          aria-pressed={batch.force_ocr} disabled={busy}
-          onClick={() => onReplan(true)}>Re-scan PDFs with OCR</button>
-      </div>
-      <p className="form-hint">
-        This choice applies to all PDFs in this batch. Keep embedded text where available,
-        or re-scan every PDF with OCR.
-      </p>
+      ) : null}
+      {!needsOcr && (
+        <>
+          <div className="search-preparation-actions">
+            <button type="button" className={batch.force_ocr ? 'btn' : 'btn btn-primary'} data-testid="search-preparation-keep-text"
+              aria-pressed={!batch.force_ocr} disabled={busy}
+              onClick={() => onReplan(false)}>Keep embedded text</button>
+            <button type="button" className={batch.force_ocr ? 'btn btn-primary' : 'btn'} data-testid="search-preparation-force-ocr"
+              aria-pressed={batch.force_ocr} disabled={busy}
+              onClick={() => onReplan(true)}>Re-scan PDFs with OCR</button>
+          </div>
+          <p className="form-hint">
+            This choice applies to all PDFs in this batch. Keep embedded text where available,
+            or re-scan every PDF with OCR.
+          </p>
+        </>
+      )}
     </section>
   );
 }
