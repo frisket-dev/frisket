@@ -10540,7 +10540,7 @@ export type HttpSearchPreparationCreateRequest = ({
 });
 
 export type HttpSearchPreparationDecisionRequest = ({
-  "decision": ("prepare" | "not_now") & (string);
+  "decision": ("prepare") & (string);
   "plan_hash": (string);
   "selected_setup_refs"?: (Array<(string)>);
 });
