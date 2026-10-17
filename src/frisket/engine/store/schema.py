@@ -18,6 +18,10 @@ from pathlib import Path
 
 from .citation_text import CITATION_TEXT_SCHEMA_SQL
 from .extraction_layouts import EXTRACTION_LAYOUTS_SCHEMA_SQL
+from .document_text import (
+    DOCUMENT_TEXT_SCHEMA_SQL,
+    DOCUMENT_TEXT_SELECTION_VIEW_SQL,
+)
 
 FORMAT_VERSION = 1
 
@@ -766,6 +770,8 @@ CREATE TABLE IF NOT EXISTS run_output_generations (
   state TEXT NOT NULL CHECK (state IN ('active', 'staged', 'sealed')),
   claim_token TEXT NOT NULL CHECK (length(claim_token) > 0),
   expected_base_run_id INTEGER REFERENCES runs(id) ON DELETE RESTRICT,
+  document_text_authority INTEGER NOT NULL DEFAULT 0
+    CHECK (document_text_authority IN (0,1)),
   terminal_disposition TEXT CHECK (
     terminal_disposition IN ('completed', 'partial', 'failed', 'cancelled')
   ),
@@ -2472,6 +2478,8 @@ CREATE INDEX IF NOT EXISTS idx_project_qa_research_operations_unsettled
 # of the one authoritative fresh-bundle schema and therefore of its digest.
 SCHEMA += "\n" + CITATION_TEXT_SCHEMA_SQL + "\n"
 SCHEMA += "\n" + EXTRACTION_LAYOUTS_SCHEMA_SQL + "\n"
+SCHEMA += "\n" + DOCUMENT_TEXT_SCHEMA_SQL + "\n"
+SCHEMA += "\n" + DOCUMENT_TEXT_SELECTION_VIEW_SQL + "\n"
 
 # The run queue (jobs + worker_heartbeats) lives in its OWN database, never a
 # project bundle: `<workspace>/.queue.db` locally, the hosted run-queue Postgres
