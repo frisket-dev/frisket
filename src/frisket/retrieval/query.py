@@ -65,6 +65,7 @@ HYBRID_POOL = 400
 RERANK_POOL = 100
 SUPPORTING_HIT_LIMIT = 3
 _GROUP_HIT_LIMIT = 1 + SUPPORTING_HIT_LIMIT
+_LEXICAL_HYDRATION_CHARACTERS = 1_048_576
 Reranker = Callable[[str, Sequence[str]], Sequence[float]]
 
 
@@ -1343,6 +1344,8 @@ def _hydrate_lexical(
     literal_query: str,
 ) -> list[_Candidate]:
     hydrated: list[tuple[_Candidate, str]] = []
+    characters = 0
+    located: list[_Candidate] = []
     for candidate in candidates:
         try:
             text = resolve_source_text(
@@ -1354,29 +1357,55 @@ def _hydrate_lexical(
         except UnsupportedLexicalSourceError as exc:
             raise RetrievalQueryError("lexical_source_unavailable", str(exc)) from exc
         if text is None or input_hash(text) != candidate.lexical_content_hash:
+            del text
             continue
+        if hydrated and (
+            characters + len(text) > _LEXICAL_HYDRATION_CHARACTERS
+            or len(hydrated) >= MAX_SNIPPET_CANDIDATES
+        ):
+            located.extend(
+                _hydrate_lexical_batch(reader, hydrated, query, literal_query)
+            )
+            hydrated.clear()
+            characters = 0
         hydrated.append((candidate, text))
+        characters += len(text)
+        del text
+        # A single large source is unavoidable, but must not survive into the
+        # next authority read alongside another full source or raw snippet.
+        if characters >= _LEXICAL_HYDRATION_CHARACTERS:
+            located.extend(
+                _hydrate_lexical_batch(reader, hydrated, query, literal_query)
+            )
+            hydrated.clear()
+            characters = 0
+    if hydrated:
+        located.extend(_hydrate_lexical_batch(reader, hydrated, query, literal_query))
+    return located
+
+
+def _hydrate_lexical_batch(
+    reader: PinnedRetrievalReader,
+    hydrated: list[tuple[_Candidate, str]],
+    query: str,
+    literal_query: str,
+) -> list[_Candidate]:
+    """Finish exact locations before releasing this batch's full source text."""
+
     start_marker, end_marker = _lexical_snippet_markers(
         tuple(text for _candidate, text in hydrated)
     )
-    snippets: dict[int, tuple[str, str | None]] = {}
-    for offset in range(0, len(hydrated), MAX_SNIPPET_CANDIDATES):
-        snippets.update(
-            native_snippets(
-                reader.db,
-                query,
-                [
-                    {"index_id": index, "content": text}
-                    for index, (_candidate, text) in enumerate(
-                        hydrated[offset : offset + MAX_SNIPPET_CANDIDATES],
-                        start=offset + 1,
-                    )
-                ],
-                start_marker=start_marker,
-                end_marker=end_marker,
-                include_rerank=True,
-            )
-        )
+    snippets = native_snippets(
+        reader.db,
+        query,
+        [
+            {"index_id": index, "content": text}
+            for index, (_candidate, text) in enumerate(hydrated, start=1)
+        ],
+        start_marker=start_marker,
+        end_marker=end_marker,
+        include_rerank=True,
+    )
     located: list[_Candidate] = []
     for index, (candidate, text) in enumerate(hydrated, start=1):
         if index not in snippets:

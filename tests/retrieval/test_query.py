@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import tracemalloc
 from pathlib import Path
 from time import perf_counter
 
@@ -354,6 +355,73 @@ def test_unique_long_lexical_match_reports_exact_original_text_range(tmp_path):
             len(prefix) + len(match),
         )
         assert text[location.text.start : location.text.end] == match
+    finally:
+        project.close()
+
+
+def test_large_lexical_sources_do_not_accumulate_during_hydration(
+    tmp_path, record_property
+):
+    from frisket.search import drain_index
+
+    project = Project.create(tmp_path / "lexical-memory.frisket")
+    try:
+        sheet = project.add_sheet("Documents")
+        column = project.add_column(sheet, "body")
+        rows = []
+        match = "tailbeacon"
+        for index in range(6):
+            # Store each actual authority value before allocating the next one.
+            text = f"Document {index}. " + "padding " * (1 << 17) + f" {match}."
+            rows.extend(project.add_rows(sheet, [{"body": text}], {"body": column}))
+            match_start = text.index(match)
+            del text
+        drain_index(project)
+
+        def measured_search(limit):
+            tracemalloc.start()
+            started = perf_counter()
+            try:
+                response = search(
+                    project,
+                    SearchRequest(
+                        scope=RetrievalScope(sheets=(SheetScope(sheet),)),
+                        query=TextQuery(match),
+                        mode="lexical",
+                        group_by="source",
+                        limit=limit,
+                        ranking=RankingPolicy(rerank="off"),
+                    ),
+                )
+                return (
+                    response,
+                    tracemalloc.get_traced_memory()[1],
+                    (perf_counter() - started),
+                )
+            finally:
+                tracemalloc.stop()
+
+        single, single_peak, single_seconds = measured_search(1)
+        multiple, multiple_peak, multiple_seconds = measured_search(len(rows))
+        record_property("single_source_peak_bytes", single_peak)
+        record_property("six_source_peak_bytes", multiple_peak)
+        record_property("single_source_seconds", single_seconds)
+        record_property("six_source_seconds", multiple_seconds)
+        # Metadata may grow with hits; retained megabyte source bodies may not.
+        assert multiple_peak < single_peak + 3 * (1 << 20)
+        assert multiple.results[0].primary.binding == single.results[0].primary.binding
+        assert {result.primary.binding.row_id for result in multiple.results} == set(
+            rows
+        )
+        for result in multiple.results:
+            hit = result.primary
+            assert hit.precision == "exact"
+            assert hit.part.locator.text is not None
+            assert (hit.part.locator.text.start, hit.part.locator.text.end) == (
+                match_start,
+                match_start + len(match),
+            )
+            assert len(hit.snippet) <= 520
     finally:
         project.close()
 
