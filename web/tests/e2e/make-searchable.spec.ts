@@ -601,13 +601,25 @@ test('native text review requests replacement OCR without changing the original 
     force_ocr: true,
   });
   const replacement = await replacementResponse.json() as PreparationBatch;
+  expect(replacement.id).not.toBe(initialPlan.id);
+  expect((await preparationBatch(page.request, pid, initialPlan.id)).status).toBe('stopped');
   expect(replacement).toMatchObject({
-    id: initialPlan.id,
     sheet_id: imported.sheet_id,
     status: 'needs_consent',
     groups: [{ kind: 'ocr', count: 1 }],
     jobs: [],
   });
+  const samplesResponse = await page.request.get(
+    `/api/projects/${pid}/search-preparation/${replacement.id}/text-samples`,
+  );
+  expect(samplesResponse.ok()).toBeTruthy();
+  const samples = await samplesResponse.json() as {
+    batch_id: string;
+    samples: Array<{ row_id: number; column_id: number }>;
+  };
+  expect(samples.batch_id).toBe(replacement.id);
+  expect(samples.samples.map(({ row_id, column_id }) => ({ row_id, column_id })))
+    .toEqual([{ row_id: before.rows[0].id, column_id: mediaColumn!.id }]);
   await expect(receipt.getByTestId('search-preparation-force-ocr')).toBeChecked();
   expect(await modelPullInventory(page.request)).toEqual(pullsBefore);
 
