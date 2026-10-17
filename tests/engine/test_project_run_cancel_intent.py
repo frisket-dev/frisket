@@ -722,9 +722,7 @@ def test_live_writer_cancel_records_intent_then_converges_within_one_row(
         assert detail["cancel_requested"] is True
         assert "live_writer_requires_owner_terminalization" in detail["reason"]
 
-        status = client.get(
-            f"/api/projects/{project_id}/actions/runs/{run_id}/status"
-        )
+        status = client.get(f"/api/projects/{project_id}/actions/runs/{run_id}/status")
         assert status.status_code == 200, status.text
         public_status = status.json()["run"]["public_status"]
         assert public_status["status"] == "running"

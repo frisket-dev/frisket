@@ -49,9 +49,7 @@ class ActionRunCancelService:
                     else None
                 ),
                 "total": (
-                    cancelled_row["total_rows"]
-                    if cancelled_row is not None
-                    else None
+                    cancelled_row["total_rows"] if cancelled_row is not None else None
                 ),
                 "queue_job_id": (
                     cancelled.job.id if cancelled.job is not None else None
