@@ -16,10 +16,11 @@ import uuid
 from typing import Any
 
 from frisket.engine.store.citation_text import (
-    resolve_artifact_texts,
+    read_artifact_passage,
     store_captured_text,
 )
 from frisket.engine.store.deep_link import compose_deep_link
+from frisket.engine.store.current_value_windows import decode_text_prefix
 from frisket.engine.store.media_blobs import MediaBlobStore
 from frisket.engine.store.project import Project
 from frisket.engine.store.retrieval_lifecycle import (
@@ -819,6 +820,11 @@ def resolve_evidence_viewer(
     evidence_link_ref: int | str,
     *,
     project_id: str | None = None,
+    text_artifact_id: int | None = None,
+    text_start: int | None = None,
+    text_limit: int | None = None,
+    text_revision: int | None = None,
+    text_span_id: str | None = None,
 ) -> dict[str, Any]:
     """Resolve an evidence link into a renderer-neutral viewer payload."""
 
@@ -828,7 +834,14 @@ def resolve_evidence_viewer(
     joined = project.db.execute(
         """
         SELECT els.rank, els.span_role, els.required, els.note,
-               sp.*, art.stable_id AS artifact_stable_id,
+               sp.id,sp.stable_id,sp.artifact_id,sp.span_kind,sp.page_start,sp.page_end,
+               sp.start_ms,sp.end_ms,sp.char_start,sp.char_end,sp.bbox_json,sp.selector_json,
+               CASE WHEN length(CAST(sp.quote AS BLOB))>8192 THEN substr(CAST(sp.quote AS BLOB),1,8192) ELSE sp.quote END AS quote,
+               CASE WHEN length(CAST(sp.snippet AS BLOB))>8192 THEN substr(CAST(sp.snippet AS BLOB),1,8192) ELSE sp.snippet END AS snippet,
+               length(CAST(sp.quote AS BLOB))>8192 AS quote_truncated,
+               length(CAST(sp.snippet AS BLOB))>8192 AS snippet_truncated,
+               sp.text_layer_hash,sp.text_surface_id,sp.preview_json,sp.metadata,sp.created_at,
+               art.stable_id AS artifact_stable_id,
                art.artifact_kind, art.media_type, art.blob_hash,
                art.source_url, art.canonical_url, art.title, art.filename,
                art.page_count, art.duration_ms, art.source_sheet_id,
@@ -869,20 +882,48 @@ def resolve_evidence_viewer(
             )
         )
 
-    artifact_texts, stale_artifacts = resolve_artifact_texts(
-        project.db, list(artifacts.values())
-    )
+    if text_artifact_id is not None and not any(
+        int(artifact["id"]) == text_artifact_id for artifact in artifacts.values()
+    ):
+        raise ValueError("text artifact does not belong to this evidence link")
+    if text_span_id is not None and not any(
+        span["stable_id"] == text_span_id
+        for artifact in artifacts.values()
+        for span in artifact["spans"]
+    ):
+        raise ValueError("text span does not belong to this evidence link")
+    if (
+        text_start is not None or text_revision is not None
+    ) and text_artifact_id is None:
+        raise ValueError("text_artifact_id is required for passage navigation")
+    stale_artifacts = set()
     for artifact in artifacts.values():
         artifact["pages"] = _page_payloads(artifact, project_id=project_id)
-        artifact_id = int(artifact["id"])
-        text = artifact_texts.get(artifact_id)
-        artifact["text_context"] = _artifact_text_context(artifact, text)
-        artifact["text_context_status"] = (
-            "stale"
-            if artifact_id in stale_artifacts
-            else "available"
-            if isinstance(text, str)
+        selected = text_artifact_id is None or int(artifact["id"]) == text_artifact_id
+        passage, stale = read_artifact_passage(
+            project.db,
+            artifact,
+            start=text_start if selected else None,
+            limit=text_limit if selected else None,
+            revision=text_revision if selected else None,
+            span_id=text_span_id if selected else None,
+        )
+        if stale:
+            stale_artifacts.add(int(artifact["id"]))
+        artifact["text_context"] = (
+            _artifact_text_context(artifact, passage["text"], passage=passage)
+            if passage is not None
             else None
+        )
+        if artifact["text_context"] is not None and passage["window"] is not None:
+            artifact["text_context"].update(
+                {
+                    "evidence_link_id": str(link["stable_id"]),
+                    "artifact_stable_id": str(artifact["stable_id"]),
+                }
+            )
+        artifact["text_context_status"] = (
+            "stale" if stale else "available" if passage is not None else None
         )
 
     # Attach each cited span's run membership (run_index) and each
@@ -1155,16 +1196,37 @@ def _text_layer_hash_mismatch(
             if declared_cell_surface:
                 return True
             continue
-        values = project.get_values(
-            int(sheet_id),
-            int(column_id),
-            row_ids=[int(row_id)],
-            preserve_invalid=True,
+        from .current_value_windows import (
+            CurrentValueUnavailable,
+            CurrentValueNotTextual,
+            current_text_metadata,
+            current_text_hash,
         )
-        current = values.get(int(row_id))
-        if current is None:
+
+        try:
+            meta = current_text_metadata(
+                project.db,
+                sheet_id=int(sheet_id),
+                row_id=int(row_id),
+                column_id=int(column_id),
+            )
+        except CurrentValueUnavailable:
             return True
-        if isinstance(current, str) and row["text_layer_hash"] != _text_hash(current):
+        except CurrentValueNotTextual:
+            kind = project.db.execute(
+                "SELECT value_kind FROM current_cell_values WHERE row_id=? AND column_id=?",
+                (int(row_id), int(column_id)),
+            ).fetchone()
+            if kind is None or kind[0] == "null":
+                return True
+            continue
+        if meta.value_kind == "text" and row["text_layer_hash"] != current_text_hash(
+            project.db,
+            sheet_id=int(sheet_id),
+            row_id=int(row_id),
+            column_id=int(column_id),
+            metadata=meta,
+        ):
             return True
     return False
 
@@ -1174,14 +1236,17 @@ def _utf16_offset(text: str, codepoint_offset: int) -> int:
 
 
 def _artifact_text_context(
-    artifact: dict[str, Any], text: str | None
+    artifact: dict[str, Any], text: str | None, *, passage: dict[str, Any] | None = None
 ) -> dict[str, Any] | None:
     """Project an available artifact passage and its verified cited ranges."""
 
     metadata = artifact.get("metadata")
     if not isinstance(text, str):
         return None
-    expected_hash = _text_hash(text)
+    window = passage["window"] if passage is not None else None
+    base = window["start"] if window is not None else 0
+    total = window["total_characters"] if window is not None else len(text)
+    expected_hash = passage["content_hash"] if passage is not None else _text_hash(text)
     ranges = []
     for span in artifact["spans"]:
         selector = span.get("selector") or {}
@@ -1193,23 +1258,35 @@ def _artifact_text_context(
             or isinstance(end, bool)
             or start < 0
             or end <= start
-            or end > len(text)
+            or end > total
             or span.get("text_layer_hash") != expected_hash
         ):
+            continue
+        if end <= base or start >= base + len(text):
             continue
         ranges.append(
             {
                 "span_id": span["stable_id"],
-                "start": _utf16_offset(text, start),
-                "end": _utf16_offset(text, end),
+                "start": _utf16_offset(text, max(0, start - base)),
+                "end": _utf16_offset(text, min(len(text), end - base)),
+                **(
+                    {"source_start": start, "source_end": end}
+                    if window is not None
+                    else {}
+                ),
             }
         )
-    if not ranges:
+    if not ranges and window is None:
         return None
     context = {
         "text": text,
         "offset_unit": "utf16_code_unit",
         "ranges": ranges,
+        **(
+            {"window": window, "content_hash": expected_hash}
+            if window is not None
+            else {}
+        ),
     }
     raw_transcript = metadata.get("timestamped_transcript")
     if (
@@ -1229,14 +1306,21 @@ def _artifact_text_context(
                 or type(end) is not int
                 or start < 0
                 or end <= start
-                or end > len(text)
+                or end > total
             ):
                 break
+            if end <= base or start >= base + len(text):
+                continue
             segments.append(
                 {
                     **raw_segment,
-                    "start": _utf16_offset(text, start),
-                    "end": _utf16_offset(text, end),
+                    "start": _utf16_offset(text, max(0, start - base)),
+                    "end": _utf16_offset(text, min(len(text), end - base)),
+                    **(
+                        {"source_start": start, "source_end": end}
+                        if window is not None
+                        else {}
+                    ),
                 }
             )
         else:
@@ -1425,7 +1509,8 @@ def _link_summary(
     ).fetchone()
     first = project.db.execute(
         """
-        SELECT sp.span_kind, sp.snippet, sp.quote, sp.page_start, sp.page_end
+        SELECT sp.span_kind, substr(sp.snippet,1,2048) AS snippet,
+               substr(sp.quote,1,2048) AS quote, sp.page_start, sp.page_end
         FROM evidence_link_spans els
         JOIN source_spans sp ON sp.id=els.span_id
         WHERE els.link_id=?
@@ -1521,8 +1606,8 @@ def _span_payload(
     metadata = _json_loads(row["metadata"], {})
     selector_json = _json_loads(row["selector_json"], {})
     preview = _json_loads(row["preview_json"], {})
-    quote = row["quote"]
-    snippet = row["snippet"] or quote or preview.get("snippet")
+    quote = decode_text_prefix(row["quote"])
+    snippet = decode_text_prefix(row["snippet"]) or quote or preview.get("snippet")
     selector = _selector_payload(row, selector_json)
 
     # Both affordances only apply to temporal spans. deep_link_url is
@@ -1560,6 +1645,16 @@ def _span_payload(
         "selector": selector,
         "quote": quote,
         "snippet": snippet,
+        **(
+            {"quote_truncated": True}
+            if "quote_truncated" in row.keys() and row["quote_truncated"]
+            else {}
+        ),
+        **(
+            {"snippet_truncated": True}
+            if "snippet_truncated" in row.keys() and row["snippet_truncated"]
+            else {}
+        ),
         "text_layer_hash": row["text_layer_hash"],
         "preview": preview,
         "raw": metadata.get("raw") or {},

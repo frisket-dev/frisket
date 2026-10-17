@@ -86,6 +86,23 @@ class TextAnnotationSpan(WireModel):
     end: int
     quote: str
     metadata: TextAnnotationSpanMetadata
+    source_start: int | None = Field(default=None, ge=0)
+    source_end: int | None = Field(default=None, ge=0)
+    quote_truncated: bool = False
+
+
+class EvidenceTextWindow(WireModel):
+    """Absolute Unicode codepoint coordinates for one bounded text passage."""
+
+    start: int = Field(ge=0)
+    end: int = Field(ge=0)
+    total_characters: int = Field(ge=0)
+    total_bytes: int = Field(ge=0)
+    retrieval_revision: int | None
+    previous_start: int | None
+    next_start: int | None
+    reached_start: bool
+    reached_end: bool
 
 
 class TextAnnotationLayer(WireModel):
@@ -107,6 +124,7 @@ class CellTextAnnotationsResponse(WireModel):
     offset_unit: Literal["utf16_code_unit"]
     text: str | None
     layers: list[TextAnnotationLayer]
+    window: EvidenceTextWindow | None = None
 
 
 class EvidenceBlobReference(WireModel):
@@ -219,6 +237,8 @@ class EvidenceViewerSpan(WireModel):
     selector: JsonValue
     quote: str | None
     snippet: str | None
+    quote_truncated: bool = False
+    snippet_truncated: bool = False
     text_layer_hash: str | None
     preview: JsonValue
     raw: JsonValue
@@ -238,6 +258,8 @@ class EvidenceTextRange(WireModel):
     span_id: str
     start: int
     end: int
+    source_start: int | None = Field(default=None, ge=0)
+    source_end: int | None = Field(default=None, ge=0)
 
 
 class EvidenceTranscriptSegment(WireModel):
@@ -247,6 +269,8 @@ class EvidenceTranscriptSegment(WireModel):
     start_ms: int
     end_ms: int
     speaker: str | None = None
+    source_start: int | None = Field(default=None, ge=0)
+    source_end: int | None = Field(default=None, ge=0)
 
 
 class EvidenceTranscriptContext(WireModel):
@@ -262,6 +286,11 @@ class EvidenceTextContext(WireModel):
     offset_unit: Literal["utf16_code_unit"]
     ranges: list[EvidenceTextRange]
     transcript: EvidenceTranscriptContext | None = None
+    window: EvidenceTextWindow | None = None
+    content_hash: str | None = None
+    evidence_link_id: str | None = None
+    artifact_stable_id: str | None = None
+    recovered: bool = False
 
 
 class EvidenceViewerArtifact(WireModel):
@@ -282,7 +311,10 @@ class EvidenceViewerArtifact(WireModel):
     metadata: JsonValue
     text_context: EvidenceTextContext | None = None
     text_context_status: Literal["available", "stale"] | None = None
-    recovery_status: Literal["located", "not_found", "unsupported"] | None = None
+    recovery_status: (
+        Literal["located", "not_found", "unsupported", "incomplete"] | None
+    ) = None
+    recovery_scanned_characters: int | None = Field(default=None, ge=0)
     recovery_notice: str | None = None
     spans: list[EvidenceViewerSpan]
     pages: list[EvidenceViewerPage]
@@ -298,6 +330,7 @@ class EvidenceViewerResponse(WireModel):
 
 PROJECT_EVIDENCE_ERROR_RESPONSES = {
     400: {"model": ActionError},
+    409: {"model": HttpError},
     # Project lookup is detail-wrapped; per-cell/link/column misses are the
     # older bare ActionError envelope.  Both are observable public behavior.
     404: {"model": ActionError | HttpError},
@@ -317,6 +350,7 @@ __all__ = [
     "EvidenceSourceCell",
     "EvidenceTemporalRun",
     "EvidenceTextContext",
+    "EvidenceTextWindow",
     "EvidenceTextRange",
     "EvidenceTranscriptContext",
     "EvidenceTranscriptSegment",

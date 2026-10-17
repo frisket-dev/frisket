@@ -14,6 +14,25 @@ import re
 import sqlite3
 from typing import Any
 
+from .current_value_windows import (
+    CurrentValueChanged,
+    CurrentValueNotTextual,
+    CurrentValueUnavailable,
+    MANUAL_EDIT_BYTE_LIMIT,
+    TEXT_WINDOW_CODEPOINT_LIMIT,
+    cached_text_hash,
+    current_text_hash,
+    current_text_metadata,
+    iter_prepared_text,
+    iter_sql_text,
+    prepared_text_sizes,
+    read_current_text,
+    read_prepared_text,
+    read_sql_text,
+    sql_text_sizes,
+    limit_text_lines,
+)
+
 from .value_codec import repair_unicode_text
 
 
@@ -131,6 +150,150 @@ def _capture_spec(artifact: dict[str, Any]) -> tuple[str, bool] | None:
     if not isinstance(frozen, bool):
         return None
     return content_hash, frozen
+
+
+def passage_window(
+    start: int,
+    text: str,
+    *,
+    total_characters: int,
+    total_bytes: int,
+    revision: int | None,
+    limit: int,
+) -> dict[str, Any]:
+    end = start + len(text)
+    return {
+        "start": start,
+        "end": end,
+        "total_characters": total_characters,
+        "total_bytes": total_bytes,
+        "retrieval_revision": revision,
+        "previous_start": max(0, start - limit) if start else None,
+        "next_start": end if end < total_characters else None,
+        "reached_start": start == 0,
+        "reached_end": end >= total_characters,
+    }
+
+
+def read_artifact_passage(
+    db: sqlite3.Connection,
+    artifact: dict[str, Any],
+    *,
+    start: int | None = None,
+    limit: int | None = None,
+    revision: int | None = None,
+    span_id: str | None = None,
+    ignore_hash: bool = False,
+) -> tuple[dict[str, Any] | None, bool]:
+    """Read a verified native/prepared/frozen passage, retaining hash authority.
+
+    Existing hash-only captures are verified by a bounded streaming digest.
+    A small digest cache is keyed by database identity and immutable source
+    identity; native sources additionally include the current head revision.
+    """
+    if start is not None and start < 0:
+        raise ValueError("text passage start must be non-negative")
+    if limit is not None and not 1 <= limit <= TEXT_WINDOW_CODEPOINT_LIMIT:
+        raise ValueError("invalid text passage limit")
+    spec = _capture_spec(artifact)
+    metadata = artifact.get("metadata") or {}
+    prepared = metadata.get("prepared_source") or {}
+    ref_id = prepared.get("prepared_ref_id")
+    current_revision = None
+    if spec is not None and spec[1]:
+        sql = (
+            "SELECT text AS value FROM citation_texts WHERE content_hash=:content_hash"
+        )
+        params = {"content_hash": spec[0]}
+        sizes = sql_text_sizes(db, sql, params)
+        if sizes is None:
+            return None, True
+        characters, byte_size, _has_nul = sizes
+        digest = cached_text_hash(
+            db,
+            ("citation_snapshot", spec[0]),
+            iter_sql_text(db, sql, params, byte_size),
+        )
+
+        def read(offset, size):
+            return read_sql_text(db, sql, params, start=offset, limit=size, sizes=sizes)
+    elif spec is not None:
+        cell = artifact.get("source_cell") or {}
+        if any(
+            type(cell.get(key)) is not int
+            for key in ("sheet_id", "row_id", "column_id")
+        ):
+            return None, True
+        coordinate = {key: cell[key] for key in ("sheet_id", "row_id", "column_id")}
+        try:
+            current = current_text_metadata(db, **coordinate)
+        except (CurrentValueUnavailable, CurrentValueNotTextual):
+            return None, True
+        if current.value_kind != "text":
+            return None, True
+        current_revision = current.retrieval_revision
+        if revision is not None and revision != current_revision:
+            raise CurrentValueChanged(
+                "source_changed: reopen this evidence before continuing"
+            )
+        if start is not None and start > 0 and revision is None:
+            raise ValueError("revision is required for a continuation passage")
+        characters, byte_size = current.total_characters, current.total_bytes
+        digest = current_text_hash(db, **coordinate, metadata=current)
+
+        def read(offset, size):
+            return read_current_text(
+                db, **coordinate, metadata=current, start=offset, limit=size
+            )
+    elif type(ref_id) is int and ref_id > 0:
+        sizes = prepared_text_sizes(db, [ref_id]).get(ref_id)
+        if sizes is None:
+            return None, True
+        characters, byte_size = sizes
+        digest = cached_text_hash(
+            db, ("prepared_ref", ref_id), iter_prepared_text(db, ref_id)
+        )
+
+        def read(offset, size):
+            return read_prepared_text(db, ref_id, offset, size)
+    else:
+        return None, False
+    if not ignore_hash and spec is not None and digest != spec[0]:
+        return None, True
+    bounded = (
+        byte_size > MANUAL_EDIT_BYTE_LIMIT or start is not None or limit is not None
+    )
+    size = limit or (TEXT_WINDOW_CODEPOINT_LIMIT if bounded else max(1, characters))
+    offset = start or 0
+    if bounded and start is None:
+        candidates = [
+            span
+            for span in artifact.get("spans", [])
+            if span_id is None or span.get("stable_id") == span_id
+        ]
+        for span in candidates:
+            anchor = (span.get("selector") or {}).get("char_start")
+            if type(anchor) is int and 0 <= anchor < characters:
+                offset = max(0, anchor - min(500, size // 2))
+                break
+    offset = min(offset, characters)
+    text = read(offset, size)
+    if bounded:
+        text = limit_text_lines(text)
+    return {
+        "text": text,
+        "content_hash": digest,
+        "window": passage_window(
+            offset,
+            text,
+            total_characters=characters,
+            total_bytes=byte_size,
+            revision=current_revision,
+            limit=size,
+        )
+        if bounded
+        else None,
+    }, False
 
 
 def resolve_current_native_texts(

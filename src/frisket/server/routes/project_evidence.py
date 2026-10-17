@@ -29,7 +29,7 @@ def register_project_evidence_routes(
         response_model_exclude_unset=True,
         responses={
             **PROJECT_EVIDENCE_ERROR_RESPONSES,
-            **http_error_responses(401, 403, 422, 500),
+            **http_error_responses(401, 403, 409, 422, 500),
         },
     )
     def cell_evidence(
@@ -62,10 +62,24 @@ def register_project_evidence_routes(
         },
     )
     def cell_text_annotations(
-        pid: str, row_id: int, column_id: int
+        pid: str,
+        row_id: int,
+        column_id: int,
+        start: int | None = Query(default=None, ge=0),
+        limit: int | None = Query(default=None, ge=1, le=16_384),
+        revision: int | None = Query(default=None, gt=0),
+        occurrence_id: str | None = Query(default=None, max_length=100),
     ) -> CellTextAnnotationsResponse:
         return CellTextAnnotationsResponse.model_validate(
-            service.cell_text_annotations(pid, row_id=row_id, column_id=column_id)
+            service.cell_text_annotations(
+                pid,
+                row_id=row_id,
+                column_id=column_id,
+                start=start,
+                limit=limit,
+                revision=revision,
+                occurrence_id=occurrence_id,
+            )
         )
 
     @app.get(
@@ -81,12 +95,22 @@ def register_project_evidence_routes(
         pid: str,
         evidence_link_id: str,
         locate_current: bool = Query(default=False),
+        text_artifact_id: int | None = Query(default=None, gt=0),
+        text_start: int | None = Query(default=None, ge=0),
+        text_limit: int | None = Query(default=None, ge=1, le=16_384),
+        text_revision: int | None = Query(default=None, gt=0),
+        text_span_id: str | None = Query(default=None, max_length=160),
     ) -> EvidenceViewerResponse:
         return EvidenceViewerResponse.model_validate(
             service.evidence_viewer(
                 pid,
                 evidence_link_id,
                 locate_current=locate_current,
+                text_artifact_id=text_artifact_id,
+                text_start=text_start,
+                text_limit=text_limit,
+                text_revision=text_revision,
+                text_span_id=text_span_id,
             )
         )
 

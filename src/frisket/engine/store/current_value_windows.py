@@ -9,7 +9,11 @@ including the canonical two-newline separators between physical pages.
 from __future__ import annotations
 
 import codecs
+import hashlib
+import os
 import sqlite3
+import threading
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any, Iterator
 
@@ -25,6 +29,8 @@ _ROW_CHUNK_SIZE = 400
 _TEXTUAL_KINDS = frozenset({"text", "json", "bigint", "legacy_invalid"})
 _SCALAR_KINDS = frozenset({"integer", "real", "boolean"})
 _BLOB_CHUNK_BYTES = 64 * 1024
+_HASH_CACHE: OrderedDict[tuple[Any, ...], str] = OrderedDict()
+_HASH_CACHE_LOCK = threading.Lock()
 
 
 class CurrentValueUnavailable(ValueError):
@@ -160,6 +166,15 @@ def _params(sheet_id: int, column_id: int, row_ids: list[int]) -> dict[str, int]
     }
 
 
+def decode_text_prefix(value: str | bytes | None) -> str | None:
+    """Decode a bounded SQL BLOB prefix without losing NUL or a split UTF-8 tail."""
+    if isinstance(value, bytes):
+        return codecs.getincrementaldecoder("utf-8")().decode(value, final=False)[
+            :PREVIEW_CODEPOINT_LIMIT
+        ]
+    return value
+
+
 def _blob_text_chunks(
     db: sqlite3.Connection,
     select_value: str,
@@ -212,6 +227,114 @@ def _sql_text_slice(
     return "".join(fragments)
 
 
+def sql_text_sizes(
+    db: sqlite3.Connection, select_value: str, params: dict[str, Any]
+) -> tuple[int, int, bool] | None:
+    """Read UTF-8 text sizes without returning its full value to Python."""
+    row = db.execute(
+        "SELECT length(value),length(CAST(value AS BLOB)),instr(value,char(0))>0 FROM ("
+        + select_value
+        + ")",
+        params,
+    ).fetchone()
+    if row is None or row[0] is None:
+        return None
+    chars, byte_size, has_nul = int(row[0]), int(row[1]), bool(row[2])
+    if has_nul:
+        chars = sum(
+            len(part) for part in _blob_text_chunks(db, select_value, params, byte_size)
+        )
+    return chars, byte_size, has_nul
+
+
+def read_sql_text(
+    db: sqlite3.Connection,
+    select_value: str,
+    params: dict[str, Any],
+    *,
+    start: int,
+    limit: int,
+    sizes: tuple[int, int, bool],
+) -> str:
+    return _sql_text_slice(
+        db,
+        select_value,
+        params,
+        start=start,
+        limit=limit,
+        total_bytes=sizes[1],
+        has_nul=sizes[2],
+    )
+
+
+def iter_sql_text(
+    db: sqlite3.Connection, select_value: str, params: dict[str, Any], total_bytes: int
+) -> Iterator[str]:
+    yield from _blob_text_chunks(db, select_value, params, total_bytes)
+
+
+def cached_text_hash(
+    db: sqlite3.Connection, identity: tuple[Any, ...], parts: Iterator[str]
+) -> str:
+    """Verify legacy evidence digests once per immutable current-head revision.
+
+    The small process cache stores digests only. File identity plus the current
+    revision prevents another project or a replacement database reusing a key.
+    In-memory databases bypass the cache.
+    """
+    filename = str(db.execute("PRAGMA database_list").fetchone()[2])
+    key = None
+    if filename:
+        stat = os.stat(filename)
+        bundle = db.execute("SELECT value FROM meta WHERE key='storage_id'").fetchone()
+        key = (
+            filename,
+            stat.st_dev,
+            stat.st_ino,
+            str(bundle[0]) if bundle is not None else None,
+            *identity,
+        )
+        with _HASH_CACHE_LOCK:
+            if key in _HASH_CACHE:
+                _HASH_CACHE.move_to_end(key)
+                return _HASH_CACHE[key]
+    digest = hashlib.sha256()
+    for part in parts:
+        digest.update(part.encode("utf-8"))
+    result = "sha256:" + digest.hexdigest()
+    if key is not None:
+        with _HASH_CACHE_LOCK:
+            _HASH_CACHE[key] = result
+            _HASH_CACHE.move_to_end(key)
+            while len(_HASH_CACHE) > 128:
+                _HASH_CACHE.popitem(last=False)
+    return result
+
+
+def current_text_hash(
+    db: sqlite3.Connection,
+    *,
+    sheet_id: int,
+    row_id: int,
+    column_id: int,
+    metadata: CurrentTextMetadata | None = None,
+) -> str:
+    metadata = metadata or current_text_metadata(
+        db, sheet_id=sheet_id, row_id=row_id, column_id=column_id
+    )
+    return cached_text_hash(
+        db,
+        ("cell", sheet_id, row_id, column_id, metadata.retrieval_revision),
+        iter_current_value(
+            db,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=column_id,
+            expected_revision=metadata.retrieval_revision,
+        ),
+    )
+
+
 def _prepared_pages(
     db: sqlite3.Connection, ref_ids: list[int]
 ) -> dict[int, list[tuple[int, int, int, bool]]]:
@@ -261,7 +384,7 @@ def prepared_text_sizes(
     }
 
 
-def _prepared_window(
+def read_prepared_text(
     db: sqlite3.Connection, ref_id: int, start: int, limit: int
 ) -> str:
     """Read intersecting pages and exact two-newline assembly separators."""
@@ -296,7 +419,7 @@ def _prepared_window(
 
 
 def _prepared_value(db: sqlite3.Connection, ref_id: int, total_characters: int) -> str:
-    return _prepared_window(db, ref_id, 0, total_characters)
+    return read_prepared_text(db, ref_id, 0, total_characters)
 
 
 def read_current_column(
@@ -370,7 +493,7 @@ def read_current_column(
                 total_characters, total_bytes = sizes
                 if bounded and total_bytes > MANUAL_EDIT_BYTE_LIMIT:
                     preview = BoundedValuePreview(
-                        preview=_prepared_window(
+                        preview=read_prepared_text(
                             db, ref_id, 0, PREVIEW_CODEPOINT_LIMIT
                         ),
                         value_kind="text",
@@ -495,7 +618,7 @@ def read_current_text(
     if limit == 0:
         return ""
     if metadata.prepared_ref_id is not None:
-        return _prepared_window(db, metadata.prepared_ref_id, start, limit)
+        return read_prepared_text(db, metadata.prepared_ref_id, start, limit)
     return _sql_text_slice(
         db,
         "WITH "
@@ -546,14 +669,7 @@ def read_current_value_window(
         start=bounded_start,
         limit=limit,
     )
-    if max_lines is not None and max_lines > 0:
-        position = 0
-        for _ in range(max_lines):
-            position = text.find("\n", position) + 1
-            if position == 0:
-                break
-        else:
-            text = text[:position]
+    text = limit_text_lines(text, max_lines)
     return CurrentValueWindow(
         row_id=row_id,
         column_id=column_id,
@@ -564,6 +680,18 @@ def read_current_value_window(
         start=bounded_start,
         text=text,
     )
+
+
+def limit_text_lines(text: str, max_lines: int | None = TEXT_WINDOW_LINE_LIMIT) -> str:
+    if max_lines is not None and max_lines > 0:
+        position = 0
+        for _ in range(max_lines):
+            position = text.find("\n", position) + 1
+            if position == 0:
+                break
+        else:
+            text = text[:position]
+    return text
 
 
 def iter_current_value(
@@ -591,9 +719,11 @@ def iter_current_value(
             metadata.total_bytes,
         )
         return
-    pages = _prepared_pages(db, [metadata.prepared_ref_id]).get(
-        metadata.prepared_ref_id, []
-    )
+    yield from iter_prepared_text(db, metadata.prepared_ref_id)
+
+
+def iter_prepared_text(db: sqlite3.Connection, ref_id: int) -> Iterator[str]:
+    pages = _prepared_pages(db, [ref_id]).get(ref_id, [])
     for index, (version_id, _characters, byte_size, _has_nul) in enumerate(pages):
         if index:
             yield "\n\n"
@@ -614,6 +744,15 @@ __all__ = [
     "CurrentValueWindow",
     "CurrentTextMetadata",
     "current_text_metadata",
+    "current_text_hash",
+    "decode_text_prefix",
+    "cached_text_hash",
+    "limit_text_lines",
+    "sql_text_sizes",
+    "read_sql_text",
+    "iter_sql_text",
+    "read_prepared_text",
+    "iter_prepared_text",
     "read_current_text",
     "prepared_text_sizes",
     "MANUAL_EDIT_BYTE_LIMIT",

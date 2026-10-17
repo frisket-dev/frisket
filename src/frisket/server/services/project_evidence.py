@@ -14,6 +14,7 @@ from starlette.background import BackgroundTask
 from frisket.contracts.action import ActionError as V1ActionError
 from frisket.server.workspace import Workspace
 from frisket.engine.store import Project
+from frisket.engine.store.current_value_windows import CurrentValueChanged
 from frisket.engine.store.blob_backend import BlobNotFoundError
 from frisket.engine.store.evidence import (
     list_cell_evidence,
@@ -90,6 +91,10 @@ class ProjectEvidenceService:
         *,
         row_id: int,
         column_id: int,
+        start: int | None = None,
+        limit: int | None = None,
+        revision: int | None = None,
+        occurrence_id: str | None = None,
     ) -> Any:
         """The annotation layers whose
         coordinate surface IS this cell — what the reader draws marks from.
@@ -115,12 +120,27 @@ class ProjectEvidenceService:
                 ),
                 bare_json=True,
             )
-        return resolve_text_annotations(
-            project,
-            sheet_id=sheet_id,
-            row_id=row_id,
-            column_id=column_id,
-        )
+        try:
+            return resolve_text_annotations(
+                project,
+                sheet_id=sheet_id,
+                row_id=row_id,
+                column_id=column_id,
+                start=start,
+                limit=limit,
+                revision=revision,
+                occurrence_id=occurrence_id,
+            )
+        except CurrentValueChanged as exc:
+            raise ProjectEvidenceRouteError(409, str(exc)) from exc
+        except ValueError as exc:
+            raise ProjectEvidenceRouteError(
+                400,
+                _v1_action_error(
+                    code="invalid_text_window", message=str(exc), field="text_window"
+                ),
+                bare_json=True,
+            ) from exc
 
     def column_evidence(
         self,
@@ -161,6 +181,11 @@ class ProjectEvidenceService:
         evidence_link_id: str,
         *,
         locate_current: bool = False,
+        text_artifact_id: int | None = None,
+        text_start: int | None = None,
+        text_limit: int | None = None,
+        text_revision: int | None = None,
+        text_span_id: str | None = None,
     ) -> Any:
         project = self._project_or_404(project_id)
         with project.read_snapshot() as snapshot:
@@ -169,7 +194,24 @@ class ProjectEvidenceService:
                     snapshot,
                     evidence_link_id,
                     project_id=project_id,
+                    text_artifact_id=text_artifact_id,
+                    text_start=text_start,
+                    text_limit=text_limit,
+                    text_revision=text_revision,
+                    text_span_id=text_span_id,
                 )
+            except CurrentValueChanged as exc:
+                raise ProjectEvidenceRouteError(409, str(exc)) from exc
+            except ValueError as exc:
+                raise ProjectEvidenceRouteError(
+                    400,
+                    _v1_action_error(
+                        code="invalid_text_window",
+                        message=str(exc),
+                        field="text_window",
+                    ),
+                    bare_json=True,
+                ) from exc
             except KeyError as exc:
                 raise ProjectEvidenceRouteError(
                     404,
@@ -182,7 +224,15 @@ class ProjectEvidenceService:
                     bare_json=True,
                 ) from exc
             return (
-                locate_current_evidence_text(snapshot.db, viewer)
+                locate_current_evidence_text(
+                    snapshot.db,
+                    viewer,
+                    text_artifact_id=text_artifact_id,
+                    text_start=text_start,
+                    text_limit=text_limit,
+                    text_revision=text_revision,
+                    text_span_id=text_span_id,
+                )
                 if locate_current
                 else viewer
             )

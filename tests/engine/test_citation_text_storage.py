@@ -262,7 +262,7 @@ def test_rendered_json_cell_surface_is_not_compared_as_native_text(tmp_path) -> 
     assert viewer["artifacts"][0]["text_context"]["text"] == rendered
 
 
-def test_viewer_batches_native_context_resolution_for_multiple_artifacts(
+def test_viewer_keeps_independent_native_contexts_for_multiple_artifacts(
     tmp_path,
 ) -> None:
     project = Project.create(tmp_path / "batched-citation.frisket")
@@ -284,20 +284,17 @@ def test_viewer_batches_native_context_resolution_for_multiple_artifacts(
         for row_id, text in zip(row_ids, ("first", "second"), strict=True)
     ]
     link = _link(project, [item[1] for item in artifacts_and_spans])
-    statements: list[str] = []
-    project.db.set_trace_callback(statements.append)
-    try:
-        viewer = resolve_evidence_viewer(project, link["id"])
-    finally:
-        project.db.set_trace_callback(None)
+    viewer = resolve_evidence_viewer(project, link["id"])
 
     assert len(viewer["artifacts"]) == 2
-    context_queries = [
-        sql
-        for sql in statements
-        if sql.startswith("WITH requested(sheet_id,row_id,column_id")
+    assert [artifact["text_context"]["text"] for artifact in viewer["artifacts"]] == [
+        "first",
+        "second",
     ]
-    assert len(context_queries) == 1
+    assert all(
+        artifact["text_context_status"] == "available"
+        for artifact in viewer["artifacts"]
+    )
 
 
 def test_legacy_inline_context_migrates_to_deduplicated_snapshot(tmp_path) -> None:
