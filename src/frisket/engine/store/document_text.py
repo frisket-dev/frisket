@@ -135,6 +135,10 @@ class DocumentTextRoleError(ValueError):
     """A requested File-to-Text role is structurally invalid or conflicts."""
 
 
+class DocumentTextPublicationRefused(DocumentTextRoleError):
+    """A known source mismatch prevents this result from becoming current."""
+
+
 class DocumentTextUnavailable(RuntimeError):
     """A configured role has no fresh, usable current document text."""
 
@@ -351,7 +355,9 @@ def ensure_document_text_role(
         (int(row[0]), int(row[1])) != (source_column_id, text_column_id)
         for row in existing
     ):
-        raise DocumentTextRoleError("document text role conflicts with an existing pair")
+        raise DocumentTextRoleError(
+            "document text role conflicts with an existing pair"
+        )
     db.execute(
         "INSERT OR IGNORE INTO document_text_column_roles "
         "(source_column_id,text_column_id) VALUES (?,?)",
@@ -549,8 +555,7 @@ def document_text_result_eligibility_sql(
     return (
         f"({generation_alias}.document_text_authority=0 OR ("
         f"{result_alias}.publication_effect='publish_value' AND "
-        f"{result_alias}.value_kind='prepared_content_ref'"
-        + "))"
+        f"{result_alias}.value_kind='prepared_content_ref'" + "))"
     )
 
 
@@ -616,7 +621,7 @@ def require_document_text_publication_sources(
             (*params, int(run_id)),
         ).fetchone()
         if bad is not None:
-            raise DocumentTextRoleError(
+            raise DocumentTextPublicationRefused(
                 "authoritative document text must be prepared content matching "
                 f"its current source (row {int(bad[0])}, column {int(bad[1])})"
             )
@@ -644,7 +649,7 @@ def require_document_text_publication_key_table(
         (int(run_id),),
     ).fetchone()
     if bad is not None:
-        raise DocumentTextRoleError(
+        raise DocumentTextPublicationRefused(
             "authoritative document text must be prepared content matching "
             f"its current source (row {int(bad[0])}, column {int(bad[1])})"
         )
@@ -655,6 +660,7 @@ __all__ = [
     "DOCUMENT_TEXT_SELECTION_VIEW_SQL",
     "DocumentTextRole",
     "DocumentTextRoleError",
+    "DocumentTextPublicationRefused",
     "DocumentTextSelection",
     "DocumentTextUnavailable",
     "document_text_related_column_ids",
