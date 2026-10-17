@@ -34,6 +34,9 @@ from frisket.server.services.project_qa_sources import (
 )
 from helpers import write_claimed_test_results
 
+# These bounds exercise the real Ask deadline and SQLite streaming latency.
+pytestmark = pytest.mark.realtime
+
 
 def _source(tmp_path, text, authority):
     project = Project.create(tmp_path / "source.frisket", name="Source")

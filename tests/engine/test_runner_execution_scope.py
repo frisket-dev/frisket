@@ -306,6 +306,7 @@ def test_page_progress_is_best_effort_and_clears_before_the_next_row(
         project.close()
 
 
+@pytest.mark.realtime
 def test_page_progress_does_not_wait_for_or_commit_another_write(tmp_path):
     project, sheet_id, row_ids = _seed_project(tmp_path, rows=1)
     store = RunResultStore(project)
