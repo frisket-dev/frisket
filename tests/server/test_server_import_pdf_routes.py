@@ -14,7 +14,6 @@ from frisket.engine.executor.pdf_page_read import AdmittedPdfPageRenderer
 from frisket.server.app import create_app
 from frisket.server.services import import_pdf as pdf_service
 from frisket.server.services import search_preparation as preparation_service
-from frisket.server.services import search_preparation_planning as planning
 from frisket.server.services.import_uploads import AdmittedUpload
 
 
@@ -161,9 +160,6 @@ def test_import_pdf_creates_one_ocr_item_for_pdf_page_and_rendered_image(
             )
         }
 
-    async def blank_page(_path):
-        return [SimpleNamespace(page=1, tokens=())]
-
     requirement = SimpleNamespace(
         setup_ref="engine-setup:rapidocr.local@1",
         capability="ocr",
@@ -179,7 +175,6 @@ def test_import_pdf_creates_one_ocr_item_for_pdf_page_and_rendered_image(
         runtime_installable=False,
     )
     monkeypatch.setattr(AdmittedPdfPageRenderer, "render", render)
-    monkeypatch.setattr(planning, "extract_pdf_text", blank_page)
     monkeypatch.setattr(preparation_service, "_requirements", lambda: (requirement,))
     client = TestClient(create_app(tmp_path / "workspace"))
     pid = client.post("/api/projects", json={"name": "Scanned PDF"}).json()["id"]
@@ -195,6 +190,7 @@ def test_import_pdf_creates_one_ocr_item_for_pdf_page_and_rendered_image(
     batches = listed.json()["batches"]
     assert len(batches) == 1
     assert batches[0]["status"] == "needs_consent"
+    assert batches[0]["jobs"] == []
     assert batches[0]["groups"] == [
         {"kind": "ocr", "count": 1, "status": "needs_consent"}
     ]
