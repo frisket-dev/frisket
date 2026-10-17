@@ -635,8 +635,8 @@ class ProjectQATools:
                 }
                 if source_dependency not in dependency_payload:
                     dependency_payload.append(source_dependency)
-            evidence = self._retrieval_evidence(hit, source_cell)
             payload = _search_hit_payload(self.project, hit, column=dict(column))
+            evidence = self._retrieval_evidence(payload["navigation"], source_cell)
             location = payload["location"]
             text_range = location.get("text")
             locator = {
@@ -731,29 +731,27 @@ class ProjectQATools:
         return anchor or None
 
     def _retrieval_evidence(
-        self, hit: LocatedHit, cell: tuple[int, int, int]
+        self, navigation: Mapping[str, Any], cell: tuple[int, int, int]
     ) -> dict[str, Any] | None:
-        for span_id in hit.part.locator.source_span_ids:
-            row = self.project.db.execute(
-                "SELECT l.stable_id AS evidence_link_id,"
-                "a.stable_id AS artifact_id,sp.stable_id AS span_id "
-                "FROM source_spans sp "
-                "JOIN source_artifacts a ON a.id=sp.artifact_id "
-                "JOIN evidence_link_spans els ON els.span_id=sp.id "
-                "JOIN evidence_links l ON l.id=els.link_id "
-                "WHERE sp.stable_id=? AND l.status='active' "
-                "AND ((a.source_sheet_id=? AND a.source_row_id=? "
-                "AND a.source_column_id=?) OR (l.sheet_id=? AND l.row_id=? "
-                "AND l.column_id=?)) ORDER BY els.rank,l.id LIMIT 1",
-                (span_id, *cell, *cell),
-            ).fetchone()
-            if row is not None:
-                return {
-                    "evidence_link_id": str(row["evidence_link_id"]),
-                    "artifact_id": str(row["artifact_id"]),
-                    "span_id": str(row["span_id"]),
-                }
-        return None
+        """Use the passage chosen by shared search navigation, never the first span."""
+        if navigation["kind"] != "evidence":
+            return None
+        row = self.project.db.execute(
+            "SELECT l.stable_id AS evidence_link_id,"
+            "a.stable_id AS artifact_id,sp.stable_id AS span_id "
+            "FROM source_spans sp "
+            "JOIN source_artifacts a ON a.id=sp.artifact_id "
+            "JOIN evidence_link_spans els ON els.span_id=sp.id "
+            "JOIN evidence_links l ON l.id=els.link_id "
+            "WHERE sp.stable_id=? AND l.stable_id=? AND l.status='active' "
+            "AND ((a.source_sheet_id=? AND a.source_row_id=? "
+            "AND a.source_column_id=?) OR (l.sheet_id=? AND l.row_id=? "
+            "AND l.column_id=?)) LIMIT 1",
+            (navigation["span_id"], navigation["evidence_link_id"], *cell, *cell),
+        ).fetchone()
+        if row is None:
+            return None
+        return dict(row)
 
     def search_cells(
         self,

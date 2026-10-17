@@ -474,3 +474,27 @@ def test_read_rows_mints_a_fresh_citation_after_total_observation_truncation(
         assert isolated_citation["metadata"] == {"truncated": False}
     finally:
         project.close()
+
+
+def test_ask_keeps_all_search_phrase_highlights(tmp_path):
+    from tests.server.test_project_search_evidence_hydration import _seed_ocr
+
+    project = Project.create(tmp_path / "phrase-highlights.frisket")
+    try:
+        _seed_ocr(project)
+        sheet = project.sheets()[0]["id"]
+        store, turn = _turn(project)
+        drain_index(project)
+        tools = ProjectQATools(project, turn, store)
+        hit = next(
+            hit
+            for hit in tools.search_cells("China trade", sheet)["hits"]
+            if hit["navigation"]["kind"] == "evidence"
+        )
+        expected = hit["navigation"]["span_ids"]
+        assert len(expected) == 2
+        citation = resolve_citation(project, turn["thread_id"], hit["citation_id"])
+        assert citation["target"]["span_id"] == hit["navigation"]["span_id"]
+        assert citation["target"]["span_ids"] == expected
+    finally:
+        project.close()

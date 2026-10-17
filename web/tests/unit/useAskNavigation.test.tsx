@@ -61,6 +61,35 @@ describe('Ask citation navigation', () => {
     mocks.routeGet.mockReturnValue({ sheetId: '4', panel: null });
   });
 
+  it('opens the primary evidence span with all phrase highlights', () => {
+    const commands = {
+      openEvidenceViewer: vi.fn(),
+      setDocumentView: vi.fn(),
+      setOpenSplit: vi.fn(),
+    };
+    const { result } = renderHook(() => useAskNavigation([], commands));
+    const citation: AskCitation = {
+      ...documentCitation,
+      source_kind: 'evidence',
+      target: {
+        kind: 'evidence',
+        sheet_id: 1,
+        row_id: 2,
+        column_id: 3,
+        evidence_link_id: 'link',
+        artifact_id: 'artifact',
+        span_id: 'phrase-start',
+        span_ids: ['phrase-start', 'phrase-end'],
+      },
+    };
+    act(() => result.current.open(citation));
+    expect(commands.openEvidenceViewer).toHaveBeenCalledWith('link', 'modalOrPeek', {
+      scopeSpanId: 'phrase-start',
+      scopeSpanIds: ['phrase-start', 'phrase-end'],
+      highlight: true,
+    });
+  });
+
   it('opens a located cell citation at its exact document time', () => {
     const commands = {
       openEvidenceViewer: vi.fn(),

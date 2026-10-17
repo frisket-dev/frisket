@@ -223,6 +223,7 @@ def test_query_and_prepared_evidence_citations_reopen_current_sources(tmp_path):
             "evidence_link_id": link["stable_id"],
             "artifact_id": artifact["stable_id"],
             "span_id": span["stable_id"],
+            "span_ids": [],
         }
         result = client.get(f"{prefix}/citations/{query['citation_id']}").json()
         assert result["target"]["total"] == 1
