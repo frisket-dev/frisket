@@ -104,6 +104,48 @@ function snapshot(overrides: Partial<SearchPreparationSnapshot> = {}): SearchPre
 }
 
 describe('search preparation notice projection', () => {
+  it('offers Stop only for a permitted batch with unfinished preparation, never indexing alone', () => {
+    expect(deriveSearchPreparationNotice(snapshot({ batches: [batch()] }))?.stopBatchId).toBe('prep-1');
+    expect(deriveSearchPreparationNotice(snapshot({ batches: [batch({ can_stop: false })] }))?.stopBatchId).toBeNull();
+    expect(deriveSearchPreparationNotice(snapshot({ batches: [batch({ groups: [{ kind: 'ocr', count: 2, status: 'complete' }] })],
+      indexing: { status: 'running', job_id: 9, error: null },
+    }))?.stopBatchId).toBeNull();
+  });
+
+  it('stops the displayed batch through its existing endpoint and refreshes activity', async () => {
+    const list = vi.spyOn(preparationApi, 'listSearchPreparations').mockResolvedValue({
+      batches: [batch()], indexing: { status: 'idle', job_id: null, error: null },
+    });
+    vi.spyOn(openApi, 'listModelPulls').mockResolvedValue({ pulls: [pull()] });
+    const stop = vi.spyOn(preparationApi, 'stopSearchPreparation').mockImplementation(async () => {
+      list.mockResolvedValue({ batches: [batch({ status: 'stopped', can_stop: false })],
+        indexing: { status: 'idle', job_id: null, error: null } });
+      return batch({ status: 'stopped', can_stop: false });
+    });
+    const { result } = renderHook(() => useSearchPreparationNotice('project-1', false));
+    await waitFor(() => expect(result.current?.onStopPreparation).toBeTypeOf('function'));
+    await act(async () => { await result.current!.onStopPreparation!(); });
+    expect(stop).toHaveBeenCalledExactlyOnceWith('project-1', 'prep-1');
+    expect(list).toHaveBeenCalledTimes(2);
+    expect(result.current?.stopBatchId).toBeNull();
+    expect(result.current?.stage).toBe('download');
+  });
+
+  it('keeps a failed Stop separate from dismissing the activity', async () => {
+    let rejectStop!: (error: Error) => void;
+    const stop = vi.fn(() => new Promise<void>((_resolve, reject) => { rejectStop = reject; }));
+    const dismiss = vi.fn();
+    const notice = deriveSearchPreparationNotice(snapshot({ batches: [batch()] }));
+    render(<SearchPreparationNotice notice={notice!} onStopPreparation={stop} onDismiss={dismiss} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Stop remaining preparation' }));
+    expect(screen.getByRole('button', { name: 'Stopping…' })).toBeDisabled();
+    expect(dismiss).not.toHaveBeenCalled();
+    await act(async () => { rejectStop(new Error('Could not stop preparation')); });
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not stop preparation');
+    expect(screen.getByRole('button', { name: 'Stop remaining preparation' })).toBeEnabled();
+    expect(dismiss).not.toHaveBeenCalled();
+  });
+
   it('keeps running progress in activity without linking back to a progress dialog', () => {
     const notice = deriveSearchPreparationNotice(snapshot({ batches: [batch()] }));
     expect(notice).not.toBeNull();

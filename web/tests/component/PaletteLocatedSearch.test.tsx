@@ -354,11 +354,11 @@ describe('located palette search', () => {
       'workspace',
       'engine-setup:embeddinggemma-2.local@1',
     ));
-    expect(await screen.findByTestId('search-setup-progress')).toBeVisible();
-    expect(screen.getByTestId('model-pull-progress')).toHaveAttribute('data-status', 'running');
+    expect(await screen.findByTestId('search-setup-status')).toBeVisible();
+    expect(screen.queryByTestId('model-pull-progress')).not.toBeInTheDocument();
     expect(searchProject).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(searchProject).toHaveBeenCalledTimes(2), { timeout: 2_500 });
-    expect(screen.queryByTestId('search-setup-progress')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('search-setup-status')).not.toBeInTheDocument();
     expect(screen.queryByText('Setting up semantic search')).not.toBeInTheDocument();
   });
 
@@ -384,8 +384,8 @@ describe('located palette search', () => {
 
     render(<PaletteHarness />);
 
-    expect(await screen.findByTestId('search-setup-progress')).toBeVisible();
-    expect(screen.getByTestId('model-pull-progress')).toHaveAttribute('data-status', 'running');
+    expect(await screen.findByTestId('search-setup-status')).toBeVisible();
+    expect(screen.queryByTestId('model-pull-progress')).not.toBeInTheDocument();
     expect(startEngineSetup).not.toHaveBeenCalled();
   });
 
@@ -420,15 +420,15 @@ describe('located palette search', () => {
     fireEvent.click(await screen.findByTestId('search-setup'));
     fireEvent.click(screen.getByTestId('search-setup-confirm'));
 
-    expect(await screen.findByTestId('search-setup-progress')).toBeVisible();
-    await waitFor(() => expect(screen.getByTestId('model-pull-error')).toHaveTextContent(
+    expect(await screen.findByTestId('search-setup-status')).toBeVisible();
+    await waitFor(() => expect(screen.getByTestId('search-setup-error')).toHaveTextContent(
       'Could not download model',
     ), { timeout: 2_500 });
     expect(searchProject).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByTestId('search-setup-retry'));
     await waitFor(() => expect(startEngineSetup).toHaveBeenCalledTimes(2));
-    expect(screen.getByTestId('model-pull-progress')).toHaveAttribute('data-status', 'running');
+    expect(screen.queryByTestId('model-pull-progress')).not.toBeInTheDocument();
     expect(searchProject).toHaveBeenCalledTimes(1);
   });
 
@@ -470,7 +470,7 @@ describe('located palette search', () => {
     fireEvent.click(await screen.findByTestId('search-setup'));
     fireEvent.click(screen.getByTestId('search-setup-confirm'));
 
-    expect(await screen.findByTestId('search-setup-blocked-progress')).toHaveTextContent(
+    expect(await screen.findByTestId('search-setup-blocked-status')).toHaveTextContent(
       'Another setup operation is active',
     );
     expect(screen.queryByText('Setting up semantic search')).not.toBeInTheDocument();
@@ -657,7 +657,7 @@ describe('located palette search', () => {
     expect(getSearchPreparation).not.toHaveBeenCalledWith('project-1', 'prep-a');
   });
 
-  it('restores the latest preparation awaiting approval when Search opens', async () => {
+  it('restores approval only for the current sheet when Search opens', async () => {
     const awaitingApproval = {
       schemaVersion: 'frisket.search_preparation.v1',
       id: 'prep-awaiting-approval',
@@ -674,13 +674,14 @@ describe('located palette search', () => {
     searchProject.mockResolvedValue(completeResponse);
     listSearchPreparations.mockResolvedValue({
       batches: [
+        { ...awaitingApproval, id: 'prep-other-sheet', sheet_id: 1 },
         { ...awaitingApproval, id: 'prep-complete', status: 'complete' },
         awaitingApproval,
       ],
     });
-    getSearchPreparation.mockResolvedValue(awaitingApproval);
+    getSearchPreparation.mockImplementation(async (_project, id) => ({ ...awaitingApproval, id }));
 
-    render(<PaletteHarness />);
+    render(<PaletteHarness activeSearchSheetId="2" />);
 
     expect(await screen.findByTestId('search-preparation-receipt')).toBeVisible();
     expect(screen.getByRole('heading', { name: 'Make these files searchable' })).toBeVisible();
@@ -693,6 +694,7 @@ describe('located palette search', () => {
       'project-1',
       'prep-awaiting-approval',
     );
+    expect(getSearchPreparation).not.toHaveBeenCalledWith('project-1', 'prep-other-sheet');
   });
 
   it('labels source results with their file and exact page', async () => {
