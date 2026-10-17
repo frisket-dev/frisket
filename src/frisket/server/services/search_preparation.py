@@ -32,6 +32,10 @@ from frisket.engine.jobs.search_preparation_store import (
 )
 from frisket.engine.jobs.model_pull import ModelPullEnqueueError, schedule_model_pull
 from frisket.engine.jobs.queue import SEARCH_INDEX_KIND, SERVER_SCOPED_JOB_PAYLOAD_KEY
+from frisket.engine.store.document_text import (
+    document_text_role,
+    ensure_document_text_role,
+)
 from frisket.execution.provider import ExactExecutionMatch
 from frisket.execution.targets import CAPABILITY_OCR, CAPABILITY_TRANSCRIBE
 from frisket.engine.store.import_sessions import ImportSessionStore
@@ -162,6 +166,65 @@ class _PlannedChild:
 class _SetupSnapshot:
     requirements_by_ref: Mapping[str, Any]
     pulls: tuple[Any, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _DocumentTextTarget:
+    name: str
+    column_id: int
+
+
+def _document_text_target(
+    project: Any, *, source_column_id: int
+) -> _DocumentTextTarget:
+    """Return one role-backed output, creating its empty column if needed.
+
+    Search preparation owns this destination choice. The ordinary action host
+    still owns result generations and current cell heads; pre-creating the
+    column lets the request fence the exact identity before a worker can run.
+    """
+
+    with project.transaction_scope():
+        role = document_text_role(project, source_column_id=source_column_id)
+        if role is None:
+            source = project.get_column(source_column_id)
+            if source is None:
+                raise ValueError(
+                    f"document text source column {source_column_id} does not exist"
+                )
+            sheet_id = int(source["sheet_id"])
+            used = {
+                str(column["name"]).strip().casefold()
+                for column in project.columns(sheet_id, include_hidden=True)
+            }
+            name = "Text"
+            suffix = 2
+            while name.strip().casefold() in used:
+                name = f"Text_{suffix}"
+                suffix += 1
+            text_column_id = project.add_column(
+                sheet_id,
+                name,
+                type="text",
+                ai_generated=True,
+                commit=False,
+            )
+            role = ensure_document_text_role(
+                project,
+                source_column_id=source_column_id,
+                text_column_id=text_column_id,
+                commit=False,
+            )
+        if not role.source_active or role.source_hidden:
+            raise ValueError("designated document text source column is unavailable")
+        if not role.text_active:
+            raise ValueError("designated document text column is inactive")
+        target = project.get_column(role.text_column_id)
+        if target is None:
+            raise ValueError(
+                f"document text column {role.text_column_id} does not exist"
+            )
+        return _DocumentTextTarget(str(target["name"]), int(target["id"]))
 
 
 def _planned_child_key(
@@ -1490,6 +1553,17 @@ class SearchPreparationService:
     ) -> dict[str, Any]:
         specification = _PREPARATION_KINDS[kind]
         row_ids = sorted(item["row_id"] for item in items)
+        source_column_ids = {int(item["column_id"]) for item in items}
+        if len(source_column_ids) != 1:
+            raise ValueError("search preparation child must use one source column")
+        source_column_id = next(iter(source_column_ids))
+        text_target = (
+            _document_text_target(
+                project, source_column_id=source_column_id
+            )
+            if kind in {"native_pdf", "ocr"}
+            else None
+        )
         common = {
             "scope": {
                 "kind": "sheet_rows",
@@ -1508,29 +1582,30 @@ class SearchPreparationService:
             body["expected_output_columns"] = {
                 name: columns.get(name) for name in body["output_names"].values()
             }
+            if text_target is not None:
+                body["expected_output_columns"][text_target.name] = (
+                    text_target.column_id
+                )
             return body
 
         if kind == "native_pdf":
+            assert text_target is not None
             return replace_owned_outputs(
                 {
                     **common,
                     "action_id": specification.action_id,
                     "params": {"source": column_name},
-                    "output_names": {"text": f"Search text · {column_name}"},
+                    "output_names": {"text": text_target.name},
                 }
             )
         if kind == "ocr":
-            text_name = (
-                f"Search text · {column_name}"
-                if row.force_ocr
-                else f"OCR text · {column_name}"
-            )
+            assert text_target is not None
             body = {
                 **common,
                 "action_id": specification.action_id,
                 "params": {"source": column_name, "engine": "rapidocr"},
                 "output_names": {
-                    "text": text_name,
+                    "text": text_target.name,
                     "blocks": f"Search positions · {column_name}",
                 },
             }

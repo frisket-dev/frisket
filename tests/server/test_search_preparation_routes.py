@@ -1656,7 +1656,7 @@ def test_live_action_progress_overrides_a_stale_queued_receipt(
         (
             run_id,
             row_ids[0],
-            output_columns["OCR text · Image"],
+            output_columns["Text"],
             None,
             None,
             "OCR found no readable text",
