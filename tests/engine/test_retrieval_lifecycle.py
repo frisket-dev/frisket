@@ -28,6 +28,7 @@ from frisket.engine.store.execution_metadata_migration import (
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
 from frisket.engine.store.search_index_work import latest_revision
 from frisket.engine.store.value_codec import encode_stored_value
+from tests.engine.test_bundle_schema_fence import _remove_document_text_authority
 
 
 def _current_cell_project(tmp_path: Path) -> tuple[Project, int, int, int]:
@@ -206,6 +207,7 @@ def test_exact_prior_bundle_migrates_without_rewriting_history(tmp_path) -> None
             (row_id, column_id),
         ).fetchone()
     )
+    _remove_document_text_authority(project.db)
     project.db.execute("ALTER TABLE current_cells DROP COLUMN retrieval_revision")
     project.db.execute(
         "UPDATE meta SET value=? WHERE key=?",
@@ -245,6 +247,7 @@ def test_migration_rolls_back_column_revision_and_work_on_failed_stamp(
 ) -> None:
     project, _sheet_id, _row_id, _column_id = _current_cell_project(tmp_path)
     db = project.db
+    _remove_document_text_authority(db)
     db.execute("ALTER TABLE current_cells DROP COLUMN retrieval_revision")
     db.execute(
         "UPDATE meta SET value=? WHERE key=?",

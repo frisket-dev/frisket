@@ -14,11 +14,12 @@ from frisket.engine.store.scalar_storage_migration import (
 )
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
 from helpers import run_writer_authority_fixture
-from tests.engine.test_current_cells_migration import _prior_bundle
 from tests.engine.test_bundle_schema_fence import (
+    _remove_document_text_authority,
     _remove_extraction_layouts,
     _remove_execution_metadata,
 )
+from tests.engine.test_current_cells_migration import _prior_bundle
 
 
 _PREDECESSOR_CURRENT_CELLS = """
@@ -184,6 +185,7 @@ def _seed_mixed_origins(path: Path) -> tuple[int, int, int, list[int]]:
 def _downgrade_to_scalar_predecessor(path: Path) -> None:
     with sqlite3.connect(path / "project.db") as db:
         db.execute("PRAGMA foreign_keys=OFF")
+        _remove_document_text_authority(db)
         _remove_extraction_layouts(db)
         db.execute("DROP VIEW current_cell_values")
         db.execute("ALTER TABLE current_cells RENAME TO projected_current_cells")

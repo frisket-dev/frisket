@@ -320,6 +320,36 @@ def _remove_extraction_layouts(db: sqlite3.Connection) -> None:
         db.execute(f"DROP TABLE IF EXISTS {table}")
 
 
+def _remove_document_text_authority(db: sqlite3.Connection) -> None:
+    """Remove later document-text objects before reconstructing prior schemas."""
+
+    db.execute("DROP VIEW IF EXISTS current_document_text_selections")
+    db.execute("DROP TABLE IF EXISTS document_text_manual_pins")
+    db.execute("DROP TABLE IF EXISTS document_text_column_roles")
+    generation_columns = {
+        str(row[1]) for row in db.execute("PRAGMA table_info(run_output_generations)")
+    }
+    if "document_text_authority" not in generation_columns:
+        return
+    trigger_name = "trg_run_output_generations_immutable_declaration"
+    trigger = db.execute(
+        "SELECT sql FROM sqlite_master WHERE type='trigger' AND name=?",
+        (trigger_name,),
+    ).fetchone()
+    if trigger is not None:
+        db.execute(f"DROP TRIGGER {trigger_name}")
+        db.execute(
+            str(trigger[0]).replace(
+                "  OR NEW.document_text_authority IS NOT "
+                "OLD.document_text_authority\n",
+                "",
+            )
+        )
+    db.execute(
+        "ALTER TABLE run_output_generations DROP COLUMN document_text_authority"
+    )
+
+
 def _remove_prepared_content(db: sqlite3.Connection) -> None:
     db.execute("DROP VIEW IF EXISTS prepared_content_ref_values")
     for table in (
@@ -360,6 +390,7 @@ def _remove_execution_metadata(db: sqlite3.Connection) -> None:
 def _restore_legacy_authorities(db: sqlite3.Connection) -> None:
     """Downgrade fresh typed fixtures before exercising historical upgrades."""
 
+    _remove_document_text_authority(db)
     _remove_execution_metadata(db)
     _remove_extraction_layouts(db)
     db.execute("DROP TABLE run_review_fields")

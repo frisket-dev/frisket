@@ -7,12 +7,13 @@ from types import SimpleNamespace
 import pytest
 
 from frisket.engine.store import Project
-from frisket.engine.store.result_generations import ResultGenerationStore
+from frisket.engine.store.document_text_migration import DOCUMENT_TEXT_FROM_DIGEST
 from frisket.engine.store.execution_metadata_migration import (
     EXECUTION_METADATA_FROM_DIGEST,
     EXECUTION_METADATA_TO_DIGEST,
     migrate_execution_metadata,
 )
+from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import (
     RESULT_WARNING_MAX_CHARS,
     RESULT_WARNING_MAX_ITEMS,
@@ -225,7 +226,7 @@ def test_prior_digest_migration_preserves_history_and_installs_guards(warning_ru
     project.close()
     reopened = Project(path)
     try:
-        assert EXECUTION_METADATA_TO_DIGEST == SCHEMA_DIGEST
+        assert EXECUTION_METADATA_TO_DIGEST == DOCUMENT_TEXT_FROM_DIGEST
         assert reopened.get_meta(SCHEMA_DIGEST_META_KEY) == SCHEMA_DIGEST
         after = [
             dict(row)
