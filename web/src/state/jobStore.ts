@@ -197,6 +197,8 @@ export function createJobStore(
   let baseJobs: DockActionJob[] = [];
   let dockJobs: DockActionJob[] | null = null;
   let dockInterested = false;
+  let observedHighWaterJobId: number | null = null;
+  const observedActiveJobIds = new Set<number>();
   let disposingDock = false;
   const baseRequestControllers = new Set<AbortController>();
   let disposingResource = false;
@@ -392,13 +394,43 @@ export function createJobStore(
   }
 
   function terminalJobWasRefreshed(job: DockActionJob): boolean {
+    const runId = job.runId ?? job.progress?.runId;
     return refreshedTerminalJobIds.has(job.jobId)
-      || (job.runId !== null && refreshedTerminalRunIds.has(job.runId));
+      || (runId != null && refreshedTerminalRunIds.has(runId));
   }
 
   function markTerminalJobRefreshed(job: DockActionJob): void {
     refreshedTerminalJobIds.add(job.jobId);
-    if (job.runId !== null) refreshedTerminalRunIds.add(job.runId);
+    const runId = job.runId ?? job.progress?.runId;
+    if (runId != null) refreshedTerminalRunIds.add(runId);
+  }
+
+  function observeTerminalJobs(jobs: DockActionJob[], stillCurrent: () => boolean): void {
+    if (!stillCurrent()) return;
+    const newlyTerminal = jobs.filter((item) => {
+      const runId = item.runId ?? item.progress?.runId;
+      const tracked = (runTarget !== null && runId === runTarget)
+        || (queuedTarget !== null && (
+          item.jobId === queuedTarget.jobId
+          || (queuedTarget.receiptId !== null && item.receiptId === queuedTarget.receiptId)
+        ));
+      return !tracked
+        && !actionJobIsActive(item)
+        && !terminalJobWasRefreshed(item)
+        && (observedActiveJobIds.has(item.jobId)
+          || (observedHighWaterJobId !== null && item.jobId > observedHighWaterJobId));
+    });
+    for (const item of jobs) {
+      if (actionJobIsActive(item)) observedActiveJobIds.add(item.jobId);
+      else observedActiveJobIds.delete(item.jobId);
+    }
+    // An empty successful list is also a baseline: the first later job may
+    // finish entirely between polls. Historical terminal jobs stay quiet.
+    observedHighWaterJobId = Math.max(observedHighWaterJobId ?? 0, ...jobs.map((item) => item.jobId));
+    if (newlyTerminal.length > 0) {
+      for (const item of newlyTerminal) markTerminalJobRefreshed(item);
+      refreshProjectAfterTerminal(stillCurrent);
+    }
   }
 
   function refreshProjectAfterTerminal(stillCurrent: () => boolean): void {
@@ -542,6 +574,7 @@ export function createJobStore(
       );
       if (!isResourceCurrent(generation) || !baseRequestControllers.has(controller)) return;
       actionJobsLoadSuccess(jobs);
+      observeTerminalJobs(jobs, () => isResourceCurrent(generation) && baseRequestControllers.has(controller));
       if (
         dockInterested
         && dockTimer === null
@@ -1304,8 +1337,7 @@ export function createJobStore(
       && dockSlot === slot
       && dockLane.isCurrent(job)
     );
-    const previousJobs = mergedJobs();
-    let hasActiveJobs = previousJobs.some(actionJobIsActive);
+    let hasActiveJobs = mergedJobs().some(actionJobIsActive);
     try {
       const jobs = await loadActionJobs(
         25,
@@ -1317,18 +1349,7 @@ export function createJobStore(
       publishDockJobs(jobs);
       if (!isCurrent()) return;
       hasActiveJobs = jobs.some(actionJobIsActive);
-      const priorActiveJobIds = new Set(
-        previousJobs.filter(actionJobIsActive).map((item) => item.jobId),
-      );
-      const newlyTerminal = jobs.filter((item) => (
-        priorActiveJobIds.has(item.jobId)
-        && !actionJobIsActive(item)
-        && !terminalJobWasRefreshed(item)
-      ));
-      if (newlyTerminal.length > 0) {
-        for (const item of newlyTerminal) markTerminalJobRefreshed(item);
-        refreshProjectAfterTerminal(isCurrent);
-      }
+      observeTerminalJobs(jobs, isCurrent);
     } catch {
       // Dock failures are silent; retain its last-known-good snapshot.
     } finally {
@@ -1394,6 +1415,8 @@ export function createJobStore(
       queuedSlot = null;
       dockSlot = null;
       dockInterested = false;
+      observedHighWaterJobId = null;
+      observedActiveJobIds.clear();
       refreshedTerminalJobIds.clear();
       refreshedTerminalRunIds.clear();
 

@@ -37,6 +37,7 @@ export interface SearchPreparationSnapshot {
 
 export type SearchPreparationNotice = {
   activityKey: string;
+  reviewBatchId: string | null;
   stage: 'download' | 'planning' | 'approval' | 'prepare' | 'index' | 'failed' | 'complete';
   tone: 'active' | 'warning' | 'error' | 'complete';
   title: string;
@@ -145,7 +146,7 @@ function indexingDetail(indexing: SearchIndexingProjection): string {
 export function deriveSearchPreparationNotice(
   snapshot: SearchPreparationSnapshot,
   completion: string | null = null,
-  completionRevision = 0,
+  activityIdentity: string | null = null,
 ): SearchPreparationNotice | null {
   const activeBatch = snapshot.batches.find((batch) => ACTIVE_BATCH_STATUSES.has(batch.status)) ?? null;
   const activePreparationBatch = activeBatch && (
@@ -165,7 +166,10 @@ export function deriveSearchPreparationNotice(
     if (failure.running) details.push(preparationDetail(batch));
     if (snapshot.indexing.status !== 'idle') details.push(indexingDetail(snapshot.indexing));
     return {
-      activityKey: `preparation:${batch.id}:failed`,
+      activityKey: activityIdentity?.startsWith(`preparation:${batch.id}`)
+        ? activityIdentity
+        : `preparation:${batch.id}:failed`,
+      reviewBatchId: batch.id,
       stage: 'failed',
       tone: 'error',
       title: 'Search preparation needs attention',
@@ -187,7 +191,10 @@ export function deriveSearchPreparationNotice(
       ? failedBatch.errors
       : [`Preparation ${failedBatch.id}`];
     return {
-      activityKey: `preparation:${failedBatch.id}:failed`,
+      activityKey: activityIdentity?.startsWith(`preparation:${failedBatch.id}`)
+        ? activityIdentity
+        : `preparation:${failedBatch.id}:failed`,
+      reviewBatchId: failedBatch.id,
       stage: 'failed',
       tone: 'error',
       title: unavailableModels.length > 0 ? 'Some files need local setup' : 'Search preparation needs attention',
@@ -201,6 +208,7 @@ export function deriveSearchPreparationNotice(
   if (activeBatch?.status === 'needs_consent') {
     return {
       activityKey: `preparation:${activeBatch.id}`,
+      reviewBatchId: activeBatch.id,
       stage: 'approval',
       tone: 'warning',
       title: 'Search preparation needs approval',
@@ -220,8 +228,11 @@ export function deriveSearchPreparationNotice(
     const errorMessage = pull.error?.message || (pull.status === 'cancelled' ? 'Model download was cancelled.' : 'Model setup failed.');
     return {
       activityKey: activeBatch
-        ? `preparation:${activeBatch.id}:failed`
+        ? activityIdentity?.startsWith(`preparation:${activeBatch.id}`)
+          ? activityIdentity
+          : `preparation:${activeBatch.id}:failed`
         : `model-pull:${pull.id}:failed`,
+      reviewBatchId: activeBatch?.id ?? null,
       stage: 'failed',
       tone: 'error',
       title: 'Model setup needs attention',
@@ -234,8 +245,13 @@ export function deriveSearchPreparationNotice(
   if (snapshot.indexing.status === 'failed') {
     return {
       activityKey: activeBatch
-        ? `preparation:${activeBatch.id}:failed`
-        : `index:${snapshot.indexing.job_id ?? 'pending'}:failed`,
+        ? activityIdentity?.startsWith(`preparation:${activeBatch.id}`)
+          ? activityIdentity
+          : `preparation:${activeBatch.id}:failed`
+        : activityIdentity?.endsWith(':failed')
+          ? activityIdentity
+          : `index:${snapshot.indexing.job_id ?? 'pending'}:failed`,
+      reviewBatchId: activeBatch?.id ?? null,
       stage: 'failed',
       tone: 'error',
       title: 'Search indexing needs attention',
@@ -253,6 +269,7 @@ export function deriveSearchPreparationNotice(
       activityKey: activeBatch
         ? `preparation:${activeBatch.id}`
         : `model-pull:${pull.id}`,
+      reviewBatchId: activeBatch?.id ?? null,
       stage: 'download',
       tone: 'active',
       title: 'Downloading model',
@@ -266,6 +283,7 @@ export function deriveSearchPreparationNotice(
     if (activePreparationBatch.status === 'planning') {
       return {
         activityKey: `preparation:${activePreparationBatch.id}`,
+        reviewBatchId: activePreparationBatch.id,
         stage: 'planning',
         tone: 'active',
         title: 'Preparing search',
@@ -276,6 +294,7 @@ export function deriveSearchPreparationNotice(
     }
     return {
       activityKey: `preparation:${activePreparationBatch.id}`,
+      reviewBatchId: activePreparationBatch.id,
       stage: 'prepare',
       tone: 'active',
       title: 'Preparing search',
@@ -289,7 +308,8 @@ export function deriveSearchPreparationNotice(
     return {
       activityKey: activeBatch
         ? `preparation:${activeBatch.id}`
-        : `index:${snapshot.indexing.job_id ?? 'pending'}`,
+        : activityIdentity ?? `index:${snapshot.indexing.job_id ?? 'pending'}`,
+      reviewBatchId: activeBatch?.id ?? null,
       stage: 'index',
       tone: 'active',
       title: 'Preparing search',
@@ -301,32 +321,10 @@ export function deriveSearchPreparationNotice(
     };
   }
 
-  if (activeBatch) {
-    if (activeBatch.status === 'planning') {
-      return {
-        activityKey: `preparation:${activeBatch.id}`,
-        stage: 'planning',
-        tone: 'active',
-        title: 'Preparing search',
-        detail: 'Checking imported files for search',
-        progress: null,
-        details: [`Preparation ${activeBatch.id}`],
-      };
-    }
-    return {
-      activityKey: `preparation:${activeBatch.id}`,
-      stage: 'prepare',
-      tone: 'active',
-      title: 'Preparing search',
-      detail: preparationDetail(activeBatch),
-      progress: null,
-      details: activeBatch.jobs.map((job) => `Job ${job.job_id.toLocaleString()} · ${job.status}`),
-    };
-  }
-
   if (completion) {
     return {
-      activityKey: `completion:${completionRevision}`,
+      activityKey: activityIdentity ?? 'search-completion',
+      reviewBatchId: null,
       stage: 'complete',
       tone: 'complete',
       title: completion,
@@ -423,9 +421,9 @@ export function useSearchPreparationNotice(projectId: string, team: boolean): Se
   const [completionState, setCompletionState] = useState<{
     scopeKey: string;
     message: string | null;
-    revision: number;
-  }>({ scopeKey, message: null, revision: 0 });
+  }>({ scopeKey, message: null });
   const snapshotRef = useRef<{ scopeKey: string; snapshot: SearchPreparationSnapshot } | null>(null);
+  const activityIdentityRef = useRef<{ scopeKey: string; key: string } | null>(null);
   const observedPullsRef = useRef<{ scopeKey: string; ids: Set<number> }>({
     scopeKey: '',
     ids: new Set(),
@@ -465,19 +463,75 @@ export function useSearchPreparationNotice(projectId: string, team: boolean): Se
         observedPullsRef.current.ids,
       ),
     };
+    const progressFailedBatch = next.batches.find((batch) => progressFailure(batch) !== null) ?? null;
+    const workflowBatch = progressFailedBatch
+      ?? next.batches.find((batch) => batch.status === 'failed')
+      ?? next.batches.find((batch) => ACTIVE_BATCH_STATUSES.has(batch.status))
+      ?? null;
+    if (workflowBatch) {
+      const baseKey = `preparation:${workflowBatch.id}`;
+      const existingKey = activityIdentityRef.current?.scopeKey === scopeKey
+        ? activityIdentityRef.current.key
+        : null;
+      const failed = progressFailedBatch?.id === workflowBatch.id
+        || workflowBatch.status === 'failed'
+        || next.indexing.status === 'failed'
+        || next.pulls.some(({ pull }) => (
+          pull.status === 'failed' || pull.status === 'cancelled'
+        ));
+      activityIdentityRef.current = {
+        scopeKey,
+        key: failed || existingKey === `${baseKey}:failed`
+          ? `${baseKey}:failed`
+          : baseKey,
+      };
+    } else if (next.indexing.status !== 'idle') {
+      const currentIdentity = activityIdentityRef.current?.scopeKey === scopeKey
+        ? activityIdentityRef.current.key
+        : null;
+      if (next.indexing.status === 'failed') {
+        const baseKey = currentIdentity ?? `index:${next.indexing.job_id ?? 'pending'}`;
+        activityIdentityRef.current = {
+          scopeKey,
+          key: baseKey.endsWith(':failed') ? baseKey : `${baseKey}:failed`,
+        };
+      } else if (currentIdentity === null || (
+        previous?.indexing.status === 'idle'
+        && !previous.batches.some((batch) => ACTIVE_BATCH_STATUSES.has(batch.status))
+      )) {
+        activityIdentityRef.current = {
+          scopeKey,
+          key: `index:${next.indexing.job_id ?? 'pending'}`,
+        };
+      }
+    }
     snapshotRef.current = { scopeKey, snapshot: next };
     setSnapshotState({ scopeKey, snapshot: next });
     if (completedSince(previous, next)) {
-      setCompletionState((current) => ({
+      const completedActivityKey = activityIdentityRef.current?.scopeKey === scopeKey
+        ? activityIdentityRef.current.key
+        : 'search-completion';
+      setCompletionState({
         scopeKey,
         message: 'Search index ready',
-        revision: current.revision + 1,
-      }));
+      });
       if (completionTimer.current !== null) clearTimeout(completionTimer.current);
       completionTimer.current = setTimeout(() => {
         setCompletionState((current) => current.scopeKey === scopeKey
           ? { ...current, message: null }
           : current);
+        const currentSnapshot = snapshotRef.current;
+        if (
+          activityIdentityRef.current?.scopeKey === scopeKey
+          && activityIdentityRef.current.key === completedActivityKey
+          && currentSnapshot?.scopeKey === scopeKey
+          && currentSnapshot.snapshot.indexing.status === 'idle'
+          && !currentSnapshot.snapshot.batches.some((batch) => (
+            batch.status === 'failed' || ACTIVE_BATCH_STATUSES.has(batch.status)
+          ))
+        ) {
+          activityIdentityRef.current = null;
+        }
       }, 8_000);
     }
   }, [projectId, scopeKey, team]);
@@ -485,6 +539,7 @@ export function useSearchPreparationNotice(projectId: string, team: boolean): Se
   useEffect(() => {
     requestGeneration.current += 1;
     snapshotRef.current = null;
+    activityIdentityRef.current = null;
     observedPullsRef.current = { scopeKey, ids: new Set() };
     observedBatchesRef.current = { scopeKey, ids: new Set() };
     void refresh();
@@ -496,8 +551,10 @@ export function useSearchPreparationNotice(projectId: string, team: boolean): Se
 
   const snapshot = snapshotState.scopeKey === scopeKey ? snapshotState.snapshot : EMPTY_SNAPSHOT;
   const completion = completionState.scopeKey === scopeKey ? completionState.message : null;
-  const completionRevision = completionState.scopeKey === scopeKey ? completionState.revision : 0;
-  const notice = deriveSearchPreparationNotice(snapshot, completion, completionRevision);
+  const activityIdentity = activityIdentityRef.current?.scopeKey === scopeKey
+    ? activityIdentityRef.current.key
+    : null;
+  const notice = deriveSearchPreparationNotice(snapshot, completion, activityIdentity);
   usePoll(refresh, {
     active: true,
     intervalMs: notice?.tone === 'active' ? 2_000 : 5_000,

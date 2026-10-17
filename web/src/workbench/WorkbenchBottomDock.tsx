@@ -365,14 +365,12 @@ export function WorkbenchJobSplitPanel({
   jobs,
   loading,
   error,
-  liveActionJobs,
   mode,
   onResumeHaltedRun,
 }: {
   jobs: DockActionJob[];
   loading: boolean;
   error: string | null;
-  liveActionJobs: { start(): void; dispose(): void };
   mode: BottomDockJobTableMode;
   /** Resume a HALTED run through the workspace model's cost-gated
    *  run.backfill door (ruling 4: a retry is a resume). Absent in hosts that
@@ -380,10 +378,6 @@ export function WorkbenchJobSplitPanel({
    *  dead button. */
   onResumeHaltedRun?: (job: DockActionJob) => void;
 }) {
-  useEffect(() => {
-    liveActionJobs.start();
-    return () => liveActionJobs.dispose();
-  }, [liveActionJobs]);
   // For the plugin-error deep link (openPluginSettingsFromError): the bottom
   // dock only ever mounts inside a project workspace route, so this is
   // effectively always defined there; undefined degrades to a global-scope
@@ -517,6 +511,7 @@ export function WorkbenchBottomDock({
   onSelectTab,
   onCloseTab,
   renderContribution,
+  liveActionJobs,
   runSummary,
   tabBadges,
 }: {
@@ -528,11 +523,16 @@ export function WorkbenchBottomDock({
     contribution: WorkbenchResolvedLayoutContribution,
     dock: WorkbenchBottomDockRenderContext,
   ) => ReactNode;
+  liveActionJobs: { start(): void; dispose(): void };
   /** Live run summary from the job store (running/complete/idle + progress). */
   runSummary?: DockRunSummary;
   /** Count chips keyed by placementId (e.g. the Errors tab's failure count). */
   tabBadges?: Record<string, number>;
 }) {
+  useEffect(() => {
+    liveActionJobs.start();
+    return () => liveActionJobs.dispose();
+  }, [liveActionJobs]);
   const {
     width: height,
     resizing,

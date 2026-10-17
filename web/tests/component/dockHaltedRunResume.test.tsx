@@ -98,13 +98,11 @@ function haltedJob(progress: RunProgress | undefined): DockActionJob {
 }
 
 function renderPanel(job: DockActionJob, onResumeHaltedRun?: (job: DockActionJob) => void) {
-  const liveActionJobs = { start: vi.fn(), dispose: vi.fn() };
   return render(
     <WorkbenchJobSplitPanel
       jobs={[job]}
       loading={false}
       error={null}
-      liveActionJobs={liveActionJobs}
       mode="jobs"
       onResumeHaltedRun={onResumeHaltedRun}
     />,

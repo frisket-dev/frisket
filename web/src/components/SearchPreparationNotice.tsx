@@ -4,11 +4,11 @@ import type { SearchPreparationNotice as Notice } from './useSearchPreparationNo
 
 export function SearchPreparationNotice({
   notice,
-  onReviewApproval,
+  onReviewPreparation,
   onDismiss,
 }: {
   notice: Notice;
-  onReviewApproval?: () => void;
+  onReviewPreparation?: (batchId: string) => void;
   onDismiss?(): void;
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -92,14 +92,18 @@ export function SearchPreparationNotice({
           )}
         </div>
       )}
-      {notice.stage === 'approval' && onReviewApproval && (
+      {notice.reviewBatchId && onReviewPreparation && (
         <button
           type="button"
           className="btn btn-compact search-preparation-review"
           data-testid="search-preparation-review"
-          onClick={onReviewApproval}
+          onClick={() => onReviewPreparation(notice.reviewBatchId!)}
         >
-          Review preparation
+          {notice.stage === 'approval'
+            ? 'Review text'
+            : notice.stage === 'failed'
+              ? 'Review files'
+              : 'View progress'}
         </button>
       )}
     </section>

@@ -495,6 +495,94 @@ describe('createJobStore — complete WEB-03-4B scheduler/resource red contract'
     expect(listActionJobs).toHaveBeenCalledTimes(1);
   });
 
+  it.each(['shared refresh', 'dock poll'])('refreshes for a job completed between polls after an empty baseline via %s', async (path) => {
+    vi.useFakeTimers();
+    setDocumentHidden(false);
+    const terminal = actionJob({ jobId: 12, status: 'completed' });
+    const listActionJobs = vi.fn().mockResolvedValue({ jobs: [] });
+    const deps = noopDeps();
+    const jobs = createJobStore('project-a', projectPort({ listActionJobs }));
+    jobs.start(deps);
+    await vi.advanceTimersByTimeAsync(0);
+    jobs.liveActionJobs.start();
+    await flushMicrotasks();
+    listActionJobs.mockResolvedValue({ jobs: [terminal] });
+
+    if (path === 'shared refresh') await jobs.refresh();
+    else await vi.advanceTimersByTimeAsync(5_000);
+    expect(deps.invalidateProjectData).toHaveBeenCalledOnce();
+    expect(deps.refreshSheets).toHaveBeenCalledOnce();
+    expect(deps.refreshHistory).toHaveBeenCalledOnce();
+    expect(deps.refreshReviewCount).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(deps.invalidateProjectData).toHaveBeenCalledOnce();
+    jobs.dispose();
+  });
+
+  it('lets a tracked run own its terminal refresh when the dock settles first', async () => {
+    vi.useFakeTimers();
+    setDocumentHidden(false);
+    const progress = deferred<RunProgress>();
+    const terminal = actionJob({
+      jobId: 12, runId: 'tracked-run', status: 'completed',
+      progress: runProgress({ runId: 'tracked-run', status: 'complete' }),
+    });
+    const listActionJobs = vi.fn().mockResolvedValue({ jobs: [] });
+    const deps = noopDeps();
+    const jobs = createJobStore('project-a', projectPort({
+      listActionJobs,
+      runAction: vi.fn().mockResolvedValue({ runId: 'tracked-run' }),
+      getRunProgress: vi.fn().mockReturnValue(progress.promise),
+    }));
+    jobs.start(deps);
+    await vi.advanceTimersByTimeAsync(0);
+    jobs.liveActionJobs.start();
+    await flushMicrotasks();
+    jobs.startRun(runRequest(), { id: 'sheet-1', rowCount: 1 } as never);
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(300);
+    listActionJobs.mockResolvedValue({ jobs: [terminal] });
+    await vi.advanceTimersByTimeAsync(4_700);
+    expect(deps.invalidateProjectData).not.toHaveBeenCalled();
+
+    progress.resolve(runProgress({ runId: 'tracked-run', status: 'complete' }));
+    await flushMicrotasks();
+    expect(deps.invalidateProjectData).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(deps.invalidateProjectData).toHaveBeenCalledOnce();
+    jobs.dispose();
+  });
+
+  it('lets a tracked queued job own its terminal refresh when the dock settles first', async () => {
+    vi.useFakeTimers();
+    setDocumentHidden(false);
+    const result = deferred<ActionJob>();
+    const terminal = actionJob({ jobId: 12, status: 'completed' });
+    const listActionJobs = vi.fn().mockResolvedValue({ jobs: [] });
+    const deps = noopDeps();
+    const jobs = createJobStore('project-a', projectPort({
+      listActionJobs,
+      runAction: vi.fn().mockResolvedValue({ runId: null, jobId: 12, status: 'queued' }),
+      getActionJob: vi.fn().mockReturnValue(result.promise),
+    }));
+    jobs.start(deps);
+    await vi.advanceTimersByTimeAsync(0);
+    jobs.liveActionJobs.start();
+    await flushMicrotasks();
+    jobs.startRun(runRequest(), { id: 'sheet-1', rowCount: 1 } as never);
+    await flushMicrotasks();
+    listActionJobs.mockResolvedValue({ jobs: [terminal] });
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(deps.invalidateProjectData).not.toHaveBeenCalled();
+
+    result.resolve(terminal);
+    await flushMicrotasks();
+    expect(deps.invalidateProjectData).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(deps.invalidateProjectData).toHaveBeenCalledOnce();
+    jobs.dispose();
+  });
+
   it('keeps discovering jobs created after a terminal snapshot without per-run fanout', async () => {
     vi.useFakeTimers();
     setDocumentHidden(false);

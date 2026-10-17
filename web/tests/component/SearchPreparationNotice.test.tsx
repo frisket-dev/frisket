@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ModelPullDto } from '../../src/api/types';
 import type { SearchPreparationBatch } from '../../src/api/searchPreparation';
@@ -16,6 +16,7 @@ import {
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -103,6 +104,48 @@ function snapshot(overrides: Partial<SearchPreparationSnapshot> = {}): SearchPre
 }
 
 describe('search preparation notice projection', () => {
+  it('keeps one activity across OCR, indexing and completion and gives a later index its own identity', async () => {
+    vi.useFakeTimers();
+    const list = vi.spyOn(preparationApi, 'listSearchPreparations').mockResolvedValue({
+      schemaVersion: 'frisket.search_preparation_list.v1', batches: [batch()],
+      indexing: { status: 'queued', job_id: 781, error: null },
+    });
+    vi.spyOn(openApi, 'listModelPulls').mockResolvedValue({
+      schemaVersion: 'frisket.model_pull_list.v1', pulls: [],
+    });
+    const { result } = renderHook(() => useSearchPreparationNotice('project-1', false));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(result.current).toMatchObject({ stage: 'prepare', activityKey: 'preparation:prep-1' });
+
+    list.mockResolvedValue({
+      schemaVersion: 'frisket.search_preparation_list.v1', batches: [],
+      indexing: { status: 'running', job_id: 781, error: null },
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(result.current).toMatchObject({ stage: 'index', activityKey: 'preparation:prep-1' });
+    list.mockResolvedValue({
+      schemaVersion: 'frisket.search_preparation_list.v1', batches: [],
+      indexing: { status: 'idle', job_id: null, error: null },
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(result.current).toMatchObject({ stage: 'complete', activityKey: 'preparation:prep-1' });
+
+    list.mockResolvedValue({
+      schemaVersion: 'frisket.search_preparation_list.v1', batches: [],
+      indexing: { status: 'running', job_id: 782, error: null },
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(result.current).toMatchObject({ stage: 'index', activityKey: 'index:782' });
+    list.mockResolvedValue({
+      schemaVersion: 'frisket.search_preparation_list.v1', batches: [],
+      indexing: { status: 'failed', job_id: 782, error: 'Could not index' },
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(result.current).toMatchObject({ stage: 'failed', activityKey: 'index:782:failed' });
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(result.current?.activityKey).toBe('index:782:failed');
+  });
+
   it('shows a durable model setup with determinate byte progress', () => {
     const notice = deriveSearchPreparationNotice(snapshot({
       pulls: [{ scope: 'workspace', pull: pull() }],
@@ -184,17 +227,17 @@ describe('search preparation notice projection', () => {
   });
 
   it('keeps required approval actionable ahead of background indexing', () => {
-    const onReviewApproval = vi.fn();
+    const onReviewPreparation = vi.fn();
     const notice = deriveSearchPreparationNotice(snapshot({
       batches: [batch({ status: 'needs_consent' })],
       indexing: { status: 'running', job_id: 781, error: null },
     }));
-    render(<SearchPreparationNotice notice={notice!} onReviewApproval={onReviewApproval} />);
+    render(<SearchPreparationNotice notice={notice!} onReviewPreparation={onReviewPreparation} />);
 
     const banner = screen.getByTestId('search-preparation-banner');
     expect(banner).toHaveAttribute('data-stage', 'approval');
     fireEvent.click(screen.getByTestId('search-preparation-review'));
-    expect(onReviewApproval).toHaveBeenCalledOnce();
+    expect(onReviewPreparation).toHaveBeenCalledWith('prep-1');
   });
 
   it('keeps a preparation failure ahead of another active batch and reports concurrent indexing in details', () => {

@@ -64,6 +64,8 @@ export interface ActSurfaceState {
   /** Files dropped on the empty-project surface that need the dialog's bulk
    *  planner. The dialog consumes this handoff once per open session. */
   importDialogFiles: File[] | null;
+  /** Search-preparation batch reopened in the existing import workspace. */
+  importPreparationBatchId: string | null;
   /** Session-only home for managing recurring sources/connections. */
   sourcesConnectionsOpen: boolean;
   addColumnPrompt: AddColumnPrompt | null;
@@ -79,6 +81,7 @@ export function createActSurfaceState(): ActSurfaceState {
     importDialogEntryMode: null,
     importDialogCsv: null,
     importDialogFiles: null,
+    importPreparationBatchId: null,
     sourcesConnectionsOpen: false,
     addColumnPrompt: null,
   };
@@ -101,6 +104,7 @@ export function createActSurfaceStore(): {
   openImportDialog(entryMode?: ImportMode): void;
   openCsvImport(file: File, preview: ImportCsvPreview): void;
   openBulkImport(files: File[]): void;
+  openImportPreparation(batchId: string): void;
   closeImportDialog(): void;
 
   openSourcesConnections(): void;
@@ -137,13 +141,16 @@ export function createActSurfaceStore(): {
 
     setImportDialogOpen(open) {
       store.set((s) => open
-        ? (s.importDialogOpen ? s : { ...s, importDialogOpen: true })
+        ? (s.importDialogOpen && s.importPreparationBatchId === null
+          ? s
+          : { ...s, importDialogOpen: true, importPreparationBatchId: null })
         : {
           ...s,
           importDialogOpen: false,
           importDialogEntryMode: null,
           importDialogCsv: null,
           importDialogFiles: null,
+          importPreparationBatchId: null,
         });
     },
     openImportDialog(entryMode) {
@@ -153,6 +160,7 @@ export function createActSurfaceStore(): {
         && s.importDialogEntryMode === nextEntryMode
         && s.importDialogCsv === null
         && s.importDialogFiles === null
+        && s.importPreparationBatchId === null
           ? s
           : {
             ...s,
@@ -160,6 +168,7 @@ export function createActSurfaceStore(): {
             importDialogEntryMode: nextEntryMode,
             importDialogCsv: null,
             importDialogFiles: null,
+            importPreparationBatchId: null,
           },
       );
     },
@@ -170,6 +179,7 @@ export function createActSurfaceStore(): {
         importDialogEntryMode: 'csv',
         importDialogCsv: { file, preview },
         importDialogFiles: null,
+        importPreparationBatchId: null,
       }));
     },
     openBulkImport(files) {
@@ -179,17 +189,32 @@ export function createActSurfaceStore(): {
         importDialogEntryMode: 'files',
         importDialogCsv: null,
         importDialogFiles: files,
+        importPreparationBatchId: null,
+      }));
+    },
+    openImportPreparation(batchId) {
+      store.set((s) => ({
+        ...s,
+        importDialogOpen: true,
+        importDialogEntryMode: null,
+        importDialogCsv: null,
+        importDialogFiles: null,
+        importPreparationBatchId: batchId,
       }));
     },
     closeImportDialog() {
       store.set((s) =>
-        s.importDialogOpen || s.importDialogCsv !== null || s.importDialogFiles !== null
+        s.importDialogOpen
+        || s.importDialogCsv !== null
+        || s.importDialogFiles !== null
+        || s.importPreparationBatchId !== null
           ? {
             ...s,
             importDialogOpen: false,
             importDialogEntryMode: null,
             importDialogCsv: null,
             importDialogFiles: null,
+            importPreparationBatchId: null,
           }
           : s,
       );

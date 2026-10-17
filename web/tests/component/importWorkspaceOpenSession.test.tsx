@@ -134,6 +134,26 @@ afterEach(() => {
 });
 
 describe('ImportWorkspaceDialog controlled open session', () => {
+  it('reopens an existing preparation batch in the import workspace', async () => {
+    render(
+      <ImportWorkspaceDialog
+        open
+        initialPreparationBatchId="prep-reopen"
+        onClose={vi.fn()}
+        onImported={vi.fn()}
+        onError={vi.fn()}
+        onLaunchDownload={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => expect(getSearchPreparation).toHaveBeenCalledWith(
+      'open-session-project',
+      'prep-reopen',
+    ));
+    expect(screen.getByTestId('search-preparation-receipt')).toBeInTheDocument();
+    expect(screen.getByText('Text ready for keyword search')).toBeInTheDocument();
+  });
+
   it('switches between Files and URLs at the top and imports dropped files through the picker path', async () => {
     importFiles.mockResolvedValue({ sheet_id: 91, rows: 1 });
     renderDialog(true);

@@ -100,7 +100,7 @@ export function StatusBar({
   run, history, reviewCount, projectionStatus, onUndo, onRedo, onOpenReview, onCancelRun,
   onShowFailedRows, onRetryFailedRows,
 }: StatusBarProps) {
-  const { chrome, chromePreferences: { projectId } } = useWorkspaceStores();
+  const { actSurface, chromePreferences: { projectId } } = useWorkspaceStores();
   const { descriptor } = useEditionModule();
   const searchPreparationNotice = useSearchPreparationNotice(
     projectId,
@@ -119,20 +119,20 @@ export function StatusBar({
     open: false,
   });
   const runActive = run ? isActiveRunStatus(run.status) : false;
-  const activityKey = [
+  const activityKeys = [
     runActive ? `run:${run?.runId ?? ''}` : null,
     searchPreparationNotice
       ? `search:${searchPreparationNotice.activityKey}`
       : null,
-  ].filter(Boolean).join('|') || null;
-  const [noticeVisibility, setNoticeVisibility] = useState<{ key: string | null; open: boolean }>({
-    key: null,
+  ].filter((key): key is string => key !== null);
+  const [noticeVisibility, setNoticeVisibility] = useState<{ keys: string[]; open: boolean }>({
+    keys: [],
     open: true,
   });
-  const noticesOpen = activityKey !== null
-    && (noticeVisibility.key !== activityKey || noticeVisibility.open);
+  const noticesOpen = activityKeys.length > 0
+    && (noticeVisibility.open || activityKeys.some((key) => !noticeVisibility.keys.includes(key)));
   const setNoticesOpen = (open: boolean) => {
-    setNoticeVisibility({ key: activityKey, open });
+    setNoticeVisibility({ keys: activityKeys, open });
   };
   const watcherOpen = Boolean(run && !runActive && watcherState.runId === run.runId && watcherState.open);
   const watcherTriggerRef = useRef<HTMLButtonElement>(null);
@@ -193,7 +193,7 @@ export function StatusBar({
         {searchPreparationNotice && (
           <SearchPreparationNotice
             notice={searchPreparationNotice}
-            onReviewApproval={chrome.openCommandPalette}
+            onReviewPreparation={actSurface.openImportPreparation}
             onDismiss={() => setNoticesOpen(false)}
           />
         )}

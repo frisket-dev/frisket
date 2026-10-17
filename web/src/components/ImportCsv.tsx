@@ -942,6 +942,7 @@ type ImportWorkspaceDialogProps = ImportHandlers & {
   open: boolean;
   initialCsv?: { file: File; preview: ImportCsvPreview } | null;
   initialFiles?: File[] | null;
+  initialPreparationBatchId?: string | null;
   /** The resolved `ner` catalog entry, for its engine availability. Absent
    *  (no catalog yet) means the prompt simply does not offer. */
   nerTemplate?: ActionTemplate;
@@ -964,6 +965,7 @@ export function ImportWorkspaceDialog({ open, ...props }: ImportWorkspaceDialogP
 
   return open ? (
     <OpenImportWorkspaceSession
+      key={props.initialPreparationBatchId ?? 'import'}
       {...props}
       initialMode={initialMode}
       onSessionModeChange={setLastMode}
@@ -976,6 +978,7 @@ function OpenImportWorkspaceSession({
   onSessionModeChange,
   initialCsv = null,
   initialFiles = null,
+  initialPreparationBatchId = null,
   onClose,
   onImported,
   onError,
@@ -1048,7 +1051,11 @@ function OpenImportWorkspaceSession({
     sheetId: number | null;
     batchId: string | null;
     importRef: string | null;
-  } | null>(null);
+  } | null>(() => initialPreparationBatchId === null ? null : {
+    sheetId: null,
+    batchId: initialPreparationBatchId,
+    importRef: null,
+  });
   const [preparationFollowupError, setPreparationFollowupError] = useState<string | null>(null);
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [singleFileFormat, setSingleFileFormat] = useState<SingleFileFormat>('csv');
