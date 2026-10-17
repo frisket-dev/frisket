@@ -425,16 +425,27 @@ def test_ask_requested_link_must_match_selected_text(tmp_path):
         cell, text, _other, _blob, chosen, alternative = _document(project)
         assert (
             resolve_prepared_source(
-                project, cell, evidence_link_id=alternative[3]["stable_id"]
+                project,
+                cell,
+                expected_version=read_source_text(project, cell)["version"],
+                evidence_link_id=alternative[3]["stable_id"],
             )
             is None
         )
         assert (
-            resolve_prepared_source(project, cell, evidence_link_id="missing-link")
+            resolve_prepared_source(
+                project,
+                cell,
+                expected_version=read_source_text(project, cell)["version"],
+                evidence_link_id="missing-link",
+            )
             is None
         )
         selected = resolve_prepared_source(
-            project, cell, evidence_link_id=chosen[3]["stable_id"]
+            project,
+            cell,
+            expected_version=read_source_text(project, cell)["version"],
+            evidence_link_id=chosen[3]["stable_id"],
         )
         assert selected is not None
         assert selected["cell"] == (cell[0], cell[1], text)
@@ -444,6 +455,8 @@ def test_ask_requested_link_must_match_selected_text(tmp_path):
 def test_ask_manual_text_without_grounding_link_searches_and_resolves_citation(
     tmp_path,
 ):
+    from hashlib import sha256
+
     from frisket.engine.store.project_qa import ProjectQAStore
     from frisket.search import drain_index
     from frisket.server.services.project_qa_citations import resolve_citation
@@ -460,7 +473,9 @@ def test_ask_manual_text_without_grounding_link_searches_and_resolves_citation(
                 }
             ]
         )
-        selected = resolve_prepared_source(project, cell)
+        selected = resolve_prepared_source(
+            project, cell, expected_version=read_source_text(project, cell)["version"]
+        )
         assert selected is not None
         assert selected["evidence_link_id"] is None
         store = ProjectQAStore(project)
@@ -486,7 +501,7 @@ def test_ask_manual_text_without_grounding_link_searches_and_resolves_citation(
         [hit] = tools.search_cells("NEEDLE", cell[0])["hits"]
         assert hit["column_id"] == cell[2]
         opened = tools.open_source(hit["citation_id"])
-        assert "manual NEEDLE correction" in opened["passages"][0]["text"]
+        assert "NEEDLE correction" in opened["passages"][0]["text"]
         resolved = resolve_citation(project, thread["id"], hit["citation_id"])
         assert resolved["status"] == "current"
         assert resolved["target"] == {
@@ -494,4 +509,11 @@ def test_ask_manual_text_without_grounding_link_searches_and_resolves_citation(
             "sheet_id": cell[0],
             "row_id": cell[1],
             "column_id": text,
+            "text_range": {
+                "text_surface_id": f"cell:{cell[1]}:{text}",
+                "content_hash": "sha256:"
+                + sha256(b"manual NEEDLE correction").hexdigest(),
+                "start": 7,
+                "end": 13,
+            },
         }

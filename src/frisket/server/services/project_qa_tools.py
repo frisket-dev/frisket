@@ -610,7 +610,11 @@ class ProjectQATools:
                     read_source_with_prepared(
                         self.project,
                         source_cell,
-                        evidence_link_id=str(prepared_target["evidence_link_id"]),
+                        evidence_link_id=(
+                            str(prepared_target["evidence_link_id"])
+                            if prepared_target["evidence_link_id"] is not None
+                            else None
+                        ),
                         cancel=self.cancel_event,
                     )
                 )

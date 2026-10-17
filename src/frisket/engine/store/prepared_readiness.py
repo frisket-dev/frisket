@@ -100,6 +100,22 @@ def prepared_source_readiness_ctes(*, scope_relation: str, schema: str = "") -> 
         ON selected.source_sheet_id=readiness_scope.sheet_id
        AND selected.row_id=readiness_scope.row_id
       WHERE selected.text_hidden=0
+        AND (
+          (selected.prepared_ref_id IS NOT NULL AND EXISTS (
+            SELECT 1 FROM {prefix}prepared_content_set_pages member
+            JOIN {prefix}prepared_page_versions page ON page.id=member.version_id
+            WHERE member.set_id=selected.set_id
+              AND (selected.ref_page_number IS NULL
+                   OR member.page_number=selected.ref_page_number)
+              AND length(trim(page.prepared_text))>0
+          ))
+          OR (selected.prepared_ref_id IS NULL AND EXISTS (
+            SELECT 1 FROM {prefix}current_cell_values text
+            WHERE text.row_id=selected.row_id
+              AND text.column_id=selected.text_column_id
+              AND length(trim(text.value))>0
+          ))
+        )
     )"""
 
 

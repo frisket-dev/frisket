@@ -232,6 +232,8 @@ def resolve_find_sources(
                     )
                     value = text_values.get(row_id)
                     value_ref = dict(text_refs.get(row_id) or {})
+                    if value is None or (isinstance(value, str) and not value.strip()):
+                        continue
         artifact_id: int | None = None
         source_kind = "text"
         image: ImageAsset | None = None

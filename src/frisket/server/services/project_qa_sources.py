@@ -314,6 +314,8 @@ def resolve_prepared_source(
                     *link_params,
                 ],
             ).fetchone()
+            if evidence_link_id is not None and link is None:
+                return None
             return {
                 "cell": selected.text_cell,
                 "evidence_link_id": str(link[0]) if link is not None else None,
