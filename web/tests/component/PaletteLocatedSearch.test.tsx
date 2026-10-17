@@ -657,6 +657,57 @@ describe('located palette search', () => {
     expect(getSearchPreparation).not.toHaveBeenCalledWith('project-1', 'prep-a');
   });
 
+  it('retains the new sheet approval when an older create resolves and clears restored targets with no match', async () => {
+    let created!: (value: unknown) => void;
+    const batchB = {
+      id: 'prep-b', sheet_id: 2, plan_hash: 'sha256:b', status: 'needs_consent', force_ocr: false,
+      groups: [{ kind: 'ocr', count: 2, status: 'needs_consent' }],
+      models: [], jobs: [], can_stop: false, can_setup: true, errors: [],
+    };
+    listSearchPreparations.mockResolvedValueOnce({ batches: [] }).mockResolvedValueOnce({ batches: [] })
+      .mockResolvedValueOnce({ batches: [batchB] }).mockResolvedValue({ batches: [] });
+    createSearchPreparation.mockReturnValue(new Promise((resolve) => { created = resolve; }));
+    getSearchPreparation.mockResolvedValue(batchB);
+    searchProject.mockResolvedValue({ ...completeResponse, coverage: { ...completeResponse.coverage,
+      state: 'partial', channels: [{ channel: 'search_preparation', state: 'unavailable', eligible_count: 1, prepared_count: 0, gap_sheet_ids: [1, 2] }],
+    } });
+    const onClose = vi.fn();
+    const sheets = [{ id: '1', name: 'Dispatches' } as never, { id: '2', name: 'Court filings' } as never];
+    const view = render(<PaletteHarness searchSheets={sheets} activeSearchSheetId="1" onClose={onClose} />);
+    fireEvent.click(await screen.findByTestId('search-preparation-gap-action'));
+    await waitFor(() => expect(createSearchPreparation).toHaveBeenCalledOnce());
+    view.rerender(<PaletteHarness searchSheets={sheets} activeSearchSheetId="2" onClose={onClose} />);
+    await screen.findByTestId('search-preparation-decision-prepare');
+    expect(getSearchPreparation).toHaveBeenCalledWith('project-1', 'prep-b');
+    await act(async () => { created({ ...batchB, id: 'prep-a', sheet_id: 1 }); });
+    expect(screen.getByTestId('search-preparation-decision-prepare')).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(getSearchPreparation).not.toHaveBeenCalledWith('project-1', 'prep-a');
+    view.rerender(<PaletteHarness searchSheets={sheets} activeSearchSheetId="1" onClose={onClose} />);
+    await waitFor(() => expect(listSearchPreparations).toHaveBeenCalledTimes(4));
+    expect(screen.queryByTestId('search-preparation-receipt')).not.toBeInTheDocument();
+    expect(screen.getByTestId('search-preparation-gap-action')).toBeEnabled();
+  });
+
+  it('resets busy state on a sheet change and ignores an older create error', async () => {
+    let rejectCreate!: (error: Error) => void;
+    listSearchPreparations.mockResolvedValue({ batches: [] });
+    createSearchPreparation.mockReturnValue(new Promise((_resolve, reject) => { rejectCreate = reject; }));
+    searchProject.mockResolvedValue({ ...completeResponse, coverage: { ...completeResponse.coverage,
+      state: 'partial', channels: [{ channel: 'search_preparation', state: 'unavailable', eligible_count: 1, prepared_count: 0, gap_sheet_ids: [1, 2] }],
+    } });
+    const sheets = [{ id: '1', name: 'Dispatches' } as never, { id: '2', name: 'Court filings' } as never];
+    const view = render(<PaletteHarness searchSheets={sheets} activeSearchSheetId="1" />);
+    fireEvent.click(await screen.findByTestId('search-preparation-gap-action'));
+    await waitFor(() => expect(createSearchPreparation).toHaveBeenCalledOnce());
+    view.rerender(<PaletteHarness searchSheets={sheets} activeSearchSheetId="2" />);
+    await waitFor(() => expect(listSearchPreparations).toHaveBeenCalledTimes(3));
+    expect(screen.getByTestId('search-preparation-gap-action')).toBeEnabled();
+    await act(async () => { rejectCreate(new Error('Old sheet create failed')); });
+    expect(screen.queryByText('Old sheet create failed')).not.toBeInTheDocument();
+    expect(screen.getByTestId('search-preparation-gap-action')).toBeEnabled();
+  });
+
   it('restores approval only for the current sheet when Search opens', async () => {
     const awaitingApproval = {
       schemaVersion: 'frisket.search_preparation.v1',
