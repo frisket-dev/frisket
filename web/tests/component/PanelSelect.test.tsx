@@ -2,10 +2,13 @@
 
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createRef, useState } from 'react';
 
 import { PanelSelect } from '../../src/components/PanelSelect';
+import { installPopoverPolyfill } from '../support/domPolyfills';
+
+beforeAll(installPopoverPolyfill);
 
 afterEach(cleanup);
 
@@ -106,9 +109,36 @@ describe('PanelSelect native-option compatibility', () => {
     );
 
     fireEvent.mouseDown(screen.getByTestId('rich-picker'));
-    fireEvent.click(within(screen.getByTestId('rich-picker-menu')).getByRole('option', { name: 'Two' }));
+    const menu = screen.getByTestId('rich-picker-menu');
+    expect(menu.parentElement).toBe(document.body);
+    fireEvent.click(within(menu).getByRole('option', { name: 'Two' }));
 
     expect(changed).toHaveBeenCalledWith('two');
+  });
+
+  it('keeps the custom menu inside its owning dialog and restores trigger focus after selection', () => {
+    function Harness() {
+      const [value, setValue] = useState('one');
+      return (
+        <dialog open aria-label="Import">
+          <PanelSelect topLayer value={value} onValueChange={setValue}
+            options={[{ value: 'one', label: 'One' }, { value: 'two', label: 'Two' }]}
+            testId="dialog-picker" />
+        </dialog>
+      );
+    }
+
+    render(<Harness />);
+    const trigger = screen.getByTestId('dialog-picker');
+    fireEvent.mouseDown(trigger);
+    const menu = screen.getByTestId('dialog-picker-menu');
+    expect(menu.parentElement).toBe(screen.getByRole('dialog', { name: 'Import' }));
+    expect(menu.matches(':popover-open')).toBe(true);
+    fireEvent.click(within(menu).getByRole('option', { name: 'Two', hidden: true }));
+
+    expect(trigger).toHaveValue('two');
+    expect(trigger).toHaveFocus();
+    expect(screen.queryByTestId('dialog-picker-menu')).not.toBeInTheDocument();
   });
 
   it('renders option and optgroup children through the custom menu and reports a custom choice', () => {

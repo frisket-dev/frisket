@@ -141,9 +141,7 @@ function progressFailure(batch: SearchPreparationBatch): {
 function indexingDetail(indexing: SearchIndexingProjection): string {
   switch (indexing.status) {
     case 'pending':
-      return 'Waiting to index';
     case 'queued':
-      return 'Search indexing queued';
     case 'running':
       return 'Indexing search content';
     case 'failed':

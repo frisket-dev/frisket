@@ -2,7 +2,8 @@
 // DOM as the trigger (so tests' selectOption(), form value semantics, and
 // keyboard value-cycling keep working), but pointer users get a custom
 // popover with rich option rows — descriptions, AI-column ⚡ markers, and a
-// check on the selected value. The popover portals to <body> with fixed
+// check on the selected value. The popover portals to its owning dialog (or
+// <body> outside a dialog) with fixed
 // positioning so the panel's overflow never clips it, opening toward
 // whichever side of the trigger has more room.
 
@@ -111,6 +112,7 @@ export const PanelSelect = forwardRef<HTMLSelectElement, PanelSelectProps>(funct
   ...selectProps
 }, forwardedRef) {
   const [open, setOpen] = useState(false);
+  const [portalDialog, setPortalDialog] = useState<HTMLDialogElement | null>(null);
   const selectRef = useRef<HTMLSelectElement | null>(null);
   const internalMenuRef = useRef<HTMLDivElement | null>(null);
   const menuRef = suppliedMenuRef ?? internalMenuRef;
@@ -161,6 +163,9 @@ export const PanelSelect = forwardRef<HTMLSelectElement, PanelSelectProps>(funct
 
   const setSelectRef = useCallback((node: HTMLSelectElement | null) => {
     selectRef.current = node;
+    // A body portal remains inert while a modal dialog is open, even when
+    // showPopover promotes its menu visually above the dialog.
+    setPortalDialog(node?.closest('dialog') ?? null);
     if (typeof forwardedRef === 'function') forwardedRef(node);
     else if (forwardedRef) forwardedRef.current = node;
   }, [forwardedRef]);
@@ -292,7 +297,7 @@ export const PanelSelect = forwardRef<HTMLSelectElement, PanelSelectProps>(funct
               })
             )}
           </div>,
-          document.body,
+          portalDialog ?? document.body,
         )}
     </>
   );

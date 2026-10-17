@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SearchPreparationBatch } from '../../src/api/searchPreparation';
+import { installPopoverPolyfill } from '../support/domPolyfills';
 
 const {
   getSearchPreparation,
@@ -122,6 +123,10 @@ function preparationProgress(overrides: Partial<PreparationProgress> = {}): Prep
 }
 
 beforeEach(() => {
+  // jsdom lacks native popover visibility; custom menu tests dispatch to its
+  // hidden DOM while asserting actual selection/API behavior. Browser coverage
+  // owns the modal's pointer/inertness contract.
+  installPopoverPolyfill();
   getSearchPreparationTextSamples.mockResolvedValue({
     schemaVersion: 'frisket.search_preparation_text_samples.v1',
     batch_id: 'prep-1',
@@ -243,7 +248,7 @@ describe('SearchPreparationReceipt', () => {
     const consentFooter = screen.getByTestId('search-preparation-decision-prepare').closest('footer');
     expect(consentFooter).not.toBeNull();
     expect(Array.from(consentFooter!.querySelectorAll('button'), (button) => button.textContent)).toEqual([
-      'Download and prepare',
+      'Download and make searchable',
     ]);
     expect(screen.queryByTestId('search-preparation-done')).toBeNull();
 
@@ -288,7 +293,7 @@ describe('SearchPreparationReceipt', () => {
     const onBack = vi.fn();
     render(<SearchPreparationReceipt projectId="project-1" batchId="prep-1"
       onBack={onBack} onDone={vi.fn()} onError={vi.fn()} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Back' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Back to files' }));
     expect(onBack).toHaveBeenCalledOnce();
     expect(stopSearchPreparation).not.toHaveBeenCalled();
     expect(decideSearchPreparation).not.toHaveBeenCalled();
@@ -352,7 +357,7 @@ describe('SearchPreparationReceipt', () => {
 
     expect(await screen.findByText('What will be prepared')).not.toBeNull();
     expect(screen.queryByText('Download local models?')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Prepare files' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Make searchable' }));
     await waitFor(() => expect(decideSearchPreparation).toHaveBeenCalledWith(
       'project-1',
       'prep-1',
@@ -402,7 +407,7 @@ describe('SearchPreparationReceipt', () => {
     expect(screen.getByText('No embedded text is available on this sampled page.')).not.toBeNull();
     expect(screen.queryByTestId('search-preparation-keep-text')).toBeNull();
     expect(screen.queryByTestId('search-preparation-force-ocr')).toBeNull();
-    const extract = screen.getByRole('button', { name: 'Prepare files' });
+    const extract = screen.getByRole('button', { name: 'Make searchable' });
     expect((extract as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(extract);
     await waitFor(() => expect(decideSearchPreparation).toHaveBeenCalledWith(
@@ -445,8 +450,8 @@ describe('SearchPreparationReceipt', () => {
 
     const semantic = await screen.findByTestId('search-preparation-semantic-model');
     expect((semantic as HTMLInputElement).checked).toBe(true);
-    expect(screen.getByRole('button', { name: 'Download and prepare' })).not.toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Download and prepare' }));
+    expect(screen.getByRole('button', { name: 'Download and make searchable' })).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Download and make searchable' }));
     await waitFor(() => expect(decideSearchPreparation).toHaveBeenCalledWith(
       'project-1',
       'prep-1',
@@ -549,11 +554,12 @@ describe('SearchPreparationReceipt', () => {
     decideSearchPreparation.mockResolvedValue({ ...replacement, status: 'preparing' });
     render(<SearchPreparationReceipt projectId="project-1" batchId="prep-1" onDone={onDone} onError={vi.fn()} />);
     await screen.findByText('Native text from the PDF');
-    expect((screen.getByRole('checkbox', { name: 'Re-scan all PDFs with OCR' }) as HTMLInputElement).checked).toBe(false);
+    expect((screen.getByRole('combobox', { name: 'PDF text' }) as HTMLSelectElement).value).toBe('keep');
     expect(screen.queryByRole('button', { name: 'Keep embedded text' })).toBeNull();
     expect(decideSearchPreparation).not.toHaveBeenCalled();
     expect(replanSearchPreparation).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByTestId('search-preparation-force-ocr'));
+    fireEvent.mouseDown(screen.getByRole('combobox', { name: 'PDF text' }));
+    fireEvent.click(within(screen.getByRole('listbox', { hidden: true })).getByRole('option', { name: 'Re-scan PDFs with OCR', hidden: true }));
     await waitFor(() => expect(replanSearchPreparation).toHaveBeenCalledWith('project-1', 'prep-1', {
       plan_hash: 'sha256:plan', force_ocr: true,
     }));
@@ -582,7 +588,7 @@ describe('SearchPreparationReceipt', () => {
     replanSearchPreparation.mockResolvedValue(replacement);
     render(<SearchPreparationReceipt projectId="project-1" batchId="prep-1" onDone={vi.fn()} onError={vi.fn()} />);
     await act(async () => { await Promise.resolve(); });
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Re-scan all PDFs with OCR' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'PDF text' }), { target: { value: 'keep' } });
     await act(async () => { await Promise.resolve(); });
     expect(replanSearchPreparation).toHaveBeenCalledWith('project-1', 'prep-1', { plan_hash: 'sha256:plan', force_ocr: false });
     expect(decideSearchPreparation).not.toHaveBeenCalled();
@@ -692,7 +698,7 @@ describe('SearchPreparationReceipt', () => {
       { rowId: 42, columnId: 5, pageNumber: 193 },
       { signal: expect.anything() },
     );
-    expect((screen.getByRole('checkbox', { name: 'Re-scan all PDFs with OCR' }) as HTMLInputElement).checked).toBe(false);
+    expect((screen.getByRole('combobox', { name: 'PDF text' }) as HTMLSelectElement).value).toBe('keep');
     expect(screen.queryByTestId('search-preparation-text-preview')).not.toBeNull();
     expect(replanSearchPreparation).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Refresh sample pages' }));
@@ -711,7 +717,8 @@ describe('SearchPreparationReceipt', () => {
     render(<SearchPreparationReceipt projectId="project-1" batchId="prep-1" onDone={vi.fn()} onError={vi.fn()} />);
     await screen.findByText('Readable embedded text');
     const documents = screen.getByRole('combobox', { name: 'Sample document' });
-    fireEvent.change(documents, { target: { value: '43:5' } });
+    fireEvent.mouseDown(documents);
+    fireEvent.click(within(screen.getByRole('listbox', { hidden: true })).getByRole('option', { name: 'scan.pdf', hidden: true }));
     await screen.findByText('No embedded text is available on this sampled page.');
     expect(getSearchPreparationTextSamples).toHaveBeenLastCalledWith('project-1', 'prep-1',
       { rowId: 43, columnId: 5, pageNumber: 1 }, { signal: expect.anything() });
@@ -741,7 +748,8 @@ describe('SearchPreparationReceipt', () => {
     await screen.findByText('Long page 10');
     expect(getSearchPreparationTextSamples).toHaveBeenLastCalledWith('project-1', 'prep-1',
       { rowId: 42, columnId: 5, pageNumber: 10 }, { signal: expect.anything() });
-    fireEvent.change(screen.getByRole('combobox', { name: 'Sample document' }), { target: { value: '42:6' } });
+    fireEvent.keyDown(screen.getByRole('combobox', { name: 'Sample document' }), { key: 'Enter' });
+    fireEvent.click(within(screen.getByRole('listbox', { hidden: true })).getByRole('option', { name: 'short.pdf', hidden: true }));
     await screen.findByText('Short selected page');
     expect(getSearchPreparationTextSamples).toHaveBeenLastCalledWith('project-1', 'prep-1',
       { rowId: 42, columnId: 6, pageNumber: 1 }, { signal: expect.anything() });

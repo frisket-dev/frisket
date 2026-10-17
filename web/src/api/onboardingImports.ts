@@ -49,6 +49,10 @@ export interface ImportSessionUploadOptions extends OnboardingImportOptions {
   batchId: string;
 }
 
+export interface ImportSessionUploadSequenceOptions extends OnboardingImportOptions {
+  onStatus?(status: ImportSessionStatus): void;
+}
+
 export const IMPORT_SESSION_CHUNK_FILES = 256;
 export const IMPORT_SESSION_CHUNK_BYTES = 64 * 1024 * 1024;
 
@@ -898,19 +902,23 @@ export async function uploadFilesToImportSession(
   projectId: string,
   session: ImportSessionStatus,
   files: File[],
-  options: OnboardingImportOptions = {},
+  options: ImportSessionUploadSequenceOptions = {},
 ): Promise<ImportSessionStatus> {
+  const { onStatus, ...requestOptions } = options;
   for (const chunk of chunkImportFiles(files, session.through)) {
     const end = chunk.start + chunk.files.length;
-    await uploadImportSessionFiles(projectId, session.import_ref, chunk.files, {
-      ...options,
+    const status = await uploadImportSessionFiles(projectId, session.import_ref, chunk.files, {
+      ...requestOptions,
       logicalPaths: chunk.logicalPaths,
       // Stable across a re-selection of the same ordered file set. A response
       // lost after commit can safely retry this exact server batch marker.
       batchId: `${session.import_ref}:${chunk.start + 1}-${end}`,
     });
+    onStatus?.(status);
   }
-  return sealImportSession(projectId, session.import_ref, options);
+  const sealed = await sealImportSession(projectId, session.import_ref, requestOptions);
+  onStatus?.(sealed);
+  return sealed;
 }
 
 export function importFollowTheMoney(

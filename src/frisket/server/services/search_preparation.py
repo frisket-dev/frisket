@@ -198,10 +198,10 @@ def _document_text_target(
                 str(column["name"]).strip().casefold()
                 for column in project.columns(sheet_id, include_hidden=True)
             }
-            name = "Text"
+            name = "text"
             suffix = 2
             while name.strip().casefold() in used:
-                name = f"Text_{suffix}"
+                name = f"text_{suffix}"
                 suffix += 1
             text_column_id = project.add_column(
                 sheet_id,

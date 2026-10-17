@@ -146,6 +146,37 @@ describe('onboarding/import generated HTTP contracts', () => {
     expect(body.get('batch_id')).toBe('import-cancel:1-256');
   });
 
+  it('reports each acknowledged upload chunk and the sealed session', async () => {
+    const files = Array.from({ length: 300 }, (_, index) => new File(['x'], `${index}.txt`));
+    const initial = {
+      import_ref: 'import-progress', state: 'admitting' as const, admitted_files: 0,
+      admitted_bytes: 0, through: 0, committed_rows: 0, committed_bytes: 0,
+      sheet_id: null, sheet_name: 'Files', cancel_requested: false, sealed: false,
+      error: null, search_preparation_status: 'pending' as const,
+      search_preparation_batch_id: null,
+    };
+    let upload = 0;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.endsWith('/seal')) {
+        return jsonResponse({ ...initial, admitted_files: 300, through: 300, sealed: true });
+      }
+      upload += 1;
+      const admitted = upload === 1 ? 256 : 300;
+      return jsonResponse({ ...initial, admitted_files: admitted, through: admitted });
+    }));
+    const onStatus = vi.fn();
+
+    const result = await uploadFilesToImportSession(
+      'project-1', initial, files, { onStatus, headers: { 'X-Test': 'progress' } },
+    );
+
+    expect(onStatus.mock.calls.map(([status]) => [status.admitted_files, status.sealed])).toEqual([
+      [256, false], [300, false], [300, true],
+    ]);
+    expect(result).toMatchObject({ admitted_files: 300, sealed: true });
+  });
+
   it('uses generated resumable import routes and aligned multipart fields', async () => {
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     const status = {
