@@ -39,6 +39,7 @@ class RecognizedDocument(BaseModel):
     text: OcrText
     blocks: list[dict[str, Any]] = Field(json_schema_extra={"default_hidden": True})
     pdf: Outcome[StagedFile | None] = Field(default_factory=lambda: Outcome.ok(None))
+    warnings: list[str] = Field(default_factory=list)
 
 
 class TranscriptWord(TypedDict, total=False):

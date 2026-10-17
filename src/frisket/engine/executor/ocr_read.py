@@ -317,24 +317,50 @@ class _BoundOcrReader:
                             limits.max_pdf_pages,
                             1 if selected_page is not None else page_count,
                         )
-                page_paths = await owner._engines._page_images(
-                    path, source, options, scratch, engine=engine
-                )
-                if type(page_count) is not int or page_count <= 0:
-                    page_count = len(page_paths)
-                source["page_count"] = page_count
-                usage["input_pages"] = len(page_paths)
+                incremental = is_pdf and self._incremental_engine(engine)
+                page_images = {}
+                warnings = ()
                 returned = False
                 try:
-                    pages = await owner._engines.run_engine_on_pages(
-                        engine,
-                        page_paths,
-                        ctx,
-                        usage=usage,
-                        language=options.get("language"),
-                        keep_text_position=options.get("keep_text_position"),
-                        scratch=scratch,
-                    )
+                    if incremental:
+                        if type(page_count) is not int or page_count <= 0:
+                            raise RowError(
+                                "invalid_media_cell", "PDF page count could not be read"
+                            )
+                        source["page_count"] = page_count
+                        pages, page_images, warnings = await self._recognize_pdf_pages(
+                            source,
+                            path,
+                            engine,
+                            scratch,
+                            usage,
+                            page_count=1 if selected_page is not None else page_count,
+                            first_page=selected_page or 1,
+                        )
+                    else:
+                        page_paths = await owner._engines._page_images(
+                            path, source, options, scratch, engine=engine
+                        )
+                        if type(page_count) is not int or page_count <= 0:
+                            page_count = len(page_paths)
+                        source["page_count"] = page_count
+                        usage["input_pages"] = len(page_paths)
+                        pages = await owner._engines.run_engine_on_pages(
+                            engine,
+                            page_paths,
+                            ctx,
+                            usage=usage,
+                            language=options.get("language"),
+                            keep_text_position=options.get("keep_text_position"),
+                            scratch=scratch,
+                        )
+                        page_images = self._page_images(
+                            source,
+                            path,
+                            page_paths,
+                            scratch,
+                            first_page=selected_page or 1,
+                        )
                     returned = True
                 finally:
                     if usage.get("model_calls") or usage["calls"] or returned:
@@ -359,13 +385,7 @@ class _BoundOcrReader:
                         )
                 if selected_page is not None and len(pages) != 1:
                     raise RuntimeError("page-scoped OCR must return exactly one page")
-                page_images = self._page_images(
-                    source,
-                    path,
-                    page_paths,
-                    scratch,
-                    first_page=selected_page or 1,
-                )
+                owner._check_open()
                 pdf = (
                     self._searchable_pdf(
                         source,
@@ -378,6 +398,7 @@ class _BoundOcrReader:
                     if options["searchable_pdf"] and not owner._files.preview
                     else Outcome.ok(None)
                 )
+                owner._check_open()
                 fact_pages = []
                 blocks = []
                 fact_blocks = []
@@ -417,21 +438,123 @@ class _BoundOcrReader:
                     "blocks": fact_blocks,
                     "pages": fact_pages,
                     "page_images": page_images,
+                    "warnings": list(warnings),
                 }
                 owner.calls_by_row[self._row_id] = [copy.deepcopy(fact)]
-                return RecognizedDocument(text=OcrText(text), blocks=blocks, pdf=pdf)
+                return RecognizedDocument(
+                    text=OcrText(text), blocks=blocks, pdf=pdf, warnings=warnings
+                )
+
+    def _incremental_engine(self, engine):
+        # Connected Cloud and sidecars own a single admitted request. Splitting
+        # that request here would change accounting and admission semantics.
+        admission = routed_admission_in_scope(self._ctx.extras)
+        preview = preview_resolution_in_scope(self._ctx.extras)
+        transport = (
+            admission.route.target_snapshot.get("transport")
+            if admission is not None
+            else preview.support.transport
+            if preview is not None
+            else None
+        )
+        return engine in {engines.LIGHT_ENGINE, "tesseract"} and (
+            transport != "frisket.cloud.media.v1"
+        )
+
+    async def _recognize_pdf_pages(
+        self, source, path, engine, scratch, usage, *, page_count, first_page
+    ):
+        owner, options = self._owner, self._owner._options
+        pages, images, examples = [], {}, []
+        failures = 0
+        usage["input_pages"] = 0
+        for number in range(1, page_count + 1):
+            owner._check_open()
+            physical_page = first_page + number - 1
+            # The directory is page-owned, including renderer output created
+            # before a failure. It is removed before the next page is started.
+            with tempfile.TemporaryDirectory(prefix="page-", dir=scratch) as td:
+                page_scratch = Path(td)
+                stage = "rendering"
+                try:
+                    paths = await owner._engines._page_images(
+                        path,
+                        source,
+                        {**options, "_selected_pages": [number]},
+                        page_scratch,
+                        engine=engine,
+                    )
+                    if len(paths) != 1:
+                        raise RuntimeError(
+                            "PDF rendering returned the wrong page count"
+                        )
+                    stage = "reading image geometry"
+                    frame = self._page_images(
+                        source, path, paths, page_scratch, first_page=physical_page
+                    )
+                    images.update(frame)
+                    stage = "recognition"
+                    usage["input_pages"] += 1
+                    output = await owner._engines.run_engine_on_pages(
+                        engine,
+                        paths,
+                        self._ctx,
+                        usage=usage,
+                        language=options.get("language"),
+                        keep_text_position=options.get("keep_text_position"),
+                        scratch=page_scratch,
+                    )
+                    if len(output) != 1:
+                        raise RuntimeError("OCR returned the wrong page count")
+                    pages.append(output[0])
+                except (engines.OcrCancelled, RecipeInvocationHalt):
+                    raise
+                except (RuntimeError, OSError, ValueError):
+                    owner._check_open()
+                    failures += 1
+                    warning = f"Page {physical_page} failed during {stage}."
+                    if len(examples) < 20:
+                        examples.append(warning)
+                    pages.append(
+                        {
+                            "text": "",
+                            "blocks": [],
+                            "error": {"code": "ocr_page_failed", "stage": stage},
+                        }
+                    )
+            owner._check_open()
+            report = self._ctx.extras.get("report_work_progress")
+            if callable(report):
+                report(
+                    kind="ocr_pages",
+                    row_id=self._row_id,
+                    completed=number,
+                    total=page_count,
+                )
+        if failures == page_count:
+            raise RowError(
+                "ocr_pages_failed",
+                f"OCR failed for all {page_count} pages. {examples[0]}",
+            )
+        if failures > len(examples):
+            examples.append(
+                f"{failures} pages failed; {failures - len(examples)} additional "
+                "page warnings omitted."
+            )
+        return pages, images, tuple(examples)
 
     def _page_images(self, source, original, paths, scratch, *, first_page=1):
         if self._owner._files.preview:
             return {}
-        from PIL import Image
-
         images = {}
         is_pdf = self._owner._engines._is_pdf(original, source)
         for index, path in enumerate(paths, first_page):
             if is_pdf:
-                with Image.open(path) as image:
-                    width, height = image.size
+                with path.open("rb") as image:
+                    dimensions = engines.image_dimensions(image.read(24))
+                if dimensions is None:
+                    raise RuntimeError(f"Page {index} has no valid image geometry")
+                width, height = dimensions
                 # The original PDF is the durable source. Display pages are
                 # rendered on demand; retain only OCR's exact coordinate frame.
                 images[str(index)] = {
@@ -473,8 +596,9 @@ class _BoundOcrReader:
             )
         try:
             raster_dimensions = [
-                (frame["source_width"], frame["source_height"])
-                for frame in page_images.values()
+                ((frame["source_width"], frame["source_height"]) if frame else None)
+                for index in range(1, len(pages) + 1)
+                for frame in [page_images.get(str(source.get("page") or index))]
             ]
             pdf, results = compose_searchable_pdf(
                 path.read_bytes(),

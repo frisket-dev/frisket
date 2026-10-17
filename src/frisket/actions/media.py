@@ -70,9 +70,8 @@ def _transcribe_outputs(params: TranscribeParams):
 async def ocr(
     params: OcrParams, row: Row, reader: OcrReader
 ) -> RowResult[RecognizedDocument]:
-    return RowResult(
-        output=await reader.recognize(row, params.source, options=ocr_options(params))
-    )
+    document = await reader.recognize(row, params.source, options=ocr_options(params))
+    return RowResult(output=document, warnings=tuple(document.warnings))
 
 
 async def transcribe(

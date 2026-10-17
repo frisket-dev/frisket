@@ -507,7 +507,9 @@ async def ocr_tesseract(
     deep in the worker."""
     available, err = tesseract_available()
     if not available:
-        raise RuntimeError(err)
+        raise RecipeInvocationHalt(
+            "local_artifact_unavailable", err or "Tesseract is unavailable"
+        )
     out = scratch / "ocr-result.json"
     result = await run_sandboxed(
         worker_argv("tesseract"),

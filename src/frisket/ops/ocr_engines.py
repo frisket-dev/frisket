@@ -255,12 +255,10 @@ class OcrEngines:
                     # RapidOCR 3.8 downsizes to this edge before detection.
                     # Rendering larger only increases decode cost and can make
                     # oversized PDF pages cross Pillow's safety threshold.
-                    # Searchable PDF composition still maps boxes with the
-                    # requested DPI, so preserve that exact raster scale there.
+                    # Searchable PDF composition maps the actual raster frame
+                    # back to the original physical page dimensions.
                     max_edge=(
-                        RAPIDOCR_MAX_IMAGE_EDGE
-                        if engine == LIGHT_ENGINE
-                        else None
+                        RAPIDOCR_MAX_IMAGE_EDGE if engine == LIGHT_ENGINE else None
                     ),
                 )
             except PdfRenderCancelled:

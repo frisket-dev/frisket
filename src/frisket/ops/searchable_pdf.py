@@ -233,7 +233,7 @@ def compose_searchable_pdf(
     pages: Sequence[object],
     *,
     dpi: int,
-    raster_dimensions: Sequence[tuple[int, int]] | None = None,
+    raster_dimensions: Sequence[tuple[int, int] | None] | None = None,
     on_unencodable: str = "skip",
 ) -> tuple[bytes, list[PageComposeResult]]:
     """Sandwich an invisible OCR text layer onto ``source_pdf``.
@@ -247,6 +247,7 @@ def compose_searchable_pdf(
             Used as a compatibility fallback when ``raster_dimensions`` is absent.
         raster_dimensions: exact ``(width, height)`` pixel frame for each OCR
             page. This keeps text geometry aligned when rendering was downscaled.
+            A failed page without text geometry may have a ``None`` frame.
         on_unencodable: ``"skip"`` (default) drops CJK/RTL blocks and flags the
             page; ``"error"`` raises ``UnencodableTextError``.
 
@@ -260,7 +261,9 @@ def compose_searchable_pdf(
     if raster_dimensions is not None:
         if len(raster_dimensions) != len(pages):
             raise ValueError("raster dimensions must match the OCR page count")
-        for dimensions in raster_dimensions:
+        for index, dimensions in enumerate(raster_dimensions):
+            if dimensions is None and not _page_blocks(pages[index]):
+                continue
             if (
                 not isinstance(dimensions, (tuple, list))
                 or len(dimensions) != 2
@@ -298,7 +301,11 @@ def compose_searchable_pdf(
         rotate = int(page.get("/Rotate", 0) or 0) % 360
         # pdftoppm uprights the raster: displayed dims swap for 90/270.
         disp_w, disp_h = (h_pt, w_pt) if rotate in (90, 270) else (w_pt, h_pt)
-        if raster_dimensions is not None and index < len(pages):
+        if (
+            raster_dimensions is not None
+            and index < len(pages)
+            and raster_dimensions[index] is not None
+        ):
             raster_w, raster_h = raster_dimensions[index]
             scale_x = disp_w / raster_w
             scale_y = disp_h / raster_h
@@ -336,7 +343,10 @@ def compose_searchable_pdf(
                 painted = 0
                 skipped = block_count
                 reason = "overlay_error"
-        degraded = overlay_error or skipped > 0
+        ocr_failed = isinstance(source_page, Mapping) and bool(source_page.get("error"))
+        degraded = overlay_error or skipped > 0 or ocr_failed
+        if ocr_failed:
+            reason = "ocr_page_failed"
         results.append(
             PageComposeResult(
                 index=index,

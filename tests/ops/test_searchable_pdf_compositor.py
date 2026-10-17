@@ -320,6 +320,24 @@ def test_raster_dimensions_must_match_ocr_pages():
         compose_searchable_pdf(src, [[]], dpi=DPI, raster_dimensions=[])
 
 
+def test_failed_page_without_raster_keeps_other_physical_page_text():
+    src = _blank_source([(PAGE_W_PT, PAGE_H_PT, 0)] * 3)
+    pages = [
+        {"text": "First", "blocks": [_line_block("First", 100, 100, 700, 160)]},
+        {"text": "", "blocks": [], "error": {"code": "ocr_page_failed"}},
+        {"text": "Third", "blocks": [_line_block("Third", 100, 100, 700, 160)]},
+    ]
+    pdf, results = compose_searchable_pdf(
+        src, pages, dpi=DPI, raster_dimensions=[(1000, 1294), None, (1000, 1294)]
+    )
+    assert len(PdfReader(io.BytesIO(pdf)).pages) == 3
+    assert "First" in _extract(pdf, 0)
+    assert not _extract(pdf, 1)
+    assert "Third" in _extract(pdf, 2)
+    assert [result.degraded for result in results] == [False, True, False]
+    assert results[1].reason == "ocr_page_failed"
+
+
 def test_position_tz_width_fit_matches_bbox_width():
     src = _blank_source([(PAGE_W_PT, PAGE_H_PT, 0)])
     # bbox spans 100..1300 px -> (1300-100)*72/200 = 432 pt wide.
