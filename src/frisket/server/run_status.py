@@ -144,11 +144,19 @@ def run_timing_payload(
     active_statuses = {"queued", "running", "stalled", "orphaned"}
     eta_seconds = None
     estimated_finish_at = None
-    if status in active_statuses and remaining_rows == 0 and total_rows > 0:
+    # File sizes differ dramatically; finished-file throughput is not an OCR ETA.
+    estimate_rows = run_row_action_kind(row) != "media.ocr"
+    if (
+        estimate_rows
+        and status in active_statuses
+        and remaining_rows == 0
+        and total_rows > 0
+    ):
         eta_seconds = 0.0
         estimated_finish_at = now.isoformat()
     elif (
-        status in active_statuses
+        estimate_rows
+        and status in active_statuses
         and remaining_rows > 0
         and rows_per_second is not None
         and rows_per_second > 0
@@ -195,6 +203,7 @@ def project_run_status_payload(
         "total": row["total_rows"],
         "completed": row["completed_rows"],
         "failed": row["failed_rows"],
+        "cancel_requested": row["cancel_requested_at"] is not None,
         "cost": row["cost_actual"],
         "live": (
             status.public_status == "running"
@@ -220,6 +229,19 @@ def project_run_status_payload(
         except (TypeError, ValueError, KeyError, IndexError):
             work_progress = None
         if isinstance(work_progress, dict):
+            # A worker from the preceding release may have persisted one row.
+            # Normalize that stored shape once; new writers only publish files.
+            if "files" not in work_progress:
+                work_progress = {
+                    "kind": work_progress["kind"],
+                    "files": [
+                        {
+                            key: value
+                            for key, value in work_progress.items()
+                            if key != "kind"
+                        }
+                    ],
+                }
             payload["work_progress"] = work_progress
     if preparation := _run_preparation_hint(row, status.public_status):
         payload["preparation"] = preparation

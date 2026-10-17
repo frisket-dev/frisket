@@ -200,7 +200,10 @@ def test_project_timing_summarizes_run_and_job_history(tmp_path):
     assert body["active_runs"] == []
 
 
-def test_page_work_progress_survives_status_reads_and_stops_at_terminal(tmp_path):
+@pytest.mark.parametrize("legacy", [False, True])
+def test_page_work_progress_survives_status_reads_and_stops_at_terminal(
+    tmp_path, legacy
+):
     import json
 
     from frisket.engine.store.runs import RunResultStore
@@ -216,14 +219,35 @@ def test_page_work_progress_survives_status_reads_and_stops_at_terminal(tmp_path
         ]
     )
     store = RunResultStore(project)
-    store.set_work_progress(run_id, kind="ocr_pages", row_id=1, completed=7, total=300)
+    files = [
+        {"row_id": 1, "completed": 7, "total": 300},
+    ]
+    if legacy:
+        saved_progress = {
+            "kind": "ocr_pages",
+            "row_id": 1,
+            "completed": 7,
+            "total": 300,
+        }
+        project.db.execute(
+            "UPDATE runs SET work_progress=? WHERE id=?",
+            (json.dumps(saved_progress), run_id),
+        )
+        project.db.commit()
+    else:
+        files.append(
+            {"row_id": 2, "completed": 37, "total": 24_909, "filename": "long.pdf"}
+        )
+        store.set_work_progress(run_id, files=files)
+        saved_progress = {"kind": "ocr_pages", "files": files}
     body = _action_run_public_status(client, pid, run_id)
     assert body["work_progress"] == {
         "kind": "ocr_pages",
-        "row_id": 1,
-        "completed": 7,
-        "total": 300,
+        "files": files,
     }
+    assert body["cancel_requested"] is False
+    store.request_cancel(run_id)
+    assert _action_run_public_status(client, pid, run_id)["cancel_requested"] is True
     after = json.loads(
         project.db.execute("SELECT params FROM runs WHERE id=?", (run_id,)).fetchone()[
             "params"
@@ -239,11 +263,35 @@ def test_page_work_progress_survives_status_reads_and_stops_at_terminal(tmp_path
         finished_at=datetime.now(UTC),
         completed_rows=2,
     )
-    store.set_work_progress(run_id, kind="ocr_pages", row_id=1, completed=8, total=300)
+    store.set_work_progress(run_id, files=[{"row_id": 1, "completed": 8, "total": 300}])
     assert _action_run_public_status(client, pid, run_id).get("work_progress") is None
     saved = json.loads(
         project.db.execute(
             "SELECT work_progress FROM runs WHERE id=?", (run_id,)
         ).fetchone()["work_progress"]
     )
-    assert saved["completed"] == 7
+    assert saved == saved_progress
+
+
+def test_ocr_file_counts_do_not_predict_global_finish_time(tmp_path):
+    client = _client(tmp_path)
+    pid, _, run_id, job_id = _seed_queued_action_run(client)
+    job = client.app.state.workspace.queue.claim("ocr-timing", lease_seconds=600)
+    assert job is not None and job.id == job_id
+    project = client.app.state.workspace.get(pid)
+    project.db.execute("UPDATE runs SET action_kind='media.ocr' WHERE id=?", (run_id,))
+    project.db.commit()
+    _set_run_clock(
+        client,
+        pid,
+        run_id,
+        started_at=datetime.now(UTC) - timedelta(seconds=120),
+        total_rows=3,
+        completed_rows=1,
+    )
+    timing = _action_run_public_status(client, pid, run_id)["timing"]
+    assert timing["processed_rows"] == 1
+    assert timing["remaining_rows"] == 2
+    assert timing["elapsed_seconds"] >= 115
+    assert timing["eta_seconds"] is None
+    assert timing["estimated_finish_at"] is None

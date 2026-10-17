@@ -370,19 +370,18 @@ class RunResultStore:
         if cur.rowcount != 1:
             raise RuntimeError(f"run {run_id} vanished before the result write")
 
-    def set_work_progress(
-        self, run_id: int, *, kind: str, row_id: int, completed: int, total: int
-    ) -> None:
-        """Replace the active row's bounded progress facts without touching its inputs."""
-        if kind != "ocr_pages" or not 0 <= completed <= total or row_id <= 0:
+    def set_work_progress(self, run_id: int, *, files: list[dict[str, Any]]) -> None:
+        """Persist the runner's active-file snapshot without touching its inputs."""
+        if any(
+            file["row_id"] <= 0 or not 0 <= file["completed"] <= file["total"]
+            for file in files
+        ):
             raise ValueError("invalid action work progress")
-        value = json.dumps(
-            {"kind": kind, "row_id": row_id, "completed": completed, "total": total}
-        )
+        value = json.dumps({"kind": "ocr_pages", "files": files}) if files else None
         self._write_work_progress(run_id, value)
 
     def clear_work_progress(self, run_id: int) -> None:
-        """Drop the preceding row's page counter before starting another row."""
+        """Drop the finished run's active-file telemetry."""
         self._write_work_progress(run_id, None)
 
     def _write_work_progress(self, run_id: int, value: str | None) -> None:

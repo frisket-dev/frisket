@@ -232,6 +232,7 @@ async def test_actual_source_and_read_survive_returned_sibling_mutation(
             (0, 1),
             (1, 1),
         ]
+        assert [event["filename"] for event in progress] == ["scan.png", "scan.png"]
         assert result.text.root == "Revenue 42"
         result.blocks[0]["blocks"][0]["bbox"][0] = 999
         (fact,) = owner.calls_by_row[source[3]]
