@@ -165,6 +165,14 @@ class ReviewedRunRevision(WireModel):
     draft: ReviewedRunDraft
 
 
+class ReviewBoundedText(WireModel):
+    preview: str = Field(max_length=2_048)
+    total_characters: int = Field(ge=0)
+    total_bytes: int = Field(ge=0)
+    truncated: Literal[True]
+    download_href: str | None = Field(default=None, max_length=2_048)
+
+
 class ReviewBundleItem(WireModel):
     run_id: int
     row_id: int
@@ -175,8 +183,10 @@ class ReviewBundleItem(WireModel):
     format: str | None = None
     sheet_id: int
     value: JsonValue
+    bounded_value: ReviewBoundedText | None = None
     confidence: float | None
     justification: str | None
+    bounded_justification: ReviewBoundedText | None = None
     error: str | None
     review_state: str | None
     review_decision: Literal["accept", "reject", "reject_clear", "edit"] | None
@@ -194,6 +204,7 @@ class ReviewBundleSource(WireModel):
     semantic_type: str | None = None
     format: str | None = None
     value: JsonValue
+    bounded_value: ReviewBoundedText | None = None
 
 
 class ReviewBundle(WireModel):

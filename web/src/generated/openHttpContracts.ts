@@ -9728,6 +9728,14 @@ export type HttpReplaceRulesPreviewResponse = ({
 
 type HttpReviewBundlesPage_JsonValue = JsonValue;
 
+type HttpReviewBundlesPage_ReviewBoundedText = ({
+  "download_href"?: (((string)) | ((null)));
+  "preview": (string);
+  "total_bytes": (number);
+  "total_characters": (number);
+  "truncated": (true) & (boolean);
+});
+
 type HttpReviewBundlesPage_ReviewBundle = ({
   "action_kind": (string);
   "action_name": (string);
@@ -9749,6 +9757,8 @@ type HttpReviewBundlesPage_ReviewBundle = ({
 });
 
 type HttpReviewBundlesPage_ReviewBundleItem = ({
+  "bounded_justification"?: (((HttpReviewBundlesPage_ReviewBoundedText)) | ((null)));
+  "bounded_value"?: (((HttpReviewBundlesPage_ReviewBoundedText)) | ((null)));
   "can_edit": (boolean);
   "changed"?: (boolean);
   "chore": (boolean);
@@ -9771,6 +9781,7 @@ type HttpReviewBundlesPage_ReviewBundleItem = ({
 });
 
 type HttpReviewBundlesPage_ReviewBundleSource = ({
+  "bounded_value"?: (((HttpReviewBundlesPage_ReviewBoundedText)) | ((null)));
   "column_id": (number);
   "column_name": (string);
   "column_type": (string);

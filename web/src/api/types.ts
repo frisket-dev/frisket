@@ -3795,6 +3795,14 @@ export type HistoryState = HistoryPage;
 
 export type ReviewState = 'unreviewed' | 'verified' | 'rejected' | (string & {});
 
+/** Display-only excerpt. Its text is never an editable or exact cell value. */
+export interface ReviewValueExcerpt {
+  preview: string;
+  totalCharacters: number;
+  totalBytes: number;
+  downloadHref: string | null;
+}
+
 export interface ReviewBundleField {
   id: string;
   runId: string;
@@ -3806,8 +3814,10 @@ export interface ReviewBundleField {
   semanticType?: string | null;
   format?: string | null;
   value: CellValue;
+  boundedValue?: ReviewValueExcerpt;
   confidence: number | null;
   justification: string;
+  boundedJustification?: ReviewValueExcerpt;
   /** Explicit review outcome; absent for legacy review-state-only rows. */
   reviewDecision?: Exclude<ReviewAction, 'clear'> | null;
   /** Reviewer note stored for this exact run/result cell, if one was recorded. */
@@ -3815,8 +3825,7 @@ export interface ReviewBundleField {
   reviewState: ReviewState;
   role: 'field' | 'evidence';
   chore: boolean;
-  /** False when the cell was replaced or edited after this run, so editing
-   * this output could mutate the wrong current cell. */
+  /** False for a partial display or when editing would mutate the wrong cell. */
   canEdit?: boolean;
   changed?: boolean;
 }
@@ -3828,6 +3837,7 @@ export interface ReviewBundleSource {
   semanticType: string | null;
   format: string | null;
   value: CellValue;
+  boundedValue?: ReviewValueExcerpt;
 }
 
 export interface ReviewBundle {

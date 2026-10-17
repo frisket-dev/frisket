@@ -127,6 +127,7 @@ def test_multi_output_review_groups_sibling_fields_and_evidence(tmp_path):
             "semantic_type": None,
             "format": None,
             "value": first["source"]["story"],
+            "bounded_value": None,
         }
     ]
 

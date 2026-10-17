@@ -111,6 +111,41 @@ describe('ReviewSourcePreview', () => {
     expect(screen.getByTestId('review-row-fields-drawer')).toHaveTextContent('(empty)');
   });
 
+  it('shows bounded current-input excerpts and revision downloads without parsing them', async () => {
+    projectApi.getCellEvidence.mockResolvedValue(cellEvidence([]));
+    const row: ReviewBundle = { ...bundle, sources: [{ columnId: 'input-1', columnName: 'Long input',
+      columnType: 'text', semanticType: null, format: 'markdown', value: null,
+      boundedValue: { preview: '# Partial input', totalCharacters: 90_000, totalBytes: 90_000,
+        downloadHref: '/api/projects/p/cells/3/1/download?revision=19' },
+    }] };
+    render(<ReviewSourcePreview bundle={row} activeField={fieldOne} sourceEntries={[]} />);
+    const pane = await screen.findByTestId('review-input-preview');
+    expect(pane).toHaveTextContent('Current input · no saved citation for this result');
+    expect(pane).toHaveTextContent('Excerpt');
+    expect(pane.querySelector('pre')).toHaveTextContent('# Partial input');
+    expect(pane.querySelector('h1')).toBeNull();
+    expect(screen.getByRole('link', { name: 'Download full value' })).toHaveAttribute('href',
+      '/api/projects/p/cells/3/1/download?revision=19');
+  });
+
+  it('keeps saved citations reachable beside bounded output and bounded Inputs drawer values', async () => {
+    projectApi.getCellEvidence.mockResolvedValue(cellEvidence(['link:a']));
+    projectApi.getEvidenceViewer.mockResolvedValue(viewer('link:a', 'source:a', 'span:a', 'Saved notes'));
+    const boundedValue = { preview: '[{"partial":', totalCharacters: 90_000, totalBytes: 90_000, downloadHref: null };
+    const field: ReviewBundleField = { ...fieldOne, columnType: 'json', value: null, boundedValue };
+    const row: ReviewBundle = { ...bundle, fields: [field], sources: [{ columnId: 'input-1', columnName: 'Long input',
+      columnType: 'json', semanticType: null, format: null, value: null, boundedValue }] };
+    render(<ReviewSourcePreview bundle={row} activeField={field} sourceEntries={[]} />);
+    expect(await screen.findByTestId('artifact-source')).toHaveAttribute('data-source-id', 'source:a');
+    fireEvent.click(screen.getByRole('button', { name: 'Inputs · 1' }));
+    const drawer = screen.getByTestId('review-row-fields-drawer');
+    expect(drawer).toHaveTextContent('Long input');
+    expect(drawer).toHaveTextContent('Excerpt');
+    expect(drawer.querySelector('pre')).toHaveTextContent('[{"partial":');
+    expect(screen.getByRole('tab', { name: /Saved notes/ })).toBeEnabled();
+    expect(screen.getByTestId('artifact-source')).toHaveAttribute('data-source-id', 'source:a');
+  });
+
   it('does not seek the old source when an item selects another recording', async () => {
     const field = { ...fieldOne, columnType: 'json', value: '["first","second"]' } as ReviewBundleField;
     const row = { ...bundle, fields: [field] };

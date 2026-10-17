@@ -39,7 +39,7 @@ const FIRST_ROW_PAGE: RowPageTarget = { index: 0, start: 0 };
 
 /** Corrections are text edits. Structured and typed values keep their shape. */
 export function isPlainTextReviewField(field: ReviewBundleField | null | undefined): boolean {
-  if (!field || field.columnType !== 'text' || (field.value !== null && typeof field.value !== 'string')) return false;
+  if (!field || field.boundedValue || field.columnType !== 'text' || (field.value !== null && typeof field.value !== 'string')) return false;
   const format = field.format;
   if (format && format !== 'plain_text') return false;
   if (format === 'plain_text' || typeof field.value !== 'string') return true;
@@ -257,6 +257,13 @@ export function useReviewSession({ runId, options, readOnly = false, onDecisionS
 
   const resolve = async (targets: ReviewBundleField[], action: ReviewAction, value?: CellValue) => {
     if (readOnly || mutation.current || !bundle || !targets.length || loading) return false;
+    if (action === 'edit') {
+      if (targets.some((target) => target.canEdit === false || !isPlainTextReviewField(target))) return false;
+      if (typeof value === 'string' && (value.length > 65_536 || new TextEncoder().encode(value).length > 65_536)) {
+        setProblem('Edits must be 64 KiB or smaller.');
+        return false;
+      }
+    }
     mutation.current = true;
     if (!await saveNote()) { mutation.current = false; return false; }
     setBusy(true);

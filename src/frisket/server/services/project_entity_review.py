@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import quote
 
 from frisket.contracts.http.history_review import ReviewBatchRequest
 from frisket.engine.runner.entities import list_entities
@@ -17,16 +18,40 @@ from frisket.engine.runner.review_sampling import (
     exact_review_bundle_page,
     sample_review_bundle_page,
 )
+from frisket.engine.store import Project
 from frisket.server.route_errors import RouteError
 from frisket.server.review_payloads import public_review_action_payloads
 from frisket.server.workspace import Workspace
-from frisket.engine.store import Project
 
 
 class ProjectEntityReviewError(Exception):
     def __init__(self, detail: dict[str, Any]):
         super().__init__(str(detail.get("code", "project_entity_review_error")))
         self.detail = detail
+
+
+def _project_review_download_links(
+    project_id: str, bundles: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Project verified current revisions into ready public download links."""
+
+    for bundle in bundles:
+        candidates = [
+            (source, int(bundle["row_id"])) for source in bundle.get("sources", [])
+        ] + [(item, int(item["row_id"])) for item in bundle.get("items", [])]
+        for item, row_id in candidates:
+            bounded = item.get("bounded_value")
+            if not isinstance(bounded, dict):
+                continue
+            revision = bounded.pop("_download_revision", None)
+            if revision is None:
+                continue
+            bounded["download_href"] = (
+                f"/api/projects/{quote(project_id, safe='')}/cells/"
+                f"{row_id}/{int(item['column_id'])}/download"
+                f"?revision={int(revision)}"
+            )
+    return bundles
 
 
 class ProjectEntityReviewService:
@@ -73,9 +98,10 @@ class ProjectEntityReviewService:
             order=order,
             cursor=cursor,
         )
+        bundles = public_review_action_payloads(page["bundles"])
         return {
             **page,
-            "bundles": public_review_action_payloads(page["bundles"]),
+            "bundles": _project_review_download_links(project_id, bundles),
         }
 
     def review_batch(
@@ -99,7 +125,11 @@ class ProjectEntityReviewService:
                 include_reviewed=request.include_reviewed,
                 row_ids=request.row_ids,
             )
-        return {**page, "bundles": public_review_action_payloads(page["bundles"])}
+        bundles = public_review_action_payloads(page["bundles"])
+        return {
+            **page,
+            "bundles": _project_review_download_links(project_id, bundles),
+        }
 
     def review_count(
         self, project_id: str, *, run_id: int | None = None
