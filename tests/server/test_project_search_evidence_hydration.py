@@ -3,6 +3,8 @@ from __future__ import annotations
 import io
 from dataclasses import dataclass
 
+import pytest
+
 from fastapi import FastAPI
 from PIL import Image
 from starlette.testclient import TestClient
@@ -109,12 +111,14 @@ def _seed_ocr(project: Project) -> None:
     )
 
 
-def _search(client: TestClient, text: str) -> dict[str, object]:
+def _search(
+    client: TestClient, text: str, *, lexical_syntax: str = "plain"
+) -> dict[str, object]:
     response = client.post(
         "/api/projects/project/search",
         json={
             "scope": {"kind": "project"},
-            "query": {"kind": "text", "text": text, "lexical_syntax": "plain"},
+            "query": {"kind": "text", "text": text, "lexical_syntax": lexical_syntax},
             "mode": "lexical",
             "group_by": "source",
             "limit": 10,
@@ -183,5 +187,77 @@ def test_search_identifies_document_and_all_matching_phrase_spans(tmp_path) -> N
         }
         assert set(hit["navigation"]["span_ids"]) == expected
         assert hit["navigation"]["span_id"] in expected
+    finally:
+        project.close()
+
+
+@pytest.mark.parametrize("position", ["beginning", "end"])
+def test_search_api_bounds_long_token_context_without_changing_absolute_hit(
+    tmp_path, position
+):
+    project = Project.create(tmp_path / "bounded-snippet.frisket")
+    try:
+        sheet = project.add_sheet("Documents")
+        column = project.add_column(sheet, "body")
+        query = f"beacon{position}"
+        context = f"😀 Ω café é & <script>plain text</script> {query} Ω 😀"
+        if position == "beginning":
+            text = context + " " + "unbrokentoken" * 80_660
+        else:
+            text = "longtoken" * 2_330_169 + " " + context
+        [row] = project.add_rows(sheet, [{"body": text}], {"body": column})
+        drain_index(project)
+        payload = _search(_client(project), query)
+        [group] = payload["groups"]
+        hit = group["primary"]
+        snippet = hit["snippet"]
+        assert len(snippet) <= 520
+        assert len(snippet.encode("utf-8")) <= 4096
+        assert f"<b>{query}</b>" in snippet
+        assert snippet.count("<b>") == snippet.count("</b>") == 1
+        assert "FRISKET_SEARCH_HIT" not in snippet
+        assert "…" in snippet
+        assert "😀" in snippet
+        # The raw-text wire contract is rendered through escaped React text nodes.
+        assert "<script>plain text</script>" in snippet
+        assert "&lt;script" not in snippet
+        location = hit["location"]
+        assert location["precision"] == "exact"
+        expected_start = text.index(query)
+        assert location["text"]["start"] == expected_start
+        assert location["text"]["end"] == expected_start + len(query)
+        assert hit["navigation"]["text_range"] == location["text"]
+        assert hit["binding"]["row_id"] == row
+        assert hit["binding"]["column_id"] == column
+    finally:
+        project.close()
+
+
+def test_search_api_caps_a_matched_token_excerpt_without_shortening_its_locator(
+    tmp_path,
+):
+    project = Project.create(tmp_path / "matched-token.frisket")
+    try:
+        sheet = project.add_sheet("Documents")
+        column = project.add_column(sheet, "body")
+        token = "massivematch" + "x" * 5000
+        text = "😀 prefix " + token + " Ω tail"
+        project.add_rows(sheet, [{"body": text}], {"body": column})
+        drain_index(project)
+        [group] = _search(_client(project), "massivematch*", lexical_syntax="fts")[
+            "groups"
+        ]
+        hit = group["primary"]
+        snippet = hit["snippet"]
+        assert len(snippet) <= 520
+        assert len(snippet.encode("utf-8")) <= 4096
+        assert "<b>massivematch" in snippet
+        assert snippet.endswith("</b>…")
+        assert snippet.count("<b>") == snippet.count("</b>") == 1
+        location = hit["location"]
+        assert location["precision"] == "exact"
+        assert location["text"]["start"] == len("😀 prefix ")
+        assert location["text"]["end"] == len("😀 prefix ") + len(token)
+        assert hit["navigation"]["text_range"] == location["text"]
     finally:
         project.close()

@@ -16,7 +16,11 @@ from typing import Any, Literal
 
 from frisket.engine.store import cells
 from frisket.engine.store.prepared_readiness import prepared_source_readiness_ctes
-from frisket.search_hydration import MAX_SNIPPET_CANDIDATES, native_snippets
+from frisket.search_hydration import (
+    MAX_SNIPPET_CANDIDATES,
+    bounded_snippet,
+    native_snippets,
+)
 
 from .contracts import (
     BindingRevision,
@@ -1416,8 +1420,8 @@ def _hydrate_lexical(
             replace(
                 candidate,
                 locator=locator,
-                snippet=snippet.replace(start_marker, "<b>").replace(
-                    end_marker, "</b>"
+                snippet=bounded_snippet(
+                    snippet, start_marker=start_marker, end_marker=end_marker
                 ),
                 rerank_text=(rerank_text or "")[:1024],
                 lexical_exact=lexical_exact,
@@ -1553,12 +1557,15 @@ def _hydrate_semantic(
             continue
         context_start = max(0, text_range.start - 100)
         context_end = min(len(text), text_range.end + 100)
-        snippet = (
+        start_marker, end_marker = _lexical_snippet_markers((text,))
+        snippet = bounded_snippet(
             text[context_start : text_range.start]
-            + "<b>"
+            + start_marker
             + text[text_range.start : text_range.end]
-            + "</b>"
-            + text[text_range.end : context_end]
+            + end_marker
+            + text[text_range.end : context_end],
+            start_marker=start_marker,
+            end_marker=end_marker,
         )
         hydrated.append(
             replace(

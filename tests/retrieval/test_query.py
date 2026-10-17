@@ -2078,3 +2078,59 @@ def test_recreated_sidecar_reports_preparing_before_worker_binds_it(tmp_path):
         assert search(project, request).coverage.state == "complete"
     finally:
         project.close()
+
+
+def test_semantic_snippet_bounds_display_without_moving_the_source_range(tmp_path):
+    project = Project.create(tmp_path / "semantic-snippet.frisket")
+    try:
+        sheet = project.add_sheet("Documents")
+        column = project.add_column(sheet, "body")
+        prefix = "😀 <b>literal</b> & café "
+        token = "longpart" * 1000
+        text = prefix + token + " Ω tail"
+        [row] = project.add_rows(sheet, [{"body": text}], {"body": column})
+        revision = read_binding_revision(project.db, row_id=row, column_id=column)
+        with RetrievalStore(project).open() as store:
+            _publish(
+                store,
+                row_id=row,
+                sheet_id=sheet,
+                column_id=column,
+                text=text,
+                vector=(1.0, 0.0, 0.0),
+                version=revision,
+                parts=(
+                    (
+                        "part:bounded",
+                        (1.0, 0.0, 0.0),
+                        len(prefix),
+                        len(prefix) + len(token),
+                    ),
+                ),
+            )
+        bind_retrieval_sidecar(project)
+        response = search(
+            project,
+            SearchRequest(
+                scope=RetrievalScope(sheets=(SheetScope(sheet),)),
+                query=TextQuery("anything"),
+                mode="semantic",
+                space_id="space:test",
+                ranking=RankingPolicy(rerank="off"),
+            ),
+            semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
+        )
+        [group] = response.results
+        hit = group.primary
+        assert hit.precision == "exact"
+        assert hit.part.locator.text.start == len(prefix)
+        assert hit.part.locator.text.end == len(prefix) + len(token)
+        assert len(hit.snippet) <= 520
+        assert len(hit.snippet.encode("utf-8")) <= 4096
+        assert prefix in hit.snippet
+        assert "<b>longpart" in hit.snippet
+        assert hit.snippet.endswith("</b>…")
+        assert hit.snippet.count("<b>") == hit.snippet.count("</b>") == 2
+        assert "FRISKET_SEARCH_HIT" not in hit.snippet
+    finally:
+        project.close()
