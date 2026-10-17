@@ -1,4 +1,7 @@
 .reviewValue { min-width: 0; }
+.excerpt { min-width: 0; }
+.excerptNotice { margin: 0 0 var(--space-8); color: var(--text-light); font-size: 12px; }
+.excerptText { margin: 0 0 var(--space-8); white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
 .reviewValue :global(.row-field-value),
 .reviewValue :global(.row-field-json),
 .reviewValue :global(.json-list),

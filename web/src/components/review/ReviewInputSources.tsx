@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { ColumnDef, ReviewBundle, Row } from '../../api/types';
 import { FieldValue } from '../RowDrawer';
 import { OverflowRow } from '../OverflowRow';
+import { ReviewExcerpt } from './ReviewExcerpt';
 import styles from './ReviewSourcePreview.module.css';
 
 /** Typed input fallback for runs without stored citations. These are explicitly
@@ -28,8 +29,9 @@ export function ReviewInputSources({ bundle }: { bundle: ReviewBundle }) {
     </div>
     <div className={styles.viewer}>
       <p className={styles.inputNotice}>Current input · no saved citation for this result</p>
-      {column && selected && <div className={styles.inputValue}><FieldValue col={column} columns={columns} row={row}
-        sheetId={bundle.sheetId} value={selected.value} /></div>}
+      {column && selected && <div className={styles.inputValue}>{selected.boundedValue
+        ? <ReviewExcerpt excerpt={selected.boundedValue} />
+        : <FieldValue col={column} columns={columns} row={row} sheetId={bundle.sheetId} value={selected.value} />}</div>}
     </div>
   </section>;
 }

@@ -26,6 +26,34 @@ function field(update: Partial<ReviewBundleField> = {}): ReviewBundleField {
 }
 
 describe('ReviewValue', () => {
+  it.each([
+    { columnType: 'text' as const, format: 'markdown', preview: '# An unfinished heading' },
+    { columnType: 'json' as const, preview: '[{"text":"An unfinished item"' },
+  ])('shows oversized $columnType as a plain excerpt with the server download link', ({ columnType, format, preview }) => {
+    const select = vi.fn();
+    const { container } = render(<ReviewValue field={field({ columnType, format, value: null,
+      boundedValue: { preview, totalCharacters: 20_971_520, totalBytes: 20_971_520,
+        downloadHref: '/api/projects/review-value/cells/3/4/download?revision=17' },
+    })} onSelectItem={select} selectableItemIndices={new Set([0])} />);
+
+    expect(screen.getByTestId('review-excerpt')).toHaveTextContent('Excerpt');
+    expect(screen.getByTestId('review-excerpt')).toHaveTextContent('Excerpt · 20 MB total');
+    expect(container.querySelector('pre')).toHaveTextContent(preview);
+    expect(container.querySelector('h1, table, [data-review-result-selectable]')).toBeNull();
+    expect(screen.getByRole('link', { name: 'Download full value' })).toHaveAttribute('href',
+      '/api/projects/review-value/cells/3/4/download?revision=17');
+    fireEvent.click(container.querySelector('pre')!);
+    expect(select).not.toHaveBeenCalled();
+  });
+
+  it('does not offer a current-value download for a historical excerpt', () => {
+    render(<ReviewValue field={field({ value: null,
+      boundedValue: { preview: 'Old output excerpt', totalCharacters: 90_000, totalBytes: 90_000, downloadHref: null },
+    })} />);
+    expect(screen.getByText('Old output excerpt')).toBeVisible();
+    expect(screen.queryByRole('link', { name: 'Download full value' })).toBeNull();
+  });
+
   it('uses the shared entity presentation instead of exposing model plumbing', () => {
     const value = JSON.stringify([
       { text: 'Ada Lovelace', type: 'PERSON', start: 0, end: 12, score: 0.98, fingerprint: 'person:ada' },

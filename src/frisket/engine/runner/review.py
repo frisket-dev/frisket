@@ -7,15 +7,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from frisket.review_predicate import is_exact_review_correction
-from frisket.server.paging import offset_page_payload
+from frisket.engine.runner.review_ordering import select_confidence_bundle_keys
 from frisket.engine.store import Project
+from frisket.engine.store.current_value_windows import read_current_column
 from frisket.engine.store.review_stats import (
     current_review_run_predicate,
     ensure_run_review_stats,
 )
+from frisket.engine.store.review_values import read_review_results
 from frisket.engine.store.runs import REVIEWABLE_OUTCOMES_SQL, RunResultStore
-from frisket.engine.runner.review_ordering import select_confidence_bundle_keys
+from frisket.review_predicate import is_exact_review_correction
+from frisket.server.paging import offset_page_payload
 
 
 _ACTIVE_HEAD_JOIN = (
@@ -40,6 +42,19 @@ def _loads(value: str | None) -> Any:
         return _json.loads(value)
     except (TypeError, ValueError):
         return value
+
+
+def _bounded_current_value(current: Any) -> dict[str, Any] | None:
+    if current is None or current.bounded_value is None:
+        return None
+    return {
+        "preview": current.bounded_value.preview,
+        "total_characters": current.bounded_value.total_characters,
+        "total_bytes": current.bounded_value.total_bytes,
+        "truncated": True,
+        "download_href": None,
+        "_download_revision": current.bounded_value.retrieval_revision,
+    }
 
 
 def _ensure_current_review_stats(
@@ -114,28 +129,35 @@ def _source_contexts(
                 continue
             source_columns.append((name, column))
         values_by_column = {
-            int(column["id"]): project.get_values(
-                sheet_id, int(column["id"]), row_ids=row_ids
+            int(column["id"]): read_current_column(
+                project.db,
+                sheet_id=sheet_id,
+                column_id=int(column["id"]),
+                row_ids=row_ids,
+                bounded=True,
             )
             for _name, column in source_columns
         }
         for row_id in row_ids:
-            items = [
-                {
-                    "column_id": int(column["id"]),
-                    "column_name": name,
-                    "column_type": str(column["type"]),
-                    "semantic_type": column["semantic_type"],
-                    "format": column["format"],
-                    "value": values_by_column[int(column["id"])].get(row_id),
-                }
-                for name, column in source_columns
-            ]
+            items = []
+            for name, column in source_columns:
+                current = values_by_column[int(column["id"])].get(row_id)
+                items.append(
+                    {
+                        "column_id": int(column["id"]),
+                        "column_name": name,
+                        "column_type": str(column["type"]),
+                        "semantic_type": column["semantic_type"],
+                        "format": column["format"],
+                        "value": current.value if current is not None else None,
+                        "bounded_value": _bounded_current_value(current),
+                    }
+                )
             contexts[(run_id, sheet_id, row_id)] = {
                 "source": {
                     item["column_name"]: item["value"]
                     for item in items
-                    if item["value"] is not None
+                    if item["value"] is not None or item["bounded_value"] is not None
                 },
                 "sources": items,
             }
@@ -347,7 +369,7 @@ def _hydrate_review_bundles(project: Project, keys: list[Any]) -> list[dict[str,
     for key in keys:
         cells_sql = f"""
                 SELECT res.run_id, res.row_id, res.column_id,
-                       res.confidence, res.justification, res.error,
+                       res.confidence, res.error,
                        res.review_state, res.review_decision, res.review_note,
                        review_field.column_name,
                        review_field.column_type,
@@ -385,23 +407,23 @@ def _hydrate_review_bundles(project: Project, keys: list[Any]) -> list[dict[str,
                 (int(cell["sheet_id"]), int(cell["column_id"])), []
             ).append(int(cell["row_id"]))
 
-    current_values: dict[tuple[int, int], dict[int, Any]] = {}
-    current_refs: dict[tuple[int, int], dict[int, dict[str, Any]]] = {}
+    current_reads: dict[tuple[int, int], dict[int, Any]] = {}
     for (sheet_id, column_id), row_ids in rows_by_current.items():
-        values, refs = project.get_values_with_refs(
-            sheet_id,
-            column_id,
+        current_reads[(sheet_id, column_id)] = read_current_column(
+            project.db,
+            sheet_id=sheet_id,
+            column_id=column_id,
             row_ids=list(dict.fromkeys(row_ids)),
+            bounded=True,
             preserve_invalid=True,
         )
-        current_values[(sheet_id, column_id)] = values
-        current_refs[(sheet_id, column_id)] = refs
 
     op_ids = sorted(
         {
             int(ref["op_id"])
-            for refs in current_refs.values()
-            for ref in refs.values()
+            for reads in current_reads.values()
+            for current in reads.values()
+            for ref in [current.value_ref]
             if ref.get("kind") == "manual_edit" and ref.get("op_id") is not None
         }
     )
@@ -418,9 +440,10 @@ def _hydrate_review_bundles(project: Project, keys: list[Any]) -> list[dict[str,
     result_coordinates: list[tuple[int, int, int]] = []
     for cells in cells_by_bundle.values():
         for cell in cells:
-            ref = current_refs[(int(cell["sheet_id"]), int(cell["column_id"]))].get(
-                int(cell["row_id"])
-            )
+            current = current_reads[
+                (int(cell["sheet_id"]), int(cell["column_id"]))
+            ].get(int(cell["row_id"]))
+            ref = current.value_ref if current is not None else None
             op_id = ref.get("op_id") if isinstance(ref, dict) else None
             cell["changed"] = is_exact_review_correction(
                 run_id=int(cell["run_id"]),
@@ -429,7 +452,7 @@ def _hydrate_review_bundles(project: Project, keys: list[Any]) -> list[dict[str,
                 ref=ref,
                 op=ops_by_id.get(int(op_id)) if op_id is not None else None,
             )
-            cell["can_edit"] = bool(cell["can_edit"]) and (
+            cell["current_exact"] = bool(cell["can_edit"]) and (
                 bool(cell["changed"])
                 or (
                     isinstance(ref, dict)
@@ -437,18 +460,15 @@ def _hydrate_review_bundles(project: Project, keys: list[Any]) -> list[dict[str,
                     and ref.get("run_id") == cell["run_id"]
                 )
             )
-            if not cell["changed"]:
-                result_coordinates.append(
-                    (
-                        int(cell["run_id"]),
-                        int(cell["row_id"]),
-                        int(cell["column_id"]),
-                    )
+            result_coordinates.append(
+                (
+                    int(cell["run_id"]),
+                    int(cell["row_id"]),
+                    int(cell["column_id"]),
                 )
+            )
 
-    resolved = RunResultStore(project).decoded_result_rows(
-        result_coordinates, tolerate_decode_errors=True
-    )
+    resolved = read_review_results(project.db, result_coordinates)
     bundles: list[dict[str, Any]] = []
     for key in keys:
         bundle_key = (
@@ -463,12 +483,27 @@ def _hydrate_review_bundles(project: Project, keys: list[Any]) -> list[dict[str,
         for cell in cells:
             row_id = int(cell["row_id"])
             column_id = int(cell["column_id"])
-            if cell["changed"]:
-                value = current_values[(int(cell["sheet_id"]), column_id)].get(row_id)
+            current = current_reads[(int(cell["sheet_id"]), column_id)].get(row_id)
+            if (cell["changed"] or cell["current_exact"]) and current is not None:
+                value = current.value
+                bounded_value = _bounded_current_value(current)
             else:
                 coordinate = (int(cell["run_id"]), row_id, column_id)
                 result = resolved.get(coordinate)
-                value = result["value"] if result is not None else None
+                value = result.value if result is not None else None
+                bounded_value = (
+                    result.bounded_value.as_dict()
+                    if result is not None and result.bounded_value is not None
+                    else None
+                )
+            coordinate = (int(cell["run_id"]), row_id, column_id)
+            result = resolved.get(coordinate)
+            justification = result.justification if result is not None else None
+            bounded_justification = (
+                result.bounded_justification.as_dict()
+                if result is not None and result.bounded_justification is not None
+                else None
+            )
             role = "field" if bool(cell["is_primary"]) else "evidence"
             item = {
                 "run_id": cell["run_id"],
@@ -480,15 +515,19 @@ def _hydrate_review_bundles(project: Project, keys: list[Any]) -> list[dict[str,
                 "format": cell["format"],
                 "sheet_id": cell["sheet_id"],
                 "value": value,
+                "bounded_value": bounded_value,
                 "confidence": cell["confidence"],
-                "justification": cell["justification"],
+                "justification": justification,
+                "bounded_justification": bounded_justification,
                 "error": cell["error"],
                 "review_state": cell["review_state"],
                 "review_decision": cell["review_decision"],
                 "review_note": cell["review_note"],
                 "role": role,
                 "changed": bool(cell["changed"]),
-                "can_edit": role == "field" and bool(cell["can_edit"]),
+                "can_edit": role == "field"
+                and bool(cell["current_exact"])
+                and bounded_value is None,
                 "chore": role == "field"
                 and cell["review_state"] == "unreviewed"
                 and cell["review_decision"] is None

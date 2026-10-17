@@ -1,5 +1,6 @@
 import type { ColumnDef, ReviewBundleField, Row } from '../../api/types';
 import { FieldValue } from '../RowDrawer';
+import { ReviewExcerpt } from './ReviewExcerpt';
 import styles from './ReviewValue.module.css';
 
 export interface ReviewValueProps {
@@ -10,6 +11,9 @@ export interface ReviewValueProps {
 
 /** Review uses the same typed value presentation as Inspect. */
 export function ReviewValue({ field, onSelectItem, selectableItemIndices }: ReviewValueProps) {
+  if (field.boundedValue) return <div className={styles.reviewValue} data-testid="review-value">
+    <ReviewExcerpt excerpt={field.boundedValue} />
+  </div>;
   const column: ColumnDef = {
     id: field.columnId,
     name: field.columnName,

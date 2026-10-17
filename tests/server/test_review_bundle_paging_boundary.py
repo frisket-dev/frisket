@@ -5,6 +5,7 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
+from frisket.engine.runner import review as review_runner
 from frisket.server.app import create_app
 from frisket.engine.runner.review import queue_count, review_bundle_page
 from frisket.engine.store.runs import RunResultStore
@@ -234,31 +235,44 @@ def test_review_bundle_page_batches_source_reads_for_all_rows(
         project.db.execute("SELECT id FROM columns WHERE name='story'").fetchone()[0]
     )
     original_columns = project.columns
-    original_get_values = project.get_values
+    original_read_current_column = review_runner.read_current_column
     column_calls: list[int] = []
-    value_calls: list[tuple[int, int, tuple[int, ...]]] = []
+    value_calls: list[tuple[int, int, tuple[int, ...], bool]] = []
 
     def columns(sheet_id: int, include_hidden: bool = False):
         column_calls.append(sheet_id)
         return original_columns(sheet_id, include_hidden)
 
-    def get_values(
+    def read_current_column(
+        db,
+        *,
         sheet_id: int,
         column_id: int,
-        row_ids: list[int] | None = None,
-        **kwargs: Any,
+        row_ids: list[int],
+        bounded: bool,
+        preserve_invalid: bool = False,
     ):
-        value_calls.append((sheet_id, column_id, tuple(row_ids or ())))
-        return original_get_values(sheet_id, column_id, row_ids, **kwargs)
+        value_calls.append((sheet_id, column_id, tuple(row_ids), bounded))
+        return original_read_current_column(
+            db,
+            sheet_id=sheet_id,
+            column_id=column_id,
+            row_ids=row_ids,
+            bounded=bounded,
+            preserve_invalid=preserve_invalid,
+        )
 
     monkeypatch.setattr(project, "columns", columns)
-    monkeypatch.setattr(project, "get_values", get_values)
+    monkeypatch.setattr(review_runner, "read_current_column", read_current_column)
 
     page = review_bundle_page(project, run_id=run_id, limit=25)
 
     sheet_id = int(page["bundles"][0]["sheet_id"])
     assert column_calls == [sheet_id]
-    assert value_calls == [(sheet_id, story_id, tuple(row_ids[:25]))]
+    source_calls = [call for call in value_calls if call[1] == story_id]
+    assert source_calls == [(sheet_id, story_id, tuple(row_ids[:25]), True)]
+    assert len(value_calls) == 4
+    assert all(call[2] == tuple(row_ids[:25]) and call[3] for call in value_calls)
     assert [bundle["source"] for bundle in page["bundles"]] == [
         {"story": f"Story {index:02d}"} for index in range(25)
     ]
