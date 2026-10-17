@@ -873,6 +873,7 @@ export interface CellProvenance {
   cost: number; // USD, this cell's share
   confidence: number | null; // 0–1 self-reported, null if not requested
   justification: string;
+  warnings?: string[];
   runId: string;
 }
 

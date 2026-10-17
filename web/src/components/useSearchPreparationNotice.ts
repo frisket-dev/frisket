@@ -323,6 +323,23 @@ export function deriveSearchPreparationNotice(
     };
   }
 
+  const warningBatch = snapshot.batches.find((batch) => batch.status === 'complete' && batch.warnings?.length);
+  if (!activeBatch && warningBatch) {
+    const warnings = warningBatch.warnings ?? [];
+    return {
+      activityKey: activityIdentity?.startsWith(`preparation:${warningBatch.id}`)
+        ? activityIdentity
+        : `preparation:${warningBatch.id}`,
+      reviewBatchId: warningBatch.id,
+      stage: 'complete',
+      tone: 'warning',
+      title: 'Search prepared with warnings',
+      detail: warnings[0],
+      progress: 100,
+      details: warnings,
+    };
+  }
+
   if (completion) {
     return {
       activityKey: activityIdentity ?? 'search-completion',
@@ -411,7 +428,10 @@ function relevantBatches(
       || (index === 0 && indexing.status !== 'idle')
     )
   )).slice(0, 1);
-  return [...failed, ...active];
+  const warned = batches.slice(0, 1).filter((batch) => (
+    batch.status === 'complete' && batch.warnings?.length
+  ));
+  return [...failed, ...active, ...warned];
 }
 
 export function useSearchPreparationNotice(projectId: string, team: boolean): SearchPreparationNotice | null {
@@ -419,7 +439,8 @@ export function useSearchPreparationNotice(projectId: string, team: boolean): Se
   const [snapshotState, setSnapshotState] = useState<{
     scopeKey: string;
     snapshot: SearchPreparationSnapshot;
-  }>({ scopeKey, snapshot: EMPTY_SNAPSHOT });
+    activityIdentity: string | null;
+  }>({ scopeKey, snapshot: EMPTY_SNAPSHOT, activityIdentity: null });
   const [completionState, setCompletionState] = useState<{
     scopeKey: string;
     message: string | null;
@@ -508,7 +529,13 @@ export function useSearchPreparationNotice(projectId: string, team: boolean): Se
       }
     }
     snapshotRef.current = { scopeKey, snapshot: next };
-    setSnapshotState({ scopeKey, snapshot: next });
+    setSnapshotState({
+      scopeKey,
+      snapshot: next,
+      activityIdentity: activityIdentityRef.current?.scopeKey === scopeKey
+        ? activityIdentityRef.current.key
+        : null,
+    });
     if (completedSince(previous, next)) {
       const completedActivityKey = activityIdentityRef.current?.scopeKey === scopeKey
         ? activityIdentityRef.current.key
@@ -553,8 +580,8 @@ export function useSearchPreparationNotice(projectId: string, team: boolean): Se
 
   const snapshot = snapshotState.scopeKey === scopeKey ? snapshotState.snapshot : EMPTY_SNAPSHOT;
   const completion = completionState.scopeKey === scopeKey ? completionState.message : null;
-  const activityIdentity = activityIdentityRef.current?.scopeKey === scopeKey
-    ? activityIdentityRef.current.key
+  const activityIdentity = snapshotState.scopeKey === scopeKey
+    ? snapshotState.activityIdentity
     : null;
   const notice = deriveSearchPreparationNotice(snapshot, completion, activityIdentity);
   usePoll(refresh, {

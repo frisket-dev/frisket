@@ -104,6 +104,38 @@ function snapshot(overrides: Partial<SearchPreparationSnapshot> = {}): SearchPre
 }
 
 describe('search preparation notice projection', () => {
+  it('retains page warnings when the polled preparation becomes complete and after reconnecting', async () => {
+    vi.useFakeTimers();
+    const list = vi.spyOn(preparationApi, 'listSearchPreparations').mockResolvedValue({
+      batches: [batch()], indexing: { status: 'running', job_id: 781, error: null },
+    });
+    vi.spyOn(openApi, 'listModelPulls').mockResolvedValue({
+      schemaVersion: 'frisket.model_pull_list.v1', pulls: [],
+    });
+    const { result, unmount } = renderHook(() => useSearchPreparationNotice('project-1', false));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    list.mockResolvedValue({ batches: [batch({ status: 'complete', jobs: [],
+      groups: [{ kind: 'ocr', count: 1, status: 'complete' }],
+      warnings: ['Page 2 failed during OCR.'] })],
+      indexing: { status: 'idle', job_id: null, error: null } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(result.current).toMatchObject({ tone: 'warning', title: 'Search prepared with warnings',
+      activityKey: 'preparation:prep-1', detail: 'Page 2 failed during OCR.' });
+    unmount();
+    const reopened = renderHook(() => useSearchPreparationNotice('project-1', false));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(reopened.result.current).toMatchObject({ tone: 'warning', detail: 'Page 2 failed during OCR.' });
+  });
+
+  it('keeps a successful preparation with page warnings visibly distinct from clean completion', () => {
+    const warned = batch({ status: 'complete', groups: [{ kind: 'ocr', count: 1, status: 'complete' }],
+      jobs: [], warnings: ['Page 2 failed during OCR.'] });
+    const notice = deriveSearchPreparationNotice(snapshot({ batches: [warned] }), 'Search index ready');
+    expect(notice).toMatchObject({ stage: 'complete', tone: 'warning',
+      title: 'Search prepared with warnings', detail: 'Page 2 failed during OCR.', reviewBatchId: warned.id });
+    expect(deriveSearchPreparationNotice(snapshot({ batches: [batch(), warned] }))).toMatchObject({ stage: 'prepare', tone: 'active' });
+  });
+
   it('keeps one activity across OCR, indexing and completion and gives a later index its own identity', async () => {
     vi.useFakeTimers();
     const list = vi.spyOn(preparationApi, 'listSearchPreparations').mockResolvedValue({

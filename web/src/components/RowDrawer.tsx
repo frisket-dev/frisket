@@ -1,4 +1,4 @@
-import { Check, ChevronDown, ChevronRight, Copy, FileSearch2, MapPin, Pause, Pencil, Play, RefreshCcw, X, Zap } from 'lucide-react';
+import { AlertTriangle, Check, ChevronDown, ChevronRight, Copy, FileSearch2, MapPin, Pause, Pencil, Play, RefreshCcw, X, Zap } from 'lucide-react';
 import { useCallback, useEffect, useReducer, useRef, useState, type CSSProperties, type FocusEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from 'react';
 import { type CellEvidencePayload, type CellProvenance, type CellValue, type ColumnDef, type Row, type RunTraceRowEvidence, type SheetMeta } from '../api/open';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
@@ -501,6 +501,12 @@ export function RowField({
       {row.replayComparisonUnavailable?.[col.id] && (
         <p className="muted" data-testid="replay-comparison-unavailable">Updated-value comparison is unavailable above 64 KiB.</p>
       )}
+      {prov?.warnings?.length ? (
+        <aside className="form-hint" role="note" aria-label={`${col.name} run warnings`} data-testid="cell-warnings">
+          <strong><AlertTriangle size={14} className="run-warning-icon" aria-hidden /> Run warnings</strong>
+          <ul>{prov.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
+        </aside>
+      ) : null}
       {col.ai && prov && (
         <ProvenanceBlock
           prov={prov}

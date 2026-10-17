@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+import sqlite3
 from dataclasses import dataclass
 from dataclasses import replace
 import pytest
@@ -66,6 +67,64 @@ def _unbound_ocr_action(workspace: Workspace):
         child_key,
     )
     return project_id, service, batch, body
+
+
+@pytest.mark.parametrize("overflow", [False, True])
+def test_completed_preparation_exposes_bounded_receipt_warnings_without_result_scan(
+    tmp_path, monkeypatch, overflow
+):
+    monkeypatch.setattr(
+        preparation_module,
+        "_requirements",
+        lambda: (replace(_Requirement(), weights_ready=True),),
+    )
+    monkeypatch.setattr(
+        preparation_module, "index_work_marker", lambda *args, **kwargs: None
+    )
+    workspace = Workspace(tmp_path / "workspace")
+    project_id, service, batch, body = _unbound_ocr_action(workspace)
+    queued = service.action_runs.run_action(project_id, body)
+    [child] = service.store.children(batch.id)
+    service.store.bind_child(
+        child.id,
+        job_id=queued.payload["job_id"],
+        receipt_id=queued.payload["receipt_id"],
+    )
+    project = workspace.get(project_id)
+    receipts = ReceiptStore(project)
+    stored = receipts.find_by_id(queued.payload["receipt_id"])
+    warnings = (
+        [f"Page {page} failed during OCR." for page in range(120)]
+        if overflow
+        else ["Page 2 failed during OCR."] * 2
+    )
+    assert receipts.update_body_status(
+        stored.parsed().model_copy(update={"status": "completed", "warnings": warnings})
+    )
+
+    def deny_result_warning_reads(action, table, column, *_):
+        return (
+            sqlite3.SQLITE_DENY
+            if action == sqlite3.SQLITE_READ
+            and table == "results"
+            and column == "warnings"
+            else sqlite3.SQLITE_OK
+        )
+
+    project.db.set_authorizer(deny_result_warning_reads)
+    try:
+        terminal = service.get(project_id, batch.id)
+        assert service.get(project_id, batch.id).warnings == terminal.warnings
+    finally:
+        project.db.set_authorizer(None)
+    assert terminal.status == "complete"
+    assert terminal.groups[0].status == "complete"
+    assert terminal.errors == []
+    assert terminal.warnings == (
+        [*warnings[:99], "Additional preparation warnings omitted."]
+        if overflow
+        else [warnings[0]]
+    )
 
 
 def test_explicit_preparation_is_reconnectable_and_double_click_safe(

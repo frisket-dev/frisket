@@ -65,6 +65,7 @@ _JOB_TO_CHILD_STATE = {
     "cancelled": "cancelled",
 }
 _ACTIVE_PROGRESS_STATES = frozenset({"queued", "running", "stalled", "orphaned"})
+_PREPARATION_WARNING_LIMIT = 100
 
 
 def _sha(value: object) -> str:
@@ -1336,6 +1337,7 @@ class SearchPreparationService:
         jobs: list[SearchPreparationJob] = []
         child_states: dict[int, str] = {}
         projection_errors = list(row.errors)
+        projection_warnings: dict[str, None] = {}
         for child in children:
             stored = (
                 receipts.find_by_id(child.receipt_id)
@@ -1385,15 +1387,21 @@ class SearchPreparationService:
                             str(live_job.get("status") or ""), state
                         )
             child_states[child.id] = state
-            if stored is not None and state in {"failed", "cancelled"}:
+            if stored is not None and state in {"done", "failed", "cancelled"}:
                 try:
                     receipt = stored.parsed()
                 except Exception:
-                    projection_errors.append("Search preparation action failed.")
+                    if state != "done":
+                        projection_errors.append("Search preparation action failed.")
                 else:
-                    projection_errors.extend(
-                        error.message for error in receipt.errors if error.message
-                    )
+                    for warning in receipt.warnings:
+                        if len(projection_warnings) > _PREPARATION_WARNING_LIMIT:
+                            break
+                        projection_warnings.setdefault(warning, None)
+                    if state != "done":
+                        projection_errors.extend(
+                            error.message for error in receipt.errors if error.message
+                        )
             if child.job_id is not None and state != "planning":
                 jobs.append(
                     SearchPreparationJob(
@@ -1511,6 +1519,12 @@ class SearchPreparationService:
             else:
                 group_status = "planning"
             groups.append(SearchPreparationGroup(**group, status=group_status))
+        warnings = list(projection_warnings)
+        if len(warnings) > _PREPARATION_WARNING_LIMIT:
+            warnings = [
+                *warnings[: _PREPARATION_WARNING_LIMIT - 1],
+                "Additional preparation warnings omitted.",
+            ]
         return SearchPreparationBatch(
             id=row.id,
             sheet_id=row.sheet_id,
@@ -1524,6 +1538,7 @@ class SearchPreparationService:
             and status == "needs_consent"
             and any(m.required and not m.ready and m.can_setup for m in models),
             errors=list(dict.fromkeys(projection_errors)),
+            warnings=warnings,
         )
 
 

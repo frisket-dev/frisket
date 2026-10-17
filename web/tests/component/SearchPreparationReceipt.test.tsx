@@ -135,6 +135,19 @@ afterEach(() => {
 });
 
 describe('SearchPreparationReceipt', () => {
+  it('shows partial page warnings without claiming all text is ready', async () => {
+    getSearchPreparation.mockResolvedValue({
+      ...consentBatch, status: 'complete',
+      groups: [{ kind: 'ocr', count: 1, status: 'complete' }],
+      warnings: ['Page 2 failed during OCR.'],
+    });
+    render(<SearchPreparationReceipt projectId="project-1" batchId="prep-1"
+      onDone={vi.fn()} onError={vi.fn()} />);
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Text prepared with warnings' })).toBeTruthy());
+    expect(screen.getByRole('note', { name: 'Preparation warnings' }).textContent).toContain('Page 2 failed during OCR.');
+    expect(screen.queryByRole('heading', { name: 'Text ready for keyword search' })).toBeNull();
+  });
+
   it('shows processed and failed counts from the live OCR action', async () => {
     getSearchPreparation.mockResolvedValue({
       ...consentBatch,

@@ -96,6 +96,22 @@ function openExplainPanelAt(rect: Partial<DOMRect>): { field: HTMLElement; panel
 }
 
 describe('row drawer field action rail', () => {
+  it('shows run warnings while run result details are collapsed and clears them on row change', () => {
+    const col = columnDef({ id: 'ocr', name: 'OCR text', type: 'text', ai: aiMeta() });
+    const warningRow = row({ ocr: 'Pages one and three' }, { provenance: { ocr: {
+      currentValueRef: { kind: 'run_result', rowId: 'row-1', columnId: 'ocr', runId: 'run-9', opId: null },
+      model: '', actionName: 'OCR', cost: 0, confidence: null, justification: '', runId: 'run-9',
+      warnings: ['Page 2 failed during OCR.'],
+    } } });
+    const { rerender } = render(<RowField col={col} columns={[col]} row={warningRow}
+      selected onEdit={noopEdit} runResultExpanded={false} onToggleRunResult={() => {}} />);
+    expect(screen.getByRole('note', { name: 'OCR text run warnings' })).toHaveTextContent('Page 2 failed during OCR.');
+    expect(screen.getByTestId('cell-provenance-run-result-toggle')).toHaveAttribute('aria-expanded', 'false');
+    rerender(<RowField col={col} columns={[col]} row={row({ ocr: 'Clean result' })}
+      selected onEdit={noopEdit} runResultExpanded={false} onToggleRunResult={() => {}} />);
+    expect(screen.queryByTestId('cell-warnings')).not.toBeInTheDocument();
+  });
+
   it('keeps each run-result disclosure open independently while switching rows', () => {
     const topic = columnDef({ id: 'topic', name: 'topic', type: 'text', ai: aiMeta() });
     const summary = columnDef({ id: 'summary', name: 'summary', type: 'text', ai: aiMeta() });

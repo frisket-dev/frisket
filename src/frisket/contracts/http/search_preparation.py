@@ -105,6 +105,7 @@ class SearchPreparationBatch(WireModel):
     can_stop: bool
     can_setup: bool
     errors: list[str]
+    warnings: list[str] = Field(default_factory=list)
 
 
 class SearchPreparationIndexing(WireModel):

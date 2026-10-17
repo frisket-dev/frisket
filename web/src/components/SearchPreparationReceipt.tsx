@@ -430,11 +430,14 @@ export function SearchPreparationReceipt({
   const unavailableModels = missingModels.filter((model) => model.required && !model.can_setup);
   const allRequiredModelsReady = batch.models.every((model) => !model.required || model.ready);
   const canPrepare = batch.can_setup || allRequiredModelsReady;
+  const warnings = batch.warnings ?? [];
   return (
     <section className="search-preparation-receipt" data-testid="search-preparation-receipt">
       <header>
         <div>
-          <h2>{fullyPrepared
+          <h2>{fullyPrepared && warnings.length > 0
+            ? 'Text prepared with warnings'
+            : fullyPrepared
             ? 'Text ready for keyword search'
             : batch.status === 'planning'
               ? 'Planning search preparation'
@@ -443,6 +446,13 @@ export function SearchPreparationReceipt({
               : 'Make these files searchable'}</h2>
         </div>
       </header>
+
+      {warnings.length > 0 && (
+        <aside className="form-hint" role="note" aria-label="Preparation warnings" data-testid="search-preparation-warnings">
+          <strong><CircleAlert size={14} className="run-warning-icon" aria-hidden /> Some results need attention</strong>
+          <ul>{warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
+        </aside>
+      )}
 
       {batch.groups.length > 0 && <h3 className="search-preparation-section-heading">Text extraction</h3>}
       <div className="search-preparation-groups">

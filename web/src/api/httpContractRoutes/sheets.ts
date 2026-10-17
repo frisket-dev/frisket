@@ -200,7 +200,7 @@ function mapSheetRows(wire: SheetDataWire): SheetRowsContractPage {
           ? meta.confidence
           : null;
         const column = columnById.get(columnId);
-        if (ref || confidence !== null || meta.justification || meta.error) {
+        if (ref || confidence !== null || meta.justification || meta.error || meta.warnings?.length) {
           provenance[columnId] = {
             currentValueRef: ref ?? {
               kind: 'missing',
@@ -214,6 +214,7 @@ function mapSheetRows(wire: SheetDataWire): SheetRowsContractPage {
             cost: 0,
             confidence,
             justification: meta.justification ?? (meta.error ? `Error: ${meta.error}` : ''),
+            ...(meta.warnings?.length ? { warnings: meta.warnings } : {}),
             runId: ref?.kind === 'run_result' && ref.runId ? ref.runId : '',
           };
         }

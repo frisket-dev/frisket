@@ -82,6 +82,20 @@ afterEach(() => {
 });
 
 describe('sheet and grid HTTP contracts', () => {
+  it('keeps successful cell warnings in provenance without inventing an error', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
+      total: 1, columns: [{ ...sheetColumnWire, ai_generated: true }],
+      rows: [{ id: 11, cells: { 9: 'Pages one and three' }, meta: { 9: {
+        warnings: ['Page 2 failed during OCR.'],
+        current_value_ref: { kind: 'run_result', row_id: 11, column_id: 9, run_id: 4, op_id: 5 },
+      } }, parent_row_id: null, child_count: 0 }],
+    })));
+    const page = await realApi.getSheetData('7', 0, 25, { valueMode: 'bounded' });
+    expect(page.rows[0].provenance['9'].warnings).toEqual(['Page 2 failed during OCR.']);
+    expect(page.rows[0].cells['9']).toBe('Pages one and three');
+    expect(page.rows[0].cellErrors?.['9']).toBeUndefined();
+  });
+
   it('preserves bounded descriptors separately from exact cells and projects display reads', async () => {
     const descriptor = { preview: 'A display excerpt', value_kind: 'text', total_characters: 100000,
       total_bytes: 100001, retrieval_revision: 3, truncated: true, manual_editable: false, manual_edit_byte_limit: 65536 };
