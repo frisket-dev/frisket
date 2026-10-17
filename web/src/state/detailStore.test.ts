@@ -14,11 +14,28 @@ describe('createDetailStore', () => {
     '%s drops the sampled detail with its row', (method) => {
       const detail = createDetailStore();
       detail.openRow(row('r1'), preview);
+      detail.setRowTextTarget({ sheetId: 's1', rowId: 'r1', columnId: 'c1',
+        range: { start: 90000, end: 90010, highlight: true }, retrievalRevision: 9, requestKey: 'search' });
       detail[method]();
       expect(detail.store.get().rowDrawer).toBeNull();
       expect(detail.store.get().rowDrawerPreview).toBeNull();
+      expect(detail.store.get().rowTextTarget).toBeNull();
     },
   );
+
+  it('retains an owned search locator across row hydration and discards it on ordinary row open', () => {
+    const detail = createDetailStore();
+    const target = { sheetId: 's1', rowId: 'r1', columnId: 'c1',
+      range: { start: 90000, end: 90010, highlight: true }, retrievalRevision: 9, requestKey: 'search' };
+    detail.setRowTextTarget(target);
+    detail.syncRow();
+    detail.loadRow(null);
+    expect(detail.store.get().rowTextTarget).toBe(target);
+    detail.loadRow(row('r1'));
+    expect(detail.store.get().rowTextTarget).toBe(target);
+    detail.openRow(row('r1'));
+    expect(detail.store.get().rowTextTarget).toBeNull();
+  });
 
   it('switching to an unsampled row clears the sampled detail', () => {
     const detail = createDetailStore();

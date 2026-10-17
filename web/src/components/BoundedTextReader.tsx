@@ -14,6 +14,8 @@ export interface TextWindow {
 export interface BoundedTextReaderProps {
   coordinate?: 'characters';
   initialRevision?: number;
+  /** Absolute Unicode codepoints; highlight=false indicates a coarse source locator. */
+  initialRange?: { start: number; end: number; highlight?: boolean };
   totalCharacters: number;
   totalBytes: number;
   loadWindow(options: { start: number; limit: number; revision?: number; signal: AbortSignal }): Promise<TextWindow>;
@@ -34,7 +36,9 @@ const WINDOW_SIZE = 16_384;
 export function BoundedTextReader(props: BoundedTextReaderProps | BlobTextReaderProps) {
   const { loadWindow } = props;
   const initialRevision = props.coordinate === 'bytes' ? undefined : props.initialRevision;
-  const [request, setRequest] = useState({ start: 0, revision: initialRevision, attempt: 0 });
+  const initialRange = props.coordinate === 'bytes' ? undefined : props.initialRange;
+  const [request, setRequest] = useState({ start: initialRange ? Math.max(0, initialRange.start - 256) : 0,
+    revision: initialRevision, attempt: 0, anchored: Boolean(initialRange) });
   const requestKey = `${request.start}:${request.revision ?? ''}:${request.attempt}`;
   const [result, setResult] = useState<{ key: string; window?: TextWindow | BlobTextWindow; error?: string }>({ key: '' });
   const [jump, setJump] = useState('');
@@ -63,8 +67,16 @@ export function BoundedTextReader(props: BoundedTextReaderProps | BlobTextReader
   const revision = window && 'retrieval_revision' in window ? window.retrieval_revision : undefined;
   const go = (start: number) => {
     if (!window) return;
-    setRequest({ start, revision, attempt: request.attempt + 1 });
+    setRequest({ start, revision, attempt: request.attempt + 1, anchored: request.anchored });
   };
+  const highlightedText = window && request.anchored && initialRange && initialRange.highlight !== false
+    && revision === initialRevision ? (() => {
+      // Only this bounded passage is converted to codepoints, never the source value.
+      const characters = Array.from(window.text);
+      const start = Math.max(0, initialRange.start - window.range.start);
+      const end = Math.min(characters.length, initialRange.end - window.range.start);
+      return end > start ? <>{characters.slice(0, start).join('')}<mark data-testid="bounded-text-match">{characters.slice(start, end).join('')}</mark>{characters.slice(end).join('')}</> : window.text;
+    })() : window?.text;
   async function copy() {
     if (props.coordinate !== 'bytes' && revision === undefined) return;
     copyController.current?.abort();
@@ -102,13 +114,13 @@ export function BoundedTextReader(props: BoundedTextReaderProps | BlobTextReader
       </form>}
       {busy ? <p role="status">Loading text…</p> : current?.error ? (
         <div role="alert"><p>{current.error}</p><button type="button" className="mini-btn" onClick={() => {
-          setRequest({ start: 0, revision: undefined, attempt: request.attempt + 1 });
+          setRequest({ start: 0, revision: undefined, attempt: request.attempt + 1, anchored: false });
         }}>Reload text</button></div>
       ) : window ? <>
         <p className="muted" role="status">{props.coordinate === 'bytes'
           ? `Section ${Math.floor(('section_start' in window ? window.section_start : 0) / WINDOW_SIZE) + 1} of ${Math.max(1, Math.ceil(total / WINDOW_SIZE))} · plain text`
           : `Characters ${window.range.start + 1}–${window.range.end} of ${total.toLocaleString()} · plain text excerpt`}</p>
-        <pre className={props.coordinate === 'bytes' ? 'document-text' : undefined} data-testid="bounded-text-window" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: '45vh', overflowY: 'auto' }}>{window.text}</pre>
+        <pre className={props.coordinate === 'bytes' ? 'document-text' : undefined} data-testid="bounded-text-window" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: '45vh', overflowY: 'auto' }}>{highlightedText}</pre>
       </> : null}
       {(props.coordinate === 'bytes' || revision !== undefined) && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
         <a className="mini-btn" href={props.coordinate === 'bytes' ? props.downloadUrl : props.downloadUrl(revision!)} download>{props.coordinate === 'bytes' ? 'Download full file' : 'Download full value'}</a>

@@ -36,6 +36,18 @@ describe('bounded text reader', () => {
     await screen.findByText('Text at 0: 😀 <strong>literal</strong>');
   });
 
+  it('opens and highlights a revision-pinned Unicode search passage without marking coarse locators', async () => {
+    const p = props();
+    const load = vi.fn(async () => ({ ...windowAt(49744), text: `${'x'.repeat(255)}😀needle tail` }));
+    const view = render(<BoundedTextReader {...p} initialRange={{ start: 50000, end: 50006 }} loadWindow={load} />);
+    expect(await screen.findByTestId('bounded-text-match')).toHaveTextContent(/^needle$/);
+    expect(load).toHaveBeenCalledWith(expect.objectContaining({ start: 49744, limit: 16384, revision: 9 }));
+    view.unmount();
+    render(<BoundedTextReader {...p} initialRange={{ start: 50000, end: 50006, highlight: false }} loadWindow={load} />);
+    await screen.findByTestId('bounded-text-window');
+    expect(screen.queryByTestId('bounded-text-match')).not.toBeInTheDocument();
+  });
+
   it('makes full copy deliberate and keeps download pinned to the displayed revision', async () => {
     const p = props();
     const writeText = vi.fn().mockResolvedValue(undefined);
@@ -54,12 +66,14 @@ describe('bounded text reader', () => {
     const p = props();
     const load = vi.fn().mockRejectedValueOnce(Object.assign(new Error('changed'), { status: 409 }))
       .mockResolvedValueOnce(windowAt(0, 10));
-    render(<BoundedTextReader {...p} loadWindow={load} />);
+    render(<BoundedTextReader {...p} initialRange={{ start: 50000, end: 50006 }} loadWindow={load} />);
+    expect(load).toHaveBeenCalledWith(expect.objectContaining({ start: 49744, revision: 9 }));
     await screen.findByText('This value changed. Reload to read its current version.');
     expect(screen.queryByRole('link', { name: 'Download full value' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Reload text' }));
     await screen.findByTestId('bounded-text-window');
     expect(load).toHaveBeenLastCalledWith(expect.objectContaining({ start: 0, revision: undefined }));
+    expect(screen.queryByTestId('bounded-text-match')).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Download full value' })).toHaveAttribute('href', '/exact?revision=10');
   });
 

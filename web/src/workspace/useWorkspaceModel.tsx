@@ -1158,6 +1158,24 @@ export function useWorkspaceModel({
             : {}),
         });
       } else if (navigation.column_id !== null && navigation.column_id !== undefined) {
+        const columnId = String(navigation.column_id);
+        const column = sheets.find((candidate) => candidate.id === sheetId)?.columns
+          .find((candidate) => candidate.id === columnId);
+        const dependency = hit.binding.dependencies.find((item) => (
+          String(item.row_id) === rowId && String(item.column_id) === columnId
+        ));
+        // Search indexes JSON's decoded representation, not its stored encoding.
+        // Only direct text with its authoritative revision can share these offsets.
+        if (navigation.text_range && column?.type === 'text' && dependency) {
+          writeRoute({ projectId: project.id, sheetId, actionKind: null, review: false,
+            panel: { kind: 'row', rowId, columnId } });
+          selection.setSelectedColumnId(columnId);
+          detail.setRowTextTarget({ sheetId, rowId, columnId,
+            range: { start: navigation.text_range.start, end: navigation.text_range.end,
+              highlight: hit.location.precision === 'exact' },
+            retrievalRevision: dependency.retrieval_revision, requestKey: crypto.randomUUID() });
+          return;
+        }
         requestGridCellReveal({
           projectId: project.id,
           sheetId,
@@ -1172,11 +1190,15 @@ export function useWorkspaceModel({
       );
     },
     [
+      detail,
       openEvidenceViewerForWorkspace,
       project.id,
       selectSheet,
+      selection,
       setDocumentView,
       setOpenSplit,
+      sheets,
+      writeRoute,
     ],
   );
 

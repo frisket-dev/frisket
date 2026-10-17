@@ -16,10 +16,21 @@ import type {
   ProposalInspectState,
 } from '../workspace/workspaceState';
 
+/** Session-owned direct-text search locator; ranges use Unicode codepoints. */
+export interface RowTextTarget {
+  sheetId: string;
+  rowId: string;
+  columnId: string;
+  range: { start: number; end: number; highlight: boolean };
+  retrievalRevision: number;
+  requestKey: string;
+}
+
 export interface DetailState {
   rowDrawer: Row | null;
   /** The clicked in-memory sample; null means ordinary committed-row details. */
   rowDrawerPreview: PreviewCellDetail | null;
+  rowTextTarget: RowTextTarget | null;
   columnDrawer: ColumnDef | null;
   columnSettingsId: string;
   childFilter: ChildFilter | null;
@@ -31,6 +42,7 @@ export function createDetailState(): DetailState {
   return {
     rowDrawer: null,
     rowDrawerPreview: null,
+    rowTextTarget: null,
     columnDrawer: null,
     columnSettingsId: '',
     childFilter: null,
@@ -46,6 +58,7 @@ export function createDetailStore(): {
   syncRow(): void;
   loadRow(row: Row | null): void;
   openRow(row: Row, preview?: PreviewCellDetail | null): void;
+  setRowTextTarget(target: RowTextTarget | null): void;
   openColumn(column: ColumnDef): void;
   closeDrawers(opts?: { clearChildFilter?: boolean; clearColumnSettings?: boolean }): void;
   /** Clears rowDrawer ONLY, leaving columnDrawer/childFilter/headerMenu
@@ -74,6 +87,7 @@ export function createDetailStore(): {
         ...s,
         rowDrawer: null,
         rowDrawerPreview: null,
+        rowTextTarget: null,
         columnDrawer: null,
         columnSettingsId: '',
       }));
@@ -84,6 +98,7 @@ export function createDetailStore(): {
         ...s,
         rowDrawer: null,
         rowDrawerPreview: null,
+        rowTextTarget: null,
         columnDrawer: column,
         columnSettingsId: column?.id ?? '',
       }));
@@ -94,7 +109,8 @@ export function createDetailStore(): {
     },
 
     loadRow(row) {
-      store.set((s) => ({ ...s, rowDrawer: row, rowDrawerPreview: null }));
+      store.set((s) => ({ ...s, rowDrawer: row, rowDrawerPreview: null,
+        rowTextTarget: row && s.rowTextTarget?.rowId !== row.id ? null : s.rowTextTarget }));
     },
 
     openRow(row, preview) {
@@ -104,11 +120,17 @@ export function createDetailStore(): {
         columnSettingsId: '',
         rowDrawer: row,
         rowDrawerPreview: preview ?? null,
+        rowTextTarget: null,
       }));
     },
 
+    setRowTextTarget(target) {
+      store.set((s) => ({ ...s, rowTextTarget: target }));
+    },
+
     openColumn(column) {
-      store.set((s) => ({ ...s, rowDrawer: null, rowDrawerPreview: null, columnSettingsId: column.id, columnDrawer: column }));
+      store.set((s) => ({ ...s, rowDrawer: null, rowDrawerPreview: null,
+        rowTextTarget: null, columnSettingsId: column.id, columnDrawer: column }));
     },
 
     /** clearSelectedColumn is
@@ -118,6 +140,7 @@ export function createDetailStore(): {
         ...s,
         rowDrawer: null,
         rowDrawerPreview: null,
+        rowTextTarget: null,
         columnDrawer: null,
         ...(opts?.clearColumnSettings ? { columnSettingsId: '' } : {}),
         ...(opts?.clearChildFilter ? { childFilter: null } : {}),
@@ -125,7 +148,7 @@ export function createDetailStore(): {
     },
 
     clearRowDrawer() {
-      store.set((s) => (s.rowDrawer === null && s.rowDrawerPreview === null ? s : { ...s, rowDrawer: null, rowDrawerPreview: null }));
+      store.set((s) => (s.rowDrawer === null && s.rowDrawerPreview === null && s.rowTextTarget === null ? s : { ...s, rowDrawer: null, rowDrawerPreview: null, rowTextTarget: null }));
     },
 
     setChildFilter(childFilter) {
@@ -143,7 +166,7 @@ export function createDetailStore(): {
     /** selectedRows clear
      *  is selectionStore's — composed at the bind-layer call site. */
     clearForGridTransition() {
-      store.set((s) => ({ ...s, childFilter: null, rowDrawer: null, rowDrawerPreview: null }));
+      store.set((s) => ({ ...s, childFilter: null, rowDrawer: null, rowDrawerPreview: null, rowTextTarget: null }));
     },
 
     /** Does NOT clear childFilter
@@ -151,7 +174,8 @@ export function createDetailStore(): {
      *  pinned by state/gridViewStore.test.ts's cross-domain transaction
      *  parity suite). */
     clearForSavedView() {
-      store.set((s) => ({ ...s, rowDrawer: null, rowDrawerPreview: null, columnDrawer: null }));
+      store.set((s) => ({ ...s, rowDrawer: null, rowDrawerPreview: null,
+        rowTextTarget: null, columnDrawer: null }));
     },
 
     openHeaderMenu(headerMenu) {
@@ -160,6 +184,7 @@ export function createDetailStore(): {
         headerMenu,
         rowDrawer: null,
         rowDrawerPreview: null,
+        rowTextTarget: null,
       }));
     },
 

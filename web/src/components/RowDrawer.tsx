@@ -37,6 +37,7 @@ import structuredStyles from './StructuredValue.module.css';
 import { useAnchoredPosition } from '../hooks/useAnchoredPosition';
 import { useNativePopover } from '../hooks/useNativePopover';
 import { createAudioPlaybackSource } from '../state/audioPlaybackStore';
+import type { RowTextTarget } from '../state/detailStore';
 import { LargeCellValue } from './LargeCellValue';
 import { captionColumnScore, fieldValueDependencyColumnIds } from './fieldValueDependencies';
 
@@ -98,6 +99,8 @@ export function RowDrawerBody({
   expandedRunResultFields,
   onToggleRunResultField,
 }: RowDrawerBodyProps) {
+  const { detail } = useWorkspaceStores();
+  const rowTextTarget = useSelector(detail.store, (state) => state.rowTextTarget);
   const fallbackRef = useRef<HTMLDivElement>(null);
   const drawerBodyRef = bodyRef ?? fallbackRef;
   const documentColumn = onOpenInDocumentView ? documentMediaColumns(sheet)[0] ?? null : null;
@@ -173,6 +176,8 @@ export function RowDrawerBody({
             row={row}
             sheetId={sheet.id}
             selected={col.id === selectedColumnId}
+            textTarget={selectedColumnId === col.id && rowTextTarget?.sheetId === sheet.id && rowTextTarget.rowId === row.id
+              && rowTextTarget.columnId === col.id ? rowTextTarget : undefined}
             onEdit={onEdit}
             onRetryCell={onRetryCell}
             runResultExpanded={expandedRunResultFields.has(fieldKey)}
@@ -298,6 +303,7 @@ export function RowField({
   row,
   sheetId = '',
   selected,
+  textTarget,
   onEdit,
   onRetryCell,
   runResultExpanded,
@@ -308,6 +314,7 @@ export function RowField({
   row: Row;
   sheetId?: string;
   selected: boolean;
+  textTarget?: RowTextTarget;
   onEdit(row: Row, col: ColumnDef, value: CellValue): Promise<void>;
   onRetryCell?(columnName: string): Promise<void>;
   /** Controlled by RowDrawerBody so this field stays expanded across rows. */
@@ -485,8 +492,8 @@ export function RowField({
             <Check size={12} /> Save
           </button>
         </form>
-      ) : bounded ? (
-        <FieldValue col={col} columns={columns} row={row} sheetId={sheetId} value={displayValue} />
+      ) : bounded || textTarget ? (
+        <FieldValue col={col} columns={columns} row={row} sheetId={sheetId} value={displayValue} textTarget={textTarget} />
       ) : (
         <ClampedField>
           <FieldValue
@@ -730,6 +737,7 @@ export function FieldValue({
   value,
   onSelectItem,
   selectableItemIndices,
+  textTarget,
 }: {
   col: ColumnDef;
   columns: ColumnDef[];
@@ -738,11 +746,12 @@ export function FieldValue({
   value: Row['cells'][string];
   onSelectItem?(index: number): void;
   selectableItemIndices?: ReadonlySet<number>;
+  textTarget?: RowTextTarget;
 }) {
   const { chromePreferences: { projectId } } = useWorkspaceStores();
   if (row.loadedColumnIds && !row.loadedColumnIds.includes(col.id)) return <p role="status">Loading value…</p>;
   const bounded = row.boundedValues?.[col.id];
-  if (bounded) return <LargeCellValue projectId={projectId} rowId={row.id} columnId={col.id} descriptor={bounded} />;
+  if (bounded || textTarget) return <LargeCellValue projectId={projectId} rowId={row.id} columnId={col.id} descriptor={bounded} textTarget={textTarget} />;
   // Explicit "(empty)" for a real null/empty value so the detail panel never
   // shows blank (or, pre-coercion, the literal string "null") as if it were
   // text. Styled by .row-field-empty (dim, italic, --text-light).
