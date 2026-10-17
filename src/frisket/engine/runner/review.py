@@ -484,7 +484,7 @@ def _hydrate_review_bundles(project: Project, keys: list[Any]) -> list[dict[str,
             row_id = int(cell["row_id"])
             column_id = int(cell["column_id"])
             current = current_reads[(int(cell["sheet_id"]), column_id)].get(row_id)
-            if cell["current_exact"] and current is not None:
+            if (cell["changed"] or cell["current_exact"]) and current is not None:
                 value = current.value
                 bounded_value = _bounded_current_value(current)
             else:
