@@ -10,12 +10,14 @@ from __future__ import annotations
 
 import codecs
 import hashlib
+import json
 import os
 import sqlite3
 import threading
 from collections import OrderedDict
-from dataclasses import dataclass
-from typing import Any, Iterator
+from contextlib import closing
+from dataclasses import dataclass, replace
+from typing import Any, Callable, Iterator
 
 from .value_codec import decode_stored_value
 
@@ -31,6 +33,11 @@ _SCALAR_KINDS = frozenset({"integer", "real", "boolean"})
 _BLOB_CHUNK_BYTES = 64 * 1024
 _HASH_CACHE: OrderedDict[tuple[Any, ...], str] = OrderedDict()
 _HASH_CACHE_LOCK = threading.Lock()
+_TEXT_META_CACHE: OrderedDict[tuple[Any, ...], CurrentTextMetadata] = OrderedDict()
+_PREPARED_META_CACHE: OrderedDict[tuple[Any, ...], list[tuple[int, int, int, bool]]] = (
+    OrderedDict()
+)
+_PREPARED_CACHE_PAGE_LIMIT = 32_768
 
 
 class CurrentValueUnavailable(ValueError):
@@ -99,6 +106,8 @@ class CurrentTextMetadata:
     total_characters: int
     total_bytes: int
     has_nul: bool = False
+    blob_rowid: int | None = None
+    prepared_pages: tuple[tuple[int, int, int, bool], ...] = ()
 
 
 _AUTHORITY_CTE = """
@@ -178,26 +187,41 @@ def decode_text_prefix(value: str | bytes | None) -> str | None:
 def _blob_text_chunks(
     db: sqlite3.Connection,
     select_value: str,
-    params: dict[str, int],
+    params: dict[str, Any],
     total_bytes: int,
+    *,
+    blob_location: tuple[str, str, int] | None = None,
 ) -> Iterator[str]:
-    """Decode NUL-bearing UTF-8 through bounded BLOB slices.
+    """Decode one UTF-8 stream, preserving NUL and split character boundaries.
 
-    SQLite TEXT length/substr stop at NUL. BLOB slices preserve all bytes;
-    incremental decoding also preserves characters crossing chunk boundaries.
-    Ordinary text takes the direct SQL codepoint path instead.
+    Addressable authority rows use incremental SQLite blob I/O. WITHOUT ROWID
+    authorities use one scalar subquery per stream: SQLite retains one value,
+    while Python receives only bounded chunks, rather than reloading it per slice.
     """
     decoder = codecs.getincrementaldecoder("utf-8")()
-    for offset in range(0, total_bytes, _BLOB_CHUNK_BYTES):
-        row = db.execute(
-            "SELECT substr(CAST(value AS BLOB),:byte_start,:byte_limit) FROM ("
-            + select_value
-            + ")",
-            {**params, "byte_start": offset + 1, "byte_limit": _BLOB_CHUNK_BYTES},
-        ).fetchone()
-        yield decoder.decode(
-            bytes(row[0]), final=offset + _BLOB_CHUNK_BYTES >= total_bytes
-        )
+    if blob_location is not None:
+        table, column, rowid = blob_location
+        with db.blobopen(table, column, rowid, readonly=True) as blob:
+            for offset in range(0, total_bytes, _BLOB_CHUNK_BYTES):
+                yield decoder.decode(
+                    blob.read(_BLOB_CHUNK_BYTES),
+                    final=offset + _BLOB_CHUNK_BYTES >= total_bytes,
+                )
+        return
+    offsets = json.dumps(list(range(0, total_bytes, _BLOB_CHUNK_BYTES)))
+    cursor = db.execute(
+        "SELECT substr((SELECT CAST(value AS BLOB) FROM ("
+        + select_value
+        + ")),chunk.value+1,:chunk_size) FROM json_each(:chunk_offsets) AS chunk",
+        {**params, "chunk_offsets": offsets, "chunk_size": _BLOB_CHUNK_BYTES},
+    )
+    try:
+        for index, row in enumerate(cursor):
+            yield decoder.decode(
+                bytes(row[0]), final=(index + 1) * _BLOB_CHUNK_BYTES >= total_bytes
+            )
+    finally:
+        cursor.close()
 
 
 def _sql_text_slice(
@@ -209,6 +233,7 @@ def _sql_text_slice(
     limit: int,
     has_nul: bool,
     total_bytes: int,
+    blob_location: tuple[str, str, int] | None = None,
 ) -> str:
     if not has_nul:
         row = db.execute(
@@ -218,12 +243,17 @@ def _sql_text_slice(
         return str(row[0] or "")
     fragments = []
     offset = 0
-    for text in _blob_text_chunks(db, select_value, params, total_bytes):
-        if offset + len(text) > start:
-            fragments.append(text[max(0, start - offset) : start + limit - offset])
-        offset += len(text)
-        if offset >= start + limit:
-            break
+    with closing(
+        _blob_text_chunks(
+            db, select_value, params, total_bytes, blob_location=blob_location
+        )
+    ) as chunks:
+        for text in chunks:
+            if offset + len(text) > start:
+                fragments.append(text[max(0, start - offset) : start + limit - offset])
+            offset += len(text)
+            if offset >= start + limit:
+                break
     return "".join(fragments)
 
 
@@ -273,6 +303,23 @@ def iter_sql_text(
     yield from _blob_text_chunks(db, select_value, params, total_bytes)
 
 
+def _cache_key(
+    db: sqlite3.Connection, identity: tuple[Any, ...]
+) -> tuple[Any, ...] | None:
+    filename = str(db.execute("PRAGMA database_list").fetchone()[2])
+    if not filename:
+        return None
+    stat = os.stat(filename)
+    bundle = db.execute("SELECT value FROM meta WHERE key='storage_id'").fetchone()
+    return (
+        filename,
+        stat.st_dev,
+        stat.st_ino,
+        str(bundle[0]) if bundle is not None else None,
+        *identity,
+    )
+
+
 def cached_text_hash(
     db: sqlite3.Connection, identity: tuple[Any, ...], parts: Iterator[str]
 ) -> str:
@@ -282,18 +329,8 @@ def cached_text_hash(
     revision prevents another project or a replacement database reusing a key.
     In-memory databases bypass the cache.
     """
-    filename = str(db.execute("PRAGMA database_list").fetchone()[2])
-    key = None
-    if filename:
-        stat = os.stat(filename)
-        bundle = db.execute("SELECT value FROM meta WHERE key='storage_id'").fetchone()
-        key = (
-            filename,
-            stat.st_dev,
-            stat.st_ino,
-            str(bundle[0]) if bundle is not None else None,
-            *identity,
-        )
+    key = _cache_key(db, identity)
+    if key is not None:
         with _HASH_CACHE_LOCK:
             if key in _HASH_CACHE:
                 _HASH_CACHE.move_to_end(key)
@@ -318,20 +355,34 @@ def current_text_hash(
     row_id: int,
     column_id: int,
     metadata: CurrentTextMetadata | None = None,
+    check: Callable[[], None] | None = None,
 ) -> str:
     metadata = metadata or current_text_metadata(
         db, sheet_id=sheet_id, row_id=row_id, column_id=column_id
     )
+
+    def checked_parts() -> Iterator[str]:
+        with closing(
+            iter_current_value(
+                db,
+                sheet_id=sheet_id,
+                row_id=row_id,
+                column_id=column_id,
+                expected_revision=metadata.retrieval_revision,
+                metadata=metadata,
+            )
+        ) as parts:
+            for part in parts:
+                if check is not None:
+                    check()
+                yield part
+
+    if check is not None:
+        check()
     return cached_text_hash(
         db,
         ("cell", sheet_id, row_id, column_id, metadata.retrieval_revision),
-        iter_current_value(
-            db,
-            sheet_id=sheet_id,
-            row_id=row_id,
-            column_id=column_id,
-            expected_revision=metadata.retrieval_revision,
-        ),
+        checked_parts(),
     )
 
 
@@ -341,6 +392,16 @@ def _prepared_pages(
     """Return page locators and sizes, never their full text."""
     if not ref_ids:
         return {}
+    pages: dict[int, list[tuple[int, int, int, bool]]] = {}
+    keys = {ref_id: _cache_key(db, ("prepared_ref", ref_id)) for ref_id in ref_ids}
+    with _HASH_CACHE_LOCK:
+        for ref_id, key in keys.items():
+            if key in _PREPARED_META_CACHE:
+                pages[ref_id] = _PREPARED_META_CACHE[key]
+                _PREPARED_META_CACHE.move_to_end(key)
+    ref_ids = [ref_id for ref_id in ref_ids if ref_id not in pages]
+    if not ref_ids:
+        return pages
     placeholders = ",".join("?" for _ in ref_ids)
     rows = db.execute(
         "SELECT ref.id,version.id,length(version.prepared_text),"
@@ -353,7 +414,6 @@ def _prepared_pages(
         f"WHERE ref.id IN ({placeholders}) ORDER BY ref.id,member.page_number",
         ref_ids,
     ).fetchall()
-    pages: dict[int, list[tuple[int, int, int, bool]]] = {}
     for ref_id, version_id, characters, byte_size, has_nul in rows:
         if has_nul:
             characters = sum(
@@ -364,11 +424,28 @@ def _prepared_pages(
                     "WHERE id=:version_id",
                     {"version_id": version_id},
                     byte_size,
+                    blob_location=(
+                        "prepared_page_versions",
+                        "prepared_text",
+                        version_id,
+                    ),
                 )
             )
         pages.setdefault(ref_id, []).append(
             (version_id, characters, byte_size, bool(has_nul))
         )
+    with _HASH_CACHE_LOCK:
+        for ref_id in ref_ids:
+            key = keys[ref_id]
+            value = pages.get(ref_id, [])
+            if key is not None and len(value) <= _PREPARED_CACHE_PAGE_LIMIT:
+                _PREPARED_META_CACHE[key] = value
+                _PREPARED_META_CACHE.move_to_end(key)
+        while (
+            len(_PREPARED_META_CACHE) > 128
+            or sum(map(len, _PREPARED_META_CACHE.values())) > _PREPARED_CACHE_PAGE_LIMIT
+        ):
+            _PREPARED_META_CACHE.popitem(last=False)
     return pages
 
 
@@ -385,10 +462,17 @@ def prepared_text_sizes(
 
 
 def read_prepared_text(
-    db: sqlite3.Connection, ref_id: int, start: int, limit: int
+    db: sqlite3.Connection,
+    ref_id: int,
+    start: int,
+    limit: int,
+    *,
+    pages: tuple[tuple[int, int, int, bool], ...] | None = None,
 ) -> str:
     """Read intersecting pages and exact two-newline assembly separators."""
-    pages = _prepared_pages(db, [ref_id]).get(ref_id, [])
+    pages = (
+        pages if pages is not None else _prepared_pages(db, [ref_id]).get(ref_id, [])
+    )
     fragments = []
     offset = 0
     for index, (version_id, characters, byte_size, has_nul) in enumerate(pages):
@@ -406,6 +490,11 @@ def read_prepared_text(
                     limit=min(characters, start + limit - offset) - local_start,
                     has_nul=has_nul,
                     total_bytes=byte_size,
+                    blob_location=(
+                        "prepared_page_versions",
+                        "prepared_text",
+                        version_id,
+                    ),
                 )
             )
         offset += characters
@@ -556,33 +645,55 @@ def current_text_metadata(
     column_id: int,
     include_scalars: bool = False,
 ) -> CurrentTextMetadata:
-    sql = (
+    params = _params(sheet_id, column_id, [row_id])
+    row = db.execute(
         "WITH "
         + _authority_cte([row_id])
         + " SELECT stored_kind,CASE WHEN stored_kind='prepared_content_ref' "
         "THEN stored_value END AS prepared_ref_id,retrieval_revision,"
-        "length(CAST(stored_value AS TEXT)) AS total_characters,"
-        "length(CAST(stored_value AS BLOB)) AS total_bytes,"
-        "instr(stored_value,char(0))>0 AS has_nul "
-        "FROM authority"
-    )
-    params = _params(sheet_id, column_id, [row_id])
-    row = db.execute(sql, params).fetchone()
+        "CASE WHEN origin_kind='source_cell' THEN (SELECT source.rowid FROM cells AS source "
+        "WHERE source.row_id=authority.row_id AND source.column_id=:column_id "
+        "AND source.producer_id IS authority.base_producer_id) END AS blob_rowid FROM authority",
+        params,
+    ).fetchone()
     if row is None or row["retrieval_revision"] is None or row["stored_kind"] is None:
         raise CurrentValueUnavailable("cell value is unavailable")
     kind = str(row["stored_kind"])
     revision = int(row["retrieval_revision"])
     if kind == "prepared_content_ref":
         ref_id = int(row["prepared_ref_id"])
-        sizes = prepared_text_sizes(db, [ref_id]).get(ref_id)
-        if sizes is None:
+        pages = tuple(_prepared_pages(db, [ref_id]).get(ref_id, []))
+        if not pages:
             raise CurrentValueUnavailable("prepared cell value is unavailable")
-        return CurrentTextMetadata("text", ref_id, revision, *sizes)
+        separators = max(0, len(pages) - 1) * 2
+        return CurrentTextMetadata(
+            "text",
+            ref_id,
+            revision,
+            sum(page[1] for page in pages) + separators,
+            sum(page[2] for page in pages) + separators,
+            prepared_pages=pages,
+        )
     if kind not in _TEXTUAL_KINDS and not (include_scalars and kind in _SCALAR_KINDS):
         raise CurrentValueNotTextual("cell value is not textual")
-    characters = int(row["total_characters"])
-    byte_size = int(row["total_bytes"])
-    has_nul = bool(row["has_nul"])
+    key = _cache_key(db, ("cell_metadata", sheet_id, row_id, column_id, revision))
+    with _HASH_CACHE_LOCK:
+        if key in _TEXT_META_CACHE:
+            _TEXT_META_CACHE.move_to_end(key)
+            # VACUUM may renumber implicit rowids without changing cell content.
+            return replace(
+                _TEXT_META_CACHE[key],
+                blob_rowid=row["blob_rowid"] if kind in _TEXTUAL_KINDS else None,
+            )
+    sizes = db.execute(
+        "WITH "
+        + _authority_cte([row_id])
+        + " SELECT length(CAST(stored_value AS TEXT)),"
+        "length(CAST(stored_value AS BLOB)),instr(stored_value,char(0))>0 FROM authority",
+        params,
+    ).fetchone()
+    characters, byte_size, has_nul = int(sizes[0]), int(sizes[1]), bool(sizes[2])
+    blob_rowid = row["blob_rowid"] if kind in _TEXTUAL_KINDS else None
     if has_nul:
         characters = sum(
             len(chunk)
@@ -593,9 +704,21 @@ def current_text_metadata(
                 + " SELECT stored_value AS value FROM authority",
                 params,
                 byte_size,
+                blob_location=("cells", "value", blob_rowid)
+                if blob_rowid is not None
+                else None,
             )
         )
-    return CurrentTextMetadata(kind, None, revision, characters, byte_size, has_nul)
+    metadata = CurrentTextMetadata(
+        kind, None, revision, characters, byte_size, has_nul, blob_rowid
+    )
+    if key is not None:
+        with _HASH_CACHE_LOCK:
+            _TEXT_META_CACHE[key] = metadata
+            _TEXT_META_CACHE.move_to_end(key)
+            while len(_TEXT_META_CACHE) > 128:
+                _TEXT_META_CACHE.popitem(last=False)
+    return metadata
 
 
 def read_current_text(
@@ -618,7 +741,13 @@ def read_current_text(
     if limit == 0:
         return ""
     if metadata.prepared_ref_id is not None:
-        return read_prepared_text(db, metadata.prepared_ref_id, start, limit)
+        return read_prepared_text(
+            db,
+            metadata.prepared_ref_id,
+            start,
+            limit,
+            pages=metadata.prepared_pages or None,
+        )
     return _sql_text_slice(
         db,
         "WITH "
@@ -629,7 +758,55 @@ def read_current_text(
         limit=limit,
         has_nul=metadata.has_nul,
         total_bytes=metadata.total_bytes,
+        blob_location=("cells", "value", metadata.blob_rowid)
+        if metadata.blob_rowid is not None
+        else None,
     )
+
+
+def locate_current_text(
+    db: sqlite3.Connection,
+    *,
+    sheet_id: int,
+    row_id: int,
+    column_id: int,
+    metadata: CurrentTextMetadata,
+    literal: str,
+    check: Callable[[], None] | None = None,
+) -> int:
+    """Locate a literal once, with absolute codepoint offsets and bounded memory."""
+    if check is not None:
+        check()
+    if metadata.prepared_ref_id is None and not metadata.has_nul:
+        row = db.execute(
+            "WITH "
+            + _authority_cte([row_id])
+            + " SELECT instr(CAST(stored_value AS TEXT),:literal)-1 FROM authority",
+            {**_params(sheet_id, column_id, [row_id]), "literal": literal},
+        ).fetchone()
+        return int(row[0])
+    offset = 0
+    overlap = ""
+    with closing(
+        iter_current_value(
+            db,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=column_id,
+            expected_revision=metadata.retrieval_revision,
+            metadata=metadata,
+        )
+    ) as parts:
+        for part in parts:
+            if check is not None:
+                check()
+            text = overlap + part
+            found = text.find(literal)
+            if found >= 0:
+                return offset - len(overlap) + found
+            overlap = text[-(len(literal) - 1) :] if len(literal) > 1 else ""
+            offset += len(part)
+    return -1
 
 
 def read_current_value_window(
@@ -701,10 +878,11 @@ def iter_current_value(
     row_id: int,
     column_id: int,
     expected_revision: int,
+    metadata: CurrentTextMetadata | None = None,
 ) -> Iterator[str]:
     """Stream exact UTF-8 chunks from the caller's revision-fenced snapshot."""
 
-    metadata = current_text_metadata(
+    metadata = metadata or current_text_metadata(
         db, sheet_id=sheet_id, row_id=row_id, column_id=column_id
     )
     if metadata.retrieval_revision != expected_revision:
@@ -717,13 +895,25 @@ def iter_current_value(
             + " SELECT CAST(stored_value AS TEXT) AS value FROM authority",
             _params(sheet_id, column_id, [row_id]),
             metadata.total_bytes,
+            blob_location=("cells", "value", metadata.blob_rowid)
+            if metadata.blob_rowid is not None
+            else None,
         )
         return
-    yield from iter_prepared_text(db, metadata.prepared_ref_id)
+    yield from iter_prepared_text(
+        db, metadata.prepared_ref_id, pages=metadata.prepared_pages or None
+    )
 
 
-def iter_prepared_text(db: sqlite3.Connection, ref_id: int) -> Iterator[str]:
-    pages = _prepared_pages(db, [ref_id]).get(ref_id, [])
+def iter_prepared_text(
+    db: sqlite3.Connection,
+    ref_id: int,
+    *,
+    pages: tuple[tuple[int, int, int, bool], ...] | None = None,
+) -> Iterator[str]:
+    pages = (
+        pages if pages is not None else _prepared_pages(db, [ref_id]).get(ref_id, [])
+    )
     for index, (version_id, _characters, byte_size, _has_nul) in enumerate(pages):
         if index:
             yield "\n\n"
@@ -732,6 +922,7 @@ def iter_prepared_text(db: sqlite3.Connection, ref_id: int) -> Iterator[str]:
             "SELECT prepared_text AS value FROM prepared_page_versions WHERE id=:version_id",
             {"version_id": version_id},
             byte_size,
+            blob_location=("prepared_page_versions", "prepared_text", version_id),
         )
 
 
@@ -754,6 +945,7 @@ __all__ = [
     "read_prepared_text",
     "iter_prepared_text",
     "read_current_text",
+    "locate_current_text",
     "prepared_text_sizes",
     "MANUAL_EDIT_BYTE_LIMIT",
     "PREVIEW_BYTE_LIMIT",

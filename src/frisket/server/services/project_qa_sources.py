@@ -11,9 +11,12 @@ from typing import Any
 
 from frisket.engine.store import Project
 from frisket.engine.store.current_value_windows import (
+    CurrentTextMetadata,
     CurrentValueNotTextual,
     CurrentValueUnavailable,
     current_text_metadata,
+    current_text_hash,
+    locate_current_text,
     read_current_text,
 )
 
@@ -56,7 +59,9 @@ def _read(project: Project, cancel: threading.Event | None):
             snapshot.db.set_progress_handler(None, 0)
 
 
-def _metadata(db: sqlite3.Connection, cell: tuple[int, int, int]) -> dict[str, Any]:
+def _metadata(
+    db: sqlite3.Connection, cell: tuple[int, int, int]
+) -> tuple[dict[str, Any], CurrentTextMetadata | None]:
     row = db.execute(
         "SELECT c.origin_kind,c.origin_op_id,c.origin_run_id,c.base_producer_id,"
         "c.validity,col.type AS column_type FROM current_cells c "
@@ -100,7 +105,7 @@ def _metadata(db: sqlite3.Connection, cell: tuple[int, int, int]) -> dict[str, A
         "column_type": row["column_type"],
         "value_ref": ref,
         "version": {**ref, "base_producer_id": row["base_producer_id"]},
-    }
+    }, text_meta
 
 
 def _start(meta: dict[str, Any], cursor: dict[str, Any] | None, start: int) -> int:
@@ -124,25 +129,13 @@ def _start(meta: dict[str, Any], cursor: dict[str, Any] | None, start: int) -> i
 
 
 def _text(
-    db: sqlite3.Connection, cell: tuple[int, int, int], start: int, size: int
+    db: sqlite3.Connection,
+    cell: tuple[int, int, int],
+    metadata: CurrentTextMetadata | None,
+    start: int,
+    size: int,
 ) -> str:
-    valid = db.execute(
-        "SELECT validity FROM current_cells WHERE row_id=? AND column_id=?",
-        cell[1:],
-    ).fetchone()
-    if valid is None or valid[0] != "valid":
-        return ""
-    try:
-        metadata = current_text_metadata(
-            db,
-            sheet_id=cell[0],
-            row_id=cell[1],
-            column_id=cell[2],
-            include_scalars=True,
-        )
-    except (CurrentValueNotTextual, CurrentValueUnavailable):
-        return ""
-    if metadata.value_kind == "legacy_invalid":
+    if metadata is None:
         return ""
     return read_current_text(
         db,
@@ -153,6 +146,11 @@ def _text(
         start=start,
         limit=size,
     )
+
+
+def _check_read(cancel: threading.Event | None, deadline: float) -> None:
+    if (cancel and cancel.is_set()) or time.monotonic() >= deadline:
+        raise InterruptedError("source read stopped or exceeded its time limit")
 
 
 def read_source_text(
@@ -169,22 +167,22 @@ def read_source_text(
     if not 1 <= limit <= MAX_SOURCE_CHARS:
         raise ValueError("invalid source read size")
     with _read(project, cancel) as (db, deadline):
-        meta = _metadata(db, cell)
+        meta, text_meta = _metadata(db, cell)
         start = _start(meta, cursor, start)
-        if cursor is None and anchor:
-            lead = min(500, limit // 2)
-            needle = anchor[:500]
-            for offset in range(0, meta["length"], MAX_SCAN_CHARS - len(needle) + 1):
-                if (cancel and cancel.is_set()) or time.monotonic() >= deadline:
-                    raise InterruptedError(
-                        "source anchor read stopped or exceeded its time limit"
-                    )
-                located = _text(db, cell, offset, MAX_SCAN_CHARS).find(needle)
-                if located >= 0:
-                    start = max(0, offset + located - lead)
-                    break
+        if cursor is None and anchor and text_meta is not None:
+            located = locate_current_text(
+                db,
+                sheet_id=cell[0],
+                row_id=cell[1],
+                column_id=cell[2],
+                metadata=text_meta,
+                literal=anchor[:500],
+                check=lambda: _check_read(cancel, deadline),
+            )
+            if located >= 0:
+                start = max(0, located - min(500, limit // 2))
         start = min(start, meta["length"])
-        text = _text(db, cell, start, limit)
+        text = _text(db, cell, text_meta, start, limit)
         end = start + len(text)
         return {
             **meta,
@@ -209,10 +207,10 @@ def find_source_text(
     if not isinstance(literal, str) or not literal or len(literal) > 500:
         raise ValueError("literal must contain 1 to 500 characters")
     with _read(project, cancel) as (db, deadline):
-        meta = _metadata(db, cell)
+        meta, text_meta = _metadata(db, cell)
         start = _start(meta, cursor, 0)
         # The overlap is revisited on continuation so boundary-spanning matches survive.
-        text = _text(db, cell, start, MAX_SCAN_CHARS)
+        text = _text(db, cell, text_meta, start, MAX_SCAN_CHARS)
         matches = []
         position = 0
         exhausted = True
@@ -273,7 +271,7 @@ def resolve_prepared_source(
     and when the link still names the current derived cell value.
     """
     with _read(project, cancel) as (db, _deadline):
-        source_meta = _metadata(db, cell)
+        source_meta, _ = _metadata(db, cell)
         if source_meta["version"] != expected_version:
             raise ValueError("source_changed: reopen this source before reading it")
         blob_row = db.execute(
@@ -317,7 +315,7 @@ def resolve_prepared_source(
                 int(candidate[key]) for key in ("sheet_id", "row_id", "column_id")
             )
             try:
-                prepared_meta = _metadata(db, prepared_cell)
+                prepared_meta, _ = _metadata(db, prepared_cell)
             except ValueError:
                 continue
             if (
@@ -381,10 +379,8 @@ def read_prepared_passages(
     Reuse the canonical evidence links/spans and their hash check. Even hash
     verification reads bounded SQL slices, rather than a whole Python cell.
     """
-    import hashlib
-
     with _read(project, cancel) as (db, deadline):
-        meta = _metadata(db, cell)
+        meta, text_meta = _metadata(db, cell)
         if meta["version"] != expected_version:
             raise ValueError(
                 "source_changed: reopen this source before reading its evidence"
@@ -416,7 +412,9 @@ def read_prepared_passages(
                 "((ts.value_ref_json=? AND sp.char_start < ? AND sp.char_end > ?) "
                 "OR instr(?, substr(coalesce(sp.quote,sp.snippet),1,80)) > 0)"
             )
-            params.extend([ref_json, end, start, _text(db, cell, start, end - start)])
+            params.extend(
+                [ref_json, end, start, _text(db, cell, text_meta, start, end - start)]
+            )
         rows = db.execute(
             "SELECT l.stable_id AS evidence_link_id, a.stable_id AS artifact_id, "
             "sp.stable_id AS span_id, substr(coalesce(sp.quote,sp.snippet),1,?) AS text, "
@@ -430,15 +428,15 @@ def read_prepared_passages(
             [limit, *params],
         ).fetchall()
         current_hash = None
-        if any(row["text_layer_hash"] for row in rows):
-            digest = hashlib.sha256()
-            for offset in range(0, meta["length"], 65536):
-                if (cancel and cancel.is_set()) or time.monotonic() >= deadline:
-                    raise InterruptedError(
-                        "evidence read stopped or exceeded its time limit"
-                    )
-                digest.update(_text(db, cell, offset, 65536).encode("utf-8"))
-            current_hash = "sha256:" + digest.hexdigest()
+        if text_meta is not None and any(row["text_layer_hash"] for row in rows):
+            current_hash = current_text_hash(
+                db,
+                sheet_id=cell[0],
+                row_id=cell[1],
+                column_id=cell[2],
+                metadata=text_meta,
+                check=lambda: _check_read(cancel, deadline),
+            )
         passages = []
         for row in rows:
             if row["text_layer_hash"] and row["text_layer_hash"] != current_hash:

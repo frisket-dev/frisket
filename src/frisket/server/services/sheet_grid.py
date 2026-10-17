@@ -9,7 +9,7 @@ import statistics
 from collections import Counter
 from contextlib import closing
 from datetime import datetime
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 from frisket.querysets import (
     SheetRowScopePlan,
@@ -26,6 +26,7 @@ from frisket.engine.store.current_value_windows import (
     CurrentValueNotTextual,
     CurrentValueUnavailable,
     MANUAL_EDIT_BYTE_LIMIT,
+    current_text_metadata,
     iter_current_value,
     read_current_column,
     read_current_value_window,
@@ -196,7 +197,7 @@ class SheetGridService:
         row_id: int,
         column_id: int,
         revision: int,
-    ) -> tuple[str, str, Iterator[bytes]]:
+    ) -> tuple[str, str, Iterator[bytes], Callable[[], None]]:
         project = self._workspace.get(project_id)
         sheet_id = _visible_cell_sheet_id(project, row_id, column_id)
         column = project.db.execute(
@@ -207,15 +208,16 @@ class SheetGridService:
         filename = _download_filename(str(column["name"]), row_id)
         snapshot = project.read_snapshot()
         try:
-            initial = read_current_value_window(
+            metadata = current_text_metadata(
                 snapshot.db,
                 sheet_id=sheet_id,
                 row_id=row_id,
                 column_id=column_id,
-                expected_revision=revision,
-                limit=1,
-                max_lines=None,
             )
+            if metadata.retrieval_revision != revision:
+                raise CurrentValueChanged(
+                    "cell value changed; reopen it before continuing"
+                )
         except CurrentValueChanged as exc:
             snapshot.close()
             raise SheetGridRouteError(409, str(exc)) from exc
@@ -225,24 +227,40 @@ class SheetGridService:
         except CurrentValueNotTextual as exc:
             snapshot.close()
             raise SheetGridRouteError(422, str(exc)) from exc
+        except BaseException:
+            snapshot.close()
+            raise
 
         def body() -> Iterator[bytes]:
             try:
-                for text in iter_current_value(
-                    snapshot.db,
-                    sheet_id=sheet_id,
-                    row_id=row_id,
-                    column_id=column_id,
-                    expected_revision=revision,
-                ):
-                    yield text.encode("utf-8")
+                with closing(
+                    iter_current_value(
+                        snapshot.db,
+                        sheet_id=sheet_id,
+                        row_id=row_id,
+                        column_id=column_id,
+                        expected_revision=revision,
+                        metadata=metadata,
+                    )
+                ) as chunks:
+                    for text in chunks:
+                        yield text.encode("utf-8")
+            finally:
+                snapshot.close()
+
+        iterator = body()
+
+        def close() -> None:
+            # Also release a snapshot when the response never starts iterating.
+            try:
+                iterator.close()
             finally:
                 snapshot.close()
 
         media_type = (
-            "application/json" if initial.value_kind == "json" else "text/plain"
+            "application/json" if metadata.value_kind == "json" else "text/plain"
         )
-        return filename, media_type, body()
+        return filename, media_type, iterator, close
 
     def document_page(
         self,

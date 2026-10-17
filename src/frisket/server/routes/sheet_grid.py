@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Callable, Iterator, Literal
 from urllib.parse import quote
 
+from anyio import CancelScope
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import StreamingResponse
+from starlette.concurrency import run_in_threadpool
+from starlette.types import Receive, Scope, Send
 
 from frisket.contracts.http.models import (
     CellTextWindow,
@@ -26,6 +29,21 @@ from frisket.server.route_errors import (
     reject_unknown_query_parameters,
 )
 from frisket.server.services.sheet_grid import SheetGridService
+
+
+class _CellValueDownloadResponse(StreamingResponse):
+    """Own the cell snapshot even if sending fails before the first chunk."""
+
+    def __init__(self, body: Iterator[bytes], close: Callable[[], None], **kwargs: Any):
+        super().__init__(body, **kwargs)
+        self._close = close
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            with CancelScope(shield=True):
+                await run_in_threadpool(self._close)
 
 
 def register_sheet_grid_routes(
@@ -118,14 +136,15 @@ def register_sheet_grid_routes(
         revision: int = Query(gt=0),
     ) -> StreamingResponse:
         reject_unknown_query_parameters(request, CellValueDownloadQuery)
-        filename, media_type, body = service.cell_value_download(
+        filename, media_type, body, close = service.cell_value_download(
             pid,
             row_id=row_id,
             column_id=column_id,
             revision=revision,
         )
-        return StreamingResponse(
+        return _CellValueDownloadResponse(
             body,
+            close,
             media_type=media_type,
             headers={
                 "Content-Disposition": (
