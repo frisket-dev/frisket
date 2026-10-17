@@ -17,9 +17,21 @@ from __future__ import annotations
 import json
 import sys
 
+from .pdf_render_worker import is_environment_failure
+
 
 def main() -> None:
     payload = json.load(sys.stdin)
+    try:
+        _recognize(payload)
+    except (OSError, MemoryError) as exc:
+        if not is_environment_failure(exc):
+            raise
+        # Storage may be full, so the fatal reply cannot rely on a result file.
+        print(json.dumps({"error": "environment_failed"}))
+
+
+def _recognize(payload) -> None:
     try:
         import pytesseract
         from pytesseract import Output

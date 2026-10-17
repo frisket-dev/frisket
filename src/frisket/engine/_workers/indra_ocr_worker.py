@@ -9,6 +9,10 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from typing import Any
 
+from .pdf_render_worker import is_environment_failure
+from frisket.engine.sandbox.fence import SandboxEnforcementUnavailable
+from frisket.engine.sandbox.shim import SandboxTeardownError
+
 
 def _original_box(box: Any, *, rotation: int, width: int, height: int) -> list[float]:
     """Map Indra's upright-page rectangle back to the input image."""
@@ -131,10 +135,17 @@ def main() -> None:
                             height=int(image.shape[0]),
                         )
                     )
-    except Exception:  # noqa: BLE001 - worker returns one content-free failure
-        _write(output, {"error": "Indra OCR could not process the page images"})
+        _write(output, {"pages": pages})
+    except Exception as exc:  # noqa: BLE001 - worker returns one content-free failure
+        if is_environment_failure(exc) or isinstance(
+            exc, (SandboxTeardownError, SandboxEnforcementUnavailable)
+        ):
+            # Fatal storage failures cannot rely on writing the result file.
+            progress_stream.write(json.dumps({"error": "environment_failed"}) + "\n")
+            progress_stream.flush()
+        else:
+            _write(output, {"error": "Indra OCR could not process the page images"})
         return
-    _write(output, {"pages": pages})
 
 
 def _recognize_page(converter, path, *, width, height):
@@ -155,6 +166,7 @@ def _pdf_pages(converter, payload, report):
 
     document = pdfium.PdfDocument(payload["pdf"])
     pages = []
+    consecutive_failures = 0
     raster = Path(payload["out"]).parent / "indra-page.png"
     try:
         total = len(document)
@@ -171,7 +183,17 @@ def _pdf_pages(converter, payload, report):
                 frame = {"width": width, "height": height}
                 stage = "recognition"
                 page = _recognize_page(converter, raster, width=width, height=height)
-            except Exception:  # noqa: BLE001 - page errors must be content-free
+                consecutive_failures = 0
+            except (SandboxTeardownError, SandboxEnforcementUnavailable):
+                raise
+            except Exception as exc:  # noqa: BLE001 - native page errors have varied types
+                if is_environment_failure(exc):
+                    raise
+                consecutive_failures += 1
+                if consecutive_failures >= 5:
+                    raise RuntimeError(
+                        "Indra OCR stopped after 5 consecutive page failures"
+                    ) from None
                 page = {
                     "text": "",
                     "blocks": [],

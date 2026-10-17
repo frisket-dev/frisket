@@ -17,11 +17,12 @@ from frisket.contracts.actions.schemas._engines import (
 )
 from frisket.engine.pdf_render import (
     PdfRenderCancelled,
+    PdfRenderEnvironmentError,
     PdfRenderError,
     render_pdf_pages,
 )
 from frisket.execution.targets import CAPABILITY_OCR
-from frisket.ops.base import OpContext
+from frisket.ops.base import OpContext, RecipeInvocationHalt
 from frisket.ops.media_metadata import image_dimensions as _image_dimensions
 from frisket.ops import ocr_engines_hosted as hosted
 from frisket.ops import ocr_engines_local as local
@@ -263,6 +264,11 @@ class OcrEngines:
                 )
             except PdfRenderCancelled:
                 raise OcrCancelled("OCR cancelled") from None
+            except PdfRenderEnvironmentError as exc:
+                raise RecipeInvocationHalt(
+                    "local_session_failed",
+                    "The PDF rendering environment failed; repair local storage or runtime before resuming.",
+                ) from exc
             except PdfRenderError:
                 raise RuntimeError("PDF rasterization failed") from None
             pages = [page for _number, page in rendered.pages]

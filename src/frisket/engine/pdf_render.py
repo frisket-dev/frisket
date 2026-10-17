@@ -20,6 +20,10 @@ class PdfRenderCancelled(PdfRenderError):
     pass
 
 
+class PdfRenderEnvironmentError(PdfRenderError):
+    """Rendering cannot continue until the local environment is repaired."""
+
+
 class PdfPageOutOfRange(PdfRenderError):
     pass
 
@@ -83,28 +87,35 @@ async def render_pdf_pages(
         },
         separators=(",", ":"),
     ).encode()
-    result = await run_sandboxed(
-        worker_argv("pdf-render"),
-        policy=SandboxPolicy(
-            cpu_seconds=timeout_seconds,
-            wall_seconds=timeout_seconds,
-            memory_mb=2048,
-            confine=fence.Confinement(
-                op="PDFium page rasterization",
-                read=(str(source),),
-                write=(str(scratch),),
+    try:
+        result = await run_sandboxed(
+            worker_argv("pdf-render"),
+            policy=SandboxPolicy(
+                cpu_seconds=timeout_seconds,
+                wall_seconds=timeout_seconds,
+                memory_mb=2048,
+                confine=fence.Confinement(
+                    op="PDFium page rasterization",
+                    read=(str(source),),
+                    write=(str(scratch),),
+                ),
             ),
-        ),
-        stdin_data=payload,
-        scratch_dir=scratch,
-        should_cancel=should_cancel,
-    )
+            stdin_data=payload,
+            scratch_dir=scratch,
+            should_cancel=should_cancel,
+        )
+    except (OSError, ValueError, fence.SandboxEnforcementUnavailable) as exc:
+        raise PdfRenderEnvironmentError("PDF renderer could not start") from exc
     if result.cancelled:
         raise PdfRenderCancelled("PDF rendering was cancelled")
     if not result.ok:
+        if fence.refusal_reason(result.stderr) is not None:
+            raise PdfRenderEnvironmentError("PDF renderer sandbox is unavailable")
         raise PdfRenderError("PDF rendering failed")
     try:
         response = json.loads(result.stdout)
+        if isinstance(response, dict) and response.get("error") == "environment_failed":
+            raise PdfRenderEnvironmentError("PDF rendering environment failed")
         if isinstance(response, dict) and response.get("error") == "page_out_of_range":
             raise PdfPageOutOfRange("PDF page is out of range")
         if not isinstance(response, dict) or response.get("ok") is not True:
@@ -136,6 +147,7 @@ __all__ = [
     "PdfPageOutOfRange",
     "PdfRenderCancelled",
     "PdfRenderError",
+    "PdfRenderEnvironmentError",
     "PdfRenderResult",
     "render_pdf_pages",
 ]

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from frisket.engine.store.media_blobs import owned_media_metadata_document
 
 from pathlib import Path
@@ -263,14 +265,11 @@ def test_image_row_writes_page_and_region_spans_with_source_page_image(
         assert len(viewer["artifacts"]) == 1
         artifact = viewer["artifacts"][0]
 
-        # ONE artifact whose metadata carries the persisted page_images map, in
-        # the exact shape the viewer's _page_payloads reader expects.
-        page_images = artifact["metadata"]["page_images"]
-        assert set(page_images) == {"1"}
-        # an image input references its own source blob as the page image.
-        assert page_images["1"]["blob_hash"] == seeded["blob"]
-        assert page_images["1"]["width"] == 1
-        assert page_images["1"]["height"] == 1
+        # Public metadata omits the duplicate internal map; typed pages retain
+        # the source image and its exact coordinate frame.
+        assert "page_images" not in artifact["metadata"]
+        assert artifact["pages"][0]["image"]["width"] == 1
+        assert artifact["pages"][0]["image"]["height"] == 1
 
         kinds = [span["span_kind"] for span in artifact["spans"]]
         assert kinds.count("page_range") == 1
@@ -433,7 +432,7 @@ def _seed_pdf_project(tmp_path: Path, *, generic_mime: bool = False) -> dict[str
 
 def _fake_pdf_engine():
     async def fake_page_images(self, path, media, spec, scratch, *, engine=None):
-        del self, media, spec, engine
+        del self, media, engine
         # Two synthetic page files (never actually OCR'd; the recipe engine is
         # faked too).
         page1 = scratch / "page-1.png"
@@ -441,11 +440,13 @@ def _fake_pdf_engine():
         page1.write_bytes(PNG_1X1)
         page2.write_bytes(PNG_1X1)
         del path
-        return [page1, page2]
+        return [
+            [page1, page2][number - 1] for number in spec.get("_selected_pages", [1, 2])
+        ]
 
     async def fake_rapidocr(self, page_paths, scratch, language):
         del self, scratch, language
-        return [
+        pages = [
             {
                 "text": "page one heading",
                 "blocks": [
@@ -458,6 +459,7 @@ def _fake_pdf_engine():
             },
             {"text": "", "blocks": []},  # page 2: nothing recognized
         ]
+        return [pages[int(path.stem.split("-")[-1]) - 1] for path in page_paths]
 
     return fake_page_images, fake_rapidocr
 
@@ -473,12 +475,12 @@ def test_pdf_row_retains_geometry_without_display_blobs_and_keeps_empty_page(
     monkeypatch.setattr(OcrEngines, "_ocr_rapidocr", fake_ocr)
     stub_rapidocr_run_scope(monkeypatch)
 
-    # The actual OCR raster is also the evidence source; render exactly once.
-    async def full_size_pages(self, path, media, spec, scratch):
+    # Retain the exact frame of each selected OCR raster.
+    async def full_size_pages(self, path, media, spec, scratch, *, engine=None):
         from PIL import Image
 
         pages = []
-        for number in (1, 2):
+        for number in spec.get("_selected_pages", [1, 2]):
             page = scratch / f"page-{number}.png"
             Image.new("RGB", (4000, 5000), "white").save(page)
             pages.append(page)
@@ -512,7 +514,12 @@ def test_pdf_row_retains_geometry_without_display_blobs_and_keeps_empty_page(
         )
         artifact = viewer["artifacts"][0]
 
-        page_images = artifact["metadata"]["page_images"]
+        assert "page_images" not in artifact["metadata"]
+        stored = project.db.execute(
+            "SELECT metadata FROM source_artifacts WHERE stable_id=?",
+            (artifact["stable_id"],),
+        ).fetchone()
+        page_images = json.loads(stored["metadata"])["page_images"]
         assert set(page_images) == {"1", "2"}
         for meta in page_images.values():
             assert "blob_hash" not in meta

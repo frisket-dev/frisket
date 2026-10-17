@@ -108,10 +108,10 @@ def _fake_multi_page_engine(pages: list[list[dict[str, Any]]]):
     tests."""
 
     async def fake_page_images(self, path, media, spec, scratch, *, engine=None):
-        del self, media, spec, path, engine
+        del self, media, path, engine
         out = []
-        for i in range(len(pages)):
-            page = scratch / f"page-{i + 1}.png"
+        for number in spec.get("_selected_pages", range(1, len(pages) + 1)):
+            page = scratch / f"page-{number}.png"
             Image.new("RGB", (1000, 1000), "white").save(page)
             out.append(page)
         return out
@@ -123,7 +123,8 @@ def _fake_multi_page_engine(pages: list[list[dict[str, Any]]]):
                 "text": " ".join(b["text"] for b in blocks),
                 "blocks": blocks,
             }
-            for blocks in pages
+            for path in page_paths
+            for blocks in [pages[int(path.stem.split("-")[-1]) - 1]]
         ]
 
     return fake_page_images, fake_rapidocr

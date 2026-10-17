@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import errno
 import io
 import json
 from pathlib import Path
@@ -21,6 +22,7 @@ from frisket.engine._workers.indra_ocr_model import (
 from frisket.engine._workers.indra_ocr_worker import _original_box, _page_result
 from frisket.engine._workers import indra_ocr_worker, pdf_render_worker
 from frisket.engine.sandbox.shim import SandboxResult
+from frisket.engine.sandbox.shim import SandboxTeardownError
 from frisket.ops import ocr_engines_local
 
 
@@ -118,6 +120,173 @@ def test_indra_pdf_worker_loads_once_and_releases_each_page(
     progress = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     assert [event["completed"] for event in progress] == list(range(1, 501))
     assert all(event["total"] == 500 for event in progress)
+
+
+@pytest.mark.parametrize("failure_stage", ["rendering", "recognition"])
+@pytest.mark.parametrize("failure", ["storage", "teardown", "persistent"])
+def test_indra_pdf_stops_fatal_or_repeated_failures_and_releases_raster(
+    tmp_path, monkeypatch, failure_stage, failure
+):
+    import sys
+
+    observed, closed = [], []
+
+    class Document:
+        def __len__(self):
+            return 30
+
+        def close(self):
+            closed.append(True)
+
+    def fail(number):
+        if number == 1:
+            return
+        if failure == "storage":
+            raise OSError(errno.ENOSPC, "private storage path")
+        if failure == "teardown":
+            raise SandboxTeardownError("unverified process tree")
+        raise RuntimeError("private page failure")
+
+    def render(doc, number, output, *, dpi):
+        observed.append(number)
+        output.write_bytes(b"page fixture")
+        if failure_stage == "rendering":
+            fail(number)
+        return 12, 8
+
+    def recognize(*args, **kwargs):
+        if failure_stage == "recognition":
+            fail(observed[-1])
+        return {"text": "", "blocks": []}
+
+    monkeypatch.setitem(
+        sys.modules, "pypdfium2", SimpleNamespace(PdfDocument=lambda path: Document())
+    )
+    monkeypatch.setattr(pdf_render_worker, "render_page", render)
+    monkeypatch.setattr(indra_ocr_worker, "_recognize_page", recognize)
+    expected = (
+        OSError
+        if failure == "storage"
+        else SandboxTeardownError
+        if failure == "teardown"
+        else RuntimeError
+    )
+    with pytest.raises(expected):
+        indra_ocr_worker._pdf_pages(
+            None,
+            {"pdf": "fixture.pdf", "out": str(tmp_path / "result.json"), "dpi": 200},
+            lambda *args: None,
+        )
+    assert observed == list(range(1, 7 if failure == "persistent" else 3))
+    assert closed == [True] and not list(tmp_path.glob("*.png"))
+
+
+@pytest.mark.parametrize(
+    ("pdf_mode", "failure_stage"),
+    [
+        (True, "rendering"),
+        (True, "result_write"),
+        (True, "teardown"),
+        (False, "result_write"),
+    ],
+)
+def test_indra_fatal_failure_crosses_main_and_host_without_writable_result(
+    tmp_path, monkeypatch, pdf_mode, failure_stage
+):
+    import sys
+    from contextlib import redirect_stdout
+    from frisket.engine._workers import indra_ocr_artifacts
+    from frisket.ops.base import RecipeInvocationHalt
+    from frisket.runtime import indra_ocr_install
+
+    model_dir = tmp_path / "cache" / "snapshots" / MODEL_REVISION
+    model_dir.mkdir(parents=True)
+    monkeypatch.setattr(indra_ocr_artifacts, "cached_indra_ocr_path", lambda: model_dir)
+    monkeypatch.setattr(
+        indra_ocr_install, "runtime_python", lambda: Path(sys.executable)
+    )
+    monkeypatch.setattr(ocr_engines_local, "indra_ocr_available", lambda: (True, None))
+    loaded, rendered, closed, signals = [], [], [], []
+
+    def load(**kwargs):
+        loaded.append(True)
+        return object()
+
+    class Document:
+        def __len__(self):
+            return 2
+
+        def close(self):
+            closed.append(True)
+
+    def render(doc, number, output, *, dpi):
+        rendered.append(number)
+        output.write_bytes(b"page fixture")
+        if number == 2 and failure_stage == "rendering":
+            raise OSError(errno.ENOSPC, "private storage path")
+        if number == 2 and failure_stage == "teardown":
+            raise SandboxTeardownError("unverified process tree")
+        return 12, 8
+
+    def write(*args, **kwargs):
+        raise OSError(errno.ENOSPC, "private result path")
+
+    monkeypatch.setitem(sys.modules, "indra_ocr", SimpleNamespace(load=load))
+    monkeypatch.setitem(
+        sys.modules,
+        "cv2",
+        SimpleNamespace(
+            IMREAD_GRAYSCALE=0, imread=lambda *args: SimpleNamespace(shape=(8, 12))
+        ),
+    )
+    monkeypatch.setitem(
+        sys.modules, "pypdfium2", SimpleNamespace(PdfDocument=lambda path: Document())
+    )
+    monkeypatch.setattr(pdf_render_worker, "render_page", render)
+    monkeypatch.setattr(
+        indra_ocr_worker,
+        "_recognize_page",
+        lambda *args, **kwargs: {"text": "", "blocks": []},
+    )
+    if failure_stage == "result_write":
+        monkeypatch.setattr(indra_ocr_worker, "_write", write)
+
+    async def launch(argv, **kwargs):
+        monkeypatch.setattr(sys, "stdin", io.StringIO(kwargs["stdin_data"].decode()))
+        stream = io.StringIO()
+        with redirect_stdout(stream):
+            indra_ocr_worker.main()
+        wire = stream.getvalue()
+        signals.extend(json.loads(line) for line in wire.splitlines())
+        if pdf_mode:
+            for line in wire.splitlines():
+                kwargs["on_stdout_line"](line)
+        return SandboxResult(returncode=0, stdout="" if pdf_mode else wire, stderr="")
+
+    monkeypatch.setattr(
+        ocr_engines_local,
+        "run_sandboxed_stdout_lines" if pdf_mode else "run_sandboxed",
+        launch,
+    )
+    with pytest.raises(RecipeInvocationHalt) as raised:
+        asyncio.run(
+            ocr_engines_local.ocr_indra(
+                [] if pdf_mode else [tmp_path / "page.png"],
+                tmp_path,
+                **(
+                    {"pdf": tmp_path / "source.pdf", "page_count": 2}
+                    if pdf_mode
+                    else {}
+                ),
+            )
+        )
+    assert raised.value.code == "local_session_failed"
+    assert loaded == [True]
+    assert signals[-1] == {"error": "environment_failed"}
+    assert not (tmp_path / "indra-ocr-result.json").exists()
+    assert not list(tmp_path.glob("*.png"))
+    if pdf_mode:
+        assert rendered == [1, 2] and closed == [True]
 
 
 @pytest.mark.parametrize(

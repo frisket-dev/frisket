@@ -17,6 +17,14 @@ from frisket.execution.resolver import preview_resolution_in_scope
 from frisket.ai.models.metadata import model_calls_cost_actual
 from frisket.ops import ocr_engines as engines
 from frisket.engine.executor.blob_outputs import RowBlobOutput, RowBlobPlan
+from frisket.engine._workers.pdf_render_worker import is_environment_failure
+from frisket.engine.pdf_render import (
+    PdfRenderCancelled,
+    PdfRenderEnvironmentError,
+    render_pdf_pages,
+)
+from frisket.engine.sandbox.fence import SandboxEnforcementUnavailable
+from frisket.engine.sandbox.shim import SandboxTeardownError
 from frisket.engine.pdf_page_source import (
     PdfPageSourceError,
     materialize_pdf_page,
@@ -63,7 +71,7 @@ def _page_warnings(pages, *, first_page):
     for number, page in enumerate(pages, first_page):
         if error := page.get("error"):
             failures += 1
-            if len(warnings) < 20:
+            if len(warnings) < 19:
                 warnings.append(f"Page {number} failed during {error['stage']}.")
     if failures and failures == len(pages):
         raise RowError(
@@ -336,6 +344,34 @@ class _BoundOcrReader:
                             limits.max_pdf_pages,
                             1 if selected_page is not None else page_count,
                         )
+                    if self._incremental_engine(engine) and (
+                        type(page_count) is not int or page_count <= 0
+                    ):
+                        # A bounded first chunk can still open PDFs that the
+                        # inexpensive metadata probe cannot inspect.
+                        with tempfile.TemporaryDirectory(
+                            prefix="count-", dir=scratch
+                        ) as count_dir:
+                            try:
+                                rendered = await render_pdf_pages(
+                                    original_path,
+                                    Path(count_dir),
+                                    dpi=options["dpi"],
+                                    pages=[1],
+                                    timeout_seconds=600,
+                                    should_cancel=owner._cancelled,
+                                    max_edge=engines.RAPIDOCR_MAX_IMAGE_EDGE
+                                    if engine == engines.LIGHT_ENGINE
+                                    else None,
+                                )
+                            except PdfRenderCancelled as exc:
+                                raise engines.OcrCancelled("OCR cancelled") from exc
+                            except PdfRenderEnvironmentError as exc:
+                                raise RecipeInvocationHalt(
+                                    "local_session_failed",
+                                    "The PDF rendering environment failed; repair local storage or runtime before resuming.",
+                                ) from exc
+                            page_count = rendered.page_count
                 incremental = is_pdf and self._incremental_engine(engine)
                 page_images = {}
                 warnings = ()
@@ -540,6 +576,7 @@ class _BoundOcrReader:
     ):
         owner, options = self._owner, self._owner._options
         pages, images = [], {}
+        consecutive_failures = 0
         usage["input_pages"] = 0
         owner._check_open()
         self._report_page_progress(0, page_count)
@@ -582,10 +619,31 @@ class _BoundOcrReader:
                     if len(output) != 1:
                         raise RuntimeError("OCR returned the wrong page count")
                     pages.append(output[0])
-                except (engines.OcrCancelled, RecipeInvocationHalt):
+                    consecutive_failures = 0
+                except (
+                    engines.OcrCancelled,
+                    RecipeInvocationHalt,
+                    SandboxTeardownError,
+                ):
                     raise
-                except (RuntimeError, OSError, ValueError):
+                except SandboxEnforcementUnavailable as exc:
+                    raise RecipeInvocationHalt(
+                        "local_session_failed",
+                        "The local OCR sandbox is unavailable; repair the local runtime before resuming.",
+                    ) from exc
+                except (RuntimeError, OSError, ValueError) as exc:
                     owner._check_open()
+                    if is_environment_failure(exc):
+                        raise RecipeInvocationHalt(
+                            "local_session_failed",
+                            "The local OCR environment failed; repair local storage or runtime before resuming.",
+                        ) from exc
+                    consecutive_failures += 1
+                    if consecutive_failures >= 5:
+                        raise RowError(
+                            "ocr_pages_failed",
+                            f"OCR stopped after 5 consecutive page failures during {stage} (page {physical_page}).",
+                        ) from None
                     pages.append(
                         {
                             "text": "",
