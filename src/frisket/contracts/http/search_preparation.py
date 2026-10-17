@@ -108,10 +108,24 @@ class SearchPreparationBatch(WireModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+MAX_PDF_INDEXING_FILES = 8
+
+
+class SearchPreparationPdfFile(WireModel):
+    source_id: str
+    filename: str | None = Field(default=None, max_length=200)
+    completed: int = Field(ge=0)
+    total: int = Field(gt=0)
+
+
 class SearchPreparationIndexing(WireModel):
     status: Literal["idle", "pending", "queued", "running", "failed"]
     job_id: int | None = Field(default=None, gt=0)
     error: str | None = None
+    pdf_files: list[SearchPreparationPdfFile] = Field(
+        default_factory=list, max_length=MAX_PDF_INDEXING_FILES
+    )
+    pdf_files_truncated: bool = False
 
 
 class SearchPreparationBatchList(WireModel):
@@ -149,6 +163,7 @@ __all__ = [
     "SearchPreparationIndexing",
     "SearchPreparationJob",
     "SearchPreparationModel",
+    "SearchPreparationPdfFile",
     "SearchPreparationTextSample",
     "SearchPreparationTextSamples",
 ]

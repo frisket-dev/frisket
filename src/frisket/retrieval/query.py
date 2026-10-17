@@ -30,6 +30,7 @@ from .contracts import (
     PageRange,
     ResultGroup,
     RetrievalContribution,
+    RetrievalScope,
     ScopedBinding,
     SearchCoverage,
     SearchRequest,
@@ -1142,6 +1143,67 @@ def _semantic_coverage_channels(
         str(row["channel"])
         for row in rows
         if any(_scoped_coverage_state(reader, request, scope, str(row["channel"])))
+    )
+
+
+@dataclass(frozen=True)
+class PdfIndexingProgress:
+    source_id: str
+    filename: str | None
+    completed: int
+    total: int
+
+
+def read_pdf_indexing_progress(
+    project: Any, *, space_id: str, recipe_id: str, limit: int
+) -> tuple[tuple[PdfIndexingProgress, ...], bool]:
+    """Read bounded committed PDF checkpoints through current visible bindings."""
+    if limit < 1:
+        raise ValueError("PDF progress limit must be positive")
+    if not (Path(project.path) / RETRIEVAL_DB_NAME).is_file():
+        return (), False
+    with PinnedRetrievalReader(project) as reader:
+        scope = compile_scope(reader, RetrievalScope())
+        rows = reader.db.execute(
+            f"""WITH {scope.cte_sql}
+            SELECT preparation.source_id,substr(blob.filename,1,200) AS filename,
+                   json_extract(preparation.cursor_json,'$.next_page')-1 AS completed,
+                   json_extract(preparation.cursor_json,'$.page_count') AS total
+            FROM idx.preparation AS preparation
+            JOIN idx.sources AS source
+              ON source.source_id=preparation.source_id
+             AND source.version_kind=preparation.target_version_kind
+             AND source.version_value=preparation.target_version_value
+             AND source.version_type=preparation.target_version_type
+            JOIN main.blobs AS blob ON blob.hash=source.version_value
+            WHERE preparation.recipe_id=? AND preparation.channel='pdf_page'
+              AND preparation.space_id=? AND preparation.status='preparing'
+              AND source.source_kind='blob' AND source.version_kind='blob_digest'
+              AND source.version_type='text' AND source.source_id='blob:'||blob.hash
+              AND blob.mime='application/pdf'
+              AND json_extract(preparation.cursor_json,'$.kind')='pdf_pages'
+              AND json_extract(preparation.cursor_json,'$.source_id')=source.source_id
+              AND json_extract(preparation.cursor_json,'$.recipe_id')=preparation.recipe_id
+              AND json_type(preparation.cursor_json,'$.next_page')='integer'
+              AND json_type(preparation.cursor_json,'$.page_count')='integer'
+              AND json_extract(preparation.cursor_json,'$.next_page')>=1
+              AND json_extract(preparation.cursor_json,'$.next_page')
+                  <=json_extract(preparation.cursor_json,'$.page_count')
+              AND EXISTS (
+                SELECT 1 FROM idx.bindings AS retrieval_binding
+                JOIN scoped_bindings AS scoped
+                  ON scoped.sheet_id=retrieval_binding.sheet_id
+                 AND scoped.row_id=retrieval_binding.row_id
+                WHERE retrieval_binding.source_key=source.source_key
+                  AND {_visible_column("retrieval_binding")}
+                  AND {_binding_is_current("retrieval_binding")}
+              )
+            ORDER BY preparation.source_id LIMIT ?""",
+            (*scope.params, recipe_id, space_id, limit + 1),
+        ).fetchall()
+    return (
+        tuple(PdfIndexingProgress(**dict(row)) for row in rows[:limit]),
+        len(rows) > limit,
     )
 
 

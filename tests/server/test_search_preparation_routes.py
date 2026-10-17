@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+import json
 import sqlite3
 from dataclasses import dataclass
 from dataclasses import replace
@@ -188,6 +189,101 @@ def test_explicit_preparation_rejects_a_sheet_with_no_actionable_media(
     assert listed["indexing"]["status"] in {"pending", "queued", "running"}
 
 
+def test_preparation_lists_independent_pdf_checkpoints_across_index_jobs(
+    tmp_path, monkeypatch
+):
+    from frisket.retrieval.preparation import DEFAULT_TEXT_SPACE, PDF_PAGE_RECIPE_ID
+    from frisket.retrieval.sources import blob_source_revision
+    from frisket.retrieval.store import RetrievalStore
+    from frisket.search import drain_index
+
+    monkeypatch.setattr(preparation_module, "_requirements", lambda: ())
+    client = TestClient(create_app(tmp_path / "workspace"))
+    project_id = client.post("/api/projects", json={"name": "PDF progress"}).json()[
+        "id"
+    ]
+    workspace = client.app.state.workspace
+    project = workspace.get(project_id)
+    sheet = project.add_sheet("PDFs")
+    column = project.add_column(sheet, "file", type="file")
+    sources = []
+    for filename in ("small.pdf", "large.pdf"):
+        digest = project.add_blob(
+            filename.encode(), filename=filename, mime="application/pdf"
+        )
+        project.add_rows(sheet, [{"file": {"blob": digest}}], {"file": column})
+        sources.append(blob_source_revision(blob_hash=digest))
+    drain_index(project)
+    with RetrievalStore(project) as store:
+        for source, next_page, page_count in zip(sources, (3, 1897), (10, 24909)):
+            store.begin_preparation(
+                source,
+                recipe_id=PDF_PAGE_RECIPE_ID,
+                channel="pdf_page",
+                space_id=DEFAULT_TEXT_SPACE.identity,
+            )
+            assert store.advance_preparation(
+                source,
+                recipe_id=PDF_PAGE_RECIPE_ID,
+                channel="pdf_page",
+                space_id=DEFAULT_TEXT_SPACE.identity,
+                cursor_json=json.dumps(
+                    {
+                        "kind": "pdf_pages",
+                        "source_id": source.source_id,
+                        "recipe_id": PDF_PAGE_RECIPE_ID,
+                        "next_page": next_page,
+                        "page_count": page_count,
+                    }
+                ),
+            )
+    initial_job = project._frisket_schedule_search_index()
+    url = f"/api/projects/{project_id}/search-preparation"
+    first = client.get(url)
+    assert first.status_code == 200, first.text
+    indexing = first.json()["indexing"]
+    assert indexing["job_id"] == initial_job
+    assert not indexing["pdf_files_truncated"]
+    assert {
+        file["filename"]: (file["completed"], file["total"])
+        for file in indexing["pdf_files"]
+    } == {"small.pdf": (2, 10), "large.pdf": (1896, 24909)}
+
+    with RetrievalStore(project) as store:
+        assert store.advance_preparation(
+            sources[1],
+            recipe_id=PDF_PAGE_RECIPE_ID,
+            channel="pdf_page",
+            space_id=DEFAULT_TEXT_SPACE.identity,
+            cursor_json=json.dumps(
+                {
+                    "kind": "pdf_pages",
+                    "source_id": sources[1].source_id,
+                    "recipe_id": PDF_PAGE_RECIPE_ID,
+                    "next_page": 1905,
+                    "page_count": 24909,
+                }
+            ),
+        )
+    next_job = workspace.queue.enqueue(
+        "search.index",
+        {
+            "project_id": project_id,
+            "workspace_root": str(workspace.root),
+            "dedupe_key": "pdf-progress:next",
+        },
+    )
+    second = client.get(url).json()["indexing"]
+    assert second["job_id"] == next_job != indexing["job_id"]
+    assert [file["source_id"] for file in second["pdf_files"]] == [
+        file["source_id"] for file in indexing["pdf_files"]
+    ]
+    assert {
+        file["filename"]: (file["completed"], file["total"])
+        for file in second["pdf_files"]
+    } == {"small.pdf": (2, 10), "large.pdf": (1904, 24909)}
+
+
 def test_preparation_indexing_prefers_running_claim_over_queued_continuation(
     tmp_path, monkeypatch
 ) -> None:
@@ -226,12 +322,16 @@ def test_preparation_indexing_prefers_running_claim_over_queued_continuation(
         "status": "running",
         "job_id": running_id,
         "error": None,
+        "pdf_files": [],
+        "pdf_files_truncated": False,
     }
     assert queue.complete(running_id, "index-test", {"complete": False})
     assert service.list(project_id).indexing.model_dump() == {
         "status": "queued",
         "job_id": continuation_id,
         "error": None,
+        "pdf_files": [],
+        "pdf_files_truncated": False,
     }
 
 
@@ -258,7 +358,13 @@ def test_preparation_list_projects_durable_indexing_work(tmp_path, monkeypatch) 
     semantic = client.get(f"/api/projects/{project_id}/search-preparation").json()[
         "indexing"
     ]
-    assert semantic == {"status": "pending", "job_id": None, "error": None}
+    assert semantic == {
+        "status": "pending",
+        "job_id": None,
+        "error": None,
+        "pdf_files": [],
+        "pdf_files_truncated": False,
+    }
     repeated = client.get(f"/api/projects/{project_id}/search-preparation").json()[
         "indexing"
     ]
@@ -283,6 +389,8 @@ def test_preparation_list_projects_durable_indexing_work(tmp_path, monkeypatch) 
         "status": "failed",
         "job_id": claimed.id,
         "error": "queue_job_failed: index failed",
+        "pdf_files": [],
+        "pdf_files_truncated": False,
     }
     assert queue.find_job_by_refs("search.index", project_id=project_id) is None
 
@@ -309,6 +417,8 @@ def test_search_recovers_index_work_without_a_queued_job(tmp_path, monkeypatch, 
         "status": "pending",
         "job_id": None,
         "error": None,
+        "pdf_files": [],
+        "pdf_files_truncated": False,
     }
     body = {
         "scope": {"kind": "project"},
@@ -1043,7 +1153,13 @@ def test_empty_project_does_not_queue_or_report_search_preparation(tmp_path):
         assert status.status_code == 200, status.text
         assert status.json() == {
             "batches": [],
-            "indexing": {"status": "idle", "job_id": None, "error": None},
+            "indexing": {
+                "status": "idle",
+                "job_id": None,
+                "error": None,
+                "pdf_files": [],
+                "pdf_files_truncated": False,
+            },
         }
     assert workspace.queue.counts()["queued"] == 0
 

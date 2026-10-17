@@ -11,12 +11,14 @@ from dataclasses import dataclass
 from typing import Any
 
 from frisket.contracts.http.search_preparation import (
+    MAX_PDF_INDEXING_FILES,
     SearchPreparationBatch,
     SearchPreparationBatchList,
     SearchPreparationGroup,
     SearchPreparationIndexing,
     SearchPreparationJob,
     SearchPreparationModel,
+    SearchPreparationPdfFile,
     SearchPreparationTextSample,
     SearchPreparationTextSamples,
 )
@@ -34,6 +36,8 @@ from frisket.engine.store.import_sessions import ImportSessionStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.project_settings import read_project_settings
 from frisket.retrieval.source_adapter import resolve_cell_blob_source
+from frisket.retrieval.preparation import DEFAULT_TEXT_SPACE, PDF_PAGE_RECIPE_ID
+from frisket.retrieval.query import read_pdf_indexing_progress
 from frisket.server.route_errors import RouteError
 from frisket.server.services.action_runs import ActionRunRouteError, ActionRunService
 from frisket.server.services.search_preparation_planning import build_plan, sample_pdf
@@ -489,10 +493,26 @@ class SearchPreparationService:
             if marker is not None
             else "idle"
         )
+        pdf_files, pdf_files_truncated = read_pdf_indexing_progress(
+            project,
+            space_id=DEFAULT_TEXT_SPACE.identity,
+            recipe_id=PDF_PAGE_RECIPE_ID,
+            limit=MAX_PDF_INDEXING_FILES,
+        )
         return SearchPreparationIndexing(
             status=indexing_status,
             job_id=projected_job.id if projected_job is not None else None,
             error=failed_job.error if failed_job is not None else None,
+            pdf_files=[
+                SearchPreparationPdfFile(
+                    source_id=file.source_id,
+                    filename=file.filename,
+                    completed=file.completed,
+                    total=file.total,
+                )
+                for file in pdf_files
+            ],
+            pdf_files_truncated=pdf_files_truncated,
         )
 
     def get(
