@@ -277,7 +277,7 @@ def _require_compatible_hidden_managed_revival(
         )
 
 
-def is_empty_document_text_output(
+def is_generation_free_document_text_output(
     project: Project,
     *,
     sheet_id: int,
@@ -288,7 +288,7 @@ def is_empty_document_text_output(
     output_name: str,
     column_id: int,
 ) -> bool:
-    """Adopt only a pristine designated Text target of its exact file producer."""
+    """Admit only a generation-free designated target of its exact producer."""
 
     if (
         action_kind not in {"media.read_pdf_text", "media.ocr"}
@@ -306,9 +306,11 @@ def is_empty_document_text_output(
     ).fetchone()
     if source is None:
         return False
-    from frisket.engine.store.document_text import is_empty_document_text_target
+    from frisket.engine.store.document_text import (
+        is_generation_free_document_text_target,
+    )
 
-    return is_empty_document_text_target(
+    return is_generation_free_document_text_target(
         project,
         sheet_id=sheet_id,
         source_column_id=int(source["id"]),
@@ -352,7 +354,7 @@ def _require_existing_ai_generation_history(
             and isinstance(spec.get("expected_output_columns"), Mapping)
             and isinstance(spec.get("output_target_preconditions"), Mapping)
             and spec["output_target_preconditions"].get(row["name"]) == int(row["id"])
-            and is_empty_document_text_output(
+            and is_generation_free_document_text_output(
                 project,
                 sheet_id=sheet_id,
                 action_kind=spec["action_kind"],

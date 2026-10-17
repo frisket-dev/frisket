@@ -277,46 +277,66 @@ def document_text_related_column_ids(
     return tuple(sorted((int(row[0]), int(row[1]))))
 
 
-def is_empty_document_text_target(
+def is_generation_free_document_text_target(
     db_or_project: Any,
     *,
     sheet_id: int,
     source_column_id: int,
     text_column_id: int,
 ) -> bool:
-    """Return whether an exact bound target is safe for first-run admission."""
+    """Return whether an exact bound target is safe for first-run admission.
+
+    Existing populated cells are allowed only when they already resolve through
+    the designated role to fresh prepared provenance.  This admits seeded
+    imports without adopting arbitrary or stale Text values.
+    """
 
     db = _db(db_or_project)
     sheet_id = _positive(sheet_id, "sheet_id")
     source_column_id = _positive(source_column_id, "source_column_id")
     text_column_id = _positive(text_column_id, "text_column_id")
-    role = document_text_role(db, source_column_id=source_column_id)
+    if not _role_table_exists(db):
+        return False
+    columns = db.execute(
+        "SELECT source.type,source.active,source.hidden,text.type,text.active,"
+        "text.hidden,text.current_run_id "
+        "FROM document_text_column_roles role "
+        "JOIN columns source ON source.id=role.source_column_id "
+        "JOIN columns text ON text.id=role.text_column_id "
+        "WHERE role.source_column_id=? AND role.text_column_id=? "
+        "AND source.sheet_id=? AND text.sheet_id=?",
+        (source_column_id, text_column_id, sheet_id, sheet_id),
+    ).fetchone()
     if (
-        role is None
-        or role.text_column_id != text_column_id
-        or role.sheet_id != sheet_id
-        or not role.source_active
-        or role.source_hidden
-        or not role.text_active
-        or role.text_hidden
+        columns is None
+        or str(columns[0]) not in {"file", "image"}
+        or not bool(columns[1])
+        or bool(columns[2])
+        or str(columns[3]) != "text"
+        or not bool(columns[4])
+        or bool(columns[5])
+        or columns[6] is not None
     ):
         return False
-    target = db.execute(
-        "SELECT current_run_id FROM columns WHERE id=?", (text_column_id,)
-    ).fetchone()
-    if target is None or target[0] is not None:
+    if db.execute(
+        "SELECT 1 FROM results WHERE column_id=? "
+        "UNION ALL SELECT 1 FROM run_output_generations WHERE column_id=? LIMIT 1",
+        (text_column_id, text_column_id),
+    ).fetchone() is not None:
         return False
-    return (
-        db.execute(
-            "SELECT 1 FROM cells WHERE column_id=? "
-            "UNION ALL SELECT 1 FROM edits WHERE column_id=? "
-            "UNION ALL SELECT 1 FROM results WHERE column_id=? "
-            "UNION ALL SELECT 1 FROM run_output_generations WHERE column_id=? "
-            "LIMIT 1",
-            (text_column_id,) * 4,
-        ).fetchone()
-        is None
-    )
+    stale_or_unpinned = db.execute(
+        "SELECT 1 FROM current_cells head "
+        "JOIN current_cell_values live "
+        "ON live.row_id=head.row_id AND live.column_id=head.column_id "
+        "WHERE head.column_id=? AND live.value_kind IS NOT NULL "
+        "AND live.value_kind<>'null' AND NOT EXISTS ("
+        "SELECT 1 FROM current_document_text_selections selected "
+        "WHERE selected.source_sheet_id=? AND selected.row_id=head.row_id "
+        "AND selected.source_column_id=? AND selected.text_column_id=?"
+        ") LIMIT 1",
+        (text_column_id, sheet_id, source_column_id, text_column_id),
+    ).fetchone()
+    return stale_or_unpinned is None
 
 
 def ensure_document_text_role(
@@ -576,18 +596,18 @@ def document_text_result_eligibility_sql(
 def document_text_generation_authority(
     db: sqlite3.Connection, *, column_id: int
 ) -> bool:
-    """Snapshot whether a new output generation targets a designated Text."""
+    """Snapshot whether a new output generation targets a designated Text.
+
+    Designation is durable policy.  Source and target availability is checked
+    by admission and publication fences, but must not retroactively weaken how
+    failed values from an already planned generation affect canonical heads.
+    """
 
     if not _role_table_exists(db):
         return False
     return (
         db.execute(
-            "SELECT 1 FROM document_text_column_roles role "
-            "JOIN columns source ON source.id=role.source_column_id "
-            "JOIN columns text ON text.id=role.text_column_id "
-            "WHERE role.text_column_id=? AND source.sheet_id=text.sheet_id "
-            "AND source.type IN ('file','image') AND text.type='text' "
-            "AND source.active=1 AND source.hidden=0 AND text.active=1",
+            "SELECT 1 FROM document_text_column_roles WHERE text_column_id=?",
             (_positive(column_id, "column_id"),),
         ).fetchone()
         is not None
@@ -684,7 +704,7 @@ __all__ = [
     "document_text_role_for_text_column",
     "ensure_document_text_role",
     "inherit_document_text_manual_pins",
-    "is_empty_document_text_target",
+    "is_generation_free_document_text_target",
     "require_document_text_publication_sources",
     "require_document_text_publication_key_table",
     "resolve_document_text_selection",

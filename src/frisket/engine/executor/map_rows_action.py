@@ -1756,13 +1756,15 @@ def resolve_row_output_targets(
             is not None
         )
         if bool(column["ai_generated"]) and not generation_managed:
-            from frisket.engine.runner.preparation import is_empty_document_text_output
+            from frisket.engine.runner.preparation import (
+                is_generation_free_document_text_output,
+            )
 
             first_document_text = (
                 request.replace_existing
                 and field.key == "text"
                 and field.column_type == "text"
-                and is_empty_document_text_output(
+                and is_generation_free_document_text_output(
                     project,
                     sheet_id=sheet_id,
                     action_kind=request.action_id,

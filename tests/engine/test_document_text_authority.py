@@ -312,7 +312,13 @@ def test_generation_snapshots_role_and_failed_replacement_preserves_success(
 
         _second_op, second_run, second_authority = start("failed replacement")
         assert second_authority.claim_token is not None
-        generations.declare(
+        # Availability can change after planning.  The durable designation must
+        # still snapshot the failure-preserving publication policy.
+        project.db.execute(
+            "UPDATE columns SET hidden=1 WHERE id=?", (source_column_id,)
+        )
+        project.db.commit()
+        second_binding = generations.declare(
             second_run,
             text_column_id,
             output_role="text",
@@ -320,6 +326,7 @@ def test_generation_snapshots_role_and_failed_replacement_preserves_success(
             write_mode="replace_scope",
             claim_token=second_authority.claim_token,
         )
+        assert second_binding.document_text_authority is True
         RunResultStore(project).write_results(
             second_run,
             [
