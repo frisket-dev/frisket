@@ -14,7 +14,7 @@ from .schema import SCHEMA_DIGEST_META_KEY
 
 
 DOCUMENT_TEXT_FROM_DIGEST = EXECUTION_METADATA_TO_DIGEST
-DOCUMENT_TEXT_TO_DIGEST = "frisket.schema.v1:8530cc2a883837bd5d3295daecea01ef"
+DOCUMENT_TEXT_TO_DIGEST = "frisket.schema.v1:099bb8f1ab7ff5230f6b6b3af36d7a32"
 
 _IMMUTABLE_GENERATION_TRIGGER_SQL = """
 CREATE TRIGGER trg_run_output_generations_immutable_declaration

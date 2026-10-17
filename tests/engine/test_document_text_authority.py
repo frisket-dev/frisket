@@ -7,6 +7,7 @@ import pytest
 from frisket.engine.store import Project
 from frisket.engine.store.cell_writes import EditCellWrite, insert_edits
 from frisket.engine.store.document_text import (
+    DocumentTextPublicationRefused,
     DocumentTextRoleError,
     DocumentTextUnavailable,
     document_text_role,
@@ -14,7 +15,10 @@ from frisket.engine.store.document_text import (
     resolve_document_text_selection,
 )
 from frisket.engine.store.evidence import record_source_artifact
-from frisket.engine.store.prepared_content import PreparedContentStore, PreparedPageDraft
+from frisket.engine.store.prepared_content import (
+    PreparedContentStore,
+    PreparedPageDraft,
+)
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
@@ -127,6 +131,33 @@ def test_flat_manual_edit_inherits_pin_and_source_change_makes_it_stale(
         assert corrected.provenance_ref_id == original.provenance_ref_id
 
         project.db.execute("BEGIN IMMEDIATE")
+        second_edit = project.append_op("edit", commit=False)
+        insert_edits(
+            project.db,
+            op_id=second_edit,
+            edits=[EditCellWrite(row_id, text_column_id, "second correction")],
+        )
+        project.db.commit()
+        assert (
+            resolve_document_text_selection(
+                project, (sheet_id, row_id, source_column_id)
+            ).provenance_ref_id
+            == original.provenance_ref_id
+        )
+        assert project.undo() == second_edit
+        assert (
+            project.get_values(sheet_id, text_column_id, [row_id])[row_id]
+            == "human correction"
+        )
+        assert project.redo() == second_edit
+        assert (
+            resolve_document_text_selection(
+                project, (sheet_id, row_id, source_column_id)
+            ).provenance_ref_id
+            == original.provenance_ref_id
+        )
+
+        project.db.execute("BEGIN IMMEDIATE")
         source_edit_op_id = project.append_op("edit", commit=False)
         insert_edits(
             project.db,
@@ -202,9 +233,7 @@ def test_role_rejects_cross_sheet_and_conflicting_pairs(tmp_path: Path) -> None:
             ensure_document_text_role(
                 project, source_column_id=source, text_column_id=other_text
             )
-        ensure_document_text_role(
-            project, source_column_id=source, text_column_id=text
-        )
+        ensure_document_text_role(project, source_column_id=source, text_column_id=text)
         assert (
             ensure_document_text_role(
                 project, source_column_id=source, text_column_id=text
@@ -278,12 +307,8 @@ def test_generation_snapshots_role_and_failed_replacement_preserves_success(
             claim_token=first_authority.claim_token,
             terminal_disposition="completed",
         )
-        RunResultStore(project).point_column_at_run(
-            first_op, text_column_id, first_run
-        )
-        OutputColumnClaimStore(project).release(
-            claim_token=first_authority.claim_token
-        )
+        RunResultStore(project).point_column_at_run(first_op, text_column_id, first_run)
+        OutputColumnClaimStore(project).release(claim_token=first_authority.claim_token)
 
         _second_op, second_run, second_authority = start("failed replacement")
         assert second_authority.claim_token is not None
@@ -334,5 +359,86 @@ def test_generation_snapshots_role_and_failed_replacement_preserves_success(
             (row_id, text_column_id),
         ).fetchone()
         assert rebuilt is not None and int(rebuilt[0]) == first_run
+    finally:
+        project.close()
+
+
+@pytest.mark.parametrize(
+    "source_type,page", [("file", 0), ("file", "2"), ("file", False), ("image", 1)]
+)
+@pytest.mark.parametrize("deferred", [False, True])
+def test_publication_refuses_invalid_source_page_without_replacing_text(
+    tmp_path: Path, source_type: str, page: object, deferred: bool
+) -> None:
+    project, sheet_id, row_id, source_id, text_id = _project_with_selection(
+        tmp_path, source_type=source_type
+    )
+    try:
+        previous_ref = project.db.execute(
+            "SELECT prepared_ref_id FROM current_cell_values WHERE column_id=?",
+            (text_id,),
+        ).fetchone()[0]
+        op_id = project.append_op("media.ocr")
+        run_id = RunResultStore(project).start_run(
+            op_id, sheet_id, "media.ocr", row_ids=[row_id], total_rows=1
+        )
+        authority = run_writer_authority_fixture(
+            project, run_id, output_column_ids={text_id}
+        )
+        generations = ResultGenerationStore(project)
+        generations.declare(
+            run_id,
+            text_id,
+            output_role="text",
+            compatibility_key="document-test",
+            write_mode="create",
+            defer_publication=deferred,
+            claim_token=authority.claim_token,
+        )
+        project.db.execute("BEGIN IMMEDIATE")
+        edit_op = project.append_op("edit", commit=False)
+        insert_edits(
+            project.db,
+            op_id=edit_op,
+            edits=[EditCellWrite(row_id, source_id, {"blob": _BLOB, "page": page})],
+        )
+        project.db.commit()
+        with pytest.raises(DocumentTextUnavailable):
+            resolve_document_text_selection(project, (sheet_id, row_id, source_id))
+        result = [
+            {
+                "row_id": row_id,
+                "column_id": text_id,
+                "value": PreparedContentRef(previous_ref),
+                "publication_effect": "publish_value",
+            }
+        ]
+        if deferred:
+            RunResultStore(project).write_results(run_id, result, **authority.kwargs())
+            with pytest.raises(DocumentTextPublicationRefused):
+                generations.seal(
+                    run_id,
+                    [text_id],
+                    claim_token=authority.claim_token,
+                    terminal_disposition="completed",
+                )
+        else:
+            with pytest.raises(DocumentTextPublicationRefused):
+                RunResultStore(project).write_results(
+                    run_id, result, **authority.kwargs()
+                )
+        assert (
+            project.db.execute(
+                "SELECT prepared_ref_id FROM current_cell_values WHERE column_id=?",
+                (text_id,),
+            ).fetchone()[0]
+            == previous_ref
+        )
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM cell_result_heads WHERE column_id=?", (text_id,)
+            ).fetchone()[0]
+            == 0
+        )
     finally:
         project.close()

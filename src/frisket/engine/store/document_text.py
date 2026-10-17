@@ -7,6 +7,7 @@ prepared reference whose source they correct.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import re
 from dataclasses import dataclass
@@ -35,7 +36,19 @@ CREATE TABLE IF NOT EXISTS document_text_manual_pins (
 """
 
 
-DOCUMENT_TEXT_SELECTION_VIEW_SQL = """
+# Keep source selector eligibility identical at read and publication boundaries.
+_SOURCE_PAGE_VALID_SQL = """(
+    json_type(source_live.value,'$.page') IS NULL
+    OR json_type(source_live.value,'$.page')='null'
+    OR (
+      source_column.type='file'
+      AND json_type(source_live.value,'$.page')='integer'
+      AND json_extract(source_live.value,'$.page')>0
+    )
+)"""
+
+
+DOCUMENT_TEXT_SELECTION_VIEW_SQL = f"""
 CREATE VIEW IF NOT EXISTS current_document_text_selections AS
 SELECT source_column.sheet_id AS source_sheet_id,
        source_head.row_id AS row_id,
@@ -89,14 +102,7 @@ WHERE source_column.sheet_id=text_column.sheet_id
   AND text_live.value_kind='text'
   AND typeof(json_extract(source_live.value,'$.blob'))='text'
   AND length(json_extract(source_live.value,'$.blob'))>0
-  AND (
-    json_type(source_live.value,'$.page') IS NULL
-    OR json_type(source_live.value,'$.page')='null'
-    OR (
-      json_type(source_live.value,'$.page')='integer'
-      AND json_extract(source_live.value,'$.page')>0
-    )
-  )
+  AND {_SOURCE_PAGE_VALID_SQL}
   AND artifact.blob_hash=json_extract(source_live.value,'$.blob')
   AND ref.page_number IS CASE
     WHEN json_type(source_live.value,'$.page')='integer'
@@ -453,37 +459,44 @@ def inherit_document_text_manual_pins(
 
     if not encoded_edits or not _role_table_exists(db):
         return
-    pins: list[tuple[int, int, int, int]] = []
-    for op_id, row_id, column_id, value_kind, _value in encoded_edits:
-        if value_kind != "text":
-            continue
-        role = document_text_role_for_text_column(db, text_column_id=column_id)
-        if role is None:
-            continue
-        predecessor = db.execute(
-            "SELECT live.prepared_ref_id,head.origin_kind,head.origin_op_id "
-            "FROM current_cells head JOIN current_cell_values live "
-            "ON live.column_id=head.column_id AND live.row_id=head.row_id "
-            "WHERE head.column_id=? AND head.row_id=?",
-            (column_id, row_id),
-        ).fetchone()
-        if predecessor is None:
-            continue
-        prepared_ref_id = predecessor[0]
-        if prepared_ref_id is None and predecessor[1] == "manual_edit":
-            inherited = db.execute(
-                "SELECT prepared_ref_id FROM document_text_manual_pins "
-                "WHERE edit_op_id=? AND row_id=? AND text_column_id=?",
-                (predecessor[2], row_id, column_id),
-            ).fetchone()
-            prepared_ref_id = None if inherited is None else inherited[0]
-        if prepared_ref_id is not None:
-            pins.append((op_id, row_id, column_id, int(prepared_ref_id)))
-    if pins:
-        db.executemany(
-            "INSERT INTO document_text_manual_pins "
-            "(edit_op_id,row_id,text_column_id,prepared_ref_id) VALUES (?,?,?,?)",
-            pins,
+    columns = {column for _, _, column, kind, _ in encoded_edits if kind == "text"}
+    if not columns:
+        return
+    designated = {
+        int(row[0])
+        for row in db.execute(
+            "SELECT text_column_id FROM document_text_column_roles "
+            "WHERE text_column_id IN (SELECT value FROM json_each(?))",
+            (json.dumps(sorted(columns)),),
+        )
+    }
+    if not designated:
+        return
+    targets = [
+        (op_id, row_id, column_id)
+        for op_id, row_id, column_id, kind, _ in encoded_edits
+        if kind == "text" and column_id in designated
+    ]
+    # Read only predecessor metadata, in bounded batches; never hydrate bodies.
+    for offset in range(0, len(targets), 300):
+        batch = targets[offset : offset + 300]
+        placeholders = ",".join("(?,?,?)" for _ in batch)
+        db.execute(
+            f"""WITH targets(edit_op_id,row_id,text_column_id) AS (
+                VALUES {placeholders}
+            )
+            INSERT INTO document_text_manual_pins
+              (edit_op_id,row_id,text_column_id,prepared_ref_id)
+            SELECT target.edit_op_id,target.row_id,target.text_column_id,
+                   COALESCE(live.prepared_ref_id,pin.prepared_ref_id)
+            FROM targets target
+            JOIN current_cell_values live
+              ON live.row_id=target.row_id AND live.column_id=target.text_column_id
+            LEFT JOIN document_text_manual_pins pin
+              ON live.origin_kind='manual_edit' AND pin.edit_op_id=live.origin_op_id
+             AND pin.row_id=live.row_id AND pin.text_column_id=live.column_id
+            WHERE COALESCE(live.prepared_ref_id,pin.prepared_ref_id) IS NOT NULL""",
+            tuple(value for target in batch for value in target),
         )
 
 
@@ -510,6 +523,7 @@ def _prepared_result_matches_source_sql(result_alias: str) -> str:
         AND source_live.validity='valid' AND source_live.value_kind='json'
         AND typeof(json_extract(source_live.value,'$.blob'))='text'
         AND length(json_extract(source_live.value,'$.blob'))>0
+        AND {_SOURCE_PAGE_VALID_SQL}
         AND artifact.blob_hash=json_extract(source_live.value,'$.blob')
         AND ref.page_number IS CASE
           WHEN json_type(source_live.value,'$.page')='integer'
