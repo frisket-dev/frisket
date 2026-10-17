@@ -38,6 +38,7 @@ from frisket.engine.jobs.projection import (
     run_id_from_inline_job_id,
     run_inline_job_payload,
 )
+from frisket.engine.jobs.queue import Job
 from frisket.server.action_enqueue import (
     QueuedV1ActionRunContext,
     exact_keyless_replay_covers_action,
@@ -52,7 +53,11 @@ from frisket.server.workspace import Workspace
 from frisket.execution.provider import ExactExecutionMatch, ExecutionComposition
 from frisket.execution.targets import CAPABILITY_LLM
 from frisket.engine.store import Project
-from frisket.engine.store.receipts import FINISHED_RECEIPT_STATUSES, ReceiptStore
+from frisket.engine.store.receipts import (
+    FINISHED_RECEIPT_STATUSES,
+    ReceiptStore,
+    StoredReceipt,
+)
 from frisket.engine.store.sources import SourceStore
 from frisket.features.watchlists.triggers import (
     source_poll_materialization_from_receipt,
@@ -133,6 +138,12 @@ class ActionRunResponse:
     payload: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class ActionAdmission:
+    receipt: StoredReceipt
+    job: Job | None
+
+
 class ActionRunRouteError(RouteError):
     pass
 
@@ -150,6 +161,33 @@ class ActionRunService:
         self._stale_run_grace_seconds = stale_run_grace_seconds
         self._worker_liveness_window_seconds = worker_liveness_window_seconds
         self._queue_timeout_seconds = queue_timeout_seconds
+
+    def lookup_admission(
+        self,
+        project_id: str,
+        *,
+        action_kind: str,
+        idempotency_key: str,
+    ) -> ActionAdmission | None:
+        """Observe an ordinary action reservation without starting or recovering it.
+
+        A receipt can precede its run or queue job during admission; return those
+        incomplete reservations rather than treating them as absent.
+        """
+        project = self._workspace.get(project_id)
+        receipt = ReceiptStore(project).find_by_action_kind_and_idempotency_key(
+            action_kind=action_kind, key=idempotency_key
+        )
+        if receipt is None:
+            return None
+        job = (
+            self._workspace.queue.get_project_run_job(
+                project_id, receipt.run_id, storage_org_id=self._storage_org_id()
+            )
+            if receipt.run_id is not None
+            else None
+        )
+        return ActionAdmission(receipt=receipt, job=job)
 
     def _attach_run_progress(
         self,
