@@ -10,6 +10,7 @@ import urllib.parse
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Iterator
 
 import pytest
@@ -34,6 +35,11 @@ class _Scenario:
     run_id = 7
     job_id = 9
     receipt_id = "receipt_deployment_smoke"
+    run_statuses = ("completed",)
+    run_reads = 0
+    receipt_statuses = ("completed",)
+    receipt_reads = 0
+    receipt_project_id: str | None = None
     redirect_setup_to: str | None = None
 
 
@@ -110,12 +116,16 @@ class _Handler(BaseHTTPRequestHandler):
         elif path == (
             f"/api/projects/{scenario.project_id}/actions/runs/{scenario.run_id}/status"
         ):
+            status = scenario.run_statuses[
+                min(scenario.run_reads, len(scenario.run_statuses) - 1)
+            ]
+            scenario.run_reads += 1
             self._send(
                 200,
                 {
                     "run": {
                         "public_status": {
-                            "status": "completed",
+                            "status": status,
                             "action_kind": smoke.ACTION_KIND,
                             "total": 1,
                             "completed": 1,
@@ -128,14 +138,18 @@ class _Handler(BaseHTTPRequestHandler):
             f"/api/projects/{scenario.project_id}/actions/v1/receipts/"
             f"{scenario.receipt_id}"
         ):
+            status = scenario.receipt_statuses[
+                min(scenario.receipt_reads, len(scenario.receipt_statuses) - 1)
+            ]
+            scenario.receipt_reads += 1
             self._send(
                 200,
                 {
                     "receipt_id": scenario.receipt_id,
-                    "project_id": scenario.project_id,
+                    "project_id": scenario.receipt_project_id or scenario.project_id,
                     "run_id": scenario.run_id,
                     "action_kind": smoke.ACTION_KIND,
-                    "status": "completed",
+                    "status": status,
                 },
             )
         elif path == (
@@ -266,6 +280,67 @@ def _server(t: ControlledTime) -> Iterator[tuple[str, _Scenario]]:
     finally:
         server.shutdown()
         server.server_close()
+
+
+@pytest.fixture
+def receipt_probe(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv(smoke.SETUP_CODE_ENV, "setup-code")
+    monkeypatch.setenv(smoke.DEFAULT_PASSWORD_ENV, _Scenario.password)
+    with controlled_time() as t, _server(t) as (origin, scenario):
+        monkeypatch.setattr(
+            smoke,
+            "time",
+            SimpleNamespace(monotonic=t.monotonic, sleep=t.advance_seconds),
+        )
+
+        def seed() -> int:
+            return smoke.main(
+                [
+                    "seed",
+                    "--base-url",
+                    origin,
+                    "--state-file",
+                    str(tmp_path / "state.json"),
+                    "--action-timeout",
+                    "2",
+                ]
+            )
+
+        yield seed, scenario, t
+
+
+def test_seed_waits_for_receipt_after_run_completed(receipt_probe) -> None:
+    seed, scenario, _clock = receipt_probe
+    scenario.receipt_statuses = ("queued", "running", "completed")
+
+    assert seed() == 0
+    assert scenario.receipt_reads == 4  # Includes the strict persistence check.
+
+
+def test_receipt_poll_shares_the_run_deadline(receipt_probe, capsys) -> None:
+    seed, scenario, clock = receipt_probe
+    scenario.run_statuses = ("running", "completed")
+    scenario.receipt_statuses = ("queued",)
+
+    assert seed() == 1
+    assert "did not finish within 2s" in capsys.readouterr().err
+    assert clock.monotonic() == 2
+    assert scenario.run_reads == 4
+    assert scenario.receipt_reads == 3
+
+
+@pytest.mark.parametrize("failure", ["identity", "failed"])
+def test_receipt_poll_refuses_without_retry(receipt_probe, capsys, failure) -> None:
+    seed, scenario, clock = receipt_probe
+    if failure == "identity":
+        scenario.receipt_project_id = "another-project"
+    else:
+        scenario.receipt_statuses = ("failed",)
+
+    assert seed() == 1
+    assert failure in capsys.readouterr().err
+    assert scenario.receipt_reads == 1
+    assert clock.monotonic() == 0
 
 
 def test_seed_then_fresh_login_verify_round_trip(monkeypatch, tmp_path: Path) -> None:

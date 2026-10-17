@@ -299,16 +299,23 @@ def _setup_is_closed(session: HttpSession) -> None:
     session.request("GET", "/setup", expected=frozenset({404}))
 
 
-def _poll_completed_run(
+def _poll_completed_action(
     session: HttpSession,
     *,
     project_id: str,
     run_id: int,
+    receipt_id: str,
     deadline_seconds: float,
 ) -> dict[str, Any]:
+    """Wait for the row run and action receipt within one shared deadline."""
     path = f"/api/projects/{urllib.parse.quote(project_id, safe='')}/actions/runs/{run_id}/status"
+    receipt_path = (
+        f"/api/projects/{urllib.parse.quote(project_id, safe='')}/actions/v1/receipts/"
+        f"{urllib.parse.quote(receipt_id, safe='')}"
+    )
     deadline = time.monotonic() + deadline_seconds
     last_status = "unknown"
+    last_receipt_status = "unobserved"
     while time.monotonic() < deadline:
         payload = _require_mapping(session.json("GET", path), "run status")
         run = _require_mapping(payload.get("run"), "run status.run")
@@ -329,11 +336,27 @@ def _poll_completed_run(
                 raise SmokeError(
                     "queued run completed with unexpected action/count metadata"
                 )
-            return payload
+            receipt = _require_mapping(
+                session.json("GET", receipt_path), "queued action receipt"
+            )
+            if (
+                receipt.get("receipt_id") != receipt_id
+                or receipt.get("project_id") != project_id
+                or receipt.get("run_id") != run_id
+                or receipt.get("action_kind") != ACTION_KIND
+            ):
+                raise SmokeError("queued action receipt identity did not match")
+            last_receipt_status = str(receipt.get("status") or "unknown")
+            if last_receipt_status == "completed":
+                return payload
+            if last_receipt_status not in {"queued", "running"}:
+                raise SmokeError(
+                    f"queued {ACTION_KIND} receipt ended as {last_receipt_status}"
+                )
         time.sleep(0.5)
     raise SmokeError(
-        f"queued {ACTION_KIND} run did not finish within {deadline_seconds:g}s "
-        f"(last status {last_status})"
+        f"queued {ACTION_KIND} action did not finish within {deadline_seconds:g}s "
+        f"(run {last_status}, receipt {last_receipt_status})"
     )
 
 
@@ -517,10 +540,11 @@ def seed(args: argparse.Namespace) -> dict[str, Any]:
     receipt_id = _require_nonempty_string(
         queued.get("receipt_id"), "queued action.receipt_id"
     )
-    _poll_completed_run(
+    _poll_completed_action(
         session,
         project_id=project_id,
         run_id=run_id,
+        receipt_id=receipt_id,
         deadline_seconds=args.action_timeout,
     )
     state: dict[str, Any] = {
