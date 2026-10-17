@@ -125,9 +125,7 @@ def adopt_document_text_role(
             stage_id=f"op:{producing_op_id}",
             op_id=producing_op_id,
         )
-        seeded_count += initialize_base_cells(
-            db, producer_id=producer_id, cells=writes
-        )
+        seeded_count += initialize_base_cells(db, producer_id=producer_id, cells=writes)
     return DocumentTextAdoption(
         role=role,
         created=existing is None,

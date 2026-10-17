@@ -318,11 +318,14 @@ def is_generation_free_document_text_target(
         or columns[6] is not None
     ):
         return False
-    if db.execute(
-        "SELECT 1 FROM results WHERE column_id=? "
-        "UNION ALL SELECT 1 FROM run_output_generations WHERE column_id=? LIMIT 1",
-        (text_column_id, text_column_id),
-    ).fetchone() is not None:
+    if (
+        db.execute(
+            "SELECT 1 FROM results WHERE column_id=? "
+            "UNION ALL SELECT 1 FROM run_output_generations WHERE column_id=? LIMIT 1",
+            (text_column_id, text_column_id),
+        ).fetchone()
+        is not None
+    ):
         return False
     stale_or_unpinned = db.execute(
         "SELECT 1 FROM current_cells head "

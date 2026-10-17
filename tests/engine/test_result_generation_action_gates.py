@@ -247,9 +247,7 @@ def test_seeded_unrelated_ai_target_is_not_adopted(tmp_path):
     from frisket.engine.store import Project
 
     with closing(Project.create(tmp_path / "unrelated-seeded.frisket")) as project:
-        sheet, source, row, _text, request = _document_text_admission(
-            project, tmp_path
-        )
+        sheet, source, row, _text, request = _document_text_admission(project, tmp_path)
         unrelated = project.add_column(
             sheet, "Unrelated Text", type="text", ai_generated=True
         )

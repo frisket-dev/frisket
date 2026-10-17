@@ -340,14 +340,11 @@ def _remove_document_text_authority(db: sqlite3.Connection) -> None:
         db.execute(f"DROP TRIGGER {trigger_name}")
         db.execute(
             str(trigger[0]).replace(
-                "  OR NEW.document_text_authority IS NOT "
-                "OLD.document_text_authority\n",
+                "  OR NEW.document_text_authority IS NOT OLD.document_text_authority\n",
                 "",
             )
         )
-    db.execute(
-        "ALTER TABLE run_output_generations DROP COLUMN document_text_authority"
-    )
+    db.execute("ALTER TABLE run_output_generations DROP COLUMN document_text_authority")
 
 
 def _remove_prepared_content(db: sqlite3.Connection) -> None:

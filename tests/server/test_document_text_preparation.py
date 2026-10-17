@@ -365,9 +365,7 @@ def test_adoption_seeds_only_unambiguous_fresh_generated_prepared_refs(
         project.apply_edits(
             [{"row_id": manual, "column_id": legacy_a, "value": "manual choice"}]
         )
-        project.db.execute(
-            "UPDATE columns SET hidden=1 WHERE id=?", (hidden_legacy,)
-        )
+        project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (hidden_legacy,))
         project.db.commit()
         text_column_id = project.add_column(
             sheet_id, "Text", type="text", ai_generated=True
@@ -398,15 +396,18 @@ def test_adoption_seeds_only_unambiguous_fresh_generated_prepared_refs(
 
         assert adoption.created is False
         assert adoption.seeded_count == 1
-        assert tuple(
-            int(project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
-            for table in (
-                "prepared_page_versions",
-                "prepared_content_sets",
-                "prepared_content_refs",
-                "ops",
+        assert (
+            tuple(
+                int(project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+                for table in (
+                    "prepared_page_versions",
+                    "prepared_content_sets",
+                    "prepared_content_refs",
+                    "ops",
+                )
             )
-        ) == immutable_counts
+            == immutable_counts
+        )
         stored = project.db.execute(
             "SELECT cell.row_id,cell.value_kind,cell.value,producer.op_id "
             "FROM cells cell JOIN base_cell_producers producer "
@@ -426,9 +427,12 @@ def test_adoption_seeds_only_unambiguous_fresh_generated_prepared_refs(
         assert project.get_values(
             sheet_id, text_column_id, [ambiguous, stale, manual, hidden]
         ) == {row_id: None for row_id in [ambiguous, stale, manual, hidden]}
-        assert project.db.execute(
-            "SELECT COUNT(*) FROM edits WHERE column_id=?", (text_column_id,)
-        ).fetchone()[0] == 0
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM edits WHERE column_id=?", (text_column_id,)
+            ).fetchone()[0]
+            == 0
+        )
         assert is_generation_free_document_text_target(
             project,
             sheet_id=sheet_id,
@@ -675,9 +679,7 @@ def test_adopted_old_row_survives_new_generation_then_can_be_replaced(
             "params": replacement_body["params"],
             "output_names": replacement_body["output_names"],
             "replace_existing": True,
-            "expected_output_columns": replacement_body[
-                "expected_output_columns"
-            ],
+            "expected_output_columns": replacement_body["expected_output_columns"],
         }
         result = run_action_spec(project, replacement, project_id="legacy-old-native")
         assert result.status == "completed", result.errors
