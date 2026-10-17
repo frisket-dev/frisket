@@ -12,6 +12,10 @@ from frisket.ai.vision.region_locator import ImageAsset, prepare_image_asset
 from frisket.contracts.action import ActionError
 from frisket.engine.executor.find_plan import FindOperation
 from frisket.actions.find_types import FindSourceColumn
+from frisket.engine.store.document_text import (
+    DocumentTextUnavailable,
+    resolve_document_text_selection,
+)
 
 
 _MAX_UNIT_CHARS = 1_200
@@ -156,8 +160,10 @@ def resolve_find_sources(
             action_kind=params.action_kind,
             field="params.source",
         )
-    column_id = int(column["id"])
-    column_type = str(column["type"])
+    source_column_id = int(column["id"])
+    source_column_type = str(column["type"])
+    column_id = source_column_id
+    column_type = source_column_type
     accepted_types = FindSourceColumn.accepted_column_types
     if accepted_types is not None and column_type not in accepted_types:
         return ActionError(
@@ -186,10 +192,46 @@ def resolve_find_sources(
     )
     sources: list[ResolvedFindSource] = []
     for row_id in row_ids:
+        column_id = source_column_id
+        column_type = source_column_type
         value = values.get(row_id)
         value_ref = dict(refs.get(row_id) or {})
         if value is None or (isinstance(value, str) and not value.strip()):
             continue
+        file_value_ref = None
+        if column_type == "file" and isinstance(value, dict) and value.get("blob"):
+            blob = project.db.execute(
+                "SELECT mime FROM blobs WHERE hash=?", (str(value["blob"]),)
+            ).fetchone()
+            mime = str(value.get("mime") or (blob["mime"] if blob else "") or "")
+            # Image Find retains its visual source path. A document's selected
+            # Text uses the same addressed units and publication as explicit Text.
+            if not mime.startswith("image/"):
+                try:
+                    selected = resolve_document_text_selection(
+                        project, (params.sheet_id, row_id, source_column_id)
+                    )
+                except DocumentTextUnavailable as error:
+                    return ActionError(
+                        code="source_not_addressable",
+                        message="The selected file needs current document Text before Find.",
+                        action_kind=params.action_kind,
+                        field="params.source",
+                        details={
+                            "sheet_id": params.sheet_id,
+                            "row_id": row_id,
+                            "reason": error.reason,
+                        },
+                    )
+                if selected is not None:
+                    file_value_ref = value_ref
+                    column_id = selected.text_cell[2]
+                    column_type = "text"
+                    text_values, text_refs = project.get_values_with_refs(
+                        params.sheet_id, column_id, row_ids=[row_id]
+                    )
+                    value = text_values.get(row_id)
+                    value_ref = dict(text_refs.get(row_id) or {})
         artifact_id: int | None = None
         source_kind = "text"
         image: ImageAsset | None = None
@@ -475,6 +517,10 @@ def resolve_find_sources(
                 action_kind=params.action_kind,
                 field="params.source",
                 details={"sheet_id": params.sheet_id, "row_id": row_id},
+            )
+        if file_value_ref is not None:
+            snapshot = _hash_json(
+                {"file_value_ref": file_value_ref, "text_snapshot": snapshot}
             )
         if units or source_kind == "image":
             sources.append(

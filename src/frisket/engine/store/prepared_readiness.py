@@ -6,10 +6,8 @@ from __future__ import annotations
 def prepared_source_readiness_ctes(*, scope_relation: str, schema: str = "") -> str:
     """Return CTEs mapping visible prepared outputs to their exact source cells.
 
-    A nonblank manual edit remains ready when the generation immediately beneath
-    it published prepared content.  ``cell_result_heads`` is the authoritative
-    current generated candidate, while the final source identity is still fenced
-    by the prepared artifact's blob, page selector, and source-cell locator.
+    Configured File/Text roles use the store's current selection relation. Old
+    projects without a role retain their current generated-candidate discovery.
     """
 
     prefix = f"{schema}." if schema else ""
@@ -47,9 +45,14 @@ def prepared_source_readiness_ctes(*, scope_relation: str, schema: str = "") -> 
         ON content.id=ref.set_id
       JOIN {prefix}source_artifacts AS artifact
         ON artifact.id=content.source_artifact_id
-      WHERE live.value_kind='text'
+      WHERE NOT EXISTS (
+        SELECT 1 FROM {prefix}document_text_column_roles role
+        WHERE role.text_column_id=output_column.id
+           OR role.source_column_id=artifact.source_column_id
+      )
+        AND live.value_kind='text'
         AND length(trim(live.value))>0
-    ), current_prepared_sources AS MATERIALIZED (
+    ), legacy_prepared_sources AS MATERIALIZED (
       SELECT prepared_ref_id,page_number,artifact_id,blob_hash,page_count,
              output_column_id,source_sheet_id,source_row_id,source_column_id
       FROM current_prepared_outputs
@@ -81,6 +84,22 @@ def prepared_source_readiness_ctes(*, scope_relation: str, schema: str = "") -> 
        AND source_link.sheet_id IS NOT NULL
        AND source_link.row_id IS NOT NULL
        AND source_link.column_id IS NOT NULL
+    ), current_prepared_sources AS MATERIALIZED (
+      SELECT legacy.* FROM legacy_prepared_sources legacy
+      WHERE NOT EXISTS (
+        SELECT 1 FROM {prefix}document_text_column_roles role
+        WHERE role.source_column_id=legacy.source_column_id
+      )
+      UNION
+      SELECT selected.prepared_ref_id,selected.source_page_number,
+             selected.source_artifact_id,selected.source_blob_hash,
+             selected.page_count,selected.text_column_id,
+             selected.source_sheet_id,selected.row_id,selected.source_column_id
+      FROM {scope_relation} readiness_scope
+      JOIN {prefix}current_document_text_selections selected
+        ON selected.source_sheet_id=readiness_scope.sheet_id
+       AND selected.row_id=readiness_scope.row_id
+      WHERE selected.text_hidden=0
     )"""
 
 

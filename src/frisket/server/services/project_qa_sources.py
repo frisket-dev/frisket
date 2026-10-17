@@ -10,6 +10,10 @@ from contextlib import closing, contextmanager
 from typing import Any
 
 from frisket.engine.store import Project
+from frisket.engine.store.document_text import (
+    DocumentTextUnavailable,
+    resolve_document_text_selection,
+)
 from frisket.engine.store.current_value_windows import (
     CurrentTextMetadata,
     CurrentValueNotTextual,
@@ -274,6 +278,49 @@ def resolve_prepared_source(
         source_meta, _ = _metadata(db, cell)
         if source_meta["version"] != expected_version:
             raise ValueError("source_changed: reopen this source before reading it")
+        try:
+            selected = resolve_document_text_selection(db, cell)
+        except DocumentTextUnavailable as error:
+            raise SourceUnavailableError(str(error)) from error
+        if selected is not None:
+            prepared_meta, _ = _metadata(db, selected.text_cell)
+            ref = {
+                key: value
+                for key, value in prepared_meta["value_ref"].items()
+                if key != "validity"
+            }
+            link_conditions = ""
+            link_params: list[Any] = []
+            if evidence_link_id is not None:
+                link_conditions = " AND link.stable_id=?"
+                link_params.append(evidence_link_id)
+            # Grounding can accompany the selected value, but cannot select it.
+            # A flat manual correction has no matching old grounding link.
+            link = db.execute(
+                "SELECT link.stable_id FROM evidence_links link "
+                "JOIN evidence_link_spans linked ON linked.link_id=link.id "
+                "JOIN source_spans span ON span.id=linked.span_id "
+                "WHERE link.status='active' AND link.sheet_id=? "
+                "AND link.row_id=? AND link.column_id=? "
+                "AND link.subject_ref_json=? AND span.artifact_id=?"
+                + link_conditions
+                + " ORDER BY link.id LIMIT 1",
+                [
+                    *selected.text_cell,
+                    json.dumps(
+                        ref, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+                    ),
+                    selected.source_artifact_id,
+                    *link_params,
+                ],
+            ).fetchone()
+            return {
+                "cell": selected.text_cell,
+                "evidence_link_id": str(link[0]) if link is not None else None,
+                "source_meta": source_meta,
+                "prepared_value_ref": prepared_meta["value_ref"],
+                "prepared_version": prepared_meta["version"],
+            }
         blob_row = db.execute(
             "SELECT CASE WHEN c.validity='valid' AND c.value_kind='json' "
             "THEN json_extract(c.value,'$.blob') END AS blob" + _FROM,
