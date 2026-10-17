@@ -122,18 +122,13 @@ export function StatusBar({
   const activityKey = [
     runActive ? `run:${run?.runId ?? ''}` : null,
     searchPreparationNotice
-      ? `search:${searchPreparationNotice.stage}:${searchPreparationNotice.tone}`
+      ? `search:${searchPreparationNotice.activityKey}`
       : null,
   ].filter(Boolean).join('|') || null;
   const [noticeVisibility, setNoticeVisibility] = useState<{ key: string | null; open: boolean }>({
     key: null,
     open: true,
   });
-  useEffect(() => {
-    if (activityKey === null && noticeVisibility.key !== null) {
-      setNoticeVisibility({ key: null, open: true });
-    }
-  }, [activityKey, noticeVisibility.key]);
   const noticesOpen = activityKey !== null
     && (noticeVisibility.key !== activityKey || noticeVisibility.open);
   const setNoticesOpen = (open: boolean) => {

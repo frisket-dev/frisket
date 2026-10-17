@@ -53,7 +53,8 @@ export function SearchPreparationNotice({
         </div>
       </div>
 
-      {active && (notice.stage === 'download' || notice.progress !== null) && (
+      {((active && (notice.stage === 'download' || notice.progress !== null))
+        || (notice.tone === 'error' && notice.progress !== null)) && (
         <div className="search-preparation-progress" data-testid="search-preparation-progress">
           <span
             className={`model-pull-progress-bar${notice.progress === null ? ' indeterminate' : ''}`}

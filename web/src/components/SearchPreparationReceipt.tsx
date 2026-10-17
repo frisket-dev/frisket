@@ -46,6 +46,28 @@ function groupStatus(group: SearchPreparationGroup): string {
   }
 }
 
+function groupProgress(
+  batch: SearchPreparationBatch,
+  group: SearchPreparationGroup,
+): { completed: number; failed: number; total: number } | null {
+  const progress = batch.jobs
+    .filter((job) => job.action_kind === group.kind && job.progress !== null && job.progress !== undefined)
+    .map((job) => job.progress!);
+  if (progress.length === 0) return null;
+  return progress.reduce((summary, item) => ({
+    completed: summary.completed + item.completed,
+    failed: summary.failed + item.failed,
+    total: summary.total + item.total,
+  }), { completed: 0, failed: 0, total: 0 });
+}
+
+function groupProgressLabel(progress: { completed: number; failed: number; total: number }): string {
+  const processed = `${progress.completed.toLocaleString()}/${progress.total.toLocaleString()} processed`;
+  return progress.failed > 0
+    ? `${processed} · ${progress.failed.toLocaleString()} failed`
+    : processed;
+}
+
 function modelPurposeLabel(purpose: SearchPreparationBatch['models'][number]['purpose']): string {
   if (purpose === 'read_text') return 'Read text in scans and images';
   if (purpose === 'transcribe') return 'Transcribe recordings and video';
@@ -426,6 +448,7 @@ export function SearchPreparationReceipt({
       <div className="search-preparation-groups">
         {batch.groups.map((group) => {
           const label = groupLabel(group);
+          const progress = groupProgress(batch, group);
           return (
             <div
               key={group.kind}
@@ -434,7 +457,10 @@ export function SearchPreparationReceipt({
               data-status={group.status}
             >
               <span><strong>{label.primary}</strong> <small>{label.qualifier}</small></span>
-              <strong>{groupStatus(group)}</strong>
+              <span className="search-preparation-group-status">
+                <strong>{groupStatus(group)}</strong>
+                {progress && <small>{groupProgressLabel(progress)}</small>}
+              </span>
             </div>
           );
         })}

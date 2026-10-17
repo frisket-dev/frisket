@@ -63,6 +63,36 @@ function batch(overrides: Partial<SearchPreparationBatch> = {}): SearchPreparati
   };
 }
 
+type PreparationProgress = NonNullable<SearchPreparationBatch['jobs'][number]['progress']>;
+
+function preparationProgress(overrides: Partial<PreparationProgress> = {}): PreparationProgress {
+  return {
+    action_kind: 'document.ocr',
+    action_name: 'Read PDF text',
+    completed: 2,
+    cost: null,
+    failed: 1,
+    live: true,
+    run_id: 92,
+    sheet_id: 7,
+    status: 'running',
+    timing: {
+      elapsed_seconds: 3,
+      estimated_finish_at: null,
+      eta_seconds: 2,
+      finished_at: null,
+      job_elapsed_seconds: 3,
+      processed_rows: 2,
+      processed_rows_per_second: 0.5,
+      queue_wait_seconds: 0,
+      remaining_rows: 1,
+      started_at: '2026-10-16T12:00:01Z',
+    },
+    total: 3,
+    ...overrides,
+  };
+}
+
 function snapshot(overrides: Partial<SearchPreparationSnapshot> = {}): SearchPreparationSnapshot {
   return {
     batches: [],
@@ -99,6 +129,58 @@ describe('search preparation notice projection', () => {
     );
     fireEvent.click(screen.getByTestId('search-preparation-details'));
     expect(screen.getByText('Job 781')).toBeInTheDocument();
+  });
+
+  it('shows active OCR ahead of indexing that is only queued behind it', () => {
+    const notice = deriveSearchPreparationNotice(snapshot({
+      batches: [batch()],
+      indexing: { status: 'queued', job_id: 781, error: null },
+    }));
+
+    expect(notice).toMatchObject({
+      activityKey: 'preparation:prep-1',
+      stage: 'prepare',
+      detail: 'Reading scanned PDFs · 2 files',
+    });
+  });
+
+  it('surfaces failed OCR rows while the remaining files continue', () => {
+    const notice = deriveSearchPreparationNotice(snapshot({
+      batches: [batch({
+        jobs: [{
+          job_id: 473,
+          action_kind: 'ocr',
+          status: 'running',
+          progress: preparationProgress({
+            row_errors: {
+              total_failed_rows: 1,
+              groups: [{
+                code: 'image_result_invalid',
+                count: 1,
+                message: 'One PDF page could not be recognized.',
+                row_ids: [14],
+                terminal: true,
+              }],
+            },
+          }),
+        }],
+      })],
+      indexing: { status: 'queued', job_id: 474, error: null },
+    }));
+
+    expect(notice).toMatchObject({
+      activityKey: 'preparation:prep-1:failed',
+      stage: 'failed',
+      tone: 'error',
+      detail: '1 of 3 files failed · 2/3 processed',
+      progress: 67,
+    });
+    render(<SearchPreparationNotice notice={notice!} />);
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '67');
+    fireEvent.click(screen.getByTestId('search-preparation-details'));
+    expect(screen.getByText('One PDF page could not be recognized.')).toBeInTheDocument();
+    expect(screen.getByText('Reading scanned PDFs · 2 files')).toBeInTheDocument();
+    expect(screen.getByText('Search indexing queued')).toBeInTheDocument();
   });
 
   it('keeps required approval actionable ahead of background indexing', () => {

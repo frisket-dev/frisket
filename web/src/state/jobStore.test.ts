@@ -424,6 +424,58 @@ describe('createJobStore — complete WEB-03-4B scheduler/resource red contract'
     expect(jobs.store.get().actionJobs.error).toBeNull();
   });
 
+  it('refreshes project data once when an externally discovered OCR job becomes terminal', async () => {
+    vi.useFakeTimers();
+    setDocumentHidden(false);
+    const running = actionJob({
+      jobId: 473,
+      actionKind: 'document.ocr',
+      actionName: 'Read PDF text',
+      status: 'running',
+      progress: runProgress({
+        runId: 'ocr-run',
+        actionName: 'Read PDF text',
+        actionKind: 'document.ocr',
+        status: 'running',
+        completedRows: 1,
+        totalRows: 3,
+        failedRows: 1,
+      }),
+    });
+    const terminal = actionJob({
+      ...running,
+      status: 'completed',
+      progress: runProgress({
+        runId: 'ocr-run',
+        actionName: 'Read PDF text',
+        actionKind: 'document.ocr',
+        status: 'complete',
+        completedRows: 3,
+        totalRows: 3,
+        failedRows: 2,
+      }),
+    });
+    const listActionJobs = vi.fn()
+      .mockResolvedValueOnce({ jobs: [running] })
+      .mockResolvedValueOnce({ jobs: [running] })
+      .mockResolvedValue({ jobs: [terminal] });
+    const deps = noopDeps();
+    const jobs = createJobStore('project-a', projectPort({ listActionJobs }));
+    jobs.start(deps);
+    await vi.advanceTimersByTimeAsync(0);
+    jobs.liveActionJobs.start();
+    await flushMicrotasks();
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(deps.invalidateProjectData).toHaveBeenCalledOnce();
+    expect(deps.refreshSheets).toHaveBeenCalledOnce();
+    expect(deps.refreshHistory).toHaveBeenCalledOnce();
+    expect(deps.refreshReviewCount).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(deps.invalidateProjectData).toHaveBeenCalledOnce();
+  });
+
   it('suppresses a hidden dock leading request and catches up once on refocus', async () => {
     vi.useFakeTimers();
     setDocumentHidden(true);

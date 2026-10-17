@@ -8562,6 +8562,14 @@ dialog.import-workspace-layer::backdrop {
   border-bottom: 1px solid var(--border);
   line-height: 1.35;
 }
+.search-preparation-group-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  text-align: right;
+}
+.search-preparation-group-status small { color: var(--text-light); }
 .search-preparation-group > span {
   min-width: 0;
   font-size: 13px;

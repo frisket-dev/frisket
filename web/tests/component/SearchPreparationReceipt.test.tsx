@@ -90,6 +90,36 @@ const consentBatch: SearchPreparationBatch = {
   errors: [],
 };
 
+type PreparationProgress = NonNullable<SearchPreparationBatch['jobs'][number]['progress']>;
+
+function preparationProgress(overrides: Partial<PreparationProgress> = {}): PreparationProgress {
+  return {
+    action_kind: 'document.ocr',
+    action_name: 'Read PDF text',
+    completed: 2,
+    cost: null,
+    failed: 1,
+    live: true,
+    run_id: 92,
+    sheet_id: 7,
+    status: 'running',
+    timing: {
+      elapsed_seconds: 3,
+      estimated_finish_at: null,
+      eta_seconds: 2,
+      finished_at: null,
+      job_elapsed_seconds: 3,
+      processed_rows: 2,
+      processed_rows_per_second: 0.5,
+      queue_wait_seconds: 0,
+      remaining_rows: 1,
+      started_at: '2026-10-16T12:00:01Z',
+    },
+    total: 3,
+    ...overrides,
+  };
+}
+
 beforeEach(() => {
   getSearchPreparationTextSamples.mockResolvedValue({
     schemaVersion: 'frisket.search_preparation_text_samples.v1',
@@ -105,6 +135,25 @@ afterEach(() => {
 });
 
 describe('SearchPreparationReceipt', () => {
+  it('shows processed and failed counts from the live OCR action', async () => {
+    getSearchPreparation.mockResolvedValue({
+      ...consentBatch,
+      status: 'preparing',
+      groups: [{ kind: 'ocr', count: 3, status: 'running' }],
+      jobs: [{
+        job_id: 473,
+        action_kind: 'ocr',
+        status: 'running',
+        progress: preparationProgress(),
+      }],
+    });
+    render(<SearchPreparationReceipt projectId="project-1" batchId="prep-1" onDone={vi.fn()} onError={vi.fn()} />);
+
+    const group = await screen.findByTestId('search-preparation-group-ocr');
+    expect(group.textContent).toContain('Running OCR');
+    expect(group.textContent).toContain('2/3 processed · 1 failed');
+  });
+
   it('keeps an empty planning response visibly active instead of calling it ready', async () => {
     getSearchPreparation.mockResolvedValue({
       ...consentBatch,
@@ -198,7 +247,7 @@ describe('SearchPreparationReceipt', () => {
       batch_id: 'prep-1', samples: [{
         row_id: 42, column_id: 5, filename: 'native.pdf', page_number: 1,
         page_count: 1, page_scoped: true, preview_url: '/preview',
-        text: 'Correct native text', source: 'prepared', truncated: false,
+        text: 'Correct native text', source: 'native', truncated: false,
       }],
     });
     render(<SearchPreparationReceipt projectId="project-1" batchId="prep-1" onDone={vi.fn()} onError={vi.fn()} />);

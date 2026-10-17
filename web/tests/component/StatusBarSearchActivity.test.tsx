@@ -27,6 +27,7 @@ afterEach(() => {
 describe('StatusBar search activity', () => {
   it('uses the bottom-left activity control to dismiss and reopen queued indexing without calling it idle', () => {
     useSearchPreparationNotice.mockReturnValue({
+      activityKey: 'index:41',
       stage: 'index',
       tone: 'active',
       title: 'Preparing search',
@@ -61,4 +62,5 @@ describe('StatusBar search activity', () => {
     expect(screen.getByTestId('search-preparation-banner')).toBeVisible();
     expect(activity).toHaveAttribute('aria-expanded', 'true');
   });
+
 });

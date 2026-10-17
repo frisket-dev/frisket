@@ -200,6 +200,8 @@ export function createJobStore(
   let disposingDock = false;
   const baseRequestControllers = new Set<AbortController>();
   let disposingResource = false;
+  const refreshedTerminalJobIds = new Set<number>();
+  const refreshedTerminalRunIds = new Set<string>();
   let observedTelemetry: {
     action: string;
     attemptKind: AttemptKind;
@@ -387,6 +389,28 @@ export function createJobStore(
   function actionJobIsActive(job: DockActionJob): boolean {
     const status = job.progress?.status;
     return status ? isActiveRunStatus(status) : !isTerminalActionJobStatus(job.status);
+  }
+
+  function terminalJobWasRefreshed(job: DockActionJob): boolean {
+    return refreshedTerminalJobIds.has(job.jobId)
+      || (job.runId !== null && refreshedTerminalRunIds.has(job.runId));
+  }
+
+  function markTerminalJobRefreshed(job: DockActionJob): void {
+    refreshedTerminalJobIds.add(job.jobId);
+    if (job.runId !== null) refreshedTerminalRunIds.add(job.runId);
+  }
+
+  function refreshProjectAfterTerminal(stillCurrent: () => boolean): void {
+    const deps = currentDeps;
+    if (!stillCurrent() || !deps) return;
+    deps.invalidateProjectData();
+    if (!stillCurrent()) return;
+    void deps.refreshSheets();
+    if (!stillCurrent()) return;
+    void deps.refreshHistory();
+    if (!stillCurrent()) return;
+    void deps.refreshReviewCount();
   }
 
   function setCostGate(
@@ -1154,19 +1178,12 @@ export function createJobStore(
       if (!isCurrent()) return;
       if (!isActiveRunStatus(progress.status)) {
         emitObserved(progress.noLiveWorker ? 'no_live_worker' : progress.status);
+        refreshedTerminalRunIds.add(target);
         setRunTarget(null);
         const stillTerminal = (): boolean => (
           isResourceCurrent(generation) && runSlot === slot && runTarget === null
         );
-        const deps = currentDeps;
-        if (!stillTerminal() || !deps) return;
-        deps.invalidateProjectData();
-        if (!stillTerminal()) return;
-        void deps.refreshSheets();
-        if (!stillTerminal()) return;
-        void deps.refreshHistory();
-        if (!stillTerminal()) return;
-        void deps.refreshReviewCount();
+        refreshProjectAfterTerminal(stillTerminal);
         if (!stillTerminal()) return;
         void refresh();
       }
@@ -1231,6 +1248,8 @@ export function createJobStore(
       if (!isCurrent()) return;
       if (terminal) {
         emitObserved(terminalStatus);
+        if (job !== null) markTerminalJobRefreshed(job);
+        else if (jobId !== null) refreshedTerminalJobIds.add(jobId);
         setQueuedTarget(null);
         if (queuedSlot === slot) queuedSlot = null;
         const stillTerminal = (): boolean => (
@@ -1285,7 +1304,8 @@ export function createJobStore(
       && dockSlot === slot
       && dockLane.isCurrent(job)
     );
-    let hasActiveJobs = mergedJobs().some(actionJobIsActive);
+    const previousJobs = mergedJobs();
+    let hasActiveJobs = previousJobs.some(actionJobIsActive);
     try {
       const jobs = await loadActionJobs(
         25,
@@ -1295,7 +1315,20 @@ export function createJobStore(
       );
       if (!isCurrent()) return;
       publishDockJobs(jobs);
+      if (!isCurrent()) return;
       hasActiveJobs = jobs.some(actionJobIsActive);
+      const priorActiveJobIds = new Set(
+        previousJobs.filter(actionJobIsActive).map((item) => item.jobId),
+      );
+      const newlyTerminal = jobs.filter((item) => (
+        priorActiveJobIds.has(item.jobId)
+        && !actionJobIsActive(item)
+        && !terminalJobWasRefreshed(item)
+      ));
+      if (newlyTerminal.length > 0) {
+        for (const item of newlyTerminal) markTerminalJobRefreshed(item);
+        refreshProjectAfterTerminal(isCurrent);
+      }
     } catch {
       // Dock failures are silent; retain its last-known-good snapshot.
     } finally {
@@ -1361,6 +1394,8 @@ export function createJobStore(
       queuedSlot = null;
       dockSlot = null;
       dockInterested = false;
+      refreshedTerminalJobIds.clear();
+      refreshedTerminalRunIds.clear();
 
       currentDeps = null;
       baseJobs = [];
