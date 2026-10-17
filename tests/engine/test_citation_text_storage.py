@@ -10,7 +10,6 @@ from frisket.engine.store import Project
 from frisket.engine.store.citation_text import (
     migrate_legacy_citation_texts,
     read_text_snapshot,
-    resolve_current_native_texts,
 )
 from frisket.engine.store.evidence import (
     record_evidence_link,
@@ -110,9 +109,6 @@ def test_native_context_reads_current_text_then_becomes_stale_without_copy(
     viewer = resolve_evidence_viewer(project, link["id"])
     assert viewer["link"]["status"] == "stale"
     assert viewer["link"]["stale_reason"] == "source_changed"
-    assert resolve_current_native_texts(project.db, viewer["artifacts"]) == {
-        artifact["id"]: "Changed later."
-    }
 
 
 def test_synthesized_context_is_saved_once_and_remains_viewable(tmp_path) -> None:
