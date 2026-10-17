@@ -469,8 +469,10 @@ class JobQueue(ABC):
         lease_seconds: float = 60.0,
         worker_version: str | None = None,
     ) -> Job | None:
-        """Atomically take the oldest available queued job (or None). Marks
-        it running, increments ``attempts``, stamps the lease. ``worker_version``
+        """Atomically take an available queued job, deferring background search work.
+
+        FIFO holds within each class. Marks it running, increments ``attempts``,
+        stamps the lease. ``worker_version``
         is diagnostic metadata supplied by a worker; direct queue users retain
         the queue process's current identity by default."""
 
@@ -1115,7 +1117,19 @@ class SqlAlchemyJobQueue(JobQueue):
                 sa.or_(c.project_id.is_(None), c.storage_org_id.isnot(None))
             )
         # Postgres uses row locks; SQLite serializes claims with BEGIN IMMEDIATE.
-        select_next = sa.select(c.id).where(*claim_filters).order_by(c.id).limit(1)
+        select_next = (
+            sa.select(c.id)
+            .where(*claim_filters)
+            # Watch continuations depend on index progress, so keep their FIFO
+            # together. Sustained foreground work may postpone this class.
+            .order_by(
+                sa.case(
+                    (c.kind.in_((SEARCH_INDEX_KIND, "watch.evaluate")), 1), else_=0
+                ),
+                c.id,
+            )
+            .limit(1)
+        )
         if not self._is_sqlite:
             select_next = select_next.with_for_update(skip_locked=True)
         try:

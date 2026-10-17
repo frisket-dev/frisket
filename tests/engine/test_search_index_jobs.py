@@ -281,12 +281,19 @@ def test_worker_yields_between_claims_and_recovers_deleted_sidecar(
             payload = {"project_id": "docs"}
             first = search_index.enqueue_search_index(project, queue, payload)
             assert search_index.enqueue_search_index(project, queue, payload) == first
-        queue.enqueue("other", {})
         worker = Worker(queue, registry)
         assert worker.run_once()
         assert queue.get(first).result["processed"] <= 2
+        continuations = queue.list_jobs(status="queued")
+        assert len(continuations) == 1
+        continuation = continuations[0]
+        assert continuation.kind == search_index.SEARCH_INDEX_KIND
+        # Foreground arrives after the bounded quantum queued its continuation.
+        foreground = queue.enqueue("other", {})
         assert worker.run_once()
         assert other == [True]
+        assert queue.get(foreground).status == "done"
+        assert queue.get(continuation.id).status == "queued"
         for _ in range(100):
             if not worker.run_once():
                 break
@@ -326,6 +333,64 @@ def test_hosted_search_requires_claimed_storage_before_open(tmp_path):
                 {"project_id": "docs", "workspace_root": "/wrong"},
                 JobHandlerContext.without_job_row(),
             )
+
+
+def test_dependent_watch_and_index_keep_fifo_while_foreground_passes(
+    tmp_path, monkeypatch
+):
+    _project(tmp_path)
+    monkeypatch.setattr(search_index, "INDEX_BATCH_SIZE", 2)
+    monkeypatch.setattr(search_index, "BATCHES_PER_CLAIM", 1)
+    with closing(Project(tmp_path / "docs.frisket")) as project:
+        watch_id = project.add_watch(
+            "needle",
+            scope="project",
+            query={"kind": "fts", "q": "needle", "limit": 20},
+        )
+    with closing(SqliteJobQueue(tmp_path / "queue.db")) as queue:
+        registry = HandlerRegistry()
+        search_index.register_search_index_handler(
+            registry, workspace_root=tmp_path, queue=queue
+        )
+        register_watch_evaluate_handler(registry, workspace_root=tmp_path, queue=queue)
+        foreground_runs = []
+        registry.register("other", lambda *_: foreground_runs.append(True))
+        watch = queue.enqueue(
+            WATCH_EVALUATE_KIND,
+            {"project_id": "docs", "watch_id": watch_id},
+        )
+        with closing(Project(tmp_path / "docs.frisket")) as project:
+            index = search_index.enqueue_search_index(
+                project, queue, {"project_id": "docs"}
+            )
+        worker = Worker(queue, registry)
+        assert worker.run_once()
+        assert queue.get(watch).result["status"] == "indexing"
+        continuation = next(
+            job
+            for job in queue.list_jobs(status="queued")
+            if job.kind == WATCH_EVALUATE_KIND
+        )
+        foreground = queue.enqueue("other", {})
+
+        assert worker.run_once()
+        assert foreground_runs == [True]
+        assert queue.get(foreground).status == "done"
+        assert queue.get(index).status == "queued"
+        assert worker.run_once()
+        assert queue.get(index).status == "done"
+        assert queue.get(continuation.id).status == "queued"
+        for _ in range(20):
+            if not worker.run_once():
+                break
+        else:
+            pytest.fail("dependent watch and index never settled")
+
+        with closing(Project(tmp_path / "docs.frisket")) as project:
+            run = project.watch_latest_run(watch_id)
+            assert run["status"] == "ok"
+            assert run["matched_rows"] == 9
+            assert project.watch_runs_total(watch_id) == 1
 
 
 def test_queued_watch_waits_for_complete_unified_index(tmp_path):

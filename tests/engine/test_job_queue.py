@@ -11,6 +11,11 @@ from frisket.engine.jobs import (
     SqliteJobQueue,
     open_queue,
 )
+from frisket.engine.jobs.queue import (
+    ACTION_RUN_KIND,
+    PROJECT_RUN_KIND,
+    SEARCH_INDEX_KIND,
+)
 
 PG_URL = os.environ.get("FRISKET_PG_TEST_URL")
 
@@ -116,6 +121,53 @@ class TestLifecycle:
         assert counts["running"] == 1
         assert {j.id for j in queue.list_jobs()} == {first, second}
         assert [j.id for j in queue.list_jobs(status="queued")] == [second]
+
+
+class TestBackgroundIndexPriority:
+    @pytest.mark.parametrize("queue_fixture", ["queue", "pg_queue"])
+    def test_foreground_fifo_precedes_background_fifo(self, request, queue_fixture):
+        queue = request.getfixturevalue(queue_fixture)
+        first_index = queue.enqueue(SEARCH_INDEX_KIND, {})
+        action = queue.enqueue(ACTION_RUN_KIND, {})
+        watch = queue.enqueue("watch.evaluate", {})
+        second_index = queue.enqueue(SEARCH_INDEX_KIND, {})
+        project_run = queue.enqueue(PROJECT_RUN_KIND, {})
+        other = queue.enqueue("echo", {})
+
+        claimed = [queue.claim("worker").id for _ in range(6)]
+
+        assert claimed == [action, project_run, other, first_index, watch, second_index]
+
+    def test_delayed_foreground_does_not_block_available_index(self, clocked_queue):
+        queue, clock = clocked_queue
+        first_index = queue.enqueue(SEARCH_INDEX_KIND, {})
+        second_index = queue.enqueue(SEARCH_INDEX_KIND, {})
+        action = queue.enqueue(ACTION_RUN_KIND, {}, delay_seconds=30)
+
+        assert queue.claim("worker").id == first_index
+        clock.advance_seconds(31)
+        assert queue.claim("worker").id == action
+        assert queue.claim("worker").id == second_index
+
+    @pytest.mark.parametrize("queue_fixture", ["queue", "pg_queue"])
+    def test_foreground_arrival_preserves_running_index_owner(
+        self, request, queue_fixture
+    ):
+        queue = request.getfixturevalue(queue_fixture)
+        index = queue.enqueue(SEARCH_INDEX_KIND, {})
+        running = queue.claim("index-worker")
+        action = queue.enqueue(ACTION_RUN_KIND, {})
+
+        assert queue.claim("action-worker").id == action
+        still_running = queue.get(index)
+        assert still_running.status == "running"
+        assert still_running.locked_by == "index-worker"
+        assert still_running.locked_at == running.locked_at
+        assert still_running.lease_expires_at == running.lease_expires_at
+        assert still_running.attempts == 1
+        assert not queue.complete(index, "action-worker")
+        assert queue.heartbeat(index, "index-worker")
+        assert queue.complete(index, "index-worker")
 
 
 class TestConcurrentColdOpen:
