@@ -530,7 +530,23 @@ class ImportSessionService:
             and self._search_preparation.automatic_enabled(header.project_id)
             and session is not None
             and session.sheet_id is not None
+            and session.committed_rows > 0
         ):
+            try:
+                # The setting can be enabled after intake admission. Ensure
+                # recovery owns the follow-up before publishing completion,
+                # even when synchronous planning below is unavailable.
+                self._search_preparation.reserve_import(
+                    header.project_id,
+                    receipt_id=receipt_id,
+                    import_ref=ref,
+                )
+            except Exception as exc:
+                raise ImportBulkRouteError(
+                    503,
+                    "Import saved; search preparation could not be scheduled yet. "
+                    "Retry this request.",
+                ) from exc
             try:
                 # CLI workers do not construct the server Workspace, so their
                 # optional terminal callback cannot publish this follow-up.
@@ -546,9 +562,9 @@ class ImportSessionService:
                     "terminal import search preparation could not be published",
                     exc_info=True,
                 )
-                # The import is already committed. Keep its terminal response
-                # unpublished so the next poll retries the durable follow-up.
-                state = "running"
+                # The import is committed and the pending intent is durable.
+                # Normal preparation recovery retries independently of this
+                # importing client; never project a terminal import as running.
         return ImportSessionStatus(
             import_ref=ref,
             state=state,
