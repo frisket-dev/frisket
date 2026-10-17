@@ -34,9 +34,7 @@ END
 """
 
 
-def migrate_document_text(
-    db: sqlite3.Connection, *, bundle_path: str | Path
-) -> None:
+def migrate_document_text(db: sqlite3.Connection, *, bundle_path: str | Path) -> None:
     """Install empty role metadata without guessing from names or recency."""
 
     del bundle_path

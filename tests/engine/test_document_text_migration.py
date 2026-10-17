@@ -18,9 +18,7 @@ def _restore_prior_layout(project: Project) -> None:
     project.db.execute("DROP VIEW current_document_text_selections")
     project.db.execute("DROP TABLE document_text_manual_pins")
     project.db.execute("DROP TABLE document_text_column_roles")
-    project.db.execute(
-        "DROP TRIGGER trg_run_output_generations_immutable_declaration"
-    )
+    project.db.execute("DROP TRIGGER trg_run_output_generations_immutable_declaration")
     project.db.execute(
         "ALTER TABLE run_output_generations DROP COLUMN document_text_authority"
     )
@@ -48,14 +46,15 @@ def test_prior_bundle_migrates_without_guessing_legacy_roles(tmp_path: Path) -> 
                 "AND name LIKE 'document_text_%'"
             )
         } == {"document_text_column_roles", "document_text_manual_pins"}
-        assert reopened.db.execute(
-            "SELECT COUNT(*) FROM document_text_column_roles"
-        ).fetchone()[0] == 0
+        assert (
+            reopened.db.execute(
+                "SELECT COUNT(*) FROM document_text_column_roles"
+            ).fetchone()[0]
+            == 0
+        )
         generation_columns = {
             str(row[1])
-            for row in reopened.db.execute(
-                "PRAGMA table_info(run_output_generations)"
-            )
+            for row in reopened.db.execute("PRAGMA table_info(run_output_generations)")
         }
         assert "document_text_authority" in generation_columns
         trigger_sql = str(
@@ -84,13 +83,14 @@ def test_migration_rolls_back_schema_and_stamp_together(tmp_path: Path) -> None:
         assert project.get_meta(SCHEMA_DIGEST_META_KEY) == DOCUMENT_TEXT_FROM_DIGEST
         assert "document_text_authority" not in {
             str(row[1])
-            for row in project.db.execute(
-                "PRAGMA table_info(run_output_generations)"
-            )
+            for row in project.db.execute("PRAGMA table_info(run_output_generations)")
         }
-        assert project.db.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' "
-            "AND name='document_text_column_roles'"
-        ).fetchone() is None
+        assert (
+            project.db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' "
+                "AND name='document_text_column_roles'"
+            ).fetchone()
+            is None
+        )
     finally:
         project.close()
