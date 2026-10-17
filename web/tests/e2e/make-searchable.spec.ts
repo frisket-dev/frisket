@@ -276,8 +276,8 @@ test('closing missing transcription setup starts no pull and remains recoverable
     model.purpose === 'transcribe' && !model.ready
   ));
   test.skip(
-    !missingTranscription,
-    'This consent-boundary case requires Parakeet to be absent from the server cache.',
+    !missingTranscription || !missingTranscription.can_setup,
+    'This consent-boundary case requires the standard transcription runtime with Parakeet absent from the model cache.',
   );
   const receipt = await reviewImportedFiles(page);
   const consent = receipt.getByTestId('search-preparation-model-consent');
@@ -593,7 +593,7 @@ test('native text review requests replacement OCR without changing the original 
       `/api/projects/${pid}/search-preparation/${initialPlan.id}/replan`
     )
   ));
-  await preview.getByTestId('search-preparation-force-ocr').check();
+  await preview.getByTestId('search-preparation-force-ocr').click();
   const replacementResponse = await replacementRequest;
   expect(replacementResponse.ok()).toBeTruthy();
   expect(replacementResponse.request().postDataJSON()).toEqual({
