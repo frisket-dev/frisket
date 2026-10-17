@@ -126,7 +126,9 @@ def _run_row(bound: BoundTypedActionRequest, row_inputs: dict[str, Any]) -> Any:
     if not isinstance(result, RowResult):
         raise ValueError("row handler must return RowResult")
     output = terminal.output_model.model_validate(result.output)
-    return RowResult(output=output).model_dump(mode="json", by_alias=True)
+    return RowResult(output=output, warnings=result.warnings).model_dump(
+        mode="json", by_alias=True
+    )
 
 
 async def _await(value: Any) -> Any:

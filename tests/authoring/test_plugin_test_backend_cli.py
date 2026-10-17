@@ -99,6 +99,31 @@ def test_scaffolded_action_output_appears_in_stdout_json(tmp_path: Path) -> None
     assert json.loads(run.stdout) == {"output": {"plugin_echo": "ADA"}}
 
 
+def test_nonempty_row_warnings_appear_beside_output_in_stdout_json(
+    tmp_path: Path,
+) -> None:
+    plugin_id = "test.backendwarnings"
+    source = _boom_source(plugin_id).replace(
+        'raise ValueError("boom-error-marker")',
+        'return RowResult(output=Output(out="usable"), warnings=("Page 2 could not be read",))',
+    )
+    package_dir = _write_action_plugin(tmp_path, plugin_id=plugin_id, body=source)
+    run = _cli(
+        "plugin",
+        "test-backend",
+        str(package_dir),
+        "--action",
+        "boom",
+        "--input",
+        json.dumps({"row": {"Name": "x"}, "params": {"source": "Name"}}),
+    )
+    assert run.returncode == 0, run.stderr
+    assert json.loads(run.stdout) == {
+        "output": {"out": "usable"},
+        "warnings": ["Page 2 could not be read"],
+    }
+
+
 def test_inline_json_input_and_full_action_id_both_resolve(tmp_path: Path) -> None:
     plugin_id = "test.backendinline"
     package_dir = _init_and_build(tmp_path, plugin_id)
