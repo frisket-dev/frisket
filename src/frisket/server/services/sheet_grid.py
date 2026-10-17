@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import statistics
 from collections import Counter
+from contextlib import closing
 from datetime import datetime
-from typing import Any
+from typing import Any, Iterator
 
 from frisket.querysets import (
     SheetRowScopePlan,
@@ -18,6 +20,16 @@ from frisket.querysets import (
 )
 from frisket.server.workspace import Workspace
 from frisket.engine.store import Project
+from frisket.engine.store.cells import bounded_pending_replay_values
+from frisket.engine.store.current_value_windows import (
+    CurrentValueChanged,
+    CurrentValueNotTextual,
+    CurrentValueUnavailable,
+    MANUAL_EDIT_BYTE_LIMIT,
+    iter_current_value,
+    read_current_column,
+    read_current_value_window,
+)
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.media_download_candidates import (
     compute_media_download_candidates,
@@ -46,6 +58,7 @@ def sheet_columns_payload(project: Project, sheet_id: int) -> list[dict[str, Any
         _visible_sheet_columns(project, sheet_id),
         [],
         total=0,
+        value_mode="bounded",
     )["columns"]
 
 
@@ -67,6 +80,7 @@ class SheetGridService:
         scope_row_ids: str | None = None,
         column_ids: str | None = None,
         include_scope_metadata: bool = True,
+        value_mode: str = "exact",
     ) -> dict:
         project = self._workspace.get(project_id)
         visible_columns = _visible_sheet_columns(project, sheet_id)
@@ -89,6 +103,7 @@ class SheetGridService:
                 total=len(ordered_ids) if include_scope_metadata else None,
                 cell_projection=column_ids is not None,
                 include_scope_metadata=include_scope_metadata,
+                value_mode=value_mode,
             )
 
         plan = _sheet_row_scope_plan(
@@ -117,7 +132,114 @@ class SheetGridService:
             total=total,
             cell_projection=column_ids is not None,
             include_scope_metadata=include_scope_metadata,
+            value_mode=value_mode,
         )
+
+    def cell_text_window(
+        self,
+        project_id: str,
+        *,
+        row_id: int,
+        column_id: int,
+        start: int,
+        limit: int,
+        revision: int | None,
+    ) -> dict[str, Any]:
+        project = self._workspace.get(project_id)
+        sheet_id = _visible_cell_sheet_id(project, row_id, column_id)
+        try:
+            with closing(project.read_snapshot()) as snapshot:
+                window = read_current_value_window(
+                    snapshot.db,
+                    sheet_id=sheet_id,
+                    row_id=row_id,
+                    column_id=column_id,
+                    start=start,
+                    limit=limit,
+                    expected_revision=revision,
+                )
+        except CurrentValueChanged as exc:
+            raise SheetGridRouteError(409, str(exc)) from exc
+        except CurrentValueUnavailable as exc:
+            raise SheetGridRouteError(404, str(exc)) from exc
+        except CurrentValueNotTextual as exc:
+            raise SheetGridRouteError(422, str(exc)) from exc
+        except ValueError as exc:
+            raise SheetGridRouteError(400, str(exc)) from exc
+        return {
+            "schema_version": "frisket.cell_text_window.v1",
+            "row_id": row_id,
+            "column_id": column_id,
+            "retrieval_revision": window.retrieval_revision,
+            "value_kind": window.value_kind,
+            "total_characters": window.total_characters,
+            "total_bytes": window.total_bytes,
+            "range": {"start": window.start, "end": window.end},
+            "text": window.text,
+            "previous_start": (
+                max(0, window.start - limit) if window.start > 0 else None
+            ),
+            "next_start": (
+                window.end if window.end < window.total_characters else None
+            ),
+            "reached_start": window.start == 0,
+            "reached_end": window.end >= window.total_characters,
+        }
+
+    def cell_value_download(
+        self,
+        project_id: str,
+        *,
+        row_id: int,
+        column_id: int,
+        revision: int,
+    ) -> tuple[str, str, Iterator[bytes]]:
+        project = self._workspace.get(project_id)
+        sheet_id = _visible_cell_sheet_id(project, row_id, column_id)
+        column = project.db.execute(
+            "SELECT name FROM columns WHERE id=? AND sheet_id=? AND hidden=0",
+            (column_id, sheet_id),
+        ).fetchone()
+        assert column is not None
+        filename = _download_filename(str(column["name"]), row_id)
+        snapshot = project.read_snapshot()
+        try:
+            initial = read_current_value_window(
+                snapshot.db,
+                sheet_id=sheet_id,
+                row_id=row_id,
+                column_id=column_id,
+                expected_revision=revision,
+                limit=1,
+                max_lines=None,
+            )
+        except CurrentValueChanged as exc:
+            snapshot.close()
+            raise SheetGridRouteError(409, str(exc)) from exc
+        except CurrentValueUnavailable as exc:
+            snapshot.close()
+            raise SheetGridRouteError(404, str(exc)) from exc
+        except CurrentValueNotTextual as exc:
+            snapshot.close()
+            raise SheetGridRouteError(422, str(exc)) from exc
+
+        def body() -> Iterator[bytes]:
+            try:
+                for text in iter_current_value(
+                    snapshot.db,
+                    sheet_id=sheet_id,
+                    row_id=row_id,
+                    column_id=column_id,
+                    expected_revision=revision,
+                ):
+                    yield text.encode("utf-8")
+            finally:
+                snapshot.close()
+
+        media_type = (
+            "application/json" if initial.value_kind == "json" else "text/plain"
+        )
+        return filename, media_type, body()
 
     def document_page(
         self,
@@ -724,6 +846,7 @@ def _sheet_data_payload(
     total: int | None,
     cell_projection: bool = False,
     include_scope_metadata: bool = True,
+    value_mode: str = "exact",
 ) -> dict:
     child_count: dict[int, int] = {}
     parent_of: dict[int, Any] = {}
@@ -746,6 +869,8 @@ def _sheet_data_payload(
     managed_columns: dict[int, bool] = {}
     mixed_columns: dict[int, bool] = {}
     latest_run_ids: dict[int, int | None] = {}
+    include_column_metadata = include_scope_metadata and not cell_projection
+    bounded_replay_counts: dict[int, int | None] = {}
 
     def is_generation_managed(column_id: int) -> bool:
         if column_id not in managed_columns:
@@ -775,56 +900,107 @@ def _sheet_data_payload(
     for c in cols:
         column_id = int(c["id"])
         generation_managed = is_generation_managed(column_id)
-        vals, refs = project.get_values_with_refs(
-            sheet_id,
-            column_id,
-            row_ids=row_ids,
-            preserve_invalid=True,
-            include_validity=True,
-        )
-        for rid in row_ids:
-            data[rid][str(column_id)] = vals.get(rid)
-            validity = refs[rid].pop("validity", "missing")
-            meta[rid].setdefault(str(column_id), {})["current_value_ref"] = refs[rid]
-            if validity == "invalid":
-                meta[rid].setdefault(str(column_id), {})["invalid"] = True
+        if value_mode == "bounded":
+            reads = read_current_column(
+                project.db,
+                sheet_id=sheet_id,
+                column_id=column_id,
+                row_ids=row_ids,
+                bounded=True,
+            )
+            present_value_rows = {
+                row_id
+                for row_id, read in reads.items()
+                if read.bounded_value is not None or read.value is not None
+            }
+            for rid in row_ids:
+                read = reads[rid]
+                if read.value_present:
+                    data[rid][str(column_id)] = read.value
+                cell_meta = meta[rid].setdefault(str(column_id), {})
+                cell_meta["current_value_ref"] = read.value_ref
+                if read.validity == "invalid":
+                    cell_meta["invalid"] = True
+                if read.bounded_value is not None:
+                    cell_meta["bounded_value"] = read.bounded_value.as_dict()
+        else:
+            vals, refs = project.get_values_with_refs(
+                sheet_id,
+                column_id,
+                row_ids=row_ids,
+                preserve_invalid=True,
+                include_validity=True,
+            )
+            present_value_rows = {
+                row_id for row_id, value in vals.items() if value is not None
+            }
+            for rid in row_ids:
+                data[rid][str(column_id)] = vals.get(rid)
+                validity = refs[rid].pop("validity", "missing")
+                meta[rid].setdefault(str(column_id), {})["current_value_ref"] = refs[
+                    rid
+                ]
+                if validity == "invalid":
+                    meta[rid].setdefault(str(column_id), {})["invalid"] = True
 
         ran_rows: set[int] = set()
         if generation_managed and row_ids:
-            heads = generation_store.read_cell_heads(column_id, row_ids=row_ids)
+            heads = _result_metadata(project, column_id, row_ids)
             ran_rows.update(heads)
             for row_id, head in heads.items():
                 if row_id not in meta:
                     continue
-                is_error = head.publication_effect == "publish_error"
+                is_error = head["publication_effect"] == "publish_error"
                 if is_error or any(
                     value is not None
-                    for value in (head.confidence, head.justification, head.error)
+                    for value in (
+                        head["confidence"],
+                        head["justification"],
+                        head["error"],
+                    )
                 ):
                     meta[row_id].setdefault(str(column_id), {}).update(
                         {
-                            "confidence": head.confidence,
-                            "justification": head.justification,
-                            "error": head.error,
-                            "review_state": head.review_state,
+                            "confidence": head["confidence"],
+                            "justification": head["justification"],
+                            "error": head["error"],
+                            "review_state": head["review_state"],
                             "state": "error" if is_error else "complete",
-                            **({"outcome": head.outcome} if is_error else {}),
+                            **({"outcome": head["outcome"]} if is_error else {}),
                         }
                     )
         if bool(c["ai_generated"]) and generation_managed:
             for rid in row_ids:
                 if rid in ran_rows:
                     continue
-                if vals.get(rid) is not None:
+                if rid in present_value_rows:
                     continue
                 meta[rid].setdefault(str(column_id), {}).update({"state": "incomplete"})
             # Do not let replay acceptance reinterpret a mixed head set.
             # Direct callers receive the typed
             # MixedOriginReplayUnsupported gate from the store layer.
             if not has_mixed_origins(column_id):
-                for rid, pending in project.pending_replay_values(
-                    sheet_id, column_id, row_ids=row_ids
-                ).items():
+                if value_mode == "bounded":
+                    pending_values, pending_count, unavailable_rows = (
+                        bounded_pending_replay_values(
+                            project,
+                            sheet_id,
+                            column_id,
+                            row_ids,
+                            include_count=include_scope_metadata,
+                            byte_limit=MANUAL_EDIT_BYTE_LIMIT,
+                        )
+                    )
+                    bounded_replay_counts[column_id] = pending_count
+                    for rid in unavailable_rows:
+                        meta[rid].setdefault(str(column_id), {})[
+                            "replay_comparison_unavailable"
+                        ] = True
+                else:
+                    pending_values = project.pending_replay_values(
+                        sheet_id, column_id, row_ids=row_ids
+                    )
+                for rid, pending in pending_values.items():
                     meta[rid].setdefault(str(column_id), {})["pending_value"] = {
                         "fresh_value": pending["fresh_value"],
                         "run_id": pending["run_id"],
@@ -832,18 +1008,20 @@ def _sheet_data_payload(
                     }
     # Full-column pending count feeds the header chip. Mixed columns are
     # intentionally gated until replay acceptance carries an exact head ref.
-    include_column_metadata = include_scope_metadata and not cell_projection
-    replay_pending_counts = (
-        {}
-        if not include_column_metadata
-        else {
-            c["id"]: project.pending_replay_count(sheet_id, c["id"])
-            for c in cols
-            if bool(c["ai_generated"])
-            and is_generation_managed(int(c["id"]))
-            and not has_mixed_origins(int(c["id"]))
-        }
-    )
+    if value_mode == "bounded":
+        replay_pending_counts = bounded_replay_counts
+    else:
+        replay_pending_counts = (
+            {}
+            if not include_column_metadata
+            else {
+                c["id"]: project.pending_replay_count(sheet_id, c["id"])
+                for c in cols
+                if bool(c["ai_generated"])
+                and is_generation_managed(int(c["id"]))
+                and not has_mixed_origins(int(c["id"]))
+            }
+        )
     transcript_statuses = (
         compute_transcript_statuses(project, sheet_id, cols)
         if include_column_metadata
@@ -879,6 +1057,16 @@ def _sheet_data_payload(
                 "transcript_status": transcript_statuses.get(c["id"]),
                 "media_download_candidate": media_download_candidates.get(c["id"]),
                 "replay_pending_count": replay_pending_counts.get(c["id"], 0),
+                **(
+                    {
+                        "replay_comparison_available": replay_pending_counts.get(
+                            c["id"], 0
+                        )
+                        is not None
+                    }
+                    if value_mode == "bounded"
+                    else {}
+                ),
                 "default_hidden": bool(c["default_hidden"]),
             }
             for c in cols
@@ -895,3 +1083,40 @@ def _sheet_data_payload(
         ],
         **({"total": total} if total is not None else {}),
     }
+
+
+def _visible_cell_sheet_id(project: Project, row_id: int, column_id: int) -> int:
+    row = project.db.execute(
+        "SELECT r.sheet_id FROM rows AS r "
+        "JOIN sheets AS s ON s.id=r.sheet_id "
+        "JOIN columns AS c ON c.sheet_id=r.sheet_id "
+        "WHERE r.id=? AND c.id=? AND r.hidden=0 AND c.hidden=0 AND s.hidden=0",
+        (row_id, column_id),
+    ).fetchone()
+    if row is None:
+        raise SheetGridRouteError(404, "cell not found")
+    return int(row["sheet_id"])
+
+
+def _result_metadata(project: Project, column_id: int, row_ids: list[int]) -> dict:
+    """Grid status needs no decoded result values, including hidden OCR boxes."""
+    output = {}
+    for start in range(0, len(row_ids), 400):
+        chunk = row_ids[start : start + 400]
+        placeholders = ",".join("?" for _ in chunk)
+        rows = project.db.execute(
+            "SELECT head.row_id,result.publication_effect,result.confidence,"
+            "result.justification,result.error,result.review_state,result.outcome "
+            "FROM cell_result_heads head JOIN results result "
+            "ON result.run_id=head.run_id AND result.row_id=head.row_id "
+            "AND result.column_id=head.column_id "
+            f"WHERE head.column_id=? AND head.row_id IN ({placeholders})",
+            (column_id, *chunk),
+        ).fetchall()
+        output.update({int(row["row_id"]): row for row in rows})
+    return output
+
+
+def _download_filename(column_name: str, row_id: int) -> str:
+    stem = re.sub(r"[^A-Za-z0-9._-]+", "-", column_name).strip("-.") or "cell"
+    return f"{stem}-row-{row_id}.txt"

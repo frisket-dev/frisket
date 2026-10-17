@@ -10,16 +10,16 @@ from contextlib import closing, contextmanager
 from typing import Any
 
 from frisket.engine.store import Project
+from frisket.engine.store.current_value_windows import (
+    CurrentValueNotTextual,
+    CurrentValueUnavailable,
+    current_text_metadata,
+    read_current_text,
+)
 
 MAX_SOURCE_CHARS = 8_000
 MAX_SCAN_CHARS = 1_048_576
 SCAN_SECONDS = 2.0
-_TEXT = (
-    "CASE WHEN c.validity='valid' AND "
-    "c.value_kind IN ('text','json','bigint') THEN c.value "
-    "WHEN c.validity='valid' AND "
-    "c.value_kind IN ('integer','real','boolean') THEN CAST(c.value AS TEXT) END"
-)
 _FROM = (
     " FROM current_cell_values c JOIN rows r ON r.id=c.row_id "
     "JOIN columns col ON col.id=c.column_id JOIN sheets s ON s.id=r.sheet_id "
@@ -58,13 +58,30 @@ def _read(project: Project, cancel: threading.Event | None):
 
 def _metadata(db: sqlite3.Connection, cell: tuple[int, int, int]) -> dict[str, Any]:
     row = db.execute(
-        f"SELECT length({_TEXT}) AS length, c.origin_kind,c.origin_op_id,"
-        "c.origin_run_id,c.base_producer_id,c.validity,c.prepared_ref_id,"
-        "col.type AS column_type" + _FROM,
+        "SELECT c.origin_kind,c.origin_op_id,c.origin_run_id,c.base_producer_id,"
+        "c.validity,col.type AS column_type FROM current_cells c "
+        "JOIN rows r ON r.id=c.row_id JOIN columns col ON col.id=c.column_id "
+        "JOIN sheets s ON s.id=r.sheet_id "
+        "WHERE r.sheet_id=? AND r.id=? AND c.column_id=? "
+        "AND col.sheet_id=r.sheet_id AND r.hidden=0 AND col.hidden=0 AND s.hidden=0",
         cell,
     ).fetchone()
     if row is None:
         raise SourceUnavailableError("source is hidden or no longer available")
+    text_meta = None
+    if row["validity"] == "valid":
+        try:
+            text_meta = current_text_metadata(
+                db,
+                sheet_id=cell[0],
+                row_id=cell[1],
+                column_id=cell[2],
+                include_scalars=True,
+            )
+            if text_meta.value_kind == "legacy_invalid":
+                text_meta = None
+        except (CurrentValueNotTextual, CurrentValueUnavailable):
+            pass
     ref = {
         "kind": row["origin_kind"],
         "op_id": row["origin_op_id"],
@@ -73,13 +90,13 @@ def _metadata(db: sqlite3.Connection, cell: tuple[int, int, int]) -> dict[str, A
         "run_id": row["origin_run_id"],
         "validity": row["validity"],
         **(
-            {"prepared_ref_id": int(row["prepared_ref_id"])}
-            if row["prepared_ref_id"] is not None
+            {"prepared_ref_id": text_meta.prepared_ref_id}
+            if text_meta is not None and text_meta.prepared_ref_id is not None
             else {}
         ),
     }
     return {
-        "length": row["length"] or 0,
+        "length": text_meta.total_characters if text_meta is not None else 0,
         "column_type": row["column_type"],
         "value_ref": ref,
         "version": {**ref, "base_producer_id": row["base_producer_id"]},
@@ -109,10 +126,33 @@ def _start(meta: dict[str, Any], cursor: dict[str, Any] | None, start: int) -> i
 def _text(
     db: sqlite3.Connection, cell: tuple[int, int, int], start: int, size: int
 ) -> str:
-    row = db.execute(
-        f"SELECT substr({_TEXT},?,?) AS text" + _FROM, (start + 1, size, *cell)
+    valid = db.execute(
+        "SELECT validity FROM current_cells WHERE row_id=? AND column_id=?",
+        cell[1:],
     ).fetchone()
-    return str(row["text"] or "")
+    if valid is None or valid[0] != "valid":
+        return ""
+    try:
+        metadata = current_text_metadata(
+            db,
+            sheet_id=cell[0],
+            row_id=cell[1],
+            column_id=cell[2],
+            include_scalars=True,
+        )
+    except (CurrentValueNotTextual, CurrentValueUnavailable):
+        return ""
+    if metadata.value_kind == "legacy_invalid":
+        return ""
+    return read_current_text(
+        db,
+        sheet_id=cell[0],
+        row_id=cell[1],
+        column_id=cell[2],
+        metadata=metadata,
+        start=start,
+        limit=size,
+    )
 
 
 def read_source_text(
@@ -128,16 +168,21 @@ def read_source_text(
     """Return only a bounded SQL substring, never a whole Python document copy."""
     if not 1 <= limit <= MAX_SOURCE_CHARS:
         raise ValueError("invalid source read size")
-    with _read(project, cancel) as (db, _deadline):
+    with _read(project, cancel) as (db, deadline):
         meta = _metadata(db, cell)
         start = _start(meta, cursor, start)
         if cursor is None and anchor:
             lead = min(500, limit // 2)
-            located = db.execute(
-                f"SELECT instr({_TEXT},?) AS position" + _FROM, (anchor[:500], *cell)
-            ).fetchone()["position"]
-            if located:
-                start = max(0, located - 1 - lead)
+            needle = anchor[:500]
+            for offset in range(0, meta["length"], MAX_SCAN_CHARS - len(needle) + 1):
+                if (cancel and cancel.is_set()) or time.monotonic() >= deadline:
+                    raise InterruptedError(
+                        "source anchor read stopped or exceeded its time limit"
+                    )
+                located = _text(db, cell, offset, MAX_SCAN_CHARS).find(needle)
+                if located >= 0:
+                    start = max(0, offset + located - lead)
+                    break
         start = min(start, meta["length"])
         text = _text(db, cell, start, limit)
         end = start + len(text)

@@ -365,6 +365,8 @@ _TENANT_VIEWER: tuple[RouteSpec, ...] = (
     ),
     ("backfill_activity", "GET"),
     ("cell_evidence", "GET"),
+    ("cell_text_window", "GET"),
+    ("cell_value_download", "GET"),
     (
         "cell_text_annotations",
         "GET",
@@ -812,6 +814,8 @@ _BROWSER_CLIENT_IDS = (
             "tenant.cluster_preview.post",
             "tenant.compact_project.post",
             "tenant.cell_evidence.get",
+            "tenant.cell_text_window.get",
+            "tenant.cell_value_download.get",
             "tenant.cell_text_annotations.get",
             "tenant.column_runs.get",
             "tenant.reviewed_run_revision.get",
