@@ -49,7 +49,7 @@ class SearchPreparationCreateRequest(WireModel):
 
 class SearchPreparationDecisionRequest(WireModel):
     plan_hash: str = Field(min_length=1, max_length=96)
-    decision: Literal["prepare", "not_now"]
+    decision: Literal["prepare"]
     selected_setup_refs: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -57,8 +57,6 @@ class SearchPreparationDecisionRequest(WireModel):
         if any(not value.strip() for value in self.selected_setup_refs):
             raise ValueError("selected_setup_refs must be non-empty strings")
         self.selected_setup_refs = sorted(set(self.selected_setup_refs))
-        if self.decision == "not_now" and self.selected_setup_refs:
-            raise ValueError("not_now cannot select setup references")
         return self
 
 

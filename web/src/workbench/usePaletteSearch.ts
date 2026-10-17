@@ -57,7 +57,6 @@ export interface PaletteSearch {
   setupError: string | null;
   setupOperation: PaletteSearchSetupOperation | null;
   startSetup(setupRef: string, scope: 'workspace' | 'organization'): void;
-  finishSetup(pull: ModelPullDto): void;
   refreshSearch(): void;
 }
 
@@ -355,13 +354,22 @@ export function usePaletteSearch(
   const [setupError, setSetupError] = useState<string | null>(null);
   const [setupOperation, setSetupOperation] = useState<PaletteSearchSetupOperation | null>(null);
   const advertisedSetup = coverage?.channels.find((channel) => channel.setup)?.setup ?? null;
+  const setupGeneration = useRef(0);
+  useEffect(() => () => {
+    setupGeneration.current += 1;
+    setSetupBusy(false);
+    setSetupError(null);
+    setSetupOperation(null);
+  }, [projectId]);
 
   usePoll(async () => {
     if (!advertisedSetup) return 'stop' as const;
+    const generation = setupGeneration.current;
     try {
       const result = advertisedSetup.scope === 'organization'
         ? await orgListModelPulls()
         : await listModelPulls();
+      if (generation !== setupGeneration.current) return 'stop';
       const pull = result.pulls
         .filter((candidate) => (
           candidate.operation_kind === 'engine_setup'
@@ -394,21 +402,26 @@ export function usePaletteSearch(
 
   const startSetup = (setupRef: string, scope: 'workspace' | 'organization') => {
     if (setupBusy) return;
+    const generation = ++setupGeneration.current;
     setSetupBusy(true);
     setSetupError(null);
     void startEngineSetup(scope, setupRef)
       .then(({ pull }) => {
+        if (generation !== setupGeneration.current) return;
         setSetupOperation({ setupRef, scope, pull });
       })
       .catch(async (error: Error) => {
+        if (generation !== setupGeneration.current) return;
         if (error instanceof ModelSetupRequestError && error.activePullId != null) {
           try {
             const pull = scope === 'organization'
               ? await orgGetModelPull(error.activePullId)
               : await getModelPull(error.activePullId);
+            if (generation !== setupGeneration.current) return;
             setSetupOperation({ setupRef, scope, pull });
             return;
           } catch (recoveryError) {
+            if (generation !== setupGeneration.current) return;
             setSetupError(recoveryError instanceof Error
               ? recoveryError.message
               : String(recoveryError));
@@ -417,7 +430,7 @@ export function usePaletteSearch(
         }
         setSetupError(error.message);
       })
-      .finally(() => setSetupBusy(false));
+      .finally(() => { if (generation === setupGeneration.current) setSetupBusy(false); });
   };
   const finishSetup = (pull: ModelPullDto) => {
     const matching = pull.operation_kind === 'engine_setup'
@@ -430,6 +443,33 @@ export function usePaletteSearch(
       setSearchRevision((revision) => revision + 1);
     }
   };
+
+  usePoll(async () => {
+    if (!setupOperation) return 'stop';
+    const operation = setupOperation;
+    const generation = setupGeneration.current;
+    try {
+      const pull = operation.scope === 'organization'
+        ? await orgGetModelPull(operation.pull.id)
+        : await getModelPull(operation.pull.id);
+      if (generation !== setupGeneration.current) return 'stop';
+      setSetupOperation((current) => (
+        current?.pull.id === operation.pull.id && current.scope === operation.scope
+          ? { ...current, pull }
+          : current
+      ));
+      if (pull.status === 'done' || pull.status === 'failed' || pull.status === 'cancelled') {
+        finishSetup(pull);
+        return 'stop';
+      }
+    } catch {
+      // Retain the existing operation and retry; activity owns its progress display.
+    }
+  }, {
+    active: setupOperation?.pull.status === 'pending' || setupOperation?.pull.status === 'running',
+    intervalMs: 1_000,
+    guardOverlap: true,
+  });
 
   const sheetsById = useMemo(
     () => new Map(searchSheets.map((sheet) => [String(sheet.id), sheet])),
@@ -479,7 +519,6 @@ export function usePaletteSearch(
     setupError,
     setupOperation,
     startSetup,
-    finishSetup,
     refreshSearch() {
       setSearchRevision((revision) => revision + 1);
     },

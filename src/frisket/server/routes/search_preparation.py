@@ -36,7 +36,7 @@ def register_search_preparation_routes(
         responses=responses,
     )
     async def create_search_preparation(
-        pid: str, body: SearchPreparationCreateRequest
+        request: Request, pid: str, body: SearchPreparationCreateRequest
     ) -> SearchPreparationBatch:
         return await await_thread_worker(
             service.create,
@@ -44,6 +44,8 @@ def register_search_preparation_routes(
             sheet_id=body.sheet_id,
             row_ids=body.row_ids,
             force_ocr=body.force_ocr,
+            may_setup_models=capabilities_for(request, pid).manage_model_downloads,
+            may_run_actions=capabilities_for(request, pid).may_run_actions,
         )
 
     @app.get(
@@ -59,6 +61,7 @@ def register_search_preparation_routes(
             service.list,
             pid,
             may_setup_models=capabilities_for(request, pid).manage_model_downloads,
+            may_run_actions=capabilities_for(request, pid).may_run_actions,
         )
 
     @app.get(
@@ -75,6 +78,7 @@ def register_search_preparation_routes(
             pid,
             batch_id,
             may_setup_models=capabilities_for(request, pid).manage_model_downloads,
+            may_run_actions=capabilities_for(request, pid).may_run_actions,
         )
 
     @app.post(
@@ -84,7 +88,7 @@ def register_search_preparation_routes(
         responses=responses,
     )
     async def replan_search_preparation(
-        pid: str, batch_id: str, body: SearchPreparationReplanRequest
+        request: Request, pid: str, batch_id: str, body: SearchPreparationReplanRequest
     ) -> SearchPreparationBatch:
         return await await_thread_worker(
             service.replan,
@@ -92,6 +96,8 @@ def register_search_preparation_routes(
             batch_id,
             plan_hash=body.plan_hash,
             force_ocr=body.force_ocr,
+            may_setup_models=capabilities_for(request, pid).manage_model_downloads,
+            may_run_actions=capabilities_for(request, pid).may_run_actions,
         )
 
     @app.post(
@@ -121,6 +127,7 @@ def register_search_preparation_routes(
             decision=body.decision,
             selected_setup_refs=body.selected_setup_refs,
             may_setup_models=capabilities.manage_model_downloads,
+            may_run_actions=capabilities.may_run_actions,
             initiated_by=initiated_by,
         )
 
@@ -131,9 +138,15 @@ def register_search_preparation_routes(
         responses=responses,
     )
     async def stop_search_preparation(
-        pid: str, batch_id: str
+        request: Request, pid: str, batch_id: str
     ) -> SearchPreparationBatch:
-        return await await_thread_worker(service.stop, pid, batch_id)
+        return await await_thread_worker(
+            service.stop,
+            pid,
+            batch_id,
+            may_setup_models=capabilities_for(request, pid).manage_model_downloads,
+            may_run_actions=capabilities_for(request, pid).may_run_actions,
+        )
 
     @app.get(
         f"{base}/{{batch_id}}/text-samples",

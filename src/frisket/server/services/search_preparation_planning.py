@@ -25,6 +25,50 @@ _PREVIEW_CHARS = 12_000
 _PLAN_WARNING_LIMIT = 20
 
 
+def capture_sources(
+    project: Any, *, sheet_id: int, row_ids: Sequence[int] | None
+) -> list[dict[str, Any]]:
+    """Capture exact automatic follow-up bindings before any PDF preview IO."""
+    selected = project.visible_row_ids(
+        sheet_id, None if row_ids is None else list(row_ids)
+    )
+    columns = [
+        c
+        for c in project.columns(sheet_id)
+        if c["type"] in {"file", "image", "audio", "video"}
+        and not dict(c).get("hidden", False)
+    ]
+    sources = []
+    for offset in range(0, len(selected), _SCAN_PAGE):
+        for column in columns:
+            for row_id, value in project.get_values(
+                sheet_id,
+                int(column["id"]),
+                row_ids=selected[offset : offset + _SCAN_PAGE],
+            ).items():
+                if not isinstance(value, dict) or not isinstance(
+                    value.get("blob"), str
+                ):
+                    continue
+                source = resolve_cell_blob_source(
+                    project,
+                    sheet_id=sheet_id,
+                    row_id=row_id,
+                    column_id=int(column["id"]),
+                )
+                if source is not None:
+                    sources.append(
+                        {
+                            "row_id": row_id,
+                            "column_id": int(column["id"]),
+                            "blob_hash": source.blob_hash,
+                            "page_number": source.page_number,
+                            "retrieval_revision": source.binding.retrieval_revision,
+                        }
+                    )
+    return sources
+
+
 def build_plan(
     project: Any,
     *,

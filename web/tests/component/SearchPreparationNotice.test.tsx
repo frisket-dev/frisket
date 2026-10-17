@@ -104,6 +104,48 @@ function snapshot(overrides: Partial<SearchPreparationSnapshot> = {}): SearchPre
 }
 
 describe('search preparation notice projection', () => {
+  it('offers Stop only for a permitted batch with unfinished preparation, never indexing alone', () => {
+    expect(deriveSearchPreparationNotice(snapshot({ batches: [batch()] }))?.stopBatchId).toBe('prep-1');
+    expect(deriveSearchPreparationNotice(snapshot({ batches: [batch({ can_stop: false })] }))?.stopBatchId).toBeNull();
+    expect(deriveSearchPreparationNotice(snapshot({ batches: [batch({ groups: [{ kind: 'ocr', count: 2, status: 'complete' }] })],
+      indexing: { status: 'running', job_id: 9, error: null },
+    }))?.stopBatchId).toBeNull();
+  });
+
+  it('stops the displayed batch through its existing endpoint and refreshes activity', async () => {
+    const list = vi.spyOn(preparationApi, 'listSearchPreparations').mockResolvedValue({
+      batches: [batch()], indexing: { status: 'idle', job_id: null, error: null },
+    });
+    vi.spyOn(openApi, 'listModelPulls').mockResolvedValue({ pulls: [pull()] });
+    const stop = vi.spyOn(preparationApi, 'stopSearchPreparation').mockImplementation(async () => {
+      list.mockResolvedValue({ batches: [batch({ status: 'stopped', can_stop: false })],
+        indexing: { status: 'idle', job_id: null, error: null } });
+      return batch({ status: 'stopped', can_stop: false });
+    });
+    const { result } = renderHook(() => useSearchPreparationNotice('project-1', false));
+    await waitFor(() => expect(result.current?.onStopPreparation).toBeTypeOf('function'));
+    await act(async () => { await result.current!.onStopPreparation!(); });
+    expect(stop).toHaveBeenCalledExactlyOnceWith('project-1', 'prep-1');
+    expect(list).toHaveBeenCalledTimes(2);
+    expect(result.current?.stopBatchId).toBeNull();
+    expect(result.current?.stage).toBe('download');
+  });
+
+  it('keeps a failed Stop separate from dismissing the activity', async () => {
+    let rejectStop!: (error: Error) => void;
+    const stop = vi.fn(() => new Promise<void>((_resolve, reject) => { rejectStop = reject; }));
+    const dismiss = vi.fn();
+    const notice = deriveSearchPreparationNotice(snapshot({ batches: [batch()] }));
+    render(<SearchPreparationNotice notice={notice!} onStopPreparation={stop} onDismiss={dismiss} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Stop remaining preparation' }));
+    expect(screen.getByRole('button', { name: 'Stopping…' })).toBeDisabled();
+    expect(dismiss).not.toHaveBeenCalled();
+    await act(async () => { rejectStop(new Error('Could not stop preparation')); });
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not stop preparation');
+    expect(screen.getByRole('button', { name: 'Stop remaining preparation' })).toBeEnabled();
+    expect(dismiss).not.toHaveBeenCalled();
+  });
+
   it('keeps running progress in activity without linking back to a progress dialog', () => {
     const notice = deriveSearchPreparationNotice(snapshot({ batches: [batch()] }));
     expect(notice).not.toBeNull();
@@ -339,7 +381,7 @@ describe('search preparation notice projection', () => {
     expect(notice).toMatchObject({
       activityKey: 'preparation:prep-1',
       stage: 'prepare',
-      detail: 'Reading scanned PDFs · 2 files',
+      detail: 'Extracting text · 2 files',
     });
   });
 
@@ -378,7 +420,7 @@ describe('search preparation notice projection', () => {
     expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '67');
     fireEvent.click(screen.getByTestId('search-preparation-details'));
     expect(screen.getByText('One PDF page could not be recognized.')).toBeInTheDocument();
-    expect(screen.getByText('Reading scanned PDFs · 2 files')).toBeInTheDocument();
+    expect(screen.getByText('Extracting text · 2 files')).toBeInTheDocument();
     expect(screen.getByText('Search indexing queued')).toBeInTheDocument();
   });
 
@@ -452,22 +494,27 @@ describe('search preparation notice projection', () => {
     });
   });
 
-  it('shows the runtime remedy for a preparation that could not start', () => {
+  it.each([false, true])('uses runtime readiness for failed-preparation remedies (ready=%s)', (runtimeReady) => {
     const notice = deriveSearchPreparationNotice(snapshot({
       batches: [batch({
         status: 'failed',
         groups: [{ kind: 'transcribe', count: 2, status: 'not_prepared' }],
         models: [{
           setup_ref: 'parakeet', display_name: 'Parakeet', purpose: 'transcribe',
-          required: true, ready: false, runtime_ready: false, can_setup: false,
+          required: true, ready: false, runtime_ready: runtimeReady, can_setup: false,
           remediation: 'Install the local audio runtime, then prepare these files again.',
           download_bytes: null, additional_runtime_download: false,
           license: null, source_url: null, pull_id: null,
         }],
       })],
     }));
-    expect(notice?.detail).toContain('Install the local audio runtime');
-    expect(notice?.title).toBe('Some files need local setup');
+    if (runtimeReady) {
+      expect(notice?.title).toBe('Search preparation needs attention');
+      expect(notice?.detail).not.toContain('Install');
+    } else {
+      expect(notice?.detail).toContain('Install the local audio runtime');
+      expect(notice?.title).toBe('Some files need local setup');
+    }
   });
 
   it('restores an unavailable runtime explanation after reopening the project', async () => {
@@ -492,12 +539,18 @@ describe('search preparation notice projection', () => {
     await waitFor(() => expect(result.current?.detail).toContain('Install the local audio runtime.'));
   });
 
-  it('does not resurface a historical failure during unrelated pending indexing', async () => {
+  it('does not treat denied setup permission as a historical runtime failure during unrelated indexing', async () => {
     vi.spyOn(preparationApi, 'listSearchPreparations').mockResolvedValue({
       schemaVersion: 'frisket.search_preparation_list.v1',
       batches: [batch({
         id: 'just-failed',
         status: 'failed',
+        models: [{
+          setup_ref: 'parakeet', display_name: 'Parakeet', purpose: 'transcribe',
+          required: true, ready: false, runtime_ready: true, can_setup: false,
+          remediation: 'Model setup requires workspace model-management permission.',
+          download_bytes: null, additional_runtime_download: false, license: null, source_url: null, pull_id: null,
+        }],
         groups: [{ kind: 'ocr', count: 3, status: 'failed' }],
         errors: ['OCR could not read the imported PDFs.'],
       })],

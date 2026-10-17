@@ -530,6 +530,27 @@ describe('SearchPreparationReceipt', () => {
     ));
   });
 
+  it('prepares ready text without offering or requesting an optional download denied by permission', async () => {
+    const permissionLimited = {
+      ...consentBatch, can_setup: false,
+      models: [
+        { ...consentBatch.models[0], ready: true, can_setup: false },
+        { ...consentBatch.models[1], can_setup: false, remediation: 'Model setup requires workspace model-management permission.' },
+      ],
+    };
+    getSearchPreparation.mockResolvedValue(permissionLimited);
+    decideSearchPreparation.mockResolvedValue({ ...permissionLimited, status: 'preparing' });
+    render(<SearchPreparationReceipt projectId="project-1" batchId="prep-1" onDone={vi.fn()} onError={vi.fn()} />);
+    const optional = await screen.findByTestId('search-preparation-semantic-model') as HTMLInputElement;
+    expect(optional.disabled).toBe(true);
+    expect(optional.checked).toBe(false);
+    expect(screen.getByText('Model setup requires workspace model-management permission.')).not.toBeNull();
+    fireEvent.click(screen.getByTestId('search-preparation-decision-prepare'));
+    await waitFor(() => expect(decideSearchPreparation).toHaveBeenCalledWith('project-1', 'prep-1', {
+      plan_hash: 'sha256:plan', decision: 'prepare', selected_setup_refs: [],
+    }));
+  });
+
   it('replans the entire mixed batch without starting it, then decides the replacement exact plan', async () => {
     const onDone = vi.fn();
     const mixed = { ...consentBatch, groups: [...consentBatch.groups, { kind: 'transcribe', count: 2, status: 'needs_consent' }] };

@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 
 import '@testing-library/jest-dom/vitest';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { usePaletteSearch } from '../../src/workbench/usePaletteSearch';
 import { WorkbenchCommandPalette } from '../../src/workbench/WorkbenchCommandPalette';
 import { ModelSetupRequestError } from '../../src/api/engineSetup';
 
@@ -23,6 +24,7 @@ const embeddingIndexes = vi.fn();
 const saveLens = vi.fn();
 const createWatch = vi.fn();
 const projectApi = { embeddingIndexes, saveLens, createWatch };
+let workspaceProjectId = 'project-1';
 
 vi.mock('../../src/api/open', async (importOriginal) => ({
   ...await importOriginal<typeof import('../../src/api/open')>(),
@@ -49,7 +51,7 @@ vi.mock('../../src/api/searchPreparation', async (importOriginal) => ({
 
 vi.mock('../../src/bind/useWorkspaceStores', () => ({
   useWorkspaceStores: () => ({
-    chromePreferences: { projectId: 'project-1' },
+    chromePreferences: { projectId: workspaceProjectId },
     projectApi,
   }),
 }));
@@ -221,6 +223,7 @@ function AnchoredPaletteHarness() {
 }
 
 beforeEach(() => {
+  workspaceProjectId = 'project-1';
   searchProject.mockReset();
   startEngineSetup.mockReset();
   listModelPulls.mockReset();
@@ -354,12 +357,34 @@ describe('located palette search', () => {
       'workspace',
       'engine-setup:embeddinggemma-2.local@1',
     ));
-    expect(await screen.findByTestId('search-setup-progress')).toBeVisible();
-    expect(screen.getByTestId('model-pull-progress')).toHaveAttribute('data-status', 'running');
+    expect(await screen.findByTestId('search-setup-status')).toHaveTextContent('Semantic search setup is running.');
+    expect(screen.getByTestId('search-setup-status')).not.toHaveTextContent('Progress is available');
+    expect(screen.queryByTestId('model-pull-progress')).not.toBeInTheDocument();
     expect(searchProject).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(searchProject).toHaveBeenCalledTimes(2), { timeout: 2_500 });
-    expect(screen.queryByTestId('search-setup-progress')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('search-setup-status')).not.toBeInTheDocument();
     expect(screen.queryByText('Setting up semantic search')).not.toBeInTheDocument();
+  });
+
+  it('clears project-owned setup state and ignores an older pending setup response', async () => {
+    let rejectOld!: (error: Error) => void;
+    const newPull = setupPull({ id: 72 });
+    startEngineSetup.mockReturnValueOnce(new Promise((_resolve, reject) => { rejectOld = reject; }))
+      .mockResolvedValueOnce({ pull: newPull, deduplicated: false });
+    const { result, rerender } = renderHook(() => usePaletteSearch('', [], '1', vi.fn()));
+    act(() => { result.current.startSetup('engine-setup:embeddinggemma-2.local@1', 'workspace'); });
+    expect(result.current.setupBusy).toBe(true);
+    workspaceProjectId = 'project-2';
+    rerender();
+    expect(result.current.setupBusy).toBe(false);
+    expect(result.current.setupError).toBeNull();
+    expect(result.current.setupOperation).toBeNull();
+    await act(async () => { result.current.startSetup('engine-setup:embeddinggemma-2.local@1', 'workspace'); });
+    expect(result.current.setupOperation?.pull.id).toBe(72);
+    await act(async () => { rejectOld(new Error('Old project setup failed')); });
+    expect(result.current.setupBusy).toBe(false);
+    expect(result.current.setupError).toBeNull();
+    expect(result.current.setupOperation?.pull.id).toBe(72);
   });
 
   it('restores a matching durable semantic setup pull when Search reopens', async () => {
@@ -384,8 +409,8 @@ describe('located palette search', () => {
 
     render(<PaletteHarness />);
 
-    expect(await screen.findByTestId('search-setup-progress')).toBeVisible();
-    expect(screen.getByTestId('model-pull-progress')).toHaveAttribute('data-status', 'running');
+    expect(await screen.findByTestId('search-setup-status')).toBeVisible();
+    expect(screen.queryByTestId('model-pull-progress')).not.toBeInTheDocument();
     expect(startEngineSetup).not.toHaveBeenCalled();
   });
 
@@ -420,15 +445,15 @@ describe('located palette search', () => {
     fireEvent.click(await screen.findByTestId('search-setup'));
     fireEvent.click(screen.getByTestId('search-setup-confirm'));
 
-    expect(await screen.findByTestId('search-setup-progress')).toBeVisible();
-    await waitFor(() => expect(screen.getByTestId('model-pull-error')).toHaveTextContent(
+    expect(await screen.findByTestId('search-setup-status')).toBeVisible();
+    await waitFor(() => expect(screen.getByTestId('search-setup-error')).toHaveTextContent(
       'Could not download model',
     ), { timeout: 2_500 });
     expect(searchProject).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByTestId('search-setup-retry'));
     await waitFor(() => expect(startEngineSetup).toHaveBeenCalledTimes(2));
-    expect(screen.getByTestId('model-pull-progress')).toHaveAttribute('data-status', 'running');
+    expect(screen.queryByTestId('model-pull-progress')).not.toBeInTheDocument();
     expect(searchProject).toHaveBeenCalledTimes(1);
   });
 
@@ -470,7 +495,7 @@ describe('located palette search', () => {
     fireEvent.click(await screen.findByTestId('search-setup'));
     fireEvent.click(screen.getByTestId('search-setup-confirm'));
 
-    expect(await screen.findByTestId('search-setup-blocked-progress')).toHaveTextContent(
+    expect(await screen.findByTestId('search-setup-blocked-status')).toHaveTextContent(
       'Another setup operation is active',
     );
     expect(screen.queryByText('Setting up semantic search')).not.toBeInTheDocument();
@@ -657,7 +682,58 @@ describe('located palette search', () => {
     expect(getSearchPreparation).not.toHaveBeenCalledWith('project-1', 'prep-a');
   });
 
-  it('restores the latest preparation awaiting approval when Search opens', async () => {
+  it('retains the new sheet approval when an older create resolves and clears restored targets with no match', async () => {
+    let created!: (value: unknown) => void;
+    const batchB = {
+      id: 'prep-b', sheet_id: 2, plan_hash: 'sha256:b', status: 'needs_consent', force_ocr: false,
+      groups: [{ kind: 'ocr', count: 2, status: 'needs_consent' }],
+      models: [], jobs: [], can_stop: false, can_setup: true, errors: [],
+    };
+    listSearchPreparations.mockResolvedValueOnce({ batches: [] }).mockResolvedValueOnce({ batches: [] })
+      .mockResolvedValueOnce({ batches: [batchB] }).mockResolvedValue({ batches: [] });
+    createSearchPreparation.mockReturnValue(new Promise((resolve) => { created = resolve; }));
+    getSearchPreparation.mockResolvedValue(batchB);
+    searchProject.mockResolvedValue({ ...completeResponse, coverage: { ...completeResponse.coverage,
+      state: 'partial', channels: [{ channel: 'search_preparation', state: 'unavailable', eligible_count: 1, prepared_count: 0, gap_sheet_ids: [1, 2] }],
+    } });
+    const onClose = vi.fn();
+    const sheets = [{ id: '1', name: 'Dispatches' } as never, { id: '2', name: 'Court filings' } as never];
+    const view = render(<PaletteHarness searchSheets={sheets} activeSearchSheetId="1" onClose={onClose} />);
+    fireEvent.click(await screen.findByTestId('search-preparation-gap-action'));
+    await waitFor(() => expect(createSearchPreparation).toHaveBeenCalledOnce());
+    view.rerender(<PaletteHarness searchSheets={sheets} activeSearchSheetId="2" onClose={onClose} />);
+    await screen.findByTestId('search-preparation-decision-prepare');
+    expect(getSearchPreparation).toHaveBeenCalledWith('project-1', 'prep-b');
+    await act(async () => { created({ ...batchB, id: 'prep-a', sheet_id: 1 }); });
+    expect(screen.getByTestId('search-preparation-decision-prepare')).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(getSearchPreparation).not.toHaveBeenCalledWith('project-1', 'prep-a');
+    view.rerender(<PaletteHarness searchSheets={sheets} activeSearchSheetId="1" onClose={onClose} />);
+    await waitFor(() => expect(listSearchPreparations).toHaveBeenCalledTimes(4));
+    expect(screen.queryByTestId('search-preparation-receipt')).not.toBeInTheDocument();
+    expect(screen.getByTestId('search-preparation-gap-action')).toBeEnabled();
+  });
+
+  it('resets busy state on a sheet change and ignores an older create error', async () => {
+    let rejectCreate!: (error: Error) => void;
+    listSearchPreparations.mockResolvedValue({ batches: [] });
+    createSearchPreparation.mockReturnValue(new Promise((_resolve, reject) => { rejectCreate = reject; }));
+    searchProject.mockResolvedValue({ ...completeResponse, coverage: { ...completeResponse.coverage,
+      state: 'partial', channels: [{ channel: 'search_preparation', state: 'unavailable', eligible_count: 1, prepared_count: 0, gap_sheet_ids: [1, 2] }],
+    } });
+    const sheets = [{ id: '1', name: 'Dispatches' } as never, { id: '2', name: 'Court filings' } as never];
+    const view = render(<PaletteHarness searchSheets={sheets} activeSearchSheetId="1" />);
+    fireEvent.click(await screen.findByTestId('search-preparation-gap-action'));
+    await waitFor(() => expect(createSearchPreparation).toHaveBeenCalledOnce());
+    view.rerender(<PaletteHarness searchSheets={sheets} activeSearchSheetId="2" />);
+    await waitFor(() => expect(listSearchPreparations).toHaveBeenCalledTimes(3));
+    expect(screen.getByTestId('search-preparation-gap-action')).toBeEnabled();
+    await act(async () => { rejectCreate(new Error('Old sheet create failed')); });
+    expect(screen.queryByText('Old sheet create failed')).not.toBeInTheDocument();
+    expect(screen.getByTestId('search-preparation-gap-action')).toBeEnabled();
+  });
+
+  it('restores approval only for the current sheet when Search opens', async () => {
     const awaitingApproval = {
       schemaVersion: 'frisket.search_preparation.v1',
       id: 'prep-awaiting-approval',
@@ -674,13 +750,14 @@ describe('located palette search', () => {
     searchProject.mockResolvedValue(completeResponse);
     listSearchPreparations.mockResolvedValue({
       batches: [
+        { ...awaitingApproval, id: 'prep-other-sheet', sheet_id: 1 },
         { ...awaitingApproval, id: 'prep-complete', status: 'complete' },
         awaitingApproval,
       ],
     });
-    getSearchPreparation.mockResolvedValue(awaitingApproval);
+    getSearchPreparation.mockImplementation(async (_project, id) => ({ ...awaitingApproval, id }));
 
-    render(<PaletteHarness />);
+    render(<PaletteHarness activeSearchSheetId="2" />);
 
     expect(await screen.findByTestId('search-preparation-receipt')).toBeVisible();
     expect(screen.getByRole('heading', { name: 'Make these files searchable' })).toBeVisible();
@@ -693,6 +770,7 @@ describe('located palette search', () => {
       'project-1',
       'prep-awaiting-approval',
     );
+    expect(getSearchPreparation).not.toHaveBeenCalledWith('project-1', 'prep-other-sheet');
   });
 
   it('labels source results with their file and exact page', async () => {

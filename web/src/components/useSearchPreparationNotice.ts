@@ -6,6 +6,7 @@ import {
 } from '../api/open';
 import {
   listSearchPreparations,
+  stopSearchPreparation,
   type SearchPreparationBatch,
 } from '../api/searchPreparation';
 import { usePoll } from '../hooks/usePoll';
@@ -28,6 +29,8 @@ export interface SearchPreparationSnapshot {
 export type SearchPreparationNotice = {
   activityKey: string;
   reviewBatchId: string | null;
+  stopBatchId?: string | null;
+  onStopPreparation?(): Promise<void>;
   stage: 'download' | 'planning' | 'approval' | 'prepare' | 'index' | 'failed' | 'complete';
   tone: 'active' | 'warning' | 'error' | 'complete';
   title: string;
@@ -103,7 +106,7 @@ function preparationDetail(batch: SearchPreparationBatch): string {
     case 'native_pdf':
       return `Reading PDF text · ${countLabel}`;
     case 'ocr':
-      return `Reading scanned PDFs · ${countLabel}`;
+      return `Extracting text · ${countLabel}`;
     case 'transcribe':
       return `Transcribing media · ${countLabel}`;
   }
@@ -189,7 +192,7 @@ function deriveSearchPreparationStageNotice(
   }
   if (failedBatch) {
     const unavailableModels = failedBatch.models.filter((model) => (
-      model.required && !model.ready && !model.can_setup
+      model.required && !model.ready && !model.runtime_ready && !model.can_setup
     ));
     const remedies = unavailableModels.map((model) => (
       `${model.display_name}: ${model.remediation || 'Install its local runtime, then prepare these files again.'}`
@@ -369,11 +372,22 @@ export function deriveSearchPreparationNotice(
   activityIdentity: string | null = null,
 ): SearchPreparationNotice | null {
   const notice = deriveSearchPreparationStageNotice(snapshot, completion, activityIdentity);
-  if (!notice || !['pending', 'queued', 'running'].includes(snapshot.indexing.status)) return notice;
+  if (!notice) return null;
+  const stoppableBatch = snapshot.batches.find((batch) => (
+    batch.id === notice.reviewBatchId && batch.status === 'preparing' && batch.can_stop
+    && batch.groups.some((group) => (
+      group.status === 'planning' || group.status === 'waiting_for_download'
+      || group.status === 'queued' || group.status === 'running'
+    ))
+  ));
+  const indexingActive = ['pending', 'queued', 'running'].includes(snapshot.indexing.status);
   return {
     ...notice,
-    pdfFiles: snapshot.indexing.pdf_files ?? [],
-    pdfFilesTruncated: snapshot.indexing.pdf_files_truncated ?? false,
+    stopBatchId: stoppableBatch?.id ?? null,
+    ...(indexingActive ? {
+      pdfFiles: snapshot.indexing.pdf_files ?? [],
+      pdfFilesTruncated: snapshot.indexing.pdf_files_truncated ?? false,
+    } : {}),
   };
 }
 
@@ -441,7 +455,7 @@ function relevantBatches(
   const failed = batches.filter((batch) => (
     batch.status === 'failed' && (
       previouslyObserved.has(batch.id)
-      || batch.models.some((model) => model.required && !model.ready && !model.can_setup)
+      || batch.models.some((model) => model.required && !model.ready && !model.runtime_ready && !model.can_setup)
     )
   )).slice(0, 1);
   const warned = batches.filter((batch) => (
@@ -605,5 +619,15 @@ export function useSearchPreparationNotice(projectId: string, team: boolean): Se
     intervalMs: notice?.tone === 'active' ? 2_000 : 5_000,
     guardOverlap: true,
   });
-  return notice;
+  return notice ? {
+    ...notice,
+    onStopPreparation: notice.stopBatchId ? async () => {
+      const generation = requestGeneration.current;
+      try {
+        await stopSearchPreparation(projectId, notice.stopBatchId!);
+      } finally {
+        if (generation === requestGeneration.current) await refresh();
+      }
+    } : undefined,
+  } : null;
 }
