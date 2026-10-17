@@ -1069,8 +1069,29 @@ def test_pdf_replan_preserves_full_original_cell_scope_and_rejects_late_decision
 def test_mixed_pdf_plan_preserves_good_work_and_skipped_source_scope(
     tmp_path, monkeypatch, repair_skipped_pdf
 ):
+    from helpers import stub_rapidocr_run_scope
+    from frisket.ops import ocr_engines
     from tests.server.test_server_import_pdf_routes import _pdf_bytes
 
+    async def deterministic_ocr(_self, _engine, page_paths, _ctx, **_kwargs):
+        return [
+            {
+                "text": "Scanned beacon",
+                "blocks": [
+                    {
+                        "text": "Scanned beacon",
+                        "bbox": [[10, 10], [200, 10], [200, 60], [10, 60]],
+                        "score": 0.99,
+                    }
+                ],
+            }
+            for _page in page_paths
+        ]
+
+    monkeypatch.setattr(
+        ocr_engines.OcrEngines, "run_engine_on_pages", deterministic_ocr
+    )
+    stub_rapidocr_run_scope(monkeypatch)
     monkeypatch.setattr(
         preparation_module,
         "_requirements",
@@ -1221,6 +1242,16 @@ def test_mixed_pdf_plan_preserves_good_work_and_skipped_source_scope(
             "SELECT 1 FROM run_output_generations WHERE run_id=? AND column_id=?",
             (run_id, role.text_column_id),
         ).fetchone()
+
+    ocr_job = next(job for job in continued.jobs if job.action_kind == "ocr")
+    terminal = run_worker_until_job_terminal(worker, workspace.queue, ocr_job.job_id)
+    assert terminal.status == "done"
+    service.recover()
+    native = next(item for item in sources if item["filename"] == "native.pdf")
+    scan = next(item for item in sources if item["filename"] == "scan.pdf")
+    text_values = project.get_values(sheet, role.text_column_id)
+    assert "Native beacon" in text_values[native["row_id"]]
+    assert text_values[scan["row_id"]] == "Scanned beacon"
 
 
 def test_pdf_preview_failure_is_readable_http_error(tmp_path, monkeypatch):
