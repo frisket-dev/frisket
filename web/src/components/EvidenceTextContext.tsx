@@ -140,7 +140,7 @@ function WindowedSavedTextContext(props: SavedTextContextProps) {
     ?? { spanId: focusSpanId ?? '', evidenceLinkId: displayed.evidence_link_id ?? '', artifactId: artifact?.id ?? 0 };
   return <div data-testid="windowed-evidence-text" aria-busy={loading}>
     {window && <TextPassageNavigation window={window} disabled={loading || Boolean(error) || !currentTarget.evidenceLinkId}
-      onNavigate={(start) => setNavigation({ key: contextKey, target: currentTarget, start,
+      onNavigate={(start) => setNavigation({ key: contextKey, target: currentTarget, spanId: currentTarget.spanId, start,
         locateCurrent: displayed.recovered === true,
         revision: window.retrieval_revision ?? undefined, attempt: (request?.attempt ?? 0) + 1 })} />}
     {targets.length > 1 && <label>Citation passage <select aria-label="Citation passage" value={selectedSpan ?? focusSpanId ?? ''}

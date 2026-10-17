@@ -30,6 +30,30 @@ beforeEach(() => { Element.prototype.scrollIntoView = vi.fn(); });
 afterEach(() => { cleanup(); read.mockReset(); });
 
 describe('bounded saved evidence passages', () => {
+  it('keeps a dropdown-selected citation and its owner after navigating to the next passage', async () => {
+    const selected = { ...context(90000, 'span:tail', '😀 quoted tail'), evidence_link_id: 'owner:b' };
+    const following = { ...context(90013, 'span:tail', '😀 quoted next'), evidence_link_id: 'owner:b',
+      ranges: [
+        { span_id: 'span:tail', start: 3, end: 9 },
+        { span_id: 'span:first', start: 10, end: 14 },
+      ] };
+    read.mockResolvedValueOnce(response(source({ text_context: selected })))
+      .mockResolvedValueOnce(response(source({ text_context: following })));
+    render(<TextArtifactSource artifact={source()} scopeSpanId="span:first" textPassageTargets={[
+      { spanId: 'span:first', evidenceLinkId: 'owner:a', artifactId: 22 },
+      { spanId: 'span:tail', evidenceLinkId: 'owner:b', artifactId: 22 },
+    ]} />);
+    fireEvent.change(screen.getByRole('combobox', { name: 'Citation passage' }), { target: { value: 'span:tail' } });
+    await waitFor(() => expect(screen.getByTestId('evidence-text-body').textContent).toBe('😀 quoted tail'));
+    expect(read).toHaveBeenLastCalledWith('owner:b', expect.objectContaining({ textSpanId: 'span:tail' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Next passage' }));
+    await waitFor(() => expect(screen.getByTestId('evidence-text-body').textContent).toBe('😀 quoted next'));
+    expect(read).toHaveBeenLastCalledWith('owner:b', expect.objectContaining({ textStart: 90013, textRevision: 9 }));
+    expect(screen.getByRole('combobox', { name: 'Citation passage' })).toHaveValue('span:tail');
+    expect(screen.getByTestId('evidence-text-highlight')).toHaveTextContent('quoted');
+    expect(screen.getByTestId('evidence-text-highlight')).toHaveAttribute('data-emphasized', 'true');
+  });
+
   it('preserves explicit current-source recovery while loading the next passage', async () => {
     const recovered = { ...context(), recovered: true };
     read.mockResolvedValue(response(source({ text_context: { ...context(13, 'span:first', '😀 quoted next'), recovered: true } })));
