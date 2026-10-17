@@ -159,10 +159,15 @@ function TextReview({
       {!needsOcr && (
         <>
           <label className="search-preparation-ocr-option">
-            <input type="checkbox" data-testid="search-preparation-force-ocr"
-              checked={batch.force_ocr} disabled={busy}
-              onChange={(event) => onReplan(event.currentTarget.checked)} />
-            Re-scan all PDFs with OCR
+            PDF text
+            <PanelSelect ariaLabel="PDF text" topLayer
+              data-testid="search-preparation-force-ocr"
+              value={batch.force_ocr ? 'ocr' : 'keep'} disabled={busy}
+              onValueChange={(value) => onReplan(value === 'ocr')}
+              options={[
+                { value: 'keep', label: 'Keep existing text' },
+                { value: 'ocr', label: 'Re-scan PDFs with OCR' },
+              ]} />
           </label>
           <p className="form-hint">
             {batch.force_ocr
@@ -459,7 +464,7 @@ export function SearchPreparationReceipt({
       </div>
       {batch.status === 'needs_consent' ? (
         <footer className="search-preparation-actions">
-          {onBack && <button type="button" className="btn" disabled={busy} onClick={onBack}>Back</button>}
+          {onBack && <button type="button" className="btn" disabled={busy} onClick={onBack}>Back to files</button>}
           <button
             type="button"
             className="btn btn-primary"
@@ -470,8 +475,8 @@ export function SearchPreparationReceipt({
             {busy
               ? 'Please wait…'
               : hasSelectedDownloads
-                ? 'Download and prepare'
-                : 'Prepare files'}
+                ? 'Download and make searchable'
+                : 'Make searchable'}
           </button>
         </footer>
       ) : (
