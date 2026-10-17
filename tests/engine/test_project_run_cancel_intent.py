@@ -402,7 +402,9 @@ def test_legacy_cancelled_split_never_returns_false_success(tmp_path: Path) -> N
 
         pending = service.cancel_run(project_id, run_id)
         assert pending["status"] == "cancel_pending"
-        assert pending["cancel_requested"] is True
+        # This is a repair of a legacy split that already says cancelled;
+        # there was no new running-state cancel intent to stamp.
+        assert pending["cancel_requested"] is False
         split = project.db.execute(
             "SELECT r.status, r.current_attempt_id, rc.status AS receipt_status, "
             "c.status AS claim_status FROM runs r "

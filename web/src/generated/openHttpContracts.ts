@@ -2249,6 +2249,13 @@ export type HttpActionEstimateValidationRequest = ({
 });
 });
 
+type HttpActionJob_ActionFileWorkProgress = ({
+  "completed": (number);
+  "filename"?: (((string)) | ((null)));
+  "row_id": (number);
+  "total": (number);
+});
+
 type HttpActionJob_ActionJobLease = ({
   "lease_expired": (boolean);
   "lease_expires_at": (((string)) | ((null)));
@@ -2259,6 +2266,7 @@ type HttpActionJob_ActionJobLease = ({
 type HttpActionJob_ActionJobProgress = ({
   "action_kind": (string);
   "action_name": (string);
+  "cancel_requested": (boolean);
   "completed": (number);
   "cost": (((number)) | ((null)));
   "error"?: (((string)) | ((null)));
@@ -2327,10 +2335,8 @@ type HttpActionJob_ActionRunTiming = ({
 });
 
 type HttpActionJob_ActionWorkProgress = ({
-  "completed": (number);
+  "files": (Array<(HttpActionJob_ActionFileWorkProgress)>);
   "kind": ("ocr_pages") & (string);
-  "row_id": (number);
-  "total": (number);
 });
 
 type HttpActionJob_JsonValue = JsonValue;
@@ -2376,6 +2382,13 @@ export type HttpActionJob = ({
   "timing": (HttpActionJob_ActionJobTiming);
 });
 
+type HttpActionJobsPage_ActionFileWorkProgress = ({
+  "completed": (number);
+  "filename"?: (((string)) | ((null)));
+  "row_id": (number);
+  "total": (number);
+});
+
 type HttpActionJobsPage_ActionJob = ({
   "action_kind"?: (((string)) | ((null)));
   "action_name"?: (((string)) | ((null)));
@@ -2410,6 +2423,7 @@ type HttpActionJobsPage_ActionJobLease = ({
 type HttpActionJobsPage_ActionJobProgress = ({
   "action_kind": (string);
   "action_name": (string);
+  "cancel_requested": (boolean);
   "completed": (number);
   "cost": (((number)) | ((null)));
   "error"?: (((string)) | ((null)));
@@ -2478,10 +2492,8 @@ type HttpActionJobsPage_ActionRunTiming = ({
 });
 
 type HttpActionJobsPage_ActionWorkProgress = ({
-  "completed": (number);
+  "files": (Array<(HttpActionJobsPage_ActionFileWorkProgress)>);
   "kind": ("ocr_pages") & (string);
-  "row_id": (number);
-  "total": (number);
 });
 
 type HttpActionJobsPage_JsonValue = JsonValue;
@@ -2687,11 +2699,13 @@ export type HttpActionResult = ({
 });
 
 export type HttpActionRunCancel = ({
+  "cancel_requested": (boolean);
   "completed": (((number)) | ((null)));
   "queue_cancelled": (boolean);
   "queue_job_id": (((number)) | ((null)));
+  "reason"?: (((string)) | ((null)));
   "run_id": (number);
-  "status": ("cancelled") & (string);
+  "status": ("cancelled" | "cancel_pending") & (string);
   "total": (((number)) | ((null)));
 });
 
@@ -2751,6 +2765,13 @@ export type HttpActionRunRows = ({
   "total": (number);
 });
 
+type HttpActionRunStatus_ActionFileWorkProgress = ({
+  "completed": (number);
+  "filename"?: (((string)) | ((null)));
+  "row_id": (number);
+  "total": (number);
+});
+
 type HttpActionRunStatus_ActionPreparationHint = ({
   "message": (string);
 });
@@ -2763,6 +2784,7 @@ type HttpActionRunStatus_ActionRunMissingQueue = ({
 type HttpActionRunStatus_ActionRunPublicStatus = ({
   "action_kind": (string);
   "action_name": (string);
+  "cancel_requested": (boolean);
   "completed": (number);
   "cost": (((number)) | ((null)));
   "error"?: (((string)) | ((null)));
@@ -2830,10 +2852,8 @@ type HttpActionRunStatus_ActionRunTiming = ({
 });
 
 type HttpActionRunStatus_ActionWorkProgress = ({
-  "completed": (number);
+  "files": (Array<(HttpActionRunStatus_ActionFileWorkProgress)>);
   "kind": ("ocr_pages") & (string);
-  "row_id": (number);
-  "total": (number);
 });
 
 type HttpActionRunStatus_RunRowErrorGroup = ({
@@ -10195,9 +10215,17 @@ export type HttpSavedViewRenameRequest = ({
   "name": (string);
 });
 
+type HttpSearchPreparationBatch_ActionFileWorkProgress = ({
+  "completed": (number);
+  "filename"?: (((string)) | ((null)));
+  "row_id": (number);
+  "total": (number);
+});
+
 type HttpSearchPreparationBatch_ActionJobProgress = ({
   "action_kind": (string);
   "action_name": (string);
+  "cancel_requested": (boolean);
   "completed": (number);
   "cost": (((number)) | ((null)));
   "error"?: (((string)) | ((null)));
@@ -10260,10 +10288,8 @@ type HttpSearchPreparationBatch_ActionRunTiming = ({
 });
 
 type HttpSearchPreparationBatch_ActionWorkProgress = ({
-  "completed": (number);
+  "files": (Array<(HttpSearchPreparationBatch_ActionFileWorkProgress)>);
   "kind": ("ocr_pages") & (string);
-  "row_id": (number);
-  "total": (number);
 });
 
 type HttpSearchPreparationBatch_RunRowErrorGroup = ({
@@ -10327,9 +10353,17 @@ export type HttpSearchPreparationBatch = ({
   "warnings"?: (Array<(string)>);
 });
 
+type HttpSearchPreparationBatchList_ActionFileWorkProgress = ({
+  "completed": (number);
+  "filename"?: (((string)) | ((null)));
+  "row_id": (number);
+  "total": (number);
+});
+
 type HttpSearchPreparationBatchList_ActionJobProgress = ({
   "action_kind": (string);
   "action_name": (string);
+  "cancel_requested": (boolean);
   "completed": (number);
   "cost": (((number)) | ((null)));
   "error"?: (((string)) | ((null)));
@@ -10392,10 +10426,8 @@ type HttpSearchPreparationBatchList_ActionRunTiming = ({
 });
 
 type HttpSearchPreparationBatchList_ActionWorkProgress = ({
-  "completed": (number);
+  "files": (Array<(HttpSearchPreparationBatchList_ActionFileWorkProgress)>);
   "kind": ("ocr_pages") & (string);
-  "row_id": (number);
-  "total": (number);
 });
 
 type HttpSearchPreparationBatchList_RunRowErrorGroup = ({
@@ -12848,6 +12880,7 @@ export type HttpContractOperationMap = {
     readonly request: undefined;
     readonly responses: {
       readonly "200": HttpActionRunCancel;
+      readonly "202": HttpActionRunCancel;
       readonly "401": HttpError;
       readonly "403": HttpError;
       readonly "404": HttpError;
