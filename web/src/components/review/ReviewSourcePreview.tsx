@@ -168,6 +168,7 @@ function FocusedArtifactSource({ activeSource, activeFieldId, focusedSpanIds, se
 
   return <LazyArtifactSource artifact={focusedReviewArtifact(activeSource, activeFieldId, focusedSpanIds)}
     textPassageTargets={reviewTextPassageTargets(activeSource)}
+    playFocusedPassage={Boolean(selectedItem && focusedSpanIds.length && activeSource.artifact.text_context?.window)}
     emphasizedSpanIds={focusedSpanIds.length ? focusedSpanIds : selectedSpanIds(activeSource, activeFieldId)} />;
 }
 

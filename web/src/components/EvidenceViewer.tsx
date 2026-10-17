@@ -527,6 +527,7 @@ function LinkSummary({ payload }: { payload: EvidenceViewerPayload }) {
 export function ArtifactSource({
   artifact,
   textPassageTargets,
+  playFocusedPassage,
   scopeSpanId,
   scopeSpanIds,
   highlight = true,
@@ -536,6 +537,7 @@ export function ArtifactSource({
 }: {
   artifact: EvidenceArtifact;
   textPassageTargets?: readonly EvidenceTextPassageTarget[];
+  playFocusedPassage?: boolean;
   scopeSpanId?: string;
   /** Matching spans to highlight alongside the primary focused span. */
   scopeSpanIds?: readonly string[];
@@ -605,7 +607,7 @@ export function ArtifactSource({
           <EvidencePageView key={page.page} page={page} artifactStableId={artifact.stable_id} emphasizedSpanIds={emphasizedSpanIds} />
         ))
       ) : isTextRenderableMediaType(artifact.media_type) && (evidenceTextContext(artifact) !== null || textCitedSpans(artifact).length > 0) ? (
-        <TextArtifactSource key={artifact.stable_id} artifact={artifact} textPassageTargets={textPassageTargets} scopeSpanId={scopeSpanId} scopeSpanIds={scopeSpanIds} highlight={highlight} emphasizedSpanIds={emphasizedSpanIds} />
+        <TextArtifactSource key={artifact.stable_id} artifact={artifact} textPassageTargets={textPassageTargets} playFocusedPassage={playFocusedPassage} scopeSpanId={scopeSpanId} scopeSpanIds={scopeSpanIds} highlight={highlight} emphasizedSpanIds={emphasizedSpanIds} />
       ) : artifact.media_type.startsWith('image/') && blob ? (
         <div className="evidence-page-image-frame">
           <img className="evidence-page-image" src={blob.url} alt={artifact.title || artifact.filename || 'Source image'} />
@@ -662,6 +664,12 @@ function TextPassageRecovery({
         {notice || 'Found this passage in the current source. The original citation remains marked stale.'}
       </div>
     );
+  }
+  if (artifact.recovery_status === 'incomplete') {
+    return <div className="evidence-text-recovery-notice" data-testid="evidence-text-recovery-incomplete" role="status">
+      {notice || 'The source was only partly searched. This passage may exist beyond the searched portion.'}
+      {typeof artifact.recovery_scanned_characters === 'number' && <span> Searched {artifact.recovery_scanned_characters.toLocaleString()} characters.</span>}
+    </div>;
   }
   if (artifact.recovery_status === 'not_found') {
     return (
@@ -1293,6 +1301,7 @@ function TextBlobSource({
 export function TextArtifactSource({
   artifact,
   textPassageTargets,
+  playFocusedPassage,
   scopeSpanId,
   scopeSpanIds,
   highlight = true,
@@ -1300,6 +1309,7 @@ export function TextArtifactSource({
 }: {
   artifact: EvidenceArtifact;
   textPassageTargets?: readonly EvidenceTextPassageTarget[];
+  playFocusedPassage?: boolean;
   scopeSpanId?: string;
   /** Matching spans to highlight alongside the primary focused span. */
   scopeSpanIds?: readonly string[];
@@ -1308,7 +1318,7 @@ export function TextArtifactSource({
 }) {
   const context = evidenceTextContext(artifact);
   if (context !== null) {
-    return <SavedTextContext context={context} artifact={artifact} textPassageTargets={textPassageTargets} scopeSpanId={scopeSpanId} scopeSpanIds={scopeSpanIds} highlight={highlight} emphasizedSpanIds={emphasizedSpanIds} />;
+    return <SavedTextContext context={context} artifact={artifact} textPassageTargets={textPassageTargets} playFocusedPassage={playFocusedPassage} scopeSpanId={scopeSpanId} scopeSpanIds={scopeSpanIds} highlight={highlight} emphasizedSpanIds={emphasizedSpanIds} />;
   }
   return <LegacyTextArtifactSource artifact={artifact} />;
 }

@@ -130,6 +130,7 @@ describe('AnnotatedTextReader', () => {
   });
 
   it('resolves a requested offscreen occurrence through its stable server identity', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
     mockApi.getTextAnnotations.mockResolvedValue(payload([ENTITIES_LAYER]));
     renderReader({ activeOccurrenceId: '2:1' });
     await screen.findByTestId('annotated-text-content');

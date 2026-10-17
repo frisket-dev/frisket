@@ -17,6 +17,7 @@ interface SavedTextContextProps {
   emphasizedSpanIds: readonly string[];
   passagePending?: boolean;
   passageMessage?: string;
+  playFocusedPassage?: boolean;
 }
 
 function PlainTextContext({ context, scopeSpanId, scopeSpanIds, highlight, emphasizedSpanIds, passagePending, passageMessage }: SavedTextContextProps) {
@@ -33,7 +34,7 @@ function PlainTextContext({ context, scopeSpanId, scopeSpanIds, highlight, empha
   const firstMarkRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
     if (scrollHighlightIndex >= 0) firstMarkRef.current?.scrollIntoView({ block: 'nearest' });
-  }, [scrollHighlightIndex]);
+  }, [scrollHighlightIndex, context.text, context.window?.start, passagePending]);
 
   return (
     <div className="evidence-text-source" data-testid="evidence-text-source" data-source-version="saved">
@@ -76,6 +77,7 @@ interface PassageRequest {
   start?: number;
   spanId?: string;
   revision?: number;
+  locateCurrent?: boolean;
   attempt: number;
 }
 
@@ -90,28 +92,31 @@ function WindowedSavedTextContext(props: SavedTextContextProps) {
   const focusTarget = targets.find((target) => target.spanId === focusSpanId);
   const contextKey = [context.evidence_link_id, context.artifact_stable_id, context.content_hash,
     context.window?.start, context.window?.end, context.window?.retrieval_revision, focusSpanId,
-    focusTarget?.evidenceLinkId].join(':');
+    focusTarget?.evidenceLinkId, context.recovered].join(':');
   const [navigation, setNavigation] = useState<PassageRequest | null>(null);
   const needsFocus = focusTarget && !context.ranges.some((range) => range.span_id === focusSpanId);
   const request: PassageRequest | null = navigation?.key === contextKey ? navigation : needsFocus ? {
-    key: contextKey, target: focusTarget, spanId: focusSpanId,
+    key: contextKey, target: focusTarget, spanId: focusSpanId, locateCurrent: context.recovered === true,
     revision: focusTarget.evidenceLinkId === context.evidence_link_id ? context.window?.retrieval_revision ?? undefined : undefined,
     attempt: 0,
   } : null;
   const requestKey = [contextKey, request?.start, request?.spanId, request?.revision,
-    request?.attempt, request?.target.evidenceLinkId].join(':');
+    request?.attempt, request?.target.evidenceLinkId, request?.locateCurrent].join(':');
   const [settled, setSettled] = useState<{ key: string; context?: EvidenceTextContext; error?: string } | null>(null);
+  const requestedOwner = request?.target.evidenceLinkId;
+  const requestedArtifactId = request?.target.artifactId;
+  const { start: textStart, revision: textRevision, spanId: textSpanId, locateCurrent } = request ?? {};
   useEffect(() => {
-    if (!request) return;
+    if (requestedOwner === undefined || requestedArtifactId === undefined) return;
     const controller = new AbortController();
-    void projectApi.getEvidenceViewer(request.target.evidenceLinkId, {
-      textArtifactId: request.target.artifactId,
-      textStart: request.start, textLimit: 16_384,
-      textRevision: request.revision, textSpanId: request.start === undefined ? request.spanId : undefined,
+    void projectApi.getEvidenceViewer(requestedOwner, {
+      textArtifactId: requestedArtifactId,
+      textStart, textLimit: 16_384, locateCurrent,
+      textRevision, textSpanId: textStart === undefined ? textSpanId : undefined,
       signal: controller.signal,
     }).then((payload) => {
       if (controller.signal.aborted) return;
-      const next = payload.artifacts.find((item) => item.id === request.target.artifactId)?.text_context;
+      const next = payload.artifacts.find((item) => item.id === requestedArtifactId)?.text_context;
       if (!next) throw new Error('This citation has no available source passage.');
       setSettled({ key: requestKey, context: next });
     }).catch((error: unknown) => {
@@ -121,8 +126,7 @@ function WindowedSavedTextContext(props: SavedTextContextProps) {
         : error instanceof Error ? error.message : 'Could not load this passage.' });
     });
     return () => controller.abort();
-  }, [projectApi, requestKey, request?.target.evidenceLinkId, request?.target.artifactId,
-    request?.start, request?.revision, request?.spanId]);
+  }, [projectApi, requestKey, requestedOwner, requestedArtifactId, textStart, textRevision, textSpanId, locateCurrent]);
   const current = request && settled?.key === requestKey ? settled : null;
   const loading = request !== null && current === null;
   const displayed = current?.context ?? context;
@@ -137,12 +141,13 @@ function WindowedSavedTextContext(props: SavedTextContextProps) {
   return <div data-testid="windowed-evidence-text" aria-busy={loading}>
     {window && <TextPassageNavigation window={window} disabled={loading || Boolean(error) || !currentTarget.evidenceLinkId}
       onNavigate={(start) => setNavigation({ key: contextKey, target: currentTarget, start,
+        locateCurrent: displayed.recovered === true,
         revision: window.retrieval_revision ?? undefined, attempt: (request?.attempt ?? 0) + 1 })} />}
     {targets.length > 1 && <label>Citation passage <select aria-label="Citation passage" value={selectedSpan ?? focusSpanId ?? ''}
       disabled={loading} onChange={(event) => {
         const target = targets.find((item) => item.spanId === event.target.value);
         if (!target) return;
-        setNavigation({ key: contextKey, target, spanId: target.spanId,
+        setNavigation({ key: contextKey, target, spanId: target.spanId, locateCurrent: displayed.recovered === true,
           revision: target.evidenceLinkId === displayed.evidence_link_id ? window?.retrieval_revision ?? undefined : undefined,
           attempt: (request?.attempt ?? 0) + 1 });
       }}>
@@ -153,13 +158,14 @@ function WindowedSavedTextContext(props: SavedTextContextProps) {
     </select></label>}
     {error && <div role="alert">{error}<button type="button" className="mini-btn" onClick={() => setNavigation({
       key: contextKey, target: request?.target ?? currentTarget, spanId: request?.spanId ?? focusSpanId,
+      locateCurrent: request?.locateCurrent ?? displayed.recovered === true,
       attempt: (request?.attempt ?? 0) + 1,
     })}>Reload passage</button></div>}
     {displayed.transcript ? <TimestampedTextContext {...rendered} /> : <PlainTextContext {...rendered} />}
   </div>;
 }
 
-function TimestampedTextContext({ context, scopeSpanId, scopeSpanIds, highlight, emphasizedSpanIds, passagePending, passageMessage }: SavedTextContextProps) {
+function TimestampedTextContext({ context, scopeSpanId, scopeSpanIds, highlight, emphasizedSpanIds, passagePending, passageMessage, playFocusedPassage }: SavedTextContextProps) {
   const { projectApi } = useWorkspaceStores();
   const transcript = context.transcript!;
   const [source, setSource] = useState<{ key: string; artifact: EvidenceArtifact | null } | null>(null);
@@ -179,11 +185,17 @@ function TimestampedTextContext({ context, scopeSpanId, scopeSpanIds, highlight,
   useEffect(() => {
     const player = playerRef.current;
     if (!player || seekRequest === null) return;
-    const seek = () => { player.currentTime = seekRequest.ms / 1000; void player.play().catch(() => {}); };
-    if (player.readyState >= 1) { seek(); return; }
-    player.addEventListener('loadedmetadata', seek, { once: true });
-    return () => player.removeEventListener('loadedmetadata', seek);
+    return seekRecording(player, seekRequest.ms);
   }, [seekRequest, blob?.url]);
+  const pendingFocus = useRef(false);
+  useEffect(() => {
+    if (passagePending) { pendingFocus.current = true; return; }
+    if (!pendingFocus.current || !playFocusedPassage || !playerRef.current) return;
+    pendingFocus.current = false;
+    const focusedRanges = context.ranges.filter((range) => emphasizedSpanIds.includes(range.span_id));
+    const segment = transcript.segments.find((item) => focusedRanges.some((range) => range.start < item.end && range.end > item.start));
+    if (segment) return seekRecording(playerRef.current, segment.start_ms);
+  }, [passagePending, playFocusedPassage, context.ranges, emphasizedSpanIds, transcript.segments, blob?.url]);
   const sourceSpans = new Map(artifact?.spans.map((span) => [span.stable_id, span]) ?? []);
   const ranges = highlight ? context.ranges.filter((range) =>
     (!scopeSpanId && !scopeSpanIds?.length) || range.span_id === scopeSpanId || scopeSpanIds?.includes(range.span_id),
@@ -217,6 +229,13 @@ function TimestampedTextContext({ context, scopeSpanId, scopeSpanIds, highlight,
       })}
     </div>
   </div>;
+}
+
+function seekRecording(player: HTMLMediaElement, milliseconds: number) {
+  const seek = () => { player.currentTime = milliseconds / 1000; void player.play().catch(() => {}); };
+  if (player.readyState >= 1) { seek(); return; }
+  player.addEventListener('loadedmetadata', seek, { once: true });
+  return () => player.removeEventListener('loadedmetadata', seek);
 }
 
 function formatTimestamp(ms: number) {

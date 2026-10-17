@@ -2,7 +2,7 @@
 import '@testing-library/jest-dom/vitest';
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { TextArtifactSource } from '../../src/components/EvidenceViewer';
+import { ArtifactSource, TextArtifactSource } from '../../src/components/EvidenceViewer';
 import { createProjectApi } from '../../src/api/real';
 import type { EvidenceArtifact, EvidenceViewerPayload } from '../../src/api/types';
 import { evidenceArtifact, evidenceSpan, artifactRef, blobRef } from '../support/evidenceFixtures';
@@ -30,6 +30,22 @@ beforeEach(() => { Element.prototype.scrollIntoView = vi.fn(); });
 afterEach(() => { cleanup(); read.mockReset(); });
 
 describe('bounded saved evidence passages', () => {
+  it('preserves explicit current-source recovery while loading the next passage', async () => {
+    const recovered = { ...context(), recovered: true };
+    read.mockResolvedValue(response(source({ text_context: { ...context(13, 'span:first', '😀 quoted next'), recovered: true } })));
+    render(<TextArtifactSource artifact={source({ text_context: recovered })} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Next passage' }));
+    await waitFor(() => expect(screen.getByTestId('evidence-text-body').textContent).toBe('😀 quoted next'));
+    expect(read).toHaveBeenCalledWith('owner:a', expect.objectContaining({ locateCurrent: true, textRevision: 9 }));
+  });
+
+  it('describes an incomplete recovery scan without claiming that the passage is absent', () => {
+    render(<ArtifactSource artifact={source({ text_context: null, text_context_status: 'stale',
+      recovery_status: 'incomplete', recovery_notice: 'The source was only partly searched.', recovery_scanned_characters: 1000 })} />);
+    expect(screen.getByTestId('evidence-text-recovery-incomplete')).toHaveTextContent('Searched 1,000 characters.');
+    expect(screen.queryByTestId('evidence-text-recovery-not-found')).not.toBeInTheDocument();
+  });
+
   it('navigates revision-pinned passages and uses local UTF-16 highlight ranges after an emoji', async () => {
     const initial = source();
     read.mockResolvedValue(response(source({ text_context: context(13, 'span:first', '😀 quoted next') })));
@@ -89,16 +105,18 @@ describe('bounded saved evidence passages', () => {
       spans: [evidenceSpan({ stable_id: 'record-span', clip_url: '/clips/passage' })] });
     read.mockImplementation(async (link) => link === 'recording-owner' ? response(recording)
       : response(source({ text_context: { ...nextText, transcript: makeTranscript(180000, nextText.text.length) } })));
-    render(<TextArtifactSource artifact={initial} />);
+    const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+    render(<TextArtifactSource artifact={initial} playFocusedPassage emphasizedSpanIds={['span:first']} />);
     const player = await screen.findByLabelText('Recording');
+    Object.defineProperty(player, 'readyState', { value: 1, configurable: true });
     await screen.findByRole('link', { name: 'Download clip at 1:30' });
     fireEvent.click(screen.getByRole('button', { name: 'Next passage' }));
     await screen.findByRole('button', { name: 'Play at 3:00' });
     expect(screen.getByLabelText('Recording')).toBe(player);
     expect(screen.getByRole('link', { name: 'Download clip at 3:00' })).toHaveAttribute('href', '/clips/passage');
     expect(read.mock.calls.filter(([link]) => link === 'recording-owner')).toHaveLength(1);
-    const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
-    Object.defineProperty(player, 'readyState', { value: 1, configurable: true });
+    await waitFor(() => expect((player as HTMLMediaElement).currentTime).toBe(180));
+    expect(play).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole('button', { name: 'Play at 3:00' }));
     await waitFor(() => expect((player as HTMLMediaElement).currentTime).toBe(180));
     expect(play).toHaveBeenCalled();
