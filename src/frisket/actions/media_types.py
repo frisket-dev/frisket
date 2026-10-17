@@ -37,7 +37,7 @@ class RecognizedDocument(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     text: OcrText
-    blocks: list[dict[str, Any]]
+    blocks: list[dict[str, Any]] = Field(json_schema_extra={"default_hidden": True})
     pdf: Outcome[StagedFile | None] = Field(default_factory=lambda: Outcome.ok(None))
 
 
