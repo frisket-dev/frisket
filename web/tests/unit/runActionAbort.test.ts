@@ -92,6 +92,7 @@ function runProgressWire(projectId: string, runId = 77, status = 'running') {
         failed: 0,
         cost: 0,
         live: status === 'running',
+        cancel_requested: status === 'running',
         timing: {
           started_at: null,
           finished_at: null,
@@ -625,7 +626,7 @@ describe('RealApi job invocation safety (WEB-03-4B AMEND-01)', () => {
     expect(signals).toEqual([controller.signal]);
   });
 
-  it('keeps a live cancel POST and follow-up GET on one captured project and signal', async () => {
+  it('accepts a live cancel and reads its durable stopping status on one project and signal', async () => {
     const projectA = 'web03-4b-cancel-live-a';
     const projectB = 'web03-4b-cancel-live-b';
     const controller = new AbortController();
@@ -636,15 +637,17 @@ describe('RealApi job invocation safety (WEB-03-4B AMEND-01)', () => {
       if (path.endsWith('/cancel')) {
         return jsonResponse({
           completed: 0,
+          cancel_requested: true,
           queue_cancelled: false,
           queue_job_id: null,
           run_id: 77,
-          status: 'cancelled',
+          status: 'cancel_pending',
           total: 2,
-        });
+          reason: 'live_writer_requires_owner_terminalization:attempt-77',
+        }, 202);
       }
       if (path.endsWith('/status')) {
-        return jsonResponse(runProgressWire(projectA, 77, 'cancelled'));
+        return jsonResponse(runProgressWire(projectA, 77, 'running'));
       }
       throw new Error(`Unexpected request: ${path}`);
     }));
@@ -653,7 +656,11 @@ describe('RealApi job invocation safety (WEB-03-4B AMEND-01)', () => {
     await expect(api.cancelRun('77', {
       projectId: projectA,
       signal: controller.signal,
-    })).resolves.toMatchObject({ runId: '77', status: 'cancelled' });
+    })).resolves.toMatchObject({
+      runId: '77',
+      status: 'running',
+      cancelRequested: true,
+    });
 
     expect(requests.map(({ path }) => path)).toEqual([
       `/api/projects/${projectA}/actions/runs/77/cancel`,

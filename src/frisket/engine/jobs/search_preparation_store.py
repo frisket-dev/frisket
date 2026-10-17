@@ -113,6 +113,11 @@ def canonical_plan_hash(plan: Mapping[str, Any]) -> str:
     return "sha256:" + hashlib.sha256(payload).hexdigest()
 
 
+def plan_sources(plan: Mapping[str, Any]) -> Sequence[Mapping[str, Any]]:
+    """Original actionable cells, including unreadable sources in partial plans."""
+    return plan.get("sources", plan["items"])
+
+
 @dataclass(frozen=True, slots=True)
 class SearchPreparationBatchRow:
     id: str
@@ -216,6 +221,7 @@ class SearchPreparationStore:
         force_ocr: bool,
         plan: Mapping[str, Any],
         retry_terminal: bool = False,
+        error_message: str | None = None,
     ) -> SearchPreparationBatchRow:
         now = _now()
         batch_id = "search-prep-" + uuid.uuid4().hex
@@ -259,8 +265,10 @@ class SearchPreparationStore:
             force_ocr=force_ocr,
             plan_hash=canonical_plan_hash(plan_body),
             plan_json=json.dumps(plan_body, sort_keys=True, separators=(",", ":")),
-            error_json="[]",
-            settled_at=None,
+            error_json=json.dumps(
+                [error_message.strip()[:500]] if error_message else []
+            ),
+            settled_at=now if error_message else None,
             created_at=now,
             updated_at=now,
         )
@@ -426,6 +434,7 @@ class SearchPreparationStore:
         storage_org_id: int | None,
         sheet_id: int,
         plan: Mapping[str, Any],
+        error_message: str | None = None,
     ) -> SearchPreparationBatchRow:
         """Atomically turn one pending import reservation into an ordinary plan."""
 
@@ -452,7 +461,12 @@ class SearchPreparationStore:
                     sheet_id=int(sheet_id),
                     plan_hash=canonical_plan_hash(body),
                     plan_json=json.dumps(body, sort_keys=True, separators=(",", ":")),
-                    settled_at=None,
+                    error_json=(
+                        json.dumps([error_message.strip()[:500]])
+                        if error_message
+                        else c.error_json
+                    ),
+                    settled_at=_now() if error_message else None,
                     updated_at=_now(),
                 )
             )
@@ -676,12 +690,14 @@ class SearchPreparationStore:
                     c.decided_by,
                     c.selected_setup_refs_json,
                     c.stop_requested_at,
-                ).where(
+                )
+                .where(
                     c.id == batch_id,
                     c.project_id == project_id,
                     predicate,
                     c.workspace_root == self.workspace_root,
                 )
+                .with_for_update()
             ).first()
             if row is None:
                 raise KeyError(batch_id)
@@ -709,6 +725,103 @@ class SearchPreparationStore:
                 )
             )
         return self.get(batch_id, project_id=project_id, storage_org_id=storage_org_id)
+
+    def replace_undecided(
+        self,
+        batch_id: str,
+        *,
+        project_id: str,
+        storage_org_id: int | None,
+        plan_hash: str,
+        plan: Mapping[str, Any],
+    ) -> SearchPreparationBatchRow:
+        """Replace exactly one unadmitted plan, fencing decisions and reservations."""
+        b = search_preparation_batches_table.c
+        predicate = (
+            b.storage_org_id.is_(None)
+            if storage_org_id is None
+            else b.storage_org_id == storage_org_id
+        )
+        new_id = "search-prep-" + uuid.uuid4().hex
+        now = _now()
+        body = dict(plan)
+        with self._write() as cx:
+            old = cx.execute(
+                sa.select(search_preparation_batches_table)
+                .where(
+                    b.id == batch_id,
+                    b.workspace_root == self.workspace_root,
+                    b.project_id == project_id,
+                    predicate,
+                )
+                .with_for_update()
+            ).first()
+            if old is None:
+                raise KeyError(batch_id)
+            admitted = cx.execute(
+                sa.select(search_preparation_children_table.c.id)
+                .where(search_preparation_children_table.c.batch_id == batch_id)
+                .limit(1)
+            ).first()
+            if (
+                old.plan_hash != plan_hash
+                or old.decision is not None
+                or old.stop_requested_at is not None
+                or admitted is not None
+            ):
+                raise ValueError(
+                    "only the current unstarted preparation plan can be replaced"
+                )
+            replaced = cx.execute(
+                search_preparation_batches_table.update()
+                .where(
+                    b.id == batch_id,
+                    b.plan_hash == plan_hash,
+                    b.decision.is_(None),
+                    b.stop_requested_at.is_(None),
+                    ~sa.exists().where(
+                        search_preparation_children_table.c.batch_id == batch_id
+                    ),
+                )
+                .values(
+                    stop_requested_at=now,
+                    settled_at=now,
+                    updated_at=now,
+                    trigger_receipt_id=None,
+                    import_ref=None,
+                    materialization_job_id=None,
+                )
+            )
+            if replaced.rowcount != 1:
+                raise ValueError("search preparation changed before replacement")
+            cx.execute(
+                search_preparation_batches_table.insert().values(
+                    id=new_id,
+                    workspace_root=self.workspace_root,
+                    storage_org_id=storage_org_id,
+                    project_id=project_id,
+                    intent_key=f"replacement:{batch_id}",
+                    trigger_receipt_id=old.trigger_receipt_id,
+                    import_ref=old.import_ref,
+                    materialization_job_id=old.materialization_job_id,
+                    sheet_id=old.sheet_id,
+                    scope_json=json.dumps(
+                        {
+                            "row_ids": sorted(
+                                {int(item["row_id"]) for item in plan_sources(body)}
+                            )
+                        },
+                        separators=(",", ":"),
+                    ),
+                    force_ocr=bool(body["force_ocr"]),
+                    plan_hash=canonical_plan_hash(body),
+                    plan_json=json.dumps(body, sort_keys=True, separators=(",", ":")),
+                    error_json="[]",
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+        return self.get(new_id, project_id=project_id, storage_org_id=storage_org_id)
 
     def replan(
         self,

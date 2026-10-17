@@ -156,11 +156,20 @@ def test_current_18_stack_routes_declare_exact_response_truth(tmp_path: Path) ->
         assert route.methods == {method}, name
         assert route.path == path, name
         assert route.response_model is model, name
-        assert set(route.responses) == statuses, name
+        error_responses = {
+            status: declaration
+            for status, declaration in route.responses.items()
+            if status >= 400
+        }
+        assert set(error_responses) == statuses, name
         assert all(
             declaration == {"model": HttpError}
-            for declaration in route.responses.values()
+            for declaration in error_responses.values()
         ), name
+        if name == "cancel_run":
+            assert route.responses[202] == {"model": ActionRunCancel}
+        else:
+            assert set(route.responses) == statuses, name
 
 
 def test_action_catalogs_and_validation_owned_422_stay_distinct(

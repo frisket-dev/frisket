@@ -9,17 +9,39 @@ from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.import_intake import import_intake_dir
 from frisket.engine.store.import_inventory import ImportInventory
 from frisket.server.app import create_app
+from frisket.server.route_errors import RouteError
+from frisket.server.services.search_preparation import SearchPreparationService
 from http_test_helpers import drain_queue
 
 
-@pytest.mark.parametrize("finish", ["complete", "keep", "remove"])
-def test_http_import_worker_and_user_resolution(tmp_path, finish):
+@pytest.mark.parametrize(
+    ("finish", "transient_failure"),
+    [
+        pytest.param("complete", False, id="complete"),
+        pytest.param("keep", False, id="keep"),
+        pytest.param("remove", False, id="remove"),
+        pytest.param("complete", True, id="complete-after-transient"),
+    ],
+)
+def test_http_import_worker_and_user_resolution(
+    tmp_path, monkeypatch, finish, transient_failure
+):
     app = create_app(tmp_path / "workspace")
     client = TestClient(app)
     pid = client.post("/api/projects", json={"name": "Evidence"}).json()["id"]
     drain_queue(client, worker_id="import-session-setup")
     ws = app.state.workspace
     worker = Worker(ws.queue, ws.registry)
+    planning_unavailable = transient_failure
+    if transient_failure:
+        original_plan = SearchPreparationService._plan
+
+        def plan(self, *args, **kwargs):
+            if planning_unavailable:
+                raise RouteError(503, "Preparation is temporarily unavailable")
+            return original_plan(self, *args, **kwargs)
+
+        monkeypatch.setattr(SearchPreparationService, "_plan", plan)
     base = f"/api/projects/{pid}/import/files/sessions"
     response = client.post(base, json={"sheet_name": "Documents"})
     assert response.status_code == 200, response.text
@@ -50,7 +72,14 @@ def test_http_import_worker_and_user_resolution(tmp_path, finish):
         for _ in range(5):
             if client.get(session_url).json()["state"] == "completed":
                 break
-            assert worker.run_once()
+            if not worker.run_once():
+                assert transient_failure
+                break
+        if transient_failure:
+            assert client.get(session_url).json()["state"] == "running"
+            pending = client.get(f"/api/projects/{pid}/search-preparation").json()
+            assert pending["batches"] == []
+            planning_unavailable = False
         expected_state = "completed"
     else:
         assert not any(
@@ -71,6 +100,32 @@ def test_http_import_worker_and_user_resolution(tmp_path, finish):
 
     status = client.get(session_url).json()
     assert status["state"] == expected_state
+    if finish != "remove":
+        preparation_id = status["search_preparation_batch_id"]
+        assert preparation_id
+        preparation_url = f"/api/projects/{pid}/search-preparation"
+        failed = client.get(f"{preparation_url}/{preparation_id}")
+        assert failed.status_code == 200, failed.text
+        batch = failed.json()
+        assert batch["status"] == "failed"
+        assert batch["sheet_id"] == sheet
+        assert batch["errors"] == [
+            "PDF text preview could not be read. Check the PDF and selected page."
+        ]
+        assert batch["groups"] == batch["models"] == batch["jobs"] == []
+        # Repeated reads retain the committed import and one visible failed
+        # follow-up; corrupt bytes never cause an OCR or model setup admission.
+        for _ in range(2):
+            repeated = client.get(session_url).json()
+            assert repeated["state"] == expected_state
+            assert repeated["search_preparation_batch_id"] == preparation_id
+            listed = client.get(preparation_url).json()["batches"]
+            assert [(item["id"], item["status"]) for item in listed] == [
+                (preparation_id, "failed")
+            ]
+        assert client.get("/api/providers/models/pulls").json()["pulls"] == []
+        manual = client.post(preparation_url, json={"sheet_id": sheet})
+        assert manual.status_code == 422
     project = ws.get(pid)
     with ImportInventory(
         import_intake_dir(project.path, ref) / "inventory.db"

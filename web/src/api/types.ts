@@ -3022,10 +3022,20 @@ export interface RunProgress {
   totalRows: number;
   failedRows: number;
   costSoFar: number; // USD
+  /** True after cancellation is durably requested and while the writer is stopping. */
+  cancelRequested?: boolean;
   /** Present only while a zero-row run is preparing an automatically
    * provisioned local artifact. The server owns the preparation decision. */
   preparation?: { message: string } | null;
-  workProgress?: { kind: 'ocr_pages'; row_id: number; completed: number; total: number } | null;
+  workProgress?: {
+    kind: 'ocr_pages';
+    files: Array<{
+      row_id: number;
+      completed: number;
+      total: number;
+      filename?: string | null;
+    }>;
+  } | null;
   /** Reconciler's reason a run is stalled/orphaned (e.g. 'no_live_worker'). */
   staleReason?: string | null;
   /** A typed recipe/session halt behind a resumable 'cancelled' (e.g.

@@ -104,6 +104,87 @@ function snapshot(overrides: Partial<SearchPreparationSnapshot> = {}): SearchPre
 }
 
 describe('search preparation notice projection', () => {
+  it('keeps running progress in activity without linking back to a progress dialog', () => {
+    const notice = deriveSearchPreparationNotice(snapshot({ batches: [batch()] }));
+    expect(notice).not.toBeNull();
+    render(<SearchPreparationNotice notice={notice!} onDismiss={vi.fn()} onReviewPreparation={vi.fn()} />);
+    expect(screen.queryByTestId('search-preparation-review')).toBeNull();
+  });
+
+  it('shows independent indexing bars for active PDFs alongside preparation and removes finished files', () => {
+    const files = [
+      { source_id: 'source:first', filename: 'Council papers.pdf', completed: 1_896, total: 24_909 },
+      { source_id: 'source:second', filename: 'Short report.pdf', completed: 192, total: 196 },
+    ];
+    const notice = deriveSearchPreparationNotice(snapshot({ batches: [batch()],
+      indexing: { status: 'running', job_id: 781, error: null, pdf_files: files, pdf_files_truncated: true },
+    }));
+    expect(notice).toMatchObject({ stage: 'prepare', progress: null });
+    const view = render(<SearchPreparationNotice notice={notice!} />);
+    const first = screen.getByRole('progressbar', { name: 'Indexing pages for Council papers.pdf' });
+    expect(first).toHaveAttribute('max', '24909');
+    expect(first).toHaveAttribute('value', '1896');
+    expect(screen.getByRole('progressbar', { name: 'Indexing pages for Short report.pdf' })).toHaveAttribute('value', '192');
+    expect(screen.getByText('1,896 / 24,909 pages')).toBeVisible();
+    expect(screen.getByText('192 / 196 pages')).toBeVisible();
+    expect(screen.getByText('More PDFs are being indexed.')).toBeVisible();
+    expect(screen.queryByTestId('search-preparation-progress')).toBeNull();
+    expect(screen.getByTestId('search-preparation-banner')).not.toHaveTextContent(/%|ETA|source:first/);
+
+    const next = deriveSearchPreparationNotice(snapshot({ indexing: {
+      status: 'queued', job_id: 782, error: null,
+      pdf_files: [{ ...files[0], filename: null, completed: 1_897 }], pdf_files_truncated: false,
+    } }));
+    view.rerender(<SearchPreparationNotice notice={next!} />);
+    expect(screen.queryByRole('progressbar', { name: /Short report/ })).toBeNull();
+    expect(screen.getByRole('progressbar', { name: 'Indexing pages for PDF document' })).toHaveAttribute('value', '1897');
+    expect(screen.queryByText('More PDFs are being indexed.')).toBeNull();
+
+    const starting = deriveSearchPreparationNotice(snapshot({ indexing: { status: 'pending', job_id: null, error: null } }));
+    view.rerender(<SearchPreparationNotice notice={starting!} />);
+    expect(screen.queryByRole('progressbar')).toBeNull();
+    expect(screen.getByTestId('search-preparation-banner')).toHaveTextContent('Waiting to index');
+  });
+
+  it('shows concurrent OCR page counters separately and drops only the finished file', () => {
+    const currentBatch = batch({
+      jobs: [{
+        job_id: 44, action_kind: 'media.ocr', status: 'running',
+        progress: preparationProgress({
+          completed: 0, failed: 0,
+          work_progress: {
+            kind: 'ocr_pages',
+            files: [
+              { row_id: 12, completed: 3, total: 100, filename: 'first.pdf' },
+              { row_id: 13, completed: 40, total: 500 },
+            ],
+          },
+        }),
+      }],
+    });
+    const notice = deriveSearchPreparationNotice(snapshot({ batches: [currentBatch] }));
+    expect(notice).toMatchObject({ detail: 'Reading 2 files · page progress in Details', progress: null });
+    const view = render(<SearchPreparationNotice notice={notice!} />);
+    fireEvent.click(screen.getByTestId('search-preparation-details'));
+    expect(screen.getByText('first.pdf · 3 of 100 pages')).toBeInTheDocument();
+    expect(screen.getByText('File row 13 · 40 of 500 pages')).toBeInTheDocument();
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+
+    const next = deriveSearchPreparationNotice(snapshot({ batches: [batch({
+      jobs: [{
+        ...currentBatch.jobs[0],
+        progress: preparationProgress({
+          completed: 1, failed: 0,
+          work_progress: { kind: 'ocr_pages', files: [{ row_id: 13, completed: 41, total: 500 }] },
+        }),
+      }],
+    })] }));
+    view.rerender(<SearchPreparationNotice notice={next!} />);
+    expect(screen.queryByText(/first.pdf/)).not.toBeInTheDocument();
+    expect(screen.getByText('File row 13 · 41 of 500 pages')).toBeInTheDocument();
+    expect(next?.detail).toBe('Reading file · 41 of 500 pages in current file');
+  });
+
   it('preserves the failed activity identity through retry, warned completion, expiry and later polls', async () => {
     vi.useFakeTimers();
     const list = vi.spyOn(preparationApi, 'listSearchPreparations').mockResolvedValue({
@@ -185,10 +266,19 @@ describe('search preparation notice projection', () => {
 
     list.mockResolvedValue({
       schemaVersion: 'frisket.search_preparation_list.v1', batches: [],
-      indexing: { status: 'running', job_id: 781, error: null },
+      indexing: { status: 'running', job_id: 781, error: null,
+        pdf_files: [{ source_id: 'pdf:one', filename: 'Council papers.pdf', completed: 1_896, total: 24_909 }] },
     });
     await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
     expect(result.current).toMatchObject({ stage: 'index', activityKey: 'preparation:prep-1' });
+    list.mockResolvedValue({
+      schemaVersion: 'frisket.search_preparation_list.v1', batches: [],
+      indexing: { status: 'queued', job_id: 782, error: null,
+        pdf_files: [{ source_id: 'pdf:one', filename: 'Council papers.pdf', completed: 1_897, total: 24_909 }] },
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(result.current).toMatchObject({ stage: 'index', activityKey: 'preparation:prep-1',
+      pdfFiles: [{ source_id: 'pdf:one', completed: 1_897, total: 24_909 }] });
     list.mockResolvedValue({
       schemaVersion: 'frisket.search_preparation_list.v1', batches: [],
       indexing: { status: 'idle', job_id: null, error: null },
@@ -198,18 +288,18 @@ describe('search preparation notice projection', () => {
 
     list.mockResolvedValue({
       schemaVersion: 'frisket.search_preparation_list.v1', batches: [],
-      indexing: { status: 'running', job_id: 782, error: null },
+      indexing: { status: 'running', job_id: 783, error: null },
     });
     await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
-    expect(result.current).toMatchObject({ stage: 'index', activityKey: 'index:782' });
+    expect(result.current).toMatchObject({ stage: 'index', activityKey: 'index:783' });
     list.mockResolvedValue({
       schemaVersion: 'frisket.search_preparation_list.v1', batches: [],
-      indexing: { status: 'failed', job_id: 782, error: 'Could not index' },
+      indexing: { status: 'failed', job_id: 783, error: 'Could not index' },
     });
     await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
-    expect(result.current).toMatchObject({ stage: 'failed', activityKey: 'index:782:failed' });
+    expect(result.current).toMatchObject({ stage: 'failed', activityKey: 'index:783:failed' });
     await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
-    expect(result.current?.activityKey).toBe('index:782:failed');
+    expect(result.current?.activityKey).toBe('index:783:failed');
   });
 
   it('shows a durable model setup with determinate byte progress', () => {

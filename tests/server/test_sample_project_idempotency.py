@@ -103,7 +103,22 @@ def test_sample_search_reports_the_sheets_that_can_be_prepared(
         json={"sheet_id": by_name[SAMPLE_FILINGS_SHEET_NAME]["id"]},
     )
     assert actionable.status_code == 200, actionable.text
-    assert actionable.json()["groups"] == [
+    batch = actionable.json()
+    assert batch["status"] == "needs_consent"
+    assert batch["jobs"] == []
+    assert batch["groups"] == [
+        {"kind": "native_pdf", "count": SAMPLE_LAWSUIT_ROWS, "status": "needs_consent"}
+    ]
+    decided = client.post(
+        f"/api/projects/{pid}/search-preparation/{batch['id']}/decision",
+        json={
+            "plan_hash": batch["plan_hash"],
+            "decision": "prepare",
+            "selected_setup_refs": [],
+        },
+    )
+    assert decided.status_code == 200, decided.text
+    assert decided.json()["groups"] == [
         {"kind": "native_pdf", "count": SAMPLE_LAWSUIT_ROWS, "status": "queued"}
     ]
 

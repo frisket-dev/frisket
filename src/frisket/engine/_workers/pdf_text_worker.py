@@ -80,10 +80,42 @@ def _extract(request):
 
     document = pdfium.PdfDocument(request["source"])
     try:
-        if len(document) > request["max_pages"]:
+        page_count = len(document)
+        mode = request.get("mode", "whole")
+        first_page = request.get("start_page", request.get("page", 1))
+        if mode != "whole" and first_page > page_count:
+            raise ValueError("page_out_of_range")
+        if mode == "sample":
+            import pypdfium2.raw as raw
+
+            page = document[first_page - 1]
+            try:
+                textpage = page.get_textpage()
+                try:
+                    count = textpage.count_chars()
+                    # GetUnicode preserves non-BMP text and avoids building
+                    # boxes or asking PDFium for the whole page's text buffer.
+                    prefix = []
+                    for index in range(min(count, request["max_chars"])):
+                        codepoint = raw.FPDFText_GetUnicode(textpage, index)
+                        if codepoint:
+                            prefix.append(chr(codepoint))
+                    return {
+                        "ok": True,
+                        "text": "".join(prefix),
+                        "page": first_page,
+                        "page_count": page_count,
+                        "truncated": count > request["max_chars"],
+                    }
+                finally:
+                    textpage.close()
+            finally:
+                page.close()
+        if mode == "whole" and page_count > request["max_pages"]:
             raise ValueError("document_limit_exceeded")
         pages, characters = [], 0
-        for index in range(len(document)):
+        last_page = min(page_count, first_page - 1 + request["max_pages"])
+        for index in range(first_page - 1, last_page):
             page = document[index]
             try:
                 # Same visible page as the PDF renderer, including intrinsic
@@ -93,9 +125,15 @@ def _extract(request):
                 textpage = page.get_textpage()
                 try:
                     count = textpage.count_chars()
+                    if characters + count > request["max_chars"]:
+                        if mode == "batch" and pages:
+                            break
+                        raise ValueError(
+                            "page_limit_exceeded"
+                            if mode == "batch"
+                            else "document_limit_exceeded"
+                        )
                     characters += count
-                    if characters > request["max_chars"]:
-                        raise ValueError("document_limit_exceeded")
                     tokens = _page_tokens(page, textpage, count)
                 finally:
                     textpage.close()
@@ -109,7 +147,14 @@ def _extract(request):
                 )
             finally:
                 page.close()
-        return {"ok": True, "pages": pages}
+        response = {"ok": True, "pages": pages}
+        if mode == "batch":
+            next_page = pages[-1]["page"] + 1
+            response.update(
+                page_count=page_count,
+                next_page=next_page if next_page <= page_count else None,
+            )
+        return response
     finally:
         document.close()
 
@@ -117,14 +162,24 @@ def _extract(request):
 def main():
     try:
         request = json.load(sys.stdin)
+        mode = request.get("mode", "whole") if isinstance(request, dict) else None
+        fields = {"source", "max_chars"}
+        if mode == "whole":
+            fields.add("max_pages")
+        elif mode == "batch":
+            fields.update(("mode", "start_page", "max_pages"))
+        elif mode == "sample":
+            fields.update(("mode", "page"))
+        else:
+            raise ValueError("invalid_request")
         if (
             not isinstance(request, dict)
-            or set(request) != {"source", "max_pages", "max_chars"}
+            or set(request) != fields
             or not isinstance(request["source"], str)
             or not Path(request["source"]).is_absolute()
             or any(
                 type(request[name]) is not int or request[name] < 1
-                for name in ("max_pages", "max_chars")
+                for name in fields - {"source", "mode"}
             )
         ):
             raise ValueError("invalid_request")
@@ -132,8 +187,10 @@ def main():
     except Exception as exc:
         # Never return filenames, document contents, or native parser errors.
         code = (
-            "document_limit_exceeded"
-            if isinstance(exc, ValueError) and str(exc) == "document_limit_exceeded"
+            str(exc)
+            if isinstance(exc, ValueError)
+            and str(exc)
+            in {"document_limit_exceeded", "page_limit_exceeded", "page_out_of_range"}
             else "text_extraction_failed"
         )
         response = {"ok": False, "error": code}

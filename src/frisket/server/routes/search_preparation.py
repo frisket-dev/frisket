@@ -11,6 +11,7 @@ from frisket.contracts.http.search_preparation import (
     SearchPreparationBatchList,
     SearchPreparationCreateRequest,
     SearchPreparationDecisionRequest,
+    SearchPreparationReplanRequest,
     SearchPreparationTextSamples,
 )
 from frisket.server.route_errors import http_error_responses
@@ -74,6 +75,23 @@ def register_search_preparation_routes(
             pid,
             batch_id,
             may_setup_models=capabilities_for(request, pid).manage_model_downloads,
+        )
+
+    @app.post(
+        f"{base}/{{batch_id}}/replan",
+        operation_id="replanSearchPreparation",
+        response_model=SearchPreparationBatch,
+        responses=responses,
+    )
+    async def replan_search_preparation(
+        pid: str, batch_id: str, body: SearchPreparationReplanRequest
+    ) -> SearchPreparationBatch:
+        return await await_thread_worker(
+            service.replan,
+            pid,
+            batch_id,
+            plan_hash=body.plan_hash,
+            force_ocr=body.force_ocr,
         )
 
     @app.post(

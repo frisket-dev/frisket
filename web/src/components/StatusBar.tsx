@@ -22,14 +22,16 @@ function isNoLiveWorker(run: RunProgress): boolean {
 }
 
 function rowsProgress(run: RunProgress): string {
-  const rows = `${run.completedRows.toLocaleString()}/${run.totalRows.toLocaleString()} rows`;
-  const pages = run.workProgress;
-  return pages && run.status === 'running'
-    ? `${rows} · ${pages.completed.toLocaleString()}/${pages.total.toLocaleString()} pages in current file`
-    : rows;
+  const unit = run.actionKind === 'media.ocr' ? 'files' : 'rows';
+  return `${run.completedRows.toLocaleString()}/${run.totalRows.toLocaleString()} ${unit}`;
+}
+
+function activeOcrFiles(run: RunProgress) {
+  return isActiveRunStatus(run.status) ? run.workProgress?.files ?? [] : [];
 }
 
 function activeStatusCopy(run: RunProgress): string {
+  if (run.cancelRequested && isActiveRunStatus(run.status)) return `Stopping… · ${rowsProgress(run)}`;
   if (isNoLiveWorker(run)) {
     return `no worker is running — queued work is stuck · ${rowsProgress(run)}`;
   }
@@ -53,8 +55,8 @@ function activeStatusCopy(run: RunProgress): string {
   }
 }
 
-function pendingRunCopy(status: RunProgress['status']): string {
-  switch (status) {
+function pendingRunCopy(run: RunProgress): string {
+  switch (run.status) {
     case 'queued':
       return 'pending in worker queue';
     case 'stalled':
@@ -69,6 +71,7 @@ function pendingRunCopy(status: RunProgress['status']): string {
 }
 
 function compactStatusCopy(run: RunProgress): string {
+  if (run.cancelRequested && isActiveRunStatus(run.status)) return `Stopping… · ${rowsProgress(run)}`;
   if (isActiveRunStatus(run.status)) return `${run.status} · ${rowsProgress(run)}`;
   if (run.status === 'failed') return `failed after ${rowsProgress(run)}`;
   // A run that finished with failed rows says so here rather than asserting
@@ -123,20 +126,32 @@ export function StatusBar({
     open: false,
   });
   const runActive = run ? isActiveRunStatus(run.status) : false;
-  const activityKeys = [
-    runActive ? `run:${run?.runId ?? ''}` : null,
-    searchPreparationNotice
-      ? `search:${searchPreparationNotice.activityKey}`
-      : null,
-  ].filter((key): key is string => key !== null);
-  const [noticeVisibility, setNoticeVisibility] = useState<{ keys: string[]; open: boolean }>({
-    keys: [],
-    open: true,
-  });
-  const noticesOpen = activityKeys.length > 0
-    && (noticeVisibility.open || activityKeys.some((key) => !noticeVisibility.keys.includes(key)));
-  const setNoticesOpen = (open: boolean) => {
-    setNoticeVisibility({ keys: activityKeys, open });
+  const [runNoticeVisibility, setRunNoticeVisibility] = useState<{
+    projectId: string; runId: string | null; open: boolean;
+  }>({ projectId, runId: null, open: false });
+  const [searchNoticeVisibility, setSearchNoticeVisibility] = useState<{
+    projectId: string; activityKey: string | null; open: boolean;
+  }>({ projectId, activityKey: null, open: false });
+  // Each new action shows its own progress. Background search only opens
+  // through its own control; neither activity can reopen the other.
+  const runNoticeOpen = Boolean(runActive && run && (
+    runNoticeVisibility.projectId !== projectId
+    || runNoticeVisibility.runId !== run.runId
+    || runNoticeVisibility.open
+  ));
+  const searchNoticeOpen = Boolean(searchPreparationNotice
+    && searchNoticeVisibility.projectId === projectId
+    && searchNoticeVisibility.activityKey === searchPreparationNotice.activityKey
+    && searchNoticeVisibility.open);
+  const setRunNoticeOpen = (open: boolean) => {
+    setRunNoticeVisibility({ projectId, runId: run?.runId ?? null, open });
+  };
+  const setSearchNoticeOpen = (open: boolean) => {
+    setSearchNoticeVisibility({
+      projectId,
+      activityKey: searchPreparationNotice?.activityKey ?? null,
+      open,
+    });
   };
   const watcherOpen = Boolean(run && !runActive && watcherState.runId === run.runId && watcherState.open);
   const watcherTriggerRef = useRef<HTMLButtonElement>(null);
@@ -153,9 +168,9 @@ export function StatusBar({
 
   return (
     <>
-    {(run && runActive || searchPreparationNotice) && noticesOpen && (
+    {(runNoticeOpen || searchNoticeOpen) && (
       <div className="status-notice-stack" data-testid="status-notice-stack">
-        {run && runActive && (
+        {run && runNoticeOpen && (
           <section
             className={`active-run-banner status-${run.status}`}
             data-testid="active-run-banner"
@@ -167,8 +182,8 @@ export function StatusBar({
               type="button"
               className="icon-btn status-notice-dismiss"
               data-testid="active-run-dismiss"
-              aria-label="Dismiss activity notification"
-              onClick={() => setNoticesOpen(false)}
+              aria-label="Minimize action progress"
+              onClick={() => setRunNoticeOpen(false)}
             >
               <X size={14} aria-hidden />
             </button>
@@ -189,16 +204,25 @@ export function StatusBar({
               </div>
             </div>
             <ActiveRunWatcher run={run} />
-            <span className="pending-ai-cells" data-testid="pending-ai-cells">
-              {pendingRunCopy(run.status)}
-            </span>
+            {!run.cancelRequested && <span className="pending-ai-cells" data-testid="pending-ai-cells">
+              {pendingRunCopy(run)}
+            </span>}
+            <button
+              type="button"
+              className="mini-btn run-cancel"
+              data-testid="active-run-cancel"
+              disabled={run.cancelRequested}
+              onClick={() => onCancelRun(run.runId)}
+            >
+              <Square size={11} /> {run.cancelRequested ? 'Stopping…' : 'Cancel run'}
+            </button>
           </section>
         )}
-        {searchPreparationNotice && (
+        {searchPreparationNotice && searchNoticeOpen && (
           <SearchPreparationNotice
             notice={searchPreparationNotice}
             onReviewPreparation={actSurface.openImportPreparation}
-            onDismiss={() => setNoticesOpen(false)}
+            onDismiss={() => setSearchNoticeOpen(false)}
           />
         )}
       </div>
@@ -210,18 +234,18 @@ export function StatusBar({
             <button
               type="button"
               ref={watcherTriggerRef}
-              className={`run-summary${runActive ? (noticesOpen ? ' run-summary-open' : '') : (watcherOpen ? ' run-summary-open' : '')}`}
+              className={`run-summary${runActive ? (runNoticeOpen ? ' run-summary-open' : '') : (watcherOpen ? ' run-summary-open' : '')}`}
               data-testid="run-watcher-toggle"
               data-run-status={run.status}
               data-run-completed-rows={run.completedRows}
               data-run-total-rows={run.totalRows}
               data-run-failed-rows={run.failedRows}
               title={runActive
-                ? (noticesOpen ? 'Hide activity notifications' : 'Show activity notifications')
+                ? (runNoticeOpen ? 'Hide action progress' : 'Show action progress')
                 : 'Run details'}
-              aria-expanded={runActive ? noticesOpen : watcherOpen}
+              aria-expanded={runActive ? runNoticeOpen : watcherOpen}
               onClick={() => {
-                if (runActive) setNoticesOpen(!noticesOpen);
+                if (runActive) setRunNoticeOpen(!runNoticeOpen);
                 else setCurrentWatcherOpen((o) => !o);
               }}
             >
@@ -241,12 +265,12 @@ export function StatusBar({
                     )}{' '}
                     · {formatUsd(run.costSoFar)}
                   </span>
-                  <span className="run-track">
+                  {activeOcrFiles(run).length === 0 && <span className="run-track">
                     <span
                       className="run-fill"
                       style={{ width: `${(100 * run.completedRows) / Math.max(1, run.totalRows)}%` }}
                     />
-                  </span>
+                  </span>}
                 </>
               ) : (
                 <span
@@ -272,9 +296,10 @@ export function StatusBar({
                 type="button"
                 className="mini-btn run-cancel"
                 data-testid="run-cancel-button"
+                disabled={run.cancelRequested}
                 onClick={() => onCancelRun(run.runId)}
               >
-                <Square size={11} /> Cancel run
+                <Square size={11} /> {run.cancelRequested ? 'Stopping…' : 'Cancel run'}
               </button>
             )}
             {watcherOpen && (
@@ -287,20 +312,14 @@ export function StatusBar({
               />
             )}
           </>
-        ) : searchPreparationNotice ? (
-          <SearchActivityToggle
-            notice={searchPreparationNotice}
-            open={noticesOpen}
-            onToggle={() => setNoticesOpen(!noticesOpen)}
-          />
-        ) : (
+        ) : !searchPreparationNotice && (
           <span className="run-label muted">idle</span>
         )}
-        {run && !runActive && searchPreparationNotice && (
+        {searchPreparationNotice && (
           <SearchActivityToggle
             notice={searchPreparationNotice}
-            open={noticesOpen}
-            onToggle={() => setNoticesOpen(!noticesOpen)}
+            open={searchNoticeOpen}
+            onToggle={() => setSearchNoticeOpen(!searchNoticeOpen)}
           />
         )}
         {projectionStatus && <ProjectionChip status={projectionStatus} />}
@@ -359,7 +378,7 @@ function SearchActivityToggle({
       className={`run-summary${open ? ' run-summary-open' : ''}`}
       data-testid="search-activity-toggle"
       aria-expanded={open}
-      title={open ? 'Hide activity notifications' : 'Show activity notifications'}
+      title={open ? 'Hide search preparation' : 'Show search preparation'}
       onClick={onToggle}
     >
       {notice.tone === 'error' || notice.tone === 'warning' ? (
@@ -581,6 +600,7 @@ function RunWatcherBody({
   onRetryFailedRows?: StatusBarProps['onRetryFailedRows'];
 }) {
   const pct = (100 * run.completedRows) / Math.max(1, run.totalRows);
+  const files = activeOcrFiles(run);
   // Triage acts on the run's target column; a run restored without launch
   // context has no column name — the buckets still render, the actions do not.
   const triageColumn = run.targetColumnId;
@@ -592,7 +612,7 @@ function RunWatcherBody({
           {actionTitle(run.actionName)}
           <span className={`run-watcher-status ${runCompletedWithErrors(run.status, run.failedRows)
             ? 'run-failed' : `status-${run.status}`}`}>
-            {runStatusLabel(run.status, run.failedRows)}
+            {run.cancelRequested && isActiveRunStatus(run.status) ? 'Stopping…' : runStatusLabel(run.status, run.failedRows)}
           </span>
         </div>
         {onClose && (
@@ -609,14 +629,11 @@ function RunWatcherBody({
         )}
       </div>
       <div className="run-watcher-grid">
-        <span className="prov-key">rows</span>
+        <span className="prov-key">{run.actionKind === 'media.ocr' ? 'files' : 'rows'}</span>
         <span>
-          {run.completedRows.toLocaleString()} / {run.totalRows.toLocaleString()} ({pct.toFixed(0)}%)
+          {run.completedRows.toLocaleString()} / {run.totalRows.toLocaleString()}
+          {files.length === 0 && ` (${pct.toFixed(0)}%)`}
         </span>
-        {run.status === 'running' && run.workProgress && <>
-          <span className="prov-key">pages in current file</span>
-          <span>{run.workProgress.completed.toLocaleString()} / {run.workProgress.total.toLocaleString()}</span>
-        </>}
         <span className="prov-key">failed</span>
         <span className={run.failedRows > 0 ? 'run-failed' : undefined}>
           {run.failedRows.toLocaleString()}
@@ -624,6 +641,24 @@ function RunWatcherBody({
         <span className="prov-key">cost</span>
         <span>{formatUsd(run.costSoFar)}</span>
       </div>
+      {files.length > 0 && (
+        <div className="run-file-progress-list">
+          {files.map((file) => (
+            <div className="run-file-progress" key={file.row_id} data-testid={`run-file-progress-${file.row_id}`}>
+              <div className="run-file-progress-copy">
+                <span className="run-file-progress-name">{file.filename || `File row ${file.row_id}`}</span>
+                <span className="run-file-progress-count">{file.completed.toLocaleString()} / {file.total.toLocaleString()} pages</span>
+              </div>
+              <progress
+                className="run-file-progress-bar"
+                aria-label={`OCR pages for ${file.filename || `File row ${file.row_id}`}`}
+                max={file.total}
+                value={file.completed}
+              />
+            </div>
+          ))}
+        </div>
+      )}
       {!isActiveRunStatus(run.status) && run.rowErrors && (
         <RunFailureTriage
           rowErrors={run.rowErrors}

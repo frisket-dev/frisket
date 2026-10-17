@@ -9,17 +9,20 @@ from typing import Any
 
 from frisket.engine.pdf_text import (
     PdfTextError,
-    extract_pdf_text,
-    positioned_tokens_text,
+    PdfTextSample,
+    sample_pdf_text,
 )
 from frisket.engine.sandbox.media_sync import run_media_sync
-from frisket.engine.store.prepared_content import PreparedContentStore
+from frisket.engine.store.blob_backend import BlobIntegrityError, BlobNotFoundError
+from frisket.engine.store.current_value_windows import read_sql_text
 from frisket.engine.store.prepared_readiness import prepared_source_readiness_ctes
 from frisket.retrieval.source_adapter import resolve_cell_blob_source
 from frisket.server.route_errors import RouteError
 
 _GROUP_ORDER = ("native_pdf", "ocr", "transcribe")
 _SCAN_PAGE = 200
+_PREVIEW_CHARS = 12_000
+_PLAN_WARNING_LIMIT = 20
 
 
 def build_plan(
@@ -31,6 +34,7 @@ def build_plan(
     requirements: Sequence[Any],
     requirement_dict: Callable[..., dict[str, Any]],
     intersect_visible_rows: bool = False,
+    source_cells: frozenset[tuple[int, int]] | None = None,
 ) -> dict[str, Any]:
     columns = [
         column
@@ -48,8 +52,12 @@ def build_plan(
     ):
         raise RouteError(404, "one or more selected rows are not visible in this sheet")
     items: list[dict[str, Any]] = []
+    sources: list[dict[str, Any]] = []
+    warnings: dict[str, None] = {}
+    warnings_omitted = False
+    first_preview_error: RouteError | None = None
     counts: defaultdict[str, int] = defaultdict(int)
-    pdf_cache: dict[str, list[Any] | None] = {}
+    pdf_cache: dict[tuple[str, int], PdfTextSample] = {}
     for offset in range(0, len(selected), _SCAN_PAGE):
         page_rows = selected[offset : offset + _SCAN_PAGE]
         bindings = []
@@ -57,6 +65,11 @@ def build_plan(
             for selected_row, value in project.get_values(
                 sheet_id, int(column["id"]), row_ids=page_rows
             ).items():
+                if (
+                    source_cells is not None
+                    and (selected_row, int(column["id"])) not in source_cells
+                ):
+                    continue
                 if not isinstance(value, dict) or not isinstance(
                     value.get("blob"), str
                 ):
@@ -79,16 +92,50 @@ def build_plan(
             mime = source.mime_type.lower()
             kind: str | None = None
             page_count: int | None = None
+            source_item = {
+                "row_id": selected_row,
+                "column_id": int(column["id"]),
+                "column_name": str(column["name"]),
+                "blob_hash": source.blob_hash,
+                "mime": mime,
+                "filename": value.get("filename"),
+                "page_number": source.page_number,
+                "retrieval_revision": source.binding.retrieval_revision,
+            }
             if mime == "application/pdf":
                 if not force_ocr and _has_current_result(project, source, "native_pdf"):
                     continue
-                native, page_count = _pdf_has_complete_text(
-                    project,
-                    source.blob_hash,
-                    source.page_number,
-                    cache=pdf_cache,
+                try:
+                    sample = _pdf_sample(
+                        project,
+                        source.blob_hash,
+                        source.page_number or 1,
+                        cache=pdf_cache,
+                    )
+                except RouteError as exc:
+                    if exc.status_code != 422:
+                        raise
+                    sources.append(source_item)
+                    first_preview_error = first_preview_error or exc
+                    filename = str(value.get("filename") or f"File row {selected_row}")[
+                        :200
+                    ]
+                    warning = f"Skipped {filename}: PDF text preview could not be read."
+                    if warning not in warnings:
+                        if len(warnings) < _PLAN_WARNING_LIMIT:
+                            warnings[warning] = None
+                        else:
+                            warnings_omitted = True
+                    continue
+                page_count = sample.page_count
+                # This is evidence about the sampled page, not a claim that
+                # every page contains usable native text. The user reviews it
+                # before choosing whether to keep native text or run OCR.
+                kind = (
+                    "ocr"
+                    if force_ocr or (not sample.text.strip() and not sample.truncated)
+                    else "native_pdf"
                 )
-                kind = "ocr" if force_ocr or not native else "native_pdf"
             elif mime.startswith("image/"):
                 imported_page = _imported_pdf_page_source(project, source)
                 if (
@@ -108,21 +155,20 @@ def build_plan(
                 continue
             if mime != "application/pdf" and _has_current_result(project, source, kind):
                 continue
+            sources.append(source_item)
             items.append(
                 {
+                    **source_item,
                     "kind": kind,
-                    "row_id": selected_row,
-                    "column_id": int(column["id"]),
-                    "column_name": str(column["name"]),
-                    "blob_hash": source.blob_hash,
-                    "mime": mime,
-                    "filename": value.get("filename"),
-                    "page_number": source.page_number,
                     "page_count": page_count,
-                    "retrieval_revision": source.binding.retrieval_revision,
                 }
             )
             counts[kind] += 1
+    if not items and first_preview_error is not None:
+        raise first_preview_error
+    warning_messages = list(warnings)
+    if warnings_omitted:
+        warning_messages[-1] = "Additional unreadable PDF files were skipped."
     capabilities = {
         capability
         for kind, capability in (("ocr", "ocr"), ("transcribe", "transcription"))
@@ -145,44 +191,37 @@ def build_plan(
         ],
         "models": models,
         "items": items,
+        "sources": sources,
+        "warnings": warning_messages,
     }
 
 
-def _pdf_has_complete_text(
+def _pdf_sample(
     project: Any,
     blob_hash: str,
-    page_number: int | None,
+    page: int,
     *,
-    cache: dict[str, list[Any] | None],
-) -> tuple[bool, int]:
-    pages = _pdf_pages(project, blob_hash, cache=cache)
-    if pages is None:
-        return False, 1
-    selected = (
-        pages if page_number is None else [p for p in pages if p.page == page_number]
-    )
-    if page_number is not None and not selected:
-        raise RouteError(422, "PDF page is outside the document")
-    return bool(selected) and all(
-        any(token.text.strip() for token in p.tokens) for p in selected
-    ), len(pages)
-
-
-def _pdf_pages(
-    project: Any,
-    blob_hash: str,
-    *,
-    cache: dict[str, list[Any] | None],
-) -> list[Any] | None:
-    if blob_hash in cache:
-        return cache[blob_hash]
+    cache: dict[tuple[str, int], PdfTextSample],
+) -> PdfTextSample:
+    key = (blob_hash, page)
+    if key in cache:
+        return cache[key]
     try:
         with project.materialize_blob(blob_hash) as source:
-            pages = run_media_sync(lambda _cancelled: extract_pdf_text(Path(source)))
-    except (PdfTextError, OSError):
-        pages = None
-    cache[blob_hash] = pages
-    return pages
+            sample = run_media_sync(
+                lambda cancelled: sample_pdf_text(
+                    Path(source),
+                    page=page,
+                    max_chars=_PREVIEW_CHARS,
+                    should_cancel=cancelled,
+                )
+            )
+    except (PdfTextError, OSError, BlobIntegrityError, BlobNotFoundError) as exc:
+        raise RouteError(
+            422, "PDF text preview could not be read. Check the PDF and selected page."
+        ) from exc
+    cache[key] = sample
+    return sample
 
 
 def _imported_pdf_page_source(project: Any, source: Any) -> tuple[str, int] | None:
@@ -287,7 +326,7 @@ def _current_prepared_result(
 
 def sample_pdf(
     project: Any, sheet_id: int, item: Mapping[str, Any], page: int
-) -> tuple[str, int, str]:
+) -> tuple[str, int, str, bool]:
     selected_page = item.get("page_number")
     if selected_page is not None and page != selected_page:
         raise RouteError(422, "preview must use the selected PDF page")
@@ -300,25 +339,44 @@ def sample_pdf(
         page_number=item.get("page_number"),
     )
     if row is not None:
-        prepared = PreparedContentStore(project).resolve(int(row["prepared_ref_id"]))
-        pin = next((pin for pin in prepared.pins if pin.page_number == page), None)
-        if pin is not None:
-            page_count = row["page_count"] or item.get("page_count")
-            return (
-                prepared.text[pin.start : pin.end],
-                int(page_count) if page_count else len(prepared.pins),
-                "prepared",
+        params = {"ref": int(row["prepared_ref_id"]), "page": page}
+        select_value = (
+            "SELECT version.prepared_text AS value FROM prepared_content_refs ref "
+            "JOIN prepared_content_set_pages member ON member.set_id=ref.set_id "
+            "AND member.page_number=:page "
+            "JOIN prepared_page_versions version ON version.id=member.version_id "
+            "WHERE ref.id=:ref AND (ref.page_number IS NULL OR ref.page_number=:page)"
+        )
+        sizes = project.db.execute(
+            "SELECT length(value),length(CAST(value AS BLOB)),instr(value,char(0))>0 "
+            "FROM (" + select_value + ")",
+            params,
+        ).fetchone()
+        if sizes is not None:
+            # The text reader also preserves embedded NUL characters. Only a
+            # prefix of this exact page reaches Python, including one character
+            # beyond the preview limit to establish whether it was truncated.
+            prefix = read_sql_text(
+                project.db,
+                select_value,
+                params,
+                start=0,
+                limit=_PREVIEW_CHARS + 1,
+                sizes=(int(sizes[0]), int(sizes[1]), bool(sizes[2])),
             )
-    with project.materialize_blob(str(item["blob_hash"])) as source:
-        pages = run_media_sync(lambda _cancelled: extract_pdf_text(Path(source)))
-    selected = next((value for value in pages if value.page == page), None)
-    if selected is None:
-        raise RouteError(422, "PDF page is outside the document")
-    page_count = item.get("page_count")
+            page_count = row["page_count"] or item.get("page_count") or page
+            return (
+                prefix[:_PREVIEW_CHARS],
+                int(page_count),
+                "prepared",
+                len(prefix) > _PREVIEW_CHARS,
+            )
+    sample = _pdf_sample(project, str(item["blob_hash"]), page, cache={})
     return (
-        positioned_tokens_text(selected.tokens),
-        int(page_count) if page_count else len(pages),
+        sample.text,
+        sample.page_count,
         "native",
+        sample.truncated,
     )
 
 

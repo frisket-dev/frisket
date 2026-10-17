@@ -7,7 +7,7 @@
 // with no actions.
 
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, screen } from '@testing-library/react';
+import { cleanup, fireEvent, screen, within } from '@testing-library/react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../src/api/open', async (importOriginal) => {
@@ -175,6 +175,85 @@ describe('StatusBar queued-run feedback', () => {
     const banner = screen.getByTestId('active-run-banner');
     expect(banner).toHaveTextContent('queued — waiting to start');
     expect(banner.querySelector('.run-spinner')).toBeInTheDocument();
+  });
+
+  it('cancels the same exact run from its toast and footer controls', () => {
+    const onCancelRun = vi.fn();
+    renderBar(finishedRun({ status: 'running', failedRows: 0, rowErrors: undefined }), { onCancelRun });
+    const toastCancel = within(screen.getByTestId('active-run-banner')).getByRole('button', { name: 'Cancel run' });
+    expect(toastCancel).toBeEnabled();
+    fireEvent.click(toastCancel);
+    fireEvent.click(screen.getByTestId('run-cancel-button'));
+    expect(onCancelRun.mock.calls).toEqual([['run-9'], ['run-9']]);
+  });
+
+  it('shows accepted cancellation as stopping and disables both cancel controls', () => {
+    const onCancelRun = vi.fn();
+    renderBar(finishedRun({
+      status: 'running', completedRows: 5, failedRows: 0, rowErrors: undefined,
+      cancelRequested: true,
+    }), { onCancelRun });
+    const banner = screen.getByTestId('active-run-banner');
+    expect(banner).toHaveTextContent('Stopping…');
+    expect(within(banner).queryByTestId('pending-ai-cells')).not.toBeInTheDocument();
+    expect(screen.getByTestId('run-watcher-toggle')).toHaveTextContent('Stopping…');
+    const toastCancel = within(banner).getByRole('button', { name: 'Stopping…' });
+    const footerCancel = screen.getByTestId('run-cancel-button');
+    expect(toastCancel).toBeDisabled();
+    expect(footerCancel).toBeDisabled();
+    fireEvent.click(toastCancel);
+    fireEvent.click(footerCancel);
+    expect(onCancelRun).not.toHaveBeenCalled();
+  });
+
+  it('shows terminal cancellation honestly after stopping finishes', () => {
+    renderBar(finishedRun({
+      status: 'cancelled', failedRows: 0, rowErrors: undefined, cancelRequested: true,
+    }));
+    expect(screen.queryByTestId('active-run-banner')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('run-cancel-button')).not.toBeInTheDocument();
+    expect(screen.getByTestId('run-watcher-toggle')).toHaveTextContent('cancelled');
+    expect(screen.queryByText('Stopping…')).not.toBeInTheDocument();
+  });
+
+  it('keeps concurrent OCR files on independent page counters and removes only finished files', () => {
+    const run = finishedRun({
+      actionKind: 'media.ocr', actionName: 'Read PDF text',
+      status: 'running', completedRows: 0, totalRows: 7, failedRows: 0, rowErrors: undefined,
+      workProgress: {
+        kind: 'ocr_pages',
+        files: [
+          { row_id: 12, completed: 3, total: 100, filename: 'first.pdf' },
+          { row_id: 13, completed: 40, total: 500 },
+        ],
+      },
+    });
+    const statusBar = (current: RunProgress) => (
+      <StatusBar
+        run={current} history={null} reviewCount={0} projectionStatus={null}
+        onUndo={vi.fn()} onRedo={vi.fn()} onOpenReview={vi.fn()} onCancelRun={vi.fn()}
+      />
+    );
+    const view = render(statusBar(run));
+    const banner = screen.getByTestId('active-run-banner');
+    expect(banner).toHaveTextContent('0/7 files');
+    expect(within(screen.getByTestId('run-file-progress-12')).getByText('first.pdf')).toBeInTheDocument();
+    expect(within(screen.getByTestId('run-file-progress-12')).getByText('3 / 100 pages')).toBeInTheDocument();
+    expect(within(screen.getByTestId('run-file-progress-13')).getByText('File row 13')).toBeInTheDocument();
+    expect(within(screen.getByTestId('run-file-progress-13')).getByText('40 / 500 pages')).toBeInTheDocument();
+    expect(screen.getByRole('progressbar', { name: 'OCR pages for first.pdf' })).toHaveAttribute('value', '3');
+    expect(screen.getByRole('progressbar', { name: 'OCR pages for File row 13' })).toHaveAttribute('max', '500');
+    expect(banner).not.toHaveTextContent('%');
+    expect(screen.getByTestId('run-watcher-toggle').querySelector('.run-track')).toBeNull();
+
+    view.rerender(statusBar({
+      ...run, completedRows: 1,
+      workProgress: { kind: 'ocr_pages', files: [{ row_id: 13, completed: 41, total: 500 }] },
+    }));
+    expect(screen.queryByTestId('run-file-progress-12')).not.toBeInTheDocument();
+    expect(screen.getByTestId('run-file-progress-13')).toHaveTextContent('41 / 500 pages');
+    expect(screen.getByTestId('active-run-banner')).toHaveTextContent('1/7 files');
+    expect(screen.getAllByRole('progressbar')).toHaveLength(1);
   });
 });
 

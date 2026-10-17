@@ -7,6 +7,7 @@ import json
 import sqlite3
 import time
 from contextlib import asynccontextmanager
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -258,7 +259,7 @@ def test_page_progress_is_best_effort_and_clears_before_the_next_row(
     original_write = RunResultStore.set_work_progress
 
     def write(store, run_id, **values):
-        if failed_write == "page" and values["completed"] == 1:
+        if failed_write == "page" and values["files"][0]["completed"] == 1:
             raise sqlite3.OperationalError("injected progress failure")
         return original_write(store, run_id, **values)
 
@@ -306,6 +307,103 @@ def test_page_progress_is_best_effort_and_clears_before_the_next_row(
         project.close()
 
 
+def test_concurrent_page_progress_keeps_each_file_and_removes_only_finished_row(
+    tmp_path, scope_recipe, monkeypatch
+):
+    project, sheet_id, row_ids = _seed_project(tmp_path, rows=2)
+    original_execute = scope_recipe.execute
+    original_write = RunResultStore.set_work_progress
+    first_started = asyncio.Event()
+    second_started = asyncio.Event()
+    first_updated = asyncio.Event()
+    finish_first = asyncio.Event()
+    first_removed = asyncio.Event()
+    both_seen = False
+    clock = [100.0]
+    monkeypatch.setattr(
+        map_runner_module, "time", SimpleNamespace(monotonic=lambda: clock[0])
+    )
+
+    def write(store, run_id, **values):
+        nonlocal both_seen
+        original_write(store, run_id, **values)
+        rows = {file["row_id"] for file in values["files"]}
+        both_seen = both_seen or rows == set(row_ids)
+        if both_seen and rows == {row_ids[1]}:
+            first_removed.set()
+
+    def files(run_id):
+        saved = project.db.execute(
+            "SELECT work_progress FROM runs WHERE id=?", (run_id,)
+        ).fetchone()[0]
+        return {file["row_id"]: file for file in json.loads(saved)["files"]}
+
+    async def execute(values, spec, ctx):
+        row_id = ctx.extras["row_id"]
+        report = ctx.extras["report_work_progress"]
+        total = 196 if row_id == row_ids[0] else 24_909
+        filename = "a" * 201 if row_id == row_ids[0] else "second.pdf"
+        if row_id == row_ids[1]:
+            await first_started.wait()
+        report(
+            kind="ocr_pages", row_id=row_id, completed=0, total=total, filename=filename
+        )
+        if row_id == row_ids[0]:
+            first_started.set()
+            await second_started.wait()
+            clock[0] += 0.6
+            report(
+                kind="ocr_pages",
+                row_id=row_id,
+                completed=2,
+                total=total,
+                filename=filename,
+            )
+            first_updated.set()
+            await finish_first.wait()
+        else:
+            second_started.set()
+            await first_updated.wait()
+            # Same tick as the sibling: its write must not throttle this file.
+            report(
+                kind="ocr_pages",
+                row_id=row_id,
+                completed=2,
+                total=total,
+                filename=filename,
+            )
+            current = files(ctx.extras["run_id"])
+            assert set(current) == set(row_ids)
+            assert [current[row]["completed"] for row in row_ids] == [2, 2]
+            assert [current[row]["total"] for row in row_ids] == [196, 24_909]
+            assert current[row_ids[0]]["filename"] == "a" * 200
+            finish_first.set()
+            await first_removed.wait()
+            assert files(ctx.extras["run_id"]) == {row_id: current[row_id]}
+        return await original_execute(values, spec, ctx)
+
+    monkeypatch.setattr(scope_recipe, "execute", execute)
+    monkeypatch.setattr(RunResultStore, "set_work_progress", write)
+    try:
+        runner = MapRunner(
+            project,
+            ModelRouter(keys={}),
+            concurrency=2,
+            authority=UnroutedOnlyAuthority(project),
+        )
+
+        async def exercise():
+            return await asyncio.wait_for(
+                run_with_output_claim(runner, _spec(scope_recipe, sheet_id)), timeout=5
+            )
+
+        progress = asyncio.run(exercise())
+        assert progress.completed == 2 and progress.failed == 0
+        assert runner.run_store.get_run(progress.run_id)["work_progress"] is None
+    finally:
+        project.close()
+
+
 @pytest.mark.realtime
 def test_page_progress_does_not_wait_for_or_commit_another_write(tmp_path):
     project, sheet_id, row_ids = _seed_project(tmp_path, rows=1)
@@ -319,13 +417,13 @@ def test_page_progress_does_not_wait_for_or_commit_another_write(tmp_path):
             started = time.monotonic()
             with pytest.raises(sqlite3.OperationalError, match="locked"):
                 store.set_work_progress(
-                    run_id, kind="ocr_pages", row_id=row_ids[0], completed=1, total=3
+                    run_id, files=[{"row_id": row_ids[0], "completed": 1, "total": 3}]
                 )
             assert time.monotonic() - started < 0.5
             assert project.db.execute("PRAGMA busy_timeout").fetchone()[0] == 2000
             assert not project.db.in_transaction
         store.set_work_progress(
-            run_id, kind="ocr_pages", row_id=row_ids[0], completed=2, total=3
+            run_id, files=[{"row_id": row_ids[0], "completed": 2, "total": 3}]
         )
         project.db.execute("UPDATE runs SET model='uncommitted' WHERE id=?", (run_id,))
         store.clear_work_progress(run_id)
@@ -333,7 +431,7 @@ def test_page_progress_does_not_wait_for_or_commit_another_write(tmp_path):
         project.db.rollback()
         run = store.get_run(run_id)
         assert run["model"] is None
-        assert json.loads(run["work_progress"])["completed"] == 2
+        assert json.loads(run["work_progress"])["files"][0]["completed"] == 2
     finally:
         project.close()
 
@@ -759,10 +857,19 @@ def test_pre_cancel_and_zero_work_never_enter_scope(
 
 
 def test_outer_cancellation_joins_workers_before_scope_exit(
-    tmp_path, scope_recipe: _ScopeRecipe
+    tmp_path, scope_recipe: _ScopeRecipe, monkeypatch
 ) -> None:
     project, sheet_id, _row_ids = _seed_project(tmp_path, rows=4)
     scope_recipe.block = True
+    original_execute = scope_recipe.execute
+
+    async def execute(values, spec, ctx):
+        ctx.extras["report_work_progress"](
+            kind="ocr_pages", row_id=ctx.extras["row_id"], completed=1, total=196
+        )
+        return await original_execute(values, spec, ctx)
+
+    monkeypatch.setattr(scope_recipe, "execute", execute)
 
     runner = MapRunner(
         project,
@@ -791,10 +898,11 @@ def test_outer_cancellation_joins_workers_before_scope_exit(
         assert scope_recipe.entries == 1
         assert scope_recipe.exits == 1
         run = project.db.execute(
-            "SELECT status, current_attempt_id FROM runs WHERE id=?",
+            "SELECT status, current_attempt_id, work_progress FROM runs WHERE id=?",
             (prepared.run_id,),
         ).fetchone()
         assert run["status"] == "cancelled"
+        assert run["work_progress"] is None
         assert isinstance(run["current_attempt_id"], str)
         attempt = project.db.execute(
             "SELECT state FROM execution_attempts WHERE id=?",

@@ -33,17 +33,26 @@ test('project search prepares the missing PDF sheet while a text sheet is open',
   const response = await admitted;
   expect(response.ok()).toBeTruthy();
   expect(response.request().postDataJSON()).toEqual({ sheet_id: documentSheet });
-  const batch = await response.json() as { id: string };
+  const batch = await response.json() as { id: string; plan_hash: string; status: string };
+  expect(batch.status).toBe('needs_consent');
+  // Creating a PDF plan does not dispatch it. Close search, then explicitly
+  // admit native extraction without selecting any optional model downloads.
+  await expect(page.getByTestId('search-preparation-decision-prepare')).toBeVisible();
+  await page.getByRole('button', { name: 'Close command palette' }).click();
+  await expect(palette).toBeHidden();
+  const decision = await page.request.post(
+    `/api/projects/${pid}/search-preparation/${batch.id}/decision`,
+    { data: { plan_hash: batch.plan_hash, decision: 'prepare', selected_setup_refs: [] } },
+  );
+  expect(decision.ok()).toBeTruthy();
   await expect.poll(async () => {
     const result = await page.request.get(`/api/projects/${pid}/search-preparation/${batch.id}`);
     const body = await result.json() as { status: string; groups: Array<{ count: number }> };
     expect(body.groups.reduce((sum, group) => sum + group.count, 0)).toBeGreaterThan(0);
     return body.status;
   }, { timeout: 30_000 }).toBe('complete');
-  await page.getByTestId('search-preparation-done').click();
   await expect(page.getByTestId('search-preparation-receipt')).toBeHidden();
-  // Closing and reopening searches the real index, not a mocked success response.
-  await page.getByRole('button', { name: 'Close command palette' }).click();
+  // Reopening after background preparation searches the real, unmocked index.
   const reopened = await openPalette(page);
   await reopened.getByTestId('command-palette-input').fill('bluewharf');
   await expect(reopened.getByTestId('search-hit').filter({ hasText: 'bluewharf' }).first())
@@ -84,20 +93,34 @@ test('semantic setup keeps download progress and errors visible after closing se
   await page.getByRole('button', { name: 'Close command palette' }).click();
   await expect(palette).toBeHidden();
   const notice = page.getByTestId('search-preparation-banner');
+  const activity = page.getByTestId('search-activity-toggle');
+  // The palette polls the pull detail independently of the footer. Open only
+  // after the footer has observed this download, rather than the prior index.
+  await expect(activity).toContainText('Downloading EmbeddingGemma 2');
+  await expect(notice).toBeHidden();
+  await activity.click();
   await expect(notice).toContainText('EmbeddingGemma 2');
   await expect(notice.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '25');
   await page.screenshot({ path: testInfo.outputPath('download-progress@2x.png'), animations: 'disabled' });
   const reopened = await openPalette(page);
   await reopened.getByTestId('command-palette-input').fill('harbor');
   await expect(reopened.getByTestId('model-pull-progress')).toHaveAttribute('data-status', 'running');
+  await page.getByRole('button', { name: 'Close command palette' }).click();
+  await expect(notice).toContainText('EmbeddingGemma 2');
+  await expect(notice.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '25');
+  const failurePalette = await openPalette(page);
+  await failurePalette.getByTestId('command-palette-input').fill('harbor');
   pull = {
     ...pull, status: 'failed', phase: null,
     error: { code: 'download_failed', message: 'The model download was interrupted.' },
     capabilities: { cancel: false, retry: true, remove: false },
   };
-  await expect(reopened.getByTestId('model-pull-error')).toContainText('interrupted');
-  await expect(reopened.getByTestId('search-setup-retry')).toBeVisible();
+  await expect(failurePalette.getByTestId('model-pull-error')).toContainText('interrupted');
+  await expect(failurePalette.getByTestId('search-setup-retry')).toBeVisible();
   await page.getByRole('button', { name: 'Close command palette' }).click();
+  await expect(activity).toContainText('interrupted');
+  await expect(notice).toBeHidden();
+  await activity.click();
   await expect(notice).toContainText('interrupted');
   await page.screenshot({ path: testInfo.outputPath('download-failed@2x.png'), animations: 'disabled' });
   const retryPalette = await openPalette(page);
@@ -111,6 +134,9 @@ test('semantic setup keeps download progress and errors visible after closing se
   await retryPalette.getByTestId('search-setup-retry').click();
   await expect(retryPalette.getByTestId('model-pull-progress')).toHaveAttribute('data-status', 'running');
   await page.getByRole('button', { name: 'Close command palette' }).click();
+  await expect(activity).toContainText('Downloading EmbeddingGemma 2');
+  await expect(notice).toBeHidden();
+  await activity.click();
   await expect(notice.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '50');
 
   // Download bytes are simulated, so control only the resulting index lifecycle too.
@@ -126,6 +152,9 @@ test('semantic setup keeps download progress and errors visible after closing se
     ...pull, status: 'done', phase: 'Ready', completed_bytes: 1_400_000_000,
     finished_at: new Date().toISOString(),
   };
+  await expect(activity).toContainText('Indexing');
+  await expect(notice).toBeHidden();
+  await activity.click();
   await expect(notice).toHaveAttribute('data-stage', 'index');
   await expect(notice).toContainText('Indexing');
   await page.screenshot({ path: testInfo.outputPath('indexing@2x.png'), animations: 'disabled' });

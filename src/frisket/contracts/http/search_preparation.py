@@ -62,6 +62,11 @@ class SearchPreparationDecisionRequest(WireModel):
         return self
 
 
+class SearchPreparationReplanRequest(WireModel):
+    plan_hash: str = Field(min_length=1, max_length=96)
+    force_ocr: bool
+
+
 class SearchPreparationGroup(WireModel):
     kind: SearchPreparationGroupKind
     count: int = Field(ge=0)
@@ -98,6 +103,7 @@ class SearchPreparationBatch(WireModel):
     id: str
     sheet_id: int = Field(gt=0)
     plan_hash: str
+    force_ocr: bool = False
     status: SearchPreparationStatus
     groups: list[SearchPreparationGroup]
     models: list[SearchPreparationModel]
@@ -108,10 +114,24 @@ class SearchPreparationBatch(WireModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+MAX_PDF_INDEXING_FILES = 8
+
+
+class SearchPreparationPdfFile(WireModel):
+    source_id: str
+    filename: str | None = Field(default=None, max_length=200)
+    completed: int = Field(ge=0)
+    total: int = Field(gt=0)
+
+
 class SearchPreparationIndexing(WireModel):
     status: Literal["idle", "pending", "queued", "running", "failed"]
     job_id: int | None = Field(default=None, gt=0)
     error: str | None = None
+    pdf_files: list[SearchPreparationPdfFile] = Field(
+        default_factory=list, max_length=MAX_PDF_INDEXING_FILES
+    )
+    pdf_files_truncated: bool = False
 
 
 class SearchPreparationBatchList(WireModel):
@@ -145,10 +165,12 @@ __all__ = [
     "SearchPreparationBatchList",
     "SearchPreparationCreateRequest",
     "SearchPreparationDecisionRequest",
+    "SearchPreparationReplanRequest",
     "SearchPreparationGroup",
     "SearchPreparationIndexing",
     "SearchPreparationJob",
     "SearchPreparationModel",
+    "SearchPreparationPdfFile",
     "SearchPreparationTextSample",
     "SearchPreparationTextSamples",
 ]

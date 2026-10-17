@@ -238,6 +238,7 @@ class _BoundOcrReader:
     def __init__(self, owner, row, sheet_id, row_id, sources, ctx):
         self._owner, self._row, self._ctx = owner, row, ctx
         self._sheet_id, self._row_id, self._sources = sheet_id, row_id, sources
+        self._filename = None
 
     def _source(self, row, source):
         if row is not self._row or not isinstance(source, ColumnRef):
@@ -313,6 +314,7 @@ class _BoundOcrReader:
                 "promise_violation", "OCR call options differ from admission"
             )
         source_ref = self._source(row, source)
+        self._filename = source_ref["filename"][:200]
         if self._row_id in owner._called_rows:
             raise RuntimeError("OCR permits one recognition per admitted row")
         owner._called_rows.add(self._row_id)
@@ -651,6 +653,7 @@ class _BoundOcrReader:
                 row_id=self._row_id,
                 completed=completed,
                 total=total,
+                filename=self._filename,
             )
 
     async def _recognize_pdf_pages(

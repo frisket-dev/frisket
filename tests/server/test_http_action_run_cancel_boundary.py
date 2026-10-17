@@ -42,6 +42,7 @@ def test_action_run_cancel_route_cancels_run_and_queue_job(tmp_path) -> None:
     cancelled = client.post(f"/api/projects/{project_id}/actions/runs/{run_id}/cancel")
     assert cancelled.status_code == 200, cancelled.text
     assert cancelled.json()["status"] == "cancelled"
+    assert cancelled.json()["cancel_requested"] is True
     assert cancelled.json()["queue_job_id"] == job_id
     assert cancelled.json()["queue_cancelled"] is True
 
@@ -52,3 +53,4 @@ def test_action_run_cancel_route_cancels_run_and_queue_job(tmp_path) -> None:
         f"/api/projects/{project_id}/actions/runs/{run_id}/status"
     ).json()
     assert status["run"]["public_status"]["status"] == "cancelled"
+    assert status["run"]["public_status"]["cancel_requested"] is True

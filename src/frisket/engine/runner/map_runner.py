@@ -1063,34 +1063,54 @@ class MapRunner:
                 close_out_pre_dispatch_failure(exc)
                 raise
 
-        last_work_progress = 0.0
-        work_progress_row_id: int | None = None
+        last_work_progress: dict[int, float] = {}
+        work_progress_files: dict[int, dict[str, Any]] = {}
 
         def report_work_progress(
-            *, kind: str, row_id: int, completed: int, total: int
+            *,
+            kind: str,
+            row_id: int,
+            completed: int,
+            total: int,
+            filename: str | None = None,
         ) -> None:
-            nonlocal last_work_progress, work_progress_row_id
-            now = time.monotonic()
-            if completed not in (0, 1, total) and now - last_work_progress < 0.5:
+            if kind != "ocr_pages":
                 return
+            now = time.monotonic()
+            if (
+                completed not in (0, 1, total)
+                and now - last_work_progress.get(row_id, 0.0) < 0.5
+            ):
+                return
+            file: dict[str, Any] = {
+                "row_id": row_id,
+                "completed": completed,
+                "total": total,
+            }
+            if filename:
+                file["filename"] = filename[:200]
+            work_progress_files[row_id] = file
             try:
                 self.run_store.set_work_progress(
-                    run_id, kind=kind, row_id=row_id, completed=completed, total=total
+                    run_id, files=list(work_progress_files.values())
                 )
             except sqlite3.Error:
                 _log.warning("work_progress_write_failed", exc_info=True)
-            last_work_progress = now
-            work_progress_row_id = row_id
+            last_work_progress[row_id] = now
 
-        def clear_work_progress() -> None:
-            nonlocal work_progress_row_id
-            if work_progress_row_id is None:
+        def clear_work_progress(row_id: int) -> None:
+            last_work_progress.pop(row_id, None)
+            if work_progress_files.pop(row_id, None) is None:
                 return
             try:
-                self.run_store.clear_work_progress(run_id)
+                if work_progress_files:
+                    self.run_store.set_work_progress(
+                        run_id, files=list(work_progress_files.values())
+                    )
+                else:
+                    self.run_store.clear_work_progress(run_id)
             except sqlite3.Error:
                 _log.warning("work_progress_write_failed", exc_info=True)
-            work_progress_row_id = None
 
         # remote-engine ops (ocr's VLM tier) reach the router via extras
         ctx = OpContext(
@@ -1412,7 +1432,6 @@ class MapRunner:
             await self._throttle.wait()
             if cancelled():
                 return
-            clear_work_progress()
             input_capture: dict[str, dict[str, Any]] | None = (
                 {} if callable(capture_result_evidence) else None
             )
@@ -1938,7 +1957,10 @@ class MapRunner:
                 try:
                     if item is None:
                         return
-                    await one_row(*item)
+                    try:
+                        await one_row(*item)
+                    finally:
+                        clear_work_progress(item[0])
                 finally:
                     queue.task_done()
 

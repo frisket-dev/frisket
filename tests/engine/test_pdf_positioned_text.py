@@ -7,10 +7,16 @@ import pytest
 from pypdf import PdfWriter
 from pypdf.generic import DictionaryObject, NameObject, DecodedStreamObject
 
-from frisket.engine.pdf_text import extract_pdf_text, PdfTextError, PdfTextCancelled
+from frisket.engine.pdf_text import (
+    extract_pdf_text,
+    extract_pdf_text_batch,
+    sample_pdf_text,
+    PdfTextError,
+    PdfTextCancelled,
+)
 
 
-def _pdf(path: Path, *, rotation=0, origin=(0, 0)):
+def _pdf(path: Path, *, rotation=0, origin=(0, 0), repeat_text=False):
     writer = PdfWriter()
     page = writer.add_blank_page(width=200, height=100)
     x, y = origin
@@ -41,7 +47,10 @@ def _pdf(path: Path, *, rotation=0, origin=(0, 0)):
         f"BT /F1 12 Tf {x + 20} {y + 70} Td (NAME Alice) Tj 0 -20 Td (ARRESTED X) Tj ET".encode()
     )
     page[NameObject("/Contents")] = writer._add_object(stream)
-    writer.add_blank_page(width=200, height=100)
+    if repeat_text:
+        writer.add_page(page)
+    else:
+        writer.add_blank_page(width=200, height=100)
     with path.open("wb") as handle:
         writer.write(handle)
 
@@ -109,3 +118,45 @@ def test_cancel_before_reading(tmp_path):
 def test_invalid_limits_do_not_launch_worker(tmp_path, kwargs):
     with pytest.raises(ValueError, match="positive integer"):
         asyncio.run(extract_pdf_text(tmp_path / "missing.pdf", **kwargs))
+
+
+def test_batch_budget_returns_complete_pages_and_advancing_cursor(tmp_path):
+    source = tmp_path / "source.pdf"
+    _pdf(source, repeat_text=True)
+    first = asyncio.run(extract_pdf_text_batch(source, max_chars=30))
+    assert first.page_count == 2 and first.next_page == 2
+    assert [page.page for page in first.pages] == [1]
+    second = asyncio.run(
+        extract_pdf_text_batch(source, start_page=first.next_page, max_chars=30)
+    )
+    assert second.page_count == 2 and second.next_page is None
+    assert [page.page for page in second.pages] == [2]
+    assert first.pages[0].tokens == second.pages[0].tokens
+
+
+def test_batch_does_not_truncate_an_oversized_single_page(tmp_path):
+    source = tmp_path / "source.pdf"
+    _pdf(source)
+    with pytest.raises(PdfTextError, match="page exceeds.*limit"):
+        asyncio.run(extract_pdf_text_batch(source, max_chars=4))
+
+
+def test_selected_page_prefix_is_bounded_and_reports_true_count(tmp_path):
+    source = tmp_path / "source.pdf"
+    _pdf(source)
+    sample = asyncio.run(sample_pdf_text(source, page=1, max_chars=4))
+    assert sample.text == "NAME" and sample.truncated
+    assert sample.page == 1 and sample.page_count == 2
+    blank = asyncio.run(sample_pdf_text(source, page=2, max_chars=4))
+    assert blank.text == "" and not blank.truncated
+    assert blank.page == 2 and blank.page_count == 2
+    with pytest.raises(PdfTextError, match="outside the document"):
+        asyncio.run(sample_pdf_text(source, page=3))
+
+
+def test_batch_and_sample_cancel_before_launch(tmp_path):
+    for read, kwargs in ((extract_pdf_text_batch, {}), (sample_pdf_text, {"page": 1})):
+        with pytest.raises(PdfTextCancelled):
+            asyncio.run(
+                read(tmp_path / "missing.pdf", should_cancel=lambda: True, **kwargs)
+            )
