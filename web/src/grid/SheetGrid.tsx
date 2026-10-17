@@ -1345,7 +1345,7 @@ function useSheetGridController({
     for (const column of unavailable) annotations.push({
       key: `replay-comparison-unavailable:${column.id}:${column.latestRunId ?? ''}`,
       columnIds: [column.id],
-      message: <span data-testid="replay-comparison-unavailable-header">Updated-value comparison unavailable above 64 KiB</span>,
+      message: <span data-testid="replay-comparison-unavailable-header">Updated-value count unavailable</span>,
       tone: 'info',
     });
     if (runColumnsAnnotation) annotations.push(runColumnsAnnotation);

@@ -815,7 +815,6 @@ _BROWSER_CLIENT_IDS = (
             "tenant.compact_project.post",
             "tenant.cell_evidence.get",
             "tenant.cell_text_window.get",
-            "tenant.cell_value_download.get",
             "tenant.cell_text_annotations.get",
             "tenant.column_runs.get",
             "tenant.reviewed_run_revision.get",

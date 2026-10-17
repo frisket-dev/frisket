@@ -102,7 +102,13 @@ def register_sheet_grid_routes(
     @app.get(
         "/api/projects/{pid}/cells/{row_id}/{column_id}/download",
         response_class=StreamingResponse,
-        responses=http_error_responses(400, 401, 403, 404, 409, 422, 500),
+        responses={
+            200: {
+                "description": "The exact current cell value, streamed as text.",
+                "content": {"text/plain": {"schema": {"type": "string"}}},
+            },
+            **http_error_responses(400, 401, 403, 404, 409, 422, 500),
+        },
     )
     def cell_value_download(
         request: Request,
