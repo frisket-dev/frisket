@@ -659,6 +659,37 @@ describe('SearchPreparationReceipt', () => {
     }));
   });
 
+  it('reviews the visible prepared native PDF independently of another document requiring OCR', async () => {
+    getSearchPreparation.mockResolvedValue({
+      ...consentBatch, status: 'complete',
+      groups: [{ kind: 'native_pdf', count: 1, status: 'complete' }, { kind: 'ocr', count: 1, status: 'complete' }],
+    });
+    const sample = {
+      row_id: 42, column_id: 5, filename: 'native.pdf', page_number: 1,
+      page_count: 1, page_scoped: true, preview_url: '/native-preview',
+      text: 'Native PDF text stored as prepared content', source: 'prepared', truncated: false,
+    };
+    getSearchPreparationTextSamples.mockResolvedValue({
+      batch_id: 'prep-1', samples: [sample, { ...sample, row_id: 43, filename: 'scanned.pdf', text: 'Other document OCR text' }],
+    });
+    const replacement = deferred<SearchPreparationBatch>();
+    createSearchPreparation.mockReturnValue(replacement.promise);
+    render(<SearchPreparationReceipt projectId="project-1" batchId="prep-1" onDone={vi.fn()} onError={vi.fn()} />);
+
+    await screen.findByText(sample.text);
+    expect(screen.getByText('Does this text look right?')).not.toBeNull();
+    expect(screen.getByText('Extracted text')).not.toBeNull();
+    expect(screen.queryByText('Check the OCR text')).toBeNull();
+    expect(screen.getByTestId('search-preparation-keep-text')).not.toBeNull();
+    fireEvent.click(screen.getByTestId('search-preparation-force-ocr'));
+    expect(createSearchPreparation).toHaveBeenCalledWith('project-1', {
+      sheet_id: 7, row_ids: [42], force_ocr: true,
+    });
+    expect((screen.getByTestId('search-preparation-force-ocr') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId('search-preparation-keep-text') as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => { replacement.resolve({ ...consentBatch, id: 'prep-replace-native' }); });
+  });
+
   it('does not overlap a slow automatic text sample read', async () => {
     vi.useFakeTimers();
     const slowSample = deferred<Awaited<ReturnType<typeof getSearchPreparationTextSamples>>>();

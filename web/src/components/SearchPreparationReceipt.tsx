@@ -210,7 +210,6 @@ function TextReview({
   };
   const hasText = Boolean(sample?.text.trim());
   const ocrGroup = batch.groups.find((group) => group.kind === 'ocr' && group.count > 0);
-  const reviewingOcr = Boolean(ocrGroup && sample?.source === 'prepared');
   const waitingForOcrChoice = Boolean(ocrGroup && !hasText && batch.status === 'needs_consent');
 
   return (
@@ -221,7 +220,7 @@ function TextReview({
             <div>
               <strong>{waitingForOcrChoice
                 ? 'No embedded text found'
-                : reviewingOcr ? 'Check the OCR text' : 'Does this text look right?'}</strong>
+                : 'Does this text look right?'}</strong>
               <span>{sample?.filename ?? 'Imported PDF'}</span>
             </div>
           </header>
@@ -256,7 +255,7 @@ function TextReview({
                 page={sample.page_number}
                 thumbnailUrl={sample.preview_url}
                 text={sample.text}
-                heading={reviewingOcr ? 'OCR text' : 'Extracted text'}
+                heading="Extracted text"
                 emptyCopy={waitingForOcrChoice
                   ? 'This page needs OCR before Frisket can read it.'
                   : 'No extracted text is available on this page.'}
@@ -266,11 +265,9 @@ function TextReview({
               <p className="form-hint">
                 {waitingForOcrChoice
                   ? 'Review the page image, then choose below whether to extract its text with OCR.'
-                  : reviewingOcr
-                    ? 'This is the OCR text Frisket will use for search. Your PDF stays unchanged.'
-                    : 'OCR replaces the text Frisket uses for search. Your PDF stays unchanged.'}
+                  : 'OCR replaces the text Frisket uses for search. Your PDF stays unchanged.'}
               </p>
-              {hasText && !reviewingOcr ? (
+              {hasText ? (
                 <div className="search-preparation-actions">
                   <button
                     type="button"
@@ -285,6 +282,7 @@ function TextReview({
                     type="button"
                     className="btn btn-primary"
                     data-testid="search-preparation-keep-text"
+                    disabled={forcing}
                     onClick={() => setDismissed(true)}
                   >
                     Yes, keep it
