@@ -104,6 +104,40 @@ function snapshot(overrides: Partial<SearchPreparationSnapshot> = {}): SearchPre
 }
 
 describe('search preparation notice projection', () => {
+  it('preserves the failed activity identity through retry, warned completion, expiry and later polls', async () => {
+    vi.useFakeTimers();
+    const list = vi.spyOn(preparationApi, 'listSearchPreparations').mockResolvedValue({
+      batches: [batch()], indexing: { status: 'idle', job_id: null, error: null },
+    });
+    vi.spyOn(openApi, 'listModelPulls').mockResolvedValue({
+      schemaVersion: 'frisket.model_pull_list.v1', pulls: [],
+    });
+    const { result } = renderHook(() => useSearchPreparationNotice('project-1', false));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    list.mockResolvedValue({
+      batches: [batch({ status: 'failed', groups: [{ kind: 'ocr', count: 1, status: 'failed' }],
+        errors: ['Model setup failed.'] })], indexing: { status: 'idle', job_id: null, error: null },
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(result.current?.activityKey).toBe('preparation:prep-1:failed');
+    list.mockResolvedValue({
+      batches: [batch()], indexing: { status: 'running', job_id: 781, error: null },
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(result.current?.stage).toBe('prepare');
+    list.mockResolvedValue({
+      batches: [batch({ status: 'complete', jobs: [],
+        groups: [{ kind: 'ocr', count: 1, status: 'complete' }],
+        warnings: ['Page 2 failed during OCR.'] })],
+      indexing: { status: 'idle', job_id: null, error: null },
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(result.current).toMatchObject({ tone: 'warning', activityKey: 'preparation:prep-1:failed' });
+    await act(async () => { await vi.advanceTimersByTimeAsync(12_000); });
+    expect(result.current).toMatchObject({ tone: 'warning', activityKey: 'preparation:prep-1:failed',
+      reviewBatchId: 'prep-1', detail: 'Page 2 failed during OCR.' });
+  });
+
   it('retains page warnings when the polled preparation becomes complete and after reconnecting', async () => {
     vi.useFakeTimers();
     const list = vi.spyOn(preparationApi, 'listSearchPreparations').mockResolvedValue({

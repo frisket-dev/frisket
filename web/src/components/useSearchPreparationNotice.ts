@@ -557,6 +557,7 @@ export function useSearchPreparationNotice(projectId: string, team: boolean): Se
           && currentSnapshot.snapshot.indexing.status === 'idle'
           && !currentSnapshot.snapshot.batches.some((batch) => (
             batch.status === 'failed' || ACTIVE_BATCH_STATUSES.has(batch.status)
+            || (batch.status === 'complete' && (batch.warnings?.length ?? 0) > 0)
           ))
         ) {
           activityIdentityRef.current = null;
