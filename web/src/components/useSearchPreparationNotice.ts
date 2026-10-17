@@ -192,7 +192,7 @@ function deriveSearchPreparationStageNotice(
   }
   if (failedBatch) {
     const unavailableModels = failedBatch.models.filter((model) => (
-      model.required && !model.ready && !model.can_setup
+      model.required && !model.ready && !model.runtime_ready && !model.can_setup
     ));
     const remedies = unavailableModels.map((model) => (
       `${model.display_name}: ${model.remediation || 'Install its local runtime, then prepare these files again.'}`

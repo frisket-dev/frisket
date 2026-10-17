@@ -355,7 +355,12 @@ export function usePaletteSearch(
   const [setupOperation, setSetupOperation] = useState<PaletteSearchSetupOperation | null>(null);
   const advertisedSetup = coverage?.channels.find((channel) => channel.setup)?.setup ?? null;
   const setupGeneration = useRef(0);
-  useEffect(() => () => { setupGeneration.current += 1; }, [projectId]);
+  useEffect(() => () => {
+    setupGeneration.current += 1;
+    setSetupBusy(false);
+    setSetupError(null);
+    setSetupOperation(null);
+  }, [projectId]);
 
   usePoll(async () => {
     if (!advertisedSetup) return 'stop' as const;

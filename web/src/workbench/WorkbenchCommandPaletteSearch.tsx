@@ -435,7 +435,7 @@ export function PaletteSearchSection({
                 {setupBusy ? 'Starting…' : 'Retry setup'}
               </button>
             </>
-          ) : <span>Semantic setup is running. Progress is available in workspace activity.</span>}
+          ) : <span>Semantic search setup is running.</span>}
         </section>
       )}
       {blockingSetupOperation && (
