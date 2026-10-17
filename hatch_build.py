@@ -1,4 +1,4 @@
-"""Hatch hook that compiles and packages SQLite Vec1 for the build host."""
+"""Build SQLite Vec1 for editable source installs and platform wheels."""
 
 from __future__ import annotations
 
@@ -56,12 +56,26 @@ def _wheel_platform_tag() -> str:
 
 
 class CustomBuildHook(BuildHookInterface):
-    """Build the pinned extension and force it into a platform wheel."""
+    """Build the pinned extension beside editable source or into a wheel."""
 
     _temporary: tempfile.TemporaryDirectory[str] | None = None
 
     def initialize(self, version: str, build_data: dict[str, Any]) -> None:
-        if self.target_name != "wheel" or version != "standard":
+        if self.target_name != "wheel":
+            return
+        if version == "editable":
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(Path(self.root) / "scripts" / "build_vec1.py"),
+                    "--output-root",
+                    str(Path(self.root) / "src" / "frisket" / "retrieval" / "_native"),
+                ],
+                cwd=self.root,
+                check=True,
+            )
+            return
+        if version != "standard":
             return
 
         output_directory = Path(self.directory)

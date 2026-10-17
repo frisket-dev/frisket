@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import math
 import platform
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -35,24 +36,12 @@ VENDORED_SOURCE = {
 
 @pytest.fixture(scope="session")
 def built_native_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    try:
-        native.packaged_vec1_path()
-    except native.Vec1Unavailable:
-        pass
-    else:
-        return native._NATIVE_ROOT
-    output = tmp_path_factory.mktemp("vec1-native")
-    subprocess.run(
-        [
-            sys.executable,  # subprocess-boundary: build the actual SQLite extension for integration
-            str(ROOT / "scripts" / "build_vec1.py"),
-            "--output-root",
-            str(output),
-        ],
-        cwd=ROOT,
-        check=True,
-    )
-    return output
+    source_root = _native_build_source(tmp_path_factory.mktemp("vec1-source"))
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        hook = _editable_hook(monkeypatch, source_root)
+        hook.initialize("editable", {})
+        hook.finalize("editable", {}, "unused.whl")
+    return source_root / "src" / "frisket" / "retrieval" / "_native"
 
 
 @pytest.fixture
@@ -69,7 +58,7 @@ def test_vendored_source_matches_reviewed_sqlite_release() -> None:
         assert hashlib.sha256(source.read_bytes()).hexdigest() == digest
 
 
-def _load_wheel_platform_tag(monkeypatch: pytest.MonkeyPatch):
+def _load_build_hook(monkeypatch: pytest.MonkeyPatch):
     interface = ModuleType("hatchling.builders.hooks.plugin.interface")
     interface.BuildHookInterface = type("BuildHookInterface", (), {})
     for name in (
@@ -80,7 +69,61 @@ def _load_wheel_platform_tag(monkeypatch: pytest.MonkeyPatch):
     ):
         monkeypatch.setitem(sys.modules, name, ModuleType(name))
     monkeypatch.setitem(sys.modules, interface.__name__, interface)
-    return run_path(str(ROOT / "hatch_build.py"))["_wheel_platform_tag"]
+    return run_path(str(ROOT / "hatch_build.py"))
+
+
+def _load_wheel_platform_tag(monkeypatch: pytest.MonkeyPatch):
+    return _load_build_hook(monkeypatch)["_wheel_platform_tag"]
+
+
+def _native_build_source(source_root: Path) -> Path:
+    (source_root / "scripts").mkdir()
+    shutil.copy2(ROOT / "scripts" / "build_vec1.py", source_root / "scripts")
+    shutil.copytree(
+        ROOT / "vendor" / "sqlite-vec1", source_root / "vendor" / "sqlite-vec1"
+    )
+    return source_root
+
+
+def _editable_hook(monkeypatch: pytest.MonkeyPatch, source_root: Path):
+    hook = _load_build_hook(monkeypatch)["CustomBuildHook"]()
+    hook.target_name = "wheel"
+    hook.root = str(source_root)
+    hook.directory = str(source_root / "dist")
+    return hook
+
+
+def test_editable_build_keeps_loadable_runtime_beside_source_after_finalize(
+    packaged_native: Path,
+) -> None:
+    assert packaged_native.parents[1].parts[-4:] == (
+        "src",
+        "frisket",
+        "retrieval",
+        "_native",
+    )
+    with sqlite3.connect(":memory:") as connection:
+        assert native.load_vec1(connection).startswith("version 0.8 ")
+        assert connection.execute(
+            "SELECT vec1_cos_distance(?, ?)",
+            (native.pack_vector([1.0, 0.0], dimensions=2),) * 2,
+        ).fetchone()[0] == pytest.approx(0.0)
+
+
+def test_editable_build_refuses_missing_compiler(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capfd: pytest.CaptureFixture[str]
+) -> None:
+    source_root = _native_build_source(tmp_path)
+    hook = _editable_hook(monkeypatch, source_root)
+    monkeypatch.setenv("CC", str(tmp_path / "no-such-compiler"))
+
+    with pytest.raises(subprocess.CalledProcessError):
+        hook.initialize("editable", {})
+
+    assert "native compiler not found" in capfd.readouterr().err
+    assert not list(source_root.rglob("vec1.so"))
+    assert not list(source_root.rglob("vec1.dylib"))
+    assert not list(source_root.rglob("vec1.dll"))
 
 
 def test_wheel_platform_defaults_to_generic_host_tag(

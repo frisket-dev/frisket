@@ -6,6 +6,28 @@ single-user product and single-organization team server. It applies to the
 public repository and to any change intended for the public artifacts (the
 `frisket` wheel/sdist, the team image, and the local/team web bundles).
 
+## Source checkout prerequisites
+
+Editable installs (`uv sync`) compile the bundled SQLite Vec1 runtime used by
+semantic search. Install a C compiler before syncing: Xcode Command Line Tools
+on Apple Silicon macOS 14+, a C compiler such as GCC on Linux x86_64/aarch64, or
+Visual Studio Build Tools with C++ support on Windows x86_64. On Windows, run
+the sync from an MSVC developer prompt so `cl` is available. Source builds need
+these tools even when working only on docs or the frontend; platform wheels
+already include the native library.
+
+For an existing editable installation cached before this build step was added,
+build the library once from the same checkout and Python environment used to
+run Frisket:
+
+```sh
+uv run --no-sync python scripts/build_vec1.py
+```
+
+Restart Frisket afterwards. Compilation does not fix a Python SQLite runtime
+that disables loadable extensions; `frisket doctor embeddings` checks native
+readiness separately from model availability.
+
 ## What is open to contribution
 
 Contributions are welcome across the project store, runner, actions,
@@ -240,9 +262,9 @@ read historical values by ID, without substituting a same-name successor.
 - Run focused checks for routine changes. The Python suite excludes `gap`,
   `network`, and `plugin_contract` tests by default; web unit tests run with
   `npm run test:unit --prefix web`.
-- Before running Python tests that exercise semantic retrieval from a source
-  checkout, build the vendored Vec1 runtime once with
-  `uv run --no-sync python scripts/build_vec1.py`.
+- Editable installs build the vendored Vec1 runtime for semantic retrieval.
+  For a cached installation missing it, use the source-checkout repair above
+  before running semantic retrieval tests.
 - Keyless `gap` probes must be green when relevant:
   `uv run --no-sync pytest -q -n auto --dist loadfile -m "gap and not gap_env" tests/`. Run `gap_env`
   only in the prepared environment it names.
