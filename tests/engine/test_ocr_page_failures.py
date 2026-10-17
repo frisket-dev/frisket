@@ -16,8 +16,9 @@ from frisket.ops import ocr_engines, ocr_engines_local
 from frisket.ops.base import RecipeInvocationHalt
 
 
-def test_renderer_storage_failure_crosses_worker_envelope(
-    tmp_path, monkeypatch, capsys
+@pytest.mark.parametrize("failure", ["storage", "kernel_memory", "document_memory"])
+def test_renderer_environment_failure_crosses_worker_envelope(
+    tmp_path, monkeypatch, capsys, failure
 ):
     closed = []
 
@@ -29,10 +30,18 @@ def test_renderer_storage_failure_crosses_worker_envelope(
             closed.append(True)
 
     def render(*args, **kwargs):
-        raise OSError(errno.ENOSPC, "private document path")
+        raise OSError(
+            errno.ENOMEM if failure == "kernel_memory" else errno.ENOSPC,
+            "private document path",
+        )
+
+    def open_document(path):
+        if failure == "document_memory":
+            raise MemoryError("private document allocation")
+        return Document()
 
     monkeypatch.setitem(
-        sys.modules, "pypdfium2", SimpleNamespace(PdfDocument=lambda path: Document())
+        sys.modules, "pypdfium2", SimpleNamespace(PdfDocument=open_document)
     )
     monkeypatch.setattr(pdf_render_worker, "render_page", render)
     monkeypatch.setattr(
@@ -54,7 +63,7 @@ def test_renderer_storage_failure_crosses_worker_envelope(
     pdf_render_worker.main()
     wire = capsys.readouterr().out
     assert json.loads(wire) == {"ok": False, "error": "environment_failed"}
-    assert closed == [True]
+    assert closed == ([] if failure == "document_memory" else [True])
 
     async def launch(*args, **kwargs):
         return SandboxResult(returncode=0, stdout=wire, stderr="")

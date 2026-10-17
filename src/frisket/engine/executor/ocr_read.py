@@ -17,7 +17,10 @@ from frisket.execution.resolver import preview_resolution_in_scope
 from frisket.ai.models.metadata import model_calls_cost_actual
 from frisket.ops import ocr_engines as engines
 from frisket.engine.executor.blob_outputs import RowBlobOutput, RowBlobPlan
-from frisket.engine._workers.pdf_render_worker import is_environment_failure
+from frisket.engine._workers.pdf_render_worker import (
+    POST_SUCCESS_FAILURE_LIMIT,
+    is_environment_failure,
+)
 from frisket.engine.pdf_render import (
     PdfRenderCancelled,
     PdfRenderEnvironmentError,
@@ -67,9 +70,12 @@ def _page_coordinate_frame(page: dict, *, required: bool) -> dict[str, int]:
 
 
 def _page_warnings(pages, *, first_page):
-    failures, warnings = 0, []
+    failures, skipped, warnings = 0, 0, []
     for number, page in enumerate(pages, first_page):
         if error := page.get("error"):
+            if error.get("code") == "ocr_page_skipped":
+                skipped += 1
+                continue
             failures += 1
             if len(warnings) < 19:
                 warnings.append(f"Page {number} failed during {error['stage']}.")
@@ -77,7 +83,14 @@ def _page_warnings(pages, *, first_page):
         raise RowError(
             "ocr_pages_failed", f"OCR failed for all {len(pages)} pages. {warnings[0]}"
         )
-    if failures > len(warnings):
+    if skipped:
+        stopped_at = first_page + len(pages) - skipped - 1
+        warnings.append(
+            f"OCR stopped after {POST_SUCCESS_FAILURE_LIMIT} consecutive page failures "
+            f"at page {stopped_at}; {failures} pages failed; "
+            f"{skipped} later pages were not attempted."
+        )
+    elif failures > len(warnings):
         warnings.append(
             f"{failures} pages failed; {failures - len(warnings)} "
             "additional page warnings omitted."
@@ -557,7 +570,9 @@ class _BoundOcrReader:
                     "source_height": positions["height"],
                 }
         usage["input_pages"] = sum(
-            page.get("error", {}).get("stage") != "rendering" for page in pages
+            page.get("error", {}).get("stage") != "rendering"
+            and page.get("error", {}).get("code") != "ocr_page_skipped"
+            for page in pages
         )
         return pages, images, _page_warnings(pages, first_page=first_page)
 
@@ -576,6 +591,7 @@ class _BoundOcrReader:
     ):
         owner, options = self._owner, self._owner._options
         pages, images = [], {}
+        has_success = False
         consecutive_failures = 0
         usage["input_pages"] = 0
         owner._check_open()
@@ -619,6 +635,7 @@ class _BoundOcrReader:
                     if len(output) != 1:
                         raise RuntimeError("OCR returned the wrong page count")
                     pages.append(output[0])
+                    has_success = True
                     consecutive_failures = 0
                 except (
                     engines.OcrCancelled,
@@ -639,7 +656,7 @@ class _BoundOcrReader:
                             "The local OCR environment failed; repair local storage or runtime before resuming.",
                         ) from exc
                     consecutive_failures += 1
-                    if consecutive_failures >= 5:
+                    if not has_success and consecutive_failures >= 5:
                         raise RowError(
                             "ocr_pages_failed",
                             f"OCR stopped after 5 consecutive page failures during {stage} (page {physical_page}).",
@@ -653,6 +670,19 @@ class _BoundOcrReader:
                     )
             owner._check_open()
             self._report_page_progress(number, page_count)
+            if has_success and consecutive_failures >= POST_SUCCESS_FAILURE_LIMIT:
+                pages.extend(
+                    {
+                        "text": "",
+                        "blocks": [],
+                        "error": {
+                            "code": "ocr_page_skipped",
+                            "stage": "not attempted after OCR stopped",
+                        },
+                    }
+                    for _ in range(number, page_count)
+                )
+                break
         return pages, images, _page_warnings(pages, first_page=first_page)
 
     def _page_images(self, source, original, paths, scratch, *, first_page=1):

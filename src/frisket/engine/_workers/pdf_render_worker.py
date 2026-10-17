@@ -13,6 +13,8 @@ from pathlib import Path
 import sys
 from typing import Any
 
+POST_SUCCESS_FAILURE_LIMIT = 50
+
 
 def is_environment_failure(error: BaseException) -> bool:
     """Keep disk/resource failures distinct from one unreadable page."""
@@ -145,13 +147,19 @@ def main() -> None:
             return
         rendered: list[int] = []
         for number in pages:
-            render_page(
-                document,
-                number,
-                output / f"page-{number}.png",
-                dpi=dpi,
-                max_edge=max_edge,
-            )
+            try:
+                render_page(
+                    document,
+                    number,
+                    output / f"page-{number}.png",
+                    dpi=dpi,
+                    max_edge=max_edge,
+                )
+            except MemoryError:
+                # This child's raster allocation belongs to one physical page;
+                # the next bounded child can still render a smaller page.
+                _reply({"ok": False, "error": "render_failed"})
+                return
             rendered.append(number)
         _reply({"ok": True, "page_count": page_count, "pages": rendered})
     except Exception as exc:

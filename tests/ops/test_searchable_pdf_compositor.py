@@ -320,11 +320,12 @@ def test_raster_dimensions_must_match_ocr_pages():
         compose_searchable_pdf(src, [[]], dpi=DPI, raster_dimensions=[])
 
 
-def test_failed_page_without_raster_keeps_other_physical_page_text():
+@pytest.mark.parametrize("error_code", ["ocr_page_failed", "ocr_page_skipped"])
+def test_failed_page_without_raster_keeps_other_physical_page_text(error_code):
     src = _blank_source([(PAGE_W_PT, PAGE_H_PT, 0)] * 3)
     pages = [
         {"text": "First", "blocks": [_line_block("First", 100, 100, 700, 160)]},
-        {"text": "", "blocks": [], "error": {"code": "ocr_page_failed"}},
+        {"text": "", "blocks": [], "error": {"code": error_code}},
         {"text": "Third", "blocks": [_line_block("Third", 100, 100, 700, 160)]},
     ]
     pdf, results = compose_searchable_pdf(

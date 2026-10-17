@@ -9,7 +9,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from typing import Any
 
-from .pdf_render_worker import is_environment_failure
+from .pdf_render_worker import POST_SUCCESS_FAILURE_LIMIT, is_environment_failure
 from frisket.engine.sandbox.fence import SandboxEnforcementUnavailable
 from frisket.engine.sandbox.shim import SandboxTeardownError
 
@@ -166,6 +166,7 @@ def _pdf_pages(converter, payload, report):
 
     document = pdfium.PdfDocument(payload["pdf"])
     pages = []
+    has_success = False
     consecutive_failures = 0
     raster = Path(payload["out"]).parent / "indra-page.png"
     try:
@@ -183,14 +184,16 @@ def _pdf_pages(converter, payload, report):
                 frame = {"width": width, "height": height}
                 stage = "recognition"
                 page = _recognize_page(converter, raster, width=width, height=height)
+                has_success = True
                 consecutive_failures = 0
             except (SandboxTeardownError, SandboxEnforcementUnavailable):
                 raise
             except Exception as exc:  # noqa: BLE001 - native page errors have varied types
-                if is_environment_failure(exc):
+                raster_memory = stage == "rendering" and isinstance(exc, MemoryError)
+                if is_environment_failure(exc) and not raster_memory:
                     raise
                 consecutive_failures += 1
-                if consecutive_failures >= 5:
+                if not has_success and consecutive_failures >= 5:
                     raise RuntimeError(
                         "Indra OCR stopped after 5 consecutive page failures"
                     ) from None
@@ -203,6 +206,19 @@ def _pdf_pages(converter, payload, report):
                 raster.unlink(missing_ok=True)
             pages.append({**page, **frame})
             report(number, total)
+            if has_success and consecutive_failures >= POST_SUCCESS_FAILURE_LIMIT:
+                pages.extend(
+                    {
+                        "text": "",
+                        "blocks": [],
+                        "error": {
+                            "code": "ocr_page_skipped",
+                            "stage": "not attempted after OCR stopped",
+                        },
+                    }
+                    for _ in range(number, total)
+                )
+                break
     finally:
         document.close()
         raster.unlink(missing_ok=True)

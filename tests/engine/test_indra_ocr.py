@@ -47,6 +47,10 @@ def test_indra_pdf_worker_loads_once_and_releases_each_page(
         rendered.append(number)
         if number == 2:
             raise RuntimeError("private renderer failure")
+        if number == 6:
+            raise MemoryError("private raster allocation")
+        if 10 <= number <= 14 or number >= 401:
+            raise RuntimeError("private damaged page")
         return (100, 200)
 
     class Converter:
@@ -110,15 +114,21 @@ def test_indra_pdf_worker_loads_once_and_releases_each_page(
     indra_ocr_worker.main()
     pages = json.loads(output.read_text())["pages"]
     assert len(loaded) == len(closed) == 1
-    assert rendered == list(range(1, 501))
-    assert len(pages) == 500 and pages[-1]["text"] == "Page 500"
+    assert rendered == list(range(1, 451))
+    assert len(pages) == 500 and pages[399]["text"] == "Page 400"
+    assert all(page["error"]["code"] == "ocr_page_skipped" for page in pages[450:])
     assert pages[1]["error"]["stage"] == "rendering"
     assert pages[3]["error"]["stage"] == "recognition"
+    assert pages[5]["error"]["stage"] == "rendering"
+    assert all(
+        pages[number - 1]["error"]["stage"] == "rendering" for number in range(10, 15)
+    )
+    assert pages[8]["text"] == "Page 9" and pages[14]["text"] == "Page 15"
     assert pages[2]["text"] == "" and "error" not in pages[2]
-    assert pages[-1]["width"] == 100 and pages[-1]["height"] == 200
+    assert pages[399]["width"] == 100 and pages[399]["height"] == 200
     assert not list(tmp_path.glob("*.png"))
     progress = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
-    assert [event["completed"] for event in progress] == list(range(1, 501))
+    assert [event["completed"] for event in progress] == list(range(1, 451))
     assert all(event["total"] == 500 for event in progress)
 
 
@@ -139,7 +149,7 @@ def test_indra_pdf_stops_fatal_or_repeated_failures_and_releases_raster(
             closed.append(True)
 
     def fail(number):
-        if number == 1:
+        if number == 1 and failure != "persistent":
             return
         if failure == "storage":
             raise OSError(errno.ENOSPC, "private storage path")
@@ -177,7 +187,7 @@ def test_indra_pdf_stops_fatal_or_repeated_failures_and_releases_raster(
             {"pdf": "fixture.pdf", "out": str(tmp_path / "result.json"), "dpi": 200},
             lambda *args: None,
         )
-    assert observed == list(range(1, 7 if failure == "persistent" else 3))
+    assert observed == list(range(1, 6 if failure == "persistent" else 3))
     assert closed == [True] and not list(tmp_path.glob("*.png"))
 
 
@@ -188,6 +198,8 @@ def test_indra_pdf_stops_fatal_or_repeated_failures_and_releases_raster(
         (True, "result_write"),
         (True, "teardown"),
         (False, "result_write"),
+        (True, "model_memory"),
+        (True, "recognition_memory"),
     ],
 )
 def test_indra_fatal_failure_crosses_main_and_host_without_writable_result(
@@ -210,6 +222,8 @@ def test_indra_fatal_failure_crosses_main_and_host_without_writable_result(
 
     def load(**kwargs):
         loaded.append(True)
+        if failure_stage == "model_memory":
+            raise MemoryError("private model allocation")
         return object()
 
     class Document:
@@ -231,6 +245,11 @@ def test_indra_fatal_failure_crosses_main_and_host_without_writable_result(
     def write(*args, **kwargs):
         raise OSError(errno.ENOSPC, "private result path")
 
+    def recognize(*args, **kwargs):
+        if failure_stage == "recognition_memory" and rendered[-1] == 2:
+            raise MemoryError("private model allocation")
+        return {"text": "", "blocks": []}
+
     monkeypatch.setitem(sys.modules, "indra_ocr", SimpleNamespace(load=load))
     monkeypatch.setitem(
         sys.modules,
@@ -246,7 +265,7 @@ def test_indra_fatal_failure_crosses_main_and_host_without_writable_result(
     monkeypatch.setattr(
         indra_ocr_worker,
         "_recognize_page",
-        lambda *args, **kwargs: {"text": "", "blocks": []},
+        recognize,
     )
     if failure_stage == "result_write":
         monkeypatch.setattr(indra_ocr_worker, "_write", write)
@@ -285,7 +304,9 @@ def test_indra_fatal_failure_crosses_main_and_host_without_writable_result(
     assert signals[-1] == {"error": "environment_failed"}
     assert not (tmp_path / "indra-ocr-result.json").exists()
     assert not list(tmp_path.glob("*.png"))
-    if pdf_mode:
+    if failure_stage == "model_memory":
+        assert not rendered and not closed
+    elif pdf_mode:
         assert rendered == [1, 2] and closed == [True]
 
 
