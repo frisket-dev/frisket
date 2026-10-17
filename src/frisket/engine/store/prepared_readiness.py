@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+_SQL_WHITESPACE = "char(9,10,11,12,13,32)"
+
 
 def prepared_source_readiness_ctes(*, scope_relation: str, schema: str = "") -> str:
     """Return CTEs mapping visible prepared outputs to their exact source cells.
@@ -51,7 +53,7 @@ def prepared_source_readiness_ctes(*, scope_relation: str, schema: str = "") -> 
            OR role.source_column_id=artifact.source_column_id
       )
         AND live.value_kind='text'
-        AND length(trim(live.value))>0
+        AND length(trim(live.value,{_SQL_WHITESPACE}))>0
     ), legacy_prepared_sources AS MATERIALIZED (
       SELECT prepared_ref_id,page_number,artifact_id,blob_hash,page_count,
              output_column_id,source_sheet_id,source_row_id,source_column_id
@@ -107,13 +109,13 @@ def prepared_source_readiness_ctes(*, scope_relation: str, schema: str = "") -> 
             WHERE member.set_id=selected.set_id
               AND (selected.ref_page_number IS NULL
                    OR member.page_number=selected.ref_page_number)
-              AND length(trim(page.prepared_text))>0
+              AND length(trim(page.prepared_text,{_SQL_WHITESPACE}))>0
           ))
           OR (selected.prepared_ref_id IS NULL AND EXISTS (
             SELECT 1 FROM {prefix}current_cell_values text
             WHERE text.row_id=selected.row_id
               AND text.column_id=selected.text_column_id
-              AND length(trim(text.value))>0
+              AND length(trim(text.value,{_SQL_WHITESPACE}))>0
           ))
         )
     )"""

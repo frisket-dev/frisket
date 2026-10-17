@@ -374,13 +374,16 @@ def test_queued_file_find_publishes_designated_text_with_exact_page_citation(tmp
 
 
 @pytest.mark.parametrize("manual", [False, True])
-def test_blank_designated_text_is_valid_but_not_preparation_ready(tmp_path, manual):
+@pytest.mark.parametrize("blank", ["", " \n\t\r "])
+def test_blank_designated_text_is_valid_but_not_preparation_ready(
+    tmp_path, manual, blank
+):
     with closing(Project.create(tmp_path / "blank-text.frisket")) as project:
         cell, text, _other, blob, _chosen, _alternative = _document(project)
-        _text_output(project, cell, text, blob, ["", ""])
+        _text_output(project, cell, text, blob, [blank, blank])
         if manual:
             project.apply_edits(
-                [{"row_id": cell[1], "column_id": text, "value": "   "}]
+                [{"row_id": cell[1], "column_id": text, "value": blank}]
             )
         target, _source, selected = read_source_with_prepared(project, cell)
         assert target == (cell[0], cell[1], text)
