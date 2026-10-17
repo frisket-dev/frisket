@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from frisket.engine.store.import_sessions import require_import_sheet_write
+from frisket.engine.store.result_generations import ResultGenerationStore
 
 
 class SheetDeleteNotFound(LookupError):
@@ -144,27 +145,7 @@ def delete_sheet(project: Any, sheet_id: int) -> dict[str, Any]:
             "SELECT op_id FROM runs WHERE sheet_id=?)",
             (sheet_id,),
         )
-        # Current heads restrict generation/result deletion. Remove this
-        # rebuildable projection first, including already discarded dependent
-        # generations whose base run is on the deleted sheet.
-        project.db.execute(
-            "DELETE FROM cell_result_heads WHERE (run_id,column_id) IN ("
-            "SELECT generation.run_id,generation.column_id "
-            "FROM run_output_generations generation "
-            "JOIN runs owner ON owner.id=generation.run_id "
-            "LEFT JOIN runs base ON base.id=generation.expected_base_run_id "
-            "WHERE owner.sheet_id=? OR base.sheet_id=?)",
-            (sheet_id, sheet_id),
-        )
-        # Generation rows restrict both their owning and base runs.
-        project.db.execute(
-            "DELETE FROM run_output_generations WHERE run_id IN ("
-            "SELECT id FROM runs WHERE sheet_id=?"
-            ") OR expected_base_run_id IN ("
-            "SELECT id FROM runs WHERE sheet_id=?"
-            ")",
-            (sheet_id, sheet_id),
-        )
+        ResultGenerationStore(project).delete_for_sheet_removal(sheet_id)
         project.db.execute("DELETE FROM runs WHERE sheet_id=?", (sheet_id,))
 
         project.db.execute("DELETE FROM sheets WHERE id=?", (sheet_id,))

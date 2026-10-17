@@ -221,6 +221,39 @@ class ResultGenerationStore:
             is not None
         )
 
+    def delete_for_sheet_removal(self, sheet_id: int) -> None:
+        """Remove doomed heads and declarations inside physical sheet deletion.
+
+        The caller discards owning operations first and removes runs and the
+        sheet afterward, all in the same transaction. Existing schema guards
+        still refuse deletion of any generation owned by a live operation.
+        """
+        if not self.db.in_transaction:
+            raise RuntimeError(
+                "generation removal requires the sheet deletion transaction"
+            )
+
+        # Current heads restrict generation/result deletion, including already
+        # discarded dependent generations whose base run is on this sheet.
+        self.db.execute(
+            "DELETE FROM cell_result_heads WHERE (run_id,column_id) IN ("
+            "SELECT generation.run_id,generation.column_id "
+            "FROM run_output_generations generation "
+            "JOIN runs owner ON owner.id=generation.run_id "
+            "LEFT JOIN runs base ON base.id=generation.expected_base_run_id "
+            "WHERE owner.sheet_id=? OR base.sheet_id=?)",
+            (sheet_id, sheet_id),
+        )
+        # Generation rows restrict both their owning and base runs.
+        self.db.execute(
+            "DELETE FROM run_output_generations WHERE run_id IN ("
+            "SELECT id FROM runs WHERE sheet_id=?"
+            ") OR expected_base_run_id IN ("
+            "SELECT id FROM runs WHERE sheet_id=?"
+            ")",
+            (sheet_id, sheet_id),
+        )
+
     def latest_applied_run_id(self, column_id: int) -> int | None:
         """Newest applied generation for presentation-family metadata.
 
