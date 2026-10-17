@@ -387,6 +387,7 @@ describe('SearchPreparationReceipt', () => {
   it('prepares without download wording when every required model is ready', async () => {
     const readyBatch = {
       ...consentBatch,
+      can_setup: false,
       models: consentBatch.models.map((model) => ({ ...model, ready: true, can_setup: false })),
     } satisfies SearchPreparationBatch;
     getSearchPreparation.mockResolvedValue(readyBatch);
@@ -401,9 +402,59 @@ describe('SearchPreparationReceipt', () => {
       />,
     );
 
-    expect(await screen.findByText('Prepare files?')).not.toBeNull();
+    expect(await screen.findByText('Extract text with OCR?')).not.toBeNull();
     expect(screen.queryByText('Download local models?')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Prepare files' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Extract text with OCR' }));
+    await waitFor(() => expect(decideSearchPreparation).toHaveBeenCalledWith(
+      'project-1',
+      'prep-1',
+      { plan_hash: 'sha256:plan', decision: 'prepare', selected_setup_refs: [] },
+    ));
+  });
+
+  it('shows a scanned PDF before OCR and keeps the explicit extraction decision enabled when OCR is installed', async () => {
+    const readyBatch = {
+      ...consentBatch,
+      can_setup: false,
+      groups: [{ kind: 'ocr', count: 1, status: 'needs_consent' as const }],
+      models: consentBatch.models.map((model) => ({ ...model, ready: true, can_setup: false })),
+    } satisfies SearchPreparationBatch;
+    getSearchPreparation.mockResolvedValue(readyBatch);
+    getSearchPreparationTextSamples.mockResolvedValue({
+      schemaVersion: 'frisket.search_preparation_text_samples.v1',
+      batch_id: 'prep-1',
+      samples: [{
+        row_id: 42,
+        column_id: 5,
+        filename: 'scan.pdf',
+        page_number: 1,
+        page_count: 3,
+        page_scoped: false,
+        preview_url: '/api/projects/project-1/blobs/hash/pages/1/image',
+        text: '',
+        source: 'native',
+        truncated: false,
+      }],
+    });
+    decideSearchPreparation.mockResolvedValue({ ...readyBatch, status: 'preparing' });
+
+    render(
+      <SearchPreparationReceipt
+        projectId="project-1"
+        batchId="prep-1"
+        onDone={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText('No embedded text found')).not.toBeNull();
+    expect(screen.getByAltText('Page 1').getAttribute('src')).toBe(
+      '/api/projects/project-1/blobs/hash/pages/1/image',
+    );
+    expect(screen.getByText('This page needs OCR before Frisket can read it.')).not.toBeNull();
+    const extract = screen.getByRole('button', { name: 'Extract text with OCR' });
+    expect((extract as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(extract);
     await waitFor(() => expect(decideSearchPreparation).toHaveBeenCalledWith(
       'project-1',
       'prep-1',

@@ -10,7 +10,10 @@ import { useNativePopover } from '../hooks/useNativePopover';
 import { useAnchoredPosition } from '../hooks/useAnchoredPosition';
 import type { WorkbenchProjectionStatus } from '../workbench/WorkbenchBottomDock';
 import { useEditionModule } from '../editions/module';
-import { useSearchPreparationNotice } from './useSearchPreparationNotice';
+import {
+  useSearchPreparationNotice,
+  type SearchPreparationNotice as SearchPreparationNoticeModel,
+} from './useSearchPreparationNotice';
 
 // A queued run whose worker never showed up must not spin forever: the
 // reconciler flags no_live_worker so we can show a fix-it warning instead.
@@ -116,6 +119,26 @@ export function StatusBar({
     open: false,
   });
   const runActive = run ? isActiveRunStatus(run.status) : false;
+  const activityKey = [
+    runActive ? `run:${run?.runId ?? ''}` : null,
+    searchPreparationNotice
+      ? `search:${searchPreparationNotice.stage}:${searchPreparationNotice.tone}`
+      : null,
+  ].filter(Boolean).join('|') || null;
+  const [noticeVisibility, setNoticeVisibility] = useState<{ key: string | null; open: boolean }>({
+    key: null,
+    open: true,
+  });
+  useEffect(() => {
+    if (activityKey === null && noticeVisibility.key !== null) {
+      setNoticeVisibility({ key: null, open: true });
+    }
+  }, [activityKey, noticeVisibility.key]);
+  const noticesOpen = activityKey !== null
+    && (noticeVisibility.key !== activityKey || noticeVisibility.open);
+  const setNoticesOpen = (open: boolean) => {
+    setNoticeVisibility({ key: activityKey, open });
+  };
   const watcherOpen = Boolean(run && !runActive && watcherState.runId === run.runId && watcherState.open);
   const watcherTriggerRef = useRef<HTMLButtonElement>(null);
   const setCurrentWatcherOpen = (open: boolean | ((current: boolean) => boolean)) => {
@@ -131,7 +154,7 @@ export function StatusBar({
 
   return (
     <>
-    {(run && runActive || searchPreparationNotice) && (
+    {(run && runActive || searchPreparationNotice) && noticesOpen && (
       <div className="status-notice-stack" data-testid="status-notice-stack">
         {run && runActive && (
           <section
@@ -141,6 +164,15 @@ export function StatusBar({
             aria-live="polite"
             aria-atomic="true"
           >
+            <button
+              type="button"
+              className="icon-btn status-notice-dismiss"
+              data-testid="active-run-dismiss"
+              aria-label="Dismiss activity notification"
+              onClick={() => setNoticesOpen(false)}
+            >
+              <X size={14} aria-hidden />
+            </button>
             <div className="active-run-main">
               {isNoLiveWorker(run) ? (
                 <AlertTriangle size={16} className="run-warning-icon" aria-hidden data-testid="run-no-worker-warning" />
@@ -167,6 +199,7 @@ export function StatusBar({
           <SearchPreparationNotice
             notice={searchPreparationNotice}
             onReviewApproval={chrome.openCommandPalette}
+            onDismiss={() => setNoticesOpen(false)}
           />
         )}
       </div>
@@ -178,16 +211,19 @@ export function StatusBar({
             <button
               type="button"
               ref={watcherTriggerRef}
-              className={`run-summary${watcherOpen ? ' run-summary-open' : ''}`}
+              className={`run-summary${runActive ? (noticesOpen ? ' run-summary-open' : '') : (watcherOpen ? ' run-summary-open' : '')}`}
               data-testid="run-watcher-toggle"
               data-run-status={run.status}
               data-run-completed-rows={run.completedRows}
               data-run-total-rows={run.totalRows}
               data-run-failed-rows={run.failedRows}
-              title={runActive ? 'Run status shown above' : 'Run details'}
-              aria-expanded={watcherOpen}
+              title={runActive
+                ? (noticesOpen ? 'Hide activity notifications' : 'Show activity notifications')
+                : 'Run details'}
+              aria-expanded={runActive ? noticesOpen : watcherOpen}
               onClick={() => {
-                if (!runActive) setCurrentWatcherOpen((o) => !o);
+                if (runActive) setNoticesOpen(!noticesOpen);
+                else setCurrentWatcherOpen((o) => !o);
               }}
             >
               {isActiveRunStatus(run.status) ? (
@@ -252,8 +288,21 @@ export function StatusBar({
               />
             )}
           </>
+        ) : searchPreparationNotice ? (
+          <SearchActivityToggle
+            notice={searchPreparationNotice}
+            open={noticesOpen}
+            onToggle={() => setNoticesOpen(!noticesOpen)}
+          />
         ) : (
           <span className="run-label muted">idle</span>
+        )}
+        {run && !runActive && searchPreparationNotice && (
+          <SearchActivityToggle
+            notice={searchPreparationNotice}
+            open={noticesOpen}
+            onToggle={() => setNoticesOpen(!noticesOpen)}
+          />
         )}
         {projectionStatus && <ProjectionChip status={projectionStatus} />}
       </div>
@@ -293,6 +342,37 @@ export function StatusBar({
       </div>
     </footer>
     </>
+  );
+}
+
+function SearchActivityToggle({
+  notice,
+  open,
+  onToggle,
+}: {
+  notice: SearchPreparationNoticeModel;
+  open: boolean;
+  onToggle(): void;
+}) {
+  return (
+    <button
+      type="button"
+      className={`run-summary${open ? ' run-summary-open' : ''}`}
+      data-testid="search-activity-toggle"
+      aria-expanded={open}
+      title={open ? 'Hide activity notifications' : 'Show activity notifications'}
+      onClick={onToggle}
+    >
+      {notice.tone === 'error' || notice.tone === 'warning' ? (
+        <AlertTriangle size={12} className="run-warning-icon" aria-hidden />
+      ) : notice.tone === 'complete' ? (
+        <span aria-hidden>✓</span>
+      ) : (
+        <span className="run-spinner" aria-hidden />
+      )}
+      <span className="run-label">{notice.title} · {notice.detail}</span>
+      <ChevronUp size={12} className="run-chevron" aria-hidden />
+    </button>
   );
 }
 

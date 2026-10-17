@@ -1,13 +1,15 @@
 import { useState } from 'react';
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, X } from 'lucide-react';
 import type { SearchPreparationNotice as Notice } from './useSearchPreparationNotice';
 
 export function SearchPreparationNotice({
   notice,
   onReviewApproval,
+  onDismiss,
 }: {
   notice: Notice;
   onReviewApproval?: () => void;
+  onDismiss?(): void;
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const active = notice.tone === 'active';
@@ -26,6 +28,17 @@ export function SearchPreparationNotice({
       aria-live={notice.tone === 'error' ? 'assertive' : 'polite'}
       aria-atomic="true"
     >
+      {onDismiss && (
+        <button
+          type="button"
+          className="icon-btn status-notice-dismiss"
+          data-testid="search-preparation-dismiss"
+          aria-label="Dismiss activity notification"
+          onClick={onDismiss}
+        >
+          <X size={14} aria-hidden />
+        </button>
+      )}
       <div className="active-run-main">
         {notice.tone === 'error' || notice.tone === 'warning' ? (
           <AlertTriangle size={16} className="run-warning-icon" aria-hidden />

@@ -115,6 +115,23 @@ describe('search preparation notice projection', () => {
     expect(onReviewApproval).toHaveBeenCalledOnce();
   });
 
+  it('keeps a preparation failure ahead of another active batch and reports concurrent indexing in details', () => {
+    const notice = deriveSearchPreparationNotice(snapshot({
+      batches: [
+        batch({ id: 'still-running', status: 'preparing' }),
+        batch({ id: 'ocr-failed', status: 'failed', errors: ['OCR could not read row 1 of 3.'] }),
+      ],
+      indexing: { status: 'running', job_id: 781, error: null },
+    }));
+    render(<SearchPreparationNotice notice={notice!} />);
+
+    const banner = screen.getByTestId('search-preparation-banner');
+    expect(banner).toHaveAttribute('data-stage', 'failed');
+    expect(banner).toHaveTextContent('OCR could not read row 1 of 3.');
+    fireEvent.click(screen.getByTestId('search-preparation-details'));
+    expect(screen.getByText('Indexing search content')).toBeInTheDocument();
+  });
+
   it('keeps the latest failed setup visible with its backend error message', () => {
     const notice = deriveSearchPreparationNotice(snapshot({
       pulls: [{
@@ -192,6 +209,29 @@ describe('search preparation notice projection', () => {
     const { result } = renderHook(() => useSearchPreparationNotice('project-1', false));
 
     await waitFor(() => expect(result.current?.detail).toContain('Install the local audio runtime.'));
+  });
+
+  it('shows the newest first-observed failure while its search indexing is still active', async () => {
+    vi.spyOn(preparationApi, 'listSearchPreparations').mockResolvedValue({
+      schemaVersion: 'frisket.search_preparation_list.v1',
+      batches: [batch({
+        id: 'just-failed',
+        status: 'failed',
+        groups: [{ kind: 'ocr', count: 3, status: 'failed' }],
+        errors: ['OCR could not read the imported PDFs.'],
+      })],
+      indexing: { status: 'pending', job_id: null, error: null },
+    });
+    vi.spyOn(openApi, 'listModelPulls').mockResolvedValue({
+      schemaVersion: 'frisket.model_pull_list.v1', pulls: [],
+    });
+
+    const { result } = renderHook(() => useSearchPreparationNotice('project-1', false));
+
+    await waitFor(() => expect(result.current).toMatchObject({
+      stage: 'failed',
+      detail: 'OCR could not read the imported PDFs.',
+    }));
   });
 
   it('keeps a failed project index visible with its exact job error', () => {

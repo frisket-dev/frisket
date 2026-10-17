@@ -134,6 +134,36 @@ afterEach(() => {
 });
 
 describe('ImportWorkspaceDialog controlled open session', () => {
+  it('switches between Files and URLs at the top and imports dropped files through the picker path', async () => {
+    importFiles.mockResolvedValue({ sheet_id: 91, rows: 1 });
+    renderDialog(true);
+
+    fireEvent.click(screen.getByTestId('import-mode-files'));
+
+    expect(screen.getByTestId('import-source-toggle')).toBeVisible();
+    expect(screen.getByTestId('import-source-files')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Pick files' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Choose folder' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Upload ZIP' })).toBeVisible();
+    expect(screen.queryByText('PDFs are added as documents. Import does not extract PDF tables.')).toBeNull();
+    expect(screen.queryByText('Import a list of URLs instead')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('import-source-urls'));
+    expect(screen.getByTestId('import-url-list')).toBeVisible();
+    expect(screen.getByTestId('import-source-urls')).toHaveAttribute('aria-pressed', 'true');
+
+    fireEvent.click(screen.getByTestId('import-source-files'));
+    const dropped = new File(['report'], 'report.txt', { type: 'text/plain' });
+    fireEvent.drop(screen.getByTestId('import-files-chooser'), {
+      dataTransfer: { files: [dropped] },
+    });
+
+    await waitFor(() => expect(importFiles).toHaveBeenCalledWith(
+      'open-session-project',
+      [dropped],
+    ));
+  });
+
   it('opens the shared preparation receipt after a synchronous file import', async () => {
     importFiles.mockResolvedValue({
       sheet_id: 91,
@@ -150,7 +180,7 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     await waitFor(() => expect(onImported).toHaveBeenCalledWith(91));
     const receipt = await screen.findByTestId('search-preparation-receipt');
     expect(receipt).toHaveTextContent('Text ready for keyword search');
-    expect(receipt.closest('.import-workspace-main')).toHaveClass('import-workspace-main-receipt');
+    expect(receipt.closest('.import-workspace-main')).toHaveClass('import-workspace-main-preparation');
     expect(screen.queryByText('Project data intake')).not.toBeInTheDocument();
     expect(screen.getByTestId('import-workspace')).toHaveAccessibleName('Import');
     expect(getSearchPreparation).toHaveBeenCalledWith('open-session-project', 'sync-prep');

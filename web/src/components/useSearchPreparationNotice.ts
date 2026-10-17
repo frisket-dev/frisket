@@ -120,6 +120,28 @@ export function deriveSearchPreparationNotice(
   completion: string | null = null,
 ): SearchPreparationNotice | null {
   const activeBatch = snapshot.batches.find((batch) => ACTIVE_BATCH_STATUSES.has(batch.status)) ?? null;
+  const failedBatch = snapshot.batches.find((batch) => batch.status === 'failed') ?? null;
+  if (failedBatch) {
+    const unavailableModels = failedBatch.models.filter((model) => (
+      model.required && !model.ready && !model.can_setup
+    ));
+    const remedies = unavailableModels.map((model) => (
+      `${model.display_name}: ${model.remediation || 'Install its local runtime, then prepare these files again.'}`
+    ));
+    const failureDetails = failedBatch.errors.length > 0
+      ? failedBatch.errors
+      : [`Preparation ${failedBatch.id}`];
+    return {
+      stage: 'failed',
+      tone: 'error',
+      title: unavailableModels.length > 0 ? 'Some files need local setup' : 'Search preparation needs attention',
+      detail: failedBatch.errors[0] || remedies.join(' ') || 'Search preparation failed.',
+      progress: null,
+      details: snapshot.indexing.status === 'idle'
+        ? failureDetails
+        : [...failureDetails, indexingDetail(snapshot.indexing)],
+    };
+  }
   if (activeBatch?.status === 'needs_consent') {
     return {
       stage: 'approval',
@@ -159,24 +181,6 @@ export function deriveSearchPreparationNotice(
       details: snapshot.indexing.job_id == null
         ? []
         : [`Index job ${snapshot.indexing.job_id.toLocaleString()}`],
-    };
-  }
-
-  const failedBatch = snapshot.batches.find((batch) => batch.status === 'failed') ?? null;
-  if (failedBatch) {
-    const unavailableModels = failedBatch.models.filter((model) => (
-      model.required && !model.ready && !model.can_setup
-    ));
-    const remedies = unavailableModels.map((model) => (
-      `${model.display_name}: ${model.remediation || 'Install its local runtime, then prepare these files again.'}`
-    ));
-    return {
-      stage: 'failed',
-      tone: 'error',
-      title: unavailableModels.length > 0 ? 'Some files need local setup' : 'Search preparation needs attention',
-      detail: failedBatch.errors[0] || remedies.join(' ') || 'Search preparation failed.',
-      progress: null,
-      details: failedBatch.errors.length > 0 ? failedBatch.errors : [`Preparation ${failedBatch.id}`],
     };
   }
 
@@ -297,19 +301,22 @@ function relevantPulls(
 function relevantBatches(
   batches: SearchPreparationBatch[],
   observedActiveBatchIds: Set<string>,
+  indexing: SearchIndexingProjection,
 ): SearchPreparationBatch[] {
   const active = batches.filter((batch) => ACTIVE_BATCH_STATUSES.has(batch.status));
+  const previouslyObserved = new Set(observedActiveBatchIds);
   if (active.length > 0) {
     observedActiveBatchIds.clear();
     for (const batch of active) observedActiveBatchIds.add(batch.id);
-    return active;
   }
-  return batches.filter((batch) => (
+  const failed = batches.filter((batch, index) => (
     batch.status === 'failed' && (
-      observedActiveBatchIds.has(batch.id)
+      previouslyObserved.has(batch.id)
       || batch.models.some((model) => model.required && !model.ready && !model.can_setup)
+      || (index === 0 && indexing.status !== 'idle')
     )
   )).slice(0, 1);
+  return [...failed, ...active];
 }
 
 export function useSearchPreparationNotice(projectId: string, team: boolean): SearchPreparationNotice | null {
@@ -350,6 +357,7 @@ export function useSearchPreparationNotice(projectId: string, team: boolean): Se
     const batches = relevantBatches(
       preparationPayload?.batches ?? previous?.batches ?? [],
       observedBatchesRef.current.ids,
+      preparationPayload?.indexing ?? previous?.indexing ?? IDLE_INDEXING,
     );
     const pulls = pullsResult.status === 'fulfilled' ? pullsResult.value : previous?.pulls ?? [];
     const next: SearchPreparationSnapshot = {

@@ -22,18 +22,22 @@ const TERMINAL = new Set<SearchPreparationBatch['status']>(['complete', 'stopped
 function groupLabel(group: SearchPreparationGroup): { primary: string; qualifier: string } {
   const noun = group.count === 1 ? 'file' : 'files';
   if (group.kind === 'native_pdf') {
-    return { primary: `${group.count} ${group.count === 1 ? 'PDF' : 'PDFs'}`, qualifier: 'with embedded text' };
+    return { primary: `${group.count} ${group.count === 1 ? 'PDF' : 'PDFs'}`, qualifier: 'with embedded text to check' };
   }
-  if (group.kind === 'ocr') return { primary: `${group.count} ${noun}`, qualifier: 'to read with OCR' };
+  if (group.kind === 'ocr') return { primary: `${group.count} ${noun}`, qualifier: 'requiring OCR' };
   return { primary: `${group.count} ${noun}`, qualifier: 'to transcribe' };
 }
 
 function groupStatus(group: SearchPreparationGroup): string {
   switch (group.status) {
     case 'waiting_for_download': return 'Waiting for download';
-    case 'queued': return 'Queued';
-    case 'running': return group.kind === 'transcribe' ? 'Transcribing' : 'Reading text';
-    case 'complete': return 'Text prepared';
+    case 'queued': return group.kind === 'ocr'
+      ? 'OCR queued'
+      : group.kind === 'transcribe' ? 'Transcription queued' : 'Text extraction queued';
+    case 'running': return group.kind === 'ocr'
+      ? 'Running OCR'
+      : group.kind === 'transcribe' ? 'Transcribing' : 'Extracting text';
+    case 'complete': return group.kind === 'ocr' ? 'OCR text ready' : 'Text ready';
     case 'not_prepared': return 'Not prepared';
     case 'stopped': return 'Stopped';
     case 'failed': return 'Needs attention';
@@ -178,6 +182,10 @@ function TextReview({
       setForcing(false);
     }
   };
+  const hasText = Boolean(sample?.text.trim());
+  const ocrGroup = batch.groups.find((group) => group.kind === 'ocr' && group.count > 0);
+  const reviewingOcr = Boolean(ocrGroup && sample?.source === 'prepared');
+  const waitingForOcrChoice = Boolean(ocrGroup && !hasText && batch.status === 'needs_consent');
 
   return (
     <>
@@ -185,7 +193,9 @@ function TextReview({
         <section className="search-preparation-text-preview" data-testid="search-preparation-text-preview">
           <header>
             <div>
-              <strong>Does this text look right?</strong>
+              <strong>{waitingForOcrChoice
+                ? 'No embedded text found'
+                : reviewingOcr ? 'Check the OCR text' : 'Does this text look right?'}</strong>
               <span>{sample?.filename ?? 'Imported PDF'}</span>
             </div>
           </header>
@@ -220,31 +230,41 @@ function TextReview({
                 page={sample.page_number}
                 thumbnailUrl={sample.preview_url}
                 text={sample.text}
+                heading={reviewingOcr ? 'OCR text' : 'Extracted text'}
+                emptyCopy={waitingForOcrChoice
+                  ? 'This page needs OCR before Frisket can read it.'
+                  : 'No extracted text is available on this page.'}
                 truncated={sample.truncated}
                 loading={loading}
               />
               <p className="form-hint">
-                OCR replaces the text Frisket uses for search. Your PDF stays unchanged.
+                {waitingForOcrChoice
+                  ? 'Review the page image, then choose below whether to extract its text with OCR.'
+                  : reviewingOcr
+                    ? 'This is the OCR text Frisket will use for search. Your PDF stays unchanged.'
+                    : 'OCR replaces the text Frisket uses for search. Your PDF stays unchanged.'}
               </p>
-              <div className="search-preparation-actions">
-                <button
-                  type="button"
-                  className="btn"
-                  data-testid="search-preparation-force-ocr"
-                  disabled={forcing}
-                  onClick={() => void forceOcr()}
-                >
-                  {forcing ? 'Starting…' : 'No, replace with OCR'}
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  data-testid="search-preparation-keep-text"
-                  onClick={() => setDismissed(true)}
-                >
-                  Yes, keep it
-                </button>
-              </div>
+              {hasText && !reviewingOcr ? (
+                <div className="search-preparation-actions">
+                  <button
+                    type="button"
+                    className="btn"
+                    data-testid="search-preparation-force-ocr"
+                    disabled={forcing}
+                    onClick={() => void forceOcr()}
+                  >
+                    {forcing ? 'Starting…' : 'No, replace with OCR'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    data-testid="search-preparation-keep-text"
+                    onClick={() => setDismissed(true)}
+                  >
+                    Yes, keep it
+                  </button>
+                </div>
+              ) : null}
             </>
           ) : loading ? (
             <div role="status"><LoaderCircle className="spin" size={18} /> Reading PDF text…</div>
@@ -376,13 +396,18 @@ export function SearchPreparationReceipt({
     );
   }
 
-  const nativeGroup = batch.groups.find((group) => group.kind === 'native_pdf' && group.count > 0);
+  const pdfGroup = batch.groups.find((group) => (
+    (group.kind === 'native_pdf' || group.kind === 'ocr') && group.count > 0
+  ));
+  const ocrGroup = batch.groups.find((group) => group.kind === 'ocr' && group.count > 0);
   const fullyPrepared = batch.status === 'complete'
     && batch.groups.length > 0
     && batch.groups.every((group) => group.status === 'complete');
   const active = !TERMINAL.has(batch.status);
   const missingModels = batch.models.filter((model) => !model.ready);
   const unavailableModels = missingModels.filter((model) => model.required && !model.can_setup);
+  const allRequiredModelsReady = batch.models.every((model) => !model.required || model.ready);
+  const canPrepare = batch.can_setup || allRequiredModelsReady;
   return (
     <section className="search-preparation-receipt" data-testid="search-preparation-receipt">
       <header>
@@ -397,6 +422,7 @@ export function SearchPreparationReceipt({
         </div>
       </header>
 
+      {batch.groups.length > 0 && <h3 className="search-preparation-section-heading">Text extraction</h3>}
       <div className="search-preparation-groups">
         {batch.groups.map((group) => {
           const label = groupLabel(group);
@@ -431,7 +457,7 @@ export function SearchPreparationReceipt({
         </div>
       )}
 
-      {nativeGroup && (
+      {pdfGroup && (
         <TextReview
           key={batch.id}
           projectId={projectId}
@@ -443,7 +469,9 @@ export function SearchPreparationReceipt({
 
       {batch.status === 'needs_consent' && (
         <section className="search-preparation-consent" data-testid="search-preparation-model-consent">
-          <h3>{missingModels.length > 0 ? 'Download local models?' : 'Prepare files?'}</h3>
+          <h3>{missingModels.length > 0
+            ? 'Set up text extraction'
+            : ocrGroup ? 'Extract text with OCR?' : 'Prepare file text?'}</h3>
           {missingModels.length > 0 && (
             <div className="search-preparation-model-list">
               {missingModels.map((model) => (
@@ -475,7 +503,7 @@ export function SearchPreparationReceipt({
               ))}
             </div>
           )}
-          {!batch.can_setup && (
+          {!canPrepare && (
             <div className="import-field-error" role="alert">
               Model setup is unavailable. See the model details above.
             </div>
@@ -512,10 +540,14 @@ export function SearchPreparationReceipt({
             type="button"
             className="btn btn-primary"
             data-testid="search-preparation-decision-prepare"
-            disabled={busy || !batch.can_setup}
+            disabled={busy || !canPrepare}
             onClick={() => void decide('prepare')}
           >
-            {busy ? 'Starting…' : hasSelectedDownloads ? 'Download and prepare' : 'Prepare files'}
+            {busy
+              ? 'Starting…'
+              : hasSelectedDownloads
+                ? 'Download and prepare'
+                : ocrGroup ? 'Extract text with OCR' : 'Prepare file text'}
           </button>
         </footer>
       ) : (
