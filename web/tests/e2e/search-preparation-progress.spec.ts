@@ -33,17 +33,26 @@ test('project search prepares the missing PDF sheet while a text sheet is open',
   const response = await admitted;
   expect(response.ok()).toBeTruthy();
   expect(response.request().postDataJSON()).toEqual({ sheet_id: documentSheet });
-  const batch = await response.json() as { id: string };
+  const batch = await response.json() as { id: string; plan_hash: string; status: string };
+  expect(batch.status).toBe('needs_consent');
+  // Creating a PDF plan does not dispatch it. Close search, then explicitly
+  // admit native extraction without selecting any optional model downloads.
+  await expect(page.getByTestId('search-preparation-decision-prepare')).toBeVisible();
+  await page.getByRole('button', { name: 'Close command palette' }).click();
+  await expect(palette).toBeHidden();
+  const decision = await page.request.post(
+    `/api/projects/${pid}/search-preparation/${batch.id}/decision`,
+    { data: { plan_hash: batch.plan_hash, decision: 'prepare', selected_setup_refs: [] } },
+  );
+  expect(decision.ok()).toBeTruthy();
   await expect.poll(async () => {
     const result = await page.request.get(`/api/projects/${pid}/search-preparation/${batch.id}`);
     const body = await result.json() as { status: string; groups: Array<{ count: number }> };
     expect(body.groups.reduce((sum, group) => sum + group.count, 0)).toBeGreaterThan(0);
     return body.status;
   }, { timeout: 30_000 }).toBe('complete');
-  await page.getByTestId('search-preparation-done').click();
   await expect(page.getByTestId('search-preparation-receipt')).toBeHidden();
-  // Closing and reopening searches the real index, not a mocked success response.
-  await page.getByRole('button', { name: 'Close command palette' }).click();
+  // Reopening after background preparation searches the real, unmocked index.
   const reopened = await openPalette(page);
   await reopened.getByTestId('command-palette-input').fill('bluewharf');
   await expect(reopened.getByTestId('search-hit').filter({ hasText: 'bluewharf' }).first())
