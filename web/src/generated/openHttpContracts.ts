@@ -1585,6 +1585,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
+      "id": "tenant.replan_search_preparation.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/search-preparation/{batch_id}/replan",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
       "id": "tenant.resolve_import_session.post",
       "method": "POST",
       "path": "/api/projects/{pid}/import/files/sessions/{ref}/resolve",
@@ -10353,6 +10362,7 @@ export type HttpSearchPreparationBatch = ({
   "can_setup": (boolean);
   "can_stop": (boolean);
   "errors": (Array<(string)>);
+  "force_ocr"?: (boolean);
   "groups": (Array<(HttpSearchPreparationBatch_SearchPreparationGroup)>);
   "id": (string);
   "jobs": (Array<(HttpSearchPreparationBatch_SearchPreparationJob)>);
@@ -10462,6 +10472,7 @@ type HttpSearchPreparationBatchList_SearchPreparationBatch = ({
   "can_setup": (boolean);
   "can_stop": (boolean);
   "errors": (Array<(string)>);
+  "force_ocr"?: (boolean);
   "groups": (Array<(HttpSearchPreparationBatchList_SearchPreparationGroup)>);
   "id": (string);
   "jobs": (Array<(HttpSearchPreparationBatchList_SearchPreparationJob)>);
@@ -10532,6 +10543,11 @@ export type HttpSearchPreparationDecisionRequest = ({
   "decision": ("prepare" | "not_now") & (string);
   "plan_hash": (string);
   "selected_setup_refs"?: (Array<(string)>);
+});
+
+export type HttpSearchPreparationReplanRequest = ({
+  "force_ocr": (boolean);
+  "plan_hash": (string);
 });
 
 type HttpSearchPreparationTextSamples_SearchPreparationTextSample = ({
@@ -14963,6 +14979,22 @@ export type HttpContractOperationMap = {
       readonly "409": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.replan_search_preparation.post": {
+    readonly pathParams: HttpInline_b1e07c7c7e5c3960;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpSearchPreparationReplanRequest;
+    readonly responses: {
+      readonly "200": HttpSearchPreparationBatch;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+      readonly "503": HttpError;
     };
   };
   readonly "tenant.resolve_import_session.post": {

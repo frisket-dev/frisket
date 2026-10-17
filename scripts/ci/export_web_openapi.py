@@ -96,6 +96,11 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
         ): "tenant.decide_search_preparation.post",
         (
             "tenant",
+            "replan_search_preparation",
+            "POST",
+        ): "tenant.replan_search_preparation.post",
+        (
+            "tenant",
             "stop_search_preparation",
             "POST",
         ): "tenant.stop_search_preparation.post",
