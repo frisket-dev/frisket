@@ -3884,6 +3884,7 @@ type HttpBulkImportExecuteResponse_BulkImportCreatedOutput = ({
   "kind": ("sheet") & (string);
   "logical_paths": (Array<(string)>);
   "rows": (number);
+  "search_preparation_batch_id"?: (((string)) | ((null)));
   "sheet_id": (number);
   "sheet_name": (string);
 });
@@ -4422,6 +4423,7 @@ export type HttpColumnValuesPreviewRequest = ({
   "offset"?: JsonValue;
   "search"?: JsonValue;
   "sheet_id"?: JsonValue;
+  "value_mode"?: JsonValue;
   [key: string]: JsonValue | undefined;
 });
 
@@ -4514,18 +4516,20 @@ export type HttpColumnValuesPreviewResponse = ({
   "distinct": (number);
   "distribution": (((HttpColumnValuesPreviewResponse_NumberColumnDistribution)) | ((HttpColumnValuesPreviewResponse_IntegerColumnDistribution)) | ((HttpColumnValuesPreviewResponse_DateColumnDistribution)) | ((null)));
   "input_column": (string);
+  "inventory_complete"?: (boolean);
   "limit": (number);
   "list_facet"?: (((HttpColumnValuesPreviewResponse_ListFacetPreview)) | ((null)));
   "missing": (number);
   "offset": (number);
+  "omitted_rows"?: (number);
   "schema_version": ("frisket.column_values_preview.v1") & (string);
   "search": (((string)) | ((null)));
   "sheet_id": (number);
   "total_rows": (number);
   "truncated": (boolean);
-  "value_hash": (string);
+  "value_hash": (((string)) | ((null)));
   "values": (Array<(HttpColumnValuesPreviewResponse_ColumnValueCount)>);
-  [key: string]: (HttpColumnValuesPreviewResponse_JsonValue) | (number) | (((HttpColumnValuesPreviewResponse_NumberColumnDistribution)) | ((HttpColumnValuesPreviewResponse_IntegerColumnDistribution)) | ((HttpColumnValuesPreviewResponse_DateColumnDistribution)) | ((null))) | (string) | (((HttpColumnValuesPreviewResponse_ListFacetPreview)) | ((null))) | ("frisket.column_values_preview.v1") & (string) | (((string)) | ((null))) | (boolean) | (Array<(HttpColumnValuesPreviewResponse_ColumnValueCount)>) | undefined;
+  [key: string]: (HttpColumnValuesPreviewResponse_JsonValue) | (number) | (((HttpColumnValuesPreviewResponse_NumberColumnDistribution)) | ((HttpColumnValuesPreviewResponse_IntegerColumnDistribution)) | ((HttpColumnValuesPreviewResponse_DateColumnDistribution)) | ((null))) | (string) | (boolean) | (((HttpColumnValuesPreviewResponse_ListFacetPreview)) | ((null))) | ("frisket.column_values_preview.v1") & (string) | (((string)) | ((null))) | (Array<(HttpColumnValuesPreviewResponse_ColumnValueCount)>) | undefined;
 });
 
 export type HttpCreateProjectInviteRequest = ({
