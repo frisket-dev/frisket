@@ -6,15 +6,22 @@ from contextlib import closing
 import pytest
 
 from frisket.engine.jobs.worker import Worker
+from frisket.engine.jobs.ports import WorkerPorts
 from frisket.engine.store import Project
 from frisket.engine.store.cell_writes import EditCellWrite, insert_edits
-from frisket.engine.store.document_text import ensure_document_text_role
+from frisket.engine.store.document_text import (
+    DocumentTextPublicationRefused,
+    ensure_document_text_role,
+)
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.server.services.action_runs import ActionRunService
 from frisket.server.workspace import Workspace
+from frisket.team.security.secrets import encrypt_secret
 from test_native_pdf_text_action import _pdf_bytes, _request, _source
+from test_document_text_authority import _project_with_selection, _OTHER_BLOB
+from helpers import run_writer_authority_fixture
 
 
 @pytest.mark.parametrize(
@@ -36,6 +43,12 @@ def test_source_changed_publication_refusal_closes_exact_worker(
             filename="replacement.pdf",
             mime="application/pdf",
         )
+        project.set_provider_key(
+            provider="anthropic",
+            encrypted=encrypt_secret("returned-call-fixture"),
+            hint="fixture",
+            spend_cap_micro=1_000_000,
+        )
         row_ids = [row_id]
         if publication == "first_flush":
             original_value = project.get_values(sheet_id, source_id, [row_id])[row_id]
@@ -43,7 +56,25 @@ def test_source_changed_publication_refusal_closes_exact_worker(
                 sheet_id, [{"source": original_value}], {"source": source_id}
             )
 
-    workspace = Workspace(root, enable_local_model_pull=False)
+    settled = []
+
+    class SettlementObserver:
+        def settle_run(self, *, project, run_id, terminal_status, **_kwargs):
+            settled.append(
+                (
+                    terminal_status,
+                    RunResultStore(project).get_run(run_id)["cost_actual"],
+                )
+            )
+
+        def settle_action_receipt(self, **_kwargs):
+            pytest.fail("PDF text preparation must settle its run")
+
+    workspace = Workspace(
+        root,
+        enable_local_model_pull=False,
+        worker_ports=WorkerPorts(settlement_port=SettlementObserver()),
+    )
     service = ActionRunService(workspace)
     declare = ResultGenerationStore.declare
 
@@ -131,6 +162,20 @@ def test_source_changed_publication_refusal_closes_exact_worker(
     def publish(store, target_run, batch, **kwargs):
         if target_run != run_id or changed:
             return actual(store, target_run, batch, **kwargs)
+        if publication == "first_flush":
+            for item in batch:
+                item["model_calls"] = [
+                    {
+                        "id": f"returned-pdf-{run_id}-{item['row_id']}",
+                        "fact_version": "frisket.model-call-fact.v1",
+                        "capability": "ocr",
+                        "engine": "fixture",
+                        "provider": "anthropic",
+                        "provider_kind": "test",
+                        "credential_source": "project_key",
+                        "provider_cost_usd": 0.125,
+                    }
+                ]
         if publication == "first_flush" and published_rows:
             change_source(store, batch[0]["row_id"])
         result = actual(store, target_run, batch, **kwargs)
@@ -175,6 +220,11 @@ def test_source_changed_publication_refusal_closes_exact_worker(
         run = RunResultStore(project).get_run(run_id)
         assert run["status"] == "failed" and run["current_attempt_id"] is None
         assert run["halted_code"] == "source_changed"
+        if publication == "first_flush":
+            assert len(RunResultStore(project).model_calls(run_id)) == 2
+            assert run["cost_actual"] == pytest.approx(0.25)
+            assert project.provider_spend_state("anthropic").spent_micro == 250_000
+            assert settled == [("failed", 0.25)]
         receipt = receipts.find_by_id(receipt_id).parsed()
         assert receipt.status == "failed" and receipt.provider_use == provider_use
         assert receipt.errors[0].code == "source_changed"
@@ -213,4 +263,120 @@ def test_source_changed_publication_refusal_closes_exact_worker(
         assert (None if rebuilt is None else rebuilt[0]) == prior_head
     finally:
         workspace.queue.close()
+        project.close()
+
+
+def test_refused_checkpoint_publication_preserves_returned_accounting(tmp_path):
+    project, sheet_id, row_id, source_id, text_id = _project_with_selection(tmp_path)
+    try:
+        project.set_provider_key(
+            provider="anthropic",
+            encrypted=encrypt_secret("checkpoint-call-fixture"),
+            hint="fixture",
+            spend_cap_micro=1_000_000,
+        )
+        store = RunResultStore(project)
+        op_id = project.append_op("media.ocr", {"action_kind": "media.ocr"})
+        run_id = store.start_run(
+            op_id, sheet_id, "media.ocr", row_ids=[row_id], total_rows=1
+        )
+        authority = run_writer_authority_fixture(
+            project, run_id, output_column_ids={text_id}
+        )
+        writer_kwargs = {
+            key: value
+            for key, value in authority.kwargs().items()
+            if key != "authorized_attempt_id"
+        }
+        ResultGenerationStore(project).declare(
+            run_id,
+            text_id,
+            output_role="text",
+            compatibility_key="document-text",
+            write_mode="create",
+            claim_token=authority.claim_token,
+        )
+        ref_id = project.db.execute("SELECT id FROM prepared_content_refs").fetchone()[
+            0
+        ]
+        call = {
+            "id": "returned-checkpoint-call",
+            "fact_version": "frisket.model-call-fact.v1",
+            "capability": "ocr",
+            "engine": "fixture",
+            "provider": "anthropic",
+            "provider_kind": "test",
+            "credential_source": "project_key",
+            "provider_cost_usd": 0.125,
+        }
+        batch = [
+            {
+                "row_id": row_id,
+                "column_id": text_id,
+                "prepared_ref_id": ref_id,
+                "publication_effect": "publish_value",
+                "model_calls": [call],
+            }
+        ]
+        assert store.reserve_row_effect_checkpoint(
+            "returned-document",
+            run_id=run_id,
+            row_id=row_id,
+            action_kind="media.ocr",
+            identity="document-source",
+            authorized_attempt_id=authority.writer_attempt_id,
+            **writer_kwargs,
+        )
+        assert store.complete_row_effect_checkpoint(
+            "returned-document",
+            run_id=run_id,
+            row_id=row_id,
+            action_kind="media.ocr",
+            identity="document-source",
+            batch=batch,
+            replay_response={"text": {"prepared_ref_id": ref_id, "cost": 0.0}},
+            **writer_kwargs,
+        ) == pytest.approx(0.125)
+        project.db.execute("BEGIN IMMEDIATE")
+        edit_op = project.append_op("edit", commit=False)
+        insert_edits(
+            project.db,
+            op_id=edit_op,
+            edits=[
+                EditCellWrite(
+                    row_id, source_id, {"blob": _OTHER_BLOB, "mime": "application/pdf"}
+                )
+            ],
+        )
+        project.db.commit()
+
+        for caller_owns_transaction in (False, True):
+            if caller_owns_transaction:
+                project.db.execute("BEGIN IMMEDIATE")
+            with pytest.raises(DocumentTextPublicationRefused):
+                store.publish_result_batch(
+                    run_id,
+                    batch,
+                    checkpoint=("returned-document", row_id, "document-source"),
+                    checkpoint_action_kind="media.ocr",
+                    **writer_kwargs,
+                )
+            assert project.db.in_transaction is caller_owns_transaction
+            if caller_owns_transaction:
+                project.db.rollback()
+            assert len(store.model_calls(run_id)) == 1
+            assert store.get_run(run_id)["cost_actual"] == pytest.approx(0.125)
+            assert project.provider_spend_state("anthropic").spent_micro == 125_000
+            checkpoint = store.row_effect_checkpoint(run_id, row_id)
+            assert (
+                checkpoint["state"] == "returned" and checkpoint["accounting_persisted"]
+            )
+            assert checkpoint["authorized_attempt_id"] == authority.writer_attempt_id
+            assert (
+                project.db.execute(
+                    "SELECT COUNT(*) FROM results WHERE run_id=?", (run_id,)
+                ).fetchone()[0]
+                == 0
+            )
+    finally:
         project.close()
