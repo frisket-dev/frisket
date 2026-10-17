@@ -441,9 +441,11 @@ class _BoundOcrReader:
                     "warnings": list(warnings),
                 }
                 owner.calls_by_row[self._row_id] = [copy.deepcopy(fact)]
-                return RecognizedDocument(
-                    text=OcrText(text), blocks=blocks, pdf=pdf, warnings=warnings
+                document = RecognizedDocument(
+                    text=OcrText(text), blocks=blocks, pdf=pdf
                 )
+                document._warnings = warnings
+                return document
 
     def _incremental_engine(self, engine):
         # Connected Cloud and sidecars own a single admitted request. Splitting
@@ -468,6 +470,15 @@ class _BoundOcrReader:
         pages, images, examples = [], {}, []
         failures = 0
         usage["input_pages"] = 0
+        owner._check_open()
+        report = self._ctx.extras.get("report_work_progress")
+        if callable(report):
+            report(
+                kind="ocr_pages",
+                row_id=self._row_id,
+                completed=0,
+                total=page_count,
+            )
         for number in range(1, page_count + 1):
             owner._check_open()
             physical_page = first_page + number - 1

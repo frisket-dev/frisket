@@ -506,7 +506,7 @@ async def test_many_page_pdf_consumes_and_removes_each_raster_before_next(
         assert call["units"]["pages"] == 500
     assert len(seen) == 500 and all(not path.exists() for path in seen)
     assert all(not path.exists() for path in scratch_roots)
-    assert [p["completed"] for p in progress] == list(range(1, 501))
+    assert [p["completed"] for p in progress] == list(range(0, 501))
     assert all(p["total"] == 500 and p["row_id"] == source[3] for p in progress)
 
 
@@ -538,7 +538,7 @@ async def test_failed_pdf_page_preserves_neighbors_and_warns_explicitly(
     async with _reader(source) as (owner, reader, row, options):
         result = await reader.recognize(row, ColumnRef("scan"), options=options)
         assert result.text.root == "Page 1\n\n\n\nPage 3"
-        assert result.warnings == [f"Page 2 failed during {failure_stage}."]
+        assert result.warnings == (f"Page 2 failed during {failure_stage}.",)
         assert [p["page"] for p in result.blocks] == [1, 2, 3]
         [fact] = owner.calls_by_row[source[3]]
         assert fact["pages"][1]["error"]["stage"] == failure_stage

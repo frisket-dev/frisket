@@ -143,6 +143,18 @@ def test_output_fields_default_off_is_unchanged() -> None:
     assert _fields() == _fields(searchable_pdf=False)
 
 
+def test_internal_page_warnings_do_not_become_ocr_outputs_or_sdk_fields():
+    from frisket.actions.registry import ACTION_REGISTRY
+
+    entry = ACTION_REGISTRY.get("media.ocr").catalog_entry()
+    assert [field["key"] for field in entry["ui_hints"]["logical_outputs"]] == [
+        "text",
+        "blocks",
+        "pdf",
+    ]
+    assert set(entry["output_schema"]["properties"]) == {"text", "blocks", "pdf"}
+
+
 def test_output_fields_searchable_pdf_appends_file_column() -> None:
     fields = _fields(searchable_pdf=True)
     assert [f.key for f in fields] == ["text", "blocks", "pdf"]
