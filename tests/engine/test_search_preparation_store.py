@@ -106,7 +106,7 @@ def test_pending_import_is_internal_until_atomically_hydrated(tmp_path) -> None:
         )
         store.mark_settled(pending.id, project_id="project", storage_org_id=None)
 
-        hydrated = store.hydrate_pending_import(
+        hydrated = store.hydrate_pending_plan(
             pending.id,
             project_id="project",
             storage_org_id=None,
@@ -173,10 +173,11 @@ def test_pending_materialization_is_internal_until_exact_job_is_hydrated(
             == pending.id
         )
 
-        hydrated = store.hydrate_pending_materialization(
+        hydrated = store.hydrate_pending_plan(
             pending.id,
             project_id="project",
             storage_org_id=None,
+            sheet_id=7,
             plan={"groups": [], "models": [], "items": []},
         )
         assert hydrated.plan == {"groups": [], "models": [], "items": []}
@@ -320,5 +321,82 @@ def test_explicit_retry_reuses_active_attempt_but_replaces_stopped_attempt(
         retry = _create(store, receipt=None, retry_terminal=True)
         assert retry.id != first.id
         assert _create(store, receipt=None).id == retry.id
+    finally:
+        queue.close()
+
+
+def test_automatic_scope_first_capture_wins_without_reviving_terminal_intents(tmp_path):
+    queue = open_queue(workspace=tmp_path)
+    try:
+        store = SearchPreparationStore(queue, workspace_root="/workspace")
+        pending = store.create_pending_import(
+            storage_org_id=None,
+            project_id="project",
+            receipt_id="receipt-cycle",
+            import_ref="session-cycle",
+        )
+        source = {
+            "row_id": 3,
+            "column_id": 5,
+            "blob_hash": "original",
+            "page_number": None,
+            "retrieval_revision": 1,
+        }
+        captured = store.reserve_automatic_plan(
+            storage_org_id=None,
+            project_id="project",
+            pending=pending,
+            receipt_id="receipt-cycle",
+            sheet_id=7,
+            sources=[source],
+            source_cutoff=14,
+        )
+        assert captured.settled_at is None
+        assert captured.captured_sources == (source,)
+        assert captured.source_cutoff == 14
+        store.mark_settled(captured.id, project_id="project", storage_org_id=None)
+        duplicate = store.reserve_automatic_plan(
+            storage_org_id=None,
+            project_id="project",
+            pending=pending,
+            receipt_id="receipt-cycle",
+            sheet_id=7,
+            sources=[{**source, "column_id": 9}],
+            source_cutoff=20,
+        )
+        assert duplicate.captured_sources == (source,)
+        assert duplicate.row_ids == (3,)
+        assert duplicate.source_cutoff == 14
+        assert duplicate.settled_at is not None
+        settled = store.create_pending_import(
+            storage_org_id=None, project_id="project", receipt_id="receipt-settled"
+        )
+        store.mark_settled(settled.id, project_id="project", storage_org_id=None)
+        terminal = store.reserve_automatic_plan(
+            storage_org_id=None,
+            project_id="project",
+            pending=settled,
+            receipt_id="receipt-settled",
+            sheet_id=7,
+            sources=[source],
+            source_cutoff=14,
+        )
+        assert terminal.settled_at is not None
+        assert terminal.captured_sources is None
+        stopped = store.create_pending_import(
+            storage_org_id=None, project_id="project", receipt_id="receipt-stopped"
+        )
+        store.request_stop(stopped.id, project_id="project", storage_org_id=None)
+        unchanged = store.reserve_automatic_plan(
+            storage_org_id=None,
+            project_id="project",
+            pending=stopped,
+            receipt_id="receipt-stopped",
+            sheet_id=7,
+            sources=[source],
+            source_cutoff=14,
+        )
+        assert unchanged.stop_requested_at is not None
+        assert unchanged.captured_sources is None
     finally:
         queue.close()

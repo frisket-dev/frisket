@@ -33,7 +33,7 @@ from frisket.engine.jobs.search_preparation_store import (
 from frisket.engine.jobs.model_pull import ModelPullEnqueueError, schedule_model_pull
 from frisket.engine.jobs.queue import SEARCH_INDEX_KIND, SERVER_SCOPED_JOB_PAYLOAD_KEY
 from frisket.execution.provider import ExactExecutionMatch
-from frisket.execution.targets import CAPABILITY_TRANSCRIBE
+from frisket.execution.targets import CAPABILITY_OCR, CAPABILITY_TRANSCRIBE
 from frisket.engine.store.import_sessions import ImportSessionStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.project_settings import read_project_settings
@@ -42,7 +42,11 @@ from frisket.retrieval.preparation import DEFAULT_TEXT_SPACE, PDF_PAGE_RECIPE_ID
 from frisket.retrieval.query import read_pdf_indexing_progress
 from frisket.server.route_errors import RouteError
 from frisket.server.services.action_runs import ActionRunRouteError, ActionRunService
-from frisket.server.services.search_preparation_planning import build_plan, sample_pdf
+from frisket.server.services.search_preparation_planning import (
+    build_plan,
+    capture_sources,
+    sample_pdf,
+)
 
 
 _OCR_REF = "engine-setup:rapidocr.local@1"
@@ -123,12 +127,21 @@ def _requirements() -> tuple[Any, ...]:
 class _PreparationKind:
     action_id: str
     capability: str | None
+    execution_target: ExactExecutionMatch | None = None
 
 
 _PREPARATION_KINDS = {
     "native_pdf": _PreparationKind("media.read_pdf_text", None),
-    "ocr": _PreparationKind("media.ocr", "ocr"),
-    "transcribe": _PreparationKind("media.transcribe", "transcription"),
+    "ocr": _PreparationKind(
+        "media.ocr",
+        "ocr",
+        ExactExecutionMatch(
+            target_id="local", capability=CAPABILITY_OCR, engine="rapidocr"
+        ),
+    ),
+    "transcribe": _PreparationKind(
+        "media.transcribe", "transcription", _LOCAL_TRANSCRIBE_TARGET
+    ),
 }
 
 
@@ -179,22 +192,6 @@ def _planned_children(plan: Mapping[str, Any]) -> tuple[_PlannedChild, ...]:
         )
         for (kind, column_id, column_name), items in grouped.items()
     )
-
-
-def _awaiting_pdf_review(
-    row: SearchPreparationBatchRow,
-    children: Sequence[SearchPreparationChildRow],
-) -> bool:
-    if (
-        row.decision is not None
-        or not row.plan
-        or not any(item["mime"] == "application/pdf" for item in row.plan["items"])
-    ):
-        return False
-    bound = {child.child_key for child in children if child.receipt_id is not None}
-    # Previously admitted actions keep their authority after upgrading. Fresh
-    # work, including mixed-file batches, waits for the exact-plan decision.
-    return any(child.child_key not in bound for child in _planned_children(row.plan))
 
 
 class SearchPreparationService:
@@ -255,7 +252,8 @@ class SearchPreparationService:
         sheet_id: int,
         row_ids: Sequence[int] | None,
         force_ocr: bool,
-        trigger_receipt_id: str | None = None,
+        may_setup_models: bool = True,
+        may_run_actions: bool = True,
     ) -> SearchPreparationBatch:
         if self.workspace.edition == "cloud":
             raise RouteError(409, "local search preparation is unavailable in Cloud")
@@ -271,13 +269,13 @@ class SearchPreparationService:
         batch = self.store.create(
             storage_org_id=self.workspace.queue_storage_org_id,
             project_id=project_id,
-            trigger_receipt_id=trigger_receipt_id,
+            trigger_receipt_id=None,
             sheet_id=sheet_id,
             row_ids=row_ids,
             force_ocr=force_ocr,
             plan=plan,
         )
-        if trigger_receipt_id is None and (
+        if (
             batch.stop_requested_at is not None
             or batch.decision == "not_now"
             or batch.errors
@@ -293,8 +291,12 @@ class SearchPreparationService:
                 plan=plan,
                 retry_terminal=True,
             )
-        self._advance(batch)
-        return self.get(project_id, batch.id)
+        return self.get(
+            project_id,
+            batch.id,
+            may_setup_models=may_setup_models,
+            may_run_actions=may_run_actions,
+        )
 
     def create_after_import(
         self,
@@ -318,63 +320,101 @@ class SearchPreparationService:
                     storage_org_id=self.workspace.queue_storage_org_id,
                 )
             return None
-        project = self.workspace.get(project_id)
         if existing is not None and existing.plan is not None:
             return existing.id
+        return self._reserve_and_complete_automatic(
+            project_id,
+            sheet_id=sheet_id,
+            row_ids=row_ids,
+            pending=existing,
+            receipt_id=receipt_id,
+        )
+
+    def _reserve_and_complete_automatic(
+        self,
+        project_id: str,
+        *,
+        sheet_id: int,
+        row_ids: Sequence[int] | None,
+        pending: SearchPreparationBatchRow | None,
+        receipt_id: str | None = None,
+    ) -> str | None:
+        project = self.workspace.get(project_id)
+        if pending is None or pending.captured_sources is None:
+            sources = capture_sources(project, sheet_id=sheet_id, row_ids=row_ids)
+            pending = self.store.reserve_automatic_plan(
+                storage_org_id=self.workspace.queue_storage_org_id,
+                project_id=project_id,
+                pending=pending,
+                receipt_id=receipt_id,
+                sheet_id=sheet_id,
+                sources=sources,
+                source_cutoff=int(project.op_cursor),
+            )
+        return self._complete_automatic_plan(pending)
+
+    def _complete_automatic_plan(
+        self, pending: SearchPreparationBatchRow
+    ) -> str | None:
+        if pending.plan is not None:
+            return pending.id
+        if pending.stop_requested_at is not None or pending.settled_at is not None:
+            return None
+        if not self.automatic_enabled(pending.project_id):
+            self.store.mark_settled(
+                pending.id,
+                project_id=pending.project_id,
+                storage_org_id=pending.storage_org_id,
+            )
+            return None
+        if pending.sheet_id is None or pending.captured_sources is None:
+            return None
+        project = self.workspace.get(pending.project_id)
         planning_error = None
         try:
+            if any(
+                not self._source_item_current(project, pending.sheet_id, item)
+                for item in pending.captured_sources
+            ):
+                raise RouteError(
+                    422, "A source file changed; prepare again to review it."
+                )
             plan = self._plan(
                 project,
-                sheet_id=sheet_id,
-                row_ids=row_ids,
+                sheet_id=pending.sheet_id,
+                row_ids=pending.row_ids,
                 force_ocr=False,
                 intersect_visible_rows=True,
+                source_cells=frozenset(
+                    (int(item["row_id"]), int(item["column_id"]))
+                    for item in pending.captured_sources
+                ),
             )
         except RouteError as exc:
             if exc.status_code != 422:
                 raise
-            # The files are already committed. Publish a failed preparation
-            # outcome instead of making a deterministic preview error look like
-            # a still-running import. Other failures retain their retry path.
             planning_error = str(exc.detail)
-            plan = {
-                "source_cutoff": int(project.op_cursor),
-                "force_ocr": False,
-                "groups": [],
-                "models": [],
-                "items": [],
-            }
+            plan = {"force_ocr": False, "groups": [], "models": [], "items": []}
+        plan["source_cutoff"] = pending.source_cutoff
+        plan["admission_policy"] = "automatic_local"
         if not plan["items"] and planning_error is None:
-            if existing is not None:
-                self.store.mark_settled(
-                    existing.id,
-                    project_id=project_id,
-                    storage_org_id=self.workspace.queue_storage_org_id,
-                )
+            self.store.mark_settled(
+                pending.id,
+                project_id=pending.project_id,
+                storage_org_id=pending.storage_org_id,
+            )
             return None
-        if existing is not None:
-            batch = self.store.hydrate_pending_import(
-                existing.id,
-                project_id=project_id,
-                storage_org_id=self.workspace.queue_storage_org_id,
-                sheet_id=sheet_id,
-                plan=plan,
-                error_message=planning_error,
-            )
-        else:
-            batch = self.store.create(
-                storage_org_id=self.workspace.queue_storage_org_id,
-                project_id=project_id,
-                trigger_receipt_id=receipt_id,
-                sheet_id=sheet_id,
-                row_ids=row_ids,
-                force_ocr=False,
-                plan=plan,
-                error_message=planning_error,
-            )
-        if planning_error is None:
+        batch = self.store.hydrate_pending_plan(
+            pending.id,
+            project_id=pending.project_id,
+            storage_org_id=pending.storage_org_id,
+            sheet_id=pending.sheet_id,
+            plan=plan,
+            error_message=planning_error,
+        )
+        if batch.plan is not None and planning_error is None:
             self._advance(batch)
-        return batch.id
+        return batch.id if batch.plan is not None else None
 
     def reserve_import(
         self, project_id: str, *, receipt_id: str, import_ref: str
@@ -427,45 +467,19 @@ class SearchPreparationService:
                     storage_org_id=self.workspace.queue_storage_org_id,
                 )
             return None
-        project = self.workspace.get(project_id)
-        plan = self._plan(
-            project,
+        return self._reserve_and_complete_automatic(
+            project_id,
             sheet_id=sheet_id,
             row_ids=row_ids,
-            force_ocr=False,
-            intersect_visible_rows=True,
+            pending=pending,
         )
-        if not plan["items"]:
-            if pending is not None:
-                self.store.mark_settled(
-                    pending.id,
-                    project_id=project_id,
-                    storage_org_id=self.workspace.queue_storage_org_id,
-                )
-            return None
-        if pending is not None:
-            batch = self.store.hydrate_pending_materialization(
-                pending.id,
-                project_id=project_id,
-                storage_org_id=self.workspace.queue_storage_org_id,
-                plan=plan,
-            )
-            self._advance(batch)
-            return batch.id
-        batch = self.store.create(
-            storage_org_id=self.workspace.queue_storage_org_id,
-            project_id=project_id,
-            trigger_receipt_id=None,
-            sheet_id=sheet_id,
-            row_ids=row_ids,
-            force_ocr=False,
-            plan=plan,
-        )
-        self._advance(batch)
-        return batch.id
 
     def list(
-        self, project_id: str, *, may_setup_models: bool = True
+        self,
+        project_id: str,
+        *,
+        may_setup_models: bool = True,
+        may_run_actions: bool = True,
     ) -> SearchPreparationBatchList:
         project = self.workspace.get(project_id)
         setup = self._setup_snapshot()
@@ -475,6 +489,7 @@ class SearchPreparationService:
                 self._project(
                     row,
                     may_setup_models=may_setup_models,
+                    may_run_actions=may_run_actions,
                     setup=setup,
                 )
                 for row in self.store.list_recent(
@@ -558,7 +573,12 @@ class SearchPreparationService:
         )
 
     def get(
-        self, project_id: str, batch_id: str, *, may_setup_models: bool = True
+        self,
+        project_id: str,
+        batch_id: str,
+        *,
+        may_setup_models: bool = True,
+        may_run_actions: bool = True,
     ) -> SearchPreparationBatch:
         try:
             row = self.store.get(
@@ -573,6 +593,7 @@ class SearchPreparationService:
         return self._project(
             row,
             may_setup_models=may_setup_models,
+            may_run_actions=may_run_actions,
             setup=self._setup_snapshot(),
         )
 
@@ -583,6 +604,8 @@ class SearchPreparationService:
         *,
         plan_hash: str,
         force_ocr: bool,
+        may_setup_models: bool = True,
+        may_run_actions: bool = True,
     ) -> SearchPreparationBatch:
         try:
             row = self.store.get(
@@ -623,6 +646,8 @@ class SearchPreparationService:
             force_ocr=force_ocr,
             source_cells=source_cells,
         )
+        # Re-scan is a new manual review, even for an automatic import batch.
+        plan["admission_policy"] = "manual_review"
         try:
             replacement = self.store.replace_undecided(
                 row.id,
@@ -633,7 +658,11 @@ class SearchPreparationService:
             )
         except ValueError as exc:
             raise RouteError(409, str(exc)) from exc
-        return self._project(replacement)
+        return self._project(
+            replacement,
+            may_setup_models=may_setup_models,
+            may_run_actions=may_run_actions,
+        )
 
     def decide(
         self,
@@ -645,6 +674,7 @@ class SearchPreparationService:
         selected_setup_refs: Sequence[str],
         may_setup_models: bool,
         initiated_by: str | None,
+        may_run_actions: bool = True,
     ) -> SearchPreparationBatch:
         try:
             row = self.store.get(
@@ -667,8 +697,15 @@ class SearchPreparationService:
                 and row.decision == decision
                 and row.selected_setup_refs == replay_refs
             ):
-                return self.get(project_id, batch_id)
+                return self.get(
+                    project_id,
+                    batch_id,
+                    may_setup_models=may_setup_models,
+                    may_run_actions=may_run_actions,
+                )
             raise RouteError(409, "search preparation decision is already recorded")
+        if decision != "prepare":
+            raise RouteError(422, "choose Prepare or stop this preparation batch")
         project = self.workspace.get(project_id)
         if plan_hash != row.plan_hash or not self._consent_facts_current(project, row):
             current = self._plan(
@@ -681,6 +718,8 @@ class SearchPreparationService:
                     for item in plan_sources(row.plan)
                 ),
             )
+            if "admission_policy" in row.plan:
+                current["admission_policy"] = row.plan["admission_policy"]
             refreshed = self.store.replan(
                 row.id,
                 project_id=project_id,
@@ -692,9 +731,11 @@ class SearchPreparationService:
                 {
                     "code": "plan_changed",
                     "message": "Search preparation changed; review the refreshed plan.",
-                    "batch": self._project(refreshed).model_dump(
-                        mode="json", by_alias=True
-                    ),
+                    "batch": self._project(
+                        refreshed,
+                        may_setup_models=may_setup_models,
+                        may_run_actions=may_run_actions,
+                    ).model_dump(mode="json", by_alias=True),
                 },
             )
         missing = {
@@ -721,7 +762,7 @@ class SearchPreparationService:
         }
         if decision == "prepare" and not required.issubset(selected):
             raise RouteError(
-                409, "select every required model download or choose Not now"
+                409, "select every required model download or stop this preparation"
             )
         if selected and not may_setup_models:
             raise RouteError(
@@ -744,7 +785,12 @@ class SearchPreparationService:
             # Required engines run before optional semantic setup.
             self._start_next_setup(row)
         self._advance(row)
-        return self.get(project_id, batch_id)
+        return self.get(
+            project_id,
+            batch_id,
+            may_setup_models=may_setup_models,
+            may_run_actions=may_run_actions,
+        )
 
     @staticmethod
     def _consent_facts_current(project: Any, row: SearchPreparationBatchRow) -> bool:
@@ -756,22 +802,21 @@ class SearchPreparationService:
             current = _requirement_dict(live, required=bool(planned["required"]))
             if current != planned:
                 return False
-        for item in plan_sources(row.plan):
-            source = resolve_cell_blob_source(
-                project,
-                sheet_id=row.sheet_id,
-                row_id=int(item["row_id"]),
-                column_id=int(item["column_id"]),
-            )
-            if source is None or (
-                source.blob_hash != item["blob_hash"]
-                or source.page_number != item["page_number"]
-                or source.binding.retrieval_revision != item["retrieval_revision"]
-            ):
-                return False
-        return True
+        return all(
+            SearchPreparationService._source_item_current(project, row.sheet_id, item)
+            for item in plan_sources(row.plan)
+        )
 
-    def stop(self, project_id: str, batch_id: str) -> SearchPreparationBatch:
+    def stop(
+        self,
+        project_id: str,
+        batch_id: str,
+        *,
+        may_setup_models: bool = True,
+        may_run_actions: bool = True,
+    ) -> SearchPreparationBatch:
+        if not may_run_actions:
+            raise RouteError(403, "stopping preparation requires action permission")
         try:
             row = self.store.request_stop(
                 batch_id,
@@ -788,7 +833,9 @@ class SearchPreparationService:
                 receipt_id = receipt.id if receipt is not None else None
             if receipt_id is not None:
                 self._cancel_action_receipt(row, receipt_id)
-        return self._project(row)
+        return self._project(
+            row, may_setup_models=may_setup_models, may_run_actions=may_run_actions
+        )
 
     def _cancel_action_receipt(
         self, row: SearchPreparationBatchRow, receipt_id: str
@@ -899,14 +946,17 @@ class SearchPreparationService:
                 storage_org_id=row.storage_org_id,
             )
             return
-        self.create_after_materialization(
+        self._reserve_and_complete_automatic(
             row.project_id,
             sheet_id=row.sheet_id,
             row_ids=row.row_ids,
-            materialization_job_id=row.materialization_job_id,
+            pending=row,
         )
 
     def _recover_pending_import(self, row: SearchPreparationBatchRow) -> None:
+        if row.captured_sources is not None:
+            self._complete_automatic_plan(row)
+            return
         if row.import_ref is None or row.trigger_receipt_id is None:
             self.store.mark_settled(
                 row.id,
@@ -915,13 +965,6 @@ class SearchPreparationService:
             )
             return
         project = self.workspace.get(row.project_id)
-        if not self.automatic_enabled(row.project_id):
-            self.store.mark_settled(
-                row.id,
-                project_id=row.project_id,
-                storage_org_id=row.storage_org_id,
-            )
-            return
         session = ImportSessionStore(project).get(row.import_ref)
         if session is None:
             receipt = ReceiptStore(project).find_by_id(row.trigger_receipt_id)
@@ -1020,6 +1063,36 @@ class SearchPreparationService:
             source_cells=source_cells,
         )
 
+    def _awaiting_decision(
+        self,
+        row: SearchPreparationBatchRow,
+        children: Sequence[SearchPreparationChildRow],
+    ) -> bool:
+        if row.decision is not None or not row.plan:
+            return False
+        policy = row.plan.get("admission_policy")
+        automatic = (
+            policy == "automatic_local"
+            or (
+                policy is None
+                and (
+                    row.trigger_receipt_id is not None
+                    or row.materialization_job_id is not None
+                )
+            )
+        ) and self.automatic_enabled(row.project_id)
+        review_required = not automatic or any(
+            item["mime"] == "application/pdf" for item in row.plan["items"]
+        )
+        if not review_required:
+            return False
+        bound = {child.child_key for child in children if child.receipt_id is not None}
+        # Existing ordinary admissions retain their authority, including the
+        # enqueue/bind crash gap. An unadmitted reservation is not permission.
+        return any(
+            child.child_key not in bound for child in _planned_children(row.plan)
+        )
+
     def _advance(
         self,
         row: SearchPreparationBatchRow,
@@ -1045,7 +1118,7 @@ class SearchPreparationService:
                     live, required=bool(planned["required"])
                 )
         children = {child.child_key: child for child in self.store.children(row.id)}
-        if _awaiting_pdf_review(row, tuple(children.values())):
+        if self._awaiting_decision(row, tuple(children.values())):
             # Recover an action admitted before a crash between enqueue and
             # binding, without reserving or dispatching any fresh action.
             project = self.workspace.get(row.project_id)
@@ -1053,7 +1126,7 @@ class SearchPreparationService:
                 if child.receipt_id is None:
                     self._adopt_existing_action_child(project, row=row, child=child)
             children = {child.child_key: child for child in self.store.children(row.id)}
-            if _awaiting_pdf_review(row, tuple(children.values())):
+            if self._awaiting_decision(row, tuple(children.values())):
                 return
         for planned_child in _planned_children(row.plan):
             kind = planned_child.kind
@@ -1114,14 +1187,11 @@ class SearchPreparationService:
                 planned_child.items,
                 planned_child.child_key,
             )
-            if kind == "transcribe":
-                response = self.action_runs.run_action(
-                    row.project_id,
-                    body,
-                    required_execution_target=_LOCAL_TRANSCRIBE_TARGET,
-                )
-            else:
-                response = self.action_runs.run_action(row.project_id, body)
+            response = self.action_runs.run_action(
+                row.project_id,
+                body,
+                required_execution_target=planned_child.specification.execution_target,
+            )
             receipt_id = response.payload.get("receipt_id")
             if not isinstance(receipt_id, str):
                 errors = response.payload.get("errors")
@@ -1176,16 +1246,17 @@ class SearchPreparationService:
         durable job identity.
         """
 
-        receipt = self._child_action_receipt(project, row=row, child=child)
-        if receipt is None:
+        specification = _PREPARATION_KINDS[child.kind]
+        admission = self.action_runs.lookup_admission(
+            row.project_id,
+            action_kind=specification.action_id,
+            idempotency_key=f"search-preparation:{row.id}:{child.child_key}",
+        )
+        if admission is None:
             return False
+        receipt, job = admission.receipt, admission.job
         if receipt.run_id is None:
             return True
-        job = self.workspace.queue.get_project_run_job(
-            row.project_id,
-            receipt.run_id,
-            storage_org_id=row.storage_org_id,
-        )
         if job is None:
             current = self.store.get(
                 row.id,
@@ -1194,17 +1265,11 @@ class SearchPreparationService:
             )
             if current.stop_requested_at is not None:
                 return True
-            if child.kind == "transcribe":
-                response = self.action_runs.recover_prepared_action(
-                    row.project_id,
-                    receipt_id=receipt.id,
-                    required_execution_target=_LOCAL_TRANSCRIBE_TARGET,
-                )
-            else:
-                response = self.action_runs.recover_prepared_action(
-                    row.project_id,
-                    receipt_id=receipt.id,
-                )
+            response = self.action_runs.recover_prepared_action(
+                row.project_id,
+                receipt_id=receipt.id,
+                required_execution_target=specification.execution_target,
+            )
             if response is None:
                 return True
             recovered_receipt_id = response.payload.get("receipt_id")
@@ -1282,7 +1347,7 @@ class SearchPreparationService:
         *,
         setup: _SetupSnapshot | None = None,
     ) -> None:
-        if _awaiting_pdf_review(row, self.store.children(row.id)):
+        if self._awaiting_decision(row, self.store.children(row.id)):
             return
         setup = setup or self._setup_snapshot()
         live = setup.requirements_by_ref
@@ -1468,6 +1533,7 @@ class SearchPreparationService:
         row: SearchPreparationBatchRow,
         *,
         may_setup_models: bool = True,
+        may_run_actions: bool = True,
         setup: _SetupSnapshot | None = None,
     ) -> SearchPreparationBatch:
         setup = setup or self._setup_snapshot()
@@ -1482,7 +1548,7 @@ class SearchPreparationService:
             for child in self.store.children(row.id)
             if child.child_key in expected_keys
         ]
-        awaiting_pdf_review = _awaiting_pdf_review(row, children)
+        awaiting_decision = self._awaiting_decision(row, children)
         project = self.workspace.get(row.project_id)
         receipts = ReceiptStore(project)
         jobs: list[SearchPreparationJob] = []
@@ -1604,7 +1670,7 @@ class SearchPreparationService:
                     required=planned["required"],
                     ready=ready,
                     runtime_ready=runtime_ready,
-                    can_setup=not ready and setup_eligible,
+                    can_setup=may_setup_models and not ready and setup_eligible,
                     download_bytes=None if weights_ready else planned["download_bytes"],
                     additional_runtime_download=planned["additional_runtime_download"],
                     remediation=planned["remediation"],
@@ -1620,7 +1686,7 @@ class SearchPreparationService:
             status = "stopped"
         elif row.errors or setup_failed or job_statuses & {"failed", "cancelled"}:
             status = "failed"
-        elif awaiting_pdf_review or (missing_required and row.decision is None):
+        elif awaiting_decision or (missing_required and row.decision is None):
             status = "needs_consent"
         elif row.decision != "not_now" and (missing_required or setup_active):
             status = "preparing"
@@ -1687,10 +1753,10 @@ class SearchPreparationService:
             groups=groups,
             models=models,
             jobs=jobs,
-            can_stop=status in {"preparing", "needs_consent"},
+            can_stop=may_run_actions and status in {"preparing", "needs_consent"},
             can_setup=may_setup_models
             and status == "needs_consent"
-            and any(m.required and not m.ready and m.can_setup for m in models),
+            and any(m.can_setup for m in models),
             errors=list(dict.fromkeys(projection_errors)),
             warnings=warnings,
         )

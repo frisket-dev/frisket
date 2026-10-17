@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 import json
 import sqlite3
@@ -12,6 +13,9 @@ from frisket.engine.jobs.projection import job_run_id
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.pdf_text import PdfTextError, PdfTextSample
 from frisket.server.app import create_app
+from frisket.server.route_errors import register_route_error_handler
+from frisket.server.routes.search_preparation import register_search_preparation_routes
+from frisket.server.services.selector_choices_capabilities import SelectorCapabilities
 from frisket.server.services import search_preparation as preparation_module
 from frisket.server.services import search_preparation_planning as planning_module
 from frisket.server.services.search_preparation import SearchPreparationService
@@ -152,9 +156,7 @@ def test_explicit_preparation_is_reconnectable_and_double_click_safe(
     assert first.status_code == 200, first.text
     assert second.status_code == 200, second.text
     assert second.json()["id"] == first.json()["id"]
-    # Project writes leave lexical index work pending; the batch remains
-    # preparing until the normal index worker makes the content query-visible.
-    assert first.json()["status"] == "preparing"
+    assert first.json()["status"] == "needs_consent"
 
     listed = client.get(f"/api/projects/{project_id}/search-preparation")
     assert listed.status_code == 200
@@ -521,6 +523,217 @@ def test_explicit_preparation_rejects_rows_outside_visible_scope(
     assert response.status_code == 404
 
 
+@pytest.mark.parametrize(
+    "media_type,mime,capability",
+    [
+        ("image", "image/png", "ocr"),
+        ("audio", "audio/wav", "transcription"),
+    ],
+)
+def test_manual_ready_media_requires_decision_across_recovery(
+    tmp_path, monkeypatch, media_type, mime, capability
+):
+    if capability == "transcription":
+        monkeypatch.setattr(
+            "frisket.execution.definitions.parakeet_runtime_present", lambda: True
+        )
+        monkeypatch.setattr(
+            "frisket.execution.definitions.parakeet_artifacts_present", lambda: True
+        )
+    requirement = replace(_Requirement(), capability=capability, weights_ready=True)
+    monkeypatch.setattr(preparation_module, "_requirements", lambda: (requirement,))
+    client = TestClient(create_app(tmp_path / "workspace"))
+    workspace = client.app.state.workspace
+    project_id = workspace.create("Manual review")["id"]
+    project = workspace.get(project_id)
+    sheet = project.add_sheet("Files")
+    column = project.add_column(sheet, "Source", type=media_type)
+    digest = project.add_blob(b"media", filename="source", mime=mime)
+    project.add_rows(
+        sheet, [{"Source": {"blob": digest, "mime": mime}}], {"Source": column}
+    )
+    base = f"/api/projects/{project_id}/search-preparation"
+    opened = client.post(base, json={"sheet_id": sheet})
+    assert opened.status_code == 200, opened.text
+    batch = opened.json()
+    assert batch["status"] == "needs_consent"
+    for _ in range(2):
+        service = SearchPreparationService(workspace)
+        service.recover()
+        assert service.get(project_id, batch["id"]).jobs == []
+        assert service.store.children(batch["id"]) == []
+    assert (
+        workspace.queue.list_project_jobs(project_id, kind="project.run", limit=20)
+        == []
+    )
+    deferred = client.post(
+        f"{base}/{batch['id']}/decision",
+        json={"plan_hash": batch["plan_hash"], "decision": "not_now"},
+    )
+    assert deferred.status_code == 422
+    assert service.store.children(batch["id"]) == []
+    accepted = client.post(
+        f"{base}/{batch['id']}/decision",
+        json={"plan_hash": batch["plan_hash"], "decision": "prepare"},
+    )
+    assert accepted.status_code == 200, accepted.text
+    assert len(accepted.json()["jobs"]) == 1
+    service.recover()
+    assert len(service.store.children(batch["id"])) == 1
+
+
+@pytest.mark.parametrize("origin", ["import", "materialization"])
+def test_trusted_automatic_ready_media_still_admits_without_downloads(
+    tmp_path, monkeypatch, origin
+):
+    monkeypatch.setattr(
+        preparation_module,
+        "_requirements",
+        lambda: (replace(_Requirement(), weights_ready=True),),
+    )
+    workspace = Workspace(tmp_path / "workspace")
+    project_id = workspace.create("Automatic preparation")["id"]
+    project = workspace.get(project_id)
+    sheet = project.add_sheet("Files")
+    column = project.add_column(sheet, "Source", type="image")
+    digest = project.add_blob(b"media", mime="image/png")
+    rows = project.add_rows(
+        sheet, [{"Source": {"blob": digest, "mime": "image/png"}}], {"Source": column}
+    )
+    service = SearchPreparationService(workspace)
+    if origin == "import":
+        batch_id = service.create_after_import(
+            project_id, receipt_id="receipt:trusted-import", sheet_id=sheet
+        )
+    else:
+        # Bulk import has no enclosure job ID. A transient preview failure
+        # must leave an exact scope that a new coordinator can recover.
+        original_plan = service._plan
+
+        def transient(*_args, **_kwargs):
+            raise preparation_module.RouteError(503, "preview temporarily unavailable")
+
+        monkeypatch.setattr(service, "_plan", transient)
+        with pytest.raises(preparation_module.RouteError):
+            service.create_after_materialization(
+                project_id, sheet_id=sheet, row_ids=rows
+            )
+        [pending] = service.store.list_active_page(storage_org_id=None)
+        assert pending.plan is None
+        assert pending.captured_sources is not None
+        batch_id = pending.id
+        extra = project.add_column(sheet, "Later", type="image")
+        project.apply_edits(
+            [
+                {
+                    "row_id": rows[0],
+                    "column_id": extra,
+                    "value": {"blob": digest, "mime": "image/png"},
+                }
+            ]
+        )
+        project.add_rows(
+            sheet,
+            [{"Source": {"blob": digest, "mime": "image/png"}}],
+            {"Source": column},
+        )
+        monkeypatch.setattr(service, "_plan", original_plan)
+    assert batch_id is not None
+    SearchPreparationService(workspace).recover()
+    assert len(service.get(project_id, batch_id).jobs) == 1
+    assert (
+        model_pull_store.list_recent(
+            workspace.queue.engine, workspace_root=str(workspace.root)
+        )
+        == []
+    )
+    planned = service.store.get(
+        batch_id, project_id=project_id, storage_org_id=None
+    ).plan
+    assert {(item["row_id"], item["column_id"]) for item in planned["items"]} == {
+        (rows[0], column)
+    }
+
+
+def test_optional_setup_permission_is_consistent_on_every_plan_response(
+    tmp_path, monkeypatch
+):
+    semantic = replace(
+        _Requirement(),
+        setup_ref="engine-setup:embeddinggemma-2.local@1",
+        capability="semantic_search",
+    )
+    monkeypatch.setattr(
+        preparation_module,
+        "_requirements",
+        lambda: (replace(_Requirement(), weights_ready=True), semantic),
+    )
+    workspace = Workspace(tmp_path / "workspace")
+    project_id = workspace.create("Optional setup")["id"]
+    project = workspace.get(project_id)
+    sheet = project.add_sheet("Files")
+    column = project.add_column(sheet, "Source", type="image")
+    digest = project.add_blob(b"media", mime="image/png")
+    project.add_rows(
+        sheet, [{"Source": {"blob": digest, "mime": "image/png"}}], {"Source": column}
+    )
+    setup_calls = []
+    service = SearchPreparationService(
+        workspace, setup_start=lambda ref, actor: setup_calls.append(ref) or 1
+    )
+    app = FastAPI()
+    register_route_error_handler(app)
+    permission = [False]
+    register_search_preparation_routes(
+        app,
+        service=service,
+        capabilities_for=lambda _request, _pid: SelectorCapabilities(
+            manage_model_downloads=permission[0], may_run_actions=permission[0]
+        ),
+    )
+    client = TestClient(app)
+    base = f"/api/projects/{project_id}/search-preparation"
+    created = client.post(base, json={"sheet_id": sheet})
+    assert created.status_code == 200, created.text
+    batch = created.json()
+    for projected in [
+        batch,
+        client.get(f"{base}/{batch['id']}").json(),
+        client.get(base).json()["batches"][0],
+    ]:
+        assert not projected["can_stop"]
+        assert not projected["can_setup"]
+        assert all(not model["can_setup"] for model in projected["models"])
+    rejected = client.post(
+        f"{base}/{batch['id']}/decision",
+        json={
+            "plan_hash": batch["plan_hash"],
+            "decision": "prepare",
+            "selected_setup_refs": [semantic.setup_ref],
+        },
+    )
+    assert rejected.status_code == 403
+    assert setup_calls == []
+    assert service.store.children(batch["id"]) == []
+    permission[0] = True
+    allowed = client.get(f"{base}/{batch['id']}").json()
+    assert allowed["can_stop"]
+    assert allowed["can_setup"]
+    assert next(
+        model for model in allowed["models"] if model["setup_ref"] == semantic.setup_ref
+    )["can_setup"]
+    accepted = client.post(
+        f"{base}/{batch['id']}/decision",
+        json={
+            "plan_hash": batch["plan_hash"],
+            "decision": "prepare",
+            "selected_setup_refs": [semantic.setup_ref],
+        },
+    )
+    assert accepted.status_code == 200, accepted.text
+    assert setup_calls == [semantic.setup_ref]
+
+
 def test_missing_ocr_setup_never_starts_before_exact_consent(
     tmp_path, monkeypatch
 ) -> None:
@@ -717,13 +930,15 @@ def test_pdf_replan_preserves_full_original_cell_scope_and_rejects_late_decision
     base = f"/api/projects/{project_id}/search-preparation"
     service = SearchPreparationService(workspace)
     import_receipt = "receipt:pdf-import"
-    original = service.create(
+    original_id = service.create_after_import(
         project_id,
+        receipt_id=import_receipt,
         sheet_id=sheet,
         row_ids=rows,
-        force_ocr=False,
-        trigger_receipt_id=import_receipt,
-    ).model_dump(mode="json", by_alias=True)
+    )
+    original = service.get(project_id, original_id).model_dump(
+        mode="json", by_alias=True
+    )
     assert original["status"] == "needs_consent"
     assert original["jobs"] == []
     # A new source column on the same selected rows must not enter the replacement.
@@ -1048,14 +1263,16 @@ def test_identical_decision_replays_after_setup_facts_change(
     )
     service = SearchPreparationService(workspace)
     batch = service.create(project_id, sheet_id=sheet_id, row_ids=None, force_ocr=False)
-    first = service.decide(
-        project_id,
+    # Existing persisted decisions retain replay/recovery semantics; the new
+    # HTTP contract no longer admits not_now as a fresh decision.
+    first = service.store.decide(
         batch.id,
+        project_id=project_id,
+        storage_org_id=None,
         plan_hash=batch.plan_hash,
         decision="not_now",
         selected_setup_refs=[],
-        may_setup_models=True,
-        initiated_by="owner-1",
+        decided_by="owner-1",
     )
     requirements[0] = replace(requirements[0], weights_ready=True)
 
@@ -1073,8 +1290,9 @@ def test_identical_decision_replays_after_setup_facts_change(
     assert replay.errors == []
 
 
-def test_undecided_batch_recovers_when_required_engine_becomes_ready(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize("origin", ["manual", "automatic_replan"])
+def test_manual_undecided_batch_does_not_admit_when_engine_becomes_ready(
+    tmp_path, monkeypatch, origin
 ) -> None:
     requirements = [_Requirement()]
     monkeypatch.setattr(
@@ -1092,12 +1310,55 @@ def test_undecided_batch_recovers_when_required_engine_becomes_ready(
         {"Image": image_column},
     )
     service = SearchPreparationService(workspace)
-    batch = service.create(project_id, sheet_id=sheet_id, row_ids=None, force_ocr=False)
+    if origin == "manual":
+        batch = service.create(
+            project_id, sheet_id=sheet_id, row_ids=None, force_ocr=False
+        )
+    else:
+        automatic_id = service.create_after_import(
+            project_id, receipt_id="receipt:replan", sheet_id=sheet_id
+        )
+        automatic = service.get(project_id, automatic_id)
+        batch = service.replan(
+            project_id, automatic.id, plan_hash=automatic.plan_hash, force_ocr=False
+        )
+        assert (
+            service.store.get(
+                batch.id, project_id=project_id, storage_org_id=None
+            ).plan["admission_policy"]
+            == "manual_review"
+        )
     assert service.store.list_active_page(storage_org_id=None)[0].id == batch.id
 
     requirements[0] = replace(requirements[0], weights_ready=True)
     service.recover()
 
+    assert service.store.children(batch.id) == []
+    current = service.get(project_id, batch.id)
+    assert current.status == "needs_consent"
+    # Readiness changed the displayed facts, so stale approval refreshes the
+    # exact plan before it can admit the ordinary action.
+    with pytest.raises(preparation_module.RouteError) as stale:
+        service.decide(
+            project_id,
+            batch.id,
+            plan_hash=batch.plan_hash,
+            decision="prepare",
+            selected_setup_refs=[],
+            may_setup_models=True,
+            initiated_by="owner",
+        )
+    assert stale.value.status_code == 409
+    refreshed = service.get(project_id, batch.id)
+    service.decide(
+        project_id,
+        batch.id,
+        plan_hash=refreshed.plan_hash,
+        decision="prepare",
+        selected_setup_refs=[],
+        may_setup_models=True,
+        initiated_by="owner",
+    )
     [child] = service.store.children(batch.id)
     assert child.receipt_id is not None and child.job_id is not None
 
@@ -1339,6 +1600,15 @@ def test_live_action_progress_overrides_a_stale_queued_receipt(
     service = SearchPreparationService(workspace)
 
     batch = service.create(project_id, sheet_id=sheet_id, row_ids=None, force_ocr=False)
+    batch = service.decide(
+        project_id,
+        batch.id,
+        plan_hash=batch.plan_hash,
+        decision="prepare",
+        selected_setup_refs=[],
+        may_setup_models=True,
+        initiated_by="owner",
+    )
     [child] = service.store.children(batch.id)
     assert child.job_id is not None and child.receipt_id is not None
     stored = ReceiptStore(project).find_by_id(child.receipt_id)
@@ -1540,8 +1810,8 @@ def test_raced_action_reservation_defers_without_poisoning_batch(
         {"Image": image_column},
     )
 
-    class ReservationInProgress:
-        def run_action(self, _project_id, _body):
+    class ReservationInProgress(preparation_module.ActionRunService):
+        def run_action(self, _project_id, _body, **_kwargs):
             return ActionRunResponse(
                 status_code=200,
                 payload={
@@ -1555,8 +1825,19 @@ def test_raced_action_reservation_defers_without_poisoning_batch(
                 },
             )
 
-    service = SearchPreparationService(workspace, action_runs=ReservationInProgress())
+    service = SearchPreparationService(
+        workspace, action_runs=ReservationInProgress(workspace)
+    )
     batch = service.create(project_id, sheet_id=sheet_id, row_ids=None, force_ocr=False)
+    batch = service.decide(
+        project_id,
+        batch.id,
+        plan_hash=batch.plan_hash,
+        decision="prepare",
+        selected_setup_refs=[],
+        may_setup_models=True,
+        initiated_by="owner",
+    )
 
     assert batch.errors == []
     [child] = service.store.children(batch.id)
@@ -1664,3 +1945,61 @@ def test_empty_project_does_not_queue_or_report_search_preparation(tmp_path):
     status = client.get(url).json()["indexing"]
     assert status["status"] == "queued"
     assert status["job_id"] is not None
+
+
+def test_automatic_ocr_keeps_local_target_with_cloud_first_account(
+    tmp_path, monkeypatch
+):
+    from frisket.cloud_connection import CloudConnectionStore
+    from frisket.engine.store.execution_routes import RouteStore
+    from frisket.project_settings import ProjectSettings, write_project_settings
+    from tests.server.test_cloud_connection import _session, _capabilities
+
+    monkeypatch.setattr(
+        preparation_module,
+        "_requirements",
+        lambda: (replace(_Requirement(), weights_ready=True),),
+    )
+    monkeypatch.setattr(
+        "frisket.ops.ocr_engines.rapidocr_available", lambda: (True, None)
+    )
+    store = CloudConnectionStore(tmp_path / "profile")
+    store.save_connection("test-token", _session())
+
+    class Client:
+        def capabilities(self, _token, account_id):
+            return _capabilities(account_id=account_id)
+
+        def execute(self, *_args, **_kwargs):
+            raise AssertionError("automatic local preparation must not use Cloud")
+
+    workspace = Workspace(
+        tmp_path / "workspace",
+        cloud_connection_store=store,
+        cloud_connection_client=Client(),
+    )
+    project_id = workspace.create("Local automatic OCR")["id"]
+    project = workspace.get(project_id)
+    write_project_settings(
+        project,
+        ProjectSettings(
+            cloud_user_id=7,
+            cloud_account_id=41,
+            cloud_execution_preference="cloud_first",
+        ),
+    )
+    sheet = project.add_sheet("Files")
+    column = project.add_column(sheet, "Source", type="image")
+    digest = project.add_blob(b"media", mime="image/png")
+    project.add_rows(
+        sheet, [{"Source": {"blob": digest, "mime": "image/png"}}], {"Source": column}
+    )
+    service = SearchPreparationService(workspace)
+    batch_id = service.create_after_import(
+        project_id, receipt_id="receipt:local-only", sheet_id=sheet
+    )
+    [child] = service.store.children(batch_id)
+    stored = ReceiptStore(project).find_by_id(child.receipt_id)
+    route, _promises = RouteStore.for_run(project, stored.run_id).head()
+    assert route.target_snapshot["target_id"] == "local"
+    assert len(service.get(project_id, batch_id).jobs) == 1
