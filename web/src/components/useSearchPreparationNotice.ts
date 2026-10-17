@@ -10,19 +10,9 @@ import {
 } from '../api/searchPreparation';
 import { usePoll } from '../hooks/usePoll';
 
-interface LegacySearchIndexingProjection {
-  status: 'idle' | 'pending' | 'queued' | 'running' | 'failed';
-  job_id: number | null;
-  error: string | null;
-}
-
 type SearchPreparationListResult = Awaited<ReturnType<typeof listSearchPreparations>>;
-type GeneratedSearchIndexingProjection = SearchPreparationListResult extends { indexing: infer Indexing }
-  ? Indexing
-  : never;
-export type SearchIndexingProjection = [GeneratedSearchIndexingProjection] extends [never]
-  ? LegacySearchIndexingProjection
-  : GeneratedSearchIndexingProjection;
+export type SearchIndexingProjection = SearchPreparationListResult['indexing'];
+type IndexingPdfFile = NonNullable<SearchIndexingProjection['pdf_files']>[number];
 
 interface ScopedPull {
   pull: ModelPullDto;
@@ -44,6 +34,8 @@ export type SearchPreparationNotice = {
   detail: string;
   progress: number | null;
   details: string[];
+  pdfFiles?: IndexingPdfFile[];
+  pdfFilesTruncated?: boolean;
 };
 
 const IDLE_INDEXING: SearchIndexingProjection = {
@@ -158,7 +150,7 @@ function indexingDetail(indexing: SearchIndexingProjection): string {
   }
 }
 
-export function deriveSearchPreparationNotice(
+function deriveSearchPreparationStageNotice(
   snapshot: SearchPreparationSnapshot,
   completion: string | null = null,
   activityIdentity: string | null = null,
@@ -371,6 +363,20 @@ export function deriveSearchPreparationNotice(
   return null;
 }
 
+export function deriveSearchPreparationNotice(
+  snapshot: SearchPreparationSnapshot,
+  completion: string | null = null,
+  activityIdentity: string | null = null,
+): SearchPreparationNotice | null {
+  const notice = deriveSearchPreparationStageNotice(snapshot, completion, activityIdentity);
+  if (!notice || !['pending', 'queued', 'running'].includes(snapshot.indexing.status)) return notice;
+  return {
+    ...notice,
+    pdfFiles: snapshot.indexing.pdf_files ?? [],
+    pdfFilesTruncated: snapshot.indexing.pdf_files_truncated ?? false,
+  };
+}
+
 function completedSince(
   previous: SearchPreparationSnapshot | null,
   next: SearchPreparationSnapshot,
@@ -387,10 +393,6 @@ function completedSince(
   ) return true;
   return false;
 }
-
-type PreparationListResult = SearchPreparationListResult & {
-  indexing?: SearchIndexingProjection;
-};
 
 async function loadPulls(team: boolean, previous: ScopedPull[]): Promise<ScopedPull[]> {
   const scope: ScopedPull['scope'] = team ? 'organization' : 'workspace';
@@ -483,7 +485,7 @@ export function useSearchPreparationNotice(projectId: string, team: boolean): Se
     ]);
     if (generation !== requestGeneration.current) return;
     const preparationPayload = preparationsResult.status === 'fulfilled'
-      ? preparationsResult.value as PreparationListResult
+      ? preparationsResult.value
       : null;
     const batches = relevantBatches(
       preparationPayload?.batches ?? previous?.batches ?? [],

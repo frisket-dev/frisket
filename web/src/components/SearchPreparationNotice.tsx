@@ -73,6 +73,26 @@ export function SearchPreparationNotice({
         </div>
       )}
 
+      {!!notice.pdfFiles?.length && (
+        <div className="run-file-progress-list" role="group" aria-label="PDF indexing progress">
+          {notice.pdfFiles.map((file) => (
+            <div className="run-file-progress" key={file.source_id}>
+              <div className="run-file-progress-copy">
+                <span className="run-file-progress-name">{file.filename || 'PDF document'}</span>
+                <span className="run-file-progress-count">{file.completed.toLocaleString()} / {file.total.toLocaleString()} pages</span>
+              </div>
+              <progress
+                className="run-file-progress-bar"
+                aria-label={`Indexing pages for ${file.filename || 'PDF document'}`}
+                max={file.total}
+                value={file.completed}
+              />
+            </div>
+          ))}
+        </div>
+      )}
+      {notice.pdfFilesTruncated && <p className="search-preparation-details">More PDFs are being indexed.</p>}
+
       {notice.details.length > 0 && (
         <div className="search-preparation-details">
           <button
