@@ -129,6 +129,7 @@ class _BoundNativePdfTextReader:
         prepared_pages = []
         blocks = []
         page_images = {}
+        textless_pages = 0
         try:
             with self._owner._project.materialize_blob(source_ref["blob_hash"]) as raw:
                 original = Path(raw)
@@ -158,6 +159,8 @@ class _BoundNativePdfTextReader:
                         raise PdfTextError("PDF text extraction was incomplete")
                     for page in batch.pages:
                         text = positioned_tokens_text(page.tokens)
+                        if not text:
+                            textless_pages += 1
                         page_blocks = [
                             {
                                 "text": token.text,
@@ -226,8 +229,15 @@ class _BoundNativePdfTextReader:
             "blocks": blocks,
             "pages": prepared_pages,
             "page_images": page_images,
+            "warnings": [
+                f"{textless_pages} of {len(prepared_pages)} pages have no embedded text. "
+                "If they contain scanned text, re-scan with OCR to include it."
+            ]
+            if textless_pages
+            else [],
         }
-        self._owner.calls_by_row[self._row_id] = [copy.deepcopy(call)]
+        # Row publication copies these host-owned facts before compacting them.
+        self._owner.calls_by_row[self._row_id] = [call]
         return OcrText(text)
 
 

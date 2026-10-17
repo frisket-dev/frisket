@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from contextlib import closing
 from pathlib import Path
 
@@ -289,10 +290,48 @@ def test_native_pdf_action_uses_real_fenced_extractor(tmp_path: Path) -> None:
         )
 
         assert result.status == "completed", result.errors
+        assert not result.warnings
         output = next(item for item in result.outputs if item.name == "prepared text")
         assert project.get_values(sheet_id, output.column_id, [row_id])[row_id] == (
             "REALNATIVEONE\n\nREALNATIVETWO"
         )
+
+
+def test_mixed_native_pdf_retains_blank_pages_and_warns_in_result_and_receipt(
+    tmp_path: Path,
+) -> None:
+    warning = (
+        "1 of 3 pages have no embedded text. "
+        "If they contain scanned text, re-scan with OCR to include it."
+    )
+    with closing(Project.create(tmp_path / "mixed-warning.frisket")) as project:
+        sheet_id, _source_id, row_id, _digest = _source(
+            project, tmp_path, pdf=_pdf_bytes("NATIVEFIRST", "", "NATIVELAST")
+        )
+        result = run_action_spec(
+            project,
+            _request(sheet_id, row_id, key="mixed-warning"),
+            project_id=PROJECT_ID,
+        )
+        assert result.status == "completed", result.errors
+        output = next(item for item in result.outputs if item.name == "prepared text")
+        raw = project.db.execute(
+            "SELECT value_kind,value,warnings,error FROM results WHERE run_id=? AND row_id=? AND column_id=?",
+            (result.run_id, row_id, output.column_id),
+        ).fetchone()
+        assert raw["value_kind"] == "prepared_content_ref" and raw["error"] is None
+        prepared = PreparedContentStore(project).resolve(int(raw["value"]))
+        assert prepared.text == "NATIVEFIRST\n\n\n\nNATIVELAST"
+        assert [pin.page_number for pin in prepared.pins] == [1, 2, 3]
+        assert json.loads(raw["warnings"]) == [warning]
+        assert sum(warning in item for item in result.warnings) == 1
+        receipt = json.loads(
+            project.db.execute(
+                "SELECT body FROM receipts WHERE id=?",
+                (result.receipt_id,),
+            ).fetchone()["body"]
+        )
+        assert sum(warning in item for item in receipt["warnings"]) == 1
 
 
 def test_wholly_textless_document_reports_needs_ocr_without_prepared_value(

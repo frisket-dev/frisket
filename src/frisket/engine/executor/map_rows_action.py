@@ -1052,6 +1052,12 @@ class _TypedMapRowsProgram(Recipe):
                         "text"
                     ):
                         cell["prepared_ocr_call_id"] = call["call_id"]
+                        if call.get("warnings"):
+                            cell["warnings"] = list(
+                                dict.fromkeys(
+                                    (*cell.get("warnings", ()), *call["warnings"])
+                                )
+                            )
                         break
         if Researcher in getattr(self._terminal, "capabilities", ()) and any(
             call.get("kind") == "research_answer" and call.get("unverified_memory")
