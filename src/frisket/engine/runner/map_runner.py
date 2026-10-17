@@ -150,7 +150,6 @@ _ROW_EFFECT_IDENTITY_IGNORED_SPEC_KEYS = frozenset(
         "consented_promise_set_hash",
         "halted_code",
         "halted_reason",
-        "_work_progress",
         # Selection is represented exactly by run_id + row_id.  A backfill may
         # spell its delta differently while asking the same row operation.
         "row_ids",

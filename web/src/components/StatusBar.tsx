@@ -22,7 +22,11 @@ function isNoLiveWorker(run: RunProgress): boolean {
 }
 
 function rowsProgress(run: RunProgress): string {
-  return `${run.completedRows.toLocaleString()}/${run.totalRows.toLocaleString()} rows`;
+  const rows = `${run.completedRows.toLocaleString()}/${run.totalRows.toLocaleString()} rows`;
+  const pages = run.workProgress;
+  return pages && run.status === 'running'
+    ? `${rows} · ${pages.completed.toLocaleString()}/${pages.total.toLocaleString()} pages in current file`
+    : rows;
 }
 
 function activeStatusCopy(run: RunProgress): string {
@@ -609,6 +613,10 @@ function RunWatcherBody({
         <span>
           {run.completedRows.toLocaleString()} / {run.totalRows.toLocaleString()} ({pct.toFixed(0)}%)
         </span>
+        {run.status === 'running' && run.workProgress && <>
+          <span className="prov-key">pages in current file</span>
+          <span>{run.workProgress.completed.toLocaleString()} / {run.workProgress.total.toLocaleString()}</span>
+        </>}
         <span className="prov-key">failed</span>
         <span className={run.failedRows > 0 ? 'run-failed' : undefined}>
           {run.failedRows.toLocaleString()}

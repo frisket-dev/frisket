@@ -2960,6 +2960,7 @@ export interface RunProgress {
   /** Present only while a zero-row run is preparing an automatically
    * provisioned local artifact. The server owns the preparation decision. */
   preparation?: { message: string } | null;
+  workProgress?: { kind: 'ocr_pages'; row_id: number; completed: number; total: number } | null;
   /** Reconciler's reason a run is stalled/orphaned (e.g. 'no_live_worker'). */
   staleReason?: string | null;
   /** A typed recipe/session halt behind a resumable 'cancelled' (e.g.

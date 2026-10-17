@@ -380,8 +380,7 @@ class RunResultStore:
             {"kind": kind, "row_id": row_id, "completed": completed, "total": total}
         )
         self.db.execute(
-            "UPDATE runs SET params=json_set(COALESCE(params, '{}'), "
-            "'$._work_progress', json(?)) WHERE id=? AND status='running'",
+            "UPDATE runs SET work_progress=? WHERE id=? AND status='running'",
             (value, run_id),
         )
         self.db.commit()
@@ -3224,7 +3223,7 @@ class RunResultStore:
                 row["cancel_requested_at"] if status == "running" else None
             )
             self.db.execute(
-                "UPDATE runs SET status='running', finished_at=NULL, params=?, "
+                "UPDATE runs SET status='running', finished_at=NULL, work_progress=NULL, params=?, "
                 "cancel_requested_at=?, halted_code=NULL, "
                 "halted_reason=NULL WHERE id=?",
                 (transient_params, transient_cancel_requested_at, run_id),

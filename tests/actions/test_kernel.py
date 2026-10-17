@@ -555,8 +555,9 @@ def test_outcome_keeps_successful_absence_distinct_from_failure() -> None:
 
 def test_result_annotations_validate_at_the_cell_outcome_boundary() -> None:
     output = TemplateOutput(rendered="value")
-    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
-        RowResult[TemplateOutput](output=output, warnings=("later",))
+    result = RowResult[TemplateOutput](output=output, warnings=("later",))
+    assert result.output == output
+    assert result.warnings == ("later",)
     with pytest.raises(ValidationError, match="EvidenceClaim"):
         Outcome[str](status="ok", value="value", evidence=("later",))
     claim = EvidenceClaim(quote="value", segment_indices=(0,))

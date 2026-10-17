@@ -229,7 +229,6 @@ def test_page_work_progress_survives_status_reads_and_stops_at_terminal(tmp_path
             "params"
         ]
     )
-    after.pop("_work_progress")
     assert after == before
     _set_run_clock(
         client,
@@ -243,8 +242,8 @@ def test_page_work_progress_survives_status_reads_and_stops_at_terminal(tmp_path
     store.set_work_progress(run_id, kind="ocr_pages", row_id=1, completed=8, total=300)
     assert _action_run_public_status(client, pid, run_id).get("work_progress") is None
     saved = json.loads(
-        project.db.execute("SELECT params FROM runs WHERE id=?", (run_id,)).fetchone()[
-            "params"
-        ]
+        project.db.execute(
+            "SELECT work_progress FROM runs WHERE id=?", (run_id,)
+        ).fetchone()["work_progress"]
     )
-    assert saved["_work_progress"]["completed"] == 7
+    assert saved["completed"] == 7

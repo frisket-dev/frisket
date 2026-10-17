@@ -216,11 +216,11 @@ def project_run_status_payload(
         payload["error"] = status.job_error
     if status.public_status == "running":
         try:
-            params = json.loads(row["params"] or "{}")
-        except (TypeError, ValueError):
-            params = {}
-        if isinstance(params, dict) and params.get("_work_progress"):
-            payload["work_progress"] = params["_work_progress"]
+            work_progress = json.loads(row["work_progress"] or "null")
+        except (TypeError, ValueError, KeyError, IndexError):
+            work_progress = None
+        if isinstance(work_progress, dict):
+            payload["work_progress"] = work_progress
     if preparation := _run_preparation_hint(row, status.public_status):
         payload["preparation"] = preparation
     # A typed recipe/session halt (e.g. Parakeet's local_artifact_unavailable)
