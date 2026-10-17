@@ -84,6 +84,8 @@ test('semantic setup keeps download progress and errors visible after closing se
   await page.getByRole('button', { name: 'Close command palette' }).click();
   await expect(palette).toBeHidden();
   const notice = page.getByTestId('search-preparation-banner');
+  await expect(notice).toBeHidden();
+  await page.getByTestId('search-activity-toggle').click();
   await expect(notice).toContainText('EmbeddingGemma 2');
   await expect(notice.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '25');
   await page.screenshot({ path: testInfo.outputPath('download-progress@2x.png'), animations: 'disabled' });
