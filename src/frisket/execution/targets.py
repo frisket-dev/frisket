@@ -14,7 +14,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Literal, Union, get_args
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field as PydanticField
 
 from frisket.contracts.actions.schemas._engines import (
     CensusTransport,
@@ -192,6 +192,8 @@ class OcrOptionSupport(BaseModel):
     - ``geometry``: whether the engine returns bounding boxes for highlights.
     - ``searchable_pdf``: whether those boxes can compose a PDF text layer.
       Region boxes alone do not guarantee usable text-layer alignment.
+    - ``pdf_input``: whether a Cloud media route accepts one original PDF and
+      performs its own bounded page rendering under the admitted operation.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -199,6 +201,7 @@ class OcrOptionSupport(BaseModel):
     language: bool = False
     geometry: bool = False
     searchable_pdf: bool = False
+    pdf_input: bool = PydanticField(default=False, exclude_if=lambda value: not value)
 
 
 class TranslateOptionSupport(BaseModel):

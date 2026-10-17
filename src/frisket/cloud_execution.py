@@ -477,6 +477,7 @@ class HttpCloudExecutionTransport:
                 "/api/desktop/v1/media-executions",
                 attempt=attempt,
                 confirmation=confirmation,
+                ocr_contract=True,
                 data={
                     "metadata": metadata.model_dump_json(
                         by_alias=True, exclude_none=True
@@ -503,6 +504,7 @@ class HttpCloudExecutionTransport:
             "GET",
             self._execution_path(execution_id),
             attempt=attempt,
+            ocr_contract=True,
         )
         parsed = self._validate_response(attempt, self._parse_execution(response))
         return (
@@ -518,6 +520,7 @@ class HttpCloudExecutionTransport:
             "DELETE",
             self._execution_path(execution_id),
             attempt=attempt,
+            ocr_contract=True,
         )
         parsed = self._validate_response(attempt, self._parse_execution(response))
         return (
@@ -580,6 +583,7 @@ class HttpCloudExecutionTransport:
         *,
         attempt: CloudExecutionAttempt,
         confirmation: str | None = None,
+        ocr_contract: bool = False,
         **kwargs: Any,
     ) -> httpx.Response:
         token = self._access_token(attempt)
@@ -588,6 +592,8 @@ class HttpCloudExecutionTransport:
             "Authorization": f"Bearer {token}",
             "Idempotency-Key": attempt.request_id,
         }
+        if ocr_contract:
+            headers["X-Frisket-OCR-Contract"] = "pdf-v1"
         if confirmation is not None:
             headers["X-Frisket-Confirmation"] = confirmation
         try:
