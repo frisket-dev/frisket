@@ -35,6 +35,10 @@ class _RecordingEmbeddingRuntime:
 def test_local_worker_executes_semantic_index_with_owned_runtime(
     tmp_path, monkeypatch
 ) -> None:
+    # This worker test must not leave a catalog-mutating daemon in the suite.
+    monkeypatch.setattr(
+        "frisket.ai.llm.pricing_refresh.start_pricing_refresh", lambda: None
+    )
     workspace = tmp_path / "workspace"
     project_path = workspace / "documents.frisket"
     with closing(Project.create(project_path)) as project:

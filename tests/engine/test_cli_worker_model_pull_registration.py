@@ -14,6 +14,10 @@ from frisket.cli import _run_worker
 
 
 def test_local_worker_command_registers_model_pull(tmp_path, monkeypatch) -> None:
+    # This worker test must not leave a catalog-mutating daemon in the suite.
+    monkeypatch.setattr(
+        "frisket.ai.llm.pricing_refresh.start_pricing_refresh", lambda: None
+    )
     calls: list[dict] = []
     real = model_pull_module.register_model_pull_handler
 
