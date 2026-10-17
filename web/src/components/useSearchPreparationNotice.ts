@@ -106,7 +106,7 @@ function preparationDetail(batch: SearchPreparationBatch): string {
     case 'native_pdf':
       return `Reading PDF text · ${countLabel}`;
     case 'ocr':
-      return `Reading scanned PDFs · ${countLabel}`;
+      return `Extracting text · ${countLabel}`;
     case 'transcribe':
       return `Transcribing media · ${countLabel}`;
   }

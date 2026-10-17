@@ -381,7 +381,7 @@ describe('search preparation notice projection', () => {
     expect(notice).toMatchObject({
       activityKey: 'preparation:prep-1',
       stage: 'prepare',
-      detail: 'Reading scanned PDFs · 2 files',
+      detail: 'Extracting text · 2 files',
     });
   });
 
@@ -420,7 +420,7 @@ describe('search preparation notice projection', () => {
     expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '67');
     fireEvent.click(screen.getByTestId('search-preparation-details'));
     expect(screen.getByText('One PDF page could not be recognized.')).toBeInTheDocument();
-    expect(screen.getByText('Reading scanned PDFs · 2 files')).toBeInTheDocument();
+    expect(screen.getByText('Extracting text · 2 files')).toBeInTheDocument();
     expect(screen.getByText('Search indexing queued')).toBeInTheDocument();
   });
 
