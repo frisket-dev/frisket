@@ -188,6 +188,53 @@ def test_explicit_preparation_rejects_a_sheet_with_no_actionable_media(
     assert listed["indexing"]["status"] in {"pending", "queued", "running"}
 
 
+def test_preparation_indexing_prefers_running_claim_over_queued_continuation(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setattr(preparation_module, "_requirements", lambda: ())
+    workspace = Workspace(
+        tmp_path / "workspace", queue_payload_extra={"storage_org_id": 17}
+    )
+    project_id = workspace.create("Indexing continuation")["id"]
+    project = workspace.get(project_id)
+    sheet_id = project.add_sheet("Notes")
+    column_id = project.add_column(sheet_id, "Note", type="text")
+    project.add_rows(sheet_id, [{"Note": "new text"}], {"Note": column_id})
+    running_id = project._frisket_schedule_search_index()
+    queue = workspace.queue
+    claimed = queue.claim("index-test")
+    assert claimed is not None and claimed.id == running_id
+    refs = {
+        "project_id": project_id,
+        "storage_org_id": 17,
+        "workspace_root": str(workspace.root),
+    }
+    for name, value in (
+        ("project_id", "another-project"),
+        ("storage_org_id", 18),
+        ("workspace_root", str(tmp_path / "another-workspace")),
+    ):
+        unrelated_id = queue.enqueue("search.index", {**refs, name: value})
+        unrelated = queue.claim("another-index-test")
+        assert unrelated is not None and unrelated.id == unrelated_id
+    continuation_id = queue.enqueue(
+        "search.index", {**refs, "dedupe_key": "search-index:continuation"}
+    )
+    service = SearchPreparationService(workspace)
+
+    assert service.list(project_id).indexing.model_dump() == {
+        "status": "running",
+        "job_id": running_id,
+        "error": None,
+    }
+    assert queue.complete(running_id, "index-test", {"complete": False})
+    assert service.list(project_id).indexing.model_dump() == {
+        "status": "queued",
+        "job_id": continuation_id,
+        "error": None,
+    }
+
+
 def test_preparation_list_projects_durable_indexing_work(tmp_path, monkeypatch) -> None:
     from frisket.search import drain_index
 

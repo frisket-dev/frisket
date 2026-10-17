@@ -458,10 +458,19 @@ class SearchPreparationService:
         marker = index_work_marker(project)
         index_job = self.workspace.queue.find_job_by_refs(
             SEARCH_INDEX_KIND,
+            statuses=("running",),
             project_id=project_id,
             storage_org_id=self.workspace.queue_storage_org_id,
             workspace_root=str(self.workspace.root),
         )
+        if index_job is None:
+            index_job = self.workspace.queue.find_job_by_refs(
+                SEARCH_INDEX_KIND,
+                statuses=("queued",),
+                project_id=project_id,
+                storage_org_id=self.workspace.queue_storage_org_id,
+                workspace_root=str(self.workspace.root),
+            )
         failed_job = None
         if marker is not None and index_job is None:
             failed_job = self.workspace.queue.find_job_by_refs(
