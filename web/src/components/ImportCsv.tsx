@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type Dra
 import {
   AtSign,
   CheckCircle2,
+  FileText,
   Globe2,
   Link2,
   ListVideo,
@@ -53,6 +54,7 @@ import { usePoll } from '../hooks/usePoll';
 import { PanelSelect } from './PanelSelect';
 import { SegmentedToggle } from './PanelPrimitives';
 import { ImportDraftMappingPanel } from './importWorkspace/ImportDraftMappingPanel';
+import { ImportSessionProgress } from './importWorkspace/ImportSessionProgress';
 import { ImportModeRail } from './importWorkspace/ImportModeRail';
 import { ImportPasteDetectPanel } from './importWorkspace/ImportPasteDetectPanel';
 import { ImportStageStepper } from './importWorkspace/ImportStageStepper';
@@ -758,11 +760,29 @@ interface FileImportCompletion {
   sheetId: number | null;
   searchPreparationBatchId: string | null;
   importRef: string | null;
-  importComplete: boolean;
-  preparationPending: boolean;
+  sessionStatus: ImportSessionStatus | null;
 }
 
-function useImportUpload({ onError }: ImportHandlers) {
+const TERMINAL_IMPORT_STATES = new Set<ImportSessionStatus['state']>([
+  'completed', 'kept', 'cancelled', 'removed',
+]);
+
+function importSessionIsComplete(status: ImportSessionStatus | null): boolean {
+  return status !== null && TERMINAL_IMPORT_STATES.has(status.state);
+}
+
+function importSessionNeedsPreparationPlan(status: ImportSessionStatus | null): boolean {
+  return status !== null
+    && (status.state === 'completed' || status.state === 'kept')
+    && status.search_preparation_status === 'pending';
+}
+
+function useImportUpload({
+  onError,
+  onSessionStatus,
+}: Pick<ImportHandlers, 'onError'> & {
+  onSessionStatus?(status: ImportSessionStatus): void;
+}) {
   const { projectId } = useWorkspaceStores().chromePreferences;
   const [busy, setBusy] = useState(false);
   const [sessionBusy, setSessionBusy] = useState(false);
@@ -814,6 +834,7 @@ function useImportUpload({ onError }: ImportHandlers) {
             : prepared.usesAttachmentSession
               ? await (async () => {
                 const session = await createImportSession(projectId, { sheetName: 'files' });
+                onSessionStatus?.(session);
                 setSessionBusy(true);
                 setImportSessionBrowserUploading(session.import_ref, true);
                 try {
@@ -822,6 +843,7 @@ function useImportUpload({ onError }: ImportHandlers) {
                     projectId,
                     session,
                     list,
+                    { onStatus: onSessionStatus },
                   );
                   notifyImportSessionChanged();
                   return {
@@ -832,6 +854,7 @@ function useImportUpload({ onError }: ImportHandlers) {
                     search_preparation_status: status.search_preparation_status,
                     import_ref: status.import_ref,
                     search_preparation_batch_id: status.search_preparation_batch_id,
+                    import_session_status: status,
                   };
                 } catch (error) {
                   // The durable admitting session remains visible after a lost
@@ -875,9 +898,9 @@ function useImportUpload({ onError }: ImportHandlers) {
           ? result.search_preparation_batch_id
           : null,
         importRef,
-        importComplete: importRef === null || ('import_state' in result
-          && ['completed', 'kept', 'cancelled', 'removed'].includes(String(result.import_state))),
-        preparationPending: 'search_preparation_status' in result && result.search_preparation_status === 'pending',
+        sessionStatus: 'import_session_status' in result
+          ? result.import_session_status as ImportSessionStatus
+          : null,
       };
     } catch (e) {
       sendProductTelemetry({
@@ -999,12 +1022,13 @@ function OpenImportWorkspaceSession({
   onSessionModeChange(mode: ImportMode): void;
 }) {
   const { projectApi, chromePreferences: { projectId } } = useWorkspaceStores();
+  const [importSessionStatus, setImportSessionStatus] = useState<ImportSessionStatus | null>(null);
   const {
     busy: uploadBusy,
     sessionBusy,
     uploadFiles,
     uploadUrls,
-  } = useImportUpload({ onImported, onError, onLaunchDownload });
+  } = useImportUpload({ onError, onSessionStatus: setImportSessionStatus });
   const inputRef = useRef<HTMLInputElement | null>(null);
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const onCloseRef = useRef(onClose);
@@ -1058,8 +1082,6 @@ function OpenImportWorkspaceSession({
     sheetId: number | null;
     batchId: string | null;
     importRef: string | null;
-    importComplete?: boolean;
-    preparationPending?: boolean;
     bulkOutputs?: { sheetId: number; sheetName: string; batchId: string | null }[];
   } | null>(() => initialPreparationBatchId === null ? null : {
     sheetId: null,
@@ -1111,6 +1133,7 @@ function OpenImportWorkspaceSession({
   const [appendRequestKey, setAppendRequestKey] = useState(() => crypto.randomUUID());
 
   const prepareSelection = useCallback((files: File[], use: (prepared: PreparedFileSelection) => void) => {
+    setImportSessionStatus(null);
     const generation = ++selectionPreparationGeneration.current;
     setFileSummary({ names: files.slice(0, 20).map(logicalPathForImport), count: files.length });
     setPreparationStep('summary');
@@ -1333,13 +1356,12 @@ function OpenImportWorkspaceSession({
     if (completion.searchPreparationBatchId || completion.importRef) {
       if (completion.sheetId !== null) onImported(completion.sheetId);
       setPreparationFollowupError(null);
+      setImportSessionStatus(completion.sessionStatus);
       setPreparationStep('summary');
       setPreparationReceipt({
         sheetId: completion.sheetId,
         batchId: completion.searchPreparationBatchId,
         importRef: completion.importRef,
-        importComplete: completion.importComplete,
-        preparationPending: completion.preparationPending,
       });
       return;
     }
@@ -1356,20 +1378,17 @@ function OpenImportWorkspaceSession({
       setPreparationFollowupError('Could not refresh import progress. Retrying…');
       return;
     }
-    const importComplete = ['completed', 'kept', 'cancelled', 'removed'].includes(status.state);
-    const preparationPending = ['completed', 'kept'].includes(status.state)
-      && status.search_preparation_status === 'pending';
+    setImportSessionStatus(status);
     if (preparationReceipt.sheetId === null && status.sheet_id !== null) onImported(status.sheet_id);
     setPreparationReceipt((current) => current ? {
       ...current,
       sheetId: current.sheetId ?? status.sheet_id,
       batchId: status.search_preparation_batch_id ?? current.batchId,
-      importComplete,
-      preparationPending,
     } : current);
   }, {
     active: Boolean(preparationReceipt?.importRef
-      && (!preparationReceipt.importComplete || preparationReceipt.preparationPending)),
+      && (!importSessionIsComplete(importSessionStatus)
+        || importSessionNeedsPreparationPlan(importSessionStatus))),
     intervalMs: 1_000,
     guardOverlap: true,
     immediate: true,
@@ -1575,7 +1594,7 @@ function OpenImportWorkspaceSession({
         setBulkFailures(result.failed);
         setBulkFailuresOmitted(result.failed_omitted);
         setPreparationStep('summary');
-        setPreparationReceipt({ ...firstPreparation, importRef: null, bulkOutputs, importComplete: true });
+        setPreparationReceipt({ ...firstPreparation, importRef: null, bulkOutputs });
         return;
       }
       if (hasFailures) {
@@ -1625,6 +1644,7 @@ function OpenImportWorkspaceSession({
 
   const startBulkPlan = useCallback((files: File[], expandArchive: boolean) => {
     if (busy || !files.length) return;
+    setImportSessionStatus(null);
     setFileSummary({ names: files.slice(0, 20).map(logicalPathForImport), count: files.length });
     setPreparationStep('summary');
     invalidateBulkRequests();
@@ -1760,8 +1780,24 @@ function OpenImportWorkspaceSession({
     && !bulkPlan);
   const showPreparation = preparationReceipt !== null || importInProgress;
   const showSummary = showPreparation && preparationStep === 'summary';
-  const finishingImport = importInProgress || Boolean(preparationReceipt?.importRef
-    && (!preparationReceipt.importComplete || preparationReceipt.preparationPending));
+  const importComplete = importSessionIsComplete(importSessionStatus);
+  const preparationPending = importSessionNeedsPreparationPlan(importSessionStatus);
+  const importingSession = importSessionStatus !== null && !importComplete;
+  const summaryWaiting = importInProgress || importingSession || preparationPending;
+  const canReviewPreparation = Boolean(preparationReceipt?.batchId
+    && !preparationPending
+    && (importSessionStatus === null
+      || importSessionStatus.state === 'completed'
+      || importSessionStatus.state === 'kept'));
+  const summaryHeading = importSessionStatus?.state === 'paused'
+    ? 'Import paused'
+    : importSessionStatus?.state === 'cancelled'
+      ? 'Import cancelled'
+      : importSessionStatus?.state === 'removed'
+        ? 'Import removed'
+        : summaryWaiting && !preparationPending
+          ? 'Importing files'
+          : 'Files imported';
 
   return (
     <dialog
@@ -1907,28 +1943,40 @@ function OpenImportWorkspaceSession({
               {showSummary ? (
                 <section className="search-preparation-receipt" data-testid="import-files-summary">
                   <div className="search-preparation-receipt-body">
-                    <h2>{finishingImport ? 'Importing files' : 'Files imported'}</h2>
+                    <h2>{summaryHeading}</h2>
                     {fileSummary && <>
                       <p>{fileSummary.count.toLocaleString()} {fileSummary.count === 1 ? 'file' : 'files'}</p>
                       <ul className="import-files-summary-list">
-                        {fileSummary.names.map((name, index) => <li key={`${index}:${name}`}>{name}</li>)}
+                        {fileSummary.names.map((name, index) => <li key={`${index}:${name}`}>
+                          <FileText size={14} aria-hidden />
+                          <span>{name}</span>
+                        </li>)}
                       </ul>
                       {fileSummary.count > fileSummary.names.length && <p className="form-hint">
                         Showing the first {fileSummary.names.length} filenames.
                       </p>}
                     </>}
                     {bulkReceiptSummary}
-                    {finishingImport && <div role="status"><span className="run-spinner" aria-hidden /> Finishing import…</div>}
-                    {!finishingImport && !preparationReceipt?.batchId && <p>
+                    <ImportSessionProgress
+                      status={importSessionStatus}
+                      selectedFiles={fileSummary?.count ?? 0}
+                      active={importInProgress}
+                      complete={importComplete}
+                      preparationPending={preparationPending}
+                    />
+                    {!summaryWaiting && !preparationReceipt?.batchId
+                      && importSessionStatus?.state !== 'cancelled'
+                      && importSessionStatus?.state !== 'removed' && <p>
                       Files are saved. Search preparation is not available for this import.
                     </p>}
+                    {importSessionStatus?.error && <div className="import-field-error" role="alert">{importSessionStatus.error}</div>}
                     {preparationFollowupError && <div className="import-field-error" role="alert">{preparationFollowupError}</div>}
                   </div>
                   <footer className="search-preparation-actions">
-                    {preparationReceipt?.batchId && !finishingImport ? (
+                    {canReviewPreparation ? (
                       <button type="button" className="btn btn-primary" data-testid="import-files-next"
                         onClick={() => setPreparationStep('review')}>Next</button>
-                    ) : !finishingImport ? (
+                    ) : !summaryWaiting ? (
                       <button type="button" className="btn btn-primary" data-testid="search-preparation-done"
                         onClick={closeWorkspace}>Done</button>
                     ) : null}

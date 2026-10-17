@@ -206,11 +206,11 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     const summary = await screen.findByTestId('import-files-summary');
     expect(summary).toHaveTextContent('report.pdf');
     expect(summary).toHaveTextContent('1 file');
-    expect(summary).toHaveTextContent('Finishing import…');
+    expect(summary).toHaveTextContent('Importing files…');
     expect(screen.queryByRole('button', { name: 'Next' })).not.toBeInTheDocument();
     await act(async () => finishUpload({ sheet_id: 91, rows: 1, search_preparation_batch_id: 'pdf-prep' }));
     expect(await screen.findByRole('button', { name: 'Next' })).toBeEnabled();
-    expect(screen.queryByText('Finishing import…')).not.toBeInTheDocument();
+    expect(screen.queryByText('Importing files…')).not.toBeInTheDocument();
     expect(getSearchPreparation).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
@@ -311,7 +311,9 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     });
     fireEvent.click(await screen.findByTestId('import-files-next'));
     await screen.findByText('Native text prep-a');
-    fireEvent.click(screen.getByTestId('search-preparation-force-ocr'));
+    fireEvent.change(screen.getByRole('combobox', { name: 'PDF text' }), {
+      target: { value: 'ocr' },
+    });
     expect(replanSearchPreparation).toHaveBeenCalledWith('open-session-project', 'prep-a', {
       plan_hash: 'sha256:plan', force_ocr: true,
     });
@@ -387,6 +389,42 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     expect(getSearchPreparation).toHaveBeenCalledWith('open-session-project', 'resumable-prep');
   });
 
+  it('shows acknowledged upload and saved-row progress without estimating an in-flight chunk', async () => {
+    let finishUpload!: (status: unknown) => void;
+    getImportSession.mockReturnValue(new Promise(() => {}));
+    uploadFilesToImportSession.mockImplementation((
+      _projectId: string,
+      _session: unknown,
+      _files: File[],
+      options: { onStatus(status: unknown): void },
+    ) => {
+      options.onStatus({
+        import_ref: 'large-selection', state: 'running', admitted_files: 1, admitted_bytes: 1,
+        through: 1, committed_rows: 0, committed_bytes: 0, sheet_id: null,
+        sheet_name: 'Files', cancel_requested: false, sealed: false, error: null,
+        search_preparation_batch_id: null, search_preparation_status: 'pending',
+      });
+      return new Promise((resolve) => { finishUpload = resolve; });
+    });
+    renderDialog(true);
+    fireEvent.click(screen.getByTestId('import-mode-files'));
+    fireEvent.change(screen.getByTestId('import-file-input'), { target: { files: [
+      new File(['a'], 'a.pdf', { type: 'application/pdf' }),
+      new File(['b'], 'b.pdf', { type: 'application/pdf' }),
+    ] } });
+
+    expect(await screen.findByText('Uploading 1 of 2 files')).toBeVisible();
+    expect(screen.getByRole('progressbar', { name: 'Files uploaded' })).toHaveAttribute('value', '1');
+    await act(async () => finishUpload({
+      import_ref: 'large-selection', state: 'running', admitted_files: 2, admitted_bytes: 2,
+      through: 2, committed_rows: 1, committed_bytes: 1, sheet_id: 91,
+      sheet_name: 'Files', cancel_requested: false, sealed: true, error: null,
+      search_preparation_batch_id: null, search_preparation_status: 'pending',
+    }));
+    expect(await screen.findByText('Adding files to the sheet — 1 of 2 saved')).toBeVisible();
+    expect(screen.getByRole('progressbar', { name: 'Files saved' })).toHaveAttribute('value', '1');
+  });
+
   it('waits for pending preparation after files are committed, then offers Next', async () => {
     const completed = {
       import_ref: 'large-selection', state: 'completed', admitted_files: 2, admitted_bytes: 2,
@@ -406,7 +444,7 @@ describe('ImportWorkspaceDialog controlled open session', () => {
       new File(['b'], 'b.pdf', { type: 'application/pdf' }),
     ] } });
     await waitFor(() => expect(getImportSession).toHaveBeenCalledTimes(1));
-    expect(screen.getByText('Finishing import…')).toBeVisible();
+    expect(screen.getByText('Files saved. Checking text and search setup…')).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Done' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Next' })).not.toBeInTheDocument();
     fireEvent.click(await screen.findByRole('button', { name: 'Next' }, { timeout: 2_500 }));
@@ -430,7 +468,7 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     ] } });
     fireEvent.click(await screen.findByRole('button', { name: 'Done' }));
     expect(onClose).toHaveBeenCalledOnce();
-    expect(screen.queryByText('Finishing import…')).not.toBeInTheDocument();
+    expect(screen.queryByText('Files saved. Checking text and search setup…')).not.toBeInTheDocument();
     expect(getSearchPreparation).not.toHaveBeenCalled();
     expect(getImportSession).not.toHaveBeenCalled();
   });
@@ -451,13 +489,58 @@ describe('ImportWorkspaceDialog controlled open session', () => {
       new File(['b'], 'b.pdf', { type: 'application/pdf' }),
     ] } });
     await waitFor(() => expect(getImportSession).toHaveBeenCalledOnce());
-    expect(screen.getByText('Finishing import…')).toBeVisible();
+    expect(screen.getByText('Adding files to the sheet — 1 of 2 saved')).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Next' })).not.toBeInTheDocument();
     await act(async () => finishImport({
-      import_ref: 'large-selection', state: 'completed', sheet_id: 91,
+      import_ref: 'large-selection', state: 'completed', admitted_files: 2, admitted_bytes: 2,
+      through: 2, committed_rows: 2, committed_bytes: 2, sheet_id: 91,
+      sheet_name: 'Files', cancel_requested: false, sealed: true, error: null,
       search_preparation_batch_id: 'early-prep', search_preparation_status: 'available',
     }));
     expect(await screen.findByRole('button', { name: 'Next' })).toBeEnabled();
+  });
+
+  it('names a paused import and leaves recovery to the Imports notice', async () => {
+    const paused = {
+      import_ref: 'large-selection', state: 'paused', admitted_files: 2, admitted_bytes: 2,
+      through: 2, committed_rows: 1, committed_bytes: 1, sheet_id: 91,
+      sheet_name: 'Files', cancel_requested: false, sealed: false,
+      error: 'Import processing failed. Retry the import to continue.',
+      search_preparation_batch_id: null, search_preparation_status: 'pending',
+    };
+    uploadFilesToImportSession.mockResolvedValue(paused);
+    getImportSession.mockResolvedValue(paused);
+    renderDialog(true);
+    fireEvent.click(screen.getByTestId('import-mode-files'));
+    fireEvent.change(screen.getByTestId('import-file-input'), { target: { files: [
+      new File(['a'], 'a.pdf', { type: 'application/pdf' }),
+      new File(['b'], 'b.pdf', { type: 'application/pdf' }),
+    ] } });
+
+    expect(await screen.findByRole('heading', { name: 'Import paused' })).toBeVisible();
+    expect(screen.getByText(/Import paused after 1 of 2 files/)).toBeVisible();
+    expect(screen.getByRole('alert')).toHaveTextContent('Retry the import to continue');
+    expect(screen.queryByRole('button', { name: 'Next' })).not.toBeInTheDocument();
+  });
+
+  it('names cancellation and explains that the global notice owns its decision', async () => {
+    uploadFilesToImportSession.mockResolvedValue({
+      import_ref: 'large-selection', state: 'cancelled', admitted_files: 2, admitted_bytes: 2,
+      through: 2, committed_rows: 1, committed_bytes: 1, sheet_id: 91,
+      sheet_name: 'Files', cancel_requested: true, sealed: true, error: null,
+      search_preparation_batch_id: null, search_preparation_status: 'none',
+    });
+    renderDialog(true);
+    fireEvent.click(screen.getByTestId('import-mode-files'));
+    fireEvent.change(screen.getByTestId('import-file-input'), { target: { files: [
+      new File(['a'], 'a.pdf', { type: 'application/pdf' }),
+      new File(['b'], 'b.pdf', { type: 'application/pdf' }),
+    ] } });
+
+    expect(await screen.findByRole('heading', { name: 'Import cancelled' })).toBeVisible();
+    expect(screen.getByText(/saved rows are waiting to be kept or removed/)).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Done' })).toBeEnabled();
+    expect(getImportSession).not.toHaveBeenCalled();
   });
 
   it('surfaces a transient import follow-up failure and recovers on the next poll', async () => {
@@ -654,6 +737,7 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     ));
     await waitFor(() => expect(uploadFilesToImportSession).toHaveBeenCalledWith(
       'open-session-project', expect.objectContaining({ import_ref: 'large-selection' }), files,
+      expect.objectContaining({ onStatus: expect.any(Function) }),
     ));
   });
 

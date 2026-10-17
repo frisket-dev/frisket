@@ -8664,7 +8664,25 @@ dialog.import-workspace-layer::backdrop {
 .pdf-sample-pages .pdf-packet-page-picker { display: flex; align-items: center; gap: 8px; margin: 0; }
 .pdf-sample-pages .pdf-packet-page-picker input { width: 64px; }
 .pdf-sample-pages .pdf-packet-sample-heading h3 { margin: 0; font-size: 13px; text-transform: none; }
-.import-files-summary-list { margin: 0; padding-left: 20px; overflow-wrap: anywhere; }
+.import-files-summary-list {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-wrap: anywhere;
+}
+.import-files-summary-list li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: var(--text-light);
+  font-size: 12px;
+}
+.import-files-summary-list li svg { flex: 0 0 auto; }
+.import-files-progress { display: grid; gap: 8px; }
+.import-files-progress progress { width: min(100%, 420px); accent-color: var(--accent); }
 .search-preparation-document { display: grid; gap: 6px; }
 .search-preparation-ocr-option { display: flex; align-items: center; gap: 8px; }
 .search-preparation-sample-pages > button:not(.icon-btn) {
