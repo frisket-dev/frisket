@@ -14,22 +14,14 @@ const pdf = vi.hoisted(() => ({
   resize: () => {},
   destroy: vi.fn(),
   getPage: vi.fn(),
+  getDocument: vi.fn(),
   renderCancel: new Map<number, ReturnType<typeof vi.fn>>(),
   pageCleanup: new Map<number, ReturnType<typeof vi.fn>>(),
 }));
 
 vi.mock('../../src/media/pdfjsSetup', () => ({
   pdfjsLib: {
-    getDocument: () => ({
-      destroy: pdf.destroy,
-      promise: Promise.resolve({
-        get numPages() {
-          return pdf.numPages;
-        },
-        cleanup: vi.fn(),
-        getPage: pdf.getPage,
-      }),
-    }),
+    getDocument: pdf.getDocument,
     TextLayer: class {
       constructor({ container }: { container: HTMLElement }) {
         container.textContent = 'Selectable page text';
@@ -41,6 +33,16 @@ vi.mock('../../src/media/pdfjsSetup', () => ({
 }));
 
 import { PdfViewer, type DocumentPageImage } from '../../src/media/PdfViewer';
+
+function mockDocument(numPages = pdf.numPages) {
+  return { numPages, cleanup: vi.fn(), getPage: pdf.getPage };
+}
+
+function pendingDocument() {
+  let resolve!: (doc: ReturnType<typeof mockDocument>) => void;
+  const promise = new Promise<ReturnType<typeof mockDocument>>((complete) => { resolve = complete; });
+  return { promise, resolve };
+}
 
 type ObserverCallback = (entries: IntersectionObserverEntry[]) => void;
 
@@ -88,6 +90,10 @@ describe('PdfViewer native page selection', () => {
     pdf.height = 700;
     pdf.destroy.mockReset();
     pdf.getPage.mockReset();
+    pdf.getDocument.mockReset().mockImplementation(() => ({
+      destroy: pdf.destroy,
+      promise: Promise.resolve(mockDocument()),
+    }));
     pdf.renderCancel.clear();
     pdf.pageCleanup.clear();
     pdf.getPage.mockImplementation(async (pageNumber: number) => {
@@ -159,6 +165,90 @@ describe('PdfViewer native page selection', () => {
     expect(await screen.findByTestId('overlay')).toBeInTheDocument();
     expect(document.getElementById('page-2')).toHaveAttribute('data-page', '2');
     await waitFor(() => expect(scrollTo).toHaveBeenCalledWith({ top: 984, behavior: 'auto' }));
+  });
+
+  it('ignores a replaced file loading late and uses the latest committed callback and page', async () => {
+    const oldLoad = pendingDocument();
+    const newLoad = pendingDocument();
+    const oldDoc = mockDocument(500);
+    pdf.getDocument
+      .mockReturnValueOnce({ destroy: pdf.destroy, promise: oldLoad.promise })
+      .mockReturnValueOnce({ destroy: pdf.destroy, promise: newLoad.promise });
+    const oldLoaded = vi.fn();
+    const latestLoaded = vi.fn();
+    const props = {
+      layout: 'continuous' as const, fit: 'width' as const, zoom: 1, textLayer: false,
+      onCurrentPageChange: vi.fn(),
+    };
+    const view = render(<PdfViewer {...props} url="/old.pdf" currentPage={1} onLoaded={oldLoaded} />);
+    view.rerender(<PdfViewer {...props} url="/new.pdf" currentPage={1} onLoaded={oldLoaded} />);
+    expect(pdf.destroy).toHaveBeenCalledOnce();
+    view.rerender(<PdfViewer {...props} url="/new.pdf" currentPage={2} onLoaded={latestLoaded} />);
+    await act(async () => { newLoad.resolve(mockDocument(2)); });
+    await waitFor(() => expect(pdf.getPage).toHaveBeenCalledWith(2));
+    expect(latestLoaded).toHaveBeenCalledExactlyOnceWith(2);
+    expect(oldLoaded).not.toHaveBeenCalled();
+    expect(pdf.getDocument).toHaveBeenCalledTimes(2);
+    await act(async () => { oldLoad.resolve(oldDoc); });
+    expect(oldDoc.cleanup).toHaveBeenCalledOnce();
+    expect(screen.getByTestId('document-pdf')).toHaveAttribute('data-page-count', '2');
+    expect(screen.getAllByTestId('document-pdf-page')).toHaveLength(2);
+  });
+
+  it('clears a previous file error while its replacement is loading', async () => {
+    pdf.getDocument.mockReturnValueOnce({ destroy: pdf.destroy, promise: Promise.reject(new Error('Unreadable PDF')) });
+    const replacement = pendingDocument();
+    pdf.getDocument.mockReturnValueOnce({ destroy: pdf.destroy, promise: replacement.promise });
+    const props = {
+      layout: 'continuous' as const, fit: 'width' as const, zoom: 1, textLayer: false,
+      currentPage: 1, onLoaded: vi.fn(), onCurrentPageChange: vi.fn(),
+    };
+    const view = render(<PdfViewer {...props} url="/broken.pdf" />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Unreadable PDF');
+    view.rerender(<PdfViewer {...props} url="/replacement.pdf" />);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryAllByTestId('document-pdf-page')).toHaveLength(0);
+    await act(async () => { replacement.resolve(mockDocument(2)); });
+    expect(screen.getAllByTestId('document-pdf-page')).toHaveLength(2);
+  });
+
+  it('resets measured geometry when switching files', async () => {
+    const props = {
+      layout: 'continuous' as const, fit: 'width' as const, zoom: 1, textLayer: false,
+      onLoaded: vi.fn(), onCurrentPageChange: vi.fn(),
+    };
+    const view = render(<PdfViewer {...props} url="/landscape.pdf" currentPage={2} />);
+    await waitFor(() => expect(screen.getAllByTestId('document-pdf-page')[1])
+      .toHaveStyle({ width: '768px', height: '576px' }));
+    const replacement = pendingDocument();
+    pdf.getDocument.mockReturnValueOnce({ destroy: pdf.destroy, promise: replacement.promise });
+    view.rerender(<PdfViewer {...props} url="/new.pdf" currentPage={1} />);
+    expect(screen.queryAllByTestId('document-pdf-page')).toHaveLength(0);
+    await act(async () => { replacement.resolve(mockDocument(2)); });
+    const unvisitedPage = screen.getAllByTestId('document-pdf-page')[1];
+    expect(unvisitedPage).toHaveAttribute('data-rendered', 'false');
+    expect(unvisitedPage).toHaveStyle({ width: '768px', height: '993px' });
+    expect(pdf.destroy).toHaveBeenCalledOnce();
+  });
+
+  it('clears old overscan on layout changes without reloading the document or its measured geometry', async () => {
+    const props = {
+      url: '/two-pages.pdf', fit: 'width' as const, zoom: 1, textLayer: false,
+      currentPage: 1, onLoaded: vi.fn(), onCurrentPageChange: vi.fn(),
+    };
+    const view = render(<PdfViewer {...props} layout="continuous" />);
+    await waitFor(() => expect(pdf.getPage).toHaveBeenCalledWith(1));
+    act(() => MockIntersectionObserver.instances.at(-1)!.trigger(2, true));
+    await waitFor(() => expect(pdf.getPage).toHaveBeenCalledWith(2));
+    const landscape = screen.getAllByTestId('document-pdf-page')[1];
+    expect(landscape).toHaveStyle({ width: '768px', height: '576px' });
+    view.rerender(<PdfViewer {...props} layout="single" />);
+    view.rerender(<PdfViewer {...props} layout="continuous" />);
+    const placeholder = screen.getAllByTestId('document-pdf-page')[1];
+    expect(placeholder).toHaveAttribute('data-rendered', 'false');
+    expect(placeholder).toHaveStyle({ width: '768px', height: '576px' });
+    expect(pdf.getDocument).toHaveBeenCalledOnce();
+    expect(screen.getByTestId('document-pdf').querySelectorAll('canvas')).toHaveLength(1);
   });
 
   it('keeps 500 stable page anchors while mounting images only in the overscan window', async () => {

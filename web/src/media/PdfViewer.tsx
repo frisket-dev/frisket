@@ -67,7 +67,17 @@ function renderedPageSize(
 }
 
 /** Shared pdf.js reading surface for document and evidence views. */
-export function PdfViewer({
+export function PdfViewer(props: PdfViewerProps) {
+  const { url, pageImages, totalPageCount } = props;
+  const [source, setSource] = useState({ url, pageImages, totalPageCount, revision: 0 });
+  if (source.url !== url || source.pageImages !== pageImages || source.totalPageCount !== totalPageCount) {
+    setSource({ url, pageImages, totalPageCount, revision: source.revision + 1 });
+  }
+  // A new source owns new loading, geometry, and navigation state.
+  return <PdfViewerSession key={source.revision} {...props} />;
+}
+
+function PdfViewerSession({
   url,
   layout,
   fit,
@@ -89,7 +99,12 @@ export function PdfViewer({
   const [error, setError] = useState<string | null>(null);
   const [viewport, setViewport] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
   const [pageSizes, setPageSizes] = useState<ReadonlyMap<number, PageSize>>(() => new Map());
-  const [intersectingPages, setIntersectingPages] = useState<ReadonlySet<number>>(() => new Set());
+  const [visibility, setVisibility] = useState<{ layout: PdfViewerProps['layout']; pages: ReadonlySet<number> }>(
+    () => ({ layout, pages: new Set() }),
+  );
+  if (visibility.layout !== layout) {
+    setVisibility({ layout, pages: new Set() });
+  }
   const [pageLayoutRevision, setPageLayoutRevision] = useState(0);
   const programmaticScroll = useRef(false);
   const programmaticScrollTimer = useRef<number | null>(null);
@@ -99,23 +114,18 @@ export function PdfViewer({
   const currentPageValue = useRef(currentPage);
   const layoutValue = useRef(layout);
   const onLoadedValue = useRef(onLoaded);
-  currentPageValue.current = currentPage;
-  layoutValue.current = layout;
-  onLoadedValue.current = onLoaded;
+  useLayoutEffect(() => {
+    currentPageValue.current = currentPage;
+    layoutValue.current = layout;
+    onLoadedValue.current = onLoaded;
+  }, [currentPage, layout, onLoaded]);
 
   useEffect(() => {
-    setError(null);
-    setPageSizes(new Map());
-    setIntersectingPages(new Set());
-    readyPages.current.clear();
-    requestedPage.current = layoutValue.current === 'continuous' ? currentPageValue.current : null;
     if (pageImages) {
-      setDoc(null);
       onLoadedValue.current(totalPageCount ?? pageImages.length);
       return;
     }
     let cancelled = false;
-    setDoc(null);
     const task = pdfjsLib.getDocument({ url });
     task.promise
       .then((loaded) => {
@@ -164,16 +174,14 @@ export function PdfViewer({
   );
 
   useEffect(() => {
-    if (layout !== 'continuous') {
-      setIntersectingPages(new Set());
-      return;
-    }
+    if (layout !== 'continuous') return;
     const root = containerRef.current;
     if (!root || typeof IntersectionObserver === 'undefined') return;
     const observer = new IntersectionObserver((entries) => {
-      setIntersectingPages((previous) => {
+      setVisibility((previous) => {
+        if (previous.layout !== layout) return previous;
         let changed = false;
-        const next = new Set(previous);
+        const next = new Set(previous.pages);
         for (const entry of entries) {
           const page = Number((entry.target as HTMLElement).dataset.page);
           if (!Number.isInteger(page)) continue;
@@ -186,7 +194,7 @@ export function PdfViewer({
             changed = true;
           }
         }
-        return changed ? next : previous;
+        return changed ? { layout, pages: next } : previous;
       });
     }, { root, rootMargin: `${viewport.height}px 0px` });
     for (const node of pageRefs.current!.values()) observer.observe(node);
@@ -312,7 +320,7 @@ export function PdfViewer({
               textLayer={textLayer}
               containerWidth={viewport.width}
               containerHeight={fitHeight}
-              active={layout !== 'continuous' || pageNumber === currentPage || intersectingPages.has(pageNumber)}
+              active={layout !== 'continuous' || pageNumber === currentPage || visibility.pages.has(pageNumber)}
               intrinsicSize={intrinsicSize}
               registerPage={registerPage}
               renderPageOverlay={renderPageOverlay}
