@@ -99,6 +99,19 @@ describe('sheet and grid HTTP contracts', () => {
     expect(page.rows[0].loadedColumnIds).toEqual(['9']);
   });
 
+  it('keeps unavailable large-value replay comparisons distinct from a zero count', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
+      total: 1, columns: [{ ...sheetColumnWire, replay_pending_count: null, replay_comparison_available: false }],
+      rows: [{ id: 11, cells: { 9: 'small manual value' }, meta: { 9: { replay_comparison_unavailable: true,
+        current_value_ref: { kind: 'manual_edit', row_id: 11, column_id: 9, run_id: null, op_id: 3 } } },
+        parent_row_id: null, child_count: 0 }],
+    })));
+    const page = await realApi.getSheetData('7', 0, 25, { valueMode: 'bounded' });
+    expect(page.columns[0]).toMatchObject({ replayPendingCount: null, replayComparisonAvailable: false });
+    expect(page.rows[0].replayComparisonUnavailable).toEqual({ 9: true });
+    expect(page.rows[0].replayPending).toBeUndefined();
+  });
+
   it('preserves the canonical URL-download launcher hint from the sheet contract', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
       total: 0, rows: [], columns: [{

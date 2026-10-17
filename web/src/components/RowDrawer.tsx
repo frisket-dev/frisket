@@ -498,6 +498,9 @@ export function RowField({
           />
         </ClampedField>
       )}
+      {row.replayComparisonUnavailable?.[col.id] && (
+        <p className="muted" data-testid="replay-comparison-unavailable">Updated-value comparison is unavailable above 64 KiB.</p>
+      )}
       {col.ai && prov && (
         <ProvenanceBlock
           prov={prov}

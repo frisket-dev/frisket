@@ -468,7 +468,9 @@ export interface ColumnDef {
    * whose fresh current-run value differs from the human edit — feeds the "N
    * updated values · Review" header chip. 0/undefined when nothing is
    * pending. This count is the full-column promise, not the loaded page. */
-  replayPendingCount?: number;
+  replayPendingCount?: number | null;
+  /** False when a size-limited display read cannot compare every value. */
+  replayComparisonAvailable?: boolean;
 }
 
 export type ColumnDisplayFormat = 'markdown' | 'filesize' | 'currency' | 'percent';
@@ -923,6 +925,7 @@ export interface Row {
    *  popover read this. Absent columns have no pending value. Page-local
    *  (badges); the column chip count is the full-column promise. */
   replayPending?: Record<string, ReplayPendingValue>;
+  replayComparisonUnavailable?: Record<string, true>;
 }
 
 export interface ReplayPendingValue {

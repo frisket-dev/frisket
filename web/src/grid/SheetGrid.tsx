@@ -1336,13 +1336,21 @@ function useSheetGridController({
     runActive,
     hiddenColumnNames,
   );
-  const columnAnnotations = useMemo<ColumnAnnotation[]>(
-    () =>
-      runColumnsAnnotation
-        ? [...externalColumnAnnotations, runColumnsAnnotation]
-        : externalColumnAnnotations,
-    [runColumnsAnnotation, externalColumnAnnotations],
-  );
+  const columnAnnotations = useMemo<ColumnAnnotation[]>(() => {
+    const unavailable = cache.columns?.filter((column) => column.replayComparisonAvailable === false) ?? [];
+    const ids = new Set(unavailable.map((column) => column.id));
+    const annotations = externalColumnAnnotations.filter((annotation) => !(
+      annotation.key.startsWith('replay-pending:') && annotation.columnIds.some((id) => ids.has(id))
+    ));
+    for (const column of unavailable) annotations.push({
+      key: `replay-comparison-unavailable:${column.id}:${column.latestRunId ?? ''}`,
+      columnIds: [column.id],
+      message: <span data-testid="replay-comparison-unavailable-header">Updated-value comparison unavailable above 64 KiB</span>,
+      tone: 'info',
+    });
+    if (runColumnsAnnotation) annotations.push(runColumnsAnnotation);
+    return annotations;
+  }, [runColumnsAnnotation, externalColumnAnnotations, cache.columns]);
 
   useEffect(() => {
     if (!import.meta.env.DEV) return undefined;

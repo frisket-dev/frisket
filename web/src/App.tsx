@@ -4290,6 +4290,7 @@ const WorkspaceActionDrawerRegion = memo(function WorkspaceActionDrawerRegion() 
         let expectedTotal: number | null = null;
         for (let offset = 0; ; ) {
           const page = await projectApi.getSheetData(scopeSheetId, offset, pageSize, {
+            columnIds: [], valueMode: 'bounded',
             parentRowId,
             filter,
             scopeRowIds,

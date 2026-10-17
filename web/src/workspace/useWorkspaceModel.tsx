@@ -1826,7 +1826,7 @@ export function useWorkspaceModel({
         const pageSize = 1000;
         const rowIds: number[] = [];
         for (let offset = 0; ; ) {
-          const page = await projectApi.getSheetData(sheet.id, offset, pageSize, { filter });
+          const page = await projectApi.getSheetData(sheet.id, offset, pageSize, { filter, columnIds: [], valueMode: 'bounded' });
           for (const row of page.rows) rowIds.push(Number(row.id));
           offset += page.rows.length;
           if (page.rows.length === 0 || offset >= page.total) break;
@@ -3377,7 +3377,9 @@ export function useWorkspaceModel({
   const loadReplayPending = useCallback(
     async (columnId: string): Promise<ReplayReviewEntry[]> => {
       if (!sheet) return [];
-      const page = await projectApi.getSheetData(sheet.id, 0, REPLAY_REVIEW_PAGE_SIZE);
+      const page = await projectApi.getSheetData(sheet.id, 0, REPLAY_REVIEW_PAGE_SIZE, {
+        columnIds: [columnId], valueMode: 'bounded',
+      });
       const entries: ReplayReviewEntry[] = [];
       for (const row of page.rows) {
         const pending = row.replayPending?.[columnId];

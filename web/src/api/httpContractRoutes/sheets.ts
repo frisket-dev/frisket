@@ -100,7 +100,8 @@ function mapSheetColumn(column: SheetColumnWire): SheetMeta['columns'][number] {
     mixedOrigins: column.mixed_origins,
     transcriptStatus: column.transcript_status,
     mediaDownloadCandidate: column.media_download_candidate,
-    replayPendingCount: column.replay_pending_count ?? 0,
+    replayPendingCount: column.replay_comparison_available === false ? null : column.replay_pending_count ?? 0,
+    ...(column.replay_comparison_available === false ? { replayComparisonAvailable: false } : {}),
     ...(column.ai_generated ? {
       ai: {
         actionName: 'AI run',
@@ -179,7 +180,9 @@ function mapSheetRows(wire: SheetDataWire): SheetRowsContractPage {
       const invalidCells: Record<string, true> = {};
       const replayPending: Record<string, ReplayPendingValue> = {};
       const boundedValues: Record<string, BoundedCellValue> = {};
+      const replayComparisonUnavailable: Record<string, true> = {};
       for (const [columnId, meta] of Object.entries(row.meta)) {
+        if (meta.replay_comparison_unavailable) replayComparisonUnavailable[columnId] = true;
         if (meta.bounded_value) boundedValues[columnId] = meta.bounded_value;
         if (meta.state) cellStates[columnId] = meta.state;
         if (meta.error) cellErrors[columnId] = meta.error;
@@ -220,6 +223,7 @@ function mapSheetRows(wire: SheetDataWire): SheetRowsContractPage {
         index,
         cells,
         ...(Object.keys(boundedValues).length > 0 ? { boundedValues } : {}),
+        ...(Object.keys(replayComparisonUnavailable).length > 0 ? { replayComparisonUnavailable } : {}),
         provenance,
         cellStates,
         cellErrors,

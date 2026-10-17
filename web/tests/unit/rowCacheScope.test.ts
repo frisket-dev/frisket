@@ -16,7 +16,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { computeRowCacheKey, resolveRowCacheScope } from '../../src/grid/rowCacheStore';
+import { computeRowCacheKey, createRowCacheStore, resolveRowCacheScope } from '../../src/grid/rowCacheStore';
 
 const SHEET = '7';
 const VERSION = 3;
@@ -79,4 +79,15 @@ describe('computeRowCacheKey — scope changes re-key without a data-version bum
   expect(first).not.toBe(computeRowCacheKey(SHEET, VERSION, { columnIds: ['1'], valueMode: 'exact' }));
   expect(computeRowCacheKey(SHEET, VERSION, { columnIds: ['2', '1'] }))
     .toBe(computeRowCacheKey(SHEET, VERSION, { columnIds: ['1', '2'] }));
+});
+
+it('retains bounded header metadata only for the active row projection', () => {
+  const slot = createRowCacheStore().getSlot(SHEET);
+  slot.activate('first');
+  const epoch = slot.beginEpoch('first');
+  const columns = [{ id: '1', name: 'Text', type: 'text', replayPendingCount: null, replayComparisonAvailable: false }];
+  slot.setPage('first', epoch, 0, [], 0, columns);
+  expect(slot.getSnapshot().columns?.[0].replayComparisonAvailable).toBe(false);
+  slot.activate('second');
+  expect(slot.getSnapshot().columns).toBeUndefined();
 });
