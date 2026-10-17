@@ -36,8 +36,9 @@ function collectQuote(
   for (const artifact of payload.artifacts) {
     for (const span of artifact.spans) {
       if (!predicate(span)) continue;
-      const text = (span.snippet ?? span.quote ?? '').trim();
-      if (!text) continue;
+      const raw = (span.snippet ?? span.quote ?? '').trim();
+      if (!raw) continue;
+      const text = span.quote_truncated || span.snippet_truncated ? `${raw}… [excerpt]` : raw;
       const runKey =
         span.run_index !== null && span.run_index !== undefined
           ? `${artifact.stable_id}:run:${span.run_index}`
@@ -54,7 +55,7 @@ function collectQuote(
   return runs.map((run) => run.parts.join(' ')).join(' … ');
 }
 
-/** The full cited passage for one evidence link's viewer payload — every
+/** The cited passage (explicitly marked when bounded) for one viewer payload — every
  * `required` span's quote, in citation order, contiguous runs merged into
  * one passage and disjoint runs separated by an ellipsis. `null` when the
  * link carries no quotable spans at all (a page/region citation with no

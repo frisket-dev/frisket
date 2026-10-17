@@ -2,6 +2,7 @@ import { Check, Copy, Download, ExternalLink, FileText } from 'lucide-react';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type RefObject } from 'react';
 import {
   type EvidenceArtifact,
+  type EvidenceTextPassageTarget,
   type EvidenceCitationRun,
   type EvidencePage,
   type EvidenceRegion,
@@ -525,6 +526,7 @@ function LinkSummary({ payload }: { payload: EvidenceViewerPayload }) {
 
 export function ArtifactSource({
   artifact,
+  textPassageTargets,
   scopeSpanId,
   scopeSpanIds,
   highlight = true,
@@ -533,6 +535,7 @@ export function ArtifactSource({
   onLocateCurrent,
 }: {
   artifact: EvidenceArtifact;
+  textPassageTargets?: readonly EvidenceTextPassageTarget[];
   scopeSpanId?: string;
   /** Matching spans to highlight alongside the primary focused span. */
   scopeSpanIds?: readonly string[];
@@ -602,7 +605,7 @@ export function ArtifactSource({
           <EvidencePageView key={page.page} page={page} artifactStableId={artifact.stable_id} emphasizedSpanIds={emphasizedSpanIds} />
         ))
       ) : isTextRenderableMediaType(artifact.media_type) && (evidenceTextContext(artifact) !== null || textCitedSpans(artifact).length > 0) ? (
-        <TextArtifactSource key={artifact.stable_id} artifact={artifact} scopeSpanId={scopeSpanId} scopeSpanIds={scopeSpanIds} highlight={highlight} emphasizedSpanIds={emphasizedSpanIds} />
+        <TextArtifactSource key={artifact.stable_id} artifact={artifact} textPassageTargets={textPassageTargets} scopeSpanId={scopeSpanId} scopeSpanIds={scopeSpanIds} highlight={highlight} emphasizedSpanIds={emphasizedSpanIds} />
       ) : artifact.media_type.startsWith('image/') && blob ? (
         <div className="evidence-page-image-frame">
           <img className="evidence-page-image" src={blob.url} alt={artifact.title || artifact.filename || 'Source image'} />
@@ -1186,6 +1189,7 @@ function TextQuoteBlocks({ artifact, spans }: { artifact: EvidenceArtifact; span
             ref={index === 0 ? firstBlockRef : undefined}
           >
             {span.quote || span.snippet}
+            {(span.quote_truncated || span.snippet_truncated) && <small className="muted"> … [excerpt]</small>}
           </mark>
         ))}
       </div>
@@ -1288,12 +1292,14 @@ function TextBlobSource({
 
 export function TextArtifactSource({
   artifact,
+  textPassageTargets,
   scopeSpanId,
   scopeSpanIds,
   highlight = true,
   emphasizedSpanIds = [],
 }: {
   artifact: EvidenceArtifact;
+  textPassageTargets?: readonly EvidenceTextPassageTarget[];
   scopeSpanId?: string;
   /** Matching spans to highlight alongside the primary focused span. */
   scopeSpanIds?: readonly string[];
@@ -1302,7 +1308,7 @@ export function TextArtifactSource({
 }) {
   const context = evidenceTextContext(artifact);
   if (context !== null) {
-    return <SavedTextContext context={context} scopeSpanId={scopeSpanId} scopeSpanIds={scopeSpanIds} highlight={highlight} emphasizedSpanIds={emphasizedSpanIds} />;
+    return <SavedTextContext context={context} artifact={artifact} textPassageTargets={textPassageTargets} scopeSpanId={scopeSpanId} scopeSpanIds={scopeSpanIds} highlight={highlight} emphasizedSpanIds={emphasizedSpanIds} />;
   }
   return <LegacyTextArtifactSource artifact={artifact} />;
 }
@@ -1410,7 +1416,7 @@ function SpanCard({
           </span>
         )}
       </header>
-      {span.snippet && <blockquote data-testid="evidence-snippet">{span.snippet}</blockquote>}
+      {span.snippet && <blockquote data-testid="evidence-snippet">{span.snippet}{span.snippet_truncated && <small className="muted"> … [excerpt]</small>}</blockquote>}
       <dl className="evidence-meta-grid evidence-span-meta">
         <dt>span ref</dt>
         <dd>{span.export_ref}</dd>

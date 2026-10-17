@@ -19,6 +19,9 @@ import type {
 /** One occurrence, flattened out of its layer so the partition can carry it. */
 export interface AnnotationMark {
   occurrenceId: string;
+  quoteTruncated?: boolean;
+  sourceStart?: number;
+  sourceEnd?: number;
   toggleKey: string;
   layerFamily: string;
   entityType: string | null;
@@ -158,6 +161,9 @@ export function collectMarks(
 function spanToMark(span: TextAnnotationSpan, layer: TextAnnotationLayer): AnnotationMark {
   return {
     occurrenceId: span.occurrenceId,
+    ...(span.quoteTruncated ? { quoteTruncated: true } : {}),
+    ...(span.sourceStart !== undefined ? { sourceStart: span.sourceStart } : {}),
+    ...(span.sourceEnd !== undefined ? { sourceEnd: span.sourceEnd } : {}),
     toggleKey: layer.toggleKey,
     layerFamily: layer.layerFamily,
     entityType: span.entityType,

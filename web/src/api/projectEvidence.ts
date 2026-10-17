@@ -1,5 +1,7 @@
 import { httpContract, type HttpContractSuccessResponse } from './httpContract';
 import type {
+  EvidenceViewerReadOptions,
+  TextAnnotationsOptions,
   TextAnnotationLayer,
   TextAnnotations,
   TextAnnotationSpan,
@@ -11,9 +13,7 @@ export interface ProjectEvidenceOptions {
   headers?: HeadersInit;
 }
 
-export interface EvidenceViewerOptions extends ProjectEvidenceOptions {
-  locateCurrent?: boolean;
-}
+export type EvidenceViewerOptions = EvidenceViewerReadOptions;
 
 export type CellEvidenceWire =
   HttpContractSuccessResponse<'tenant.cell_evidence.get'>;
@@ -34,7 +34,7 @@ export interface ProjectEvidenceApi {
   getTextAnnotations(
     rowId: string,
     columnId: string,
-    options?: ProjectEvidenceOptions,
+    options?: TextAnnotationsOptions,
   ): Promise<CellTextAnnotationsWire>;
   getColumnEvidence(
     sheetId: string,
@@ -61,7 +61,7 @@ export interface ProjectEvidenceDomainApi {
   getTextAnnotations(
     rowId: string,
     columnId: string,
-    options?: ProjectEvidenceOptions,
+    options?: TextAnnotationsOptions,
   ): Promise<TextAnnotations>;
   getColumnEvidence(
     sheetId: string,
@@ -117,7 +117,7 @@ export function createProjectEvidenceApi(
             row_id: numericPathRef(rowId),
             column_id: numericPathRef(columnId),
           },
-          query: {},
+          query: { start: options.start, limit: options.limit, revision: options.revision, occurrence_id: options.occurrenceId },
           signal: options.signal,
           headers: options.headers,
           errorFactory,
@@ -152,6 +152,11 @@ export function createProjectEvidenceApi(
           },
           query: {
             locate_current: options.locateCurrent ? true : undefined,
+            text_artifact_id: options.textArtifactId,
+            text_start: options.textStart,
+            text_limit: options.textLimit,
+            text_revision: options.textRevision,
+            text_span_id: options.textSpanId,
           },
           signal: options.signal,
           headers: options.headers,
@@ -213,6 +218,9 @@ function mapTextAnnotationLayer(raw: unknown): TextAnnotationLayer[] {
         const metadata = isRecord(span.metadata) ? span.metadata : {};
         return [{
           occurrenceId: String(span.occurrence_id ?? `${start}:${end}`),
+          ...(typeof span.source_start === 'number' ? { sourceStart: span.source_start } : {}),
+          ...(typeof span.source_end === 'number' ? { sourceEnd: span.source_end } : {}),
+          ...(span.quote_truncated === true ? { quoteTruncated: true } : {}),
           start,
           end,
           quote: String(span.quote ?? ''),
@@ -258,6 +266,7 @@ function textAnnotationsFromWire(
     // `null` is meaningful here (no renderable text), so it is preserved
     // rather than coerced to ''.
     text: typeof wire.text === 'string' ? wire.text : null,
+    ...(wire.window ? { window: wire.window } : {}),
     contentHash: typeof wire.content_hash === 'string' ? wire.content_hash : null,
     layers: Array.isArray(wire.layers) ? wire.layers.flatMap(mapTextAnnotationLayer) : [],
   };
