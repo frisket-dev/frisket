@@ -358,13 +358,16 @@ class SearchPreparationStore:
         """Reserve exact automatic scope once, without reviving terminal intents."""
         scope = {
             "row_ids": sorted({int(s["row_id"]) for s in sources}),
-            "sources": list(sources),
+            "sources": sorted(
+                sources, key=lambda item: (int(item["row_id"]), int(item["column_id"]))
+            ),
             "source_cutoff": source_cutoff,
         }
         intent_key = (
             f"import:{receipt_id}"
             if receipt_id is not None
-            else "materialized:" + canonical_plan_hash({"sheet_id": sheet_id, **scope})
+            else "materialized:"
+            + canonical_plan_hash({"sheet_id": sheet_id, "sources": scope["sources"]})
         )
         c = search_preparation_batches_table.c
         org = (
@@ -550,6 +553,7 @@ class SearchPreparationStore:
                     predicate,
                     sa.or_(c.sheet_id.is_(None), c.sheet_id == sheet_id),
                     c.plan_json.is_(None),
+                    c.settled_at.is_(None),
                     c.stop_requested_at.is_(None),
                 )
                 .values(

@@ -641,6 +641,15 @@ def test_trusted_automatic_ready_media_still_admits_without_downloads(
     assert batch_id is not None
     SearchPreparationService(workspace).recover()
     assert len(service.get(project_id, batch_id).jobs) == 1
+    if origin == "import":
+        # The same receipt remains stable after action admission changed the
+        # project cursor by creating ordinary output columns.
+        assert (
+            service.create_after_import(
+                project_id, receipt_id="receipt:trusted-import", sheet_id=sheet
+            )
+            == batch_id
+        )
     assert (
         model_pull_store.list_recent(
             workspace.queue.engine, workspace_root=str(workspace.root)
@@ -715,6 +724,19 @@ def test_optional_setup_permission_is_consistent_on_every_plan_response(
     assert rejected.status_code == 403
     assert setup_calls == []
     assert service.store.children(batch["id"]) == []
+    no_download = client.post(
+        f"{base}/{batch['id']}/decision",
+        json={"plan_hash": batch["plan_hash"], "decision": "prepare"},
+    )
+    assert no_download.status_code == 403
+    assert (
+        service.store.get(
+            batch["id"], project_id=project_id, storage_org_id=None
+        ).decision
+        is None
+    )
+    assert service.store.children(batch["id"]) == []
+    assert client.post(f"{base}/{batch['id']}/stop").status_code == 403
     permission[0] = True
     allowed = client.get(f"{base}/{batch['id']}").json()
     assert allowed["can_stop"]
@@ -2003,3 +2025,89 @@ def test_automatic_ocr_keeps_local_target_with_cloud_first_account(
     route, _promises = RouteStore.for_run(project, stored.run_id).head()
     assert route.target_snapshot["target_id"] == "local"
     assert len(service.get(project_id, batch_id).jobs) == 1
+
+
+def test_bulk_callback_replay_ignores_unrelated_project_cursor_changes(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        preparation_module,
+        "_requirements",
+        lambda: (replace(_Requirement(), weights_ready=True),),
+    )
+    workspace = Workspace(tmp_path / "workspace")
+    project_id = workspace.create("Bulk callback retry")["id"]
+    project = workspace.get(project_id)
+    sheet = project.add_sheet("Files")
+    column = project.add_column(sheet, "Source", type="image")
+    digest = project.add_blob(b"media", mime="image/png")
+    rows = project.add_rows(
+        sheet, [{"Source": {"blob": digest, "mime": "image/png"}}], {"Source": column}
+    )
+    service = SearchPreparationService(workspace)
+    batch_id = service.create_after_materialization(
+        project_id, sheet_id=sheet, row_ids=rows
+    )
+    [original] = service.store.children(batch_id)
+    project.add_column(sheet, "Unrelated note", type="text")
+    replay = SearchPreparationService(workspace).create_after_materialization(
+        project_id, sheet_id=sheet, row_ids=rows
+    )
+    assert replay == batch_id
+    assert service.store.children(batch_id) == [original]
+    assert [
+        job.id
+        for job in workspace.queue.list_project_jobs(
+            project_id, kind="project.run", limit=20
+        )
+    ] == [original.job_id]
+
+
+def test_automatic_plan_refuses_source_rebound_during_planning(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        preparation_module,
+        "_requirements",
+        lambda: (replace(_Requirement(), weights_ready=True),),
+    )
+    workspace = Workspace(tmp_path / "workspace")
+    project_id = workspace.create("Changed during preview")["id"]
+    project = workspace.get(project_id)
+    sheet = project.add_sheet("Files")
+    column = project.add_column(sheet, "Source", type="image")
+    digest = project.add_blob(b"original", mime="image/png")
+    replacement = project.add_blob(b"replacement", mime="image/png")
+    [row] = project.add_rows(
+        sheet, [{"Source": {"blob": digest, "mime": "image/png"}}], {"Source": column}
+    )
+    service = SearchPreparationService(workspace)
+    original_plan = service._plan
+
+    def changed_while_previewing(*args, **kwargs):
+        # A user edit while an earlier file's preview was running means the
+        # normal planner now sees a different binding in the same scoped cell.
+        project.apply_edits(
+            [
+                {
+                    "row_id": row,
+                    "column_id": column,
+                    "value": {"blob": replacement, "mime": "image/png"},
+                }
+            ]
+        )
+        return original_plan(*args, **kwargs)
+
+    monkeypatch.setattr(service, "_plan", changed_while_previewing)
+    batch_id = service.create_after_import(
+        project_id, receipt_id="receipt:changed-mid-plan", sheet_id=sheet
+    )
+    failed = service.get(project_id, batch_id)
+    assert failed.status == "failed"
+    assert any("source file changed" in error for error in failed.errors)
+    assert failed.jobs == []
+    assert service.store.children(batch_id) == []
+    SearchPreparationService(workspace).recover()
+    assert service.get(project_id, batch_id) == failed
+    assert (
+        workspace.queue.list_project_jobs(project_id, kind="project.run", limit=20)
+        == []
+    )

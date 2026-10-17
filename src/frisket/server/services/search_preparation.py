@@ -390,6 +390,24 @@ class SearchPreparationService:
                     for item in pending.captured_sources
                 ),
             )
+            captured = {
+                (int(item["row_id"]), int(item["column_id"])): (
+                    item["blob_hash"],
+                    item["page_number"],
+                    item["retrieval_revision"],
+                )
+                for item in pending.captured_sources
+            }
+            # Planning may wait on earlier PDF previews. Its returned work must
+            # still refer to the saved bindings, not replacements read later.
+            if any(
+                captured.get((int(item["row_id"]), int(item["column_id"])))
+                != (item["blob_hash"], item["page_number"], item["retrieval_revision"])
+                for item in plan_sources(plan)
+            ):
+                raise RouteError(
+                    422, "A source file changed; prepare again to review it."
+                )
         except RouteError as exc:
             if exc.status_code != 422:
                 raise
@@ -704,6 +722,8 @@ class SearchPreparationService:
                     may_run_actions=may_run_actions,
                 )
             raise RouteError(409, "search preparation decision is already recorded")
+        if not may_run_actions:
+            raise RouteError(403, "preparing search requires action permission")
         if decision != "prepare":
             raise RouteError(422, "choose Prepare or stop this preparation batch")
         project = self.workspace.get(project_id)

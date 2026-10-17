@@ -104,8 +104,6 @@ def test_pending_import_is_internal_until_atomically_hydrated(tmp_path) -> None:
             )
             is None
         )
-        store.mark_settled(pending.id, project_id="project", storage_org_id=None)
-
         hydrated = store.hydrate_pending_plan(
             pending.id,
             project_id="project",
@@ -383,6 +381,15 @@ def test_automatic_scope_first_capture_wins_without_reviving_terminal_intents(tm
         )
         assert terminal.settled_at is not None
         assert terminal.captured_sources is None
+        refused = store.hydrate_pending_plan(
+            captured.id,
+            project_id="project",
+            storage_org_id=None,
+            sheet_id=7,
+            plan={"groups": [], "models": [], "items": []},
+        )
+        assert refused.plan is None
+        assert refused.settled_at is not None
         stopped = store.create_pending_import(
             storage_org_id=None, project_id="project", receipt_id="receipt-stopped"
         )
