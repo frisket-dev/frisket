@@ -138,7 +138,7 @@ describe('search preparation notice projection', () => {
       reviewBatchId: 'prep-1', detail: 'Page 2 failed during OCR.' });
   });
 
-  it('retains page warnings when the polled preparation becomes complete and after reconnecting', async () => {
+  it('retains observed page warnings without resurfacing historical warnings after reconnecting', async () => {
     vi.useFakeTimers();
     const list = vi.spyOn(preparationApi, 'listSearchPreparations').mockResolvedValue({
       batches: [batch()], indexing: { status: 'running', job_id: 781, error: null },
@@ -158,7 +158,7 @@ describe('search preparation notice projection', () => {
     unmount();
     const reopened = renderHook(() => useSearchPreparationNotice('project-1', false));
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
-    expect(reopened.result.current).toMatchObject({ tone: 'warning', detail: 'Page 2 failed during OCR.' });
+    expect(reopened.result.current).toBeNull();
   });
 
   it('keeps a successful preparation with page warnings visibly distinct from clean completion', () => {
@@ -402,7 +402,7 @@ describe('search preparation notice projection', () => {
     await waitFor(() => expect(result.current?.detail).toContain('Install the local audio runtime.'));
   });
 
-  it('shows the newest first-observed failure while its search indexing is still active', async () => {
+  it('does not resurface a historical failure during unrelated pending indexing', async () => {
     vi.spyOn(preparationApi, 'listSearchPreparations').mockResolvedValue({
       schemaVersion: 'frisket.search_preparation_list.v1',
       batches: [batch({
@@ -420,9 +420,31 @@ describe('search preparation notice projection', () => {
     const { result } = renderHook(() => useSearchPreparationNotice('project-1', false));
 
     await waitFor(() => expect(result.current).toMatchObject({
-      stage: 'failed',
-      detail: 'OCR could not read the imported PDFs.',
+      stage: 'index',
+      activityKey: 'index:pending',
     }));
+  });
+
+  it('does not attach historical warnings to unrelated indexing after reload', async () => {
+    vi.useFakeTimers();
+    const historical = batch({ status: 'complete', jobs: [],
+      groups: [{ kind: 'ocr', count: 1, status: 'complete' }],
+      warnings: ['An old PDF page failed.'] });
+    const list = vi.spyOn(preparationApi, 'listSearchPreparations').mockResolvedValue({
+      batches: [historical], indexing: { status: 'running', job_id: 900, error: null },
+    });
+    vi.spyOn(openApi, 'listModelPulls').mockResolvedValue({
+      schemaVersion: 'frisket.model_pull_list.v1', pulls: [],
+    });
+    const { result } = renderHook(() => useSearchPreparationNotice('project-1', false));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(result.current).toMatchObject({ stage: 'index', activityKey: 'index:900' });
+    list.mockResolvedValue({ batches: [historical], indexing: { status: 'idle', job_id: null, error: null } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(result.current).toMatchObject({ tone: 'complete', activityKey: 'index:900', reviewBatchId: null });
+    expect(result.current?.details).not.toContain('An old PDF page failed.');
+    await act(async () => { await vi.advanceTimersByTimeAsync(12_000); });
+    expect(result.current).toBeNull();
   });
 
   it('keeps a failed project index visible with its exact job error', () => {

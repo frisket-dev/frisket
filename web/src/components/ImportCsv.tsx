@@ -2113,7 +2113,7 @@ function OpenImportWorkspaceSession({
                     >
                       <Upload size={34} aria-hidden />
                       <h2>Drop files here</h2>
-                      <p>Import individual files, a folder, or a ZIP archive.</p>
+                      <p>Drop files or a ZIP archive here, or choose a folder.</p>
                       <div className="import-files-chooser-actions">
                         <button
                           type="button"

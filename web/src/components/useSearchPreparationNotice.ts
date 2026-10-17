@@ -413,7 +413,6 @@ function relevantPulls(
 function relevantBatches(
   batches: SearchPreparationBatch[],
   observedActiveBatchIds: Set<string>,
-  indexing: SearchIndexingProjection,
 ): SearchPreparationBatch[] {
   const active = batches.filter((batch) => ACTIVE_BATCH_STATUSES.has(batch.status));
   const previouslyObserved = new Set(observedActiveBatchIds);
@@ -421,16 +420,15 @@ function relevantBatches(
     observedActiveBatchIds.clear();
     for (const batch of active) observedActiveBatchIds.add(batch.id);
   }
-  const failed = batches.filter((batch, index) => (
+  const failed = batches.filter((batch) => (
     batch.status === 'failed' && (
       previouslyObserved.has(batch.id)
       || batch.models.some((model) => model.required && !model.ready && !model.can_setup)
-      || (index === 0 && indexing.status !== 'idle')
     )
   )).slice(0, 1);
-  const warned = batches.slice(0, 1).filter((batch) => (
-    batch.status === 'complete' && batch.warnings?.length
-  ));
+  const warned = batches.filter((batch) => (
+    previouslyObserved.has(batch.id) && batch.status === 'complete' && batch.warnings?.length
+  )).slice(0, 1);
   return [...failed, ...active, ...warned];
 }
 
@@ -474,7 +472,6 @@ export function useSearchPreparationNotice(projectId: string, team: boolean): Se
     const batches = relevantBatches(
       preparationPayload?.batches ?? previous?.batches ?? [],
       observedBatchesRef.current.ids,
-      preparationPayload?.indexing ?? previous?.indexing ?? IDLE_INDEXING,
     );
     const pulls = pullsResult.status === 'fulfilled' ? pullsResult.value : previous?.pulls ?? [];
     const next: SearchPreparationSnapshot = {
