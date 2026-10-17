@@ -180,7 +180,7 @@ def test_cancelled_or_wrong_space_does_not_call_model(indexed_project):
 
 
 @pytest.mark.parametrize("mode", ["lexical", "semantic", "hybrid"])
-def test_unprepared_project_reports_readiness_without_starting_work(tmp_path, mode):
+def test_empty_project_reports_complete_without_starting_work(tmp_path, mode):
     project = Project.create(tmp_path / "empty.frisket", name="Empty")
     encoder = Encoder()
     try:
@@ -188,7 +188,7 @@ def test_unprepared_project_reports_readiness_without_starting_work(tmp_path, mo
             project, replace(request(), mode=mode), runtime=encoder
         )
         assert not result.results
-        assert result.coverage.state == "preparing"
+        assert result.coverage.state == "complete"
         assert encoder.calls == 0
         assert not (project.path / "project.retrieval.db").exists()
     finally:
