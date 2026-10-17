@@ -7311,11 +7311,6 @@ export type HttpInline_cd5e2492515e7874 = ({
   "pid": (string);
 });
 
-export type HttpInline_d142ec994d395778 = ({
-  "page_number"?: (((number)) | ((null)));
-  "row_id"?: (((number)) | ((null)));
-});
-
 export type HttpInline_d746974fa9afd5e9 = (Record<string, never>);
 
 type HttpInline_d89a2ac461d6e692_ActionError = ({
@@ -7559,6 +7554,12 @@ export type HttpInline_f7cbd8861ad808a4 = ({
   "row_ids"?: (((string)) | ((null)));
   "scope_row_ids"?: (((string)) | ((null)));
   "sort"?: (((string)) | ((null)));
+});
+
+export type HttpInline_f7ec914a3915e01f = ({
+  "column_id"?: (((number)) | ((null)));
+  "page_number"?: (((number)) | ((null)));
+  "row_id"?: (((number)) | ((null)));
 });
 
 export type HttpInline_f8fd7cf5145f948b = ({
@@ -13885,7 +13886,7 @@ export type HttpContractOperationMap = {
   };
   readonly "tenant.get_search_preparation_text_samples.get": {
     readonly pathParams: HttpInline_b1e07c7c7e5c3960;
-    readonly query: HttpInline_d142ec994d395778;
+    readonly query: HttpInline_f7ec914a3915e01f;
     readonly request: undefined;
     readonly responses: {
       readonly "200": HttpSearchPreparationTextSamples;

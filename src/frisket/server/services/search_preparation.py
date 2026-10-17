@@ -1041,6 +1041,7 @@ class SearchPreparationService:
         *,
         row_id: int | None,
         page_number: int | None,
+        column_id: int | None = None,
     ) -> SearchPreparationTextSamples:
         try:
             row = self.store.get(
@@ -1058,6 +1059,8 @@ class SearchPreparationService:
             if item["mime"] != "application/pdf":
                 continue
             if row_id is not None and item["row_id"] != row_id:
+                continue
+            if column_id is not None and item["column_id"] != column_id:
                 continue
             wanted_page = page_number or item.get("page_number") or 1
             text, count, source, truncated = sample_pdf(
@@ -1082,7 +1085,7 @@ class SearchPreparationService:
             )
             if len(samples) >= 8:
                 break
-        if row_id is not None and not samples:
+        if (row_id is not None or column_id is not None) and not samples:
             raise RouteError(404, "the selected PDF is not in this preparation scope")
         return SearchPreparationTextSamples(batch_id=batch_id, samples=samples)
 

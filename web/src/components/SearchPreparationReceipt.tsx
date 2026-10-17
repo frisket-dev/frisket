@@ -69,7 +69,7 @@ function TextReview({
       const result = await getSearchPreparationTextSamples(
         projectId,
         batch.id,
-        { rowId, pageNumber },
+        { rowId, columnId, pageNumber },
         { signal: controller.signal },
       );
       if (controller.signal.aborted || generation !== loadGeneration.current) return;

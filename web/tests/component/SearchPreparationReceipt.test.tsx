@@ -689,7 +689,7 @@ describe('SearchPreparationReceipt', () => {
     expect(getSearchPreparationTextSamples).toHaveBeenLastCalledWith(
       'project-1',
       'prep-1',
-      { rowId: 42, pageNumber: 193 },
+      { rowId: 42, columnId: 5, pageNumber: 193 },
       { signal: expect.anything() },
     );
     expect((screen.getByRole('checkbox', { name: 'Re-scan all PDFs with OCR' }) as HTMLInputElement).checked).toBe(false);
@@ -714,10 +714,38 @@ describe('SearchPreparationReceipt', () => {
     fireEvent.change(documents, { target: { value: '43:5' } });
     await screen.findByText('No embedded text is available on this sampled page.');
     expect(getSearchPreparationTextSamples).toHaveBeenLastCalledWith('project-1', 'prep-1',
-      { rowId: 43, pageNumber: 1 }, { signal: expect.anything() });
+      { rowId: 43, columnId: 5, pageNumber: 1 }, { signal: expect.anything() });
     expect(screen.getByRole('combobox', { name: 'Sample document' }).querySelectorAll('option')).toHaveLength(2);
     fireEvent.change(screen.getByRole('combobox', { name: 'Sample document' }), { target: { value: '42:5' } });
     await screen.findByText('Readable embedded text');
+    expect(decideSearchPreparation).not.toHaveBeenCalled();
+    expect(replanSearchPreparation).not.toHaveBeenCalled();
+  });
+
+  it('binds same-row document and page requests to the selected source column', async () => {
+    const long = { row_id: 42, column_id: 5, filename: 'long.pdf', page_number: 1, page_count: 20,
+      page_scoped: false, preview_url: '/long', text: 'Long page 1', source: 'native' as const, truncated: false };
+    const short = { ...long, column_id: 6, filename: 'short.pdf', page_count: 1, page_scoped: true, preview_url: '/short', text: 'Short selected page' };
+    getSearchPreparation.mockResolvedValue(consentBatch);
+    getSearchPreparationTextSamples.mockImplementation(async (_project, _batch, query) => {
+      if (query.rowId == null) return { batch_id: 'prep-1', samples: [long, short] };
+      if (query.columnId === 6) return { batch_id: 'prep-1', samples: [short] };
+      if (query.columnId !== 5) throw new Error('A sibling PDF cannot supply this page');
+      return { batch_id: 'prep-1', samples: [{ ...long, page_number: query.pageNumber, text: `Long page ${query.pageNumber}` }] };
+    });
+    const onError = vi.fn();
+    render(<SearchPreparationReceipt projectId="project-1" batchId="prep-1" onDone={vi.fn()} onError={onError} />);
+    await screen.findByText('Long page 1');
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Sample page number' }), { target: { value: '10' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Go' }));
+    await screen.findByText('Long page 10');
+    expect(getSearchPreparationTextSamples).toHaveBeenLastCalledWith('project-1', 'prep-1',
+      { rowId: 42, columnId: 5, pageNumber: 10 }, { signal: expect.anything() });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Sample document' }), { target: { value: '42:6' } });
+    await screen.findByText('Short selected page');
+    expect(getSearchPreparationTextSamples).toHaveBeenLastCalledWith('project-1', 'prep-1',
+      { rowId: 42, columnId: 6, pageNumber: 1 }, { signal: expect.anything() });
+    expect(onError).not.toHaveBeenCalled();
     expect(decideSearchPreparation).not.toHaveBeenCalled();
     expect(replanSearchPreparation).not.toHaveBeenCalled();
   });

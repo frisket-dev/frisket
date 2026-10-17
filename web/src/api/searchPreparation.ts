@@ -101,13 +101,14 @@ export function stopSearchPreparation(
 export function getSearchPreparationTextSamples(
   projectId: string,
   batchId: string,
-  selection: { rowId?: number; pageNumber?: number } = {},
+  selection: { rowId?: number; columnId?: number; pageNumber?: number } = {},
   options: SearchPreparationRequestOptions = {},
 ): Promise<SearchPreparationTextSamplesWire> {
   return httpContract('tenant.get_search_preparation_text_samples.get', {
     pathParams: { pid: projectId, batch_id: batchId },
     query: {
       row_id: selection.rowId,
+      column_id: selection.columnId,
       page_number: selection.pageNumber,
     },
     signal: options.signal,
