@@ -191,6 +191,30 @@ def test_capabilities_client_uses_selected_account_and_bearer():
     assert capabilities.routes[0].route_revision == "route-1"
 
 
+@pytest.mark.parametrize("pdf_input", [False, True])
+def test_cloud_pdf_companion_negotiates_without_breaking_legacy_capabilities(pdf_input):
+    def handler(request):
+        assert request.headers.get("X-Frisket-OCR-Contract") == "pdf-v1"
+        payload = _capabilities().model_dump(mode="json")
+        if pdf_input:
+            payload["routes"][0]["options"]["pdf_input"] = True
+        return httpx.Response(200, json=payload)
+
+    client = CloudConnectionClient(
+        "https://app.frisket.dev", transport=httpx.MockTransport(handler)
+    )
+    try:
+        response = client.capabilities("installation-token", 41)
+        assert getattr(response.routes[0].options, "pdf_input", False) is pdf_input
+        if not pdf_input:
+            assert (
+                "pdf_input"
+                not in response.model_dump(mode="json")["routes"][0]["options"]
+            )
+    finally:
+        client.close()
+
+
 def test_capability_snapshots_are_user_bound_and_survive_same_user_refresh(tmp_path):
     store = CloudConnectionStore(tmp_path / "profile")
     store.save_connection("first", _session(user_id=7, account_id=41))
