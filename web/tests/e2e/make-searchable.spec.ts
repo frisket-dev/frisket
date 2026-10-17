@@ -594,6 +594,7 @@ test('native text review requests replacement OCR without changing the original 
     )
   ));
   await preview.getByTestId('search-preparation-force-ocr').click();
+  await page.getByRole('option', { name: 'Re-scan PDFs with OCR', exact: true }).click();
   const replacementResponse = await replacementRequest;
   expect(replacementResponse.ok()).toBeTruthy();
   expect(replacementResponse.request().postDataJSON()).toEqual({
@@ -620,7 +621,7 @@ test('native text review requests replacement OCR without changing the original 
   expect(samples.batch_id).toBe(replacement.id);
   expect(samples.samples.map(({ row_id, column_id }) => ({ row_id, column_id })))
     .toEqual([{ row_id: before.rows[0].id, column_id: mediaColumn!.id }]);
-  await expect(receipt.getByTestId('search-preparation-force-ocr')).toBeChecked();
+  await expect(receipt.getByTestId('search-preparation-force-ocr')).toHaveValue('ocr');
   expect(await modelPullInventory(page.request)).toEqual(pullsBefore);
 
   const after = await sheetData(page.request, pid, imported.sheet_id);
