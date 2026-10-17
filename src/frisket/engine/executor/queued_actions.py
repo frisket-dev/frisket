@@ -51,6 +51,7 @@ from frisket.redaction import safe_error
 from frisket.engine.runner import CostGate
 from frisket.ops.base import Recipe
 from frisket.engine.store import Project
+from frisket.engine.store.document_text import DocumentTextPublicationRefused
 from frisket.engine.store.receipts import ReceiptStatus, ReceiptStore
 
 LOG = logging.getLogger("frisket.worker")
@@ -748,6 +749,7 @@ def queued_v1_terminal_receipt_transition(
     require_cancel_intent: bool = False,
     claimless_direct_effect: bool = False,
     never_dispatched: bool = False,
+    publication_refusal: DocumentTextPublicationRefused | None = None,
 ) -> QueuedV1TerminalReceiptTransition:
     if status not in {"failed", "cancelled"}:
         raise ValueError(f"unsupported terminal queued receipt status: {status}")
@@ -915,6 +917,7 @@ def queued_v1_terminal_receipt_transition(
         run_status=terminal_run_status,  # type: ignore[arg-type]
         authority=authority,
         errors=[error] if error is not None else [],
+        publication_refusal=publication_refusal,
     )
     if raise_on_conflict and terminalization.disposition in {
         "conflict",
@@ -964,6 +967,7 @@ def queued_v1_terminal_failure_result(
     writer_attempt_id: str | None = None,
     claim_token: str | None = None,
     never_dispatched: bool = False,
+    publication_refusal: DocumentTextPublicationRefused | None = None,
 ) -> ActionResult:
     return queued_v1_terminal_receipt_result(
         project,
@@ -975,6 +979,7 @@ def queued_v1_terminal_failure_result(
         writer_attempt_id=writer_attempt_id,
         claim_token=claim_token,
         never_dispatched=never_dispatched,
+        publication_refusal=publication_refusal,
     )
 
 

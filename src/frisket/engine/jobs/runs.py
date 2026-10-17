@@ -46,9 +46,10 @@ from frisket.ai.llm.endpoint_config import (
 )
 from frisket.ai.models.gateway_config import ModelsGatewayConnection
 from frisket.ops.base import persisted_recipe_invocation_halt
-from frisket.engine.runner import MapRunner
+from frisket.engine.runner import MapRunner, RunProgress
 from frisket.engine.sandbox.shim import SandboxTeardownError
 from frisket.engine.store import Project
+from frisket.engine.store.document_text import DocumentTextPublicationRefused
 from frisket.engine.store.output_claims import ClaimLeaseRenewalFailed
 from frisket.engine.store.receipts import FINISHED_RECEIPT_STATUSES, ReceiptStore
 from frisket.engine.store.runs import RunResultStore
@@ -1036,11 +1037,18 @@ def register_project_run_handler(
                         allow_local_credentials=not require_storage_identity,
                     )
 
+            def capture_progress(value: RunProgress) -> None:
+                # Retain the runner-owned object before dispatch. Its exact
+                # writer fields remain available if publication later refuses.
+                nonlocal progress
+                progress = value
+
             runner = MapRunner(
                 project,
                 effective_router,
                 consent_coverage=consent_coverage,
                 should_cancel=cancelled,
+                on_progress=capture_progress,
                 defer_cancel_terminal_close=True,
                 op_context_extras={
                     "url_capture_browser": (
@@ -1224,6 +1232,37 @@ def register_project_run_handler(
                 "total": row["total_rows"] if row is not None else 0,
                 "completed": row["completed_rows"] if row is not None else 0,
                 "failed": row["failed_rows"] if row is not None else 0,
+                "action_result": action_result.model_dump(mode="json"),
+            }
+        except DocumentTextPublicationRefused as exc:
+            if (
+                progress is None
+                or not progress.writer_attempt_claimed
+                or progress.writer_attempt_id is None
+            ):
+                raise
+            action_result = queued_v1_terminal_failure_result(
+                project,
+                payload,
+                project_id=project_id,
+                run_id=run_id,
+                error=ActionError(
+                    code="source_changed",
+                    message=str(exc),
+                    action_kind=str(payload.get("action_kind") or RUN_PROJECT_KIND),
+                ),
+                writer_attempt_id=progress.writer_attempt_id,
+                claim_token=claim_token,
+                publication_refusal=exc,
+            )
+            settle()
+            row = run_store.get_run(run_id)
+            return {
+                "project_id": project_id,
+                "run_id": run_id,
+                "status": "failed",
+                "completed": row["completed_rows"],
+                "failed": row["failed_rows"],
                 "action_result": action_result.model_dump(mode="json"),
             }
         except Exception as exc:
