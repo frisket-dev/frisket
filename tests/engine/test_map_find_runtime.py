@@ -1058,11 +1058,15 @@ def test_find_action_job_locates_raw_image_regions_with_same_call_details(
         artifact = viewer["artifacts"][0]
         span = artifact["spans"][0]
         assert artifact["media_type"] == "image/png"
-        assert artifact["metadata"]["page_images"]["1"] == {
-            "blob_hash": blob_hash,
-            "height": 60,
-            "width": 100,
-        }
+        [page] = artifact["pages"]
+        assert page["page"] == 1
+        assert page["image"]["blob_hash"] == blob_hash
+        assert page["image"]["width"] == 100
+        assert page["image"]["height"] == 60
+        assert page["image"]["url"].endswith(f"/blobs/{blob_hash}")
+        [region] = page["regions"]
+        assert region["stable_id"] == span["stable_id"]
+        assert region["bbox"] == span["selector"]["bbox"]
         assert span["span_kind"] == "region"
         assert span["selector"]["bbox"][0] == {
             "space": "page_normalized",
