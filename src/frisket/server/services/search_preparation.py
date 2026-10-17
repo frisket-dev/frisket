@@ -28,14 +28,15 @@ from frisket.engine.jobs.search_preparation_store import (
     SearchPreparationBatchRow,
     SearchPreparationChildRow,
     SearchPreparationStore,
+    canonical_plan_hash,
     plan_sources,
 )
 from frisket.engine.jobs.model_pull import ModelPullEnqueueError, schedule_model_pull
 from frisket.engine.jobs.queue import SEARCH_INDEX_KIND, SERVER_SCOPED_JOB_PAYLOAD_KEY
 from frisket.engine.store.document_text import (
     document_text_role,
-    ensure_document_text_role,
 )
+from frisket.engine.store.document_text_adoption import adopt_document_text_role
 from frisket.execution.provider import ExactExecutionMatch
 from frisket.execution.targets import CAPABILITY_OCR, CAPABILITY_TRANSCRIBE
 from frisket.engine.store.import_sessions import ImportSessionStore
@@ -172,6 +173,7 @@ class _SetupSnapshot:
 class _DocumentTextTarget:
     name: str
     column_id: int
+    adopted: bool
 
 
 def _document_text_target(
@@ -209,12 +211,17 @@ def _document_text_target(
                 ai_generated=True,
                 commit=False,
             )
-            role = ensure_document_text_role(
-                project,
-                source_column_id=source_column_id,
-                text_column_id=text_column_id,
-                commit=False,
-            )
+        elif not role.source_active or role.source_hidden:
+            raise ValueError("designated document text source column is unavailable")
+        elif not role.text_active:
+            raise ValueError("designated document text column is inactive")
+        adoption = adopt_document_text_role(
+            project,
+            source_column_id=source_column_id,
+            text_column_id=role.text_column_id if role is not None else text_column_id,
+        )
+        role = adoption.role
+        adopted = adoption.created or adoption.seeded_count > 0
         if not role.source_active or role.source_hidden:
             raise ValueError("designated document text source column is unavailable")
         if not role.text_active:
@@ -224,7 +231,9 @@ def _document_text_target(
             raise ValueError(
                 f"document text column {role.text_column_id} does not exist"
             )
-        return _DocumentTextTarget(str(target["name"]), int(target["id"]))
+        return _DocumentTextTarget(
+            str(target["name"]), int(target["id"]), adopted=adopted
+        )
 
 
 def _planned_child_key(
@@ -255,6 +264,23 @@ def _planned_children(plan: Mapping[str, Any]) -> tuple[_PlannedChild, ...]:
         )
         for (kind, column_id, column_name), items in grouped.items()
     )
+
+
+def _adopt_planned_document_text(project: Any, plan: Mapping[str, Any]) -> bool:
+    """Adopt legacy prepared refs before a reviewed plan becomes authority."""
+
+    adopted = False
+    source_column_ids = {
+        child.column_id
+        for child in _planned_children(plan)
+        if child.kind in {"native_pdf", "ocr"}
+    }
+    for source_column_id in sorted(source_column_ids):
+        target = _document_text_target(
+            project, source_column_id=source_column_id
+        )
+        adopted = target.adopted or adopted
+    return adopted
 
 
 class SearchPreparationService:
@@ -814,36 +840,22 @@ class SearchPreparationService:
         if decision != "prepare":
             raise RouteError(422, "choose Prepare or stop this preparation batch")
         project = self.workspace.get(project_id)
+        adopted_document_text = _adopt_planned_document_text(project, row.plan)
+        if adopted_document_text:
+            current = self._current_decision_plan(project, row)
+            if canonical_plan_hash(current) != row.plan_hash:
+                self._store_changed_plan_and_raise(
+                    row,
+                    current,
+                    may_setup_models=may_setup_models,
+                    may_run_actions=may_run_actions,
+                )
         if plan_hash != row.plan_hash or not self._consent_facts_current(project, row):
-            current = self._plan(
-                project,
-                sheet_id=row.sheet_id,
-                row_ids=row.row_ids,
-                force_ocr=row.force_ocr,
-                source_cells=frozenset(
-                    (int(item["row_id"]), int(item["column_id"]))
-                    for item in plan_sources(row.plan)
-                ),
-            )
-            if "admission_policy" in row.plan:
-                current["admission_policy"] = row.plan["admission_policy"]
-            refreshed = self.store.replan(
-                row.id,
-                project_id=project_id,
-                storage_org_id=self.workspace.queue_storage_org_id,
-                plan=current,
-            )
-            raise RouteError(
-                409,
-                {
-                    "code": "plan_changed",
-                    "message": "Search preparation changed; review the refreshed plan.",
-                    "batch": self._project(
-                        refreshed,
-                        may_setup_models=may_setup_models,
-                        may_run_actions=may_run_actions,
-                    ).model_dump(mode="json", by_alias=True),
-                },
+            self._store_changed_plan_and_raise(
+                row,
+                self._current_decision_plan(project, row),
+                may_setup_models=may_setup_models,
+                may_run_actions=may_run_actions,
             )
         missing = {
             model["setup_ref"]: model
@@ -897,6 +909,51 @@ class SearchPreparationService:
             batch_id,
             may_setup_models=may_setup_models,
             may_run_actions=may_run_actions,
+        )
+
+    def _current_decision_plan(
+        self, project: Any, row: SearchPreparationBatchRow
+    ) -> dict[str, Any]:
+        assert row.plan is not None and row.sheet_id is not None
+        current = self._plan(
+            project,
+            sheet_id=row.sheet_id,
+            row_ids=row.row_ids,
+            force_ocr=row.force_ocr,
+            source_cells=frozenset(
+                (int(item["row_id"]), int(item["column_id"]))
+                for item in plan_sources(row.plan)
+            ),
+        )
+        if "admission_policy" in row.plan:
+            current["admission_policy"] = row.plan["admission_policy"]
+        return current
+
+    def _store_changed_plan_and_raise(
+        self,
+        row: SearchPreparationBatchRow,
+        current: Mapping[str, Any],
+        *,
+        may_setup_models: bool,
+        may_run_actions: bool,
+    ) -> None:
+        refreshed = self.store.replan(
+            row.id,
+            project_id=row.project_id,
+            storage_org_id=self.workspace.queue_storage_org_id,
+            plan=current,
+        )
+        raise RouteError(
+            409,
+            {
+                "code": "plan_changed",
+                "message": "Search preparation changed; review the refreshed plan.",
+                "batch": self._project(
+                    refreshed,
+                    may_setup_models=may_setup_models,
+                    may_run_actions=may_run_actions,
+                ).model_dump(mode="json", by_alias=True),
+            },
         )
 
     @staticmethod
