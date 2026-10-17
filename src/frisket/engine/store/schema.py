@@ -1006,6 +1006,7 @@ WHEN NEW.run_id IS NOT OLD.run_id
   OR NEW.write_mode IS NOT OLD.write_mode
   OR NEW.claim_token IS NOT OLD.claim_token
   OR NEW.expected_base_run_id IS NOT OLD.expected_base_run_id
+  OR NEW.document_text_authority IS NOT OLD.document_text_authority
   OR NEW.declared_at IS NOT OLD.declared_at
 BEGIN
   SELECT RAISE(ABORT, 'output generation declaration is immutable');

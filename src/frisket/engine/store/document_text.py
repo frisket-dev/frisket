@@ -8,6 +8,7 @@ prepared reference whose source they correct.
 from __future__ import annotations
 
 import sqlite3
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -264,6 +265,48 @@ def document_text_related_column_ids(
     if row is None:
         return (column_id,)
     return tuple(sorted((int(row[0]), int(row[1]))))
+
+
+def is_empty_document_text_target(
+    db_or_project: Any,
+    *,
+    sheet_id: int,
+    source_column_id: int,
+    text_column_id: int,
+) -> bool:
+    """Return whether an exact bound target is safe for first-run admission."""
+
+    db = _db(db_or_project)
+    sheet_id = _positive(sheet_id, "sheet_id")
+    source_column_id = _positive(source_column_id, "source_column_id")
+    text_column_id = _positive(text_column_id, "text_column_id")
+    role = document_text_role(db, source_column_id=source_column_id)
+    if (
+        role is None
+        or role.text_column_id != text_column_id
+        or role.sheet_id != sheet_id
+        or not role.source_active
+        or role.source_hidden
+        or not role.text_active
+        or role.text_hidden
+    ):
+        return False
+    target = db.execute(
+        "SELECT current_run_id FROM columns WHERE id=?", (text_column_id,)
+    ).fetchone()
+    if target is None or target[0] is not None:
+        return False
+    return (
+        db.execute(
+            "SELECT 1 FROM cells WHERE column_id=? "
+            "UNION ALL SELECT 1 FROM edits WHERE column_id=? "
+            "UNION ALL SELECT 1 FROM results WHERE column_id=? "
+            "UNION ALL SELECT 1 FROM run_output_generations WHERE column_id=? "
+            "LIMIT 1",
+            (text_column_id,) * 4,
+        ).fetchone()
+        is None
+    )
 
 
 def ensure_document_text_role(
@@ -540,34 +583,71 @@ def require_document_text_publication_sources(
 ) -> None:
     """Fence new authoritative prepared values to the current source snapshot."""
 
-    for row_id, column_id in keys:
-        result = db.execute(
-            "SELECT result.publication_effect,result.value_kind "
-            "FROM results result JOIN run_output_generations generation "
+    if (
+        not keys
+        or db.execute(
+            "SELECT 1 FROM run_output_generations WHERE run_id=? "
+            "AND document_text_authority=1 LIMIT 1",
+            (int(run_id),),
+        ).fetchone()
+        is None
+    ):
+        return
+    ordered = sorted({(int(row_id), int(column_id)) for row_id, column_id in keys})
+    # Two ids per requested coordinate plus the run id stay below SQLite's
+    # common 999-variable limit.
+    for start in range(0, len(ordered), 400):
+        chunk = ordered[start : start + 400]
+        requested = ",".join("(?,?)" for _ in chunk)
+        params = [value for pair in chunk for value in pair]
+        bad = db.execute(
+            f"WITH requested(row_id,column_id) AS (VALUES {requested}) "
+            "SELECT result.row_id,result.column_id,result.value_kind "
+            "FROM requested target JOIN results result "
+            "ON result.row_id=target.row_id AND result.column_id=target.column_id "
+            "JOIN run_output_generations generation "
             "ON generation.run_id=result.run_id "
             "AND generation.column_id=result.column_id "
-            "WHERE result.run_id=? AND result.row_id=? AND result.column_id=? "
-            "AND generation.document_text_authority=1",
-            (int(run_id), int(row_id), int(column_id)),
+            "WHERE result.run_id=? AND generation.document_text_authority=1 "
+            "AND result.publication_effect='publish_value' AND ("
+            "result.value_kind<>'prepared_content_ref' OR NOT "
+            + _prepared_result_matches_source_sql("result")
+            + ") LIMIT 1",
+            (*params, int(run_id)),
         ).fetchone()
-        if result is None or str(result[0]) != "publish_value":
-            continue
-        if str(result[1]) != "prepared_content_ref":
+        if bad is not None:
             raise DocumentTextRoleError(
-                "authoritative document text must publish prepared content"
+                "authoritative document text must be prepared content matching "
+                f"its current source (row {int(bad[0])}, column {int(bad[1])})"
             )
-        if (
-            db.execute(
-                "SELECT 1 FROM results result WHERE result.run_id=? "
-                "AND result.row_id=? AND result.column_id=? AND "
-                + _prepared_result_matches_source_sql("result"),
-                (int(run_id), int(row_id), int(column_id)),
-            ).fetchone()
-            is None
-        ):
-            raise DocumentTextRoleError(
-                "authoritative document text does not match its current source"
-            )
+
+
+def require_document_text_publication_key_table(
+    db: sqlite3.Connection, *, run_id: int, key_table: str
+) -> None:
+    """Fence staged authoritative publication using an existing key table."""
+
+    if re.fullmatch(r"temp_result_keys_[0-9a-f]+", key_table) is None:
+        raise ValueError("invalid document text publication key table")
+    bad = db.execute(
+        "SELECT result.row_id,result.column_id,result.value_kind "
+        f"FROM {key_table} target JOIN results result "
+        "ON result.row_id=target.row_id AND result.column_id=target.column_id "
+        "JOIN run_output_generations generation "
+        "ON generation.run_id=result.run_id "
+        "AND generation.column_id=result.column_id "
+        "WHERE result.run_id=? AND generation.document_text_authority=1 "
+        "AND result.publication_effect='publish_value' AND ("
+        "result.value_kind<>'prepared_content_ref' OR NOT "
+        + _prepared_result_matches_source_sql("result")
+        + ") LIMIT 1",
+        (int(run_id),),
+    ).fetchone()
+    if bad is not None:
+        raise DocumentTextRoleError(
+            "authoritative document text must be prepared content matching "
+            f"its current source (row {int(bad[0])}, column {int(bad[1])})"
+        )
 
 
 __all__ = [
@@ -584,6 +664,8 @@ __all__ = [
     "document_text_role_for_text_column",
     "ensure_document_text_role",
     "inherit_document_text_manual_pins",
+    "is_empty_document_text_target",
     "require_document_text_publication_sources",
+    "require_document_text_publication_key_table",
     "resolve_document_text_selection",
 ]

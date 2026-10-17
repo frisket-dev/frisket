@@ -20,6 +20,7 @@ from frisket.engine.store.prepared_content import decode_logical_value
 from frisket.engine.store.document_text import (
     document_text_generation_authority,
     document_text_result_eligibility_sql,
+    require_document_text_publication_key_table,
     require_document_text_publication_sources,
 )
 
@@ -1163,6 +1164,11 @@ class ResultGenerationStore:
             with self.run_effect_key_table(
                 int(run_id), open_column_ids
             ) as publication_key_table:
+                require_document_text_publication_key_table(
+                    self.db,
+                    run_id=int(run_id),
+                    key_table=publication_key_table,
+                )
                 projected = self._upsert_heads_from_key_table_uncommitted(
                     run_id=int(run_id), key_table=publication_key_table
                 )

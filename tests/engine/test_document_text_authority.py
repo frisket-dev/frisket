@@ -15,6 +15,11 @@ from frisket.engine.store.document_text import (
 )
 from frisket.engine.store.evidence import record_source_artifact
 from frisket.engine.store.prepared_content import PreparedContentStore, PreparedPageDraft
+from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.result_generations import ResultGenerationStore
+from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.value_codec import PreparedContentRef
+from helpers import run_writer_authority_fixture
 
 
 _BLOB = "sha256:" + "1" * 64
@@ -207,5 +212,127 @@ def test_role_rejects_cross_sheet_and_conflicting_pairs(tmp_path: Path) -> None:
             == text
         )
         project.db.rollback()
+    finally:
+        project.close()
+
+
+def test_generation_snapshots_role_and_failed_replacement_preserves_success(
+    tmp_path: Path,
+) -> None:
+    project, sheet_id, row_id, source_column_id, text_column_id = (
+        _project_with_selection(tmp_path)
+    )
+    try:
+        # Remove the setup edit so generated heads are the selected authority.
+        project.db.execute("DELETE FROM edits WHERE column_id=?", (text_column_id,))
+        project.db.execute(
+            "DELETE FROM document_text_manual_pins WHERE text_column_id=?",
+            (text_column_id,),
+        )
+        project.db.commit()
+        ref_id = int(
+            project.db.execute("SELECT id FROM prepared_content_refs").fetchone()[0]
+        )
+
+        def start(label: str):
+            op_id = project.append_op("media.ocr", {"output": "Text"}, label=label)
+            run_id = RunResultStore(project).start_run(
+                op_id,
+                sheet_id,
+                "media.ocr",
+                row_ids=[row_id],
+                total_rows=1,
+            )
+            authority = run_writer_authority_fixture(
+                project, run_id, output_column_ids={text_column_id}
+            )
+            return op_id, run_id, authority
+
+        generations = ResultGenerationStore(project)
+        first_op, first_run, first_authority = start("first")
+        assert first_authority.claim_token is not None
+        first_binding = generations.declare(
+            first_run,
+            text_column_id,
+            output_role="text",
+            compatibility_key="sha256:document-text-v1",
+            write_mode="create",
+            claim_token=first_authority.claim_token,
+        )
+        assert first_binding.document_text_authority is True
+        RunResultStore(project).write_results(
+            first_run,
+            [
+                {
+                    "row_id": row_id,
+                    "column_id": text_column_id,
+                    "value": PreparedContentRef(ref_id),
+                    "publication_effect": "publish_value",
+                }
+            ],
+            **first_authority.kwargs(),
+        )
+        generations.seal(
+            first_run,
+            [text_column_id],
+            claim_token=first_authority.claim_token,
+            terminal_disposition="completed",
+        )
+        RunResultStore(project).point_column_at_run(
+            first_op, text_column_id, first_run
+        )
+        OutputColumnClaimStore(project).release(
+            claim_token=first_authority.claim_token
+        )
+
+        _second_op, second_run, second_authority = start("failed replacement")
+        assert second_authority.claim_token is not None
+        generations.declare(
+            second_run,
+            text_column_id,
+            output_role="text",
+            compatibility_key="sha256:document-text-v1",
+            write_mode="replace_scope",
+            claim_token=second_authority.claim_token,
+        )
+        RunResultStore(project).write_results(
+            second_run,
+            [
+                {
+                    "row_id": row_id,
+                    "column_id": text_column_id,
+                    "error": "OCR failed",
+                    "error_code": "model_error",
+                    "outcome": "model_error",
+                    "publication_effect": "publish_error",
+                }
+            ],
+            **second_authority.kwargs(),
+        )
+        generations.seal(
+            second_run,
+            [text_column_id],
+            claim_token=second_authority.claim_token,
+            terminal_disposition="failed",
+        )
+        head = project.db.execute(
+            "SELECT run_id FROM cell_result_heads WHERE row_id=? AND column_id=?",
+            (row_id, text_column_id),
+        ).fetchone()
+        assert head is not None and int(head[0]) == first_run
+
+        # Role metadata can change only by raw/migration maintenance today;
+        # projection repair still follows each generation's immutable policy.
+        project.db.execute(
+            "DELETE FROM document_text_column_roles WHERE source_column_id=?",
+            (source_column_id,),
+        )
+        project.db.commit()
+        generations.rebuild_heads([text_column_id])
+        rebuilt = project.db.execute(
+            "SELECT run_id FROM cell_result_heads WHERE row_id=? AND column_id=?",
+            (row_id, text_column_id),
+        ).fetchone()
+        assert rebuilt is not None and int(rebuilt[0]) == first_run
     finally:
         project.close()
