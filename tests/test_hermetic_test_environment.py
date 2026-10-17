@@ -21,7 +21,7 @@ import os
 
 import pytest
 
-from conftest import _deployment_env_names, _is_deployment_env
+from deployment_env_helpers import _deployment_env_names, _is_deployment_env
 
 
 def test_no_deployment_credential_is_visible_to_a_test() -> None:
