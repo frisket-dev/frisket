@@ -2111,3 +2111,55 @@ def test_automatic_plan_refuses_source_rebound_during_planning(tmp_path, monkeyp
         workspace.queue.list_project_jobs(project_id, kind="project.run", limit=20)
         == []
     )
+
+
+def test_import_handoff_projects_durable_pending_available_and_none(
+    tmp_path, monkeypatch
+):
+    from frisket.project_settings import patch_project_settings
+
+    monkeypatch.setattr(preparation_module, "_requirements", lambda: ())
+    workspace = Workspace(tmp_path / "workspace")
+    project_id = workspace.create("Preparation handoff")["id"]
+    service = SearchPreparationService(workspace)
+    assert service.handoff_for_receipt(project_id, "receipt:absent") == ("none", None)
+    pending = service.store.create_pending_import(
+        storage_org_id=None,
+        project_id=project_id,
+        receipt_id="receipt:pending",
+        import_ref="session:pending",
+    )
+    assert service.handoff_for_receipt(project_id, "receipt:pending") == (
+        "pending",
+        None,
+    )
+    project = workspace.get(project_id)
+    patch_project_settings(project, {"prepare_new_files_automatically": False})
+    assert service.handoff_for_receipt(project_id, "receipt:pending") == ("none", None)
+    patch_project_settings(project, {"prepare_new_files_automatically": True})
+    service.store.mark_settled(pending.id, project_id=project_id, storage_org_id=None)
+    assert service.handoff_for_receipt(project_id, "receipt:pending") == ("none", None)
+    sheet = project.add_sheet("Files")
+    failed = service.store.create(
+        storage_org_id=None,
+        project_id=project_id,
+        trigger_receipt_id="receipt:failed",
+        sheet_id=sheet,
+        row_ids=[],
+        force_ocr=False,
+        plan={
+            "source_cutoff": project.op_cursor,
+            "items": [],
+            "models": [],
+            "groups": [],
+        },
+        error_message="Preview could not be read",
+    )
+    patch_project_settings(project, {"prepare_new_files_automatically": False})
+    assert service.handoff_for_receipt(project_id, "receipt:failed") == (
+        "available",
+        failed.id,
+    )
+    # The pre-existing helper retains its hydrated-only identity semantics.
+    assert service.batch_for_receipt(project_id, "receipt:failed") == failed.id
+    assert service.batch_for_receipt(project_id, "receipt:pending") is None

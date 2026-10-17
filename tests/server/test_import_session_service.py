@@ -201,8 +201,8 @@ def test_create_reserves_automatic_preparation_before_worker_admission(project):
         def reserve_import(self, project_id, *, receipt_id, import_ref):
             calls.append((project_id, receipt_id, import_ref))
 
-        def batch_for_receipt(self, _project_id, _receipt_id):
-            return None
+        def handoff_for_receipt(self, _project_id, _receipt_id):
+            return "none", None
 
     service = ImportSessionService(
         SimpleNamespace(get=lambda _project_id: project),

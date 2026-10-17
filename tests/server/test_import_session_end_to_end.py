@@ -132,6 +132,7 @@ def test_http_import_worker_and_user_resolution(
         assert terminal.status_code == 200, terminal.text
         assert terminal.json()["state"] == expected_state
         assert terminal.json()["search_preparation_batch_id"] is None
+        assert terminal.json()["search_preparation_status"] == "pending"
         pending = service.store.for_receipt(
             storage_org_id=None,
             project_id=pid,
@@ -155,6 +156,7 @@ def test_http_import_worker_and_user_resolution(
     status = client.get(session_url).json()
     assert status["state"] == expected_state
     if finish != "remove":
+        assert status["search_preparation_status"] == "available"
         preparation_id = status["search_preparation_batch_id"]
         assert preparation_id
         preparation_url = f"/api/projects/{pid}/search-preparation"
@@ -173,6 +175,7 @@ def test_http_import_worker_and_user_resolution(
             repeated = client.get(session_url).json()
             assert repeated["state"] == expected_state
             assert repeated["search_preparation_batch_id"] == preparation_id
+            assert repeated["search_preparation_status"] == "available"
             listed = client.get(preparation_url).json()["batches"]
             assert [(item["id"], item["status"]) for item in listed] == [
                 (preparation_id, "failed")
@@ -237,6 +240,7 @@ def test_disabled_preparation_and_empty_import_publish_no_preparation(
         pytest.fail("import did not complete within bounded queue work")
     assert status.json()["committed_rows"] == (1 if with_files else 0)
     assert status.json()["search_preparation_batch_id"] is None
+    assert status.json()["search_preparation_status"] == "none"
     preparation = SearchPreparationService(ws)
     preparation.recover()
     assert preparation.store.list_active_page(storage_org_id=None) == []

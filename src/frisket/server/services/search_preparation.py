@@ -9,7 +9,7 @@ import sqlite3
 from collections import defaultdict
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from frisket.contracts.http.search_preparation import (
     MAX_PDF_INDEXING_FILES,
@@ -455,6 +455,30 @@ class SearchPreparationService:
             receipt_id=receipt_id,
         )
         return None if row is None else row.id
+
+    def handoff_for_receipt(
+        self, project_id: str, receipt_id: str
+    ) -> tuple[Literal["pending", "available", "none"], str | None]:
+        """Read durable handoff availability without advancing preparation."""
+        row = self.store.for_receipt(
+            storage_org_id=self.workspace.queue_storage_org_id,
+            project_id=project_id,
+            receipt_id=receipt_id,
+            include_pending=True,
+        )
+        if row is None:
+            return "none", None
+        # Failed, stopped, and completed plans remain available for review,
+        # even if automatic preparation has subsequently been disabled.
+        if row.plan is not None:
+            return "available", row.id
+        if (
+            row.settled_at is not None
+            or row.stop_requested_at is not None
+            or not self.automatic_enabled(project_id)
+        ):
+            return "none", None
+        return "pending", None
 
     def create_after_materialization(
         self,
