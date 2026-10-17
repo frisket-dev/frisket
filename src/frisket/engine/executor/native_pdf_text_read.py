@@ -3,15 +3,11 @@
 from __future__ import annotations
 
 import copy
-import tempfile
 import uuid
 from pathlib import Path
 
-from pypdf import PdfReader
-
 from frisket.actions.media_types import OcrText
 from frisket.actions.types import ColumnRef, Row, RowError
-from frisket.engine.pdf_page_source import PdfPageSourceError, materialize_pdf_page
 from frisket.engine.pdf_text import positioned_tokens_text
 from frisket.engine.store.artifact_timeline import canonical_json_hash
 from frisket.engine.store.media_blobs import MediaBlobStore
@@ -125,40 +121,75 @@ class _BoundNativePdfTextReader:
         from frisket.engine.pdf_text import (
             PdfTextCancelled,
             PdfTextError,
-            extract_pdf_text,
+            extract_pdf_text_batch,
+            sample_pdf_text,
         )
 
         selected_page = source_ref.get("page")
+        prepared_pages = []
+        blocks = []
+        page_images = {}
         try:
             with self._owner._project.materialize_blob(source_ref["blob_hash"]) as raw:
                 original = Path(raw)
-                try:
-                    page_count = len(PdfReader(original).pages)
-                except Exception as exc:  # noqa: BLE001 - hostile PDF boundary
-                    raise RowError(
-                        "invalid_media_cell", "PDF page count could not be read"
-                    ) from exc
-                if page_count < 1:
-                    raise RowError("invalid_media_cell", "PDF contains no pages")
+                # Count inside the fence before processing full batches. This
+                # inspects one character, not the parent PDF object tree.
+                sample = await sample_pdf_text(
+                    original,
+                    page=selected_page or 1,
+                    max_chars=1,
+                    should_cancel=self._owner._cancelled,
+                )
+                page_count = sample.page_count
                 if self._owner._execution_limits is not None:
                     enforce_pdf_page_limit(
                         self._owner._execution_limits.max_pdf_pages,
                         1 if selected_page is not None else page_count,
                     )
-                with tempfile.TemporaryDirectory(prefix="frisket-native-pdf-") as td:
-                    extraction_source = original
-                    if selected_page is not None:
-                        extraction_source = materialize_pdf_page(
-                            original,
-                            page=selected_page,
-                            destination=Path(td) / "selected-page.pdf",
-                        )
-                    pages = await extract_pdf_text(
-                        extraction_source,
+                next_page = selected_page or 1
+                while next_page is not None:
+                    batch = await extract_pdf_text_batch(
+                        original,
+                        start_page=next_page,
+                        max_pages=1 if selected_page is not None else 64,
                         should_cancel=self._owner._cancelled,
                     )
-        except PdfPageSourceError as exc:
-            raise RowError("invalid_media_cell", str(exc)) from exc
+                    if batch.page_count != page_count:
+                        raise PdfTextError("PDF text extraction was incomplete")
+                    for page in batch.pages:
+                        text = positioned_tokens_text(page.tokens)
+                        page_blocks = [
+                            {
+                                "text": token.text,
+                                "bbox": {
+                                    **token.box.model_dump(mode="json"),
+                                    "space": "page_normalized",
+                                },
+                            }
+                            for token in page.tokens
+                            if token.text.strip()
+                        ]
+                        prepared_pages.append(
+                            {
+                                "page_number": page.page,
+                                "text": text,
+                                "blocks": page_blocks,
+                            }
+                        )
+                        blocks.append(
+                            {
+                                "page": page.page,
+                                "engine": "native_pdf_text",
+                                "blocks": page_blocks,
+                            }
+                        )
+                        page_images[str(page.page)] = {
+                            "mime": "application/pdf",
+                            "source_width": page.width,
+                            "source_height": page.height,
+                        }
+                    next_page = None if selected_page is not None else batch.next_page
+                    del batch
         except PdfTextCancelled as exc:
             raise RowError(
                 "action_cancelled", "PDF text reading was cancelled"
@@ -170,44 +201,18 @@ class _BoundNativePdfTextReader:
                 "missing_blob", "Native PDF bytes could not be read"
             ) from exc
 
-        if selected_page is not None:
-            if len(pages) != 1:
-                raise RowError("pdf_text_failed", "Selected PDF page could not be read")
-            pages = [pages[0].model_copy(update={"page": selected_page})]
-        elif [page.page for page in pages] != list(range(1, page_count + 1)):
+        if len(prepared_pages) != (1 if selected_page is not None else page_count):
             raise RowError("pdf_text_failed", "PDF text extraction was incomplete")
-
-        prepared_pages = []
-        blocks = []
-        page_images = {}
-        for page in pages:
-            text = positioned_tokens_text(page.tokens)
-            if not text:
-                raise RowError("needs_ocr", f"PDF page {page.page} has no native text")
-            page_blocks = [
-                {
-                    "text": token.text,
-                    "bbox": {
-                        **token.box.model_dump(mode="json"),
-                        "space": "page_normalized",
-                    },
-                }
-                for token in page.tokens
-                if token.text.strip()
-            ]
-            prepared_pages.append(
-                {"page_number": page.page, "text": text, "blocks": page_blocks}
-            )
-            blocks.append(
-                {"page": page.page, "engine": "native_pdf_text", "blocks": page_blocks}
-            )
-            page_images[str(page.page)] = {
-                "mime": "application/pdf",
-                "source_width": page.width,
-                "source_height": page.height,
-            }
-
+        if callable(self._owner._cancelled) and self._owner._cancelled():
+            raise RowError("action_cancelled", "PDF text reading was cancelled")
         text = "\n\n".join(page["text"] for page in prepared_pages)
+        if not text.strip():
+            message = (
+                f"PDF page {selected_page} has no native text"
+                if selected_page is not None
+                else "PDF has no native text"
+            )
+            raise RowError("needs_ocr", message)
         source_ref["page_count"] = page_count
         call = {
             # Reuse the exact-text prepared-content publication seam.
