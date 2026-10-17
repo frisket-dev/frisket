@@ -289,10 +289,6 @@ def test_recovery_schedulers_nested_digest_and_cli_reuse_returned_opener(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # This worker test must not leave a catalog-mutating daemon in the suite.
-    monkeypatch.setattr(
-        "frisket.ai.llm.pricing_refresh.start_pricing_refresh", lambda: None
-    )
     modules = _opener_modules()
     cli = modules["frisket.cli"]
     runs = modules["frisket.engine.jobs.runs"]
