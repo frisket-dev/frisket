@@ -455,7 +455,7 @@ function relevantBatches(
   const failed = batches.filter((batch) => (
     batch.status === 'failed' && (
       previouslyObserved.has(batch.id)
-      || batch.models.some((model) => model.required && !model.ready && !model.can_setup)
+      || batch.models.some((model) => model.required && !model.ready && !model.runtime_ready && !model.can_setup)
     )
   )).slice(0, 1);
   const warned = batches.filter((batch) => (

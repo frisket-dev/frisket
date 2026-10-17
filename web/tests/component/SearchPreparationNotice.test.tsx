@@ -534,12 +534,18 @@ describe('search preparation notice projection', () => {
     await waitFor(() => expect(result.current?.detail).toContain('Install the local audio runtime.'));
   });
 
-  it('does not resurface a historical failure during unrelated pending indexing', async () => {
+  it('does not treat denied setup permission as a historical runtime failure during unrelated indexing', async () => {
     vi.spyOn(preparationApi, 'listSearchPreparations').mockResolvedValue({
       schemaVersion: 'frisket.search_preparation_list.v1',
       batches: [batch({
         id: 'just-failed',
         status: 'failed',
+        models: [{
+          setup_ref: 'parakeet', display_name: 'Parakeet', purpose: 'transcribe',
+          required: true, ready: false, runtime_ready: true, can_setup: false,
+          remediation: 'Model setup requires workspace model-management permission.',
+          download_bytes: null, additional_runtime_download: false, license: null, source_url: null, pull_id: null,
+        }],
         groups: [{ kind: 'ocr', count: 3, status: 'failed' }],
         errors: ['OCR could not read the imported PDFs.'],
       })],
