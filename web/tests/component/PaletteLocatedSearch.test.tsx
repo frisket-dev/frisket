@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 
 import '@testing-library/jest-dom/vitest';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { usePaletteSearch } from '../../src/workbench/usePaletteSearch';
 import { WorkbenchCommandPalette } from '../../src/workbench/WorkbenchCommandPalette';
 import { ModelSetupRequestError } from '../../src/api/engineSetup';
 
@@ -23,6 +24,7 @@ const embeddingIndexes = vi.fn();
 const saveLens = vi.fn();
 const createWatch = vi.fn();
 const projectApi = { embeddingIndexes, saveLens, createWatch };
+let workspaceProjectId = 'project-1';
 
 vi.mock('../../src/api/open', async (importOriginal) => ({
   ...await importOriginal<typeof import('../../src/api/open')>(),
@@ -49,7 +51,7 @@ vi.mock('../../src/api/searchPreparation', async (importOriginal) => ({
 
 vi.mock('../../src/bind/useWorkspaceStores', () => ({
   useWorkspaceStores: () => ({
-    chromePreferences: { projectId: 'project-1' },
+    chromePreferences: { projectId: workspaceProjectId },
     projectApi,
   }),
 }));
@@ -221,6 +223,7 @@ function AnchoredPaletteHarness() {
 }
 
 beforeEach(() => {
+  workspaceProjectId = 'project-1';
   searchProject.mockReset();
   startEngineSetup.mockReset();
   listModelPulls.mockReset();
@@ -354,12 +357,34 @@ describe('located palette search', () => {
       'workspace',
       'engine-setup:embeddinggemma-2.local@1',
     ));
-    expect(await screen.findByTestId('search-setup-status')).toBeVisible();
+    expect(await screen.findByTestId('search-setup-status')).toHaveTextContent('Semantic search setup is running.');
+    expect(screen.getByTestId('search-setup-status')).not.toHaveTextContent('Progress is available');
     expect(screen.queryByTestId('model-pull-progress')).not.toBeInTheDocument();
     expect(searchProject).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(searchProject).toHaveBeenCalledTimes(2), { timeout: 2_500 });
     expect(screen.queryByTestId('search-setup-status')).not.toBeInTheDocument();
     expect(screen.queryByText('Setting up semantic search')).not.toBeInTheDocument();
+  });
+
+  it('clears project-owned setup state and ignores an older pending setup response', async () => {
+    let rejectOld!: (error: Error) => void;
+    const newPull = setupPull({ id: 72 });
+    startEngineSetup.mockReturnValueOnce(new Promise((_resolve, reject) => { rejectOld = reject; }))
+      .mockResolvedValueOnce({ pull: newPull, deduplicated: false });
+    const { result, rerender } = renderHook(() => usePaletteSearch('', [], '1', vi.fn()));
+    act(() => { result.current.startSetup('engine-setup:embeddinggemma-2.local@1', 'workspace'); });
+    expect(result.current.setupBusy).toBe(true);
+    workspaceProjectId = 'project-2';
+    rerender();
+    expect(result.current.setupBusy).toBe(false);
+    expect(result.current.setupError).toBeNull();
+    expect(result.current.setupOperation).toBeNull();
+    await act(async () => { result.current.startSetup('engine-setup:embeddinggemma-2.local@1', 'workspace'); });
+    expect(result.current.setupOperation?.pull.id).toBe(72);
+    await act(async () => { rejectOld(new Error('Old project setup failed')); });
+    expect(result.current.setupBusy).toBe(false);
+    expect(result.current.setupError).toBeNull();
+    expect(result.current.setupOperation?.pull.id).toBe(72);
   });
 
   it('restores a matching durable semantic setup pull when Search reopens', async () => {

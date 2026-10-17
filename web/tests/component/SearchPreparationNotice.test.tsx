@@ -494,22 +494,27 @@ describe('search preparation notice projection', () => {
     });
   });
 
-  it('shows the runtime remedy for a preparation that could not start', () => {
+  it.each([false, true])('uses runtime readiness for failed-preparation remedies (ready=%s)', (runtimeReady) => {
     const notice = deriveSearchPreparationNotice(snapshot({
       batches: [batch({
         status: 'failed',
         groups: [{ kind: 'transcribe', count: 2, status: 'not_prepared' }],
         models: [{
           setup_ref: 'parakeet', display_name: 'Parakeet', purpose: 'transcribe',
-          required: true, ready: false, runtime_ready: false, can_setup: false,
+          required: true, ready: false, runtime_ready: runtimeReady, can_setup: false,
           remediation: 'Install the local audio runtime, then prepare these files again.',
           download_bytes: null, additional_runtime_download: false,
           license: null, source_url: null, pull_id: null,
         }],
       })],
     }));
-    expect(notice?.detail).toContain('Install the local audio runtime');
-    expect(notice?.title).toBe('Some files need local setup');
+    if (runtimeReady) {
+      expect(notice?.title).toBe('Search preparation needs attention');
+      expect(notice?.detail).not.toContain('Install');
+    } else {
+      expect(notice?.detail).toContain('Install the local audio runtime');
+      expect(notice?.title).toBe('Some files need local setup');
+    }
   });
 
   it('restores an unavailable runtime explanation after reopening the project', async () => {
