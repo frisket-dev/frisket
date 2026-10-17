@@ -68,6 +68,33 @@ def _close(value: Any) -> None:
         closer()
 
 
+def render_page(
+    document: Any,
+    number: int,
+    output: Path,
+    *,
+    dpi: int,
+    max_edge: int | None = None,
+) -> tuple[int, int]:
+    """Render one physical page and release its bitmap before returning."""
+    page = document[number - 1]
+    bitmap = image = None
+    try:
+        # OCR coordinates refer to the full MediaBox, including cropped pages.
+        page.set_cropbox(*page.get_mediabox())
+        scale = dpi / 72
+        if max_edge is not None:
+            scale = min(scale, max_edge / max(page.get_size()))
+        bitmap = page.render(scale=scale)
+        image = bitmap.to_pil()
+        image.save(output, format="PNG")
+        return image.size
+    finally:
+        _close(image)
+        _close(bitmap)
+        _close(page)
+
+
 def main() -> None:
     try:
         source, output, dpi, pages, page_limit, max_edge = _request()
@@ -93,24 +120,14 @@ def main() -> None:
             return
         rendered: list[int] = []
         for number in pages:
-            page = document[number - 1]
-            # Preserve the full MediaBox raster used by imports and OCR text
-            # coordinates; PDFium otherwise clips to the document CropBox.
-            page.set_cropbox(*page.get_mediabox())
-            bitmap = None
-            image = None
-            try:
-                scale = dpi / 72
-                if max_edge is not None:
-                    scale = min(scale, max_edge / max(page.get_size()))
-                bitmap = page.render(scale=scale)
-                image = bitmap.to_pil()
-                image.save(output / f"page-{number}.png", format="PNG")
-                rendered.append(number)
-            finally:
-                _close(image)
-                _close(bitmap)
-                _close(page)
+            render_page(
+                document,
+                number,
+                output / f"page-{number}.png",
+                dpi=dpi,
+                max_edge=max_edge,
+            )
+            rendered.append(number)
         _reply({"ok": True, "page_count": page_count, "pages": rendered})
     except Exception:
         _reply({"ok": False, "error": "render_failed"})

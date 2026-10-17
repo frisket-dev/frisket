@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import sys
+from contextlib import redirect_stdout
 from pathlib import Path
 from typing import Any
 
@@ -88,34 +89,102 @@ def _page_result(page: Any, *, width: int, height: int) -> dict[str, Any]:
 def main() -> None:
     payload = json.load(sys.stdin)
     output = Path(payload["out"])
+    progress_stream = sys.stdout
+
+    def report(completed, total):
+        progress_stream.write(
+            json.dumps(
+                {
+                    "kind": "ocr_pages",
+                    "completed": completed,
+                    "total": total,
+                }
+            )
+            + "\n"
+        )
+        progress_stream.flush()
+
     try:
         import cv2
         import indra_ocr
 
-        converter = indra_ocr.load(
-            path=payload["model_dir"],
-            threads=payload["threads"],
-            mode="ocr",
-        )
-        pages = []
-        for raw_path in payload["paths"]:
-            image = cv2.imread(str(raw_path), cv2.IMREAD_GRAYSCALE)
-            if image is None or len(image.shape) != 2:
-                raise ValueError("Indra OCR input is not a readable page image")
-            converted = list(converter.convert(raw_path))
-            if len(converted) != 1 or converted[0][0] != 0:
-                raise RuntimeError("Indra OCR returned an invalid page result")
-            pages.append(
-                _page_result(
-                    converted[0][1],
-                    width=int(image.shape[1]),
-                    height=int(image.shape[0]),
-                )
+        # Library diagnostics never share the page-progress stream.
+        with redirect_stdout(sys.stderr):
+            converter = indra_ocr.load(
+                path=payload["model_dir"],
+                threads=payload["threads"],
+                mode="ocr",
             )
+            if "pdf" in payload:
+                pages = _pdf_pages(converter, payload, report)
+            else:
+                pages = []
+                for raw_path in payload["paths"]:
+                    image = cv2.imread(str(raw_path), cv2.IMREAD_GRAYSCALE)
+                    if image is None or len(image.shape) != 2:
+                        raise ValueError("Indra OCR input is not a readable page image")
+                    pages.append(
+                        _recognize_page(
+                            converter,
+                            raw_path,
+                            width=int(image.shape[1]),
+                            height=int(image.shape[0]),
+                        )
+                    )
     except Exception:  # noqa: BLE001 - worker returns one content-free failure
         _write(output, {"error": "Indra OCR could not process the page images"})
         return
     _write(output, {"pages": pages})
+
+
+def _recognize_page(converter, path, *, width, height):
+    converted = list(converter.convert(str(path)))
+    if len(converted) != 1 or converted[0][0] != 0:
+        raise RuntimeError("Indra OCR returned an invalid page result")
+    return _page_result(
+        converted[0][1],
+        width=width,
+        height=height,
+    )
+
+
+def _pdf_pages(converter, payload, report):
+    import pypdfium2 as pdfium
+
+    from .pdf_render_worker import render_page
+
+    document = pdfium.PdfDocument(payload["pdf"])
+    pages = []
+    raster = Path(payload["out"]).parent / "indra-page.png"
+    try:
+        total = len(document)
+        for number in range(1, total + 1):
+            stage = "rendering"
+            frame = {}
+            try:
+                width, height = render_page(
+                    document,
+                    number,
+                    raster,
+                    dpi=payload["dpi"],
+                )
+                frame = {"width": width, "height": height}
+                stage = "recognition"
+                page = _recognize_page(converter, raster, width=width, height=height)
+            except Exception:  # noqa: BLE001 - page errors must be content-free
+                page = {
+                    "text": "",
+                    "blocks": [],
+                    "error": {"code": "ocr_page_failed", "stage": stage},
+                }
+            finally:
+                raster.unlink(missing_ok=True)
+            pages.append({**page, **frame})
+            report(number, total)
+    finally:
+        document.close()
+        raster.unlink(missing_ok=True)
+    return pages
 
 
 def _write(path: Path, value: dict[str, Any]) -> None:

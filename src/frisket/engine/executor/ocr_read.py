@@ -58,6 +58,25 @@ def _page_coordinate_frame(page: dict, *, required: bool) -> dict[str, int]:
     return {"width": width, "height": height}
 
 
+def _page_warnings(pages, *, first_page):
+    failures, warnings = 0, []
+    for number, page in enumerate(pages, first_page):
+        if error := page.get("error"):
+            failures += 1
+            if len(warnings) < 20:
+                warnings.append(f"Page {number} failed during {error['stage']}.")
+    if failures and failures == len(pages):
+        raise RowError(
+            "ocr_pages_failed", f"OCR failed for all {len(pages)} pages. {warnings[0]}"
+        )
+    if failures > len(warnings):
+        warnings.append(
+            f"{failures} pages failed; {failures - len(warnings)} "
+            "additional page warnings omitted."
+        )
+    return tuple(warnings)
+
+
 class AdmittedOcrReader:
     def __init__(self, ctx, files, *, engine=None, options):
         self._ctx, self._project, self._files = ctx, ctx.project, files
@@ -328,7 +347,12 @@ class _BoundOcrReader:
                                 "invalid_media_cell", "PDF page count could not be read"
                             )
                         source["page_count"] = page_count
-                        pages, page_images, warnings = await self._recognize_pdf_pages(
+                        recognize_pdf = (
+                            self._recognize_indra_pdf
+                            if engine == engines.INDRA_OCR_ENGINE
+                            else self._recognize_pdf_pages
+                        )
+                        pages, page_images, warnings = await recognize_pdf(
                             source,
                             path,
                             engine,
@@ -338,6 +362,10 @@ class _BoundOcrReader:
                             first_page=selected_page or 1,
                         )
                     else:
+                        local_image = not is_pdf and self._incremental_engine(engine)
+                        if local_image:
+                            owner._check_open()
+                            self._report_page_progress(0, 1)
                         page_paths = await owner._engines._page_images(
                             path, source, options, scratch, engine=engine
                         )
@@ -361,6 +389,9 @@ class _BoundOcrReader:
                             scratch,
                             first_page=selected_page or 1,
                         )
+                        if local_image:
+                            owner._check_open()
+                            self._report_page_progress(1, 1)
                     returned = True
                 finally:
                     if usage.get("model_calls") or usage["calls"] or returned:
@@ -459,26 +490,59 @@ class _BoundOcrReader:
             if preview is not None
             else None
         )
-        return engine in {engines.LIGHT_ENGINE, "tesseract"} and (
+        return engine in engines.LOCAL_ENGINES and (
             transport != "frisket.cloud.media.v1"
         )
 
-    async def _recognize_pdf_pages(
+    async def _recognize_indra_pdf(
         self, source, path, engine, scratch, usage, *, page_count, first_page
     ):
-        owner, options = self._owner, self._owner._options
-        pages, images, examples = [], {}, []
-        failures = 0
-        usage["input_pages"] = 0
-        owner._check_open()
+        del source, engine
+        self._owner._check_open()
+        self._report_page_progress(0, page_count)
+
+        pages = await self._owner._engines._ocr_indra_pdf(
+            path,
+            scratch,
+            dpi=self._owner._options["dpi"],
+            page_count=page_count,
+            report_progress=self._report_page_progress,
+        )
+        self._owner._check_open()
+        images = {}
+        for number, page in enumerate(pages, first_page):
+            positions = _page_coordinate_frame(
+                page, required=not bool(page.get("error"))
+            )
+            if positions and not self._owner._files.preview:
+                images[str(number)] = {
+                    "mime": "application/pdf",
+                    "source_width": positions["width"],
+                    "source_height": positions["height"],
+                }
+        usage["input_pages"] = sum(
+            page.get("error", {}).get("stage") != "rendering" for page in pages
+        )
+        return pages, images, _page_warnings(pages, first_page=first_page)
+
+    def _report_page_progress(self, completed, total):
         report = self._ctx.extras.get("report_work_progress")
         if callable(report):
             report(
                 kind="ocr_pages",
                 row_id=self._row_id,
-                completed=0,
-                total=page_count,
+                completed=completed,
+                total=total,
             )
+
+    async def _recognize_pdf_pages(
+        self, source, path, engine, scratch, usage, *, page_count, first_page
+    ):
+        owner, options = self._owner, self._owner._options
+        pages, images = [], {}
+        usage["input_pages"] = 0
+        owner._check_open()
+        self._report_page_progress(0, page_count)
         for number in range(1, page_count + 1):
             owner._check_open()
             physical_page = first_page + number - 1
@@ -522,10 +586,6 @@ class _BoundOcrReader:
                     raise
                 except (RuntimeError, OSError, ValueError):
                     owner._check_open()
-                    failures += 1
-                    warning = f"Page {physical_page} failed during {stage}."
-                    if len(examples) < 20:
-                        examples.append(warning)
                     pages.append(
                         {
                             "text": "",
@@ -534,25 +594,8 @@ class _BoundOcrReader:
                         }
                     )
             owner._check_open()
-            report = self._ctx.extras.get("report_work_progress")
-            if callable(report):
-                report(
-                    kind="ocr_pages",
-                    row_id=self._row_id,
-                    completed=number,
-                    total=page_count,
-                )
-        if failures == page_count:
-            raise RowError(
-                "ocr_pages_failed",
-                f"OCR failed for all {page_count} pages. {examples[0]}",
-            )
-        if failures > len(examples):
-            examples.append(
-                f"{failures} pages failed; {failures - len(examples)} additional "
-                "page warnings omitted."
-            )
-        return pages, images, tuple(examples)
+            self._report_page_progress(number, page_count)
+        return pages, images, _page_warnings(pages, first_page=first_page)
 
     def _page_images(self, source, original, paths, scratch, *, first_page=1):
         if self._owner._files.preview:

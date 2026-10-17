@@ -348,6 +348,17 @@ class OcrEngines:
     async def _ocr_indra(self, pages, scratch):
         return await local.ocr_indra(pages, scratch, cancelled=self.cancelled)
 
+    async def _ocr_indra_pdf(self, path, scratch, *, dpi, page_count, report_progress):
+        return await local.ocr_indra(
+            [],
+            scratch,
+            cancelled=self.cancelled,
+            pdf=path,
+            dpi=dpi,
+            page_count=page_count,
+            report_progress=report_progress,
+        )
+
     async def _ocr_sidecar(self, engine, pages, ctx):
         return await sidecar.ocr_sidecar(engine, pages, ctx)
 
