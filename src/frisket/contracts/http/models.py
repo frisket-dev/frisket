@@ -556,11 +556,16 @@ class ActionPreparationHint(WireModel):
     message: str
 
 
-class ActionWorkProgress(WireModel):
-    kind: Literal["ocr_pages"]
+class ActionFileWorkProgress(WireModel):
     row_id: int = Field(gt=0)
     completed: int = Field(ge=0)
     total: int = Field(ge=0)
+    filename: str | None = Field(default=None, max_length=200)
+
+
+class ActionWorkProgress(WireModel):
+    kind: Literal["ocr_pages"]
+    files: list[ActionFileWorkProgress]
 
 
 class ActionRunPublicStatus(WireModel):
@@ -573,6 +578,7 @@ class ActionRunPublicStatus(WireModel):
     failed: int = Field(ge=0)
     cost: float | None
     live: bool
+    cancel_requested: bool
     timing: ActionRunTiming
     queue: ActionRunQueue | ActionRunMissingQueue | None = None
     stalled_reason: str | None = None
@@ -661,11 +667,13 @@ class ActionRunRows(WireModel):
 
 class ActionRunCancel(WireModel):
     run_id: int
-    status: Literal["cancelled"]
+    status: Literal["cancelled", "cancel_pending"]
+    cancel_requested: bool
     completed: int | None
     total: int | None
     queue_job_id: int | None
     queue_cancelled: bool
+    reason: str | None = None
 
 
 class ActionJobLease(WireModel):
