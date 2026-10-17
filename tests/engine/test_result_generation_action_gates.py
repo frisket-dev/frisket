@@ -36,6 +36,146 @@ def _mutation_snapshot(project) -> tuple[object, ...]:  # noqa: ANN001
     )
 
 
+def _document_text_admission(project, tmp_path):
+    from frisket.engine.store.document_text import ensure_document_text_role
+    from tests.engine.test_native_pdf_text_action import _pdf_bytes, _request, _source
+
+    sheet, source, row, _digest = _source(
+        project, tmp_path, pdf=_pdf_bytes("first designated text")
+    )
+    text = project.add_column(sheet, "Text", type="text", ai_generated=True)
+    ensure_document_text_role(
+        project, source_column_id=source, text_column_id=text, commit=True
+    )
+    request = {
+        **_request(sheet, row, key="designated-first-generation"),
+        "output_names": {"text": "Text"},
+        "replace_existing": True,
+        "expected_output_columns": {"Text": text},
+    }
+    return sheet, source, row, text, request
+
+
+def test_empty_designated_text_publishes_ordinary_first_generation(tmp_path):
+    from contextlib import closing
+
+    from frisket.engine.store import Project
+    from frisket.engine.store.prepared_content import PreparedContentStore
+
+    with closing(Project.create(tmp_path / "first-text.frisket")) as project:
+        sheet, _source, row, text, request = _document_text_admission(project, tmp_path)
+        result = run_action_spec(project, request, project_id="first-text")
+
+        assert result.status == "completed", result.errors
+        assert project.get_values(sheet, text, [row]) == {row: "first designated text"}
+        binding = ResultGenerationStore(project).get_binding(result.run_id, text)
+        assert binding is not None and binding.state == "sealed"
+        head = ResultGenerationStore(project).read_cell_heads(text, row_ids=[row])[row]
+        assert head.prepared_ref_id is not None
+        assert PreparedContentStore(project).resolve(head.prepared_ref_id).text == (
+            "first designated text"
+        )
+
+
+def test_empty_designated_text_admits_ocr_without_adopting_blocks(tmp_path):
+    from contextlib import closing
+
+    from frisket.actions.system import typed_action_for_request
+    from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
+    from frisket.engine.store import Project
+
+    with closing(Project.create(tmp_path / "first-ocr.frisket")) as project:
+        _sheet, _source, _row, text, request = _document_text_admission(
+            project, tmp_path
+        )
+        request.update(
+            action_id="media.ocr",
+            params={"source": "source", "engine": "rapidocr"},
+            output_names={"text": "Text", "blocks": "Positions"},
+            expected_output_columns={"Text": text, "Positions": None},
+        )
+        before = _mutation_snapshot(project)
+        plan = build_typed_map_rows_plan(project, typed_action_for_request(request))
+        assert dict(plan.output_target_preconditions) == {
+            "Text": text,
+            "Positions": None,
+        }
+        assert _mutation_snapshot(project) == before
+
+
+@pytest.mark.parametrize(
+    "mismatch",
+    ["unbound", "other-source", "unfenced", "different-target", "existing-value"],
+)
+def test_first_document_text_admission_requires_exact_empty_role(tmp_path, mismatch):
+    from contextlib import closing
+
+    from frisket.actions.system import typed_action_for_request
+    from frisket.engine.executor.map_rows_action import (
+        TypedMapRowsPlanError,
+        build_typed_map_rows_plan,
+    )
+    from frisket.engine.store import Project
+
+    with closing(Project.create(tmp_path / "refused-text.frisket")) as project:
+        sheet, source, row, text, request = _document_text_admission(project, tmp_path)
+        if mismatch == "unbound":
+            project.db.execute(
+                "DELETE FROM document_text_column_roles WHERE source_column_id=?",
+                (source,),
+            )
+            project.db.commit()
+        elif mismatch == "other-source":
+            project.add_column(sheet, "another source", type="file")
+            request["params"] = {"source": "another source"}
+        elif mismatch == "unfenced":
+            request.pop("expected_output_columns")
+        elif mismatch == "different-target":
+            request["expected_output_columns"] = {"Text": source}
+        else:
+            project.apply_edits(
+                [{"row_id": row, "column_id": text, "value": "keep me"}]
+            )
+        before = _mutation_snapshot(project)
+        with pytest.raises(TypedMapRowsPlanError):
+            build_typed_map_rows_plan(project, typed_action_for_request(request))
+        assert _mutation_snapshot(project) == before
+
+
+def test_runner_rechecks_document_text_role_before_adopting_empty_target(tmp_path):
+    from contextlib import closing
+
+    from frisket.actions.system import typed_action_for_request
+    from frisket.ai.llm import ModelRouter
+    from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
+    from frisket.engine.runner import MapRunner
+    from frisket.engine.store import Project
+    from frisket.engine.store.result_generations import GenerationDeclarationConflict
+    from frisket.execution.attempt_authority import UnroutedOnlyAuthority
+
+    with closing(Project.create(tmp_path / "changed-role.frisket")) as project:
+        _sheet, source, _row, _text, request = _document_text_admission(
+            project, tmp_path
+        )
+        plan = build_typed_map_rows_plan(project, typed_action_for_request(request))
+        project.db.execute(
+            "DELETE FROM document_text_column_roles WHERE source_column_id=?", (source,)
+        )
+        project.db.commit()
+        runner = MapRunner(
+            project,
+            ModelRouter(keys={}),
+            authority=UnroutedOnlyAuthority(project),
+            allow_action_lifecycle_only_recipes=True,
+        )
+        before = _mutation_snapshot(project)
+        with pytest.raises(
+            GenerationDeclarationConflict, match="no generation history"
+        ):
+            runner.prepare_run(plan.spec_dict(), program=plan.program)
+        assert _mutation_snapshot(project) == before
+
+
 @pytest.mark.parametrize("default_hidden", [False, True])
 def test_managed_resume_only_accepts_exact_open_recovery(
     tmp_path: Path, default_hidden: bool

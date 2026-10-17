@@ -7,6 +7,7 @@ handling for atomic-output-column recipes)."""
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -276,12 +277,52 @@ def _require_compatible_hidden_managed_revival(
         )
 
 
+def is_empty_document_text_output(
+    project: Project,
+    *,
+    sheet_id: int,
+    action_kind: str,
+    params: Mapping[str, Any],
+    output_names: Mapping[str, str],
+    expected_output_columns: Mapping[str, int | None] | None,
+    output_name: str,
+    column_id: int,
+) -> bool:
+    """Adopt only a pristine designated Text target of its exact file producer."""
+
+    if (
+        action_kind not in {"media.read_pdf_text", "media.ocr"}
+        or output_names.get("text") != output_name
+        or expected_output_columns is None
+        or type(expected_output_columns.get(output_name)) is not int
+        or expected_output_columns[output_name] != column_id
+        or not isinstance(params.get("source"), str)
+    ):
+        return False
+    source = project.db.execute(
+        "SELECT id FROM columns WHERE sheet_id=? AND name=? "
+        "AND active=1 AND hidden=0 AND type IN ('file','image')",
+        (sheet_id, params["source"]),
+    ).fetchone()
+    if source is None:
+        return False
+    from frisket.engine.store.document_text import is_empty_document_text_target
+
+    return is_empty_document_text_target(
+        project,
+        sheet_id=sheet_id,
+        source_column_id=int(source["id"]),
+        text_column_id=column_id,
+    )
+
+
 def _require_existing_ai_generation_history(
     project: Project,
     *,
     sheet_id: int,
     fields: list[dict[str, Any]],
     resume_run_id: int | None,
+    spec: dict[str, Any],
 ) -> None:
     """Refuse implicit adoption before any output reuse can mutate columns."""
 
@@ -290,7 +331,7 @@ def _require_existing_ai_generation_history(
         return
     placeholders = ",".join("?" for _ in names)
     rows = project.db.execute(
-        "SELECT id,current_run_id FROM columns "
+        "SELECT id,name,current_run_id FROM columns "
         f"WHERE sheet_id=? AND active=1 AND ai_generated=1 AND name IN ({placeholders})",
         (int(sheet_id), *names),
     ).fetchall()
@@ -300,6 +341,28 @@ def _require_existing_ai_generation_history(
             (int(row["id"]),),
         ).fetchone()
         if has_history is not None:
+            continue
+        field = next(field for field in fields if field["name"] == row["name"])
+        if (
+            resume_run_id is None
+            and spec.get("replace_existing") is True
+            and field["column_type"] == "text"
+            and isinstance(spec.get("params"), Mapping)
+            and isinstance(spec.get("output_names"), Mapping)
+            and isinstance(spec.get("expected_output_columns"), Mapping)
+            and isinstance(spec.get("output_target_preconditions"), Mapping)
+            and spec["output_target_preconditions"].get(row["name"]) == int(row["id"])
+            and is_empty_document_text_output(
+                project,
+                sheet_id=sheet_id,
+                action_kind=spec["action_kind"],
+                params=spec["params"],
+                output_names=spec["output_names"],
+                expected_output_columns=spec["expected_output_columns"],
+                output_name=str(row["name"]),
+                column_id=int(row["id"]),
+            )
+        ):
             continue
         precreated_open_run = bool(
             resume_run_id is not None
@@ -379,6 +442,7 @@ def prepare_validated(
         sheet_id=sheet_id,
         fields=output_fields,
         resume_run_id=resume_run_id,
+        spec=spec,
     )
 
     # output columns (created once; reused on re-run of same names)
