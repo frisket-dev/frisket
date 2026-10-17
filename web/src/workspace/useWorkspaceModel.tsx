@@ -103,6 +103,7 @@ import {
   selectSheetTabTransition,
   toggleProvenanceWithDrawersTransition,
   openRowPanelTransition,
+  openSearchTextHitTransition,
   openColumnPanelTransition,
   openRowRefTransition,
   closeRoutePanelTransition,
@@ -1167,10 +1168,7 @@ export function useWorkspaceModel({
         // Search indexes JSON's decoded representation, not its stored encoding.
         // Only direct text with its authoritative revision can share these offsets.
         if (navigation.text_range && column?.type === 'text' && dependency) {
-          writeRoute({ projectId: project.id, sheetId, actionKind: null, review: false,
-            panel: { kind: 'row', rowId, columnId } });
-          selection.setSelectedColumnId(columnId);
-          detail.setRowTextTarget({ sheetId, rowId, columnId,
+          openSearchTextHitTransition({ detail, selection }, writeRoute, project.id, { sheetId, rowId, columnId,
             range: { start: navigation.text_range.start, end: navigation.text_range.end,
               highlight: hit.location.precision === 'exact' },
             retrievalRevision: dependency.retrieval_revision, requestKey: crypto.randomUUID() });
