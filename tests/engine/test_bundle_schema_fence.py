@@ -331,8 +331,12 @@ def _remove_prepared_content(db: sqlite3.Connection) -> None:
         db.execute(f"DROP TABLE IF EXISTS {table}")
 
 
-def _remove_result_warnings(db: sqlite3.Connection) -> None:
-    """Restore the historical results layout and its semantic triggers."""
+def _remove_execution_metadata(db: sqlite3.Connection) -> None:
+    """Restore historical run/result layouts and semantic triggers."""
+
+    run_columns = {row[1] for row in db.execute("PRAGMA table_info(runs)")}
+    if "work_progress" in run_columns:
+        db.execute("ALTER TABLE runs DROP COLUMN work_progress")
 
     columns = {row[1] for row in db.execute("PRAGMA table_info(results)")}
     if "warnings" not in columns:
@@ -356,7 +360,7 @@ def _remove_result_warnings(db: sqlite3.Connection) -> None:
 def _restore_legacy_authorities(db: sqlite3.Connection) -> None:
     """Downgrade fresh typed fixtures before exercising historical upgrades."""
 
-    _remove_result_warnings(db)
+    _remove_execution_metadata(db)
     _remove_extraction_layouts(db)
     db.execute("DROP TABLE run_review_fields")
     db.execute("DROP INDEX idx_cell_result_heads_run")

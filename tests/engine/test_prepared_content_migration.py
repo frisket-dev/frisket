@@ -35,7 +35,7 @@ from frisket.engine.store.schema import (
     SCHEMA_DIGEST_META_KEY,
 )
 from tests.engine.test_scalar_storage_migration import _seed_mixed_origins
-from tests.engine.test_bundle_schema_fence import _remove_result_warnings
+from tests.engine.test_bundle_schema_fence import _remove_execution_metadata
 
 
 _REF_KIND = ",\n    'prepared_content_ref'"
@@ -71,7 +71,7 @@ def _downgrade_to_exact_prepared_content_predecessor(path: Path) -> None:
         db.execute("PRAGMA foreign_keys=OFF")
         db.execute("PRAGMA legacy_alter_table=ON")
         db.execute("BEGIN IMMEDIATE")
-        _remove_result_warnings(db)
+        _remove_execution_metadata(db)
         db.execute("DROP VIEW current_cell_values")
 
         authority_objects = db.execute(

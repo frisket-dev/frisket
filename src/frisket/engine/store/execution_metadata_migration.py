@@ -1,4 +1,4 @@
-"""Persist bounded successful-result warnings without rewriting result history."""
+"""Add execution telemetry and successful-result warnings without rewriting history."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ from .retrieval_lifecycle_migration import RETRIEVAL_LIFECYCLE_TO_DIGEST
 from .schema import SCHEMA_DIGEST_META_KEY
 
 
-RESULT_WARNINGS_FROM_DIGEST = RETRIEVAL_LIFECYCLE_TO_DIGEST
-RESULT_WARNINGS_TO_DIGEST = "frisket.schema.v1:b55ef4f20c014bdb3de2171a637fe1da"
+EXECUTION_METADATA_FROM_DIGEST = RETRIEVAL_LIFECYCLE_TO_DIGEST
+EXECUTION_METADATA_TO_DIGEST = "frisket.schema.v1:f6a34262a8b43d56cd6e19afab76f67f"
 
 
 _SEMANTIC_UPDATE_TRIGGER_SQL = """
@@ -93,8 +93,10 @@ END;
 """
 
 
-def migrate_result_warnings(db: sqlite3.Connection, *, bundle_path: str | Path) -> None:
-    """Add empty warning arrays to historical results and preserve write fences."""
+def migrate_execution_metadata(
+    db: sqlite3.Connection, *, bundle_path: str | Path
+) -> None:
+    """Add nullable progress and empty warnings, preserving inputs and write fences."""
 
     del bundle_path
     query = "SELECT value FROM meta WHERE key=?"
@@ -102,13 +104,22 @@ def migrate_result_warnings(db: sqlite3.Connection, *, bundle_path: str | Path) 
         row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
     except sqlite3.DatabaseError:
         return
-    if row is None or row[0] != RESULT_WARNINGS_FROM_DIGEST:
+    if row is None or row[0] != EXECUTION_METADATA_FROM_DIGEST:
         return
 
     db.execute("BEGIN IMMEDIATE")
     try:
         row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-        if row is not None and row[0] == RESULT_WARNINGS_FROM_DIGEST:
+        if row is not None and row[0] == EXECUTION_METADATA_FROM_DIGEST:
+            run_columns = {
+                str(info[1]) for info in db.execute("PRAGMA table_info(runs)")
+            }
+            if "work_progress" not in run_columns:
+                db.execute(
+                    "ALTER TABLE runs ADD COLUMN work_progress TEXT CHECK ("
+                    "work_progress IS NULL OR (json_valid(work_progress) "
+                    "AND json_type(work_progress)='object'))"
+                )
             columns = {
                 str(info[1]) for info in db.execute("PRAGMA table_info(results)")
             }
@@ -127,7 +138,7 @@ def migrate_result_warnings(db: sqlite3.Connection, *, bundle_path: str | Path) 
             db.execute(_PUBLISHED_IMMUTABILITY_TRIGGER_SQL)
             db.execute(
                 "UPDATE meta SET value=? WHERE key=?",
-                (RESULT_WARNINGS_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
+                (EXECUTION_METADATA_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
             )
         db.commit()
     except BaseException:
@@ -136,7 +147,7 @@ def migrate_result_warnings(db: sqlite3.Connection, *, bundle_path: str | Path) 
 
 
 __all__ = [
-    "RESULT_WARNINGS_FROM_DIGEST",
-    "RESULT_WARNINGS_TO_DIGEST",
-    "migrate_result_warnings",
+    "EXECUTION_METADATA_FROM_DIGEST",
+    "EXECUTION_METADATA_TO_DIGEST",
+    "migrate_execution_metadata",
 ]

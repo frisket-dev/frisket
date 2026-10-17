@@ -262,6 +262,11 @@ CREATE TABLE IF NOT EXISTS runs (
   model TEXT,
   prompt_hash TEXT,
   params TEXT NOT NULL DEFAULT '{}',
+  -- Optional active-document telemetry is separate from canonical action inputs.
+  work_progress TEXT CHECK (
+    work_progress IS NULL
+    OR (json_valid(work_progress) AND json_type(work_progress)='object')
+  ),
   status TEXT NOT NULL DEFAULT 'running',  -- running|completed|failed|cancelled
   -- Durable cooperative cancellation INTENT. This is deliberately separate
   -- from ``status``: a live writer keeps the run ``running`` until its fenced

@@ -8,10 +8,10 @@ import pytest
 
 from frisket.engine.store import Project
 from frisket.engine.store.result_generations import ResultGenerationStore
-from frisket.engine.store.result_warnings_migration import (
-    RESULT_WARNINGS_FROM_DIGEST,
-    RESULT_WARNINGS_TO_DIGEST,
-    migrate_result_warnings,
+from frisket.engine.store.execution_metadata_migration import (
+    EXECUTION_METADATA_FROM_DIGEST,
+    EXECUTION_METADATA_TO_DIGEST,
+    migrate_execution_metadata,
 )
 from frisket.engine.store.runs import (
     RESULT_WARNING_MAX_CHARS,
@@ -23,7 +23,7 @@ from frisket.sdk.capture import _capture_result_warnings, capture_maprunner_fact
 from frisket.sdk.maprunner import build_receipt_from_provenance
 from frisket.sdk.provenance import Provenance
 from helpers import run_writer_authority_fixture
-from tests.engine.test_bundle_schema_fence import _remove_result_warnings
+from tests.engine.test_bundle_schema_fence import _remove_execution_metadata
 
 
 @pytest.fixture
@@ -161,10 +161,10 @@ def test_warnings_survive_heads_capture_receipt_and_reopen(warning_run):
 
 def _restore_prior_layout(project):
     # Downgrade this fixture to the immediately preceding on-disk layout.
-    _remove_result_warnings(project.db)
+    _remove_execution_metadata(project.db)
     project.db.execute(
         "UPDATE meta SET value=? WHERE key=?",
-        (RESULT_WARNINGS_FROM_DIGEST, SCHEMA_DIGEST_META_KEY),
+        (EXECUTION_METADATA_FROM_DIGEST, SCHEMA_DIGEST_META_KEY),
     )
     project.db.commit()
 
@@ -225,7 +225,7 @@ def test_prior_digest_migration_preserves_history_and_installs_guards(warning_ru
     project.close()
     reopened = Project(path)
     try:
-        assert RESULT_WARNINGS_TO_DIGEST == SCHEMA_DIGEST
+        assert EXECUTION_METADATA_TO_DIGEST == SCHEMA_DIGEST
         assert reopened.get_meta(SCHEMA_DIGEST_META_KEY) == SCHEMA_DIGEST
         after = [
             dict(row)
@@ -248,7 +248,7 @@ def test_prior_digest_migration_preserves_history_and_installs_guards(warning_ru
                 "SELECT * FROM current_cells ORDER BY column_id,row_id"
             )
         ] == cells_before
-        migrate_result_warnings(reopened.db, bundle_path=reopened.db_path)
+        migrate_execution_metadata(reopened.db, bundle_path=reopened.db_path)
         _assert_warning_guard(reopened, run_id, row_ids[0], output_id)
     finally:
         reopened.close()
@@ -264,12 +264,65 @@ def test_warning_migration_rolls_back_on_digest_stamp_failure(warning_run):
     )
     project.db.commit()
     with pytest.raises(sqlite3.IntegrityError, match="migration interrupted"):
-        migrate_result_warnings(project.db, bundle_path=project.db_path)
+        migrate_execution_metadata(project.db, bundle_path=project.db_path)
     assert "warnings" not in {
         row[1] for row in project.db.execute("PRAGMA table_info(results)")
     }
-    assert project.get_meta(SCHEMA_DIGEST_META_KEY) == RESULT_WARNINGS_FROM_DIGEST
+    assert "work_progress" not in {
+        row[1] for row in project.db.execute("PRAGMA table_info(runs)")
+    }
+    assert project.get_meta(SCHEMA_DIGEST_META_KEY) == EXECUTION_METADATA_FROM_DIGEST
     assert project.db.execute("SELECT COUNT(*) FROM results").fetchone()[0] == 2
+
+
+@pytest.mark.parametrize("migrated", [False, True])
+def test_progress_metadata_is_nullable_separate_from_inputs_and_retained(
+    warning_run, migrated
+):
+    original, _, _, _, row_ids, run_id = warning_run
+    path = original.path
+    params_before = original.db.execute(
+        "SELECT params FROM runs WHERE id=?", (run_id,)
+    ).fetchone()[0]
+    if migrated:
+        _restore_prior_layout(original)
+    original.close()
+    project = Project(path)
+    try:
+        assert (
+            project.db.execute(
+                "SELECT work_progress FROM runs WHERE id=?", (run_id,)
+            ).fetchone()[0]
+            is None
+        )
+        for invalid in ("[]", "invalid JSON", '"text"'):
+            with pytest.raises(sqlite3.DatabaseError):
+                project.db.execute(
+                    "UPDATE runs SET work_progress=? WHERE id=?", (invalid, run_id)
+                )
+            project.db.rollback()
+        progress = {
+            "kind": "ocr_pages",
+            "row_id": row_ids[0],
+            "completed": 7,
+            "total": 30,
+        }
+        project.db.execute(
+            "UPDATE runs SET work_progress=? WHERE id=?", (json.dumps(progress), run_id)
+        )
+        project.db.commit()
+        migrate_execution_metadata(project.db, bundle_path=project.db_path)
+    finally:
+        project.close()
+    reopened = Project(path)
+    try:
+        row = reopened.db.execute(
+            "SELECT params,work_progress FROM runs WHERE id=?", (run_id,)
+        ).fetchone()
+        assert row["params"] == params_before
+        assert json.loads(row["work_progress"]) == progress
+    finally:
+        reopened.close()
 
 
 def test_warning_storage_is_bounded_and_redacts_secrets(tmp_path):

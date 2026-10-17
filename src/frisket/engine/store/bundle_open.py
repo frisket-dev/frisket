@@ -32,8 +32,8 @@ from .prepared_content_migration import (
 from .retrieval_lifecycle_migration import (
     migrate_retrieval_lifecycle as _migrate_retrieval_lifecycle,
 )
-from .result_warnings_migration import (
-    migrate_result_warnings as _migrate_result_warnings,
+from .execution_metadata_migration import (
+    migrate_execution_metadata as _migrate_execution_metadata,
 )
 
 # v0.1.1a62 (907a324c) -> v0.1.1a64's receipt-owned execution attempts.
@@ -148,7 +148,7 @@ def open_bundle(project: Any) -> None:
         migrate_extraction_layouts(project.db)
         _migrate_prepared_content(project.db, bundle_path=project.db_path)
         _migrate_retrieval_lifecycle(project.db, bundle_path=project.db_path)
-        _migrate_result_warnings(project.db, bundle_path=project.db_path)
+        _migrate_execution_metadata(project.db, bundle_path=project.db_path)
         require_current_schema(project.db, bundle_path=project.path)
         _reconcile_open_time_policy(project)
         from frisket.retrieval.upgrade import prepare_retrieval_on_open
