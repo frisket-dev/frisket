@@ -225,6 +225,18 @@ def test_find_file_uses_selected_text_with_ordinary_text_publication_coordinates
                 link_role="media_ocr_grounding",
                 producer={"action_kind": "media.read_pdf_text"},
             )
+            _, alternatives = project.get_values_with_refs(cell[0], _other, [cell[1]])
+            record_evidence_link(
+                project,
+                subject_kind="cell",
+                subject_ref=alternatives[cell[1]],
+                spans=[{"span_id": _alternative[2]["id"]}],
+                sheet_id=cell[0],
+                row_id=cell[1],
+                column_id=_other,
+                link_role="media_ocr_grounding",
+                producer={"action_kind": "media.ocr"},
+            )
         params = FindOperation(
             action_kind="map.find",
             request={},
