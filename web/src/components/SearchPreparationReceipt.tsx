@@ -476,7 +476,7 @@ export function SearchPreparationReceipt({
             onClick={() => void decide('prepare')}
           >
             {busy
-              ? 'Starting…'
+              ? 'Please wait…'
               : hasSelectedDownloads
                 ? 'Download and prepare'
                 : 'Prepare files'}
