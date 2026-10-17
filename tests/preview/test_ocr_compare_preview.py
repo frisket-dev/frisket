@@ -102,6 +102,7 @@ def _install_fakes(
         *,
         dpi: int,
         scratch: Path,
+        engine: str | None = None,
     ) -> ocr_compare.RenderedPreviewDocument:
         calls.append(
             {
@@ -109,6 +110,7 @@ def _install_fakes(
                 "blob_hash": source.blob_hash,
                 "pages": pages,
                 "dpi": dpi,
+                "engine": engine,
             }
         )
         rendered: list[ocr_compare.RenderedPreviewPage] = []
@@ -232,12 +234,25 @@ def test_ocr_compare_preview_http_route_is_read_only_and_returns_contract(
     }
     assert block["raw"]["bbox"] == [[100, 200], [300, 200], [300, 400], [100, 400]]
     assert calls == [
-        {"stage": "render", "blob_hash": digest, "pages": [1, 3], "dpi": 180},
+        {
+            "stage": "render",
+            "blob_hash": digest,
+            "pages": [1, 3],
+            "dpi": 180,
+            "engine": "rapidocr",
+        },
         {
             "stage": "ocr",
             "engine": "rapidocr",
             "pages": [1, 3],
             "language": "en",
+        },
+        {
+            "stage": "render",
+            "blob_hash": digest,
+            "pages": [1, 3],
+            "dpi": 180,
+            "engine": "dots.mocr",
         },
         {
             "stage": "ocr",
@@ -280,8 +295,9 @@ def test_page_scoped_pdf_preview_materializes_only_its_physical_page(
         )
         assert source.page == 2
 
-        async def page_images(self, path, media, options, scratch):
+        async def page_images(self, path, media, options, scratch, *, engine=None):
             del self, media
+            assert engine == "rapidocr"
             selected = pypdf.PdfReader(path)
             assert len(selected.pages) == 1
             assert float(selected.pages[0].mediabox.width) == 333
@@ -302,6 +318,7 @@ def test_page_scoped_pdf_preview_materializes_only_its_physical_page(
                     dpi=180,
                     scratch=scratch,
                     max_pdf_pages=1,
+                    engine="rapidocr",
                 )
             )
 

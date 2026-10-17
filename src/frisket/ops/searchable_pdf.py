@@ -16,7 +16,7 @@ __all__ = [
 
 # Bump when the compositor's output for identical inputs changes, so callers can
 # fold it into a cache key.
-COMPOSITOR_VERSION = 1
+COMPOSITOR_VERSION = 2
 
 # Base-14 glyphless font used for the invisible layer (Latin/Western).
 _FONT_NAME = "Helvetica"
@@ -115,7 +115,8 @@ def _bbox_extent(bbox: object) -> tuple[float, float, float, float] | None:
 
 def _build_overlay_content(
     blocks: Sequence[Mapping],
-    dpi: int,
+    scale_x: float,
+    scale_y: float,
     page_h_pt: float,
     on_unencodable: str,
 ) -> tuple[bytes, int, int, str | None]:
@@ -125,7 +126,6 @@ def _build_overlay_content(
     UPRIGHT (displayed) page height used for the y-flip. Raises
     ``UnencodableTextError`` under ``on_unencodable="error"``.
     """
-    scale = 72.0 / dpi
     parts: list[str] = []
     painted = 0
     skipped = 0
@@ -150,11 +150,11 @@ def _build_overlay_content(
             skipped += 1
             reason = "unencodable_text"
             continue
-        x0_pt = x0_px * scale
-        box_w_pt = (x1_px - x0_px) * scale
+        x0_pt = x0_px * scale_x
+        box_w_pt = (x1_px - x0_px) * scale_x
         # font size = box height in points; baseline = box bottom, y-flipped.
-        font_size = (y_bot_px - y_top_px) * scale
-        y_baseline_pt = page_h_pt - (y_bot_px * scale)
+        font_size = (y_bot_px - y_top_px) * scale_y
+        y_baseline_pt = page_h_pt - (y_bot_px * scale_y)
         # horizontal scaling (Tz) so the glyph run's advance matches the box width
         # → selection rectangles line up.
         natural = _helvetica_width(encoded, font_size)
@@ -233,6 +233,7 @@ def compose_searchable_pdf(
     pages: Sequence[object],
     *,
     dpi: int,
+    raster_dimensions: Sequence[tuple[int, int]] | None = None,
     on_unencodable: str = "skip",
 ) -> tuple[bytes, list[PageComposeResult]]:
     """Sandwich an invisible OCR text layer onto ``source_pdf``.
@@ -243,6 +244,9 @@ def compose_searchable_pdf(
             the ``{"text": ..., "blocks": [...]}`` mapping). Extra source pages
             beyond ``len(pages)`` simply receive an empty text layer.
         dpi: the render DPI the block pixel bboxes are in (the pdftoppm ``-r``).
+            Used as a compatibility fallback when ``raster_dimensions`` is absent.
+        raster_dimensions: exact ``(width, height)`` pixel frame for each OCR
+            page. This keeps text geometry aligned when rendering was downscaled.
         on_unencodable: ``"skip"`` (default) drops CJK/RTL blocks and flags the
             page; ``"error"`` raises ``UnencodableTextError``.
 
@@ -253,6 +257,19 @@ def compose_searchable_pdf(
     """
     if dpi <= 0:
         raise ValueError(f"dpi must be positive, got {dpi!r}")
+    if raster_dimensions is not None:
+        if len(raster_dimensions) != len(pages):
+            raise ValueError("raster dimensions must match the OCR page count")
+        for dimensions in raster_dimensions:
+            if (
+                not isinstance(dimensions, (tuple, list))
+                or len(dimensions) != 2
+                or type(dimensions[0]) is not int
+                or type(dimensions[1]) is not int
+                or dimensions[0] <= 0
+                or dimensions[1] <= 0
+            ):
+                raise ValueError("raster dimensions must be positive integer pairs")
     if on_unencodable not in ("skip", "error"):
         raise ValueError(
             f"on_unencodable must be 'skip' or 'error', got {on_unencodable!r}"
@@ -281,6 +298,12 @@ def compose_searchable_pdf(
         rotate = int(page.get("/Rotate", 0) or 0) % 360
         # pdftoppm uprights the raster: displayed dims swap for 90/270.
         disp_w, disp_h = (h_pt, w_pt) if rotate in (90, 270) else (w_pt, h_pt)
+        if raster_dimensions is not None and index < len(pages):
+            raster_w, raster_h = raster_dimensions[index]
+            scale_x = disp_w / raster_w
+            scale_y = disp_h / raster_h
+        else:
+            scale_x = scale_y = 72.0 / dpi
 
         painted = 0
         skipped = 0
@@ -295,7 +318,7 @@ def compose_searchable_pdf(
         if block_count:
             try:
                 content, painted, skipped, reason = _build_overlay_content(
-                    blocks, dpi, disp_h, on_unencodable
+                    blocks, scale_x, scale_y, disp_h, on_unencodable
                 )
                 if painted:
                     overlay_page = PdfReader(

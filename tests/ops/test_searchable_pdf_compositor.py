@@ -297,6 +297,29 @@ def test_position_y_flip_top_of_page_lands_near_top():
     assert abs(x0 - 36.0) < 4.0, f"expected x0~36, got {x0}"
 
 
+def test_position_uses_actual_downscaled_raster_dimensions():
+    src = _blank_source([(PAGE_W_PT, PAGE_H_PT, 0)])
+    blocks = [_line_block("Capped render", 100, 100, 700, 160)]
+    pdf, _ = compose_searchable_pdf(
+        src,
+        [blocks],
+        dpi=DPI,
+        raster_dimensions=[(1000, 1294)],
+    )
+    words, page_bbox = _pdfminer_words(pdf)
+    assert words
+    text, (x0, _y0, _x1, y1) = words[0]
+    assert "Capped render" in text
+    assert abs(x0 - 61.2) < 4.0
+    assert y1 > page_bbox[3] * 0.9
+
+
+def test_raster_dimensions_must_match_ocr_pages():
+    src = _blank_source([(PAGE_W_PT, PAGE_H_PT, 0)])
+    with pytest.raises(ValueError, match="match the OCR page count"):
+        compose_searchable_pdf(src, [[]], dpi=DPI, raster_dimensions=[])
+
+
 def test_position_tz_width_fit_matches_bbox_width():
     src = _blank_source([(PAGE_W_PT, PAGE_H_PT, 0)])
     # bbox spans 100..1300 px -> (1300-100)*72/200 = 432 pt wide.

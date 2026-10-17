@@ -259,7 +259,7 @@ class OcrEngines:
                     # requested DPI, so preserve that exact raster scale there.
                     max_edge=(
                         RAPIDOCR_MAX_IMAGE_EDGE
-                        if engine == LIGHT_ENGINE and not spec.get("searchable_pdf")
+                        if engine == LIGHT_ENGINE
                         else None
                     ),
                 )

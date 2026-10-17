@@ -477,7 +477,7 @@ def test_invalid_language_defers_to_worker_row_validation(
 
 @pytest.mark.parametrize(
     ("engine", "searchable_pdf", "expected_max_edge"),
-    [("rapidocr", False, 2000), ("rapidocr", True, None), ("surya2", False, None)],
+    [("rapidocr", False, 2000), ("rapidocr", True, 2000), ("surya2", False, None)],
 )
 def test_pdf_rasterization_log_is_content_free(
     monkeypatch: pytest.MonkeyPatch,

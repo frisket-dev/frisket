@@ -359,8 +359,22 @@ class _BoundOcrReader:
                         )
                 if selected_page is not None and len(pages) != 1:
                     raise RuntimeError("page-scoped OCR must return exactly one page")
+                page_images = self._page_images(
+                    source,
+                    path,
+                    page_paths,
+                    scratch,
+                    first_page=selected_page or 1,
+                )
                 pdf = (
-                    self._searchable_pdf(source, path, pages, engine, scratch)
+                    self._searchable_pdf(
+                        source,
+                        path,
+                        pages,
+                        page_images,
+                        engine,
+                        scratch,
+                    )
                     if options["searchable_pdf"] and not owner._files.preview
                     else Outcome.ok(None)
                 )
@@ -402,13 +416,7 @@ class _BoundOcrReader:
                     "text": text,
                     "blocks": fact_blocks,
                     "pages": fact_pages,
-                    "page_images": self._page_images(
-                        source,
-                        path,
-                        page_paths,
-                        scratch,
-                        first_page=selected_page or 1,
-                    ),
+                    "page_images": page_images,
                 }
                 owner.calls_by_row[self._row_id] = [copy.deepcopy(fact)]
                 return RecognizedDocument(text=OcrText(text), blocks=blocks, pdf=pdf)
@@ -447,7 +455,7 @@ class _BoundOcrReader:
             }
         return images
 
-    def _searchable_pdf(self, source, path, pages, engine, scratch):
+    def _searchable_pdf(self, source, path, pages, page_images, engine, scratch):
         from frisket.ops.searchable_pdf import (
             COMPOSITOR_VERSION,
             compose_searchable_pdf,
@@ -464,8 +472,15 @@ class _BoundOcrReader:
                 "Searchable PDF requires a PDF source and an engine with text geometry",
             )
         try:
+            raster_dimensions = [
+                (frame["source_width"], frame["source_height"])
+                for frame in page_images.values()
+            ]
             pdf, results = compose_searchable_pdf(
-                path.read_bytes(), pages, dpi=self._owner._options["dpi"]
+                path.read_bytes(),
+                pages,
+                dpi=self._owner._options["dpi"],
+                raster_dimensions=raster_dimensions,
             )
         except Exception as exc:
             return Outcome.failed(

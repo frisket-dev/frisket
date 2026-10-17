@@ -313,12 +313,16 @@ async def test_pdf_retains_geometry_without_display_blob_and_stages_searchable_p
         return [output]
 
     monkeypatch.setattr(engines.OcrEngines, "_page_images", pages)
-    monkeypatch.setattr(
-        "frisket.ops.searchable_pdf.compose_searchable_pdf",
-        lambda *args, **kwargs: (
+    def compose(*args, **kwargs):
+        assert kwargs["raster_dimensions"] == [(2200, 1100)]
+        return (
             b"%PDF-searchable",
             [SimpleNamespace(index=1, degraded=False, painted_count=1)],
-        ),
+        )
+
+    monkeypatch.setattr(
+        "frisket.ops.searchable_pdf.compose_searchable_pdf",
+        compose,
     )
     async with _reader(source, options=OcrOptions(searchable_pdf=True)) as (
         owner,
@@ -366,6 +370,7 @@ async def test_pdf_page_source_ocr_remaps_facts_to_original_page(
     def compose(pdf, pages, **kwargs):
         assert len(pypdf.PdfReader(BytesIO(pdf)).pages) == 1
         assert "page_number" not in pages[0]
+        assert kwargs["raster_dimensions"] == [(300, 400)]
         return (
             b"%PDF-searchable",
             [SimpleNamespace(index=1, degraded=False, painted_count=1)],
