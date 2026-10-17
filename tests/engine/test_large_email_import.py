@@ -246,19 +246,19 @@ def test_large_email_import_stages_bounded_batches_then_publishes_atomically(
     )
     project = Project.create(tmp_path / "large.frisket", name="Large email import")
     checkpoints: list[int] = []
+    batch_size = table_action._TABLE_BATCH_SIZE
 
     original_append = StreamingSheetWriter.append_rows
 
     def append_rows(self, rows):
-        assert 0 < len(rows) <= 2
+        assert 0 < len(rows) <= batch_size
         row_ids = original_append(self, rows)
-        if self.row_count in {2, MESSAGE_COUNT}:
+        if self.row_count in {batch_size, MESSAGE_COUNT}:
             _assert_hidden_stage(project, rows=self.row_count)
             assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 0
             checkpoints.append(self.row_count)
         return row_ids
 
-    monkeypatch.setattr(table_action, "_TABLE_BATCH_SIZE", 2)
     monkeypatch.setattr(StreamingSheetWriter, "append_rows", append_rows)
     try:
         with source_path.open("rb") as stream:
@@ -271,7 +271,7 @@ def test_large_email_import_stages_bounded_batches_then_publishes_atomically(
             assert not stream.closed
 
         assert result.status == "completed", result.errors
-        assert checkpoints == [2, MESSAGE_COUNT]
+        assert checkpoints == [batch_size, MESSAGE_COUNT]
         sheet = project.db.execute(
             "SELECT id FROM sheets WHERE name='Emails'"
         ).fetchone()
