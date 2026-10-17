@@ -509,6 +509,13 @@ class ActionPreparationHint(WireModel):
     message: str
 
 
+class ActionWorkProgress(WireModel):
+    kind: Literal["ocr_pages"]
+    row_id: int = Field(gt=0)
+    completed: int = Field(ge=0)
+    total: int = Field(ge=0)
+
+
 class ActionRunPublicStatus(WireModel):
     run_id: int
     action_kind: str
@@ -530,6 +537,7 @@ class ActionRunPublicStatus(WireModel):
     error: str | None = None
     row_errors: RunRowErrorSummary | None = None
     preparation: ActionPreparationHint | None = None
+    work_progress: ActionWorkProgress | None = None
 
 
 class ActionJobProgress(ActionRunPublicStatus):

@@ -168,6 +168,7 @@ def test_project_timing_summarizes_run_and_job_history(tmp_path):
         status="completed",
         total_rows=2,
         completed_rows=2,
+        failed_rows=1,
     )
     _set_job_clock(
         client,
@@ -190,9 +191,60 @@ def test_project_timing_summarizes_run_and_job_history(tmp_path):
     assert action["action_name"] == "Run trusted local Python"
     assert action["count"] == 1
     assert action["duration_seconds"]["p90_seconds"] == pytest.approx(10, abs=0.5)
+    assert action["rows_per_second"]["p50_seconds"] == pytest.approx(0.2, abs=0.02)
 
     kind = body["jobs"]["by_kind"][RUN_PROJECT_KIND]
     assert kind["count"] == 1
     assert kind["queue_wait_seconds"]["p50_seconds"] == pytest.approx(3, abs=0.5)
     assert kind["duration_seconds"]["p90_seconds"] == pytest.approx(10, abs=0.5)
     assert body["active_runs"] == []
+
+
+def test_page_work_progress_survives_status_reads_and_stops_at_terminal(tmp_path):
+    import json
+
+    from frisket.engine.store.runs import RunResultStore
+
+    client = _client(tmp_path)
+    pid, _, run_id, job_id = _seed_queued_action_run(client)
+    job = client.app.state.workspace.queue.claim("pages-worker", lease_seconds=600)
+    assert job is not None and job.id == job_id
+    project = client.app.state.workspace.get(pid)
+    before = json.loads(
+        project.db.execute("SELECT params FROM runs WHERE id=?", (run_id,)).fetchone()[
+            "params"
+        ]
+    )
+    store = RunResultStore(project)
+    store.set_work_progress(run_id, kind="ocr_pages", row_id=1, completed=7, total=300)
+    body = _action_run_public_status(client, pid, run_id)
+    assert body["work_progress"] == {
+        "kind": "ocr_pages",
+        "row_id": 1,
+        "completed": 7,
+        "total": 300,
+    }
+    after = json.loads(
+        project.db.execute("SELECT params FROM runs WHERE id=?", (run_id,)).fetchone()[
+            "params"
+        ]
+    )
+    after.pop("_work_progress")
+    assert after == before
+    _set_run_clock(
+        client,
+        pid,
+        run_id,
+        started_at=datetime.now(UTC),
+        status="completed",
+        finished_at=datetime.now(UTC),
+        completed_rows=2,
+    )
+    store.set_work_progress(run_id, kind="ocr_pages", row_id=1, completed=8, total=300)
+    assert _action_run_public_status(client, pid, run_id).get("work_progress") is None
+    saved = json.loads(
+        project.db.execute("SELECT params FROM runs WHERE id=?", (run_id,)).fetchone()[
+            "params"
+        ]
+    )
+    assert saved["_work_progress"]["completed"] == 7

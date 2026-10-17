@@ -941,6 +941,22 @@ def test_empty_project_does_not_queue_or_report_search_preparation(tmp_path):
         }
     assert workspace.queue.counts()["queued"] == 0
 
+    for mode in ("lexical", "semantic", "hybrid"):
+        searched = client.post(
+            f"/api/projects/{project_id}/search",
+            json={
+                "scope": {"kind": "project"},
+                "query": {"kind": "text", "text": "content", "lexical_syntax": "plain"},
+                "mode": mode,
+                "group_by": "source",
+                "limit": 10,
+                "ranking": {"rerank": "off"},
+            },
+        )
+        assert searched.status_code == 200, searched.text
+        assert searched.json()["coverage"]["state"] == "complete"
+    assert workspace.queue.counts()["queued"] == 0
+
     project.add_rows(sheet, [{"body": "first searchable content"}], {"body": column})
     # Direct library writes record work; a search is a normal enqueue recovery
     # boundary (production imports also schedule at their commit boundary).

@@ -34,6 +34,7 @@ from .query import (
     RetrievalQueryError,
     RetrievalQueryService,
     SemanticQueryVectors,
+    empty_search_response,
 )
 from .store import RETRIEVAL_DB_NAME, RetrievalStore
 
@@ -54,13 +55,16 @@ def search_with_encoding(
 
     if cancel_event is not None and cancel_event.is_set():
         raise InterruptedError("retrieval search was stopped")
+    if request.scope.is_empty or (
+        not (project.path / RETRIEVAL_DB_NAME).is_file()
+        and project.db.execute("SELECT 1 FROM current_cells LIMIT 1").fetchone() is None
+    ):
+        return empty_search_response(request)
     if reranker is None and request.ranking.rerank != "off":
         from frisket.ai.embeddings.backends import local_reranker
 
         reranker = local_reranker()
     query = RetrievalQueryService(project, reranker=reranker)
-    if request.scope.is_empty:
-        return query.search(request, cancel_event=cancel_event)
     if not (project.path / RETRIEVAL_DB_NAME).is_file():
         channels = (
             ("lexical", "semantic") if request.mode == "hybrid" else (request.mode,)

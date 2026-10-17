@@ -242,7 +242,7 @@ class RetrievalQueryService:
         if cancel_event is not None and cancel_event.is_set():
             raise InterruptedError("retrieval search was stopped")
         if request.scope.is_empty:
-            return _empty_response(request)
+            return empty_search_response(request)
         if request.ranking.rerank == "on" and self.reranker is None:
             raise RetrievalQueryError(
                 "reranker_unavailable",
@@ -1842,7 +1842,7 @@ def _is_fts_syntax_error(error: sqlite3.OperationalError) -> bool:
     )
 
 
-def _empty_response(request: SearchRequest) -> SearchResponse:
+def empty_search_response(request: SearchRequest) -> SearchResponse:
     effective = ("lexical", "semantic") if request.mode == "hybrid" else (request.mode,)
     return SearchResponse(
         results=(),

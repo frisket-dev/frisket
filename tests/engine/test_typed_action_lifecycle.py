@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import json
 from pydantic import BaseModel
 
 from frisket.actions.core import (
@@ -61,14 +62,17 @@ def partial(params: UpperParams, row: Row) -> RowResult[PartialOutput]:
     value = params.source.read(row)
     return RowResult(
         output=PartialOutput(
-            stable=Outcome.ok(value.upper(), confidence=0.95),
+            stable=Outcome.ok(
+                value.upper(), confidence=0.95, warnings=("field warning",)
+            ),
             fallible=(
                 Outcome.failed("domain_lookup_failed", "No domain match")
                 if value == "two"
                 else Outcome.ok(value[::-1], confidence=0.25)
             ),
             error=f"literal {value}",
-        )
+        ),
+        warnings=("page warning",),
     )
 
 
@@ -271,7 +275,7 @@ def test_typed_action_persists_independent_outcomes_and_partial_failure(
         (row["row_id"], row["column_id"]): row
         for row in store.db.execute(
             "SELECT row_id, column_id, value_kind, value, confidence, justification, error, "
-            "error_code, outcome, publication_effect FROM results WHERE run_id=?",
+            "error_code, outcome, publication_effect, warnings FROM results WHERE run_id=?",
             (result.run_id,),
         )
     }
@@ -283,6 +287,7 @@ def test_typed_action_persists_independent_outcomes_and_partial_failure(
     )
     assert stable_second["confidence"] == 0.95
     assert stable_second["error"] is None
+    assert json.loads(stable_second["warnings"]) == ["field warning", "page warning"]
 
     fallible_first = rows[(row_ids[0], columns["fallible"])]
     assert fallible_first["value_kind"] == "text"
@@ -299,6 +304,7 @@ def test_typed_action_persists_independent_outcomes_and_partial_failure(
     assert fallible_second["error_code"] == "domain_lookup_failed"
     assert fallible_second["outcome"] == "model_error"
     assert fallible_second["publication_effect"] == "publish_error"
+    assert json.loads(fallible_second["warnings"]) == []
 
     literal_error = rows[(row_ids[1], columns["error"])]
     assert literal_error["value_kind"] == "text"
@@ -307,6 +313,7 @@ def test_typed_action_persists_independent_outcomes_and_partial_failure(
         == "literal two"
     )
     assert literal_error["error"] is None
+    assert json.loads(literal_error["warnings"]) == ["page warning"]
 
 
 def test_typed_action_refuses_adopting_unmanaged_generated_output(

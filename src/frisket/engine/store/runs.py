@@ -342,6 +342,22 @@ class RunResultStore:
         if cur.rowcount != 1:
             raise RuntimeError(f"run {run_id} vanished before the result write")
 
+    def set_work_progress(
+        self, run_id: int, *, kind: str, row_id: int, completed: int, total: int
+    ) -> None:
+        """Replace the active row's bounded progress facts without touching its inputs."""
+        if kind != "ocr_pages" or not 0 <= completed <= total or row_id <= 0:
+            raise ValueError("invalid action work progress")
+        value = json.dumps(
+            {"kind": kind, "row_id": row_id, "completed": completed, "total": total}
+        )
+        self.db.execute(
+            "UPDATE runs SET params=json_set(COALESCE(params, '{}'), "
+            "'$._work_progress', json(?)) WHERE id=? AND status='running'",
+            (value, run_id),
+        )
+        self.db.commit()
+
     def set_run_halt(
         self,
         run_id: int,

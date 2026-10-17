@@ -214,6 +214,13 @@ def project_run_status_payload(
         payload["stalled_reason"] = status.stalled_reason
     if status.job_error:
         payload["error"] = status.job_error
+    if status.public_status == "running":
+        try:
+            params = json.loads(row["params"] or "{}")
+        except (TypeError, ValueError):
+            params = {}
+        if isinstance(params, dict) and params.get("_work_progress"):
+            payload["work_progress"] = params["_work_progress"]
     if preparation := _run_preparation_hint(row, status.public_status):
         payload["preparation"] = preparation
     # A typed recipe/session halt (e.g. Parakeet's local_artifact_unavailable)
@@ -263,7 +270,7 @@ def project_timing_payload(
         elapsed = seconds_between(row["started_at"], row["finished_at"])
         if elapsed is None:
             continue
-        processed = int(row["completed_rows"] or 0) + int(row["failed_rows"] or 0)
+        processed = int(row["completed_rows"] or 0)
         rps = processed / elapsed if elapsed > 0 and processed > 0 else None
         run_durations.append(elapsed)
         run_rps.append(rps)

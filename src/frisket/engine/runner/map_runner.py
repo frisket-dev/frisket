@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import time
 from collections.abc import Mapping
 from contextlib import nullcontext
 from dataclasses import dataclass, field, replace
@@ -149,6 +150,7 @@ _ROW_EFFECT_IDENTITY_IGNORED_SPEC_KEYS = frozenset(
         "consented_promise_set_hash",
         "halted_code",
         "halted_reason",
+        "_work_progress",
         # Selection is represented exactly by run_id + row_id.  A backfill may
         # spell its delta differently while asking the same row operation.
         "row_ids",
@@ -1058,6 +1060,20 @@ class MapRunner:
                 close_out_pre_dispatch_failure(exc)
                 raise
 
+        last_work_progress = 0.0
+
+        def report_work_progress(
+            *, kind: str, row_id: int, completed: int, total: int
+        ) -> None:
+            nonlocal last_work_progress
+            now = time.monotonic()
+            if completed not in (0, 1, total) and now - last_work_progress < 0.5:
+                return
+            self.run_store.set_work_progress(
+                run_id, kind=kind, row_id=row_id, completed=completed, total=total
+            )
+            last_work_progress = now
+
         # remote-engine ops (ocr's VLM tier) reach the router via extras
         ctx = OpContext(
             project=self.project,
@@ -1078,6 +1094,7 @@ class MapRunner:
                 "claim_token": claim_token,
                 "router": self.router,
                 "cancelled": cancelled,
+                "report_work_progress": report_work_progress,
                 "source_column_types": source_column_types,
                 "output_columns": dict(out_cols),
                 # Shared only by row contexts in this run; recipe singletons
