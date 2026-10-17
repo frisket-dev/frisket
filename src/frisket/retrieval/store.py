@@ -19,7 +19,11 @@ from .sources import canonical_json, input_hash
 
 
 RETRIEVAL_DB_NAME = "project.retrieval.db"
-SCHEMA_VERSION = 2
+# Version 3 changes source authority: prepared OCR text supersedes its evidence
+# copy, and producer-owned OCR geometry is metadata rather than searchable JSON.
+# The sidecar is disposable, so an incompatible derivation is preserved and
+# rebuilt through the existing recovery path instead of migrated in place.
+SCHEMA_VERSION = 3
 SIDECAR_ID_META_KEY = "sidecar_id"
 PROJECT_SIDECAR_META_KEY = "retrieval_sidecar_id"
 PAGE_SIZE = 16 * 1024

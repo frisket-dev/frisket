@@ -129,6 +129,87 @@ describe('SearchPreparationReceipt', () => {
     expect(screen.queryByText('Ready to search')).toBeNull();
   });
 
+  it('explains an unavailable required runtime outside download consent', async () => {
+    getSearchPreparation.mockResolvedValue({
+      ...consentBatch,
+      status: 'failed',
+      groups: [{ kind: 'transcribe', count: 2, status: 'not_prepared' }],
+      models: [{
+        ...consentBatch.models[0], display_name: 'Parakeet', purpose: 'transcribe',
+        runtime_ready: false, can_setup: false,
+        remediation: 'Install the standard local audio runtime, then prepare these files again.',
+      }],
+      can_setup: false,
+    });
+    render(<SearchPreparationReceipt projectId="project-1" batchId="prep-1" onDone={vi.fn()} onError={vi.fn()} />);
+
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', expect.stringContaining('Parakeet'));
+    expect(screen.getByRole('alert').textContent).toContain('Install the standard local audio runtime');
+    expect(screen.queryByTestId('search-preparation-model-consent')).toBeNull();
+  });
+
+  it('describes completed file text separately from semantic search readiness', async () => {
+    getSearchPreparation.mockResolvedValue({
+      ...consentBatch, status: 'complete',
+      groups: [{ kind: 'native_pdf', count: 1, status: 'complete' }],
+    });
+    render(<SearchPreparationReceipt projectId="project-1" batchId="prep-1" onDone={vi.fn()} onError={vi.fn()} />);
+
+    expect(await screen.findByRole('heading', { name: 'Text ready for keyword search' })).not.toBeNull();
+  });
+
+  it('refreshes a visible preview on batch completion without repeatedly reading settled samples', async () => {
+    vi.useFakeTimers();
+    getSearchPreparation
+      .mockResolvedValueOnce({ ...consentBatch, status: 'preparing' })
+      .mockResolvedValue({ ...consentBatch, status: 'complete' });
+    const sample = {
+      row_id: 42, column_id: 5, filename: 'bad-layer.pdf', page_number: 1,
+      page_count: 1, page_scoped: true, preview_url: '/preview',
+      text: 'Garbled original text', source: 'prepared', truncated: false,
+    };
+    const refresh = deferred<Awaited<ReturnType<typeof getSearchPreparationTextSamples>>>();
+    getSearchPreparationTextSamples
+      .mockResolvedValueOnce({ batch_id: 'prep-1', samples: [sample] })
+      .mockReturnValue(refresh.promise);
+    render(<SearchPreparationReceipt projectId="project-1" batchId="prep-1" onDone={vi.fn()} onError={vi.fn()} />);
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.getByText('Garbled original text')).not.toBeNull();
+
+    expect(getSearchPreparationTextSamples).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_500); });
+    expect(getSearchPreparationTextSamples).toHaveBeenCalledTimes(2);
+    expect(screen.getByText('Garbled original text')).not.toBeNull();
+    await act(async () => {
+      refresh.resolve({ batch_id: 'prep-1', samples: [{ ...sample, text: 'Correct replacement text' }] });
+    });
+    expect(screen.getByText('Correct replacement text')).not.toBeNull();
+    expect(screen.queryByText('Garbled original text')).toBeNull();
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    expect(getSearchPreparationTextSamples).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps a dismissed text review closed when the batch completes', async () => {
+    vi.useFakeTimers();
+    getSearchPreparation
+      .mockResolvedValueOnce({ ...consentBatch, status: 'preparing' })
+      .mockResolvedValue({ ...consentBatch, status: 'complete' });
+    getSearchPreparationTextSamples.mockResolvedValue({
+      batch_id: 'prep-1', samples: [{
+        row_id: 42, column_id: 5, filename: 'native.pdf', page_number: 1,
+        page_count: 1, page_scoped: true, preview_url: '/preview',
+        text: 'Correct native text', source: 'prepared', truncated: false,
+      }],
+    });
+    render(<SearchPreparationReceipt projectId="project-1" batchId="prep-1" onDone={vi.fn()} onError={vi.fn()} />);
+    await act(async () => { await Promise.resolve(); });
+    fireEvent.click(screen.getByTestId('search-preparation-keep-text'));
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    expect(screen.queryByTestId('search-preparation-text-preview')).toBeNull();
+    expect(getSearchPreparationTextSamples).toHaveBeenCalledTimes(1);
+  });
+
   it('checks semantic search by default without authorizing downloads and allows opting out', async () => {
     getSearchPreparation.mockResolvedValue(consentBatch);
     decideSearchPreparation.mockResolvedValue({ ...consentBatch, status: 'preparing' });

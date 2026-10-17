@@ -33,7 +33,7 @@ function groupStatus(group: SearchPreparationGroup): string {
     case 'waiting_for_download': return 'Waiting for download';
     case 'queued': return 'Queued';
     case 'running': return group.kind === 'transcribe' ? 'Transcribing' : 'Reading text';
-    case 'complete': return 'Searchable';
+    case 'complete': return 'Text prepared';
     case 'not_prepared': return 'Not prepared';
     case 'stopped': return 'Stopped';
     case 'failed': return 'Needs attention';
@@ -99,6 +99,7 @@ function TextReview({
 }) {
   const [dismissed, setDismissed] = useState(false);
   const [sample, setSample] = useState<SearchPreparationTextSample | null>(null);
+  const [requestedStatus, setRequestedStatus] = useState<SearchPreparationBatch['status'] | null>(null);
   const [pages, setPages] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
   const [forcing, setForcing] = useState(false);
@@ -110,12 +111,14 @@ function TextReview({
     loadController.current?.abort();
   }, [batch.id, projectId]);
 
-  const load = async (rowId?: number, pageNumber?: number) => {
+  const load = async (rowId?: number, pageNumber?: number, background = false) => {
+    setRequestedStatus(batch.status);
+    if (background && loadController.current !== null) return;
     loadController.current?.abort();
     const controller = new AbortController();
     loadController.current = controller;
     const generation = ++loadGeneration.current;
-    setLoading(true);
+    if (!background) setLoading(true);
     try {
       const result = await getSearchPreparationTextSamples(
         projectId,
@@ -129,7 +132,7 @@ function TextReview({
         && (pageNumber == null || item.page_number === pageNumber)
       )) ?? result.samples[0] ?? null;
       setSample(next);
-      if (next) {
+      if (next && (!sample || sample.row_id !== next.row_id || sample.page_count !== next.page_count)) {
         setPages(next.page_scoped
           ? [next.page_number]
           : samplePages(next.page_count ?? next.page_number));
@@ -146,8 +149,8 @@ function TextReview({
     }
   };
 
-  usePoll(load, {
-    active: !dismissed && sample === null,
+  usePoll(() => load(sample?.row_id, sample?.page_number, sample !== null), {
+    active: !dismissed && requestedStatus !== batch.status,
     intervalMs: 1_000,
     guardOverlap: true,
     maxAttempts: 1,
@@ -379,12 +382,13 @@ export function SearchPreparationReceipt({
     && batch.groups.every((group) => group.status === 'complete');
   const active = !TERMINAL.has(batch.status);
   const missingModels = batch.models.filter((model) => !model.ready);
+  const unavailableModels = missingModels.filter((model) => model.required && !model.can_setup);
   return (
     <section className="search-preparation-receipt" data-testid="search-preparation-receipt">
       <header>
         <div>
           <h2>{fullyPrepared
-            ? 'Ready to search'
+            ? 'Text ready for keyword search'
             : batch.status === 'planning'
               ? 'Planning search preparation'
             : batch.status === 'complete' || batch.status === 'stopped'
@@ -416,8 +420,20 @@ export function SearchPreparationReceipt({
         </div>
       )}
 
+      {batch.status !== 'needs_consent' && unavailableModels.length > 0 && (
+        <div className="import-field-error" role="alert">
+          {unavailableModels.map((model) => (
+            <p key={model.setup_ref}>
+              <strong>{model.display_name} is unavailable on this device.</strong>{' '}
+              {model.remediation || 'Install its local runtime, then prepare these files again.'}
+            </p>
+          ))}
+        </div>
+      )}
+
       {nativeGroup && (
         <TextReview
+          key={batch.id}
           projectId={projectId}
           batch={batch}
           onBatchChange={publish}

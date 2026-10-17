@@ -4,6 +4,8 @@ import '@testing-library/jest-dom/vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const getSearchPreparation = vi.hoisted(() => vi.fn());
+const getSearchPreparationTextSamples = vi.hoisted(() => vi.fn());
 const listImportSessions = vi.hoisted(() => vi.fn());
 const cancelImportSession = vi.hoisted(() => vi.fn());
 const resolveImportSession = vi.hoisted(() => vi.fn());
@@ -22,6 +24,12 @@ vi.mock('../../src/api/open', () => ({
   ),
 }));
 
+vi.mock('../../src/api/searchPreparation', () => ({
+  getSearchPreparation, getSearchPreparationTextSamples,
+  createSearchPreparation: vi.fn(), decideSearchPreparation: vi.fn(), stopSearchPreparation: vi.fn(),
+}));
+
+import { installDialogPolyfill } from '../support/domPolyfills';
 import {
   rememberImportSessionFiles,
   setImportSessionBrowserUploading,
@@ -35,6 +43,20 @@ const running = {
 };
 
 beforeEach(() => {
+  installDialogPolyfill();
+  getSearchPreparation.mockResolvedValue({
+    schemaVersion: 'frisket.search_preparation.v1', id: 'prep-1', sheet_id: 9,
+    plan_hash: 'sha256:plan', status: 'complete',
+    groups: [{ kind: 'native_pdf', count: 1, status: 'complete' }],
+    models: [], jobs: [], can_stop: false, can_setup: false, errors: [],
+  });
+  getSearchPreparationTextSamples.mockResolvedValue({
+    batch_id: 'prep-1', samples: [{
+      row_id: 42, column_id: 5, filename: 'native.pdf', page_number: 1,
+      page_count: 1, page_scoped: true, preview_url: '/preview',
+      text: 'Automatically previewed PDF text', source: 'prepared', truncated: false,
+    }],
+  });
   listImportSessions.mockResolvedValue({ sessions: [running] });
 });
 
@@ -45,6 +67,72 @@ afterEach(() => {
 });
 
 describe('persistent import progress', () => {
+  it('opens preparation in a dialog and returns to the compact import banner when done', async () => {
+    listImportSessions.mockResolvedValue({ sessions: [{
+      ...running, state: 'completed', committed_rows: 10, search_preparation_batch_id: 'prep-1',
+    }] });
+    const onOpenSheet = vi.fn();
+    render(<ImportProgress projectId="project-1" onOpenSheet={onOpenSheet} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Open preparation' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Search preparation' });
+    expect(within(dialog).getByRole('button', { name: 'Close preparation' })).toHaveFocus();
+    expect(await within(dialog).findByText('Automatically previewed PDF text')).toBeVisible();
+    const banner = screen.getByRole('region', { name: 'Import progress' });
+    expect(within(banner).queryByTestId('search-preparation-receipt')).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(banner).toHaveTextContent('10 rows added');
+    fireEvent.click(within(banner).getByRole('button', { name: 'Open sheet' }));
+    expect(onOpenSheet).toHaveBeenCalledWith(9);
+  });
+
+  it('allows closing preparation without making a preparation decision', async () => {
+    listImportSessions.mockResolvedValue({ sessions: [{
+      ...running, search_preparation_batch_id: 'prep-1',
+    }] });
+    render(<ImportProgress projectId="project-1" onOpenSheet={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Open preparation' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Search preparation' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close preparation' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open preparation' }));
+    fireEvent(await screen.findByRole('dialog', { name: 'Search preparation' }), new Event('cancel', { cancelable: true }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open preparation' })).toBeVisible();
+  });
+
+  it('closes preparation before a changed project can read or poll the old batch', async () => {
+    vi.useFakeTimers();
+    listImportSessions.mockResolvedValue({ sessions: [{
+      ...running, state: 'completed', search_preparation_batch_id: 'prep-1',
+    }] });
+    getSearchPreparation.mockResolvedValue({
+      schemaVersion: 'frisket.search_preparation.v1', id: 'prep-1', sheet_id: 9,
+      plan_hash: 'sha256:plan', status: 'preparing', groups: [], models: [],
+      jobs: [], can_stop: true, can_setup: false, errors: [],
+    });
+    const onOpenSheet = vi.fn();
+    const { rerender } = render(<ImportProgress projectId="project-1" onOpenSheet={onOpenSheet} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    fireEvent.click(screen.getByRole('button', { name: 'Open preparation' }));
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.getByRole('dialog', { name: 'Search preparation' })).toBeVisible();
+    expect(getSearchPreparation).toHaveBeenCalledTimes(1);
+
+    rerender(<ImportProgress projectId="project-2" onOpenSheet={onOpenSheet} />);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    expect(getSearchPreparation).toHaveBeenCalledTimes(1);
+    expect(getSearchPreparation).toHaveBeenCalledWith('project-1', 'prep-1');
+
+    rerender(<ImportProgress projectId="project-1" onOpenSheet={onOpenSheet} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
   it('restores running progress, opens committed rows read-only, and offers cancellation', async () => {
     const onOpenSheet = vi.fn();
     cancelImportSession.mockResolvedValue({ ...running, state: 'cancelling', cancel_requested: true });

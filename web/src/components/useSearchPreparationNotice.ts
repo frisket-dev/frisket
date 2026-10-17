@@ -164,11 +164,17 @@ export function deriveSearchPreparationNotice(
 
   const failedBatch = snapshot.batches.find((batch) => batch.status === 'failed') ?? null;
   if (failedBatch) {
+    const unavailableModels = failedBatch.models.filter((model) => (
+      model.required && !model.ready && !model.can_setup
+    ));
+    const remedies = unavailableModels.map((model) => (
+      `${model.display_name}: ${model.remediation || 'Install its local runtime, then prepare these files again.'}`
+    ));
     return {
       stage: 'failed',
       tone: 'error',
-      title: 'Search preparation needs attention',
-      detail: failedBatch.errors[0] || 'Search preparation failed.',
+      title: unavailableModels.length > 0 ? 'Some files need local setup' : 'Search preparation needs attention',
+      detail: failedBatch.errors[0] || remedies.join(' ') || 'Search preparation failed.',
       progress: null,
       details: failedBatch.errors.length > 0 ? failedBatch.errors : [`Preparation ${failedBatch.id}`],
     };
@@ -299,7 +305,10 @@ function relevantBatches(
     return active;
   }
   return batches.filter((batch) => (
-    batch.status === 'failed' && observedActiveBatchIds.has(batch.id)
+    batch.status === 'failed' && (
+      observedActiveBatchIds.has(batch.id)
+      || batch.models.some((model) => model.required && !model.ready && !model.can_setup)
+    )
   )).slice(0, 1);
 }
 

@@ -1,5 +1,5 @@
 import { Bell, Bookmark, LoaderCircle, SearchCheck, X } from 'lucide-react';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   getModelPull,
   orgGetModelPull,
@@ -69,11 +69,22 @@ function coverageMessage(coverage: ProjectSearchResponseWire['coverage'] | null)
   ));
   if (mediaGap && mediaGap.state !== 'pending') return 'Showing available search results.';
   if (coverage.state === 'preparing') return 'Preparing project search material…';
-  if (coverage.state === 'partial') return 'Showing available results while more material is prepared.';
+  if (coverage.state === 'partial') return 'Showing available search results.';
   if (coverage.state === 'failed') return 'Some project material could not be searched.';
   return coverage.channels.some((channel) => channel.setup)
     ? 'Set up semantic search to include similar material.'
     : 'No indexed results are available for this search.';
+}
+
+function hitLocationLabel(hit: ProjectSearchHitWire): string | null {
+  const { pages, time } = hit.location;
+  if (pages) return pages.start === pages.end
+    ? `Page ${pages.start}`
+    : `Pages ${pages.start}–${pages.end}`;
+  if (time) return time.start_seconds === time.end_seconds
+    ? `${time.start_seconds.toFixed(1)}s`
+    : `${time.start_seconds.toFixed(1)}–${time.end_seconds.toFixed(1)}s`;
+  return null;
 }
 
 function hitKey(hit: ProjectSearchHitWire): string {
@@ -97,6 +108,7 @@ function SearchHitRow({
   onActivate(hit: ProjectSearchHitWire): void;
   onFindSimilar(hit: ProjectSearchHitWire): void;
 }) {
+  const locationLabel = hitLocationLabel(hit);
   return (
     <div
       className={`search-hit-row${supporting ? ' supporting' : ''}`}
@@ -108,9 +120,16 @@ function SearchHitRow({
         className={`search-hit${rowIndex === activeIndex ? ' active' : ''}`}
         onClick={() => onActivate(hit)}
       >
-        <span className="search-hit-col">{hit.column_name}</span>
-        <span className="search-hit-snip">
-          <Snip text={hit.snippet} decodeEscapes={hit.ai_generated} />
+        <span className="search-hit-content">
+          <span className="search-hit-heading">
+            <span className="search-hit-col">
+              {hit.source_name ?? hit.column_name}
+            </span>
+            {locationLabel && <span className="search-hit-location">{locationLabel}</span>}
+          </span>
+          <span className="search-hit-snip">
+            <Snip text={hit.snippet} decodeEscapes={hit.ai_generated} />
+          </span>
         </span>
       </button>
       <button
@@ -167,6 +186,7 @@ export function PaletteSearchSection({
   canPrepareGap,
   activeSheetId,
   onPrepareGap,
+  preparationReview,
   onViewJobs,
 }: {
   mode: 'lexical' | 'semantic' | 'hybrid';
@@ -208,11 +228,20 @@ export function PaletteSearchSection({
   canPrepareGap: boolean;
   activeSheetId: string | number | null | undefined;
   onPrepareGap(sheetId: number): void;
+  preparationReview: ReactNode;
   onViewJobs(): void;
 }) {
   const [setupConsentRef, setSetupConsentRef] = useState<string | null>(null);
   const [selectedGapSheetId, setSelectedGapSheetId] = useState('');
   const status = coverageMessage(coverage);
+  const semanticUnavailable = coverage?.requested_mode !== 'lexical'
+    ? coverage?.channels.find((channel) => (
+      channel.channel === 'semantic'
+      && channel.state === 'unavailable'
+      && !channel.setup
+      && channel.reason
+    ))?.reason
+    : null;
   const setup = coverage?.channels.find((channel) => channel.setup)?.setup;
   const operationForSetup = setupOperation?.setupRef === setup?.setup_ref
     ? setupOperation
@@ -229,7 +258,8 @@ export function PaletteSearchSection({
     : null;
   const resultCount = groups?.length ?? 0;
   const materialGap = coverage?.channels.find((channel) => (
-    channel.setup == null
+    channel.channel === 'search_preparation'
+    && channel.setup == null
     && (
       (channel.eligible_count != null
         && channel.prepared_count != null
@@ -341,7 +371,13 @@ export function PaletteSearchSection({
         </div>
       )}
       {searchError && <div className="picker-error">{searchError}</div>}
-      {!searchError && status && (
+      {!searchError && semanticUnavailable && (
+        <div className="search-empty" role="status" data-testid="search-semantic-unavailable">
+          <span>{semanticUnavailable}</span>
+          {coverage?.effective_modes.includes('lexical') && <span>Keyword search is available.</span>}
+        </div>
+      )}
+      {!searchError && status && !preparationReview && !semanticUnavailable && (
         <div className="search-empty" role="status">
           {status}
           {setup && !operationForSetup && (
@@ -357,6 +393,7 @@ export function PaletteSearchSection({
           )}
         </div>
       )}
+      {preparationReview}
       {consentSetup && (
         <section className="search-setup-consent" data-testid="search-setup-consent">
           <div>
@@ -390,10 +427,12 @@ export function PaletteSearchSection({
           </div>
         </section>
       )}
-      {currentSetupOperation && (
+      {currentSetupOperation && currentSetupOperation.pull.status !== 'done' && (
         <section className="search-setup-consent" data-testid="search-setup-progress">
           <div>
-            <strong>Setting up semantic search</strong>
+            <strong>{currentSetupOperation.pull.status === 'failed' || currentSetupOperation.pull.status === 'cancelled'
+              ? 'Semantic search setup needs attention'
+              : 'Setting up semantic search'}</strong>
             <span>You can close Search and return here to check progress.</span>
           </div>
           <ModelPullProgress
@@ -440,7 +479,7 @@ export function PaletteSearchSection({
         </section>
       )}
       {setupError && <div className="picker-error">{setupError}</div>}
-      {materialGap && (
+      {materialGap && !preparationReview && (
         <div className="search-preparation-gap" data-testid="search-preparation-gap">
           <span>
             {materialGap.channel === 'search_preparation' && materialGapCount != null

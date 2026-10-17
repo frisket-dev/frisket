@@ -128,7 +128,15 @@ def _contains_search_anchor(span_text: object, anchor: str) -> bool:
     return False
 
 
-def _evidence_navigation(project: Any, hit: LocatedHit) -> dict[str, Any] | None:
+def _display_filename(value: object) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return value.replace("\\", "/").rsplit("/", 1)[-1] or None
+
+
+def _evidence_navigation(
+    project: Any, hit: LocatedHit
+) -> tuple[dict[str, Any], str | None] | None:
     binding = hit.binding
     if binding.column_id is None:
         return None
@@ -136,7 +144,7 @@ def _evidence_navigation(project: Any, hit: LocatedHit) -> dict[str, Any] | None
     rows = project.db.execute(
         "SELECT cast(requested.key AS INTEGER) AS requested_rank,"
         "l.stable_id AS evidence_link_id,sp.stable_id AS span_id,"
-        "sp.page_start,sp.page_end,sp.start_ms,sp.end_ms,"
+        "sp.page_start,sp.page_end,sp.start_ms,sp.end_ms,a.filename,"
         "coalesce(sp.quote,sp.snippet) AS span_text "
         "FROM json_each(?) requested "
         "JOIN source_spans sp ON sp.stable_id=requested.value "
@@ -188,6 +196,10 @@ def _evidence_navigation(project: Any, hit: LocatedHit) -> dict[str, Any] | None
         for value in re.findall(r"<b>(.*?)</b>", hit.snippet or "", flags=re.DOTALL)
         if value.strip()
     }
+    # FTS can wrap a whole phrase in one marker while positioned PDF text
+    # has a span per word. Keep both forms so every matching box survives.
+    anchors.update(word for anchor in tuple(anchors) for word in anchor.split())
+    matching = []
     if anchors:
         scored = [
             (
@@ -201,19 +213,30 @@ def _evidence_navigation(project: Any, hit: LocatedHit) -> dict[str, Any] | None
         ]
         best = max((score for score, _row in scored), default=0)
         if best:
+            matching = [row for score, row in scored if score > 0]
             candidates = [row for score, row in scored if score == best]
 
     row = candidates[0]
-    return {
+    navigation = {
         "kind": "evidence",
         "evidence_link_id": str(row["evidence_link_id"]),
         "span_id": str(row["span_id"]),
     }
+    span_ids = list(
+        dict.fromkeys(
+            str(match["span_id"])
+            for match in matching
+            if match["evidence_link_id"] == row["evidence_link_id"]
+        )
+    )
+    if len(span_ids) > 1:
+        navigation["span_ids"] = span_ids
+    return navigation, _display_filename(row["filename"])
 
 
 def _navigation_payload(
     project: Any, hit: LocatedHit, *, column: dict[str, Any] | None
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], str | None]:
     evidence = _evidence_navigation(project, hit)
     if evidence is not None:
         return evidence
@@ -226,6 +249,15 @@ def _navigation_payload(
             column is not None and str(column.get("type", "")) in _DOCUMENT_COLUMN_TYPES
         )
     ):
+        values = project.get_values(
+            binding.sheet_id, binding.column_id, row_ids=[binding.row_id]
+        )
+        value = values.get(binding.row_id)
+        source_name = (
+            _display_filename(value.get("filename"))
+            if isinstance(value, dict)
+            else None
+        )
         return {
             "kind": "document",
             "sheet_id": binding.sheet_id,
@@ -235,14 +267,14 @@ def _navigation_payload(
             "time_seconds": (
                 locator.time.start_seconds if locator.time is not None else None
             ),
-        }
+        }, source_name
     return {
         "kind": "cell",
         "sheet_id": binding.sheet_id,
         "row_id": binding.row_id,
         "column_id": binding.column_id,
         "text_range": _location_payload(hit)["text"],
-    }
+    }, None
 
 
 def _search_hit_payload(
@@ -259,8 +291,10 @@ def _search_hit_payload(
         }
         for contribution in hit.contributions
     ]
+    navigation, source_name = _navigation_payload(project, hit, column=column)
     return {
         "column_name": str(column["name"]) if column is not None else None,
+        "source_name": source_name,
         "ai_generated": bool(column["ai_generated"]) if column is not None else False,
         "snippet": hit.snippet or "",
         "score": hit.rank_score,
@@ -272,7 +306,7 @@ def _search_hit_payload(
         },
         "binding": _binding_payload(hit.binding),
         "location": _location_payload(hit),
-        "navigation": _navigation_payload(project, hit, column=column),
+        "navigation": navigation,
         "contributions": contributions,
         "additional_binding_count": hit.additional_binding_count,
     }
@@ -293,6 +327,7 @@ def _coverage_payload(
                 item
                 for item in local_search_setup_requirements()
                 if item.setup_ref == SETUP_REF
+                and not (item.runtime_ready and item.weights_ready)
             ),
             None,
         )

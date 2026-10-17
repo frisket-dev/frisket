@@ -31,6 +31,8 @@ export interface EvidenceViewerProps {
   /** A no-match row scope falls back to all source artifacts. */
   scopeRowId?: string | null;
   scopeSpanId?: string;
+  /** Matching spans to highlight alongside the primary focused span. */
+  scopeSpanIds?: readonly string[];
   highlight?: boolean;
   defaultShowDetails?: boolean;
 }
@@ -55,6 +57,7 @@ export function EvidenceViewer({
   onOpenCompanion,
   scopeRowId = null,
   scopeSpanId,
+  scopeSpanIds,
   highlight = true,
   defaultShowDetails = false,
 }: EvidenceViewerProps) {
@@ -146,6 +149,7 @@ export function EvidenceViewer({
           payload={state.payload}
           scopeRowId={scopeRowId}
           scopeSpanId={scopeSpanId}
+          scopeSpanIds={scopeSpanIds}
           highlight={highlight}
           defaultShowDetails={defaultShowDetails}
           recovery={recovery}
@@ -207,9 +211,9 @@ function EvidenceViewerHeader({
     <header className="evidence-viewer-header">
       <div>
         <h2>{sourceProvenance ? 'Source provenance' : 'Evidence'}</h2>
-        {state.phase === 'done' && (
+        {state.phase === 'done' && state.payload.link.status !== 'active' && (
           <div className="evidence-viewer-subtitle">
-            {sourceProvenance ? 'derived conversion' : state.payload.link.role} · {state.payload.link.status}
+            {state.payload.link.status === 'stale' ? 'Source may have changed' : state.payload.link.status}
           </div>
         )}
       </div>
@@ -235,6 +239,7 @@ function EvidencePayloadView({
   payload,
   scopeRowId = null,
   scopeSpanId,
+  scopeSpanIds,
   highlight = true,
   defaultShowDetails = false,
   recovery,
@@ -244,6 +249,8 @@ function EvidencePayloadView({
   payload: EvidenceViewerPayload;
   scopeRowId?: string | null;
   scopeSpanId?: string;
+  /** Matching spans to highlight alongside the primary focused span. */
+  scopeSpanIds?: readonly string[];
   highlight?: boolean;
   defaultShowDetails?: boolean;
   recovery: RecoveryState;
@@ -251,19 +258,26 @@ function EvidencePayloadView({
   onOpenSiblingSheet(sheetId: number): void;
 }) {
   const focusedArtifacts = useMemo(() => {
-    if (!scopeSpanId) return payload.artifacts;
-    return payload.artifacts.filter((artifact) => artifact.spans.some((span) => span.stable_id === scopeSpanId)).map((artifact) => ({
-      ...artifact,
-      spans: highlight ? artifact.spans.filter((span) => span.stable_id === scopeSpanId) : [],
-      runs: highlight ? artifact.runs.filter((run) => run.span_ids.includes(scopeSpanId)) : [],
-      pages: artifact.pages.filter((page) => {
-        const span = artifact.spans.find((item) => item.stable_id === scopeSpanId);
-        const first = span ? selectorNumber(span, 'page_start') : null;
-        const last = span ? selectorNumber(span, 'page_end') ?? first : null;
-        return !highlight || first === null || (page.page >= first && page.page <= (last ?? first));
-      }).map((page) => ({ ...page, regions: highlight ? page.regions.filter((region) => region.stable_id === scopeSpanId) : [] })),
-    }));
-  }, [payload.artifacts, scopeSpanId, highlight]);
+    const selectedIds = new Set(scopeSpanIds);
+    if (scopeSpanId) selectedIds.add(scopeSpanId);
+    if (selectedIds.size === 0) return payload.artifacts;
+    return payload.artifacts.filter((artifact) => artifact.spans.some((span) => selectedIds.has(span.stable_id))).map((artifact) => {
+      const selectedSpans = artifact.spans.filter((span) => selectedIds.has(span.stable_id));
+      return {
+        ...artifact,
+        spans: highlight ? selectedSpans : [],
+        runs: highlight ? artifact.runs.filter((run) => run.span_ids.some((id) => selectedIds.has(id))) : [],
+        pages: artifact.pages.filter((page) => !highlight || selectedSpans.some((span) => {
+          const first = selectorNumber(span, 'page_start') ?? selectorNumber(span, 'page');
+          const last = selectorNumber(span, 'page_end') ?? first;
+          return first === null || (page.page >= first && page.page <= (last ?? first));
+        })).map((page) => ({
+          ...page,
+          regions: highlight ? page.regions.filter((region) => selectedIds.has(region.stable_id)) : [],
+        })),
+      };
+    });
+  }, [payload.artifacts, scopeSpanId, scopeSpanIds, highlight]);
   const orderedArtifacts = useMemo(() => {
     if (scopeRowId === null) return focusedArtifacts;
     const scoped = focusedArtifacts.filter(
@@ -303,6 +317,7 @@ function EvidencePayloadView({
                 key={`${artifact.stable_id}:${scopeSpanId ?? ''}:${highlight}`}
                 artifact={artifact}
                 scopeSpanId={scopeSpanId}
+                scopeSpanIds={scopeSpanIds}
                 highlight={highlight}
                 recovery={recovery}
                 onLocateCurrent={onLocateCurrent}
@@ -511,6 +526,7 @@ function LinkSummary({ payload }: { payload: EvidenceViewerPayload }) {
 export function ArtifactSource({
   artifact,
   scopeSpanId,
+  scopeSpanIds,
   highlight = true,
   emphasizedSpanIds = [],
   recovery = { phase: 'idle' },
@@ -518,6 +534,8 @@ export function ArtifactSource({
 }: {
   artifact: EvidenceArtifact;
   scopeSpanId?: string;
+  /** Matching spans to highlight alongside the primary focused span. */
+  scopeSpanIds?: readonly string[];
   highlight?: boolean;
   /** A host may distinguish its focused citation while retaining all support. */
   emphasizedSpanIds?: readonly string[];
@@ -584,7 +602,7 @@ export function ArtifactSource({
           <EvidencePageView key={page.page} page={page} artifactStableId={artifact.stable_id} emphasizedSpanIds={emphasizedSpanIds} />
         ))
       ) : isTextRenderableMediaType(artifact.media_type) && (evidenceTextContext(artifact) !== null || textCitedSpans(artifact).length > 0) ? (
-        <TextArtifactSource key={artifact.stable_id} artifact={artifact} scopeSpanId={scopeSpanId} highlight={highlight} emphasizedSpanIds={emphasizedSpanIds} />
+        <TextArtifactSource key={artifact.stable_id} artifact={artifact} scopeSpanId={scopeSpanId} scopeSpanIds={scopeSpanIds} highlight={highlight} emphasizedSpanIds={emphasizedSpanIds} />
       ) : artifact.media_type.startsWith('image/') && blob ? (
         <div className="evidence-page-image-frame">
           <img className="evidence-page-image" src={blob.url} alt={artifact.title || artifact.filename || 'Source image'} />
@@ -593,7 +611,7 @@ export function ArtifactSource({
             emphasized={emphasizedSpanIds.includes(span.stable_id)} />)}
         </div>
       ) : (
-        <MediaOrFallback key={artifact.stable_id} artifact={artifact} emphasizedSpanIds={emphasizedSpanIds} />
+        <MediaOrFallback key={`${artifact.stable_id}:${scopeSpanId ?? ''}`} artifact={artifact} scopeSpanId={scopeSpanId} emphasizedSpanIds={emphasizedSpanIds} />
       )}
     </section>
   );
@@ -863,12 +881,18 @@ function buildTemporalDisplayRuns(
   return runs;
 }
 
-function MediaOrFallback({ artifact, emphasizedSpanIds }: { artifact: EvidenceArtifact; emphasizedSpanIds: readonly string[] }) {
+function MediaOrFallback({ artifact, scopeSpanId, emphasizedSpanIds }: {
+  artifact: EvidenceArtifact;
+  scopeSpanId?: string;
+  emphasizedSpanIds: readonly string[];
+}) {
   const blob = artifact.artifact_ref.blob;
   const captionsUrl = mediaCaptionsDataUrl(artifact);
   const label = artifact.title || artifact.filename || artifact.media_type;
   const mediaRef = useRef<HTMLMediaElement | null>(null);
   const temporalSpans = temporalSpansSorted(artifact);
+  const initialSpan = temporalSpans.find((span) => span.stable_id === scopeSpanId) ?? temporalSpans[0];
+  const initialMs = selectorNumber(initialSpan, 'start_ms') ?? 0;
 
   // Persistently highlight required support spans.
 
@@ -879,7 +903,9 @@ function MediaOrFallback({ artifact, emphasizedSpanIds }: { artifact: EvidenceAr
       ),
     [temporalSpans],
   );
-  const firstCitedId = temporalSpans.find((span) => citedSpanIds.has(span.stable_id))?.stable_id ?? null;
+  const scrollSpanId = temporalSpans.find((span) => span.stable_id === scopeSpanId)?.stable_id
+    ?? temporalSpans.find((span) => citedSpanIds.has(span.stable_id))?.stable_id
+    ?? null;
 
   const displayRuns = useMemo(
     () => buildTemporalDisplayRuns(temporalSpans, artifact.runs),
@@ -887,16 +913,16 @@ function MediaOrFallback({ artifact, emphasizedSpanIds }: { artifact: EvidenceAr
   );
   const citedRef = useRef<HTMLButtonElement | null>(null);
   useEffect(() => {
-    if (firstCitedId) citedRef.current?.scrollIntoView({ block: 'nearest' });
-  }, [firstCitedId]);
+    if (scrollSpanId) citedRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [scrollSpanId]);
 
   const [seekRequest, setSeekRequest] = useState<{ seconds: number } | null>(() =>
-    temporalSpans.length === 0 ? null : { seconds: (selectorNumber(temporalSpans[0], 'start_ms') ?? 0) / 1000 },
+    initialSpan ? { seconds: initialMs / 1000 } : null,
   );
   const seekSeconds = seekRequest?.seconds ?? null;
-  const [playbackMs, setPlaybackMs] = useState(0);
+  const [playbackMs, setPlaybackMs] = useState(initialMs);
   const [activeSpanId, setActiveSpanId] = useState<string | null>(() =>
-    temporalSpans.length === 0 ? null : temporalSpans[0].stable_id,
+    initialSpan?.stable_id ?? null,
   );
 
   useEffect(() => {
@@ -1050,7 +1076,7 @@ function MediaOrFallback({ artifact, emphasizedSpanIds }: { artifact: EvidenceAr
                   <span key={span.stable_id} className="evidence-transcript-line" data-testid="evidence-transcript-line">
                     <button
                       type="button"
-                      ref={span.stable_id === firstCitedId ? citedRef : undefined}
+                      ref={span.stable_id === scrollSpanId ? citedRef : undefined}
                       className={`evidence-temporal-segment${isActive ? ' evidence-temporal-segment-active' : ''}${isCited ? ' evidence-temporal-segment-cited' : ''}${emphasizedSpanIds.includes(span.stable_id) ? ' evidence-temporal-segment-emphasized' : ''}`}
                       data-testid="evidence-temporal-segment"
                       data-active={isActive ? 'true' : undefined}
@@ -1261,17 +1287,20 @@ function TextBlobSource({
 export function TextArtifactSource({
   artifact,
   scopeSpanId,
+  scopeSpanIds,
   highlight = true,
   emphasizedSpanIds = [],
 }: {
   artifact: EvidenceArtifact;
   scopeSpanId?: string;
+  /** Matching spans to highlight alongside the primary focused span. */
+  scopeSpanIds?: readonly string[];
   highlight?: boolean;
   emphasizedSpanIds?: readonly string[];
 }) {
   const context = evidenceTextContext(artifact);
   if (context !== null) {
-    return <SavedTextContext context={context} scopeSpanId={scopeSpanId} highlight={highlight} emphasizedSpanIds={emphasizedSpanIds} />;
+    return <SavedTextContext context={context} scopeSpanId={scopeSpanId} scopeSpanIds={scopeSpanIds} highlight={highlight} emphasizedSpanIds={emphasizedSpanIds} />;
   }
   return <LegacyTextArtifactSource artifact={artifact} />;
 }

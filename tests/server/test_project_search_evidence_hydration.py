@@ -81,8 +81,17 @@ def _seed_ocr(project: Project) -> None:
         span_kind="region",
         page_start=1,
         page_end=1,
-        quote="China trade policy",
+        quote="China",
         bbox=[{"x0": 0.1, "y0": 0.2, "x1": 0.8, "y1": 0.3}],
+    )
+    trade_region = record_source_span(
+        project,
+        artifact_id=int(artifact["id"]),
+        span_kind="region",
+        page_start=1,
+        page_end=1,
+        quote="trade policy",
+        bbox=[{"x0": 0.1, "y0": 0.3, "x1": 0.8, "y1": 0.4}],
     )
     _values, refs = project.get_values_with_refs(
         sheet_id, text_column_id, row_ids=[row_id]
@@ -91,7 +100,7 @@ def _seed_ocr(project: Project) -> None:
         project,
         subject_kind="cell",
         subject_ref=refs[row_id],
-        spans=[{"span_id": int(region["id"])}],
+        spans=[{"span_id": int(region["id"])}, {"span_id": int(trade_region["id"])}],
         sheet_id=sheet_id,
         row_id=row_id,
         column_id=text_column_id,
@@ -148,5 +157,31 @@ def test_search_route_hydrates_transcript_and_ocr_from_its_pinned_snapshot(
         assert transcript_hits[0]["navigation"]["span_id"] == second_span["stable_id"]
         assert len(ocr_hits) == 1
         assert "china" in ocr_hits[0]["snippet"].lower()
+    finally:
+        project.close()
+
+
+def test_search_identifies_document_and_all_matching_phrase_spans(tmp_path) -> None:
+    project = Project.create(tmp_path / "phrase.frisket")
+    try:
+        _seed_ocr(project)
+        drain_index(project)
+        payload = _search(_client(project), "China trade")
+        hits = [
+            group["primary"]
+            for group in payload["groups"]
+            if group["primary"]["source"]["source_kind"] == "ocr_text"
+        ]
+        assert len(hits) == 1
+        hit = hits[0]
+        assert hit["source_name"] == "scan.png"
+        expected = {
+            row["stable_id"]
+            for row in project.db.execute(
+                "SELECT stable_id FROM source_spans WHERE quote IN ('China','trade policy')"
+            )
+        }
+        assert set(hit["navigation"]["span_ids"]) == expected
+        assert hit["navigation"]["span_id"] in expected
     finally:
         project.close()

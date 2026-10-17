@@ -212,6 +212,7 @@ class ProjectSearchEvidenceNavigation(WireModel):
     kind: Literal["evidence"]
     evidence_link_id: str
     span_id: str
+    span_ids: list[str] = Field(default_factory=list)
 
 
 class ProjectSearchDocumentNavigation(WireModel):
@@ -243,6 +244,7 @@ class ProjectSearchHit(WireModel):
     """One ranked, authorization-checked and source-located result."""
 
     column_name: str | None
+    source_name: str | None = None
     ai_generated: bool
     snippet: str
     score: float

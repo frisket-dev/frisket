@@ -248,6 +248,21 @@ def _binding_revision(
     return BindingRevision(row_id, column_id, int(row["retrieval_revision"]))
 
 
+def _cell_uses_prepared_text(project: Any, *, row_id: int, column_id: int) -> bool:
+    """Return whether the logical cell already owns a prepared text surface.
+
+    OCR evidence attached to such a cell supplies grounding for that prepared
+    surface. It is not a second independently searchable copy of the text.
+    """
+
+    row = project.db.execute(
+        "SELECT prepared_ref_id FROM current_cell_values "
+        "WHERE row_id=? AND column_id=?",
+        (row_id, column_id),
+    ).fetchone()
+    return row is not None and row["prepared_ref_id"] is not None
+
+
 def resolve_cell_transcript_source(
     project: Any, *, sheet_id: int, row_id: int, column_id: int
 ) -> ResolvedCellTranscriptSource | None:
@@ -293,6 +308,9 @@ def resolve_cell_ocr_text_source(
     project: Any, *, sheet_id: int, row_id: int, column_id: int
 ) -> ResolvedCellOcrTextSource | None:
     """Resolve one unambiguous exact current OCR text producer surface."""
+
+    if _cell_uses_prepared_text(project, row_id=row_id, column_id=column_id):
+        return None
 
     from frisket.engine.store.ocr_word_stream import resolve_current_ocr_evidence
     from frisket.retrieval.sources import identity_digest, ocr_source_revision
@@ -352,24 +370,34 @@ def _plain_surface(
     )
 
 
-def _prepared_surface(prepared: Any) -> PreparedDocumentSurface:
+def _prepared_surface(
+    prepared: Any,
+    *,
+    source_span_ids: tuple[str, ...] = (),
+    grounding_snapshot_hash: str | None = None,
+) -> PreparedDocumentSurface:
     source_id = f"prepared-ref:{prepared.ref_id}"
     pins = [
         (pin.page_number, pin.version_id, pin.content_hash) for pin in prepared.pins
     ]
-    pin_payload = json.dumps(
-        pins,
+    version_payload = json.dumps(
+        {
+            "pins": pins,
+            "grounding_snapshot_hash": grounding_snapshot_hash,
+            "source_span_ids": source_span_ids,
+        },
         ensure_ascii=False,
         allow_nan=False,
+        sort_keys=True,
         separators=(",", ":"),
     ).encode("utf-8")
-    pin_hash = _sha256_bytes(pin_payload)
+    version_hash = _sha256_bytes(version_payload)
     content_hash = _sha256_text(prepared.text)
     source = SourceRevision(
         source_id=source_id,
         source_kind="prepared_text",
-        version_kind="prepared_page_versions",
-        version_value=pin_hash,
+        version_kind="prepared_surface",
+        version_value=version_hash,
         content_hash=content_hash,
     )
     text = TextSurface(
@@ -377,6 +405,7 @@ def _prepared_surface(prepared: Any) -> PreparedDocumentSurface:
         text_surface_id=source_id,
         content_hash=content_hash,
         text=prepared.text,
+        source_span_ids=source_span_ids,
     )
     return PreparedDocumentSurface(
         text=text,
@@ -390,6 +419,38 @@ def _prepared_surface(prepared: Any) -> PreparedDocumentSurface:
             )
             for pin in prepared.pins
         ),
+    )
+
+
+def _prepared_ocr_grounding(
+    project: Any,
+    *,
+    sheet_id: int,
+    row_id: int,
+    column_id: int,
+    text: str,
+    source_artifact_id: int | None,
+) -> tuple[tuple[str, ...], str | None]:
+    """Return grounding owned by one exact current OCR text derivative."""
+
+    from frisket.engine.store.ocr_word_stream import resolve_current_ocr_evidence
+
+    candidates = resolve_current_ocr_evidence(
+        project,
+        sheet_id=sheet_id,
+        row_id=row_id,
+        column_id=column_id,
+    )
+    if (
+        len(candidates) != 1
+        or candidates[0].text_value != text
+        or candidates[0].artifact_id != source_artifact_id
+    ):
+        return (), None
+    selected = candidates[0]
+    return (
+        tuple(str(span["stable_id"]) for span in selected.spans),
+        selected.snapshot_hash,
     )
 
 
@@ -424,7 +485,15 @@ def resolve_cell_text_sources(
 
     placeholders = ",".join("?" for _ in selected_rows)
     rows = project.db.execute(
-        "SELECT current.row_id,current.retrieval_revision,logical.prepared_ref_id "
+        "SELECT current.row_id,current.retrieval_revision,logical.prepared_ref_id,"
+        "EXISTS(SELECT 1 FROM run_output_generations generation "
+        "JOIN runs run ON run.id=generation.run_id "
+        "WHERE generation.run_id=logical.origin_run_id "
+        "AND generation.column_id=logical.column_id "
+        "AND run.action_kind='media.ocr' "
+        "AND generation.output_role="
+        "json_extract(run.params,'$.output_names.blocks')) "
+        "AS noncontent_metadata "
         "FROM current_cells current "
         "JOIN current_cell_values logical ON logical.column_id=current.column_id "
         "AND logical.row_id=current.row_id "
@@ -432,7 +501,11 @@ def resolve_cell_text_sources(
         (selected_column, *selected_rows),
     ).fetchall()
     metadata = {
-        int(row["row_id"]): (int(row["retrieval_revision"]), row["prepared_ref_id"])
+        int(row["row_id"]): (
+            int(row["retrieval_revision"]),
+            row["prepared_ref_id"],
+            bool(row["noncontent_metadata"]),
+        )
         for row in rows
     }
     if not metadata:
@@ -445,7 +518,7 @@ def resolve_cell_text_sources(
     )
     prepared_ids = {
         int(ref_id)
-        for _revision, ref_id in metadata.values()
+        for _revision, ref_id, _noncontent in metadata.values()
         if isinstance(ref_id, int) and not isinstance(ref_id, bool)
     }
     prepared_by_id = PreparedContentStore(project).resolve_many(sorted(prepared_ids))
@@ -454,10 +527,12 @@ def resolve_cell_text_sources(
     for row_id in selected_rows:
         if row_id not in metadata:
             continue
+        retrieval_revision, metadata_ref_id, noncontent_metadata = metadata[row_id]
+        if noncontent_metadata:
+            continue
         text = searchable_text(values.get(row_id))
         if text is None:
             continue
-        retrieval_revision, metadata_ref_id = metadata[row_id]
         ref_id = metadata_ref_id
         if ref_id is None:
             surface: TextProducerSurface = _plain_surface(
@@ -474,7 +549,19 @@ def resolve_cell_text_sources(
                 raise ValueError(
                     "prepared selector does not match the logical cell text"
                 )
-            surface = _prepared_surface(prepared)
+            source_span_ids, grounding_snapshot_hash = _prepared_ocr_grounding(
+                project,
+                sheet_id=selected_sheet,
+                row_id=row_id,
+                column_id=selected_column,
+                text=text,
+                source_artifact_id=prepared.source_artifact_id,
+            )
+            surface = _prepared_surface(
+                prepared,
+                source_span_ids=source_span_ids,
+                grounding_snapshot_hash=grounding_snapshot_hash,
+            )
         resolved[row_id] = ResolvedCellTextSource(
             sheet_id=selected_sheet,
             binding=BindingRevision(
@@ -615,7 +702,13 @@ def _resolve_ocr_lexical_text(
     locator: SourceLocator,
     binding: ScopedBinding,
 ) -> str | None:
-    if binding.column_id is None or not locator.source_span_ids:
+    if (
+        binding.column_id is None
+        or not locator.source_span_ids
+        or _cell_uses_prepared_text(
+            project, row_id=binding.row_id, column_id=binding.column_id
+        )
+    ):
         return None
     from frisket.engine.store.ocr_word_stream import resolve_current_ocr_evidence
     from frisket.retrieval.sources import ocr_source_revision

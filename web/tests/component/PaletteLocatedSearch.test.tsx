@@ -297,13 +297,13 @@ describe('located palette search', () => {
     expect(screen.getByTestId('search-anchor')).toHaveTextContent('budget approved');
   });
 
-  it('discloses the semantic model download before starting setup', async () => {
+  it.each(['unavailable', 'partial'] as const)('discloses semantic setup without claiming work started (%s)', async (state) => {
     searchProject.mockResolvedValue({
       groups: [],
       coverage: {
         requested_mode: 'hybrid',
         effective_modes: ['lexical'],
-        state: 'unavailable',
+        state,
         searched_channels: ['text'],
         channels: [{
           channel: 'semantic',
@@ -336,6 +336,7 @@ describe('located palette search', () => {
 
     fireEvent.click(await screen.findByTestId('search-setup'));
     expect(startEngineSetup).not.toHaveBeenCalled();
+    expect(screen.queryByText(/while more material is prepared/i)).not.toBeInTheDocument();
     const consent = screen.getByTestId('search-setup-consent');
     expect(consent).toHaveTextContent('Download EmbeddingGemma 2?');
     expect(consent).toHaveTextContent('About 1.4 GB');
@@ -347,10 +348,9 @@ describe('located palette search', () => {
     expect(await screen.findByTestId('search-setup-progress')).toBeVisible();
     expect(screen.getByTestId('model-pull-progress')).toHaveAttribute('data-status', 'running');
     expect(searchProject).toHaveBeenCalledTimes(1);
-    await waitFor(() => expect(screen.getByTestId('model-pull-done')).toBeVisible(), {
-      timeout: 2_500,
-    });
-    await waitFor(() => expect(searchProject).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(searchProject).toHaveBeenCalledTimes(2), { timeout: 2_500 });
+    expect(screen.queryByTestId('search-setup-progress')).not.toBeInTheDocument();
+    expect(screen.queryByText('Setting up semantic search')).not.toBeInTheDocument();
   });
 
   it('restores a matching durable semantic setup pull when Search reopens', async () => {
@@ -531,6 +531,68 @@ describe('located palette search', () => {
     expect(screen.queryByText(/while more material is prepared/i)).not.toBeInTheDocument();
   });
 
+  it.each(['hybrid', 'semantic', 'lexical'] as const)(
+    'explains unavailable semantic runtime in %s mode alongside media preparation',
+    async (requestedMode) => {
+      const reason = 'Semantic search is unavailable in this SQLite runtime. Install a supported Frisket runtime to enable it.';
+      searchProject.mockResolvedValue({
+        ...completeResponse,
+        coverage: {
+          ...completeResponse.coverage, requested_mode: requestedMode,
+          effective_modes: ['lexical'], state: 'partial',
+          channels: [{ channel: 'semantic', state: 'unavailable', reason, setup: null }, {
+            channel: 'search_preparation', state: 'unavailable', eligible_count: 1,
+            prepared_count: 0, gap_sheet_ids: [1],
+          }],
+        },
+      });
+      if (requestedMode === 'semantic') {
+        const batch = {
+          schemaVersion: 'frisket.search_preparation.v1', id: 'prep-runtime', sheet_id: 1,
+          plan_hash: 'sha256:runtime', status: 'needs_consent',
+          groups: [{ kind: 'ocr', count: 1, status: 'needs_consent' }],
+          models: [], jobs: [], can_stop: false, can_setup: true, errors: [],
+        };
+        listSearchPreparations.mockResolvedValue({ batches: [batch] });
+        getSearchPreparation.mockResolvedValue(batch);
+      }
+      render(<PaletteHarness />);
+      expect(await screen.findByTestId('search-results')).toBeVisible();
+      if (requestedMode === 'lexical') {
+        expect(screen.queryByTestId('search-semantic-unavailable')).not.toBeInTheDocument();
+        expect(screen.getByRole('status')).toHaveTextContent('Showing available search results.');
+      } else {
+        const notice = screen.getByTestId('search-semantic-unavailable');
+        expect(notice).toHaveTextContent(reason);
+        expect(notice).toHaveTextContent('Keyword search is available.');
+        expect(screen.queryByTestId('search-setup')).not.toBeInTheDocument();
+      }
+      if (requestedMode === 'semantic') {
+        expect(screen.getByTestId('search-preparation-receipt')).toBeVisible();
+      } else {
+        expect(screen.getByTestId('search-preparation-gap')).toHaveTextContent('1 current media item needs search preparation.');
+        expect(screen.getByTestId('search-preparation-gap-action')).toHaveTextContent('Prepare Documents');
+      }
+    },
+  );
+
+  it('does not turn a semantic runtime problem into a file preparation gap', async () => {
+    searchProject.mockResolvedValue({
+      ...completeResponse,
+      coverage: {
+        ...completeResponse.coverage, requested_mode: 'hybrid', effective_modes: ['lexical'],
+        state: 'partial', channels: [{
+          channel: 'semantic', state: 'unavailable', setup: null,
+          reason: 'Install a supported Frisket runtime to enable semantic search.',
+        }],
+      },
+    });
+    render(<PaletteHarness />);
+
+    expect(await screen.findByTestId('search-semantic-unavailable')).toHaveTextContent('Keyword search is available.');
+    expect(screen.queryByTestId('search-preparation-gap')).not.toBeInTheDocument();
+  });
+
   it('prepares the sheet named by project coverage instead of the unrelated active sheet', async () => {
     searchProject.mockResolvedValue({
       groups: [],
@@ -596,6 +658,54 @@ describe('located palette search', () => {
       'project-1',
       'prep-awaiting-approval',
     );
+  });
+
+  it('labels source results with their file and exact page', async () => {
+    const documentHit = {
+      ...hit('document:2', '<b>budget</b> on second page'),
+      source_name: 'Council budget.pdf',
+      location: { ...location, kind: 'document_page', pages: { start: 2, end: 2 } },
+    };
+    searchProject.mockResolvedValue({
+      ...completeResponse,
+      groups: [{ group_key: 'document', primary: documentHit, supporting: [], additional_count: 0 }],
+    });
+    render(<PaletteHarness />);
+
+    const row = await screen.findByTestId('search-hit');
+    expect(row).toHaveTextContent('Council budget.pdf');
+    expect(row).toHaveTextContent('Page 2');
+    expect(row).toHaveTextContent('budget on second page');
+  });
+
+  it('puts preparation review before results and refreshes coverage when it completes', async () => {
+    const pending = {
+      schemaVersion: 'frisket.search_preparation.v1', id: 'prep-review', sheet_id: 1,
+      plan_hash: 'sha256:review', status: 'running',
+      groups: [{ kind: 'ocr', count: 1, status: 'running' }],
+      models: [], jobs: [], can_stop: false, can_setup: true, errors: [],
+    };
+    const finished = { ...pending, status: 'complete', groups: [{ kind: 'ocr', count: 1, status: 'complete' }] };
+    listSearchPreparations.mockResolvedValue({ batches: [{ ...pending, status: 'needs_consent' }] });
+    getSearchPreparation.mockResolvedValueOnce(pending).mockResolvedValue(finished);
+    searchProject.mockResolvedValueOnce({
+      ...completeResponse,
+      coverage: {
+        ...completeResponse.coverage, state: 'partial',
+        channels: [{ channel: 'search_preparation', state: 'unavailable', eligible_count: 1, prepared_count: 0, gap_sheet_ids: [1] }],
+      },
+    }).mockResolvedValue(completeResponse);
+    render(<PaletteHarness />);
+
+    const review = await screen.findByTestId('search-preparation-receipt');
+    const results = await screen.findByTestId('search-results');
+    expect(review.compareDocumentPosition(results) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByTestId('search-preparation-gap')).not.toBeInTheDocument();
+    await waitFor(() => expect(searchProject).toHaveBeenCalledTimes(2), { timeout: 2_500 });
+    expect(screen.queryByText('Showing available search results.')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('search-preparation-done'));
+    expect(screen.queryByTestId('search-preparation-receipt')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('search-preparation-gap')).not.toBeInTheDocument();
   });
 
   it('selects a named index for free-text search and saves its semantic view', async () => {

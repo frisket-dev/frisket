@@ -40,7 +40,8 @@ def _db() -> sqlite3.Connection:
             stable_id TEXT,
             source_sheet_id INTEGER,
             source_row_id INTEGER,
-            source_column_id INTEGER
+            source_column_id INTEGER,
+            filename TEXT
         );
         CREATE TABLE source_spans(
             id INTEGER PRIMARY KEY,
@@ -74,6 +75,9 @@ def _db() -> sqlite3.Connection:
 @dataclass
 class _Project:
     db: sqlite3.Connection
+
+    def get_values(self, sheet_id, column_id, *, row_ids):
+        return {row_id: {"filename": "clip.mp4"} for row_id in row_ids}
 
     def sheets(self) -> list[dict[str, object]]:
         return [{"id": 1}]
@@ -176,7 +180,7 @@ def test_grouped_response_preserves_supporting_hits_and_real_navigation(
     db = _db()
     db.executescript(
         """
-        INSERT INTO source_artifacts VALUES (1, 'artifact-1', 1, 2, 3);
+        INSERT INTO source_artifacts VALUES (1, 'artifact-1', 1, 2, 3, 'harbor.pdf');
         INSERT INTO source_spans(id,stable_id,artifact_id)
         VALUES (1, 'span-1', 1);
         INSERT INTO evidence_links VALUES (1, 'link-1', 1, 2, 3, 'active');
@@ -259,7 +263,7 @@ def test_evidence_navigation_selects_span_for_located_page(monkeypatch) -> None:
     db = _db()
     db.executescript(
         """
-        INSERT INTO source_artifacts VALUES (1, 'artifact-1', 1, 2, 3);
+        INSERT INTO source_artifacts VALUES (1, 'artifact-1', 1, 2, 3, 'harbor.pdf');
         INSERT INTO source_spans(
             id,stable_id,artifact_id,page_start,page_end,quote
         ) VALUES
@@ -438,6 +442,36 @@ def test_semantic_setup_offer_respects_edition_and_capability(
             "source_url": "https://example.test/embeddinggemma",
         }
         assert requirement_calls == 1
+
+
+def test_installed_model_is_not_offered_again_for_unavailable_search_runtime(
+    monkeypatch,
+) -> None:
+    requirement = _semantic_setup_requirement()
+    requirement.runtime_ready = True
+    requirement.weights_ready = True
+    requirement.download_bytes_if_missing = 0
+    monkeypatch.setattr(
+        project_search, "local_search_setup_requirements", lambda: (requirement,)
+    )
+    coverage = SearchCoverage(
+        requested_mode="semantic",
+        effective_modes=("lexical",),
+        state="partial",
+        searched_channels=("lexical",),
+        is_top_k=True,
+        truncated=False,
+        channels=(
+            ChannelCoverage(
+                channel="semantic",
+                state="unavailable",
+                reason="Semantic search is unavailable in this SQLite runtime.",
+            ),
+        ),
+    )
+    result = project_search._coverage_payload(coverage, setup_scope="workspace")
+    assert result["channels"][0]["setup"] is None
+    assert result["channels"][0]["reason"] == coverage.channels[0].reason
 
 
 def test_navigation_normalizes_sqlite_column_rows(monkeypatch) -> None:

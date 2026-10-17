@@ -3769,6 +3769,7 @@ function WorkspacePrimarySurface() {
               key={`${String(evidenceViewerState.linkId)}:${evidenceViewerState.scopeSpanId ?? ''}`}
               evidenceLinkId={evidenceViewerState.linkId}
               scopeSpanId={evidenceViewerState.scopeSpanId}
+              scopeSpanIds={evidenceViewerState.scopeSpanIds}
               highlight={evidenceViewerState.highlight}
               mode="pane"
               onClose={closeEvidenceViewer}
@@ -5027,12 +5028,14 @@ const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
               key={`${String(evidenceViewerState.linkId)}:${evidenceViewerState.scopeSpanId ?? ''}`}
               evidenceLinkId={evidenceViewerState.linkId}
               scopeSpanId={evidenceViewerState.scopeSpanId}
+              scopeSpanIds={evidenceViewerState.scopeSpanIds}
               highlight={evidenceViewerState.highlight}
               onClose={closeEvidenceViewer}
               onOpenCompanion={() => {
                 closeRowDrawer();
                 openEvidenceViewer(evidenceViewerState.linkId, 'mainView', {
                   scopeSpanId: evidenceViewerState.scopeSpanId,
+                  scopeSpanIds: evidenceViewerState.scopeSpanIds,
                   highlight: evidenceViewerState.highlight,
                 });
               }}

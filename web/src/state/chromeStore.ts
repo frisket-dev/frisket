@@ -20,6 +20,7 @@ export type EvidenceViewerHost = 'modalOrPeek' | 'mainView';
 
 export interface EvidenceViewerFocus {
   scopeSpanId?: string;
+  scopeSpanIds?: readonly string[];
   highlight?: boolean;
 }
 
