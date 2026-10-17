@@ -70,8 +70,8 @@ def _seed_pdf_project(tmp_path: Path) -> dict[str, Any]:
 
 
 def _fake_hyphenated_engine():
-    async def fake_page_images(self, path, media, spec, scratch):
-        del self, media, spec
+    async def fake_page_images(self, path, media, spec, scratch, *, engine=None):
+        del self, media, spec, engine
         page1 = scratch / "page-1.png"
         Image.new("RGB", (1000, 1000), "white").save(page1)
         del path
@@ -107,8 +107,8 @@ def _fake_multi_page_engine(pages: list[list[dict[str, Any]]]):
     Used to seed repeated phrases (same page / different pages) for the scope
     tests."""
 
-    async def fake_page_images(self, path, media, spec, scratch):
-        del self, media, spec, path
+    async def fake_page_images(self, path, media, spec, scratch, *, engine=None):
+        del self, media, spec, path, engine
         out = []
         for i in range(len(pages)):
             page = scratch / f"page-{i + 1}.png"

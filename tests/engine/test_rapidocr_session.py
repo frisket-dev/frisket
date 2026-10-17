@@ -329,8 +329,10 @@ def test_valid_row_error_keeps_session_usable(
                 request_id="r1",
                 ok=False,
                 error={
-                    "code": "image_ocr_failed",
-                    "message": "images could not be read or recognized",
+                    "code": "image_recognition_failed",
+                    "message": (
+                        "RapidOCR could not process OCR input page 1 during recognition"
+                    ),
                 },
             )
         handle.write_result(frame, text="recovered")
@@ -341,7 +343,10 @@ def test_valid_row_error_keeps_session_usable(
 
     async def run() -> None:
         session = _session()
-        with pytest.raises(session_mod.RapidOCRRowError):
+        with pytest.raises(
+            session_mod.RapidOCRRowError,
+            match="RapidOCR could not process OCR input page 1 during recognition",
+        ):
             await session.ocr([image])
         assert (await session.ocr([image]))[0]["text"] == "recovered"
         await session.close()

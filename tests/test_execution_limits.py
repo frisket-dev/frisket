@@ -353,7 +353,10 @@ def test_content_sniffed_pdf_limit_precedes_rasterization_despite_spoofed_label(
         _media: Any,
         _spec: dict[str, Any],
         _scratch: Path,
+        *,
+        engine: str | None = None,
     ) -> list[dict[str, Any]]:
+        del engine
         raster_calls.append(str(path))
         return []
 

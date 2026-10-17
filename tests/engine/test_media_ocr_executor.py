@@ -44,7 +44,10 @@ def _patch_ocr_engine(monkeypatch: pytest.MonkeyPatch) -> None:
         media: Any,
         spec: dict[str, Any],
         scratch: Path,
+        *,
+        engine: str | None = None,
     ) -> list[Path]:
+        del engine
         del self, media, scratch
         _OCR_CALLS.append("pages")
         assert spec.get("dpi") == 180

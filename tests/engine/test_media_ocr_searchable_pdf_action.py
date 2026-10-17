@@ -48,8 +48,8 @@ def _stub_page(text: str) -> dict[str, Any]:
 
 
 def _patch_engine(monkeypatch: pytest.MonkeyPatch, pages: list[dict[str, Any]]) -> None:
-    async def fake_page_images(self, path, media, spec, scratch):  # noqa: ANN001
-        del self, path, media
+    async def fake_page_images(self, path, media, spec, scratch, *, engine=None):  # noqa: ANN001
+        del self, path, media, engine
         # Match the renderer's PNG contract even though OCR itself is stubbed.
         size = (round(612 * spec["dpi"] / 72), round(792 * spec["dpi"] / 72))
         rendered = []

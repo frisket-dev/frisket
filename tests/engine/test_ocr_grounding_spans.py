@@ -204,8 +204,8 @@ def _seed_image_project(tmp_path: Path) -> dict[str, Any]:
 
 
 def _fake_image_engine():
-    async def fake_page_images(self, path, media, spec, scratch):
-        del self, media, spec, scratch
+    async def fake_page_images(self, path, media, spec, scratch, *, engine=None):
+        del self, media, spec, scratch, engine
         return [path]
 
     async def fake_rapidocr(self, page_paths, scratch, language):
@@ -432,8 +432,8 @@ def _seed_pdf_project(tmp_path: Path, *, generic_mime: bool = False) -> dict[str
 
 
 def _fake_pdf_engine():
-    async def fake_page_images(self, path, media, spec, scratch):
-        del self, media, spec
+    async def fake_page_images(self, path, media, spec, scratch, *, engine=None):
+        del self, media, spec, engine
         # Two synthetic page files (never actually OCR'd; the recipe engine is
         # faked too).
         page1 = scratch / "page-1.png"

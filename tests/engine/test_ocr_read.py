@@ -305,7 +305,8 @@ async def test_pdf_retains_geometry_without_display_blob_and_stages_searchable_p
 
     monkeypatch.setattr(type(project.blob_store), "put_path", forbid_display_blob)
 
-    async def pages(self, path, media, options, scratch):
+    async def pages(self, path, media, options, scratch, *, engine=None):
+        del engine
         renders.append(path)
         output = scratch / "page-1.png"
         output.write_bytes(_png(2200, 1100))
@@ -353,7 +354,8 @@ async def test_pdf_page_source_ocr_remaps_facts_to_original_page(
     project.db.commit()
     source = (project, sheet, column, row_id, value)
 
-    async def pages(self, path, media, options, scratch):
+    async def pages(self, path, media, options, scratch, *, engine=None):
+        del engine
         selected = pypdf.PdfReader(path)
         assert len(selected.pages) == 1
         assert float(selected.pages[0].mediabox.width) == 333
@@ -405,7 +407,8 @@ async def test_pdf_ocr_preserves_blank_page_separators(source, monkeypatch):
     project.db.commit()
     source = (project, sheet, column, row_id, value)
 
-    async def page_images(self, path, media, options, scratch):
+    async def page_images(self, path, media, options, scratch, *, engine=None):
+        del engine
         outputs = []
         for page in range(1, 4):
             output = scratch / f"page-{page}.png"

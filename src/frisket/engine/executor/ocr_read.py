@@ -318,7 +318,7 @@ class _BoundOcrReader:
                             1 if selected_page is not None else page_count,
                         )
                 page_paths = await owner._engines._page_images(
-                    path, source, options, scratch
+                    path, source, options, scratch, engine=engine
                 )
                 if type(page_count) is not int or page_count <= 0:
                     page_count = len(page_paths)

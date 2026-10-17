@@ -41,6 +41,7 @@ RUN_SCOPED_ENGINES = frozenset(
     entry.id for entry in OCR_ENGINE_TABLE if entry.run_scoped
 )
 DEFAULT_DPI = 200
+RAPIDOCR_MAX_IMAGE_EDGE = 2000
 image_dimensions = _image_dimensions
 
 OcrCancelled = local.OcrCancelled
@@ -217,7 +218,13 @@ class OcrEngines:
         )
 
     async def _page_images(
-        self, path: Path, media: Any, spec: dict, scratch: Path
+        self,
+        path: Path,
+        media: Any,
+        spec: dict,
+        scratch: Path,
+        *,
+        engine: str | None = None,
     ) -> list[Path]:
         """An image is one page; a PDF rasterizes to one PNG per page."""
         if not path.exists():
@@ -245,6 +252,16 @@ class OcrEngines:
                     pages=selected_pages,
                     timeout_seconds=600,
                     should_cancel=self.cancelled,
+                    # RapidOCR 3.8 downsizes to this edge before detection.
+                    # Rendering larger only increases decode cost and can make
+                    # oversized PDF pages cross Pillow's safety threshold.
+                    # Searchable PDF composition still maps boxes with the
+                    # requested DPI, so preserve that exact raster scale there.
+                    max_edge=(
+                        RAPIDOCR_MAX_IMAGE_EDGE
+                        if engine == LIGHT_ENGINE and not spec.get("searchable_pdf")
+                        else None
+                    ),
                 )
             except PdfRenderCancelled:
                 raise OcrCancelled("OCR cancelled") from None
