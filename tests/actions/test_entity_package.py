@@ -3,6 +3,7 @@
 import io
 import hashlib
 import json
+import sqlite3
 import zipfile
 from contextlib import closing
 
@@ -272,7 +273,6 @@ def test_late_import_failure_preserves_previous_effect_and_receipt(
     tmp_path, entities, monkeypatch, failure
 ):
     from frisket.engine.store import cell_writes
-    from tests.engine.test_export_delivery_failure import _wrap_project_db_commit
 
     path, _ = entities
     prior_path = tmp_path / "prior.jsonl"
@@ -282,7 +282,6 @@ def test_late_import_failure_preserves_previous_effect_and_receipt(
         )
     )
     with closing(Project.create(tmp_path / "project")) as project:
-        wrapper = _wrap_project_db_commit(monkeypatch, project)
 
         def run(
             params: Params, importer: FollowTheMoneyImporter
@@ -291,6 +290,7 @@ def test_late_import_failure_preserves_previous_effect_and_receipt(
                 source_path=str(prior_path), dataset_name="Prior"
             )
             before = tuple(project.db.iterdump())
+            refused_commits = []
             with monkeypatch.context() as patch:
                 if failure == "apply":
                     original = cell_writes.encode_stored_value
@@ -313,11 +313,25 @@ def test_late_import_failure_preserves_previous_effect_and_receipt(
                         ),
                     )
                 else:
-                    wrapper.fail_commit_at = wrapper.commit_count + 1
-                with pytest.raises(Exception):
-                    importer.import_entities(
-                        source_path=params.document, dataset_name="Next"
-                    )
+
+                    def refuse_commit(operation, name, *_args):
+                        if operation == sqlite3.SQLITE_TRANSACTION and name == "COMMIT":
+                            refused_commits.append(name)
+                            return sqlite3.SQLITE_DENY
+                        return sqlite3.SQLITE_OK
+
+                    project.db.set_authorizer(refuse_commit)
+                try:
+                    with pytest.raises(Exception) as refused:
+                        importer.import_entities(
+                            source_path=params.document, dataset_name="Next"
+                        )
+                finally:
+                    if failure == "commit":
+                        project.db.set_authorizer(None)
+                if failure == "commit":
+                    assert isinstance(refused.value, sqlite3.DatabaseError)
+                    assert refused_commits == ["COMMIT"]
             assert tuple(project.db.iterdump()) == before
             return prior
 
@@ -326,6 +340,8 @@ def test_late_import_failure_preserves_previous_effect_and_receipt(
         assert result.status == "completed", result.errors
         assert len(result.op_ids) == 1
         assert len([output for output in result.outputs if output.kind == "sheet"]) == 1
+        receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+        assert receipt.status == "completed" and receipt.op_ids == result.op_ids
 
 
 def test_unavailable_extra_refuses_before_source_read(tmp_path, monkeypatch):
