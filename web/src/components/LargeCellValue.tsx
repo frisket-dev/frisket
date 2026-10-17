@@ -8,7 +8,10 @@ export function LargeCellValue({ projectId, rowId, columnId, descriptor }: {
   projectId: string; rowId: string; columnId: string; descriptor: BoundedCellValue;
 }) {
   const loadWindow = useCallback<BoundedTextReaderProps['loadWindow']>(
-    (options) => getCellTextWindowContract(projectId, rowId, columnId, options),
+    async (options) => {
+      const window = await getCellTextWindowContract(projectId, rowId, columnId, options);
+      return { ...window, previous_start: window.previous_start ?? null, next_start: window.next_start ?? null };
+    },
     [projectId, rowId, columnId],
   );
   const downloadUrl = useCallback((revision: number) => cellValueDownloadUrl(projectId, rowId, columnId, revision), [projectId, rowId, columnId]);

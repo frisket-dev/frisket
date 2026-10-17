@@ -4,6 +4,7 @@ import json
 import tracemalloc
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from frisket.engine.store.evidence import record_source_artifact
@@ -434,6 +435,41 @@ def test_generated_grid_metadata_does_not_decode_large_results(tmp_path: Path) -
         )
         == 5 * 1024 * 1024
     )
+
+
+@pytest.mark.parametrize("count,width", [(129, 8), (80, 1024)])
+def test_bounded_grid_defers_large_replay_counts_but_keeps_viewport_comparison(
+    tmp_path: Path, count: int, width: int
+) -> None:
+    _client, _pid, project, sheet_id, column, _json_column = _project(tmp_path)
+    rows = project.add_rows(sheet_id, [{"body": "input"}] * count, {"body": column})
+    output = project.add_column(sheet_id, "generated", type="text", ai_generated=True)
+    op = project.append_op("map.extract", label="Replay budget fixture")
+    run = RunResultStore(project).start_run(op, sheet_id, "map.extract", row_ids=rows)
+    generated = "x" * width
+    write_claimed_test_results(
+        project,
+        run,
+        [
+            {"row_id": row, "column_id": output, "value": generated, "outcome": "ok"}
+            for row in rows
+        ],
+    )
+    project.apply_edits(
+        [{"row_id": row, "column_id": output, "value": "edited"} for row in rows]
+    )
+    columns = [col for col in project.columns(sheet_id) if col["id"] == output]
+    viewport = _sheet_data_payload(
+        project, sheet_id, columns, rows[:1], total=count, value_mode="bounded"
+    )
+    assert viewport["columns"][0]["replay_pending_count"] is None
+    assert viewport["columns"][0]["replay_comparison_available"] is False
+    assert (
+        viewport["rows"][0]["meta"][str(output)]["pending_value"]["fresh_value"]
+        == generated
+    )
+    exact = _sheet_data_payload(project, sheet_id, columns, rows[:1], total=count)
+    assert exact["columns"][0]["replay_pending_count"] == count
 
 
 def test_windows_reassemble_long_lines_tables_and_line_boundaries_exactly(
