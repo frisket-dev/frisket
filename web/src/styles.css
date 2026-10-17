@@ -7846,18 +7846,6 @@ dialog.import-workspace-layer::backdrop {
   box-shadow: var(--shadow-drawer);
   color: var(--text);
 }
-.import-workspace-receipt {
-  width: min(680px, calc(100vw - 32px));
-  height: auto;
-  min-height: 0;
-  max-height: calc(100vh - 32px);
-}
-.import-workspace-receipt:has(.search-preparation-text-preview) {
-  width: min(860px, calc(100vw - 32px));
-}
-.import-workspace-receipt:has(.search-preparation-text-preview) .search-preparation-receipt {
-  width: 100%;
-}
 .import-workspace-header {
   flex: 0 0 auto;
   display: flex;
@@ -7891,18 +7879,9 @@ dialog.import-workspace-layer::backdrop {
   display: grid;
   grid-template-columns: 230px minmax(0, 1fr);
 }
-.import-workspace-main-receipt {
-  flex: 0 1 auto;
-  grid-template-columns: minmax(0, 1fr);
-  overflow: hidden;
-}
 .import-workspace-main-preparation {
   grid-template-columns: minmax(0, 1fr);
 }
-.import-workspace-receipt .import-workspace-content {
-  max-height: calc(100vh - 32px);
-}
-.import-workspace-receipt .import-workspace-panel { padding: 0; }
 .import-workspace-sidebar {
   min-width: 0;
   border-right: 1px solid var(--border);
@@ -8643,11 +8622,6 @@ dialog.import-workspace-layer::backdrop {
   padding-top: 12px;
   border-top: 1px solid var(--border);
 }
-.import-workspace-receipt .search-preparation-receipt > footer {
-  margin: 2px -22px -20px;
-  padding: 14px 22px;
-  background: var(--bg-panel);
-}
 .import-workspace-main-preparation .import-workspace-panel {
   overflow: hidden;
   padding: 0;
@@ -8686,6 +8660,13 @@ dialog.import-workspace-layer::backdrop {
 .search-preparation-text-preview > header strong { font-size: 16px; font-weight: 600; }
 .search-preparation-text-preview > header span { color: var(--text-light); font-size: 12px; }
 .search-preparation-sample-pages { display: flex; align-items: center; gap: 6px; overflow-x: auto; }
+.pdf-sample-pages { display: grid; gap: 8px; }
+.pdf-sample-pages .pdf-packet-page-picker { display: flex; align-items: center; gap: 8px; margin: 0; }
+.pdf-sample-pages .pdf-packet-page-picker input { width: 64px; }
+.pdf-sample-pages .pdf-packet-sample-heading h3 { margin: 0; font-size: 13px; text-transform: none; }
+.import-files-summary-list { margin: 0; padding-left: 20px; overflow-wrap: anywhere; }
+.search-preparation-document { display: grid; gap: 6px; }
+.search-preparation-ocr-option { display: flex; align-items: center; gap: 8px; }
 .search-preparation-sample-pages > button:not(.icon-btn) {
   border: 1px solid #d7d1cb;
   border-radius: 999px;
@@ -8698,7 +8679,7 @@ dialog.import-workspace-layer::backdrop {
 .search-preparation-sample-pages > button.active { border-color: #4b4ddb; color: #3436b8; background: #f1f1ff; }
 .search-preparation-text-preview .pdf-packet-page-and-text {
   grid-template-columns: minmax(200px, 0.8fr) minmax(280px, 1.2fr);
-  max-height: 360px;
+  overflow: visible;
   padding: 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-8);
@@ -8706,6 +8687,7 @@ dialog.import-workspace-layer::backdrop {
 }
 .search-preparation-text-preview .pdf-packet-page-and-text > img { max-height: 320px; }
 .search-preparation-text-preview .pdf-packet-text-card {
+  max-height: 320px;
   padding: 10px 12px;
   border: 0;
   border-radius: var(--radius-6);
@@ -8741,7 +8723,6 @@ dialog.import-workspace-layer::backdrop {
   .search-preparation-receipt { padding: 16px; }
   .import-workspace-main-preparation .search-preparation-receipt-body { padding: 16px; }
   .import-workspace-main-preparation .search-preparation-receipt > footer { padding: 14px 16px; }
-  .import-workspace-receipt .search-preparation-receipt > footer { margin: 2px -16px -16px; }
   .search-preparation-group { align-items: flex-start; flex-direction: column; gap: 3px; padding: 8px 0; }
   .search-preparation-text-preview .pdf-packet-page-and-text { grid-template-columns: 1fr; }
 }
@@ -8816,11 +8797,6 @@ dialog.import-workspace-layer::backdrop {
     min-height: 0;
     border-radius: 0;
     border: 0;
-  }
-  .import-workspace.import-workspace-receipt {
-    width: 100vw;
-    height: auto;
-    max-height: 100vh;
   }
   .import-workspace-main {
     grid-template-columns: 1fr;

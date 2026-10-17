@@ -29,6 +29,8 @@ class ImportSessionStatus(WireModel):
     cancel_requested: bool
     sealed: bool
     error: str | None = None
+    # Availability of the handoff, independent of preparation execution status.
+    search_preparation_status: Literal["pending", "available", "none"]
     search_preparation_batch_id: str | None = None
 
 

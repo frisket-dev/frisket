@@ -58,6 +58,7 @@ type PreparationBatch = {
     purpose: string;
     required: boolean;
     ready: boolean;
+    can_setup: boolean;
     pull_id: number | null;
   }>;
   jobs: Array<{ job_id: number; status: string; action_kind: string | null }>;
@@ -226,7 +227,16 @@ async function importFilesThroughSession(
   return response.json();
 }
 
-test('declining missing transcription setup starts no pull and remains recoverable from Search', async ({
+async function reviewImportedFiles(page: Page): Promise<Locator> {
+  await expect(page.getByTestId('import-files-summary')).toBeVisible();
+  await expect(page.getByTestId('search-preparation-receipt')).toHaveCount(0);
+  await page.getByTestId('import-files-next').click();
+  const receipt = page.getByTestId('search-preparation-receipt');
+  await expect(receipt).toBeVisible();
+  return receipt;
+}
+
+test('closing missing transcription setup starts no pull and remains recoverable from Search', async ({
   page,
 }) => {
   const pid = await createProject(page.request, uniqueName('make-searchable-decline'));
@@ -266,10 +276,10 @@ test('declining missing transcription setup starts no pull and remains recoverab
     model.purpose === 'transcribe' && !model.ready
   ));
   test.skip(
-    !missingTranscription,
-    'This consent-boundary case requires Parakeet to be absent from the server cache.',
+    !missingTranscription || !missingTranscription.can_setup,
+    'This consent-boundary case requires the standard transcription runtime with Parakeet absent from the model cache.',
   );
-  const receipt = page.getByTestId('search-preparation-receipt');
+  const receipt = await reviewImportedFiles(page);
   const consent = receipt.getByTestId('search-preparation-model-consent');
   await expect(consent).toBeVisible();
   await expect(consent.getByTestId('search-preparation-model-transcribe')).toContainText(
@@ -277,34 +287,28 @@ test('declining missing transcription setup starts no pull and remains recoverab
   );
   const missingOptionalModel = planned!.models.some((model) => !model.required && !model.ready);
   if (missingOptionalModel) {
-    await expect(consent.getByTestId('search-preparation-semantic-model')).toBeChecked();
+    const semantic = consent.getByTestId('search-preparation-semantic-model');
+    if (planned!.models.some((model) => !model.required && !model.ready && model.can_setup)) {
+      await expect(semantic).toBeChecked();
+    } else {
+      await expect(semantic).not.toBeChecked();
+      await expect(semantic).toBeDisabled();
+    }
   } else {
     await expect(consent.getByTestId('search-preparation-semantic-model')).toHaveCount(0);
   }
   expect(setupRequests).toEqual([]);
   expect(await modelPullInventory(page.request)).toEqual(pullsBefore);
 
-  const decisionResponse = page.waitForResponse((response) => (
-    response.request().method() === 'POST'
-    && new URL(response.url()).pathname.endsWith('/decision')
-  ));
-  await receipt.getByTestId('search-preparation-decision-not-now').click();
-  const declinedResponse = await decisionResponse;
-  expect(declinedResponse.ok()).toBeTruthy();
-  expect(declinedResponse.request().postDataJSON()).toMatchObject({
-    decision: 'not_now',
-    selected_setup_refs: [],
-  });
-  const declined = await declinedResponse.json() as PreparationBatch;
-  expect(declined.groups).toContainEqual({
-    kind: 'transcribe',
-    count: 1,
-    status: 'not_prepared',
-  });
+  await page.getByTestId('import-workspace-close').click();
+  await expect(receipt).toBeHidden();
+  const deferred = await preparationBatch(page.request, pid, imported.search_preparation_batch_id!);
+  expect(deferred.status).toBe('needs_consent');
+  expect(deferred.jobs).toEqual([]);
+  expect(deferred.models.every((model) => model.pull_id === null)).toBeTruthy();
   expect(setupRequests).toEqual([]);
   expect(await modelPullInventory(page.request)).toEqual(pullsBefore);
 
-  await receipt.getByTestId('search-preparation-done').click();
   await page.reload();
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
   expect(await modelPullInventory(page.request)).toEqual(pullsBefore);
@@ -434,9 +438,12 @@ test('a resumable file import keeps its preparation receipt in the import flow a
   expect(terminal!.sheet_id).toBeGreaterThan(0);
   expect(terminal!.search_preparation_batch_id).toBeTruthy();
 
-  const receipt = page.getByTestId('search-preparation-receipt');
-  await expect(receipt).toBeVisible({ timeout: 15_000 });
-  await receipt.getByTestId('search-preparation-done').click();
+  const receipt = await reviewImportedFiles(page);
+  await expect(receipt.getByTestId('search-preparation-text-preview')).toBeVisible();
+  await page.getByTestId('import-workspace-close').click();
+  const unadmitted = await preparationBatch(page.request, pid, terminal!.search_preparation_batch_id!);
+  expect(unadmitted.status).toBe('needs_consent');
+  expect(unadmitted.jobs).toEqual([]);
   await page.reload();
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId('import-progress-completed')).toHaveCount(0);
@@ -471,12 +478,27 @@ test('native PDF import becomes searchable without starting a model setup', asyn
 
   expect(imported.search_preparation_batch_id).toBeTruthy();
   const batchId = imported.search_preparation_batch_id!;
-  const receipt = page.getByTestId('search-preparation-receipt');
-  await expect(receipt).toBeVisible();
-  await expect(receipt.getByTestId('search-preparation-model-consent')).toHaveCount(0);
-  await expect(receipt.getByTestId('search-preparation-group-native_pdf')).toContainText(
-    /queued|searchable|reading text|complete/i,
-  );
+  const receipt = await reviewImportedFiles(page);
+  await expect(receipt.getByTestId('search-preparation-model-consent')).toBeVisible();
+  await expect(receipt.getByTestId('search-preparation-group-native_pdf'))
+    .toHaveAttribute('data-status', 'needs_consent');
+  const planned = await preparationBatch(page.request, pid, batchId);
+  expect(planned.status).toBe('needs_consent');
+  expect(planned.jobs).toEqual([]);
+  const semantic = receipt.getByTestId('search-preparation-semantic-model');
+  if (await semantic.count()) await semantic.uncheck();
+  const decision = page.waitForResponse((response) => (
+    response.request().method() === 'POST'
+    && new URL(response.url()).pathname === `/api/projects/${pid}/search-preparation/${batchId}/decision`
+  ));
+  await receipt.getByTestId('search-preparation-decision-prepare').click();
+  const decisionResult = await decision;
+  expect(decisionResult.ok()).toBeTruthy();
+  expect(decisionResult.request().postDataJSON()).toEqual({
+    plan_hash: planned.plan_hash,
+    decision: 'prepare',
+    selected_setup_refs: [],
+  });
 
   const completed = await waitForPreparation(page.request, pid, batchId, 'complete');
   expect(completed.groups).toContainEqual({
@@ -488,7 +510,6 @@ test('native PDF import becomes searchable without starting a model setup', asyn
   expect(setupRequests).toEqual([]);
   expect(await modelPullInventory(page.request)).toEqual(pullsBefore);
 
-  await receipt.getByTestId('search-preparation-done').click();
   await expect(receipt).toBeHidden();
   await page.reload();
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
@@ -531,6 +552,7 @@ test('native text review requests replacement OCR without changing the original 
   }
   const pid = await createProject(page.request, uniqueName('make-searchable-check-text'));
   await importCsv(page.request, pid, 'seed.csv', 'name\nseed\n');
+  const pullsBefore = await modelPullInventory(page.request);
   await page.goto(`/p/${pid}`);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
 
@@ -540,12 +562,10 @@ test('native text review requests replacement OCR without changing the original 
     buffer: readFileSync(path.join(MAKE_SEARCHABLE_FIXTURES, 'bad-text-layer.pdf')),
   }]);
   expect(imported.search_preparation_batch_id).toBeTruthy();
-  await waitForPreparation(
-    page.request,
-    pid,
-    imported.search_preparation_batch_id!,
-    'complete',
-  );
+  const receipt = await reviewImportedFiles(page);
+  const initialPlan = await preparationBatch(page.request, pid, imported.search_preparation_batch_id!);
+  expect(initialPlan.status).toBe('needs_consent');
+  expect(initialPlan.jobs).toEqual([]);
 
   const before = await sheetData(page.request, pid, imported.sheet_id);
   const mediaColumn = before.columns.find((column) => column.name === 'media');
@@ -569,22 +589,39 @@ test('native text review requests replacement OCR without changing the original 
 
   const replacementRequest = page.waitForResponse((response) => (
     response.request().method() === 'POST'
-    && new URL(response.url()).pathname === `/api/projects/${pid}/search-preparation`
-    && response.request().postDataJSON().force_ocr === true
+    && new URL(response.url()).pathname === (
+      `/api/projects/${pid}/search-preparation/${initialPlan.id}/replan`
+    )
   ));
   await preview.getByTestId('search-preparation-force-ocr').click();
   const replacementResponse = await replacementRequest;
   expect(replacementResponse.ok()).toBeTruthy();
   expect(replacementResponse.request().postDataJSON()).toEqual({
-    sheet_id: imported.sheet_id,
-    row_ids: [before.rows[0].id],
+    plan_hash: initialPlan.plan_hash,
     force_ocr: true,
   });
   const replacement = await replacementResponse.json() as PreparationBatch;
+  expect(replacement.id).not.toBe(initialPlan.id);
+  expect((await preparationBatch(page.request, pid, initialPlan.id)).status).toBe('stopped');
   expect(replacement).toMatchObject({
     sheet_id: imported.sheet_id,
+    status: 'needs_consent',
     groups: [{ kind: 'ocr', count: 1 }],
+    jobs: [],
   });
+  const samplesResponse = await page.request.get(
+    `/api/projects/${pid}/search-preparation/${replacement.id}/text-samples`,
+  );
+  expect(samplesResponse.ok()).toBeTruthy();
+  const samples = await samplesResponse.json() as {
+    batch_id: string;
+    samples: Array<{ row_id: number; column_id: number }>;
+  };
+  expect(samples.batch_id).toBe(replacement.id);
+  expect(samples.samples.map(({ row_id, column_id }) => ({ row_id, column_id })))
+    .toEqual([{ row_id: before.rows[0].id, column_id: mediaColumn!.id }]);
+  await expect(receipt.getByTestId('search-preparation-force-ocr')).toBeChecked();
+  expect(await modelPullInventory(page.request)).toEqual(pullsBefore);
 
   const after = await sheetData(page.request, pid, imported.sheet_id);
   const unchangedMedia = after.rows[0].cells[String(mediaColumn!.id)] as {
@@ -611,7 +648,9 @@ test('native text review requests replacement OCR without changing the original 
     }
     if (activeReplacement.status === 'needs_consent') {
       const consent = page.getByTestId('search-preparation-model-consent');
-      await expect(consent.getByTestId('search-preparation-model-read_text')).toBeVisible();
+      if (activeReplacement.models.some((model) => model.required && !model.ready)) {
+        await expect(consent.getByTestId('search-preparation-model-read_text')).toBeVisible();
+      }
       const requiredRefs = activeReplacement.models
         .filter((model) => model.required && !model.ready && model.can_setup)
         .map((model) => model.setup_ref);
@@ -658,7 +697,7 @@ test('native text review requests replacement OCR without changing the original 
     expect(postOcrBlob.ok()).toBeTruthy();
     expect(await postOcrBlob.body()).toEqual(originalBytes);
 
-    await page.getByTestId('search-preparation-done').click();
+    await expect(receipt).toBeHidden();
     await page.getByTestId('bottom-dock-tab-jobs').click();
     for (const job of completedOcr.jobs) {
       await expect(page.getByTestId(`bottom-dock-job-${job.job_id}`)).toContainText(

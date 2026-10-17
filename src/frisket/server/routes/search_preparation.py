@@ -158,6 +158,7 @@ def register_search_preparation_routes(
         pid: str,
         batch_id: str,
         row_id: int | None = Query(default=None, gt=0),
+        column_id: int | None = Query(default=None, gt=0),
         page_number: int | None = Query(default=None, gt=0),
     ) -> SearchPreparationTextSamples:
         return await await_thread_worker(
@@ -165,6 +166,7 @@ def register_search_preparation_routes(
             pid,
             batch_id,
             row_id=row_id,
+            column_id=column_id,
             page_number=page_number,
         )
 

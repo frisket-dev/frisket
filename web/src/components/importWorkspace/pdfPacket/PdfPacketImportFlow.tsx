@@ -6,7 +6,7 @@ import {
   useState,
   type Dispatch,
 } from 'react';
-import { FileText, RefreshCw } from 'lucide-react';
+import { FileText } from 'lucide-react';
 import type { RunEstimate } from '../../../api/open';
 import type { SelectorChoice } from '../../../api/selectorChoices';
 import {
@@ -34,8 +34,6 @@ import {
   initialPdfPacketFlowState,
   pdfPacketNamePatternError,
   pdfPacketFlowReducer,
-  samplePages,
-  resamplePages,
   type PdfPacketDocument,
   type PdfPacketRememberedOptions,
   type PdfPacketStage,
@@ -43,6 +41,7 @@ import {
 import { PacketFindStep } from './PacketFindStep';
 import { PacketThumbnail } from './PacketThumbnail';
 import { PdfTextPagePreview } from './PdfTextPagePreview';
+import { PdfSamplePages } from './PdfSamplePages';
 
 export interface PdfPacketShellContext {
   active: boolean;
@@ -812,10 +811,6 @@ function PacketTextStep({
   onAcceptNative(): void;
   onAcceptOcr(): void;
 }) {
-  const [defaultSamples, setSamples] = useState(() => samplePages(pageCount));
-  const samples = defaultSamples.includes(selectedPage)
-    ? defaultSamples
-    : [selectedPage, ...defaultSamples.slice(1)].sort((left, right) => left - right);
   const nativeText = page?.native_text ?? '';
   const ocrText = page?.ocr_engine === engine ? page.ocr_text ?? '' : '';
   const [preferredSource, setPreferredSource] = useState<'native' | 'ocr' | null>(null);
@@ -839,48 +834,8 @@ function PacketTextStep({
           ? `Extracted text is available on ${nativeCount} of ${countLabel(pageCount, 'page')}.`
           : 'This packet has no extracted text. Run OCR to read it.'}</p>
         <p className="form-hint">Check the text below. If it looks wrong, run OCR.</p>
-        <div className="pdf-packet-sample-heading">
-          <h3>Sample pages</h3>
-          <button type="button" className="icon-btn" aria-label="Refresh sample pages" title="Refresh sample pages" disabled={pageCount <= 6} onClick={() => {
-            const nextSamples = resamplePages(pageCount, samples);
-            setSamples(nextSamples);
-            onSelectPage(nextSamples[0]);
-          }}><RefreshCw size={15} aria-hidden /></button>
-        </div>
-        <div className="pdf-packet-samples">
-          {samples.map((sample) => (
-            <button
-              type="button"
-              key={sample}
-              className={sample === selectedPage ? 'active' : ''}
-              aria-pressed={sample === selectedPage}
-              onClick={() => onSelectPage(sample)}
-            >
-              <PacketThumbnail projectId={projectId} splitId={splitId} page={sample} />
-              <span>p {sample}</span>
-            </button>
-          ))}
-        </div>
-        <label className="pdf-packet-page-picker">
-          <span>Pick a different page</span>
-          <span>
-            Page
-            <input
-              type="number"
-              min="1"
-              max={pageCount}
-              value={selectedPage}
-              aria-label="Sample page number"
-              onChange={(event) => {
-                const nextPage = Number(event.target.value);
-                if (Number.isInteger(nextPage) && nextPage >= 1 && nextPage <= pageCount) {
-                  onSelectPage(nextPage);
-                }
-              }}
-            />
-            of {pageCount}
-          </span>
-        </label>
+        <PdfSamplePages pageCount={pageCount} selectedPage={selectedPage} onSelectPage={onSelectPage}
+          renderThumbnail={(sample) => <PacketThumbnail projectId={projectId} splitId={splitId} page={sample} />} />
         {showOcr || nativeCount === 0 ? (
           <div className="pdf-packet-engine">
             <strong>OCR engine</strong>

@@ -518,10 +518,10 @@ class ImportSessionService:
                 "paused" if job is not None and job.status == "failed" else "admitting"
             )
         receipt_id = str(header.envelope["receipt_id"])
-        preparation_batch_id = (
-            self._search_preparation.batch_for_receipt(header.project_id, receipt_id)
+        preparation_status, preparation_batch_id = (
+            self._search_preparation.handoff_for_receipt(header.project_id, receipt_id)
             if self._search_preparation is not None
-            else None
+            else ("none", None)
         )
         if (
             state in {"completed", "kept"}
@@ -552,7 +552,7 @@ class ImportSessionService:
                 # optional terminal callback cannot publish this follow-up.
                 # Materialize it at the server's terminal response boundary;
                 # the receipt-backed trigger makes reconnects idempotent.
-                preparation_batch_id = self._search_preparation.create_after_import(
+                self._search_preparation.create_after_import(
                     header.project_id,
                     receipt_id=receipt_id,
                     sheet_id=session.sheet_id,
@@ -565,6 +565,13 @@ class ImportSessionService:
                 # The import is committed and the pending intent is durable.
                 # Normal preparation recovery retries independently of this
                 # importing client; never project a terminal import as running.
+            # Re-read only after attempting publication: null may now mean a
+            # durable retry, an empty/disabled outcome, or a newly readable plan.
+            preparation_status, preparation_batch_id = (
+                self._search_preparation.handoff_for_receipt(
+                    header.project_id, receipt_id
+                )
+            )
         return ImportSessionStatus(
             import_ref=ref,
             state=state,
@@ -582,6 +589,7 @@ class ImportSessionService:
                 if session is None and state == "paused"
                 else None
             ),
+            search_preparation_status=preparation_status,
             search_preparation_batch_id=preparation_batch_id,
         )
 

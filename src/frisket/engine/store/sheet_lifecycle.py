@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from frisket.engine.store.import_sessions import require_import_sheet_write
+from frisket.engine.store.result_generations import ResultGenerationStore
 
 
 class SheetDeleteNotFound(LookupError):
@@ -71,9 +72,17 @@ def dependent_sheets(project: Any, sheet_id: int) -> list[dict[str, Any]]:
         JOIN rows materialized ON materialized.id=source.materialized_row_id
         JOIN sheets child ON child.id=materialized.sheet_id
         WHERE child.hidden=0 AND child.id<>? AND source.source_sheet_id=?
+        UNION
+        SELECT DISTINCT child.id, child.name
+        FROM run_output_generations generation
+        JOIN runs owner ON owner.id=generation.run_id
+        JOIN ops owner_op ON owner_op.id=owner.op_id
+        JOIN sheets child ON child.id=owner.sheet_id
+        JOIN runs base ON base.id=generation.expected_base_run_id
+        WHERE child.id<>? AND base.sheet_id=? AND owner_op.status<>'discarded'
         ORDER BY id
         """,
-        (sheet_id, sheet_id, sheet_id),
+        (sheet_id, sheet_id, sheet_id, sheet_id, sheet_id),
     ).fetchall()
     dependents = {int(row["id"]): str(row["name"]) for row in rows}
     for child, sources in materialized_source_sheets(project).items():
@@ -127,17 +136,16 @@ def delete_sheet(project: Any, sheet_id: int) -> dict[str, Any]:
             "DELETE FROM source_artifacts WHERE source_sheet_id=?", (sheet_id,)
         )
 
-        # Generation rows deliberately RESTRICT both their owning and base
-        # runs. A whole-sheet delete removes those declarations before the
-        # runs and columns they describe.
+        # Physical deletion makes this sheet's run history permanently
+        # unredoable. Discard only its owning operations before removing the
+        # authoritative declarations; the schema intentionally refuses any
+        # generation deletion while its operation can still be applied.
         project.db.execute(
-            "DELETE FROM run_output_generations WHERE run_id IN ("
-            "SELECT id FROM runs WHERE sheet_id=?"
-            ") OR expected_base_run_id IN ("
-            "SELECT id FROM runs WHERE sheet_id=?"
-            ")",
-            (sheet_id, sheet_id),
+            "UPDATE ops SET status='discarded' WHERE id IN ("
+            "SELECT op_id FROM runs WHERE sheet_id=?)",
+            (sheet_id,),
         )
+        ResultGenerationStore(project).delete_for_sheet_removal(sheet_id)
         project.db.execute("DELETE FROM runs WHERE sheet_id=?", (sheet_id,))
 
         project.db.execute("DELETE FROM sheets WHERE id=?", (sheet_id,))

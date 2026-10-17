@@ -194,6 +194,29 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     ));
   });
 
+  it('keeps filenames and finishing progress in the upload window until Next opens review', async () => {
+    let finishUpload!: (value: unknown) => void;
+    importFiles.mockReturnValue(new Promise((resolve) => { finishUpload = resolve; }));
+    const onClose = vi.fn();
+    renderDialog(true, vi.fn(), onClose);
+    fireEvent.click(screen.getByTestId('import-mode-files'));
+    fireEvent.change(screen.getByTestId('import-file-input'), {
+      target: { files: [new File(['pdf'], 'report.pdf', { type: 'application/pdf' })] },
+    });
+    const summary = await screen.findByTestId('import-files-summary');
+    expect(summary).toHaveTextContent('report.pdf');
+    expect(summary).toHaveTextContent('1 file');
+    expect(summary).toHaveTextContent('Finishing import…');
+    expect(screen.queryByRole('button', { name: 'Next' })).not.toBeInTheDocument();
+    await act(async () => finishUpload({ sheet_id: 91, rows: 1, search_preparation_batch_id: 'pdf-prep' }));
+    expect(await screen.findByRole('button', { name: 'Next' })).toBeEnabled();
+    expect(screen.queryByText('Finishing import…')).not.toBeInTheDocument();
+    expect(getSearchPreparation).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await waitFor(() => expect(getSearchPreparation).toHaveBeenCalledWith('open-session-project', 'pdf-prep'));
+  });
+
   it('opens the shared preparation receipt after a synchronous file import', async () => {
     importFiles.mockResolvedValue({
       sheet_id: 91,
@@ -208,6 +231,7 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     });
 
     await waitFor(() => expect(onImported).toHaveBeenCalledWith(91));
+    fireEvent.click(await screen.findByTestId('import-files-next'));
     const receipt = await screen.findByTestId('search-preparation-receipt');
     expect(receipt).toHaveTextContent('Text ready for keyword search');
     expect(receipt.closest('.import-workspace-main')).toHaveClass('import-workspace-main-preparation');
@@ -235,13 +259,16 @@ describe('ImportWorkspaceDialog controlled open session', () => {
       target: { files: [new File(['archive'], 'documents.zip', { type: 'application/zip' })] },
     });
 
-    await waitFor(() => expect(getSearchPreparation).toHaveBeenCalledWith('open-session-project', 'zip-pdf-prep'));
+    await screen.findByTestId('import-files-next');
+    expect(getSearchPreparation).not.toHaveBeenCalled();
     expect(onImported).toHaveBeenCalledWith(41);
     expect(onClose).not.toHaveBeenCalled();
-    expect(screen.getByTestId('search-preparation-receipt')).toHaveTextContent('Text ready for keyword search');
+    expect(screen.getByTestId('import-files-summary')).toHaveTextContent('documents.zip');
     expect(screen.getByRole('alert')).toHaveTextContent('Imported 3 files; 1 file failed.');
     expect(screen.getByText('Invalid header')).toBeVisible();
     expect(screen.getAllByText('One attachment was skipped.')).toHaveLength(1);
+    fireEvent.click(screen.getByTestId('import-files-next'));
+    await screen.findByText('Text ready for keyword search');
 
     fireEvent.change(screen.getByRole('combobox', { name: 'Review imported sheet' }), { target: { value: '42' } });
     await waitFor(() => expect(getSearchPreparation).toHaveBeenCalledWith('open-session-project', 'zip-audio-prep'));
@@ -282,6 +309,7 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     fireEvent.change(screen.getByTestId('import-zip-input'), {
       target: { files: [new File(['archive'], 'documents.zip', { type: 'application/zip' })] },
     });
+    fireEvent.click(await screen.findByTestId('import-files-next'));
     await screen.findByText('Native text prep-a');
     fireEvent.click(screen.getByTestId('search-preparation-force-ocr'));
     expect(replanSearchPreparation).toHaveBeenCalledWith('open-session-project', 'prep-a', {
@@ -306,6 +334,7 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     fireEvent.change(screen.getByTestId('import-zip-input'), {
       target: { files: [new File(['archive'], 'documents.zip', { type: 'application/zip' })] },
     });
+    fireEvent.click(await screen.findByTestId('import-files-next'));
     await screen.findByText('Text ready for keyword search');
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.queryByRole('combobox', { name: 'Review imported sheet' })).not.toBeInTheDocument();
@@ -353,8 +382,82 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     });
 
     await waitFor(() => expect(onImported).toHaveBeenCalledWith(91));
+    fireEvent.click(await screen.findByTestId('import-files-next'));
     expect(await screen.findByTestId('search-preparation-receipt')).toHaveTextContent('Text ready for keyword search');
     expect(getSearchPreparation).toHaveBeenCalledWith('open-session-project', 'resumable-prep');
+  });
+
+  it('waits for pending preparation after files are committed, then offers Next', async () => {
+    const completed = {
+      import_ref: 'large-selection', state: 'completed', admitted_files: 2, admitted_bytes: 2,
+      through: 2, committed_rows: 2, committed_bytes: 2, sheet_id: 91,
+      sheet_name: 'Files', cancel_requested: false, sealed: true, error: null,
+      search_preparation_batch_id: null, search_preparation_status: 'pending',
+    };
+    uploadFilesToImportSession.mockResolvedValue(completed);
+    getImportSession.mockResolvedValueOnce(completed).mockResolvedValue({
+      ...completed, search_preparation_status: 'available', search_preparation_batch_id: 'late-prep',
+    });
+    const onClose = vi.fn();
+    renderDialog(true, vi.fn(), onClose);
+    fireEvent.click(screen.getByTestId('import-mode-files'));
+    fireEvent.change(screen.getByTestId('import-file-input'), { target: { files: [
+      new File(['a'], 'a.pdf', { type: 'application/pdf' }),
+      new File(['b'], 'b.pdf', { type: 'application/pdf' }),
+    ] } });
+    await waitFor(() => expect(getImportSession).toHaveBeenCalledTimes(1));
+    expect(screen.getByText('Finishing import…')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Done' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Next' })).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: 'Next' }, { timeout: 2_500 }));
+    await waitFor(() => expect(getSearchPreparation).toHaveBeenCalledWith('open-session-project', 'late-prep'));
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('settles a committed import with no preparation instead of spinning forever', async () => {
+    uploadFilesToImportSession.mockResolvedValue({
+      import_ref: 'large-selection', state: 'completed', admitted_files: 2, admitted_bytes: 2,
+      through: 2, committed_rows: 2, committed_bytes: 2, sheet_id: 91,
+      sheet_name: 'Files', cancel_requested: false, sealed: true, error: null,
+      search_preparation_batch_id: null, search_preparation_status: 'none',
+    });
+    const onClose = vi.fn();
+    renderDialog(true, vi.fn(), onClose);
+    fireEvent.click(screen.getByTestId('import-mode-files'));
+    fireEvent.change(screen.getByTestId('import-file-input'), { target: { files: [
+      new File(['a'], 'first.txt', { type: 'text/plain' }),
+      new File(['b'], 'second.txt', { type: 'text/plain' }),
+    ] } });
+    fireEvent.click(await screen.findByRole('button', { name: 'Done' }));
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(screen.queryByText('Finishing import…')).not.toBeInTheDocument();
+    expect(getSearchPreparation).not.toHaveBeenCalled();
+    expect(getImportSession).not.toHaveBeenCalled();
+  });
+
+  it('keeps Next unavailable while an early preparation batch still has importing files', async () => {
+    uploadFilesToImportSession.mockResolvedValue({
+      import_ref: 'large-selection', state: 'running', admitted_files: 2, admitted_bytes: 2,
+      through: 2, committed_rows: 1, committed_bytes: 1, sheet_id: 91,
+      sheet_name: 'Files', cancel_requested: false, sealed: true, error: null,
+      search_preparation_batch_id: 'early-prep', search_preparation_status: 'available',
+    });
+    let finishImport!: (value: unknown) => void;
+    getImportSession.mockReturnValue(new Promise((resolve) => { finishImport = resolve; }));
+    renderDialog(true);
+    fireEvent.click(screen.getByTestId('import-mode-files'));
+    fireEvent.change(screen.getByTestId('import-file-input'), { target: { files: [
+      new File(['a'], 'a.pdf', { type: 'application/pdf' }),
+      new File(['b'], 'b.pdf', { type: 'application/pdf' }),
+    ] } });
+    await waitFor(() => expect(getImportSession).toHaveBeenCalledOnce());
+    expect(screen.getByText('Finishing import…')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Next' })).not.toBeInTheDocument();
+    await act(async () => finishImport({
+      import_ref: 'large-selection', state: 'completed', sheet_id: 91,
+      search_preparation_batch_id: 'early-prep', search_preparation_status: 'available',
+    }));
+    expect(await screen.findByRole('button', { name: 'Next' })).toBeEnabled();
   });
 
   it('surfaces a transient import follow-up failure and recovers on the next poll', async () => {
@@ -367,7 +470,7 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     getImportSession
       .mockRejectedValueOnce(new Error('temporary status outage'))
       .mockResolvedValueOnce({
-        import_ref: 'large-selection', state: 'running', admitted_files: 2, admitted_bytes: 2,
+        import_ref: 'large-selection', state: 'completed', admitted_files: 2, admitted_bytes: 2,
         through: 2, committed_rows: 2, committed_bytes: 2, sheet_id: 91,
         sheet_name: 'Files', cancel_requested: false, sealed: true, error: null,
         search_preparation_batch_id: 'recovered-prep',
@@ -388,6 +491,7 @@ describe('ImportWorkspaceDialog controlled open session', () => {
       'Could not refresh import progress. Retrying…',
     );
     await waitFor(() => expect(getImportSession).toHaveBeenCalledTimes(2), { timeout: 2_500 });
+    fireEvent.click(await screen.findByTestId('import-files-next'));
     expect(await screen.findByTestId('search-preparation-receipt')).toHaveTextContent('Text ready for keyword search');
     expect(onImported).toHaveBeenCalledWith(91);
   });

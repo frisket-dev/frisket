@@ -3,7 +3,6 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   replanSearchPreparation,
   decideSearchPreparation,
-  stopSearchPreparation,
   getSearchPreparation,
   getSearchPreparationTextSamples,
   type SearchPreparationBatch,
@@ -13,7 +12,8 @@ import {
 import { formatNumberDisplay } from '../format';
 import { usePoll, type PollResult } from '../hooks/usePoll';
 import { PdfTextPagePreview } from './importWorkspace/pdfPacket/PdfTextPagePreview';
-import { resamplePages, samplePages } from './importWorkspace/pdfPacket/model';
+import { PdfSamplePages } from './importWorkspace/pdfPacket/PdfSamplePages';
+import { PanelSelect } from './PanelSelect';
 
 const TERMINAL = new Set<SearchPreparationBatch['status']>(['complete', 'stopped', 'failed']);
 
@@ -46,8 +46,8 @@ function TextReview({
   onError(message: string): void;
 }) {
   const [sample, setSample] = useState<SearchPreparationTextSample | null>(null);
+  const [documents, setDocuments] = useState<Pick<SearchPreparationTextSample, 'row_id' | 'column_id' | 'filename' | 'page_number'>[]>([]);
   const [requestedStatus, setRequestedStatus] = useState<SearchPreparationBatch['status'] | null>(null);
-  const [pages, setPages] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
   const loadGeneration = useRef(0);
   const loadController = useRef<AbortController | null>(null);
@@ -57,7 +57,7 @@ function TextReview({
     loadController.current?.abort();
   }, [batch.id, projectId]);
 
-  const load = async (rowId?: number, pageNumber?: number, background = false) => {
+  const load = async (rowId?: number, pageNumber?: number, background = false, columnId?: number) => {
     setRequestedStatus(batch.status);
     if (background && loadController.current !== null) return;
     loadController.current?.abort();
@@ -69,20 +69,19 @@ function TextReview({
       const result = await getSearchPreparationTextSamples(
         projectId,
         batch.id,
-        { rowId, pageNumber },
+        { rowId, columnId, pageNumber },
         { signal: controller.signal },
       );
       if (controller.signal.aborted || generation !== loadGeneration.current) return;
+      if (rowId == null) setDocuments(result.samples.map(({ row_id, column_id, filename, page_number }) => (
+        { row_id, column_id, filename, page_number }
+      )));
       const next = result.samples.find((item) => (
         (rowId == null || item.row_id === rowId)
+        && (columnId == null || item.column_id === columnId)
         && (pageNumber == null || item.page_number === pageNumber)
-      )) ?? result.samples[0] ?? null;
+      )) ?? null;
       setSample(next);
-      if (next && (!sample || sample.row_id !== next.row_id || sample.page_count !== next.page_count)) {
-        setPages(next.page_scoped
-          ? [next.page_number]
-          : samplePages(next.page_count ?? next.page_number));
-      }
     } catch (error) {
       if (!controller.signal.aborted && generation === loadGeneration.current) {
         onError(error instanceof Error ? error.message : String(error));
@@ -95,7 +94,7 @@ function TextReview({
     }
   };
 
-  usePoll(() => load(sample?.row_id, sample?.page_number, sample !== null), {
+  usePoll(() => load(sample?.row_id, sample?.page_number, sample !== null, sample?.column_id), {
     active: requestedStatus !== batch.status,
     intervalMs: 1_000,
     guardOverlap: true,
@@ -105,7 +104,7 @@ function TextReview({
 
   const selectPage = (page: number) => {
     if (!sample || sample.page_scoped) return;
-    void load(sample.row_id, page);
+    void load(sample.row_id, page, false, sample.column_id);
   };
 
   if (!loading && !sample) return null;
@@ -120,33 +119,30 @@ function TextReview({
           <span>{sample?.filename}</span>
         </div>
       </header>
+      {documents.length > 1 && (
+        <label className="search-preparation-document">
+          Sample document
+          <PanelSelect ariaLabel="Sample document" topLayer disabled={busy}
+            value={sample ? `${sample.row_id}:${sample.column_id}` : ''}
+            onValueChange={(value) => {
+              const document = documents.find((item) => `${item.row_id}:${item.column_id}` === value);
+              if (document) void load(document.row_id, document.page_number, false, document.column_id);
+            }}>
+            {documents.map((document) => (
+              <option key={`${document.row_id}:${document.column_id}`} value={`${document.row_id}:${document.column_id}`}>
+                {document.filename || `PDF in row ${document.row_id}`}
+              </option>
+            ))}
+          </PanelSelect>
+        </label>
+      )}
       {sample ? (
         <>
-          <div className="search-preparation-sample-pages">
-            {sample.page_scoped ? (
-              <span>Page {sample.page_number} of {sample.page_count}</span>
-            ) : pages.map((page) => (
-                <button
-                  type="button"
-                  key={page}
-                  className={page === sample.page_number ? 'active' : ''}
-                  aria-pressed={page === sample.page_number}
-                  onClick={() => selectPage(page)}
-                >
-                  Page {page}
-                </button>
-              ))}
-            {!sample.page_scoped && (sample.page_count ?? 1) > 6 && (
-              <button
-                type="button"
-                className="icon-btn"
-                aria-label="Refresh sample pages"
-                onClick={() => setPages((current) => resamplePages(sample.page_count ?? 1, current))}
-              >
-                ↻
-              </button>
-            )}
-          </div>
+          {sample.page_scoped ? <span>Page {sample.page_number} of {sample.page_count}</span> : (
+            <PdfSamplePages key={`${sample.row_id}:${sample.column_id}:${sample.page_count}`}
+              pageCount={sample.page_count ?? sample.page_number}
+              selectedPage={sample.page_number} onSelectPage={selectPage} />
+          )}
           <PdfTextPagePreview
             page={sample.page_number}
             thumbnailUrl={sample.preview_url}
@@ -162,17 +158,16 @@ function TextReview({
       ) : null}
       {!needsOcr && (
         <>
-          <div className="search-preparation-actions">
-            <button type="button" className={batch.force_ocr ? 'btn' : 'btn btn-primary'} data-testid="search-preparation-keep-text"
-              aria-pressed={!batch.force_ocr} disabled={busy}
-              onClick={() => onReplan(false)}>Keep embedded text</button>
-            <button type="button" className={batch.force_ocr ? 'btn btn-primary' : 'btn'} data-testid="search-preparation-force-ocr"
-              aria-pressed={batch.force_ocr} disabled={busy}
-              onClick={() => onReplan(true)}>Re-scan PDFs with OCR</button>
-          </div>
+          <label className="search-preparation-ocr-option">
+            <input type="checkbox" data-testid="search-preparation-force-ocr"
+              checked={batch.force_ocr} disabled={busy}
+              onChange={(event) => onReplan(event.currentTarget.checked)} />
+            Re-scan all PDFs with OCR
+          </label>
           <p className="form-hint">
-            This choice applies to all PDFs in this batch. Keep embedded text where available,
-            or re-scan every PDF with OCR.
+            {batch.force_ocr
+              ? 'All PDFs will be re-scanned with OCR.'
+              : 'Embedded PDF text will be kept. Only scans and images need OCR.'}
           </p>
         </>
       )}
@@ -187,6 +182,7 @@ export function SearchPreparationReceipt({
   onDone,
   onError,
   importSummary,
+  onBack,
 }: {
   projectId: string;
   batchId: string;
@@ -194,6 +190,7 @@ export function SearchPreparationReceipt({
   onDone(): void;
   onError(message: string): void;
   importSummary?: ReactNode;
+  onBack?(): void;
 }) {
   const [batch, setBatch] = useState<SearchPreparationBatch | null>(null);
   const [loadingError, setLoadingError] = useState<string | null>(null);
@@ -262,16 +259,14 @@ export function SearchPreparationReceipt({
   ];
   const hasSelectedDownloads = selectedRefs.length > 0;
 
-  const decide = async (decision: 'prepare' | 'not_now') => {
+  const prepare = async () => {
     if (!batch || busy) return;
     const generation = ++requestGeneration.current;
     mutationGeneration.current = generation;
     let refreshAfterFailure = false;
     setBusy(true);
     try {
-      const next = decision === 'not_now'
-        ? await stopSearchPreparation(projectId, batch.id)
-        : await decideSearchPreparation(projectId, batch.id, {
+      const next = await decideSearchPreparation(projectId, batch.id, {
           plan_hash: batch.plan_hash,
           decision: 'prepare',
           selected_setup_refs: selectedRefs,
@@ -331,7 +326,6 @@ export function SearchPreparationReceipt({
   const pdfGroup = batch.groups.find((group) => (
     (group.kind === 'native_pdf' || group.kind === 'ocr') && group.count > 0
   ));
-  const ocrGroup = batch.groups.find((group) => group.kind === 'ocr' && group.count > 0);
   const fullyPrepared = batch.status === 'complete'
     && batch.groups.length > 0
     && batch.groups.every((group) => group.status === 'complete');
@@ -412,9 +406,7 @@ export function SearchPreparationReceipt({
 
         {batch.status === 'needs_consent' && (
           <section className="search-preparation-consent" data-testid="search-preparation-model-consent">
-            <h3>{missingModels.length > 0
-              ? 'Set up text extraction'
-              : ocrGroup ? 'Extract text with OCR?' : 'Prepare file text?'}</h3>
+            <h3>{missingModels.length > 0 ? 'Downloads' : 'What will be prepared'}</h3>
             <p className="form-hint">Preparing this batch will run {batch.groups.map((group) => (
               group.kind === 'ocr' ? `${group.count} ${group.count === 1 ? 'file' : 'files'} with OCR`
                 : group.kind === 'transcribe' ? `${group.count} ${group.count === 1 ? 'transcription' : 'transcriptions'}`
@@ -467,21 +459,13 @@ export function SearchPreparationReceipt({
       </div>
       {batch.status === 'needs_consent' ? (
         <footer className="search-preparation-actions">
-          <button
-            type="button"
-            className="btn"
-            data-testid="search-preparation-decision-not-now"
-            disabled={busy}
-            onClick={() => void decide('not_now')}
-          >
-            Not now
-          </button>
+          {onBack && <button type="button" className="btn" disabled={busy} onClick={onBack}>Back</button>}
           <button
             type="button"
             className="btn btn-primary"
             data-testid="search-preparation-decision-prepare"
             disabled={busy || !canPrepare}
-            onClick={() => void decide('prepare')}
+            onClick={() => void prepare()}
           >
             {busy
               ? 'Please wait…'
