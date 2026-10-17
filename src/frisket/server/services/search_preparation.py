@@ -320,14 +320,30 @@ class SearchPreparationService:
         project = self.workspace.get(project_id)
         if existing is not None and existing.plan is not None:
             return existing.id
-        plan = self._plan(
-            project,
-            sheet_id=sheet_id,
-            row_ids=row_ids,
-            force_ocr=False,
-            intersect_visible_rows=True,
-        )
-        if not plan["items"]:
+        planning_error = None
+        try:
+            plan = self._plan(
+                project,
+                sheet_id=sheet_id,
+                row_ids=row_ids,
+                force_ocr=False,
+                intersect_visible_rows=True,
+            )
+        except RouteError as exc:
+            if exc.status_code != 422:
+                raise
+            # The files are already committed. Publish a failed preparation
+            # outcome instead of making a deterministic preview error look like
+            # a still-running import. Other failures retain their retry path.
+            planning_error = str(exc.detail)
+            plan = {
+                "source_cutoff": int(project.op_cursor),
+                "force_ocr": False,
+                "groups": [],
+                "models": [],
+                "items": [],
+            }
+        if not plan["items"] and planning_error is None:
             if existing is not None:
                 self.store.mark_settled(
                     existing.id,
@@ -342,19 +358,21 @@ class SearchPreparationService:
                 storage_org_id=self.workspace.queue_storage_org_id,
                 sheet_id=sheet_id,
                 plan=plan,
+                error_message=planning_error,
             )
+        else:
+            batch = self.store.create(
+                storage_org_id=self.workspace.queue_storage_org_id,
+                project_id=project_id,
+                trigger_receipt_id=receipt_id,
+                sheet_id=sheet_id,
+                row_ids=row_ids,
+                force_ocr=False,
+                plan=plan,
+                error_message=planning_error,
+            )
+        if planning_error is None:
             self._advance(batch)
-            return batch.id
-        batch = self.store.create(
-            storage_org_id=self.workspace.queue_storage_org_id,
-            project_id=project_id,
-            trigger_receipt_id=receipt_id,
-            sheet_id=sheet_id,
-            row_ids=row_ids,
-            force_ocr=False,
-            plan=plan,
-        )
-        self._advance(batch)
         return batch.id
 
     def reserve_import(

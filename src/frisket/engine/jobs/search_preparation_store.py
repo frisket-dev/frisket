@@ -216,6 +216,7 @@ class SearchPreparationStore:
         force_ocr: bool,
         plan: Mapping[str, Any],
         retry_terminal: bool = False,
+        error_message: str | None = None,
     ) -> SearchPreparationBatchRow:
         now = _now()
         batch_id = "search-prep-" + uuid.uuid4().hex
@@ -259,8 +260,10 @@ class SearchPreparationStore:
             force_ocr=force_ocr,
             plan_hash=canonical_plan_hash(plan_body),
             plan_json=json.dumps(plan_body, sort_keys=True, separators=(",", ":")),
-            error_json="[]",
-            settled_at=None,
+            error_json=json.dumps(
+                [error_message.strip()[:500]] if error_message else []
+            ),
+            settled_at=now if error_message else None,
             created_at=now,
             updated_at=now,
         )
@@ -426,6 +429,7 @@ class SearchPreparationStore:
         storage_org_id: int | None,
         sheet_id: int,
         plan: Mapping[str, Any],
+        error_message: str | None = None,
     ) -> SearchPreparationBatchRow:
         """Atomically turn one pending import reservation into an ordinary plan."""
 
@@ -452,7 +456,12 @@ class SearchPreparationStore:
                     sheet_id=int(sheet_id),
                     plan_hash=canonical_plan_hash(body),
                     plan_json=json.dumps(body, sort_keys=True, separators=(",", ":")),
-                    settled_at=None,
+                    error_json=(
+                        json.dumps([error_message.strip()[:500]])
+                        if error_message
+                        else c.error_json
+                    ),
+                    settled_at=_now() if error_message else None,
                     updated_at=_now(),
                 )
             )
