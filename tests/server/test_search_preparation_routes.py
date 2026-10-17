@@ -10,6 +10,7 @@ import pytest
 
 from frisket.engine.jobs import model_pull_store
 from frisket.engine.jobs.projection import job_run_id
+from frisket.engine.store.document_text import document_text_role
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.pdf_text import PdfTextError, PdfTextSample
 from frisket.server.app import create_app
@@ -1189,12 +1190,37 @@ def test_mixed_pdf_plan_preserves_good_work_and_skipped_source_scope(
         },
     )
     assert started.status_code == 200, started.text
-    assert {job["action_kind"] for job in started.json()["jobs"]} == {
-        "native_pdf",
-        "ocr",
-    }
-    assert len(started.json()["jobs"]) == 2
+    [native_job] = started.json()["jobs"]
+    assert native_job["action_kind"] == "native_pdf"
     assert started.json()["warnings"] == batch["warnings"]
+
+    # Both producers target the one designated Text column. The ordinary
+    # output claim therefore serializes their disjoint row scopes; completing
+    # native extraction lets durable recovery admit OCR against the same id.
+    from frisket.engine.jobs import Worker
+    from http_test_helpers import run_worker_until_job_terminal
+
+    worker = Worker(workspace.queue, workspace.registry, worker_id="mixed-pdf-test")
+    terminal = run_worker_until_job_terminal(
+        worker, workspace.queue, native_job["job_id"]
+    )
+    assert terminal.status == "done"
+    service.recover()
+
+    continued = service.get(project_id, batch["id"])
+    assert {job.action_kind for job in continued.jobs} == {"native_pdf", "ocr"}
+    assert len(continued.jobs) == 2
+    role = document_text_role(project, source_column_id=broken["column_id"])
+    assert role is not None
+    for job in continued.jobs:
+        queued = workspace.queue.get(job.job_id)
+        assert queued is not None
+        run_id = job_run_id(queued)
+        assert run_id is not None
+        assert project.db.execute(
+            "SELECT 1 FROM run_output_generations WHERE run_id=? AND column_id=?",
+            (run_id, role.text_column_id),
+        ).fetchone()
 
 
 def test_pdf_preview_failure_is_readable_http_error(tmp_path, monkeypatch):

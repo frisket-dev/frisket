@@ -89,9 +89,7 @@ def test_designated_text_name_is_unique_without_claiming_a_collision(tmp_path) -
 
 def test_image_ocr_preparation_uses_the_designated_text_column(tmp_path) -> None:
     with closing(Project.create(tmp_path / "image-text.frisket")) as project:
-        sheet_id, source_column_id = _source(
-            project, name="Scan", column_type="image"
-        )
+        sheet_id, source_column_id = _source(project, name="Scan", column_type="image")
 
         body = _body(
             project,
@@ -171,9 +169,12 @@ def test_inactive_designated_text_column_is_not_silently_replaced(tmp_path) -> N
                 kind="ocr",
             )
 
-        assert document_text_role(
-            project, source_column_id=source_column_id
-        ).text_column_id == role.text_column_id
+        assert (
+            document_text_role(
+                project, source_column_id=source_column_id
+            ).text_column_id
+            == role.text_column_id
+        )
 
 
 def test_transcription_does_not_create_a_document_text_role(tmp_path) -> None:

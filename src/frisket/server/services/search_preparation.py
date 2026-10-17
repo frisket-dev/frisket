@@ -1558,9 +1558,7 @@ class SearchPreparationService:
             raise ValueError("search preparation child must use one source column")
         source_column_id = next(iter(source_column_ids))
         text_target = (
-            _document_text_target(
-                project, source_column_id=source_column_id
-            )
+            _document_text_target(project, source_column_id=source_column_id)
             if kind in {"native_pdf", "ocr"}
             else None
         )
