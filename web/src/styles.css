@@ -5178,6 +5178,7 @@ li.panel-empty { list-style: none; }
   font-variant-numeric: tabular-nums;
 }
 .search-preparation-progress .model-pull-progress-bar { flex: 1; }
+.search-preparation-banner .run-file-progress-copy { flex-wrap: wrap; }
 .search-preparation-details {
   display: grid;
   gap: 4px;
@@ -8682,6 +8683,7 @@ dialog.import-workspace-layer::backdrop {
 }
 .import-files-summary-list li svg { flex: 0 0 auto; }
 .import-files-progress { display: grid; gap: 8px; }
+.import-workspace-main-preparation .run-spinner { display: inline-block; vertical-align: middle; margin-right: 6px; }
 .import-files-progress progress { width: min(100%, 420px); accent-color: var(--accent); }
 .search-preparation-document { display: grid; gap: 6px; }
 .search-preparation-ocr-option { display: flex; align-items: center; gap: 8px; }
