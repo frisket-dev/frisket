@@ -9,6 +9,7 @@ from time import perf_counter
 import pytest
 
 from frisket.engine.store import Project
+from frisket.engine.store.document_text import ensure_document_text_role
 from frisket.engine.store.evidence import (
     record_evidence_link,
     record_source_artifact,
@@ -474,6 +475,96 @@ def test_unique_prepared_lexical_match_narrows_location_to_owning_page(tmp_path)
             .text[location.text.start : location.text.end]
             == "bluewharf"
         )
+    finally:
+        project.close()
+
+
+def test_document_text_search_tracks_file_replacement_and_undo(tmp_path):
+    from frisket.search import drain_index
+
+    project = Project.create(tmp_path / "document-text-search.frisket")
+    try:
+        sheet = project.add_sheet("Documents")
+        file_column = project.add_column(sheet, "File", type="file")
+        text_column = project.add_column(sheet, "Text")
+        notes_column = project.add_column(sheet, "Notes")
+        digest = project.add_blob(b"original PDF", mime="application/pdf")
+        row = project.add_rows(
+            sheet,
+            [{"File": {"blob": digest}, "Notes": "ordinaryanchor"}],
+            {"File": file_column, "Notes": notes_column},
+        )[0]
+        project.db.execute("BEGIN IMMEDIATE")
+        op_id = project.append_op("prepare.test", commit=False)
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="document",
+            media_type="application/pdf",
+            blob_hash=digest,
+            page_count=1,
+            source_sheet_id=sheet,
+            source_row_id=row,
+            source_column_id=file_column,
+        )
+        prepared = PreparedContentStore(project).stage_reference(
+            source_artifact_id=int(artifact["id"]),
+            producing_op_id=op_id,
+            pages=(PreparedPageDraft(1, "originalanchor"),),
+        )
+        project.db.commit()
+        project.apply_edits(
+            [{"row_id": row, "column_id": text_column, "value": prepared}]
+        )
+        ensure_document_text_role(
+            project,
+            source_column_id=file_column,
+            text_column_id=text_column,
+            commit=True,
+        )
+        project.apply_edits(
+            [{"row_id": row, "column_id": text_column, "value": "correctedanchor"}]
+        )
+
+        def matches(word):
+            return search(
+                project,
+                SearchRequest(
+                    scope=RetrievalScope(sheets=(SheetScope(sheet),)),
+                    query=TextQuery(word),
+                    mode="lexical",
+                    ranking=RankingPolicy(rerank="off"),
+                ),
+            ).results
+
+        drain_index(project)
+        assert len(matches("correctedanchor")) == 1
+        assert len(matches("ordinaryanchor")) == 1
+
+        replacement = project.add_blob(b"replacement PDF", mime="application/pdf")
+        replacement_op = project.apply_edits(
+            [{"row_id": row, "column_id": file_column, "value": {"blob": replacement}}]
+        )
+        assert matches("correctedanchor") == ()
+        drain_index(project)
+        assert matches("correctedanchor") == ()
+        assert project.get_values(sheet, text_column)[row] == "correctedanchor"
+        assert len(matches("ordinaryanchor")) == 1
+
+        assert project.undo() == replacement_op
+        drain_index(project)
+        assert len(matches("correctedanchor")) == 1
+
+        project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (file_column,))
+        project.db.commit()
+        assert matches("correctedanchor") == ()
+        project.db.execute("UPDATE columns SET hidden=0 WHERE id=?", (file_column,))
+        project.db.commit()
+        drain_index(project)
+        assert len(matches("correctedanchor")) == 1
+
+        project.apply_edits([{"row_id": row, "column_id": file_column, "value": None}])
+        assert matches("correctedanchor") == ()
+        assert project.get_values(sheet, text_column)[row] == "correctedanchor"
     finally:
         project.close()
 

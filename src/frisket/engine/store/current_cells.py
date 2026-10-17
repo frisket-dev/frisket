@@ -508,6 +508,29 @@ def _insert_region(
     )
 
 
+def _enqueue_column_work(
+    db: sqlite3.Connection,
+    *,
+    sheet_id: int,
+    column_id: int,
+    ranges: list[tuple[int, int]] | None,
+) -> None:
+    from .document_text import document_text_related_column_ids
+
+    for related in document_text_related_column_ids(db, column_id=column_id):
+        if ranges is None:
+            enqueue_dirty_scope(db, sheet_id=sheet_id, column_id=related)
+        else:
+            for start, end in ranges:
+                enqueue_dirty_scope(
+                    db,
+                    sheet_id=sheet_id,
+                    column_id=related,
+                    row_id_start=start,
+                    row_id_end=end,
+                )
+
+
 def _enqueue_region(
     db: sqlite3.Connection, *, column_ids: list[int], row_ids: list[int] | None
 ) -> int:
@@ -519,17 +542,7 @@ def _enqueue_region(
         if sheet is None:
             continue
         sheet_id = int(sheet[0])
-        if ranges is None:
-            enqueue_dirty_scope(db, sheet_id=sheet_id, column_id=column_id)
-        else:
-            for start, end in ranges:
-                enqueue_dirty_scope(
-                    db,
-                    sheet_id=sheet_id,
-                    column_id=column_id,
-                    row_id_start=start,
-                    row_id_end=end,
-                )
+        _enqueue_column_work(db, sheet_id=sheet_id, column_id=column_id, ranges=ranges)
     return latest_revision(db)
 
 
@@ -603,19 +616,16 @@ def refresh_current_cells_from_key_table(db: sqlite3.Connection, key_table: str)
             "SELECT row_start,row_end FROM grouped",
             (column_id, _MAX_SEARCH_ROW_RANGES + 1),
         ).fetchall()
-        if len(ranges) > _MAX_SEARCH_ROW_RANGES:
-            enqueue_dirty_scope(
-                db, sheet_id=int(column["sheet_id"]), column_id=column_id
-            )
-        else:
-            for row_range in ranges:
-                enqueue_dirty_scope(
-                    db,
-                    sheet_id=int(column["sheet_id"]),
-                    column_id=column_id,
-                    row_id_start=int(row_range["row_start"]),
-                    row_id_end=int(row_range["row_end"]),
-                )
+        _enqueue_column_work(
+            db,
+            sheet_id=int(column["sheet_id"]),
+            column_id=column_id,
+            ranges=(
+                None
+                if len(ranges) > _MAX_SEARCH_ROW_RANGES
+                else [(int(row["row_start"]), int(row["row_end"])) for row in ranges]
+            ),
+        )
     retrieval_revision = latest_revision(db)
     total = _insert_candidates(
         db,

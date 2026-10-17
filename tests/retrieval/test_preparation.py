@@ -11,6 +11,12 @@ from pypdf import PdfWriter
 from frisket.engine.jobs import search_index as search_index_job
 from frisket.engine.pdf_render import PdfRenderError
 from frisket.engine.store import Project
+from frisket.engine.store.document_text import ensure_document_text_role
+from frisket.engine.store.evidence import record_source_artifact
+from frisket.engine.store.prepared_content import (
+    PreparedContentStore,
+    PreparedPageDraft,
+)
 from frisket.retrieval.content import (
     TextChunkRecipe,
     TextSurface,
@@ -1390,6 +1396,104 @@ def test_edit_during_preparation_rejects_old_cursor_target(tmp_path) -> None:
             assert (old_state.status, old_state.error_code) == (
                 "failed",
                 "stale_source",
+            )
+    finally:
+        project.close()
+
+
+@pytest.mark.parametrize("change_during_encoding", [False, True])
+def test_source_file_edit_retires_pending_text(
+    tmp_path, change_during_encoding
+) -> None:
+    project = Project.create(tmp_path / "document-dependency.frisket")
+    space = EmbeddingGemma2Space(dimensions=128)
+    try:
+        sheet_id = project.add_sheet("Documents")
+        file_column = project.add_column(sheet_id, "File", type="file")
+        text_column = project.add_column(sheet_id, "Text")
+        digest = project.add_blob(b"first PDF", mime="application/pdf")
+        row_id = project.add_rows(
+            sheet_id,
+            [{"File": {"blob": digest}, "Text": "authority original text"}],
+            {"File": file_column, "Text": text_column},
+        )[0]
+        ensure_document_text_role(
+            project,
+            source_column_id=file_column,
+            text_column_id=text_column,
+            commit=True,
+        )
+        project.db.execute("BEGIN IMMEDIATE")
+        op_id = project.append_op("prepare.test", commit=False)
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="document",
+            media_type="application/pdf",
+            blob_hash=digest,
+            page_count=1,
+            source_sheet_id=sheet_id,
+            source_row_id=row_id,
+            source_column_id=file_column,
+        )
+        prepared = PreparedContentStore(project).stage_reference(
+            source_artifact_id=int(artifact["id"]),
+            producing_op_id=op_id,
+            pages=(PreparedPageDraft(1, "authority original text"),),
+        )
+        project.db.commit()
+        project.apply_edits(
+            [{"row_id": row_id, "column_id": text_column, "value": prepared}]
+        )
+        source = _source(project, sheet_id, text_column, row_id)
+        assert source.source_binding is not None
+        with RetrievalStore(project).open() as store:
+            dispatch_resolved_text_source(store, source, space=space)
+
+        replacement = project.add_blob(b"replacement PDF", mime="application/pdf")
+
+        def change_file():
+            project.apply_edits(
+                [
+                    {
+                        "row_id": row_id,
+                        "column_id": file_column,
+                        "value": {"blob": replacement},
+                    }
+                ]
+            )
+
+        class SourceChangingEncoder(_Encoder):
+            def encode(self, inputs, *, purpose, space, cancelled=None):
+                if change_during_encoding:
+                    change_file()
+                return super().encode(
+                    inputs, purpose=purpose, space=space, cancelled=cancelled
+                )
+
+        if not change_during_encoding:
+            change_file()
+        encoder = SourceChangingEncoder()
+        progress = process_text_preparation_batch(project, encoder=encoder, space=space)
+
+        assert progress.complete and progress.processed_parts == 0
+        assert encoder.calls == int(change_during_encoding)
+        assert (
+            project.get_values(sheet_id, text_column)[row_id]
+            == "authority original text"
+        )
+        with RetrievalStore(project).open() as store:
+            state = store.preparation_state(
+                source.source.source_id,
+                recipe_id=DEFAULT_PREPARATION_POLICY.text_recipe.recipe_id,
+                channel=TEXT_CHANNEL,
+            )
+            assert state is not None
+            assert (state.status, state.error_code) == ("failed", "stale_source")
+            assert (
+                store.db.execute(
+                    "SELECT count(*) FROM part_representations"
+                ).fetchone()[0]
+                == 0
             )
     finally:
         project.close()
