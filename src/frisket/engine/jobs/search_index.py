@@ -160,11 +160,11 @@ def index_work_marker(
     project: Project, *, include_preparation: bool = True
 ) -> str | None:
     """Stable identity for the next durable indexing position."""
-    scopes = read_dirty_scopes(project.db, limit=1)
-    if scopes:
-        first = scopes[0]
-        return f"{first.id}:{first.scan_cursor}"
     if index_needs_work(project):
+        scopes = read_dirty_scopes(project.db, limit=1)
+        if scopes:
+            first = scopes[0]
+            return f"{first.id}:{first.scan_cursor}"
         return f"repair:{latest_revision(project.db)}"
     if include_preparation and (marker := preparation_work_marker(project.path)):
         return f"prepare:{marker}"

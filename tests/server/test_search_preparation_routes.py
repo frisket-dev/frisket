@@ -137,6 +137,7 @@ def test_preparation_list_projects_durable_indexing_work(tmp_path, monkeypatch) 
     sheet_id = project.add_sheet("Notes")
     text_column = project.add_column(sheet_id, "Note", type="text")
     project.add_rows(sheet_id, [{"Note": "new text"}], {"Note": text_column})
+    project._frisket_schedule_search_index()
 
     active = client.get(f"/api/projects/{project_id}/search-preparation").json()[
         "indexing"
@@ -191,6 +192,7 @@ def test_search_recovers_index_work_without_a_queued_job(tmp_path, monkeypatch, 
     sheet_id = project.add_sheet("Notes")
     column_id = project.add_column(sheet_id, "Note", type="text")
     project.add_rows(sheet_id, [{"Note": "blue wharf"}], {"Note": column_id})
+    project._frisket_schedule_search_index()
     job = workspace.queue.find_job_by_refs("search.index", project_id=project_id)
     assert job is not None
     assert workspace.queue.cancel(job.id)
@@ -811,3 +813,42 @@ def test_recovery_observes_setup_completed_by_another_process(
     assert resumed.status == "preparing"
     assert len(resumed.jobs) == 1
     assert resumed.jobs[0].status == "queued"
+
+
+def test_empty_project_does_not_queue_or_report_search_preparation(tmp_path):
+    client = TestClient(create_app(tmp_path / "workspace"))
+    response = client.post("/api/projects", json={"name": "Empty"})
+    assert response.status_code == 200, response.text
+    project_id = response.json()["id"]
+    workspace = client.app.state.workspace
+    project = workspace.get(project_id)
+    sheet = project.add_sheet("Documents")
+    column = project.add_column(sheet, "body")
+    url = f"/api/projects/{project_id}/search-preparation"
+    for _ in range(2):
+        status = client.get(url)
+        assert status.status_code == 200, status.text
+        assert status.json() == {
+            "batches": [],
+            "indexing": {"status": "idle", "job_id": None, "error": None},
+        }
+    assert workspace.queue.counts()["queued"] == 0
+
+    project.add_rows(sheet, [{"body": "first searchable content"}], {"body": column})
+    # Direct library writes record work; a search is a normal enqueue recovery
+    # boundary (production imports also schedule at their commit boundary).
+    searched = client.post(
+        f"/api/projects/{project_id}/search",
+        json={
+            "scope": {"kind": "project"},
+            "query": {"kind": "text", "text": "content", "lexical_syntax": "plain"},
+            "mode": "lexical",
+            "group_by": "source",
+            "limit": 10,
+            "ranking": {"rerank": "off"},
+        },
+    )
+    assert searched.status_code == 200, searched.text
+    status = client.get(url).json()["indexing"]
+    assert status["status"] == "queued"
+    assert status["job_id"] is not None

@@ -648,7 +648,7 @@ def test_preparation_policy_persists_strategy_and_defaults_raw_audio_off(
         write_preparation_policy(project, policy)
 
         assert read_preparation_policy(project) == policy
-        assert index_needs_work(project)
+        assert not index_needs_work(project)
     finally:
         project.close()
 

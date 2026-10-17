@@ -76,6 +76,7 @@ def test_unavailable_encoder_stops_continuations_until_setup_enqueues(tmp_path):
             {"body": column},
         )
 
+        project._frisket_schedule_search_index()
         worker = Worker(workspace.queue, workspace.registry)
         assert worker.run_once()
         assert workspace.queue.counts()["queued"] == 0
