@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-from types import SimpleNamespace
 
 import pytest
 
 from frisket.engine.store import Project
+from frisket.engine.pdf_text import PdfTextError, PdfTextSample
 from frisket.engine.store.evidence import (
     record_evidence_link,
     record_source_artifact,
@@ -90,9 +90,9 @@ def test_manual_edit_over_prepared_generation_stays_ready_for_same_source(
     from frisket.search import drain_index
 
     async def native_text(_source, **_kwargs):
-        return [_page(1, "native searchable text")]
+        return pdf_text.PdfTextBatch([_page(1, "native searchable text")], 1, None)
 
-    monkeypatch.setattr(pdf_text, "extract_pdf_text", native_text)
+    monkeypatch.setattr(pdf_text, "extract_pdf_text_batch", native_text)
     project = Project.create(tmp_path / "edited-prepared-generation.frisket")
     try:
         sheet, document, row, _digest = _source(
@@ -224,7 +224,7 @@ def test_prepared_pdf_result_must_match_current_page_selector(
         async def forbidden_extract(_path):
             raise AssertionError("current prepared text must bypass PDF extraction")
 
-        monkeypatch.setattr(planning, "extract_pdf_text", forbidden_extract)
+        monkeypatch.setattr(planning, "sample_pdf_text", forbidden_extract)
         assert (
             planning.build_plan(
                 project,
@@ -256,26 +256,12 @@ def test_prepared_pdf_result_must_match_current_page_selector(
         assert source is not None
         assert not planning._has_current_result(project, source, "native_pdf")
 
-        async def native_page(_path):
-            return [
-                SimpleNamespace(
-                    page=2,
-                    tokens=(
-                        SimpleNamespace(
-                            text="native", box=SimpleNamespace(y0=0.1, y1=0.2)
-                        ),
-                        SimpleNamespace(
-                            text="second page", box=SimpleNamespace(y0=0.1, y1=0.2)
-                        ),
-                        SimpleNamespace(
-                            text="continued", box=SimpleNamespace(y0=0.4, y1=0.5)
-                        ),
-                    ),
-                )
-            ]
+        async def native_page(_path, *, page, **_kwargs):
+            assert page == 2
+            return PdfTextSample("native second page\ncontinued", 2, 2, False)
 
-        monkeypatch.setattr(planning, "extract_pdf_text", native_page)
-        text, count, origin = planning.sample_pdf(
+        monkeypatch.setattr(planning, "sample_pdf_text", native_page)
+        text, count, origin, truncated = planning.sample_pdf(
             project,
             sheet,
             {
@@ -292,6 +278,7 @@ def test_prepared_pdf_result_must_match_current_page_selector(
             2,
             "native",
         )
+        assert truncated is False
     finally:
         project.close()
 
@@ -315,7 +302,7 @@ def test_page_selected_pdf_preview_cannot_switch_to_another_page(
                 "an out-of-selector preview must fail before extraction"
             )
 
-        monkeypatch.setattr(planning, "extract_pdf_text", must_not_extract)
+        monkeypatch.setattr(planning, "sample_pdf_text", must_not_extract)
         with pytest.raises(RouteError, match="selected PDF page") as error:
             planning.sample_pdf(
                 project,
@@ -352,14 +339,13 @@ def test_build_plan_is_async_safe_caches_pdf_inspection_and_rejects_bad_selector
         )
         calls = []
 
-        async def native_pages(_path, **_kwargs):
-            calls.append(True)
-            return [
-                SimpleNamespace(page=1, tokens=(SimpleNamespace(text="first"),)),
-                SimpleNamespace(page=2, tokens=(SimpleNamespace(text="second"),)),
-            ]
+        async def native_pages(_path, *, page, **_kwargs):
+            calls.append(page)
+            if page > 2:
+                raise PdfTextError("PDF page is outside the document")
+            return PdfTextSample("first" if page == 1 else "second", page, 2, False)
 
-        monkeypatch.setattr(planning, "extract_pdf_text", native_pages)
+        monkeypatch.setattr(planning, "sample_pdf_text", native_pages)
 
         async def plan_on_route_loop():
             return planning.build_plan(
@@ -376,7 +362,7 @@ def test_build_plan_is_async_safe_caches_pdf_inspection_and_rejects_bad_selector
             "native_pdf",
             "native_pdf",
         ]
-        assert calls == [True]
+        assert calls == [1, 2]
 
         project.apply_edits(
             [
@@ -391,7 +377,7 @@ def test_build_plan_is_async_safe_caches_pdf_inspection_and_rejects_bad_selector
                 }
             ]
         )
-        with pytest.raises(RouteError, match="outside the document") as error:
+        with pytest.raises(RouteError, match="preview could not be read") as error:
             asyncio.run(plan_on_route_loop())
         assert error.value.status_code == 422
     finally:
@@ -464,9 +450,9 @@ def test_imported_pdf_page_image_is_not_planned_beside_its_pdf_page(
         )
 
         async def blank_page(_path, **_kwargs):
-            return [SimpleNamespace(page=1, tokens=())]
+            return PdfTextSample("", 1, 1, False)
 
-        monkeypatch.setattr(planning, "extract_pdf_text", blank_page)
+        monkeypatch.setattr(planning, "sample_pdf_text", blank_page)
         plan = planning.build_plan(
             project,
             sheet_id=sheet,
@@ -572,13 +558,139 @@ def test_pdf_preview_uses_latest_current_prepared_output(tmp_path, monkeypatch) 
         async def forbidden_extract(_path):
             raise AssertionError("the current prepared text should supply the preview")
 
-        monkeypatch.setattr(planning, "extract_pdf_text", forbidden_extract)
+        monkeypatch.setattr(planning, "sample_pdf_text", forbidden_extract)
 
         assert planning.sample_pdf(project, sheet, item, 1) == (
             "correct OCR",
             1,
             "prepared",
+            False,
         )
         assert store.resolve(replacement.ref_id).pins[0].positions == positions
+    finally:
+        project.close()
+
+
+def test_large_pdf_plan_and_preview_use_selected_page_sample(
+    tmp_path, monkeypatch
+) -> None:
+    project = Project.create(tmp_path / "large-pdf-sample.frisket")
+    try:
+        sheet = project.add_sheet("Documents")
+        document = project.add_column(sheet, "document", type="file")
+        digest = project.add_blob(b"pdf", mime="application/pdf")
+        rows = project.add_rows(
+            sheet,
+            [{"document": {"blob": digest, "mime": "application/pdf"}}] * 2,
+            {"document": document},
+        )
+        calls = []
+
+        async def sample(_path, *, page, max_chars, **_kwargs):
+            calls.append((page, max_chars))
+            return PdfTextSample(
+                "native sample" if page == 1 else "x" * max_chars,
+                page,
+                24909,
+                page != 1,
+            )
+
+        monkeypatch.setattr(planning, "sample_pdf_text", sample)
+        plan = planning.build_plan(
+            project,
+            sheet_id=sheet,
+            row_ids=rows,
+            force_ocr=False,
+            requirements=(),
+            requirement_dict=lambda *_args, **_kwargs: {},
+        )
+        assert calls == [(1, 12000)]
+        assert [(item["kind"], item["page_count"]) for item in plan["items"]] == [
+            ("native_pdf", 24909),
+            ("native_pdf", 24909),
+        ]
+        assert planning.sample_pdf(project, sheet, plan["items"][0], 24909) == (
+            "x" * 12000,
+            24909,
+            "native",
+            True,
+        )
+        assert calls[-1] == (24909, 12000)
+
+        async def unreadable(_path, **_kwargs):
+            raise PdfTextError("PDF text extraction failed")
+
+        monkeypatch.setattr(planning, "sample_pdf_text", unreadable)
+        with pytest.raises(RouteError, match="preview could not be read") as error:
+            planning.build_plan(
+                project,
+                sheet_id=sheet,
+                row_ids=rows,
+                force_ocr=False,
+                requirements=(),
+                requirement_dict=lambda *_args, **_kwargs: {},
+            )
+        assert error.value.status_code == 422
+    finally:
+        project.close()
+
+
+def test_prepared_pdf_preview_reads_bounded_exact_page_with_nul(
+    tmp_path, monkeypatch
+) -> None:
+    project = Project.create(tmp_path / "large-prepared-preview.frisket")
+    try:
+        sheet = project.add_sheet("Documents")
+        document = project.add_column(sheet, "document", type="file")
+        output = project.add_column(sheet, "text")
+        digest = project.add_blob(b"pdf", mime="application/pdf")
+        row = project.add_rows(
+            sheet,
+            [{"document": {"blob": digest, "mime": "application/pdf"}}],
+            {"document": document},
+        )[0]
+        project.db.execute("BEGIN IMMEDIATE")
+        op_id = project.append_op("media.read_pdf_text", commit=False)
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="document",
+            media_type="application/pdf",
+            blob_hash=digest,
+            page_count=2,
+            source_sheet_id=sheet,
+            source_row_id=row,
+            source_column_id=document,
+        )
+        body = "prefix\x00" + "é" * 1_000_000
+        reference = PreparedContentStore(project).stage_reference(
+            source_artifact_id=int(artifact["id"]),
+            producing_op_id=op_id,
+            pages=(
+                PreparedPageDraft(1, "other page" * 100000),
+                PreparedPageDraft(2, body),
+            ),
+        )
+        project.db.commit()
+        project.apply_edits([{"row_id": row, "column_id": output, "value": reference}])
+
+        def forbidden_resolve(*_args, **_kwargs):
+            raise AssertionError(
+                "preview must not hydrate the complete prepared document"
+            )
+
+        monkeypatch.setattr(PreparedContentStore, "resolve", forbidden_resolve)
+        item = {
+            "row_id": row,
+            "column_id": document,
+            "blob_hash": digest,
+            "page_number": None,
+            "page_count": 2,
+        }
+        assert planning.sample_pdf(project, sheet, item, 2) == (
+            body[:12000],
+            2,
+            "prepared",
+            True,
+        )
     finally:
         project.close()

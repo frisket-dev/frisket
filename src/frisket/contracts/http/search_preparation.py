@@ -62,6 +62,11 @@ class SearchPreparationDecisionRequest(WireModel):
         return self
 
 
+class SearchPreparationReplanRequest(WireModel):
+    plan_hash: str = Field(min_length=1, max_length=96)
+    force_ocr: bool
+
+
 class SearchPreparationGroup(WireModel):
     kind: SearchPreparationGroupKind
     count: int = Field(ge=0)
@@ -98,6 +103,7 @@ class SearchPreparationBatch(WireModel):
     id: str
     sheet_id: int = Field(gt=0)
     plan_hash: str
+    force_ocr: bool = False
     status: SearchPreparationStatus
     groups: list[SearchPreparationGroup]
     models: list[SearchPreparationModel]
@@ -159,6 +165,7 @@ __all__ = [
     "SearchPreparationBatchList",
     "SearchPreparationCreateRequest",
     "SearchPreparationDecisionRequest",
+    "SearchPreparationReplanRequest",
     "SearchPreparationGroup",
     "SearchPreparationIndexing",
     "SearchPreparationJob",

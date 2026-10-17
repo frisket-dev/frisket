@@ -10,8 +10,10 @@ import pytest
 from frisket.engine.jobs import model_pull_store
 from frisket.engine.jobs.projection import job_run_id
 from frisket.engine.store.receipts import ReceiptStore
+from frisket.engine.pdf_text import PdfTextError, PdfTextSample
 from frisket.server.app import create_app
 from frisket.server.services import search_preparation as preparation_module
+from frisket.server.services import search_preparation_planning as planning_module
 from frisket.server.services.search_preparation import SearchPreparationService
 from frisket.server.services.action_runs import ActionRunResponse
 from frisket.server.workspace import Workspace
@@ -335,6 +337,36 @@ def test_preparation_indexing_prefers_running_claim_over_queued_continuation(
     }
 
 
+def test_pdf_progress_is_optional_and_skipped_when_indexing_is_idle(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(preparation_module, "_requirements", lambda: ())
+    monkeypatch.setattr(preparation_module, "index_work_marker", lambda *_args: None)
+    workspace = Workspace(tmp_path / "workspace")
+    project_id = workspace.create("Optional progress")["id"]
+    service = SearchPreparationService(workspace)
+    calls = []
+
+    def unavailable(*_args, **_kwargs):
+        calls.append(True)
+        raise sqlite3.OperationalError("progress unavailable")
+
+    monkeypatch.setattr(preparation_module, "read_pdf_indexing_progress", unavailable)
+    assert service.list(project_id).indexing.status == "idle"
+    assert calls == []
+    job = workspace.queue.enqueue(
+        "search.index",
+        {
+            "project_id": project_id,
+            "workspace_root": str(workspace.root),
+        },
+    )
+    status = service.list(project_id).indexing
+    assert calls == [True]
+    assert status.status == "queued" and status.job_id == job
+    assert status.pdf_files == [] and status.pdf_files_truncated is False
+
+
 def test_preparation_list_projects_durable_indexing_work(tmp_path, monkeypatch) -> None:
     from frisket.search import drain_index
 
@@ -529,6 +561,308 @@ def test_missing_ocr_setup_never_starts_before_exact_consent(
     )
     assert decided.status == "preparing"
     assert setup_calls == [("engine-setup:rapidocr.local@1", "owner-1")]
+
+
+@pytest.mark.parametrize("force_ocr", [False, True])
+def test_ready_pdf_ocr_waits_for_exact_decision_over_http(
+    tmp_path, monkeypatch, force_ocr
+):
+    monkeypatch.setattr(
+        preparation_module,
+        "_requirements",
+        lambda: (replace(_Requirement(), weights_ready=True),),
+    )
+
+    async def sample(_path, *, page, **_kwargs):
+        return PdfTextSample("", page, 24909, False)
+
+    monkeypatch.setattr(planning_module, "sample_pdf_text", sample)
+    client = TestClient(create_app(tmp_path / "workspace"))
+    workspace = client.app.state.workspace
+    project_id = workspace.create("PDF review")["id"]
+    project = workspace.get(project_id)
+    sheet = project.add_sheet("Documents")
+    document = project.add_column(sheet, "document", type="file")
+    digest = project.add_blob(b"pdf", mime="application/pdf")
+    rows = project.add_rows(
+        sheet,
+        [{"document": {"blob": digest, "mime": "application/pdf"}}],
+        {"document": document},
+    )
+    base = f"/api/projects/{project_id}/search-preparation"
+    response = client.post(
+        base, json={"sheet_id": sheet, "row_ids": rows, "force_ocr": force_ocr}
+    )
+    assert response.status_code == 200, response.text
+    batch = response.json()
+    assert batch["status"] == "needs_consent"
+    assert batch["force_ocr"] is force_ocr
+    assert batch["jobs"] == []
+    service = SearchPreparationService(workspace)
+    service.recover()
+    assert client.get(f"{base}/{batch['id']}").json()["status"] == "needs_consent"
+    assert service.store.children(batch["id"]) == []
+    stale = client.post(
+        f"{base}/{batch['id']}/decision",
+        json={"plan_hash": "wrong", "decision": "prepare", "selected_setup_refs": []},
+    )
+    assert stale.status_code == 409
+    assert service.store.children(batch["id"]) == []
+    decision = {
+        "plan_hash": batch["plan_hash"],
+        "decision": "prepare",
+        "selected_setup_refs": [],
+    }
+    started = client.post(f"{base}/{batch['id']}/decision", json=decision)
+    assert started.status_code == 200, started.text
+    [job] = started.json()["jobs"]
+    assert job["action_kind"] == "ocr"
+    replay = client.post(f"{base}/{batch['id']}/decision", json=decision)
+    assert replay.status_code == 200
+    assert [job["job_id"] for job in replay.json()["jobs"]] == [job["job_id"]]
+    assert len(service.store.children(batch["id"])) == 1
+
+
+def test_legacy_pdf_action_is_adopted_before_the_review_guard(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        preparation_module,
+        "_requirements",
+        lambda: (replace(_Requirement(), weights_ready=True),),
+    )
+
+    async def sample(_path, *, page, **_kwargs):
+        return PdfTextSample("", page, 24909, False)
+
+    monkeypatch.setattr(planning_module, "sample_pdf_text", sample)
+    workspace = Workspace(tmp_path / "workspace")
+    project_id = workspace.create("Prior PDF action")["id"]
+    project = workspace.get(project_id)
+    sheet = project.add_sheet("Documents")
+    document = project.add_column(sheet, "document", type="file")
+    digest = project.add_blob(b"pdf", mime="application/pdf")
+    rows = project.add_rows(
+        sheet,
+        [{"document": {"blob": digest, "mime": "application/pdf"}}],
+        {"document": document},
+    )
+    service = SearchPreparationService(workspace)
+    plan = service._plan(project, sheet_id=sheet, row_ids=rows, force_ocr=False)
+    # An upgrade must still adopt an action admitted by the previous process
+    # before it could bind the receipt to its reserved child.
+    legacy = service.store.create(
+        storage_org_id=None,
+        project_id=project_id,
+        trigger_receipt_id=None,
+        sheet_id=sheet,
+        row_ids=rows,
+        force_ocr=False,
+        plan=plan,
+    )
+    [planned] = preparation_module._planned_children(legacy.plan)
+    service.store.reserve_child(
+        legacy.id, child_key=planned.child_key, kind=planned.kind
+    )
+    body = service._action_body(
+        project,
+        legacy,
+        planned.kind,
+        planned.column_name,
+        planned.items,
+        planned.child_key,
+    )
+    admitted = service.action_runs.run_action(project_id, body)
+    assert admitted.payload.get("job_id") is not None, admitted.payload
+    service.recover()
+    [adopted] = service.store.children(legacy.id)
+    assert adopted.receipt_id == admitted.payload["receipt_id"]
+    assert adopted.job_id == admitted.payload["job_id"]
+    recovered = service.get(project_id, legacy.id)
+    assert recovered.status == "preparing"
+    assert recovered.jobs[0].job_id == adopted.job_id
+
+
+def test_pdf_replan_preserves_full_original_cell_scope_and_rejects_late_decisions(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        preparation_module,
+        "_requirements",
+        lambda: (replace(_Requirement(), weights_ready=True),),
+    )
+
+    async def sample(_path, *, page, **_kwargs):
+        return PdfTextSample("embedded text", page, 24909, False)
+
+    monkeypatch.setattr(planning_module, "sample_pdf_text", sample)
+    client = TestClient(create_app(tmp_path / "workspace"))
+    workspace = client.app.state.workspace
+    project_id = workspace.create("Mixed review")["id"]
+    project = workspace.get(project_id)
+    sheet = project.add_sheet("Documents")
+    document = project.add_column(sheet, "document", type="file")
+    image = project.add_column(sheet, "image", type="image")
+    digest = project.add_blob(b"pdf", mime="application/pdf")
+    image_hash = project.add_blob(b"png", mime="image/png")
+    rows = project.add_rows(
+        sheet,
+        [
+            {
+                "document": {"blob": digest, "mime": "application/pdf"},
+                "image": {"blob": image_hash, "mime": "image/png"},
+            }
+            for _ in range(10)
+        ],
+        {"document": document, "image": image},
+    )
+    base = f"/api/projects/{project_id}/search-preparation"
+    service = SearchPreparationService(workspace)
+    import_receipt = "receipt:pdf-import"
+    original = service.create(
+        project_id,
+        sheet_id=sheet,
+        row_ids=rows,
+        force_ocr=False,
+        trigger_receipt_id=import_receipt,
+    ).model_dump(mode="json", by_alias=True)
+    assert original["status"] == "needs_consent"
+    assert original["jobs"] == []
+    # A new source column on the same selected rows must not enter the replacement.
+    extra = project.add_column(sheet, "extra", type="file")
+    project.apply_edits(
+        [
+            {
+                "row_id": row,
+                "column_id": extra,
+                "value": {"blob": digest, "mime": "application/pdf"},
+            }
+            for row in rows
+        ]
+    )
+    replacement_response = client.post(
+        f"{base}/{original['id']}/replan",
+        json={"plan_hash": original["plan_hash"], "force_ocr": True},
+    )
+    assert replacement_response.status_code == 200, replacement_response.text
+    replacement = replacement_response.json()
+    assert replacement["id"] != original["id"]
+    assert replacement["force_ocr"] is True
+    assert replacement["status"] == "needs_consent"
+    assert replacement["jobs"] == []
+    assert replacement["groups"] == [
+        {"kind": "ocr", "count": 20, "status": "needs_consent"}
+    ]
+    stored = service.store.get(
+        replacement["id"], project_id=project_id, storage_org_id=None
+    )
+    assert {(item["row_id"], item["column_id"]) for item in stored.plan["items"]} == {
+        (row, column) for row in rows for column in (document, image)
+    }
+    assert client.get(f"{base}/{original['id']}").json()["status"] == "stopped"
+    assert service.batch_for_receipt(project_id, import_receipt) == replacement["id"]
+    assert (
+        client.post(
+            f"{base}/{original['id']}/decision",
+            json={"plan_hash": original["plan_hash"], "decision": "prepare"},
+        ).status_code
+        == 409
+    )
+    assert (
+        client.post(
+            f"{base}/{replacement['id']}/decision",
+            json={"plan_hash": original["plan_hash"], "decision": "prepare"},
+        ).status_code
+        == 409
+    )
+    refreshed = service.store.get(
+        replacement["id"], project_id=project_id, storage_org_id=None
+    )
+    assert {
+        (item["row_id"], item["column_id"]) for item in refreshed.plan["items"]
+    } == {(row, column) for row in rows for column in (document, image)}
+    kept_response = client.post(
+        f"{base}/{replacement['id']}/replan",
+        json={"plan_hash": replacement["plan_hash"], "force_ocr": False},
+    )
+    assert kept_response.status_code == 200, kept_response.text
+    kept = kept_response.json()
+    assert kept["force_ocr"] is False
+    assert [(group["kind"], group["count"]) for group in kept["groups"]] == [
+        ("native_pdf", 10),
+        ("ocr", 10),
+    ]
+    stored_kept = service.store.get(
+        kept["id"], project_id=project_id, storage_org_id=None
+    )
+    child = preparation_module._planned_children(stored_kept.plan)[0]
+    service.store.reserve_child(kept["id"], child_key=child.child_key, kind=child.kind)
+    assert (
+        client.post(
+            f"{base}/{kept['id']}/replan",
+            json={"plan_hash": kept["plan_hash"], "force_ocr": True},
+        ).status_code
+        == 409
+    )
+    assert (
+        service.store.get(
+            kept["id"], project_id=project_id, storage_org_id=None
+        ).stop_requested_at
+        is None
+    )
+    started = client.post(
+        f"{base}/{kept['id']}/decision",
+        json={
+            "plan_hash": kept["plan_hash"],
+            "decision": "prepare",
+            "selected_setup_refs": [],
+        },
+    )
+    assert started.status_code == 200, started.text
+    assert len(started.json()["jobs"]) == 2
+    assert service.batch_for_receipt(project_id, import_receipt) == kept["id"]
+    assert (
+        service.create_after_import(
+            project_id, receipt_id=import_receipt, sheet_id=sheet
+        )
+        == kept["id"]
+    )
+
+
+def test_pdf_preview_failure_is_readable_http_error(tmp_path, monkeypatch):
+    monkeypatch.setattr(preparation_module, "_requirements", lambda: ())
+
+    async def sample(_path, *, page, **_kwargs):
+        return PdfTextSample("native", page, 24909, False)
+
+    monkeypatch.setattr(planning_module, "sample_pdf_text", sample)
+    client = TestClient(create_app(tmp_path / "workspace"))
+    workspace = client.app.state.workspace
+    project_id = workspace.create("PDF preview")["id"]
+    project = workspace.get(project_id)
+    sheet = project.add_sheet("Documents")
+    document = project.add_column(sheet, "document", type="file")
+    digest = project.add_blob(b"pdf", mime="application/pdf")
+    project.add_rows(
+        sheet,
+        [{"document": {"blob": digest, "mime": "application/pdf"}}],
+        {"document": document},
+    )
+    base = f"/api/projects/{project_id}/search-preparation"
+    created = client.post(base, json={"sheet_id": sheet}).json()
+    preview = client.get(
+        f"{base}/{created['id']}/text-samples", params={"page_number": 24909}
+    )
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["samples"][0]["page_count"] == 24909
+
+    async def failed(_path, **_kwargs):
+        raise PdfTextError("PDF extraction failed")
+
+    monkeypatch.setattr(planning_module, "sample_pdf_text", failed)
+    failed_preview = client.get(f"{base}/{created['id']}/text-samples")
+    assert failed_preview.status_code == 422
+    assert "preview could not be read" in failed_preview.text
+    failed_create = client.post(base, json={"sheet_id": sheet})
+    assert failed_create.status_code == 422
 
 
 def test_unselected_manual_pull_is_not_attached_to_preparation(
