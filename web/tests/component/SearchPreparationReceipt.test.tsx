@@ -240,10 +240,9 @@ describe('SearchPreparationReceipt', () => {
     expect(screen.queryByText(/Additional runtime files may also be downloaded/)).toBeNull();
     expect(screen.queryByText(/installs additional runtime components/)).toBeNull();
     expect(screen.queryByRole('link', { name: 'Source' })).toBeNull();
-    const consentFooter = screen.getByTestId('search-preparation-decision-not-now').closest('footer');
+    const consentFooter = screen.getByTestId('search-preparation-decision-prepare').closest('footer');
     expect(consentFooter).not.toBeNull();
     expect(Array.from(consentFooter!.querySelectorAll('button'), (button) => button.textContent)).toEqual([
-      'Not now',
       'Download and prepare',
     ]);
     expect(screen.queryByTestId('search-preparation-done')).toBeNull();
@@ -284,32 +283,17 @@ describe('SearchPreparationReceipt', () => {
     expect((semantic as HTMLInputElement).checked).toBe(true);
   });
 
-  it('stops an undecided batch on Not now without starting extraction or downloads, then closes', async () => {
+  it('returns to the summary without admitting or stopping preparation', async () => {
     getSearchPreparation.mockResolvedValue(consentBatch);
-    stopSearchPreparation.mockResolvedValue({ ...consentBatch, status: 'stopped' });
-    const onDone = vi.fn();
+    const onBack = vi.fn();
     render(<SearchPreparationReceipt projectId="project-1" batchId="prep-1"
-      onDone={onDone} onError={vi.fn()} />);
-    fireEvent.click(await screen.findByTestId('search-preparation-decision-not-now'));
-    await waitFor(() => expect(stopSearchPreparation).toHaveBeenCalledWith('project-1', 'prep-1'));
+      onBack={onBack} onDone={vi.fn()} onError={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Back' }));
+    expect(onBack).toHaveBeenCalledOnce();
+    expect(stopSearchPreparation).not.toHaveBeenCalled();
     expect(decideSearchPreparation).not.toHaveBeenCalled();
     expect(replanSearchPreparation).not.toHaveBeenCalled();
-    expect(onDone).toHaveBeenCalledOnce();
-  });
-
-  it('keeps the review open if stopping an undecided batch fails', async () => {
-    getSearchPreparation.mockResolvedValue(consentBatch);
-    stopSearchPreparation.mockRejectedValue(new Error('Could not stop preparation'));
-    const onDone = vi.fn();
-    const onError = vi.fn();
-    render(<SearchPreparationReceipt projectId="project-1" batchId="prep-1"
-      onDone={onDone} onError={onError} />);
-    fireEvent.click(await screen.findByTestId('search-preparation-decision-not-now'));
-    await waitFor(() => expect(onError).toHaveBeenCalledWith('Could not stop preparation'));
-    expect(onDone).not.toHaveBeenCalled();
-    expect(decideSearchPreparation).not.toHaveBeenCalled();
-    expect(screen.getByTestId('search-preparation-decision-prepare')).not.toBeNull();
-    expect(screen.getByTestId('search-preparation-model-consent')).not.toBeNull();
+    expect(screen.queryByRole('button', { name: 'Not now' })).toBeNull();
   });
 
   it('does not let an older poll response overwrite a preparation decision', async () => {
@@ -366,7 +350,7 @@ describe('SearchPreparationReceipt', () => {
       />,
     );
 
-    expect(await screen.findByText('Extract text with OCR?')).not.toBeNull();
+    expect(await screen.findByText('What will be prepared')).not.toBeNull();
     expect(screen.queryByText('Download local models?')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Prepare files' }));
     await waitFor(() => expect(decideSearchPreparation).toHaveBeenCalledWith(
@@ -565,7 +549,8 @@ describe('SearchPreparationReceipt', () => {
     decideSearchPreparation.mockResolvedValue({ ...replacement, status: 'preparing' });
     render(<SearchPreparationReceipt projectId="project-1" batchId="prep-1" onDone={onDone} onError={vi.fn()} />);
     await screen.findByText('Native text from the PDF');
-    fireEvent.click(screen.getByTestId('search-preparation-keep-text'));
+    expect((screen.getByRole('checkbox', { name: 'Re-scan all PDFs with OCR' }) as HTMLInputElement).checked).toBe(false);
+    expect(screen.queryByRole('button', { name: 'Keep embedded text' })).toBeNull();
     expect(decideSearchPreparation).not.toHaveBeenCalled();
     expect(replanSearchPreparation).not.toHaveBeenCalled();
     fireEvent.click(screen.getByTestId('search-preparation-force-ocr'));
@@ -597,7 +582,7 @@ describe('SearchPreparationReceipt', () => {
     replanSearchPreparation.mockResolvedValue(replacement);
     render(<SearchPreparationReceipt projectId="project-1" batchId="prep-1" onDone={vi.fn()} onError={vi.fn()} />);
     await act(async () => { await Promise.resolve(); });
-    fireEvent.click(screen.getByTestId('search-preparation-keep-text'));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Re-scan all PDFs with OCR' }));
     await act(async () => { await Promise.resolve(); });
     expect(replanSearchPreparation).toHaveBeenCalledWith('project-1', 'prep-1', { plan_hash: 'sha256:plan', force_ocr: false });
     expect(decideSearchPreparation).not.toHaveBeenCalled();
@@ -671,29 +656,19 @@ describe('SearchPreparationReceipt', () => {
       column_id: 5,
       filename: 'whole.pdf',
       page_number: 1,
-      page_count: 4,
+      page_count: 200,
       page_scoped: false,
       preview_url: '/api/projects/project-1/blobs/hash/pages/1/image',
       text: 'First page text',
       source: 'native' as const,
       truncated: false,
     };
-    getSearchPreparationTextSamples
-      .mockResolvedValueOnce({
-        schemaVersion: 'frisket.search_preparation_text_samples.v1',
-        batch_id: 'prep-1',
-        samples: [wholePdfSample],
-      })
-      .mockResolvedValueOnce({
-        schemaVersion: 'frisket.search_preparation_text_samples.v1',
-        batch_id: 'prep-1',
-        samples: [{
-          ...wholePdfSample,
-          page_number: 2,
-          preview_url: '/api/projects/project-1/blobs/hash/pages/2/image',
-          text: 'Second page text',
-        }],
-      });
+    getSearchPreparationTextSamples.mockImplementation(async (_project, _batch, query) => ({
+      batch_id: 'prep-1', samples: [{ ...wholePdfSample,
+        page_number: query.pageNumber ?? 1,
+        text: query.pageNumber ? `Text from page ${query.pageNumber}` : 'First page text',
+      }],
+    }));
 
     render(
       <SearchPreparationReceipt
@@ -705,16 +680,45 @@ describe('SearchPreparationReceipt', () => {
     );
 
     await screen.findByText('First page text');
-    fireEvent.click(screen.getByRole('button', { name: 'Page 2' }));
-    await screen.findByText('Second page text');
+    const reads = getSearchPreparationTextSamples.mock.calls.length;
+    const pageInput = screen.getByRole('spinbutton', { name: 'Sample page number' });
+    for (const value of ['1', '19', '193']) fireEvent.change(pageInput, { target: { value } });
+    expect(getSearchPreparationTextSamples).toHaveBeenCalledTimes(reads);
+    fireEvent.click(screen.getByRole('button', { name: 'Go' }));
+    await screen.findByText('Text from page 193');
     expect(getSearchPreparationTextSamples).toHaveBeenLastCalledWith(
       'project-1',
       'prep-1',
-      { rowId: 42, pageNumber: 2 },
+      { rowId: 42, pageNumber: 193 },
       { signal: expect.anything() },
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Keep embedded text' }));
+    expect((screen.getByRole('checkbox', { name: 'Re-scan all PDFs with OCR' }) as HTMLInputElement).checked).toBe(false);
     expect(screen.queryByTestId('search-preparation-text-preview')).not.toBeNull();
+    expect(replanSearchPreparation).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh sample pages' }));
+    await waitFor(() => expect(getSearchPreparationTextSamples.mock.calls.at(-1)?.[2].pageNumber).not.toBe(193));
+    expect(decideSearchPreparation).not.toHaveBeenCalled();
+  });
+
+  it('lets a mixed import review another sampled document without authorizing OCR', async () => {
+    const native = { row_id: 42, column_id: 5, filename: 'native.pdf', page_number: 1, page_count: 200,
+      page_scoped: false, preview_url: '/native', text: 'Readable embedded text', source: 'native', truncated: false };
+    const scan = { ...native, row_id: 43, filename: 'scan.pdf', page_count: 4, preview_url: '/scan', text: '' };
+    getSearchPreparation.mockResolvedValue(consentBatch);
+    getSearchPreparationTextSamples.mockImplementation(async (_project, _batch, query) => ({
+      batch_id: 'prep-1', samples: query.rowId === 43 ? [scan] : query.rowId === 42 ? [native] : [native, scan],
+    }));
+    render(<SearchPreparationReceipt projectId="project-1" batchId="prep-1" onDone={vi.fn()} onError={vi.fn()} />);
+    await screen.findByText('Readable embedded text');
+    const documents = screen.getByRole('combobox', { name: 'Sample document' });
+    fireEvent.change(documents, { target: { value: '43:5' } });
+    await screen.findByText('No embedded text is available on this sampled page.');
+    expect(getSearchPreparationTextSamples).toHaveBeenLastCalledWith('project-1', 'prep-1',
+      { rowId: 43, pageNumber: 1 }, { signal: expect.anything() });
+    expect(screen.getByRole('combobox', { name: 'Sample document' }).querySelectorAll('option')).toHaveLength(2);
+    fireEvent.change(screen.getByRole('combobox', { name: 'Sample document' }), { target: { value: '42:5' } });
+    await screen.findByText('Readable embedded text');
+    expect(decideSearchPreparation).not.toHaveBeenCalled();
     expect(replanSearchPreparation).not.toHaveBeenCalled();
   });
 

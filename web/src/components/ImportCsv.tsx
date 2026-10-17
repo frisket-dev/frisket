@@ -758,6 +758,8 @@ interface FileImportCompletion {
   sheetId: number | null;
   searchPreparationBatchId: string | null;
   importRef: string | null;
+  importComplete: boolean;
+  preparationPending: boolean;
 }
 
 function useImportUpload({ onError }: ImportHandlers) {
@@ -826,6 +828,8 @@ function useImportUpload({ onError }: ImportHandlers) {
                     sheet_id: status.sheet_id,
                     rows: status.committed_rows,
                     import_pending: true,
+                    import_state: status.state,
+                    search_preparation_status: status.search_preparation_status,
                     import_ref: status.import_ref,
                     search_preparation_batch_id: status.search_preparation_batch_id,
                   };
@@ -871,6 +875,9 @@ function useImportUpload({ onError }: ImportHandlers) {
           ? result.search_preparation_batch_id
           : null,
         importRef,
+        importComplete: importRef === null || ('import_state' in result
+          && ['completed', 'kept', 'cancelled', 'removed'].includes(String(result.import_state))),
+        preparationPending: 'search_preparation_status' in result && result.search_preparation_status === 'pending',
       };
     } catch (e) {
       sendProductTelemetry({
@@ -1051,12 +1058,16 @@ function OpenImportWorkspaceSession({
     sheetId: number | null;
     batchId: string | null;
     importRef: string | null;
+    importComplete?: boolean;
+    preparationPending?: boolean;
     bulkOutputs?: { sheetId: number; sheetName: string; batchId: string | null }[];
   } | null>(() => initialPreparationBatchId === null ? null : {
     sheetId: null,
     batchId: initialPreparationBatchId,
     importRef: null,
   });
+  const [preparationStep, setPreparationStep] = useState<'summary' | 'review'>(initialPreparationBatchId ? 'review' : 'summary');
+  const [fileSummary, setFileSummary] = useState<{ names: string[]; count: number } | null>(null);
   const [preparationFollowupError, setPreparationFollowupError] = useState<string | null>(null);
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [singleFileFormat, setSingleFileFormat] = useState<SingleFileFormat>('csv');
@@ -1101,6 +1112,8 @@ function OpenImportWorkspaceSession({
 
   const prepareSelection = useCallback((files: File[], use: (prepared: PreparedFileSelection) => void) => {
     const generation = ++selectionPreparationGeneration.current;
+    setFileSummary({ names: files.slice(0, 20).map(logicalPathForImport), count: files.length });
+    setPreparationStep('summary');
     setSelectionPreparing(true);
     void prepareFileSelection(files).then((prepared) => {
       if (generation === selectionPreparationGeneration.current) use(prepared);
@@ -1320,10 +1333,13 @@ function OpenImportWorkspaceSession({
     if (completion.searchPreparationBatchId || completion.importRef) {
       if (completion.sheetId !== null) onImported(completion.sheetId);
       setPreparationFollowupError(null);
+      setPreparationStep('summary');
       setPreparationReceipt({
         sheetId: completion.sheetId,
         batchId: completion.searchPreparationBatchId,
         importRef: completion.importRef,
+        importComplete: completion.importComplete,
+        preparationPending: completion.preparationPending,
       });
       return;
     }
@@ -1331,7 +1347,7 @@ function OpenImportWorkspaceSession({
   }, [finishImport, onImported]);
 
   usePoll(async () => {
-    if (!preparationReceipt?.importRef || preparationReceipt.batchId) return;
+    if (!preparationReceipt?.importRef) return;
     let status: ImportSessionStatus;
     try {
       status = await getImportSession(projectId, preparationReceipt.importRef);
@@ -1340,30 +1356,20 @@ function OpenImportWorkspaceSession({
       setPreparationFollowupError('Could not refresh import progress. Retrying…');
       return;
     }
-    if (status.search_preparation_batch_id) {
-      if (preparationReceipt.sheetId === null && status.sheet_id !== null) onImported(status.sheet_id);
-      setPreparationReceipt((current) => current ? {
-        ...current,
-        sheetId: current.sheetId ?? status.sheet_id,
-        batchId: status.search_preparation_batch_id,
-      } : current);
-      return;
-    }
-    if (['completed', 'kept', 'cancelled', 'removed'].includes(status.state)) {
-      setPreparationReceipt(null);
-      if (status.sheet_id !== null && preparationReceipt.sheetId === null) {
-        await finishImport(status.sheet_id);
-      } else {
-        closeWorkspace();
-      }
-      return;
-    }
-    if (preparationReceipt.sheetId === null && status.sheet_id !== null) {
-      onImported(status.sheet_id);
-      setPreparationReceipt((current) => current ? { ...current, sheetId: status.sheet_id } : current);
-    }
+    const importComplete = ['completed', 'kept', 'cancelled', 'removed'].includes(status.state);
+    const preparationPending = ['completed', 'kept'].includes(status.state)
+      && status.search_preparation_status === 'pending';
+    if (preparationReceipt.sheetId === null && status.sheet_id !== null) onImported(status.sheet_id);
+    setPreparationReceipt((current) => current ? {
+      ...current,
+      sheetId: current.sheetId ?? status.sheet_id,
+      batchId: status.search_preparation_batch_id ?? current.batchId,
+      importComplete,
+      preparationPending,
+    } : current);
   }, {
-    active: Boolean(preparationReceipt?.importRef && !preparationReceipt.batchId),
+    active: Boolean(preparationReceipt?.importRef
+      && (!preparationReceipt.importComplete || preparationReceipt.preparationPending)),
     intervalMs: 1_000,
     guardOverlap: true,
     immediate: true,
@@ -1542,6 +1548,7 @@ function OpenImportWorkspaceSession({
     const controller = new AbortController();
     bulkExecuteControllerRef.current = controller;
     setBulkBusy(true);
+    setBulkPlan(null);
     setBulkError(null);
     void executeBulkImport(
       projectId,
@@ -1567,7 +1574,8 @@ function OpenImportWorkspaceSession({
         setBulkWarnings(result.warnings);
         setBulkFailures(result.failed);
         setBulkFailuresOmitted(result.failed_omitted);
-        setPreparationReceipt({ ...firstPreparation, importRef: null, bulkOutputs });
+        setPreparationStep('summary');
+        setPreparationReceipt({ ...firstPreparation, importRef: null, bulkOutputs, importComplete: true });
         return;
       }
       if (hasFailures) {
@@ -1617,6 +1625,8 @@ function OpenImportWorkspaceSession({
 
   const startBulkPlan = useCallback((files: File[], expandArchive: boolean) => {
     if (busy || !files.length) return;
+    setFileSummary({ names: files.slice(0, 20).map(logicalPathForImport), count: files.length });
+    setPreparationStep('summary');
     invalidateBulkRequests();
     const generation = bulkGenerationRef.current;
     const controller = new AbortController();
@@ -1719,12 +1729,12 @@ function OpenImportWorkspaceSession({
 
   const bulkReceiptSummary = preparationReceipt?.bulkOutputs ? (
     <>
-      <BulkImportPlanPanel
+      {preparationStep === 'summary' && <BulkImportPlanPanel
         plan={null} decisions={{}} busy={false} error={bulkError}
         successMessage={bulkSuccessMessage} warnings={bulkWarnings}
         failures={bulkFailures} failuresOmitted={bulkFailuresOmitted}
         onDecisionChange={() => {}} onExecute={() => {}}
-      />
+      />}
       {preparationReceipt.bulkOutputs.length > 1 && (
         <label>
           Review imported sheet
@@ -1745,6 +1755,13 @@ function OpenImportWorkspaceSession({
       )}
     </>
   ) : null;
+
+  const importInProgress = Boolean(fileSummary && ((uploadBusy && railMode === 'files') || bulkBusy)
+    && !bulkPlan);
+  const showPreparation = preparationReceipt !== null || importInProgress;
+  const showSummary = showPreparation && preparationStep === 'summary';
+  const finishingImport = importInProgress || Boolean(preparationReceipt?.importRef
+    && (!preparationReceipt.importComplete || preparationReceipt.preparationPending));
 
   return (
     <dialog
@@ -1838,7 +1855,7 @@ function OpenImportWorkspaceSession({
             <div className="import-workspace-kicker">
               {pdfPacketContext.active
                 ? pdfPacketContext.subtitle
-                : preparationReceipt ? 'Review text and search setup' : 'Project data intake'}
+                : showPreparation ? (showSummary ? 'Imported files' : 'Review text and search setup') : 'Project data intake'}
             </div>
           </div>
           {pdfPacketContext.active && !preparationReceipt ? (
@@ -1855,8 +1872,8 @@ function OpenImportWorkspaceSession({
             <X size={16} />
           </button>
         </header>
-        <div className={`import-workspace-main${pdfPacketContext.active ? ' pdf-packet-workspace-main' : ''}${preparationReceipt ? ' import-workspace-main-preparation' : ''}`}>
-          {!pdfPacketContext.active && !preparationReceipt ? (
+        <div className={`import-workspace-main${pdfPacketContext.active ? ' pdf-packet-workspace-main' : ''}${showPreparation ? ' import-workspace-main-preparation' : ''}`}>
+          {!pdfPacketContext.active && !showPreparation ? (
             <aside className="import-workspace-sidebar">
               <ImportModeRail modes={IMPORT_MODES} mode={railMode} onSelectMode={selectMode} />
             </aside>
@@ -1873,7 +1890,7 @@ function OpenImportWorkspaceSession({
               <ImportStageStepper stages={IMPORT_WORKSPACE_STAGES} stage={stage} />
             ) : null}
             <div className={`import-workspace-panel${mode === 'pdf_split' ? ' pdf-packet-workspace-panel' : ''}`}>
-              {railMode === 'files' && !preparationReceipt ? (
+              {railMode === 'files' && !showPreparation ? (
                 <SegmentedToggle
                   fullWidth={false}
                   ariaLabel="File import source"
@@ -1887,13 +1904,44 @@ function OpenImportWorkspaceSession({
                 />
               ) : null}
               {selectionPreparing ? <div role="status">Preparing selected files…</div> : null}
-              {preparationReceipt ? (
+              {showSummary ? (
+                <section className="search-preparation-receipt" data-testid="import-files-summary">
+                  <div className="search-preparation-receipt-body">
+                    <h2>{finishingImport ? 'Importing files' : 'Files imported'}</h2>
+                    {fileSummary && <>
+                      <p>{fileSummary.count.toLocaleString()} {fileSummary.count === 1 ? 'file' : 'files'}</p>
+                      <ul className="import-files-summary-list">
+                        {fileSummary.names.map((name, index) => <li key={`${index}:${name}`}>{name}</li>)}
+                      </ul>
+                      {fileSummary.count > fileSummary.names.length && <p className="form-hint">
+                        Showing the first {fileSummary.names.length} filenames.
+                      </p>}
+                    </>}
+                    {bulkReceiptSummary}
+                    {finishingImport && <div role="status"><span className="run-spinner" aria-hidden /> Finishing import…</div>}
+                    {!finishingImport && !preparationReceipt?.batchId && <p>
+                      Files are saved. Search preparation is not available for this import.
+                    </p>}
+                    {preparationFollowupError && <div className="import-field-error" role="alert">{preparationFollowupError}</div>}
+                  </div>
+                  <footer className="search-preparation-actions">
+                    {preparationReceipt?.batchId && !finishingImport ? (
+                      <button type="button" className="btn btn-primary" data-testid="import-files-next"
+                        onClick={() => setPreparationStep('review')}>Next</button>
+                    ) : !finishingImport ? (
+                      <button type="button" className="btn btn-primary" data-testid="search-preparation-done"
+                        onClick={closeWorkspace}>Done</button>
+                    ) : null}
+                  </footer>
+                </section>
+              ) : preparationReceipt ? (
                 preparationReceipt.batchId ? (
                   <SearchPreparationReceipt
                     key={`${projectId}:${preparationReceipt.sheetId ?? initialPreparationBatchId ?? 'import'}`}
                     projectId={projectId}
                     batchId={preparationReceipt.batchId}
                     importSummary={bulkReceiptSummary}
+                    onBack={initialPreparationBatchId ? undefined : () => setPreparationStep('summary')}
                     onBatchChange={(batch) => setPreparationReceipt((current) => current ? {
                       ...current,
                       batchId: current.sheetId === null || current.sheetId === batch.sheet_id
@@ -1905,25 +1953,16 @@ function OpenImportWorkspaceSession({
                     onError={onError}
                   />
                 ) : (
-                  <div className="search-preparation-receipt" data-testid="search-preparation-receipt">
+                  <section className="search-preparation-receipt" data-testid="search-preparation-receipt">
                     <div className="search-preparation-receipt-body">
                       {bulkReceiptSummary}
-                      {preparationReceipt.bulkOutputs ? (
-                        <p>Files imported. Search preparation is not available for this sheet.</p>
-                      ) : <>
-                        <div role="status"><span className="run-spinner" aria-hidden /> Finishing import…</div>
-                        <p>Files are saved. Frisket is checking what can be prepared for search.</p>
-                      </>}
-                      {preparationFollowupError && (
-                        <div className="import-field-error" role="alert">{preparationFollowupError}</div>
-                      )}
+                      <p>Files imported. Search preparation is not available for this sheet.</p>
                     </div>
                     <footer className="search-preparation-actions">
-                      <button type="button" className="btn btn-primary" data-testid="search-preparation-done" onClick={closeWorkspace}>
-                        Done
-                      </button>
+                      <button type="button" className="btn btn-primary" data-testid="search-preparation-done"
+                        onClick={closeWorkspace}>Done</button>
                     </footer>
-                  </div>
+                  </section>
                 )
               ) : downloadPrompt ? (
                 <MediaDownloadPrompt

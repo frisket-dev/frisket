@@ -232,13 +232,13 @@ describe('PDF packet import flow boundaries', () => {
   it('refreshes six distinct sample pages and selects the first new sample', async () => {
     const laterTextSnapshot = {
       ...baseSnapshot,
-      packet: { ...baseSnapshot.packet, page_count: 20 },
+      packet: { ...baseSnapshot.packet, page_count: 200 },
       prepare: {
         ...baseSnapshot.prepare,
-        progress: { ...baseSnapshot.prepare.progress, done: 20, total: 20 },
-        pages_ready: Array.from({ length: 20 }, (_, index) => index + 1),
-        native_text_pages: Array.from({ length: 20 }, (_, index) => index + 1),
-        visual_pages_ready: 20,
+        progress: { ...baseSnapshot.prepare.progress, done: 200, total: 200 },
+        pages_ready: Array.from({ length: 200 }, (_, index) => index + 1),
+        native_text_pages: Array.from({ length: 200 }, (_, index) => index + 1),
+        visual_pages_ready: 200,
       },
     };
     api.createPdfPacketSplit.mockResolvedValue(laterTextSnapshot);
@@ -254,14 +254,22 @@ describe('PDF packet import flow boundaries', () => {
     });
 
     await screen.findByText('Native text on page 1');
-    const originalSamples = screen.getAllByRole('button', { name: /^p \d+$/ }).map((button) => button.textContent);
+    const originalSamples = screen.getAllByRole('button', { name: /^Page \d+$/ }).map((button) => button.textContent);
     fireEvent.click(screen.getByRole('button', { name: 'Refresh sample pages' }));
 
-    const refreshedSamples = screen.getAllByRole('button', { name: /^p \d+$/ });
+    const refreshedSamples = screen.getAllByRole('button', { name: /^Page \d+$/ });
     expect(refreshedSamples).toHaveLength(6);
     expect(new Set(refreshedSamples.map((button) => button.textContent)).size).toBe(6);
     const firstNewSample = refreshedSamples.find((button) => !originalSamples.includes(button.textContent));
     expect(firstNewSample).toHaveAttribute('aria-pressed', 'true');
+    const reads = api.getPdfPacketPage.mock.calls.length;
+    const pageInput = screen.getByRole('spinbutton', { name: 'Sample page number' });
+    for (const value of ['1', '19', '193']) fireEvent.change(pageInput, { target: { value } });
+    expect(api.getPdfPacketPage).toHaveBeenCalledTimes(reads);
+    fireEvent.click(screen.getByRole('button', { name: 'Go' }));
+    await screen.findByText('Native text on page 193');
+    expect(api.getPdfPacketPage).toHaveBeenLastCalledWith('project-1', 'split-1', 193, expect.anything());
+    expect(api.startPdfPacketOcr).not.toHaveBeenCalled();
   });
 
   it('can leave Check text to choose another file', async () => {

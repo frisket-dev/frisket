@@ -5891,6 +5891,7 @@ type HttpImportSessionList_ImportSessionStatus = ({
   "import_ref": (string);
   "sealed": (boolean);
   "search_preparation_batch_id"?: (((string)) | ((null)));
+  "search_preparation_status": ("pending" | "available" | "none") & (string);
   "sheet_id"?: (((number)) | ((null)));
   "sheet_name": (string);
   "state": ("admitting" | "running" | "paused" | "cancelling" | "cancelled" | "completed" | "kept" | "removed") & (string);
@@ -5915,6 +5916,7 @@ export type HttpImportSessionStatus = ({
   "import_ref": (string);
   "sealed": (boolean);
   "search_preparation_batch_id"?: (((string)) | ((null)));
+  "search_preparation_status": ("pending" | "available" | "none") & (string);
   "sheet_id"?: (((number)) | ((null)));
   "sheet_name": (string);
   "state": ("admitting" | "running" | "paused" | "cancelling" | "cancelled" | "completed" | "kept" | "removed") & (string);
