@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import FastAPI, Query, Request
+from fastapi import FastAPI, Query, Request, Response
 
 from frisket.contracts.http.models import (
     ActionRunCancel,
@@ -36,11 +36,20 @@ def register_action_run_cancel_routes(
     @app.post(
         "/api/projects/{pid}/actions/runs/{run_id}/cancel",
         response_model=ActionRunCancel,
-        responses=http_error_responses(401, 403, 404, 409, 422, 500),
+        response_model_exclude_unset=True,
+        responses={
+            202: {"model": ActionRunCancel},
+            **http_error_responses(401, 403, 404, 409, 422, 500),
+        },
     )
-    def cancel_run(request: Request, pid: str, run_id: int) -> ActionRunCancel:
+    def cancel_run(
+        request: Request, response: Response, pid: str, run_id: int
+    ) -> ActionRunCancel:
         reject_unknown_query_parameters(request, EmptyQuery)
-        return ActionRunCancel.model_validate(service.cancel_run(pid, run_id))
+        result = ActionRunCancel.model_validate(service.cancel_run(pid, run_id))
+        if result.status == "cancel_pending":
+            response.status_code = 202
+        return result
 
 
 def register_action_run_status_routes(

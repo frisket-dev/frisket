@@ -1013,8 +1013,8 @@ class TestCancelRun:
             attempt_id = observed_attempt_ids[0]
 
             pending = client.post(f"/api/projects/{pid}/actions/runs/{rid}/cancel")
-            assert pending.status_code == 409, pending.text
-            detail = pending.json()["detail"]
+            assert pending.status_code == 202, pending.text
+            detail = pending.json()
             assert detail["status"] == "cancel_pending"
             assert detail["run_id"] == rid
             assert detail["cancel_requested"] is True

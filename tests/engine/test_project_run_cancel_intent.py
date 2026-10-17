@@ -156,7 +156,7 @@ def test_reconciliation_response_names_operator_resolver_and_cancel_retry(
 def test_live_cancel_service_returns_pending_then_owner_converges(
     tmp_path: Path,
 ) -> None:
-    """The route service reports conflict, never an unexpected 500-shaped error."""
+    """The route service accepts intent while the active writer still owns closure."""
 
     project_id = "live-cancel-service"
     project = Project.create(tmp_path / f"{project_id}.frisket")
@@ -230,11 +230,10 @@ def test_live_cancel_service_returns_pending_then_owner_converges(
         workspace.run_jobs[(project_id, run_id)] = job.id
         service = ActionRunCancelService(workspace)  # type: ignore[arg-type]
 
-        with pytest.raises(ActionRunCancelRouteError) as excinfo:
-            service.cancel_run(project_id, run_id)
-        assert excinfo.value.status_code == 409
-        assert excinfo.value.content["status"] == "cancel_pending"
-        assert excinfo.value.content["cancel_requested"] is True
+        pending = service.cancel_run(project_id, run_id)
+        assert pending["status"] == "cancel_pending"
+        assert pending["cancel_requested"] is True
+        assert "live_writer_requires_owner_terminalization" in pending["reason"]
         live = project.db.execute(
             "SELECT status, finished_at, current_attempt_id, cancel_requested_at "
             "FROM runs WHERE id=?",
@@ -401,10 +400,9 @@ def test_legacy_cancelled_split_never_returns_false_success(tmp_path: Path) -> N
         workspace.run_jobs[(project_id, run_id)] = job.id
         service = ActionRunCancelService(workspace)  # type: ignore[arg-type]
 
-        with pytest.raises(ActionRunCancelRouteError) as excinfo:
-            service.cancel_run(project_id, run_id)
-        assert excinfo.value.status_code == 409
-        assert excinfo.value.content["status"] == "cancel_pending"
+        pending = service.cancel_run(project_id, run_id)
+        assert pending["status"] == "cancel_pending"
+        assert pending["cancel_requested"] is True
         split = project.db.execute(
             "SELECT r.status, r.current_attempt_id, rc.status AS receipt_status, "
             "c.status AS claim_status FROM runs r "
@@ -716,10 +714,19 @@ def test_live_writer_cancel_records_intent_then_converges_within_one_row(
         pending = client.post(
             f"/api/projects/{project_id}/actions/runs/{run_id}/cancel"
         )
-        assert pending.status_code == 409, pending.text
-        detail = pending.json()["detail"]
+        assert pending.status_code == 202, pending.text
+        detail = pending.json()
         assert detail["status"] == "cancel_pending"
         assert detail["cancel_requested"] is True
+        assert "live_writer_requires_owner_terminalization" in detail["reason"]
+
+        status = client.get(
+            f"/api/projects/{project_id}/actions/runs/{run_id}/status"
+        )
+        assert status.status_code == 200, status.text
+        public_status = status.json()["run"]["public_status"]
+        assert public_status["status"] == "running"
+        assert public_status["cancel_requested"] is True
 
         live_run = project.db.execute(
             "SELECT status, finished_at, current_attempt_id, cancel_requested_at "

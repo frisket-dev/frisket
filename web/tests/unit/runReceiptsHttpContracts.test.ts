@@ -53,7 +53,7 @@ describe('run and receipt HTTP contracts', () => {
         cost_actual: null, cost_estimate: null,
         public_status: {
           run_id: 17, action_kind: 'map.translate', action_name: 'Translate', status: 'running',
-          live: true, completed: 0, total: 10, failed: 0, cost: null,
+          live: true, cancel_requested: true, completed: 0, total: 10, failed: 0, cost: null,
           timing: {},
           preparation: {
             message: 'Preparing the language model if this worker needs it, then translating…',
@@ -65,10 +65,26 @@ describe('run and receipt HTTP contracts', () => {
     await expect(getRunProgressContract('project-1', 17, contractError)).resolves.toMatchObject({
       status: 'running',
       completedRows: 0,
+      cancelRequested: true,
       preparation: {
         message: 'Preparing the language model if this worker needs it, then translating…',
       },
     });
+  });
+
+  it('accepts a durable cancel request while the live writer is stopping', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
+      run_id: 17,
+      status: 'cancel_pending',
+      cancel_requested: true,
+      completed: 3,
+      total: 10,
+      queue_job_id: 23,
+      queue_cancelled: false,
+      reason: 'live_writer_must_terminalize',
+    }, 202)));
+
+    await expect(cancelRunContract('project-1', 17, contractError)).resolves.toBeUndefined();
   });
 
   it.each([null, false, 0, '', { matched: 2 }])('maps receipt presentation and domain value %j', async (value) => {

@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from frisket.server.route_errors import RouteError
 from frisket.server.run_status import cancel_project_run
 from frisket.server.workspace import Workspace
-from frisket.server.route_errors import RouteError
 
 
 class ActionRunCancelRouteError(RouteError):
@@ -37,24 +37,32 @@ class ActionRunCancelService:
             run_id=run_id,
             storage_org_id=self._workspace.queue_storage_org_id,
         )
+        cancelled_row = cancelled.row
         if cancelled.disposition == "cancel_pending":
-            raise ActionRunCancelRouteError(
-                409,
-                {
-                    "status": "cancel_pending",
-                    "run_id": run_id,
-                    "cancel_requested": cancelled.cancel_requested,
-                    "queue_job_id": (
-                        cancelled.job.id if cancelled.job is not None else None
-                    ),
-                    "queue_cancelled": cancelled.queue_cancelled,
-                    "reason": (
-                        cancelled.terminalization.reason
-                        if cancelled.terminalization is not None
-                        else "live_writer_must_terminalize"
-                    ),
-                },
-            )
+            return {
+                "status": "cancel_pending",
+                "run_id": run_id,
+                "cancel_requested": cancelled.cancel_requested,
+                "completed": (
+                    cancelled_row["completed_rows"]
+                    if cancelled_row is not None
+                    else None
+                ),
+                "total": (
+                    cancelled_row["total_rows"]
+                    if cancelled_row is not None
+                    else None
+                ),
+                "queue_job_id": (
+                    cancelled.job.id if cancelled.job is not None else None
+                ),
+                "queue_cancelled": cancelled.queue_cancelled,
+                "reason": (
+                    cancelled.terminalization.reason
+                    if cancelled.terminalization is not None
+                    else "live_writer_must_terminalize"
+                ),
+            }
         if cancelled.disposition == "reconciliation_required":
             terminalization = cancelled.terminalization
             raise ActionRunCancelRouteError(
@@ -94,10 +102,10 @@ class ActionRunCancelService:
                     ),
                 },
             )
-        cancelled_row = cancelled.row
         return {
             "run_id": run_id,
             "status": "cancelled",
+            "cancel_requested": cancelled.cancel_requested,
             "completed": (
                 cancelled_row["completed_rows"] if cancelled_row is not None else None
             ),
