@@ -266,6 +266,15 @@ def test_find_file_uses_selected_text_with_ordinary_text_publication_coordinates
             assert all(span_id < 0 for span_id in sources[0].units[0].span_ids)
 
         project.apply_edits(
+            [{"row_id": cell[1], "column_id": text, "value": "manual correction"}]
+        )
+        manual = resolve_find_sources(project, params)
+        assert isinstance(manual, tuple), manual
+        assert manual[0].artifact_id is None
+        assert [unit.text for unit in manual[0].units] == ["manual correction"]
+        assert all(span_id < 0 for span_id in manual[0].units[0].span_ids)
+
+        project.apply_edits(
             [
                 {
                     "row_id": cell[1],
@@ -284,12 +293,19 @@ def test_find_file_uses_selected_text_with_ordinary_text_publication_coordinates
         assert stale.code == "source_not_addressable"
 
 
-def test_queued_file_find_publishes_designated_text_with_exact_page_citation(tmp_path):
+@pytest.mark.parametrize(
+    ("source_column", "copied_grounding"),
+    [("File", True), ("File", False), ("Text", False)],
+)
+def test_queued_find_publishes_designated_text_with_exact_page_citation(
+    tmp_path, source_column, copied_grounding
+):
     from frisket.actions.types import ActionRequest
     from frisket.engine.store.evidence import list_row_evidence, resolve_evidence_viewer
     from frisket.engine.store.receipts import ReceiptStore
     from tests.engine.test_map_find_runtime import (
         _FindAdapter,
+        _operation_for_request,
         _queued_find,
         _run_queued_find,
     )
@@ -299,41 +315,66 @@ def test_queued_file_find_publishes_designated_text_with_exact_page_citation(tmp
         cell, text, _other, blob, chosen, _alternative = _document(
             project, page=2, pdf=_pdf_bytes("chosen first", "chosen second")
         )
-        _, refs = project.get_values_with_refs(cell[0], text, [cell[1]])
-        record_evidence_link(
-            project,
-            subject_kind="cell",
-            subject_ref=refs[cell[1]],
-            spans=[{"span_id": chosen[2]["id"]}],
-            sheet_id=cell[0],
-            row_id=cell[1],
-            column_id=text,
-            link_role="media_ocr_grounding",
-            producer={"action_kind": "media.read_pdf_text"},
-        )
+        span = chosen[2]
+        if copied_grounding:
+            _, refs = project.get_values_with_refs(cell[0], text, [cell[1]])
+            record_evidence_link(
+                project,
+                subject_kind="cell",
+                subject_ref=refs[cell[1]],
+                spans=[{"span_id": span["id"]}],
+                sheet_id=cell[0],
+                row_id=cell[1],
+                column_id=text,
+                link_role="media_ocr_grounding",
+                producer={"action_kind": "media.read_pdf_text"},
+            )
+        else:
+            # Adoption keeps immutable page provenance without copying a
+            # grounding link onto the newly designated Text cell.
+            prepared = PreparedContentStore(project).resolve(chosen[0])
+            [pin] = prepared.pins
+            span = record_source_span(
+                project,
+                artifact_id=chosen[1],
+                span_kind="page_range",
+                page_start=2,
+                page_end=2,
+                quote="chosen second",
+                selector={
+                    "prepared_ref_id": prepared.ref_id,
+                    "prepared_set_id": prepared.set_id,
+                    "prepared_version_id": pin.version_id,
+                    "page_number": pin.page_number,
+                },
+            )
         request = ActionRequest(
             action_id="map.find",
             scope={"kind": "sheet_rows", "sheet_id": cell[0], "row_ids": [cell[1]]},
             sheet_name="Findings",
             output_names={"match": "Match"},
             params={
-                "source": "File",
+                "source": source_column,
                 "instruction": "Find chosen second.",
                 "model": "anthropic/claude-haiku-4-5",
             },
             idempotency_key="canonical-file-find",
         )
+        sources = resolve_find_sources(project, _operation_for_request(request))
+        assert isinstance(sources, tuple), sources
+        assert sources[0].artifact_id == chosen[1]
+        assert sources[0].units[0].span_ids == (span["id"],)
         envelope = _queued_find(project, request, project_id="canonical-file-find")
-        assert envelope.resolved_snapshot["operation"]["source_column"] == "File"
+        assert envelope.resolved_snapshot["operation"]["source_column"] == source_column
         assert [
             item["column_id"] for item in envelope.resolved_snapshot["sources"]
         ] == [text]
         adapter = _FindAdapter(
-            chosen[2]["stable_id"],
+            span["stable_id"],
             matches=[
                 {
                     "match": "chosen second",
-                    "source_unit_ids": [chosen[2]["stable_id"]],
+                    "source_unit_ids": [span["stable_id"]],
                     "details": {},
                 }
             ],
@@ -363,12 +404,14 @@ def test_queued_file_find_publishes_designated_text_with_exact_page_citation(tmp
         assert artifact["source_cell"] == dict(
             zip(("sheet_id", "row_id", "column_id"), cell, strict=True)
         )
+        source_span = span
         [span] = artifact["spans"]
-        assert span["stable_id"] == chosen[2]["stable_id"]
+        assert span["stable_id"] == source_span["stable_id"]
         assert span["selector"] == {
             "kind": "page_range",
             "page_start": 2,
             "page_end": 2,
+            **({"data": source_span["selector"]} if source_span["selector"] else {}),
         }
         assert span["quote"] == "chosen second"
 

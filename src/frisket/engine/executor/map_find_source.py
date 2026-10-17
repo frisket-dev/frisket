@@ -14,6 +14,7 @@ from frisket.engine.executor.find_plan import FindOperation
 from frisket.actions.find_types import FindSourceColumn
 from frisket.engine.store.document_text import (
     DocumentTextUnavailable,
+    document_text_role_for_text_column,
     resolve_document_text_selection,
 )
 
@@ -145,6 +146,45 @@ def _ocr_units(resolved: Any) -> tuple[AddressedUnit, ...]:
     )
 
 
+def _prepared_units(project: Any, selected: Any) -> tuple[AddressedUnit, ...]:
+    """Read grounding from exact immutable page versions, without cell links."""
+    rows = project.db.execute(
+        "SELECT member.page_number,span.id,span.stable_id,span.quote,span.snippet "
+        "FROM prepared_content_refs ref "
+        "JOIN prepared_content_set_pages member ON member.set_id=ref.set_id "
+        "AND (ref.page_number IS NULL OR member.page_number=ref.page_number) "
+        "JOIN prepared_page_versions version ON version.id=member.version_id "
+        "LEFT JOIN source_spans span ON span.artifact_id=? "
+        "AND span.page_start=member.page_number AND span.page_end=member.page_number "
+        "AND span.span_kind IN ('region','page_range') "
+        "AND json_extract(span.selector_json,'$.prepared_version_id')=member.version_id "
+        "WHERE ref.id=? AND length(trim(version.prepared_text))>0 "
+        "ORDER BY member.page_number,span.id",
+        (selected.source_artifact_id, selected.prepared_ref_id),
+    ).fetchall()
+    pages: dict[int, list[Any]] = {}
+    for row in rows:
+        pages.setdefault(int(row["page_number"]), []).append(row)
+    units = []
+    for spans in pages.values():
+        quoted = [span for span in spans if str(span["quote"] or "").strip()]
+        addressed = quoted or [
+            span for span in spans if str(span["snippet"] or "").strip()
+        ]
+        if not addressed:
+            # A partially grounded set must not silently omit other page text.
+            return ()
+        units.extend(
+            AddressedUnit(
+                unit_id=str(span["stable_id"]),
+                text=str(span["quote"] or span["snippet"]),
+                span_ids=(int(span["id"]),),
+            )
+            for span in addressed
+        )
+    return tuple(units)
+
+
 def resolve_find_sources(
     project: Any,
     params: FindOperation,
@@ -199,6 +239,7 @@ def resolve_find_sources(
         if value is None or (isinstance(value, str) and not value.strip()):
             continue
         file_value_ref = None
+        selected = None
         if column_type == "file" and isinstance(value, dict) and value.get("blob"):
             blob = project.db.execute(
                 "SELECT mime FROM blobs WHERE hash=?", (str(value["blob"]),)
@@ -234,6 +275,27 @@ def resolve_find_sources(
                     value_ref = dict(text_refs.get(row_id) or {})
                     if value is None or (isinstance(value, str) and not value.strip()):
                         continue
+        if source_column_type == "text":
+            role = document_text_role_for_text_column(
+                project, text_column_id=source_column_id
+            )
+            if role is not None:
+                try:
+                    selected = resolve_document_text_selection(
+                        project, (params.sheet_id, row_id, role.source_column_id)
+                    )
+                except DocumentTextUnavailable as error:
+                    return ActionError(
+                        code="source_not_addressable",
+                        message="The selected document Text is no longer current.",
+                        action_kind=params.action_kind,
+                        field="params.source",
+                        details={
+                            "sheet_id": params.sheet_id,
+                            "row_id": row_id,
+                            "reason": error.reason,
+                        },
+                    )
         artifact_id: int | None = None
         source_kind = "text"
         image: ImageAsset | None = None
@@ -377,11 +439,21 @@ def resolve_find_sources(
                 resolve_current_ocr_evidence,
             )
 
-            ocr_sources = resolve_current_ocr_evidence(
-                project,
-                sheet_id=params.sheet_id,
-                row_id=row_id,
-                column_id=column_id,
+            prepared_units = (
+                _prepared_units(project, selected)
+                if selected is not None and selected.prepared_ref_id is not None
+                else ()
+            )
+            ocr_sources = (
+                resolve_current_ocr_evidence(
+                    project,
+                    sheet_id=params.sheet_id,
+                    row_id=row_id,
+                    column_id=column_id,
+                )
+                if not prepared_units
+                and (selected is None or selected.prepared_ref_id is not None)
+                else ()
             )
             if len(ocr_sources) > 1:
                 return ActionError(
@@ -391,7 +463,17 @@ def resolve_find_sources(
                     field="params.source",
                     details={"sheet_id": params.sheet_id, "row_id": row_id},
                 )
-            if ocr_sources:
+            if prepared_units:
+                units = prepared_units
+                artifact_id = selected.source_artifact_id
+                snapshot = _hash_json(
+                    {
+                        "value_ref": value_ref,
+                        "prepared_ref_id": selected.prepared_ref_id,
+                        "unit_ids": [unit.unit_id for unit in units],
+                    }
+                )
+            elif ocr_sources:
                 ocr_source = ocr_sources[0]
                 units = _ocr_units(ocr_source)
                 artifact_id = ocr_source.artifact_id
