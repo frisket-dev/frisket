@@ -179,21 +179,24 @@ def test_tesseract_is_a_recognized_local_free_engine(tmp_path):
 
 
 def test_tesseract_run_without_wrapper_fails_with_pointer(tmp_path):
-    """With the wrapper absent the row fails with an enablement pointer, not a
-    crash (the honest-unavailable path; only asserted when pytesseract is not
-    installed — the dep-less state this run targets)."""
+    """An unavailable runtime stops the invocation once with an enablement hint."""
     if _PYTESSERACT and tesseract_available()[0]:
         pytest.skip("tesseract wrapper installed — installed-state, covered below")
     dummy = tmp_path / "scan.png"
     dummy.write_bytes(b"\x89PNG\r\n\x1a\n not-a-real-image")
-    p, sheet = _project(tmp_path, [{"page": str(dummy)}])
+    p, sheet = _project(tmp_path, [{"page": str(dummy)}, {"page": str(dummy)}])
     prog = _run(p, _spec(sheet, "tesseract"))
     assert prog.status == "failed", prog.errors
-    err = p.db.execute(
-        "SELECT error FROM results WHERE run_id=? AND error IS NOT NULL",
-        (prog.run_id,),
-    ).fetchone()["error"]
-    assert "tesseract" in err.lower()
+    [error] = prog.errors
+    assert error.code == "local_artifact_unavailable"
+    assert "tesseract" in error.message.lower()
+    assert error.details["total_rows"] == 2
+    assert (
+        p.db.execute(
+            "SELECT COUNT(*) FROM results WHERE run_id=?", (prog.run_id,)
+        ).fetchone()[0]
+        == 0
+    )
     p.close()
 
 
