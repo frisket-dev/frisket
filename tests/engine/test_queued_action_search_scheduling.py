@@ -144,6 +144,10 @@ def test_queued_project_run_publishes_current_output_to_search(tmp_path: Path) -
     )
     assert response.status_code == 200, response.payload
     assert response.payload["status"] == "queued"
+    prior_index_jobs = {
+        job.id
+        for job in workspace.queue.list_project_jobs(project_id, kind=SEARCH_INDEX_KIND)
+    }
 
     worker = Worker(
         workspace.queue,
@@ -151,11 +155,19 @@ def test_queued_project_run_publishes_current_output_to_search(tmp_path: Path) -
         worker_id="queued-project-search",
     )
     assert worker.run_once() is True
-    scheduled = workspace.queue.list_project_jobs(
-        project_id,
-        kind=SEARCH_INDEX_KIND,
-    )
+    assert workspace.queue.get(int(response.payload["job_id"])).status == "done"
+    # Foreground completion may leave earlier background maintenance queued.
+    # Verify the new output's wakeup rather than counting all index history.
+    scheduled = [
+        job
+        for job in workspace.queue.list_project_jobs(project_id, kind=SEARCH_INDEX_KIND)
+        if job.id not in prior_index_jobs
+    ]
     assert len(scheduled) == 1
+    assert scheduled[0].status == "queued"
+    assert scheduled[0].dedupe_key == (
+        f"search-index:{index_work_marker(workspace.get(project_id))}"
+    )
 
     for _ in range(16):
         if not worker.run_once():
