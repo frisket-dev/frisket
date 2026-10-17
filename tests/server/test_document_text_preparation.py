@@ -455,14 +455,38 @@ def test_adoption_seeds_only_unambiguous_fresh_generated_prepared_refs(
         assert [unit.text for unit in find_sources[0].units] == ["preserve me"]
 
 
-def test_prepare_adoption_replans_before_recording_a_changed_decision(tmp_path) -> None:
+def test_overlapping_batch_replans_after_another_batch_adopts_its_row(tmp_path) -> None:
     with closing(Project.create(tmp_path / "adoption-replan.frisket")) as project:
         sheet_id, source_column_id = _source(project)
+        [row_id] = project.add_rows(
+            sheet_id,
+            [{"Document": {"blob": _BLOB, "mime": "application/pdf"}}],
+            {"Document": source_column_id},
+        )
+        legacy_column_id = project.add_column(
+            sheet_id, "Search text", type="text", ai_generated=True
+        )
+        op_id = project.append_op("media.read_pdf_text")
+        legacy_ref = _prepared_ref(
+            project,
+            op_id=op_id,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            source_column_id=source_column_id,
+            blob_hash=_BLOB,
+            text="prepared by the earlier batch",
+        )
+        _publish_legacy_results(
+            project,
+            op_id=op_id,
+            sheet_id=sheet_id,
+            values=[(row_id, legacy_column_id, legacy_ref)],
+        )
         item = {
             "kind": "native_pdf",
             "column_id": source_column_id,
             "column_name": "Document",
-            "row_id": 11,
+            "row_id": row_id,
             "blob_hash": _BLOB,
             "retrieval_revision": 1,
         }
@@ -479,7 +503,7 @@ def test_prepare_adoption_replans_before_recording_a_changed_decision(tmp_path) 
             project_id="project",
             storage_org_id=None,
             sheet_id=sheet_id,
-            row_ids=[11],
+            row_ids=[row_id],
             force_ocr=False,
             plan=original,
             plan_hash=canonical_plan_hash(original),
@@ -488,6 +512,21 @@ def test_prepare_adoption_replans_before_recording_a_changed_decision(tmp_path) 
             decision=None,
             selected_setup_refs=(),
         )
+
+        # Batch B was planned above. Batch A advances first and adopts every
+        # unambiguous legacy result in the source column, including B's row.
+        _body(
+            project,
+            sheet_id=sheet_id,
+            source_column_id=source_column_id,
+            source_name="Document",
+            kind="native_pdf",
+        )
+        role = document_text_role(project, source_column_id=source_column_id)
+        assert role is not None
+        assert project.get_values(sheet_id, role.text_column_id, [row_id]) == {
+            row_id: "prepared by the earlier batch"
+        }
 
         class Store:
             decided = False
@@ -511,6 +550,7 @@ def test_prepare_adoption_replans_before_recording_a_changed_decision(tmp_path) 
         )
         service.store = Store()
         service._plan = lambda *_args, **_kwargs: changed
+        service._consent_facts_current = lambda *_args, **_kwargs: True
         service._project = lambda *_args, **_kwargs: SimpleNamespace(
             model_dump=lambda **_dump_kwargs: {"id": "batch"}
         )
@@ -530,9 +570,6 @@ def test_prepare_adoption_replans_before_recording_a_changed_decision(tmp_path) 
         assert error.value.detail["code"] == "plan_changed"
         assert service.store.replanned == changed
         assert service.store.decided is False
-        assert document_text_role(
-            project, source_column_id=source_column_id
-        ) is not None
 
 
 @pytest.mark.parametrize(

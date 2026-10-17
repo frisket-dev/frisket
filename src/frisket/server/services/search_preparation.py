@@ -173,7 +173,6 @@ class _SetupSnapshot:
 class _DocumentTextTarget:
     name: str
     column_id: int
-    adopted: bool
 
 
 def _document_text_target(
@@ -221,7 +220,6 @@ def _document_text_target(
             text_column_id=role.text_column_id if role is not None else text_column_id,
         )
         role = adoption.role
-        adopted = adoption.created or adoption.seeded_count > 0
         if not role.source_active or role.source_hidden:
             raise ValueError("designated document text source column is unavailable")
         if not role.text_active:
@@ -231,9 +229,7 @@ def _document_text_target(
             raise ValueError(
                 f"document text column {role.text_column_id} does not exist"
             )
-        return _DocumentTextTarget(
-            str(target["name"]), int(target["id"]), adopted=adopted
-        )
+        return _DocumentTextTarget(str(target["name"]), int(target["id"]))
 
 
 def _planned_child_key(
@@ -266,21 +262,16 @@ def _planned_children(plan: Mapping[str, Any]) -> tuple[_PlannedChild, ...]:
     )
 
 
-def _adopt_planned_document_text(project: Any, plan: Mapping[str, Any]) -> bool:
+def _adopt_planned_document_text(project: Any, plan: Mapping[str, Any]) -> None:
     """Adopt legacy prepared refs before a reviewed plan becomes authority."""
 
-    adopted = False
     source_column_ids = {
         child.column_id
         for child in _planned_children(plan)
         if child.kind in {"native_pdf", "ocr"}
     }
     for source_column_id in sorted(source_column_ids):
-        target = _document_text_target(
-            project, source_column_id=source_column_id
-        )
-        adopted = target.adopted or adopted
-    return adopted
+        _document_text_target(project, source_column_id=source_column_id)
 
 
 class SearchPreparationService:
@@ -840,20 +831,16 @@ class SearchPreparationService:
         if decision != "prepare":
             raise RouteError(422, "choose Prepare or stop this preparation batch")
         project = self.workspace.get(project_id)
-        adopted_document_text = _adopt_planned_document_text(project, row.plan)
-        if adopted_document_text:
-            current = self._current_decision_plan(project, row)
-            if canonical_plan_hash(current) != row.plan_hash:
-                self._store_changed_plan_and_raise(
-                    row,
-                    current,
-                    may_setup_models=may_setup_models,
-                    may_run_actions=may_run_actions,
-                )
-        if plan_hash != row.plan_hash or not self._consent_facts_current(project, row):
+        _adopt_planned_document_text(project, row.plan)
+        current = self._current_decision_plan(project, row)
+        if (
+            plan_hash != row.plan_hash
+            or canonical_plan_hash(current) != row.plan_hash
+            or not self._consent_facts_current(project, row)
+        ):
             self._store_changed_plan_and_raise(
                 row,
-                self._current_decision_plan(project, row),
+                current,
                 may_setup_models=may_setup_models,
                 may_run_actions=may_run_actions,
             )
