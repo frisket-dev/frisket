@@ -100,10 +100,10 @@ def inspect_delimited(path: Path) -> tuple[str, str, str, str | None]:
 def detect_encoding(prefix: bytes) -> str:
     if prefix.startswith(codecs.BOM_UTF8):
         return "utf-8"
-    if prefix.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
-        return "utf-16"
     if prefix.startswith((codecs.BOM_UTF32_LE, codecs.BOM_UTF32_BE)):
         return "utf-32"
+    if prefix.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
+        return "utf-16"
     try:
         prefix.decode("utf-8", errors="strict")
         return "utf-8"

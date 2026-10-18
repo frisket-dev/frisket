@@ -95,6 +95,17 @@ def test_content_inspection_detects_pipe_and_utf16(tmp_path: Path) -> None:
     assert info.detected_decimal_separator == ","
 
 
+def test_content_inspection_recognizes_utf32_bom_before_utf16(tmp_path: Path) -> None:
+    source = tmp_path / "utf32.csv"
+    source.write_bytes("name,value\nAda,1\n".encode("utf-32"))
+
+    info = inspect_source(source)
+
+    assert info.kind == "delimited"
+    assert info.detected_encoding == "utf-32"
+    assert info.detected_delimiter == ","
+
+
 def test_unclosed_quoted_record_fails_closed_without_losing_valid_multiline(
     tmp_path: Path,
 ) -> None:
