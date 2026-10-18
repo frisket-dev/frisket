@@ -488,7 +488,7 @@ register_column_type(
 register_column_type(
     "datetime",
     validate=_is_datetime,
-    presentation={"renderer": "text"},
+    presentation={"renderer": "datetime"},
     description=(
         "ISO-8601 local or offset-aware date and time; no timezone is inferred."
     ),

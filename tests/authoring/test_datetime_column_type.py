@@ -50,11 +50,11 @@ def test_datetime_rejects_dates_incomplete_or_noncanonical_values(
     assert not column_types.validate_value("datetime", value)
 
 
-def test_datetime_is_a_text_rendered_core_type_without_a_date_facet() -> None:
+def test_datetime_has_a_distinct_renderer_without_a_date_facet() -> None:
     spec = column_types.get_column_type("datetime")
     assert spec is not None
     assert spec.core
-    assert spec.presentation == {"renderer": "text"}
+    assert spec.presentation == {"renderer": "datetime"}
     assert column_types.range_facet_value_kind("datetime") is None
 
 

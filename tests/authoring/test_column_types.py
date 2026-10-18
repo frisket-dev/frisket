@@ -271,7 +271,7 @@ class TestApi:
         assert {"text", "integer", "image", "link", "geo_point"} <= set(types)
         assert types["text"]["core"] is True
         assert types["datetime"]["core"] is True
-        assert types["datetime"]["presentation"] == {"renderer": "text"}
+        assert types["datetime"]["presentation"] == {"renderer": "datetime"}
         assert plugin_type not in types
         # presentation hints carry through verbatim (frontend resolves these)
         assert types["audio"]["presentation"] == {
