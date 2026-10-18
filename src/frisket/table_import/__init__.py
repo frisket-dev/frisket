@@ -13,6 +13,7 @@ from .models import (
     DateOrder,
     PreviewRow,
     PreviewSnapshot,
+    PrefixRead,
     RawCell,
     RawRow,
     RowIssue,
@@ -32,6 +33,7 @@ from .reader import (
     count_records,
     inspect_source,
     open_table,
+    read_prefix,
 )
 
 __all__ = [
@@ -47,6 +49,7 @@ __all__ = [
     "PreviewAccumulator",
     "PreviewRow",
     "PreviewSnapshot",
+    "PrefixRead",
     "RawCell",
     "RawRow",
     "RowIssue",
@@ -66,4 +69,5 @@ __all__ = [
     "count_records",
     "inspect_source",
     "open_table",
+    "read_prefix",
 ]

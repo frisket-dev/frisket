@@ -181,3 +181,10 @@ class PreviewSnapshot:
     omitted_rows: int | None
     complete: bool
     tail_pending: bool
+
+
+@dataclass(frozen=True)
+class PrefixRead:
+    columns: tuple[SourceColumn, ...]
+    rows: tuple[TableRow, ...]
+    tail_pending: bool
