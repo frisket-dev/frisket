@@ -722,6 +722,52 @@ def test_paid_ocr_freeze_rejects_route_or_price_change(
         )
 
 
+def test_remote_ocr_with_no_effective_work_needs_no_quote(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _workspace, project_id, service = _service(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        service,
+        "_analyze",
+        lambda _path: {
+            "analysis_state": "done",
+            "page_count": 4,
+            "category": "text",
+            "sample_pages": [1, 2, 3, 4],
+            "error": None,
+        },
+    )
+    draft_id, _ = _declared(service, project_id)
+    status = service.upload(
+        project_id,
+        draft_id,
+        [_upload(), _upload("two.pdf")],
+        file_ids=["one", "two"],
+        logical_paths=["north/one.pdf", "south/two.pdf"],
+        batch_id="upload-clean",
+    )
+    status = service.update_choices(
+        project_id,
+        draft_id,
+        expected_revision=status["revision"],
+        ocr_policy="missing_or_suspicious",
+        ocr_selection={"kind": "engine", "engine": "remote-ocr"},
+        semantic_search=False,
+        semantic_setup_confirmation=None,
+        destination={"kind": "new", "sheet_name": "PDFs"},
+    )
+
+    frozen = service.freeze_for_commit(
+        project_id,
+        draft_id,
+        idempotency_key="no-ocr-work",
+        expected_revision=status["revision"],
+    )
+
+    assert frozen.ocr_authorization is None
+    assert frozen.ocr_policy == "missing_or_suspicious"
+
+
 def test_destination_match_uses_bounded_current_value_projection(
     tmp_path: Path, monkeypatch
 ) -> None:

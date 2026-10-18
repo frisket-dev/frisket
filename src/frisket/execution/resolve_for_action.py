@@ -53,7 +53,7 @@ from frisket.execution.consent_coverage import (
 )
 from dataclasses import dataclass, replace
 from decimal import Decimal, InvalidOperation
-from math import isfinite
+from math import isclose, isfinite
 from typing import Any, Mapping, Sequence
 
 from frisket.execution.action_identity import action_identity_hash
@@ -168,6 +168,7 @@ class BoundedScratchInput:
 
     quantity: float
     work_scope: Mapping[str, Any]
+    row_quantities: Mapping[int, float] | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -179,6 +180,35 @@ class BoundedScratchInput:
             raise ValueError("bounded scratch quantity must be non-negative")
         if not isinstance(self.work_scope, Mapping):
             raise TypeError("bounded scratch work scope must be a mapping")
+        if self.row_quantities is not None:
+            if not 1 <= len(self.row_quantities) <= 256:
+                raise ValueError(
+                    "bounded scratch row quantities must contain 1..256 rows"
+                )
+            total = 0.0
+            for row_id, row_quantity in self.row_quantities.items():
+                if (
+                    isinstance(row_id, bool)
+                    or not isinstance(row_id, int)
+                    or row_id < 1
+                ):
+                    raise ValueError(
+                        "bounded scratch row ids must be positive integers"
+                    )
+                if (
+                    isinstance(row_quantity, bool)
+                    or not isinstance(row_quantity, (int, float))
+                    or not isfinite(float(row_quantity))
+                    or row_quantity <= 0
+                ):
+                    raise ValueError(
+                        "bounded scratch row quantities must be positive numbers"
+                    )
+                total += float(row_quantity)
+            if not isclose(total, float(self.quantity), rel_tol=0, abs_tol=1e-9):
+                raise ValueError(
+                    "bounded scratch row quantities must sum to the total quantity"
+                )
 
 
 def default_provider(project: Any | None = None, router: Any | None = None) -> Any:
@@ -1024,6 +1054,14 @@ def resolve_for_action(
             engine=outcome.facts.engine,
         )
         if capability == CAPABILITY_TRANSCRIBE:
+            row_audio_seconds = (
+                {
+                    row_id: float(row_quantity)
+                    for row_id, row_quantity in bounded_scratch_input.row_quantities.items()
+                }
+                if bounded_scratch_input.row_quantities is not None
+                else {SCRATCH_PREVIEW_UNIT_ID: float(quantity)}
+            )
             cost_basis = quote_transcription(
                 target_id=outcome.target.id,
                 engine=outcome.facts.engine,
@@ -1031,7 +1069,7 @@ def resolve_for_action(
                 offering=offering,
                 audio_seconds=float(quantity),
                 hardware_class=outcome.estimate_basis.hardware_class,
-                row_audio_seconds={SCRATCH_PREVIEW_UNIT_ID: float(quantity)},
+                row_audio_seconds=row_audio_seconds,
             )
         elif capability == CAPABILITY_OCR:
             if offering is not None and offering.quote.quantity_unit == "usd":
@@ -1039,13 +1077,25 @@ def resolve_for_action(
             elif int(quantity) != quantity or quantity <= 0:
                 raise ValueError("bounded OCR scratch quantity must be positive pages")
             else:
+                scratch_rows = bounded_scratch_input.row_quantities
+                if scratch_rows is not None and any(
+                    float(value) != int(value) for value in scratch_rows.values()
+                ):
+                    raise ValueError(
+                        "bounded OCR scratch row quantities must be whole pages"
+                    )
+                row_pages = (
+                    {row_id: int(value) for row_id, value in scratch_rows.items()}
+                    if scratch_rows is not None
+                    else {SCRATCH_PREVIEW_UNIT_ID: int(quantity)}
+                )
                 cost_basis = quote_ocr(
                     target_id=outcome.target.id,
                     engine=outcome.facts.engine,
                     funding=funding,
                     offering=offering,
                     pages=int(quantity),
-                    row_pages={SCRATCH_PREVIEW_UNIT_ID: int(quantity)},
+                    row_pages=row_pages,
                 )
         else:
             raise ValueError(

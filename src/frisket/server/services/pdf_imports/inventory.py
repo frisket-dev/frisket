@@ -531,6 +531,7 @@ class PdfDraftInventory:
         count = pages = commit_ordinal = 0
         child_start = 1
         child_count = child_pages = 0
+        child_row_pages: dict[int, int] = {}
         children: list[dict[str, Any]] = []
         cursor = self.db.execute(
             "SELECT s.ordinal,s.occurrence_id,st.sha256,st.page_count,st.category "
@@ -566,6 +567,7 @@ class PdfDraftInventory:
                 pages += fact["page_count"]
                 child_count += 1
                 child_pages += fact["page_count"]
+                child_row_pages[commit_ordinal] = fact["page_count"]
             if commit_ordinal % child_size == 0:
                 if child_count:
                     children.append(
@@ -576,10 +578,12 @@ class PdfDraftInventory:
                             "source_count": child_count,
                             "page_count": child_pages,
                             "roster_digest": child_digest.hexdigest(),
+                            "row_pages": dict(child_row_pages),
                         }
                     )
                 child_start = commit_ordinal + 1
                 child_count = child_pages = 0
+                child_row_pages = {}
                 child_digest = hashlib.sha256()
         if child_count:
             children.append(
@@ -590,6 +594,7 @@ class PdfDraftInventory:
                     "source_count": child_count,
                     "page_count": child_pages,
                     "roster_digest": child_digest.hexdigest(),
+                    "row_pages": dict(child_row_pages),
                 }
             )
         return digest.hexdigest(), count, pages, children

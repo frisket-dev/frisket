@@ -991,18 +991,23 @@ class PdfImportService:
             remote_ocr = header["choices"][
                 "ocr_policy"
             ] != "none" and not self._is_rapidocr(action_params)
-            if remote_ocr and batch_ocr["state"] != "ready":
+            if remote_ocr and stats["staged_count"] != stats["selected_count"]:
+                raise PdfImportDraftError(
+                    409, "paid or remote OCR requires every selected PDF"
+                )
+            current_binding = self._batch_ocr_binding(
+                header,
+                inventory,
+                action_params=action_params,
+                ocr_policy=header["choices"]["ocr_policy"],
+            )
+            remote_work = remote_ocr and int(current_binding["selected_count"]) > 0
+            if remote_work and batch_ocr["state"] != "ready":
                 raise PdfImportDraftError(
                     409, "paid or remote OCR requires an exact frozen quote"
                 )
             ocr_authorization = None
             if batch_ocr["state"] == "ready":
-                current_binding = self._batch_ocr_binding(
-                    header,
-                    inventory,
-                    action_params=action_params,
-                    ocr_policy=header["choices"]["ocr_policy"],
-                )
                 if (
                     batch_ocr.get("ocr_action_params") != action_params
                     or batch_ocr["ocr_policy"] != header["choices"]["ocr_policy"]
@@ -1012,7 +1017,7 @@ class PdfImportService:
                     raise PdfImportDraftError(
                         409, "batch OCR quote no longer matches the selected PDFs"
                     )
-                if remote_ocr:
+                if remote_work:
                     current_estimate, current_authorization = self._quote_batch_ocr(
                         project_id,
                         current_binding,

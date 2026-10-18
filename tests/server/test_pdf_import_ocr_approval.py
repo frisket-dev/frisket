@@ -4,6 +4,7 @@ import hashlib
 import json
 
 from frisket.ai.llm import ModelRouter
+from frisket.server.services import pdf_import_ocr_approval
 from frisket.server.services.pdf_import_ocr_approval import (
     PdfImportOcrApprovalQuoter,
     PdfImportOcrGrant,
@@ -20,6 +21,16 @@ def test_paid_import_quote_uses_exact_deterministic_child_quotes(
         tmp_path / "workspace", router=router, enable_local_model_pull=False
     )
     workspace.create("Paid PDF import", project_id="paid")
+    quoted_rows = []
+    original_resolve = pdf_import_ocr_approval.resolve_for_action
+
+    def resolve_with_row_capture(*args, **kwargs):
+        quoted_rows.append(kwargs["bounded_scratch_input"].row_quantities)
+        return original_resolve(*args, **kwargs)
+
+    monkeypatch.setattr(
+        pdf_import_ocr_approval, "resolve_for_action", resolve_with_row_capture
+    )
     child_partitions = [
         {
             "child_key": "commit-ordinals:1-256",
@@ -28,6 +39,7 @@ def test_paid_import_quote_uses_exact_deterministic_child_quotes(
             "source_count": 2,
             "page_count": 7,
             "roster_digest": "d" * 64,
+            "row_pages": {1: 4, 2: 3},
         },
         {
             "child_key": "commit-ordinals:257-300",
@@ -36,6 +48,7 @@ def test_paid_import_quote_uses_exact_deterministic_child_quotes(
             "source_count": 1,
             "page_count": 3,
             "roster_digest": "e" * 64,
+            "row_pages": {257: 3},
         },
     ]
     binding = {
@@ -67,6 +80,13 @@ def test_paid_import_quote_uses_exact_deterministic_child_quotes(
     assert grant.scope["page_count"] == 10
     assert [child["scope"]["page_count"] for child in children] == [7, 3]
     assert [child["quote"]["rows"] for child in children] == [2, 1]
+    assert [child["quote"]["remote_capability"] for child in children] == [
+        "provider:anthropic",
+        "provider:anthropic",
+    ]
+    assert estimate["remote_capability"] == "provider:anthropic"
+    assert quoted_rows == [{1: 4, 2: 3}, {257: 3}, None]
+    assert all("row_pages" not in child for child in children)
     assert grant.allocation["approved_billed_cost"] == estimate["billed_cost"]
     assert grant.allocation["currency"] == "USD"
     assert grant.allocation["row_quote_authority"] == ("canonical_commit_occurrences")

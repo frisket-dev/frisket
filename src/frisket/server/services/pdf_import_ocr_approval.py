@@ -11,6 +11,7 @@ from typing import Any, Mapping
 from frisket.actions.media import OcrParams, ocr_options
 from frisket.contracts.http.action_estimate_validation import ActionEstimate
 from frisket.engine.runner.confirmation_context import ConsentQuote
+from frisket.engine.runner.network_policy import remote_capability_for_spec
 from frisket.engine.runner.validation import _bind_rated_quote, confirmation_estimate
 from frisket.engine.store.cells import replay_generated_value_hash
 from frisket.execution.consent_coverage import effective_consent_coverage
@@ -183,6 +184,26 @@ def _route_snapshot(resolved: ResolvedExecution) -> dict[str, Any]:
     }
 
 
+def _compact_promise_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep child grants bounded while retaining an exact row-quote digest."""
+
+    compact = []
+    for raw in rows:
+        row = dict(raw)
+        basis = row.get("basis")
+        if isinstance(basis, Mapping) and basis.get("row_quote_quantities") is not None:
+            basis = dict(basis)
+            quantities = basis.pop("row_quote_quantities")
+            encoded = json.dumps(
+                quantities, sort_keys=True, separators=(",", ":")
+            ).encode()
+            basis["row_quote_quantities_digest"] = hashlib.sha256(encoded).hexdigest()
+            basis["row_quote_quantities_count"] = len(quantities)
+            row["basis"] = basis
+        compact.append(row)
+    return compact
+
+
 class PdfImportOcrApprovalQuoter:
     """Resolve and rate the exact import scope through ordinary OCR routing."""
 
@@ -260,6 +281,7 @@ class PdfImportOcrApprovalQuoter:
         }
         recipe = ScratchActionRecipe("media.ocr", "ocr")
         policy = default_pricing_policy()
+        remote_capability = remote_capability_for_spec(recipe, spec)
 
         def resolve_scope(
             page_count: int, scope: Mapping[str, Any]
@@ -278,9 +300,25 @@ class PdfImportOcrApprovalQuoter:
             return resolved
 
         def rated_scope(
-            source_count: int, page_count: int, scope: Mapping[str, Any]
+            source_count: int,
+            page_count: int,
+            scope: Mapping[str, Any],
+            *,
+            row_quantities: Mapping[int, float] | None = None,
         ) -> tuple[ResolvedExecution, dict[str, Any], str]:
-            resolved = resolve_scope(page_count, scope)
+            resolved = resolve_for_action(
+                project,
+                spec,
+                recipe,
+                composition=composition,
+                bounded_scratch_input=BoundedScratchInput(
+                    page_count, scope, row_quantities=row_quantities
+                ),
+            )
+            if isinstance(resolved, Refusal):
+                raise PdfImportOcrApprovalError(resolved.remedy)
+            if not isinstance(resolved, ResolvedExecution):
+                raise PdfImportOcrApprovalError("OCR route is unavailable")
             raw = scratch_estimate(resolved, quantity_name=None, quantity=page_count)
             raw["rows"] = source_count
             rated = confirmation_estimate(recipe, spec, raw, policy=policy)
@@ -319,6 +357,10 @@ class PdfImportOcrApprovalQuoter:
 
         child_quotes = []
         for partition in child_partitions:
+            row_pages = {
+                int(row_id): int(page_count)
+                for row_id, page_count in partition["row_pages"].items()
+            }
             child_scope = {
                 "schema_version": PDF_IMPORT_OCR_CHILD_SCOPE_SCHEMA,
                 "parent_identity": str(binding["manifest_hash"]),
@@ -336,15 +378,21 @@ class PdfImportOcrApprovalQuoter:
                 child_scope["source_count"],
                 child_scope["page_count"],
                 child_scope,
+                row_quantities=row_pages,
             )
+            public_partition = {
+                key: value for key, value in partition.items() if key != "row_pages"
+            }
             child_quotes.append(
                 {
-                    **partition,
+                    **public_partition,
                     "scope": child_scope,
                     "promise_set_hash": child_hash,
                     "target": target_snapshot(child_bound.resolution),
                     "route": _route_snapshot(child_bound),
-                    "promises": promise_rows(child_bound.promise_set),
+                    "promises": _compact_promise_rows(
+                        promise_rows(child_bound.promise_set)
+                    ),
                     "quote": ConsentQuote.from_estimate(child_estimate).model_dump(
                         mode="json"
                     ),
@@ -364,6 +412,8 @@ class PdfImportOcrApprovalQuoter:
 
         resolved = resolve_scope(total_pages, work_scope)
         rated = scratch_estimate(resolved, quantity_name=None, quantity=total_pages)
+        if remote_capability is not None:
+            rated["remote_capability"] = remote_capability
         rated.update(
             {
                 "rows": selected_count,
