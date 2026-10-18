@@ -69,7 +69,7 @@ function mockApi(initial = draft()) {
     updateSettings: vi.fn(async () => initial),
     updateColumns: vi.fn(async () => initial),
     updateDestination,
-    commit: vi.fn(async () => ({ schema_version: 'frisket.table_import.v1', draft_id: initial.draft_id, commit_id: 'commit-1', status: 'accepted', import_ref: 'table-import-1', sheet_id: 41, sheet_name: 'contributions', selected_total: 2 })),
+    commit: vi.fn(async () => ({ schema_version: 'frisket.table_import.v1', draft_id: initial.draft_id, status: 'accepted', import_ref: 'table-import-1', sheet_id: 41, sheet_name: 'contributions', selected_total: 2 })),
     discard: vi.fn(async () => undefined),
   };
   return api;
@@ -100,15 +100,18 @@ describe('TableImportFlow', () => {
     const api = mockApi();
     const { onImported } = renderFlow(api);
 
-    expect(await screen.findByRole('heading', { name: 'Check rows' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Check rows →' })).toBeEnabled();
+    expect(api.createFromFile).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Check rows →' }));
+    expect(await screen.findByLabelText('Check rows')).toBeVisible();
     expect(screen.getByText('00418823')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Columns →' }));
 
-    expect(await screen.findByRole('heading', { name: 'Columns' })).toBeVisible();
+    expect(await screen.findByLabelText('Columns')).toBeVisible();
     expect(screen.getByText('Needs a look 1')).toBeVisible();
-    fireEvent.click(screen.getByRole('button', { name: 'Import →' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue →' }));
 
-    expect(await screen.findByRole('heading', { name: 'Import into' })).toBeVisible();
+    expect(await screen.findByLabelText('Import')).toBeVisible();
     expect(screen.getByRole('radio', { name: /New sheet/ })).toBeChecked();
     expect(screen.getByRole('textbox', { name: 'Sheet name' })).toHaveValue('contributions');
     await waitFor(() => expect(api.updateDestination).toHaveBeenCalled());
@@ -126,5 +129,18 @@ describe('TableImportFlow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Use Multiple files' }));
     await waitFor(() => expect(onUseMultipleFiles).toHaveBeenCalledWith(files));
     expect(api.createFromFile).not.toHaveBeenCalled();
+  });
+
+  it('sends an extensionless file to server content inspection only after Check rows', async () => {
+    const api = mockApi();
+    renderFlow(api, { initialFile: null });
+    const file = new File(['name\nAda\n'], 'uploaded-table', { type: 'application/octet-stream' });
+    const input = screen.getByRole('button', { name: 'Choose file' }).closest('.table-import-dropzone')!.querySelector('input')!;
+
+    fireEvent.change(input, { target: { files: [file] } });
+    expect(api.createFromFile).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Check rows →' }));
+
+    await waitFor(() => expect(api.createFromFile).toHaveBeenCalledWith('project-1', file, expect.anything()));
   });
 });

@@ -1123,7 +1123,7 @@ function OpenImportWorkspaceSession({
   const [preparationFollowupError, setPreparationFollowupError] = useState<string | null>(null);
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [singleFileFormat, setSingleFileFormat] = useState<SingleFileFormat>('csv');
-  const tableImportActive = railMode === 'csv' && singleFileFormat !== 'ftm';
+  const tableImportSelected = railMode === 'csv' && singleFileFormat !== 'ftm';
   const [ftmDatasetName, setFtmDatasetName] = useState('');
   const [csvEncoding, setCsvEncoding] = useState('');
   const [csvPreview, setCsvPreview] = useState<ImportCsvPreview | null>(null);
@@ -1344,7 +1344,7 @@ function OpenImportWorkspaceSession({
       closeWorkspace();
       return;
     }
-    if (tableImportActive && tableImportCloseGuardRef.current && !tableImportCloseGuardRef.current()) return;
+    if (tableImportSelected && tableImportCloseGuardRef.current && !tableImportCloseGuardRef.current()) return;
     if (bulkPreparing) {
       if (!bulkPrepareDiscardPromptRef.current) {
         bulkPrepareDiscardPromptRef.current = true;
@@ -1355,7 +1355,7 @@ function OpenImportWorkspaceSession({
     if (selectionPreparing || (busy && !sessionBusy) || bulkBusy || draftBusy || pdfPacketContext.busy) return;
     if (mode === 'pdf_split' && pdfPacketCloseGuardRef.current && !pdfPacketCloseGuardRef.current()) return;
     closeWorkspace();
-  }, [bulkBusy, bulkPreparing, busy, closeWorkspace, draftBusy, mode, pdfBatchActive, pdfPacketContext.busy, selectionPreparing, sessionBusy, tableImportActive]);
+  }, [bulkBusy, bulkPreparing, busy, closeWorkspace, draftBusy, mode, pdfBatchActive, pdfPacketContext.busy, selectionPreparing, sessionBusy, tableImportSelected]);
 
   // The ONE shared success
   // handler replacing the three independent close-on-success calls
@@ -1889,6 +1889,7 @@ function OpenImportWorkspaceSession({
   const importInProgress = Boolean(fileSummary && ((uploadBusy && railMode === 'files') || bulkBusy)
     && !bulkPlan);
   const showPreparation = preparationReceipt !== null || importInProgress;
+  const tableImportActive = tableImportSelected && !showPreparation;
   const showSummary = showPreparation && preparationStep === 'summary';
   const importComplete = importSessionIsComplete(importSessionStatus);
   const preparationPending = importSessionNeedsPreparationPlan(importSessionStatus);
@@ -2061,7 +2062,7 @@ function OpenImportWorkspaceSession({
                     id: Number(sheet.id),
                     name: sheet.name,
                     rowCount: sheet.rowCount,
-                    columns: sheet.columns.map((column) => ({ id: column.id, name: column.name })),
+                    columns: sheet.columns.map((column) => ({ id: Number(column.id), name: column.name })),
                   }))}
                   onContextChange={setTableImportContext}
                   registerCloseGuard={registerTableImportCloseGuard}

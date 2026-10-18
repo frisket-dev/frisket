@@ -31,15 +31,17 @@ export function ImportDestinationChoice({
   name,
   onSelect,
   selected,
+  showInactiveChildren = false,
   title,
 }: {
   children?: ReactNode;
   className?: string;
-  description: ReactNode;
+  description?: ReactNode;
   disabled?: boolean;
   name: string;
   onSelect(): void;
   selected: boolean;
+  showInactiveChildren?: boolean;
   title: ReactNode;
 }) {
   return (
@@ -54,10 +56,10 @@ export function ImportDestinationChoice({
         />
         <span>
           <strong>{title}</strong>
-          <small>{description}</small>
+          {description ? <small>{description}</small> : null}
         </span>
       </label>
-      {selected ? children : null}
+      {selected || showInactiveChildren ? children : null}
     </div>
   );
 }

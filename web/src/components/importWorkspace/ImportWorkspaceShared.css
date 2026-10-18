@@ -72,6 +72,15 @@
   font-weight: 650;
 }
 
+.table-import-destination .import-destination-choice {
+  min-height: 104px;
+  padding: 12px;
+}
+
+.table-import-destination .import-destination-choice-field {
+  margin-top: 9px;
+}
+
 @media (max-width: 820px) {
   .import-destination-options {
     grid-template-columns: 1fr;

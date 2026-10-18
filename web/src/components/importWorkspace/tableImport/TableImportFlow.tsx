@@ -8,6 +8,7 @@ import {
   type TableImportDestinationConfig,
   type TableImportDestinationSnapshot,
   type TableImportDraft,
+  type TableImportMappingRequest,
   type TableImportRequestedSettings,
   type TableImportsApi,
 } from '../../../api/tableImports';
@@ -61,7 +62,7 @@ function mappingsFor(
   draft: TableImportDraft,
   destination: TableImportDestinationConfig,
   sheets: readonly TableImportDestinationSheet[],
-): TableImportDestinationSnapshot['mappings'] {
+): TableImportMappingRequest[] {
   const sheet = destination.kind === 'existing'
     ? sheets.find((candidate) => candidate.id === destination.sheet_id)
     : null;
@@ -70,13 +71,9 @@ function mappingsFor(
     const matched = sheet?.columns.find((candidate) => candidate.name.replace(/[\s_]+/g, '').toLocaleLowerCase() === normalized);
     return {
       source_index: column.source_index,
-      source_name: column.name,
-      source_type: column.target_type,
       target: matched
         ? { kind: 'existing' as const, column_id: matched.id }
         : { kind: 'new' as const, name: column.name },
-      match: matched ? 'matched' as const : 'new' as const,
-      detail: null,
     };
   });
 }
@@ -99,6 +96,7 @@ export function TableImportFlow({
   const [stage, setStage] = useState<TableImportStage>('add');
   const [sourceMode, setSourceMode] = useState<TableImportSourceMode>('file');
   const [sourceIssue, setSourceIssue] = useState<TableImportSourceIssue | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(initialFile);
   const [pasteText, setPasteText] = useState('');
   const [largePasteConfirmed, setLargePasteConfirmed] = useState(false);
   const [password, setPassword] = useState('');
@@ -115,7 +113,6 @@ export function TableImportFlow({
   const requestController = useRef<AbortController | null>(null);
   const mutationTail = useRef<Promise<void>>(Promise.resolve());
   const commitKey = useRef(crypto.randomUUID());
-  const initialFileConsumed = useRef(false);
   const destinationSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const callbacks = useRef({ onDiscarded, onError, onImported });
 
@@ -145,6 +142,7 @@ export function TableImportFlow({
     currentDraft.current = null;
     latestSnapshot.current = null;
     setSnapshot(null);
+    setSelectedFile(null);
     setPassword('');
     setError(null);
     setStage('add');
@@ -152,8 +150,6 @@ export function TableImportFlow({
   }, []);
 
   const createFromFile = useCallback(async (file: File) => {
-    const issue = sourceIssueForFiles([file], followTheMoneyEnabled);
-    if (issue) { setSourceIssue(issue); return; }
     const epoch = ++generation.current;
     requestController.current?.abort();
     const controller = new AbortController();
@@ -185,14 +181,15 @@ export function TableImportFlow({
         setBusy(false);
       }
     }
-  }, [api, followTheMoneyEnabled, projectId, publish, reportError]);
+  }, [api, projectId, publish, reportError]);
 
   const chooseFiles = useCallback((files: File[]) => {
     const issue = sourceIssueForFiles(files, followTheMoneyEnabled);
-    if (issue) { setSourceIssue(issue); return; }
+    if (issue) { setSelectedFile(null); setSourceIssue(issue); return; }
     const file = files[0];
-    if (file) void createFromFile(file);
-  }, [createFromFile, followTheMoneyEnabled]);
+    setSelectedFile(file ?? null);
+    setSourceIssue(null);
+  }, [followTheMoneyEnabled]);
 
   const createFromPaste = useCallback(async (confirmed: boolean) => {
     if (!pasteText.trim()) return;
@@ -231,12 +228,6 @@ export function TableImportFlow({
       }
     }
   }, [api, pasteText, projectId, publish, reportError]);
-
-  useEffect(() => {
-    if (!initialFile || initialFileConsumed.current) return;
-    initialFileConsumed.current = true;
-    void createFromFile(initialFile);
-  }, [createFromFile, initialFile]);
 
   const refresh = useCallback(async () => {
     const draftId = currentDraft.current;
@@ -402,7 +393,7 @@ export function TableImportFlow({
   const subtitle = useMemo(() => {
     if (!snapshot) return 'One file · CSV, Excel or pasted rows';
     const rows = snapshot.analysis.exact_rows ?? snapshot.analysis.estimated_rows;
-    return `${snapshot.source.filename}${rows === null ? '' : ` · ${rows.toLocaleString()} ${snapshot.analysis.complete ? 'rows' : 'rows so far'}`}${snapshot.columns.length ? ` · ${snapshot.columns.length.toLocaleString()} columns` : ''}`;
+    return `${snapshot.source.filename}${rows == null ? '' : ` · ${snapshot.analysis.complete ? '' : 'about '}${rows.toLocaleString()} rows`}${snapshot.columns.length ? ` · ${snapshot.columns.length.toLocaleString()} columns` : ''}`;
   }, [snapshot]);
 
   useEffect(() => {
@@ -417,6 +408,7 @@ export function TableImportFlow({
       busy={busy}
       issue={sourceIssue}
       mode={sourceMode}
+      selectedFile={selectedFile}
       password={password}
       passwordFilename={snapshot?.state === 'password_required' ? snapshot.source.filename : null}
       pasteText={pasteText}
@@ -429,7 +421,8 @@ export function TableImportFlow({
       onPasswordChange={setPassword}
       onPasteChange={(value) => { setPasteText(value); setSourceIssue(null); setLargePasteConfirmed(false); }}
       onPasteSubmit={() => void createFromPaste(largePasteConfirmed)}
-      onResetIssue={() => { setSourceMode('file'); setSourceIssue(null); }}
+      onSelectedFileSubmit={() => { if (selectedFile) void createFromFile(selectedFile); }}
+      onResetIssue={() => { setSourceMode('file'); setSelectedFile(null); setSourceIssue(null); }}
       onSplitPdf={(file) => { void handOff(() => onUsePdfSplit(file)); }}
       onUnlock={() => void unlock()}
     />}

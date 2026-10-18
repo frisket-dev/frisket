@@ -95,6 +95,7 @@ function renderDialog(open: boolean, onImported = vi.fn(), onClose = vi.fn()) {
   return render(
     <ImportWorkspaceDialog
       open={open}
+      entryMode="files"
       onClose={onClose}
       onImported={onImported}
       onError={vi.fn()}
@@ -752,12 +753,11 @@ describe('ImportWorkspaceDialog controlled open session', () => {
       />,
     );
 
-    expect(screen.getByTestId('import-file-format')).toHaveTextContent('FollowTheMoney');
-    fireEvent.change(screen.getByTestId('import-file-format'), { target: { value: 'ftm' } });
+    const input = screen.getByRole('button', { name: 'Choose file' }).closest('.table-import-dropzone')?.querySelector('input');
+    fireEvent.change(input!, { target: { files: [new File(['{"id":"x"}\n'], 'entities.jsonl', { type: 'application/json' })] } });
+    fireEvent.click(screen.getByRole('button', { name: 'Use FollowTheMoney import' }));
     fireEvent.change(screen.getByTestId('import-ftm-dataset-name'), { target: { value: 'Entities' } });
-    fireEvent.change(screen.getByTestId('import-csv-input'), {
-      target: { files: [new File(['{"id":"x"}\n'], 'entities.jsonl', { type: 'application/json' })] },
-    });
+    fireEvent.click(screen.getByRole('button', { name: 'Import' }));
 
     await waitFor(() => expect(importFollowTheMoney).toHaveBeenCalledWith(
       'open-session-project',
@@ -769,53 +769,14 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     view.unmount();
   });
 
-  it('does not offer FollowTheMoney when the catalog gate is absent', () => {
-    renderDialog(true);
-    expect(screen.getByTestId('import-file-format')).not.toHaveTextContent('FollowTheMoney');
-  });
-
-  it('offers only root sheets for append and rotates the append key for a replacement file', async () => {
-    projectApi.listSheets.mockResolvedValue([
-      // Imports record their creation op, but no parent sheet: this root
-      // remains an append destination.
-      {
-        id: '10', name: 'Imported root', rowCount: 1,
-        columns: [{ id: 'name', name: 'name', type: 'text' }],
-        citedColumnIds: [], annotatedTextColumnIds: [],
-      },
-      {
-        id: '11', name: 'Derived child', rowCount: 1,
-        columns: [{ id: 'name', name: 'name', type: 'text' }],
-        parent: { sheetId: '10', sheetName: 'Imported root', viaAction: 'derive.rows' },
-        citedColumnIds: [], annotatedTextColumnIds: [],
-      },
-    ]);
-    renderDialog(true);
-    const first = new File(['name\nAda\n'], 'first.csv', { type: 'text/csv' });
-    fireEvent.change(screen.getByTestId('import-csv-input'), { target: { files: [first] } });
-
-    const destination = await screen.findByLabelText('Destination');
-    expect(destination).toHaveTextContent('Imported root');
-    expect(destination).not.toHaveTextContent('Derived child');
-    fireEvent.change(destination, { target: { value: '10' } });
-    const confirm = screen.getByTestId('import-csv-confirm');
-    await waitFor(() => expect(confirm).toBeEnabled());
-
-    fireEvent.click(confirm);
-    await waitFor(() => expect(importCsv).toHaveBeenCalledTimes(1));
-    const firstKey = importCsv.mock.calls[0][4];
-    fireEvent.click(confirm);
-    await waitFor(() => expect(importCsv).toHaveBeenCalledTimes(2));
-    expect(importCsv.mock.calls[1][4]).toBe(firstKey);
-
-    const replacement = new File(['name\nBea\n'], 'replacement.csv', { type: 'text/csv' });
-    fireEvent.change(screen.getByTestId('import-csv-input'), { target: { files: [replacement] } });
-    await waitFor(() => expect(previewCsv).toHaveBeenCalledWith(
-      'open-session-project', replacement, undefined, expect.anything(),
-    ));
-    fireEvent.click(screen.getByTestId('import-csv-confirm'));
-    await waitFor(() => expect(importCsv).toHaveBeenCalledTimes(3));
-    expect(importCsv.mock.calls[2][4]).not.toBe(firstKey);
+  it('does not offer FollowTheMoney when the catalog gate is absent and leaves content inspection to Check rows', () => {
+    render(
+      <ImportWorkspaceDialog open onClose={vi.fn()} onImported={vi.fn()} onError={vi.fn()} onLaunchDownload={vi.fn()} />,
+    );
+    const input = screen.getByRole('button', { name: 'Choose file' }).closest('.table-import-dropzone')?.querySelector('input');
+    fireEvent.change(input!, { target: { files: [new File(['{"id":"x"}\n'], 'entities.jsonl', { type: 'application/json' })] } });
+    expect(screen.queryByRole('button', { name: 'Use FollowTheMoney import' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Check rows →' })).toBeEnabled();
   });
 
   it('routes a gated JSON/JSONL drop through FtM and refreshes its first sheet', async () => {
@@ -823,7 +784,7 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     render(
       <ImportDropzone
         onOpenWorkspace={vi.fn()}
-        onOpenCsv={vi.fn()}
+        onOpenTable={vi.fn()}
         onOpenBulk={vi.fn()}
         onImported={onImported}
         onError={vi.fn()}
@@ -943,12 +904,30 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     expect(uploadFilesToImportSession).not.toHaveBeenCalled();
   });
 
+  it('hands an empty-project table drop to the staged table flow without legacy preview', () => {
+    const onOpenTable = vi.fn();
+    render(
+      <ImportDropzone
+        onOpenWorkspace={vi.fn()}
+        onOpenTable={onOpenTable}
+        onOpenBulk={vi.fn()}
+        onImported={vi.fn()}
+        onError={vi.fn()}
+        onLaunchDownload={vi.fn()}
+      />,
+    );
+    const file = new File(['name\nAda\n'], 'people.csv', { type: 'text/csv' });
+    fireEvent.drop(screen.getByTestId('import-dropzone'), { dataTransfer: { files: [file] } });
+    expect(onOpenTable).toHaveBeenCalledWith(file);
+    expect(previewCsv).not.toHaveBeenCalled();
+  });
+
   it('does not dispatch a pending drop after the dropzone unmounts', async () => {
     const onOpenBulk = vi.fn();
     const view = render(
       <ImportDropzone
         onOpenWorkspace={vi.fn()}
-        onOpenCsv={vi.fn()}
+        onOpenTable={vi.fn()}
         onOpenBulk={onOpenBulk}
         onImported={vi.fn()}
         onError={vi.fn()}
