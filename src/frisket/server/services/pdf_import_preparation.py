@@ -626,7 +626,18 @@ class PdfImportPreparationCoordinator:
             )
             if error_code == "output_column_busy":
                 raise _OutputBusy
-            if status not in {"queued", "running", "completed", "needs_confirmation"}:
+            terminal_paid_refusal = (
+                ocr
+                and grant is not None
+                and status == "failed"
+                and error_code == "derived_consent_refused"
+            )
+            if status not in {
+                "queued",
+                "running",
+                "completed",
+                "needs_confirmation",
+            } and not terminal_paid_refusal:
                 message = "PDF text preparation could not start."
                 if isinstance(errors, list) and errors and isinstance(errors[0], dict):
                     message = str(errors[0].get("message") or message)
@@ -906,6 +917,39 @@ class PdfImportPreparationCoordinator:
             import_ref=import_ref,
         )
 
+    @staticmethod
+    def _approved_page_through(
+        grant: PdfImportOcrGrant | None,
+        *,
+        scheduled_through: int,
+        committed_through: int,
+        limit: int = 256,
+    ) -> int:
+        """Keep preparation pages aligned with immutable paid OCR children."""
+
+        ordinary_through = min(
+            int(committed_through), int(scheduled_through) + int(limit)
+        )
+        if grant is None or ordinary_through <= scheduled_through:
+            return ordinary_through
+        children = grant.allocation.get("children")
+        if not isinstance(children, list):
+            raise ValueError("paid PDF OCR grant has no child allocation")
+        next_ordinal = int(scheduled_through) + 1
+        for child in children:
+            if not isinstance(child, Mapping):
+                raise ValueError("paid PDF OCR grant child allocation is invalid")
+            start = int(child["commit_ordinal_start"])
+            end = int(child["commit_ordinal_end"])
+            if end < next_ordinal:
+                continue
+            if start < next_ordinal <= end:
+                raise ValueError("PDF preparation cursor split an approved OCR child")
+            if start == next_ordinal:
+                return end if committed_through >= end else scheduled_through
+            return min(ordinary_through, start - 1)
+        return ordinary_through
+
     def progress(self, project_id: str, import_ref: str) -> int:
         project = self.workspace.get(project_id)
         directory = import_intake_dir(project.path, import_ref)
@@ -924,10 +968,24 @@ class PdfImportPreparationCoordinator:
             with PdfImportPreparationStore(directory / "inventory.db") as preparation:
                 if preparation.stopped():
                     return preparation.scheduled_through()
+                scheduled_through = preparation.scheduled_through()
+                raw_grant = facts.get("ocr_authorization")
+                grant = (
+                    PdfImportOcrGrant.from_mapping(raw_grant)
+                    if isinstance(raw_grant, Mapping)
+                    else None
+                )
+                page_through = self._approved_page_through(
+                    grant,
+                    scheduled_through=scheduled_through,
+                    committed_through=session.cursor,
+                )
+                if page_through == scheduled_through:
+                    return scheduled_through
                 page = preparation.page(
                     project,
                     import_ref=import_ref,
-                    committed_through=session.cursor,
+                    committed_through=page_through,
                 )
                 if page.pending_confirmation is not None or not page.rows:
                     return page.scheduled_through

@@ -31,11 +31,14 @@ from frisket.engine.store.execution_routes import RouteStore
 from frisket.engine.store.media_blobs import MediaBlobStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.cells import replay_generated_value_hash
 from frisket.engine.executor import ExecutorDeps
 from frisket.execution.consent_coverage import ConsentCoverage
+from frisket.execution.promises import promise_rows_hash
 from frisket.server.services.pdf_import_preparation import PdfImportPreparationStore
 from frisket.server.services.pdf_import_ocr_approval import (
     PdfImportOcrApprovalQuoter,
+    PdfImportOcrGrant,
 )
 
 
@@ -546,6 +549,138 @@ class _BusyThenReadyActions(_ActionRuns):
                 "receipt_id": f"text-{body['action_id']}",
             },
         )
+
+
+class _PaidActions:
+    def __init__(self, *, refuse: bool = False) -> None:
+        self.refuse = refuse
+        self.bodies: list[dict[str, Any]] = []
+        self.authorizers: list[Any] = []
+
+    def run_action(
+        self,
+        _project_id: str,
+        body: dict[str, Any],
+        *,
+        background_priority: str | None = None,
+        trusted_consent_authorizer=None,
+        trusted_consent_principal: str | None = None,
+    ):
+        assert background_priority == "pdf_import_ocr"
+        assert trusted_consent_principal == "installation:user:paid-import"
+        assert callable(trusted_consent_authorizer)
+        self.bodies.append(body)
+        self.authorizers.append(trusted_consent_authorizer)
+        if self.refuse:
+            return ActionRunResponse(
+                status_code=409,
+                payload={
+                    "status": "failed",
+                    "errors": [
+                        {
+                            "code": "derived_consent_refused",
+                            "message": "paid PDF OCR price or route changed",
+                        }
+                    ],
+                },
+            )
+        return ActionRunResponse(
+            status_code=202,
+            payload={
+                "status": "queued",
+                "receipt_id": f"paid-text-{len(self.bodies)}",
+            },
+        )
+
+
+def _paid_grant(
+    frozen: _Frozen, occurrences: list[_Occurrence]
+) -> PdfImportOcrGrant:
+    action_params = dict(frozen.ocr_action_params)
+    digest = hashlib.sha256()
+    for occurrence in occurrences:
+        digest.update(
+            json.dumps(
+                {
+                    "commit_ordinal": occurrence.ordinal,
+                    "selected_ordinal": occurrence.ordinal,
+                    "occurrence_id": occurrence.occurrence_id,
+                    "sha256": occurrence.sha256,
+                    "page_count": occurrence.page_count,
+                    "category": occurrence.category,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+        )
+        digest.update(b"\n")
+    roster_digest = digest.hexdigest()
+    start = occurrences[0].ordinal
+    end = occurrences[-1].ordinal
+    page_count = sum(int(item.page_count or 0) for item in occurrences)
+    child_key = f"commit-ordinals:{start}-{end}"
+    policy_id = "pdf-import-test-policy"
+    child_scope = {
+        "schema_version": "frisket.pdf_import_ocr_child_scope.v1",
+        "parent_identity": frozen.manifest_hash,
+        "storage_identity": frozen.storage_identity,
+        "draft_id": frozen.draft_id,
+        "child_key": child_key,
+        "commit_ordinal_start": start,
+        "commit_ordinal_end": end,
+        "roster_digest": roster_digest,
+        "source_count": len(occurrences),
+        "page_count": page_count,
+        "ocr_params_hash": replay_generated_value_hash(action_params),
+    }
+    child = {
+        "child_key": child_key,
+        "commit_ordinal_start": start,
+        "commit_ordinal_end": end,
+        "source_count": len(occurrences),
+        "page_count": page_count,
+        "roster_digest": roster_digest,
+        "scope": child_scope,
+        "promise_set_hash": promise_rows_hash([]),
+        "target": {},
+        "route": {},
+        "promises": [],
+        "quote": {"policy_id": policy_id, "billed_cost": page_count},
+    }
+    return PdfImportOcrGrant.from_mapping({
+        "schema_version": "frisket.pdf_import_ocr_approval.v1",
+        "actor": "installation:user:paid-import",
+        "promise_set_hash": "0" * 64,
+        "scope_hash": "1" * 64,
+        "scope": {
+            "schema_version": "frisket.pdf_import_ocr_scope.v1",
+            "identity": frozen.manifest_hash,
+            "storage_identity": frozen.storage_identity,
+            "draft_id": frozen.draft_id,
+            "roster_digest": roster_digest,
+            "source_count": len(occurrences),
+            "page_count": page_count,
+            "ocr_params_hash": replay_generated_value_hash(action_params),
+            "child_partitions_hash": "2" * 64,
+        },
+        "ocr_action_params": action_params,
+        "target": {},
+        "route": {},
+        "promises": [],
+        "quote": {"billed_cost": page_count},
+        "allocation": {
+            "schema_version": "frisket.pdf_import_ocr_allocation.v1",
+            "roster": "effective_unmatched_ocr_selected_commit_order",
+            "max_commit_occurrences_per_child": 256,
+            "source_count": len(occurrences),
+            "page_count": page_count,
+            "approved_billed_cost": page_count,
+            "currency": "USD",
+            "policy_id": policy_id,
+            "row_quote_authority": "canonical_commit_occurrences",
+            "children": [child],
+        },
+    })
 
 
 def test_reviewed_text_handoff_uses_one_designated_column_and_action_authority(
@@ -1339,6 +1474,164 @@ def test_commit_request_publishes_one_bounded_page_then_enqueues_continuation(
         256,
         88,
     ]
+
+
+def test_paid_preparation_waits_for_approved_child_across_short_import_page(
+    tmp_path: Path, monkeypatch
+) -> None:
+    workspace, project_id = _workspace(tmp_path)
+    project = workspace.get(project_id)
+    draft = tmp_path / "draft-paid-short-page"
+    draft.mkdir()
+    occurrences = [
+        replace(
+            _staged(draft, ordinal, f"{ordinal}.pdf", category="missing"),
+            size=40 * 1024 * 1024,
+            ocr_selected=True,
+        )
+        for ordinal in (1, 2)
+    ]
+    frozen = _Frozen(
+        commit_id="pdf-commit-paid-short-page",
+        draft_id="draft-paid-short-page",
+        project_id=project_id,
+        storage_identity=project.storage_identity,
+        idempotency_key="commit-paid-short-page",
+        selected_through=2,
+        selected_total=2,
+        staged_through=2,
+        manifest_hash="a" * 64,
+        destination={"kind": "new", "sheet_name": "Paid scans"},
+        ocr_policy="all",
+        ocr_engine="anthropic/claude-haiku-4-5",
+        ocr_action_params={"engine": "anthropic/claude-haiku-4-5"},
+        ocr_authorization=None,
+        semantic_search=False,
+        semantic_setup_confirmation=None,
+        directory=draft,
+        commit_inventory_path=draft / "commit-inventory.db",
+        committed_total=2,
+        available_through=0,
+        uploads_complete=False,
+        sealed=False,
+        occurrences=occurrences,
+    )
+    frozen.ocr_authorization = _paid_grant(frozen, occurrences)
+    queued: list[tuple[Any, ...]] = []
+    actions = _PaidActions()
+    preparation = SearchPreparationService(workspace, action_runs=actions)
+    result = PdfImportCommitService(
+        workspace,
+        intake=_Intake(frozen),
+        text_preparation=preparation,
+        enqueue=lambda *args: queued.append(args),
+    ).commit(
+        project_id,
+        frozen.draft_id,
+        idempotency_key=frozen.idempotency_key,
+        expected_revision=1,
+    )
+
+    assert result.committed_rows == 1
+    assert queued == [(project_id, result.import_ref, 2, True)]
+    assert preparation.progress_pdf_import(project_id, result.import_ref) == 0
+    assert actions.bodies == []
+
+    registry = HandlerRegistry()
+    register_import_files_handler(
+        registry,
+        workspace_root=workspace.root,
+        queue=workspace.queue,
+    )
+    workspace.queue.enqueue(
+        IMPORT_FILES_PAGE_KIND,
+        {
+            "project_id": project_id,
+            "workspace_root": str(workspace.root),
+            "import_ref": result.import_ref,
+            "through": queued[0][2],
+            "sealed": queued[0][3],
+            "dedupe_key": f"test:{result.import_ref}",
+        },
+    )
+    assert Worker(workspace.queue, registry, worker_id="import-worker").run_once()
+    monkeypatch.setattr(
+        MediaBlobStore,
+        "probe_metadata",
+        lambda _self, _digest: {"pages": 1},
+    )
+
+    assert preparation.progress_pdf_import(project_id, result.import_ref) == 2
+    assert len(actions.bodies) == 1
+    assert actions.bodies[0]["action_id"] == "media.ocr"
+    assert len(actions.bodies[0]["scope"]["row_ids"]) == 2
+
+
+def test_paid_route_or_price_drift_is_one_visible_terminal_child(
+    tmp_path: Path, monkeypatch
+) -> None:
+    workspace, project_id = _workspace(tmp_path)
+    project = workspace.get(project_id)
+    draft = tmp_path / "draft-paid-drift"
+    draft.mkdir()
+    occurrence = replace(
+        _staged(draft, 1, "scan.pdf", category="missing"),
+        ocr_selected=True,
+    )
+    frozen = _Frozen(
+        commit_id="pdf-commit-paid-drift",
+        draft_id="draft-paid-drift",
+        project_id=project_id,
+        storage_identity=project.storage_identity,
+        idempotency_key="commit-paid-drift",
+        selected_through=1,
+        selected_total=1,
+        staged_through=1,
+        manifest_hash="b" * 64,
+        destination={"kind": "new", "sheet_name": "Paid drift"},
+        ocr_policy="all",
+        ocr_engine="anthropic/claude-haiku-4-5",
+        ocr_action_params={"engine": "anthropic/claude-haiku-4-5"},
+        ocr_authorization=None,
+        semantic_search=False,
+        semantic_setup_confirmation=None,
+        directory=draft,
+        commit_inventory_path=draft / "commit-inventory.db",
+        committed_total=1,
+        available_through=0,
+        uploads_complete=False,
+        sealed=False,
+        occurrences=[occurrence],
+    )
+    frozen.ocr_authorization = _paid_grant(frozen, [occurrence])
+    monkeypatch.setattr(
+        MediaBlobStore,
+        "probe_metadata",
+        lambda _self, _digest: {"pages": 1},
+    )
+    actions = _PaidActions(refuse=True)
+    preparation = SearchPreparationService(workspace, action_runs=actions)
+
+    result = PdfImportCommitService(
+        workspace,
+        intake=_Intake(frozen),
+        text_preparation=preparation,
+    ).commit(
+        project_id,
+        frozen.draft_id,
+        idempotency_key=frozen.idempotency_key,
+        expected_revision=1,
+    )
+
+    summary = preparation.pdf_import_summary(project_id, result.import_ref)
+    assert summary.scheduled_through == 1
+    assert summary.ocr_completed == 1
+    assert len(summary.children) == 1
+    assert summary.children[0]["status"] == "failed"
+    assert len(actions.bodies) == 1
+
+    preparation.recover()
+    assert len(actions.bodies) == 1
 
 
 def test_preparation_failure_cannot_block_durable_import_continuation(
