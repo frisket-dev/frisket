@@ -578,10 +578,9 @@ export function useWorkspaceModel({
 
   const sheet = sheets.find((candidate) => candidate.id === activeSheetId);
   const handleImportSessionChanged = useCallback(() => {
-    projectData.invalidate();
     void refreshSheets();
     void job.refresh();
-  }, [job, projectData, refreshSheets]);
+  }, [job, refreshSheets]);
   const importProgress = useImportProgress({
     projectId: project.id,
     onChanged: handleImportSessionChanged,
@@ -592,6 +591,9 @@ export function useWorkspaceModel({
   ) : null;
   const importLiveRun = activeImportActivity?.liveRun ?? null;
   const pendingImportRowCount = selectPendingImportRowCount(activeImportActivity);
+  const importRowRefreshKey = activeImportActivity
+    ? `${activeImportActivity.importRef}:${activeImportActivity.session.state}:${activeImportActivity.session.committed_rows}`
+    : null;
   const [importRunRowScope, setImportRunRowScope] = useState<{
     runId: string;
     rowIds: string[];
@@ -3679,6 +3681,7 @@ export function useWorkspaceModel({
           } : importLiveRun}
           priorityReadingRowId={activeDocumentPriority?.sheetId === sheet.id ? activeDocumentPriority.rowId : null}
           pendingImportRowCount={pendingImportRowCount}
+          importRowRefreshKey={importRowRefreshKey}
           rowHeight={rowHeight}
           wrapText={wrapText}
           columnGroupsStorageScope={project.id}
@@ -3756,6 +3759,7 @@ export function useWorkspaceModel({
     importLiveRun,
     importRunRowScope,
     pendingImportRowCount,
+    importRowRefreshKey,
     activeDocumentPriority,
     rowHeight,
     wrapText,

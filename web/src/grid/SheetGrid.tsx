@@ -292,6 +292,8 @@ export interface SheetGridProps {
   priorityReadingRowId?: string | null;
   /** UI-only rows reserved for files the active import has not committed yet. */
   pendingImportRowCount?: number;
+  /** Changes when an import commits rows or reaches a new lifecycle state. */
+  importRowRefreshKey?: string | null;
   /** Global row height (Google-Sheets select-all style: every row alike). */
   rowHeight: number;
   /** Wrap long text in text cells (pairs with taller rows). */
@@ -1180,7 +1182,7 @@ interface SheetGridController {
 
 function useSheetGridController({
   sheet, dataVersion, liveRun, backgroundLiveRun = null, priorityReadingRowId = null,
-  pendingImportRowCount = 0,
+  pendingImportRowCount = 0, importRowRefreshKey = null,
   rowHeight, wrapText, childSheet, parentRowFilter,
   activeFilter, activeSort, columnOrder, lensRowIds, lensScores, scopeRowIds, citationColumnId,
   previewColumns, previewCells,
@@ -1238,6 +1240,13 @@ function useSheetGridController({
     dataOptions,
     projectApi,
   );
+  const refreshImportedRows = cache.refresh;
+  const previousImportRowRefreshKey = useRef(importRowRefreshKey);
+  useEffect(() => {
+    if (previousImportRowRefreshKey.current === importRowRefreshKey) return;
+    previousImportRowRefreshKey.current = importRowRefreshKey;
+    refreshImportedRows();
+  }, [importRowRefreshKey, refreshImportedRows]);
   const realRowCount = cache.rowCount;
   const showImportPlaceholders = !lensActive && !parentRowFilter && activeFilter == null
     && scopeRowIds == null;

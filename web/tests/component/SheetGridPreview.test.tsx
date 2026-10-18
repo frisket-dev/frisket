@@ -24,12 +24,13 @@ vi.mock('@glideapps/glide-data-grid', async (importOriginal) => {
 });
 const rows = [row({ old: 'COMMITTED' }, { id: '1' }), row({ old: 'UNSAMPLED' }, { id: '2', index: 1 })];
 const visibleRowsChanged = vi.hoisted(() => vi.fn());
+const refreshRows = vi.hoisted(() => vi.fn());
 vi.mock('../../src/grid/useRowCache', () => ({
   useRowCache: () => ({
     getRow: (index: number) => rows[index],
     rowCount: 2,
     version: 0,
-    refresh: vi.fn(),
+    refresh: refreshRows,
     onVisibleRowsChanged: visibleRowsChanged,
   }),
 }));
@@ -39,6 +40,7 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
   visibleRowsChanged.mockClear();
+  refreshRows.mockClear();
   localStorage.clear();
 });
 const sheet: SheetMeta = { id: '1', name: 'Videos', rowCount: 2, columns: [columnDef({ id: 'old', name: 'Cuts', type: 'text' })] };
@@ -76,6 +78,21 @@ async function mountImportPlaceholders() {
 }
 
 describe('preview grid interactions', () => {
+  it('soft-refreshes committed import rows without changing the hard cache version', async () => {
+    const props = {
+      sheet, dataVersion: 7, liveRun: null, rowHeight: 32, wrapText: false,
+      columnGroupsStorageScope: 'preview-grid', pendingImportRowCount: 3,
+      onRowOpen: vi.fn(), onColumnOpen: vi.fn(), onCellEdit: vi.fn(),
+    } as const;
+    const view = render(<SheetGrid {...props} importRowRefreshKey="table-1:running:10" />);
+    expect(refreshRows).not.toHaveBeenCalled();
+
+    view.rerender(<SheetGrid {...props} pendingImportRowCount={2} importRowRefreshKey="table-1:running:11" />);
+    await waitFor(() => expect(refreshRows).toHaveBeenCalledTimes(1));
+    view.rerender(<SheetGrid {...props} pendingImportRowCount={0} importRowRefreshKey="table-1:completed:11" />);
+    await waitFor(() => expect(refreshRows).toHaveBeenCalledTimes(2));
+  });
+
   it.each([null, 'old'])('uses sampled types and opens sampled detail for target %s', async (overwritesColumnId) => {
     const descriptor = { ...column, overwritesColumnId };
     const { grid, open, edit } = await mount(temporal, descriptor);
