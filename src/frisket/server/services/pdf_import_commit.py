@@ -308,6 +308,11 @@ class PdfImportCommitService:
                     "selected_total": int(frozen.selected_total),
                     "ocr_policy": str(frozen.ocr_policy),
                     "ocr_action_params": dict(frozen.ocr_action_params),
+                    "ocr_authorization": (
+                        frozen.ocr_authorization.as_mapping()
+                        if frozen.ocr_authorization is not None
+                        else None
+                    ),
                     "semantic_search": bool(frozen.semantic_search),
                     "semantic_setup_confirmation": frozen.semantic_setup_confirmation,
                 },

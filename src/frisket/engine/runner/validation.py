@@ -7,7 +7,7 @@ so the guards run identically whether or not the caller persists anything."""
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -627,6 +627,35 @@ class _ValidatedSpec:
     resume_confirmation: ResumeClaimConfirmation | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class TrustedConsentContext:
+    """Exact normal-run facts offered to a trusted derived-consent adapter."""
+
+    spec: Mapping[str, Any]
+    row_ids: tuple[int, ...]
+    resolved_execution: ResolvedExecution
+    estimate: Mapping[str, Any]
+    principal: str
+
+
+@dataclass(frozen=True, slots=True)
+class TrustedConsentApproval:
+    grant_basis: str
+
+
+@dataclass(frozen=True, slots=True)
+class TrustedConsentRefusal:
+    reason: str
+
+
+TrustedConsentDecision = TrustedConsentApproval | TrustedConsentRefusal
+TrustedConsentAuthorizer = Callable[[TrustedConsentContext], TrustedConsentDecision]
+
+
+class TrustedConsentRefused(ValueError):
+    """A server-owned derived grant did not cover the actual normal run."""
+
+
 def _bind_rated_quote(
     resolved: ResolvedExecution,
     estimate: Mapping[str, Any],
@@ -1143,6 +1172,7 @@ def validate_spec(
     persistence: Persistence = "durable",
     precomputed_output_fields: list[dict[str, Any]] | None = None,
     consent_coverage: ConsentCoverage | None = None,
+    trusted_consent_authorizer: TrustedConsentAuthorizer | None = None,
 ) -> _ValidatedSpec:
     """Pure guards, no writes. Resolves the
     recipe + row scope and raises BatchRowLimitExceeded / CostGate /
@@ -1286,6 +1316,30 @@ def validate_spec(
             if estimate_result.bound_resolution is None:
                 raise RuntimeError("routed estimate did not bind its consent quote")
             resolved_execution = estimate_result.bound_resolution
+            trusted_decision = (
+                trusted_consent_authorizer(
+                    TrustedConsentContext(
+                        spec=json.loads(json.dumps(spec, sort_keys=True)),
+                        row_ids=tuple(row_ids),
+                        resolved_execution=resolved_execution,
+                        estimate=json.loads(json.dumps(est, sort_keys=True)),
+                        principal=consent_coverage.principal,
+                    )
+                )
+                if trusted_consent_authorizer is not None
+                else None
+            )
+            if isinstance(trusted_decision, TrustedConsentRefusal):
+                raise TrustedConsentRefused(trusted_decision.reason)
+            if trusted_decision is not None and not isinstance(
+                trusted_decision, TrustedConsentApproval
+            ):
+                raise TypeError("trusted consent authorizer returned an invalid decision")
+            if isinstance(trusted_decision, TrustedConsentApproval):
+                if not trusted_decision.grant_basis.strip():
+                    raise ValueError("trusted consent grant basis must not be empty")
+                consent_required = True
+                consent_basis = trusted_decision.grant_basis
             # A confirmation binds only the exact claim set the user saw.
             uncovered = project_uncovered_user_claims(
                 project,
@@ -1293,7 +1347,7 @@ def validate_spec(
                 spec=spec,
                 consent_coverage=consent_coverage,
             )
-            if uncovered:
+            if uncovered and trusted_decision is None:
                 set_hash = consented_set_hash(resolved_execution.promise_set)
                 claims_payload = gate_claims_payload(
                     uncovered,
@@ -1319,7 +1373,7 @@ def validate_spec(
                 if claims_gate is not None:
                     raise claims_gate
                 consent_required = True
-            elif any(
+            elif trusted_decision is None and any(
                 promise.audience == "user_claim"
                 for promise in resolved_execution.promise_set.promises
             ):
@@ -1336,6 +1390,10 @@ def validate_spec(
                     )
                     else CONSENT_BASIS_PREAPPROVED
                 )
+        elif trusted_consent_authorizer is not None:
+            raise TrustedConsentRefused(
+                "trusted consent requires a resolved execution"
+            )
         else:
             # Unrouted recipes use their existing cost-confirmation path;
             # unavailable routed executions have already refused in estimate_run.

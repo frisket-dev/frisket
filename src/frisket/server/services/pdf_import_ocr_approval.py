@@ -10,8 +10,8 @@ from typing import Any, Mapping
 
 from frisket.actions.media import OcrParams, ocr_options
 from frisket.contracts.http.action_estimate_validation import ActionEstimate
-from frisket.engine.runner.confirmation_context import ConsentQuote, rate_estimate
-from frisket.engine.runner.validation import _bind_rated_quote
+from frisket.engine.runner.confirmation_context import ConsentQuote
+from frisket.engine.runner.validation import _bind_rated_quote, confirmation_estimate
 from frisket.engine.store.cells import replay_generated_value_hash
 from frisket.execution.consent_coverage import effective_consent_coverage
 from frisket.execution.pricing_policy import default_pricing_policy
@@ -283,7 +283,7 @@ class PdfImportOcrApprovalQuoter:
             resolved = resolve_scope(page_count, scope)
             raw = scratch_estimate(resolved, quantity_name=None, quantity=page_count)
             raw["rows"] = source_count
-            rated = rate_estimate(raw, policy=policy)
+            rated = confirmation_estimate(recipe, spec, raw, policy=policy)
             bound = _bind_rated_quote(resolved, rated)
             uncovered = project_uncovered_user_claims(
                 project,

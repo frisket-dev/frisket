@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+from decimal import Decimal, InvalidOperation
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,7 +15,19 @@ from filelock import FileLock
 from frisket.engine.store.import_inventory import ImportInventory
 from frisket.engine.store.import_intake import import_intake_dir, read_import_header
 from frisket.engine.store.import_sessions import ImportSessionStore
+from frisket.engine.store.cells import replay_generated_value_hash
+from frisket.engine.store.media_blobs import MediaBlobStore
+from frisket.engine.runner.confirmation_context import ConsentQuote
+from frisket.engine.runner.validation import (
+    TrustedConsentApproval,
+    TrustedConsentContext,
+    TrustedConsentRefusal,
+)
+from frisket.execution.promises import promise_rows_hash
+from frisket.execution.resolve_for_action import promise_rows, target_snapshot
+from frisket.retrieval.source_adapter import resolve_cell_blob_source
 from frisket.server.route_errors import RouteError
+from frisket.server.services.pdf_import_ocr_approval import PdfImportOcrGrant
 
 _CHILD_STATUS_PAGE = 100
 
@@ -140,7 +153,8 @@ class PdfImportPreparationStore:
             else json.loads(str(state["pending_confirmation_json"]))
         )
         metadata = self.db.execute(
-            "SELECT ordinal,occurrence_id,category,error,ocr_selected "
+            "SELECT ordinal,occurrence_id,selected_ordinal,category,error,"
+            "sha256,page_count,ocr_selected "
             "FROM pdf_commit_occurrences WHERE ordinal>? AND ordinal<=? "
             "ORDER BY ordinal LIMIT ?",
             (scheduled, int(committed_through), int(limit)),
@@ -161,9 +175,17 @@ class PdfImportPreparationStore:
         rows = tuple(
             {
                 "row_id": row_map[int(item["ordinal"])],
+                "ordinal": int(item["ordinal"]),
                 "occurrence_id": str(item["occurrence_id"]),
+                "selected_ordinal": int(item["selected_ordinal"]),
                 "category": str(item["category"]),
                 "error": str(item["error"]) if item["error"] else None,
+                "sha256": str(item["sha256"]) if item["sha256"] else None,
+                "page_count": (
+                    int(item["page_count"])
+                    if item["page_count"] is not None
+                    else None
+                ),
                 "ocr_selected": bool(item["ocr_selected"]),
             }
             for item in metadata
@@ -480,16 +502,11 @@ class PdfImportPreparationCoordinator:
         reviewed_ocr_params = dict(ocr_action_params)
         if not str(reviewed_ocr_params.get("engine") or ""):
             raise ValueError("reviewed PDF OCR parameters have no engine")
-        estimate = (
-            ocr_authorization.get("estimate")
-            if isinstance(ocr_authorization, Mapping)
+        grant = (
+            PdfImportOcrGrant.from_mapping(ocr_authorization)
+            if ocr_authorization is not None
             else None
         )
-        claims = estimate.get("claims") if isinstance(estimate, Mapping) else None
-        if claims:
-            raise RouteError(
-                503, "Paid PDF OCR needs the draft-scope batch execution adapter."
-            )
         project = self.workspace.get(project_id)
         source = next(
             (
@@ -556,19 +573,25 @@ class PdfImportPreparationCoordinator:
                 "replace_existing": True,
                 "idempotency_key": f"pdf-import-text:{identity}",
             }
-            current_columns = {
-                str(column["name"]): int(column["id"])
-                for column in project.columns(sheet_id, include_hidden=True)
-            }
             body["expected_output_columns"] = {
-                name: current_columns.get(name)
+                name: (target.column_id if name == target.name else None)
                 for name in body["output_names"].values()
             }
-            response = self.action_runs.run_action(
-                project_id,
-                body,
-                background_priority="pdf_import_ocr" if ocr else None,
-            )
+            run_kwargs: dict[str, Any] = {
+                "background_priority": "pdf_import_ocr" if ocr else None
+            }
+            if ocr and grant is not None:
+                run_kwargs["trusted_consent_authorizer"] = (
+                    self._grant_authorizer(
+                        project,
+                        sheet_id=sheet_id,
+                        source_column_id=int(source["id"]),
+                        rows=rows,
+                        reviewed_ocr_params=reviewed_ocr_params,
+                        grant=grant,
+                    )
+                )
+            response = self.action_runs.run_action(project_id, body, **run_kwargs)
             status = str(response.payload.get("status") or "")
             errors = response.payload.get("errors")
             error_code = (
@@ -592,6 +615,205 @@ class PdfImportPreparationCoordinator:
         start("media.ocr", ocr_rows, ocr=True)
         _ = semantic_search, semantic_setup_confirmation
         return tuple(responses)
+
+    @staticmethod
+    def _route_snapshot(context: TrustedConsentContext) -> dict[str, Any]:
+        facts = context.resolved_execution.resolution.facts
+        return {
+            "engine": facts.engine,
+            "operator": facts.operator,
+            "egress_class": facts.egress_class,
+            "region": facts.region,
+            "cost_posture": facts.cost_posture,
+            "cloud_payer": (
+                facts.cloud_payer.to_snapshot()
+                if facts.cloud_payer is not None
+                else None
+            ),
+        }
+
+    @staticmethod
+    def _promises_without_row_coordinates(
+        rows: Sequence[Mapping[str, Any]],
+    ) -> list[dict[str, Any]]:
+        normalized = json.loads(json.dumps(list(rows), sort_keys=True))
+        for row in normalized:
+            basis = row.get("basis")
+            if isinstance(basis, dict):
+                basis.pop("row_quote_quantities", None)
+                basis.pop("work_scope", None)
+        return normalized
+
+    def _grant_authorizer(
+        self,
+        project: Any,
+        *,
+        sheet_id: int,
+        source_column_id: int,
+        rows: Sequence[Mapping[str, Any]],
+        reviewed_ocr_params: Mapping[str, Any],
+        grant: PdfImportOcrGrant,
+    ) -> Callable[[TrustedConsentContext], Any]:
+        ocr_rows = tuple(
+            row
+            for row in rows
+            if bool(row.get("ocr_selected"))
+            and str(row.get("category")) != "unreadable"
+        )
+        if not ocr_rows:
+            raise ValueError("paid PDF OCR grant has no rows in this child")
+        if dict(grant.ocr_action_params) != dict(reviewed_ocr_params):
+            raise ValueError("paid PDF OCR parameters changed after approval")
+        start = min(int(row["ordinal"]) for row in rows)
+        end = max(int(row["ordinal"]) for row in rows)
+        child_key = f"commit-ordinals:{start}-{end}"
+        children = grant.allocation.get("children")
+        child = next(
+            (
+                dict(value)
+                for value in children
+                if isinstance(value, Mapping) and value.get("child_key") == child_key
+            ),
+            None,
+        ) if isinstance(children, list) else None
+        if child is None:
+            raise ValueError("paid PDF OCR child is outside the approved allocation")
+
+        digest = hashlib.sha256()
+        page_total = 0
+        by_row_id: dict[int, Mapping[str, Any]] = {}
+        blobs = MediaBlobStore(project)
+        for row in ocr_rows:
+            try:
+                ordinal = int(row["ordinal"])
+                selected_ordinal = int(row["selected_ordinal"])
+                row_id = int(row["row_id"])
+                sha256 = str(row["sha256"])
+                page_count = int(row["page_count"])
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError("paid PDF OCR occurrence facts are incomplete") from exc
+            if not sha256 or page_count < 1 or row_id in by_row_id:
+                raise ValueError("paid PDF OCR occurrence facts are invalid")
+            source = resolve_cell_blob_source(
+                project,
+                sheet_id=sheet_id,
+                row_id=row_id,
+                column_id=source_column_id,
+            )
+            if source is None or source.page_number is not None:
+                raise ValueError("paid PDF OCR source cell changed after import")
+            if source.blob_hash.removeprefix("sha256:") != sha256.removeprefix(
+                "sha256:"
+            ):
+                raise ValueError("paid PDF OCR source bytes changed after approval")
+            probe = blobs.probe_metadata(source.blob_hash)
+            if probe.get("pages") != page_count:
+                raise ValueError("paid PDF OCR page count changed after approval")
+            fact = {
+                "commit_ordinal": ordinal,
+                "selected_ordinal": selected_ordinal,
+                "occurrence_id": str(row["occurrence_id"]),
+                "sha256": sha256,
+                "page_count": page_count,
+                "category": str(row["category"]),
+            }
+            digest.update(
+                json.dumps(fact, sort_keys=True, separators=(",", ":")).encode()
+            )
+            digest.update(b"\n")
+            page_total += page_count
+            by_row_id[row_id] = row
+        if (
+            int(child.get("commit_ordinal_start", -1)) != start
+            or int(child.get("commit_ordinal_end", -1)) != end
+            or int(child.get("source_count", -1)) != len(ocr_rows)
+            or int(child.get("page_count", -1)) != page_total
+            or child.get("roster_digest") != digest.hexdigest()
+        ):
+            raise ValueError("paid PDF OCR child roster changed after approval")
+        child_scope = child.get("scope")
+        if not isinstance(child_scope, Mapping) or any(
+            (
+                child_scope.get("parent_identity") != grant.scope.get("identity"),
+                child_scope.get("storage_identity")
+                != grant.scope.get("storage_identity"),
+                child_scope.get("draft_id") != grant.scope.get("draft_id"),
+                child_scope.get("child_key") != child_key,
+                child_scope.get("roster_digest") != digest.hexdigest(),
+                int(child_scope.get("source_count", -1)) != len(ocr_rows),
+                int(child_scope.get("page_count", -1)) != page_total,
+                child_scope.get("ocr_params_hash")
+                != replay_generated_value_hash(dict(reviewed_ocr_params)),
+            )
+        ):
+            raise ValueError("paid PDF OCR child scope changed after approval")
+        expected_promises = child.get("promises")
+        expected_quote = child.get("quote")
+        if not isinstance(expected_promises, list) or not isinstance(
+            expected_quote, Mapping
+        ):
+            raise ValueError("paid PDF OCR child authority is incomplete")
+        if promise_rows_hash(expected_promises) != child.get("promise_set_hash"):
+            raise ValueError("paid PDF OCR child promise set changed")
+
+        def authorize(context: TrustedConsentContext) -> Any:
+            refusal = TrustedConsentRefusal
+            if context.principal != grant.actor:
+                return refusal("paid PDF OCR approval belongs to another principal")
+            if set(context.row_ids) != set(by_row_id):
+                return refusal("paid PDF OCR runtime row scope changed")
+            resolved = context.resolved_execution
+            if target_snapshot(resolved.resolution) != child.get("target"):
+                return refusal("paid PDF OCR execution target changed")
+            if self._route_snapshot(context) != child.get("route"):
+                return refusal("paid PDF OCR route changed")
+            try:
+                actual_quote = ConsentQuote.from_estimate(context.estimate).model_dump(
+                    mode="json"
+                )
+            except (TypeError, ValueError) as exc:
+                return refusal(f"paid PDF OCR runtime quote is invalid: {exc}")
+            if actual_quote != dict(expected_quote):
+                return refusal("paid PDF OCR price or pricing policy changed")
+            actual_promises = promise_rows(resolved.promise_set)
+            row_quantities: dict[int, int] = {}
+            row_quantities_required = False
+            for promise in actual_promises:
+                basis = promise.get("basis")
+                if not isinstance(basis, Mapping):
+                    continue
+                if basis.get("row_settlement_mode") == "quoted_successful_rows":
+                    row_quantities_required = True
+                quantities = basis.get("row_quote_quantities")
+                if quantities is None:
+                    continue
+                if not isinstance(quantities, list):
+                    return refusal("paid PDF OCR row quote is invalid")
+                for pair in quantities:
+                    if not isinstance(pair, list | tuple) or len(pair) != 2:
+                        return refusal("paid PDF OCR row quote is invalid")
+                    try:
+                        row_id = int(pair[0])
+                        quantity = Decimal(str(pair[1]))
+                    except (InvalidOperation, TypeError, ValueError):
+                        return refusal("paid PDF OCR row quote is invalid")
+                    expected_row = by_row_id.get(row_id)
+                    if (
+                        expected_row is None
+                        or row_id in row_quantities
+                        or quantity != Decimal(int(expected_row["page_count"]))
+                    ):
+                        return refusal("paid PDF OCR per-row page quote changed")
+                    row_quantities[row_id] = int(quantity)
+            if row_quantities_required and set(row_quantities) != set(by_row_id):
+                return refusal("paid PDF OCR per-row page quote is incomplete")
+            if self._promises_without_row_coordinates(
+                actual_promises
+            ) != self._promises_without_row_coordinates(expected_promises):
+                return refusal("paid PDF OCR promise terms changed")
+            return TrustedConsentApproval("pdf_import_grant_derived")
+
+        return authorize
 
     def reserve(self, project_id: str, *, receipt_id: str, import_ref: str) -> None:
         self.pending_store.create_pending_import(
@@ -639,7 +861,7 @@ class PdfImportPreparationCoordinator:
                         sheet_id=session.sheet_id,
                         rows=page.rows,
                         ocr_policy=str(facts["ocr_policy"]),
-                        ocr_authorization=None,
+                        ocr_authorization=facts.get("ocr_authorization"),
                         semantic_search=bool(facts.get("semantic_search")),
                         semantic_setup_confirmation=facts.get(
                             "semantic_setup_confirmation"

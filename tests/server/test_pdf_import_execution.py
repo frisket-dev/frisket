@@ -9,11 +9,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+from frisket.ai.llm import ModelRouter
 from frisket.server.services.pdf_import_commit import PdfImportCommitService
 from frisket.server.services.pdf_imports import PdfImportService
 from frisket.server.services.import_uploads import AdmittedUpload
 from frisket.server.services.import_sessions import ImportSessionService
-from frisket.server.services.action_runs import ActionRunResponse
+from frisket.server.services.action_runs import ActionRunResponse, ActionRunService
 from frisket.server.services.search_preparation import SearchPreparationService
 from frisket.server.route_errors import RouteError
 from frisket.server.workspace import Workspace
@@ -22,7 +23,12 @@ from frisket.engine.jobs.queue import IMPORT_FILES_PAGE_KIND
 from frisket.engine.jobs.queue import PROJECT_RUN_KIND
 from frisket.engine.jobs.worker import HandlerRegistry, Worker
 from frisket.engine.store.import_inventory import ImportInventory
+from frisket.engine.store.execution_routes import RouteStore
+from frisket.engine.store.media_blobs import MediaBlobStore
 from frisket.server.services.pdf_import_preparation import PdfImportPreparationStore
+from frisket.server.services.pdf_import_ocr_approval import (
+    PdfImportOcrApprovalQuoter,
+)
 
 
 @dataclass(frozen=True)
@@ -131,7 +137,8 @@ class _Intake:
                 "CREATE TABLE IF NOT EXISTS pdf_commit_occurrences ("
                 "ordinal INTEGER PRIMARY KEY,occurrence_id TEXT NOT NULL,"
                 "selected_ordinal INTEGER NOT NULL,category TEXT NOT NULL,"
-                "error TEXT,ocr_selected INTEGER NOT NULL)"
+                "error TEXT,sha256 TEXT,page_count INTEGER,"
+                "ocr_selected INTEGER NOT NULL)"
             )
             after = inventory.through
             ready = []
@@ -154,8 +161,8 @@ class _Intake:
                 first, _last = inventory.append(ready)
                 inventory._db.executemany(
                     "INSERT OR IGNORE INTO pdf_commit_occurrences "
-                    "(ordinal,occurrence_id,selected_ordinal,category,error,ocr_selected) "
-                    "VALUES (?,?,?,?,?,?)",
+                    "(ordinal,occurrence_id,selected_ordinal,category,error,sha256,"
+                    "page_count,ocr_selected) VALUES (?,?,?,?,?,?,?,?)",
                     [
                         (
                             first + offset,
@@ -163,6 +170,8 @@ class _Intake:
                             item.ordinal,
                             item.category,
                             item.error,
+                            item.sha256,
+                            item.page_count,
                             int(item.ocr_selected),
                         )
                         for offset, item in enumerate(metadata)
@@ -558,7 +567,7 @@ def test_reviewed_text_handoff_uses_one_designated_column_and_action_authority(
         ],
         ocr_policy="missing_or_suspicious",
         ocr_action_params={"engine": "rapidocr", "model": "document-v2"},
-        ocr_authorization={"estimate": {"claims": []}},
+        ocr_authorization=None,
         semantic_search=False,
         semantic_setup_confirmation=None,
     )
@@ -851,10 +860,175 @@ def test_reviewed_text_handoff_refuses_to_reinterpret_paid_draft_consent(
             semantic_setup_confirmation=None,
             ocr_action_params={"engine": "remote-ocr"},
         )
-    except RouteError as exc:
-        assert exc.status_code == 503
+    except ValueError as exc:
+        assert "grant schema" in str(exc)
     else:  # pragma: no cover - the safety boundary must fail closed
         raise AssertionError("paid draft consent was treated as row-action consent")
+
+
+def test_paid_parent_grant_admits_exact_ordinary_child_once(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
+    workspace = Workspace(
+        tmp_path / "workspace-paid",
+        router=ModelRouter(
+            keys={"anthropic": "test-key"}, cache=None, cache_mode="off"
+        ),
+        enable_local_model_pull=False,
+    )
+    project_id = str(workspace.create("Paid PDF", project_id="paid-pdf")["id"])
+    project = workspace.get(project_id)
+    sheet_id = project.add_sheet("Documents")
+    media_id = project.add_column(sheet_id, "media", type="file")
+    payload = b"%PDF-paid-child"
+    digest = project.add_blob(payload, filename="scan.pdf", mime="application/pdf")
+    MediaBlobStore(project).replace_probe_metadata(
+        digest, {"kind": "pdf", "pages": 2}
+    )
+    row_id = project.add_rows(
+        sheet_id,
+        [
+            {
+                "media": {
+                    "blob": digest,
+                    "filename": "scan.pdf",
+                    "mime": "application/pdf",
+                }
+            }
+        ],
+        {"media": media_id},
+    )[0]
+    occurrence = {
+        "commit_ordinal": 1,
+        "selected_ordinal": 1,
+        "occurrence_id": "paid-scan",
+        "sha256": digest,
+        "page_count": 2,
+        "category": "missing",
+    }
+    roster = hashlib.sha256(
+        (
+            json.dumps(occurrence, sort_keys=True, separators=(",", ":")) + "\n"
+        ).encode()
+    ).hexdigest()
+    partitions = [
+        {
+            "child_key": "commit-ordinals:1-1",
+            "commit_ordinal_start": 1,
+            "commit_ordinal_end": 1,
+            "source_count": 1,
+            "page_count": 2,
+            "roster_digest": roster,
+        }
+    ]
+    action_params = {"engine": "anthropic/claude-haiku-4-5"}
+    grant = PdfImportOcrApprovalQuoter(workspace).quote(
+        project_id,
+        {
+            "selected_count": 1,
+            "known_pages": 2,
+            "ocr_action_params": action_params,
+            "manifest_hash": "a" * 64,
+            "storage_identity": project.storage_identity,
+            "draft_id": "paid-draft",
+            "work_scope_hash": roster,
+            "child_partitions_hash": hashlib.sha256(
+                json.dumps(
+                    partitions, sort_keys=True, separators=(",", ":")
+                ).encode()
+            ).hexdigest(),
+            "child_partitions": partitions,
+        },
+    )["authorization"]
+    preparation = SearchPreparationService(workspace)
+    rows = [
+        {
+            "ordinal": 1,
+            "selected_ordinal": 1,
+            "row_id": row_id,
+            "occurrence_id": "paid-scan",
+            "category": "missing",
+            "sha256": digest,
+            "page_count": 2,
+            "ocr_selected": True,
+        }
+    ]
+    public_attempt = ActionRunService(workspace).run_action(
+        project_id,
+        {
+            "action_id": "media.ocr",
+            "scope": {
+                "kind": "sheet_rows",
+                "sheet_id": sheet_id,
+                "row_ids": [row_id],
+            },
+            "params": {"source": "media", **action_params},
+            "output_names": {
+                "text": "untrusted_text",
+                "blocks": "untrusted_blocks",
+            },
+            "idempotency_key": "public-cannot-author-derived-consent",
+            "trusted_consent_authorizer": {
+                "grant_basis": "pdf_import_grant_derived"
+            },
+        },
+    )
+    assert public_attempt.payload["status"] in {"failed", "needs_confirmation"}
+    assert not workspace.queue.list_project_jobs(project_id, kind=PROJECT_RUN_KIND)
+
+    started = preparation.create_from_pdf_import(
+        project_id,
+        import_receipt_id="receipt:paid-import",
+        sheet_id=sheet_id,
+        rows=rows,
+        ocr_policy="all",
+        ocr_authorization=grant,
+        semantic_search=False,
+        semantic_setup_confirmation=None,
+        ocr_action_params=action_params,
+    )
+    replay = preparation.create_from_pdf_import(
+        project_id,
+        import_receipt_id="receipt:paid-import",
+        sheet_id=sheet_id,
+        rows=rows,
+        ocr_policy="all",
+        ocr_authorization=grant,
+        semantic_search=False,
+        semantic_setup_confirmation=None,
+        ocr_action_params=action_params,
+    )
+
+    assert started[0]["status"] == "queued"
+    assert replay[0]["run_id"] == started[0]["run_id"]
+    consents = RouteStore.for_run(project, int(started[0]["run_id"])).consents()
+    assert len(consents) == 1
+    assert consents[0].grant_basis == "pdf_import_grant_derived"
+    assert len(
+        workspace.queue.list_project_jobs(project_id, kind=PROJECT_RUN_KIND)
+    ) == 1
+
+    changed = [{**rows[0], "sha256": "0" * 64}]
+    try:
+        preparation.create_from_pdf_import(
+            project_id,
+            import_receipt_id="receipt:changed-import",
+            sheet_id=sheet_id,
+            rows=changed,
+            ocr_policy="all",
+            ocr_authorization=grant,
+            semantic_search=False,
+            semantic_setup_confirmation=None,
+            ocr_action_params=action_params,
+        )
+    except ValueError as exc:
+        assert "source bytes changed" in str(exc)
+    else:  # pragma: no cover - a changed blob must never enqueue
+        raise AssertionError("changed PDF bytes reused the paid OCR approval")
+    assert len(
+        workspace.queue.list_project_jobs(project_id, kind=PROJECT_RUN_KIND)
+    ) == 1
 
 
 def test_reviewed_text_recovery_continues_after_server_restart(tmp_path: Path) -> None:

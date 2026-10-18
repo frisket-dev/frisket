@@ -47,6 +47,10 @@ from frisket.engine.runner import (
     ProviderKeyRefusal,
     RunProgress,
 )
+from frisket.engine.runner.validation import (
+    TrustedConsentAuthorizer,
+    TrustedConsentRefused,
+)
 from frisket.server.provider_config import KEY_PROVIDERS
 from frisket.engine.store import Project
 from frisket.engine.store.output_claims import OutputColumnClaimStore
@@ -261,6 +265,7 @@ class QueuedV1ActionRunContext:
     queue_payload_extra: Mapping[str, Any]
     logger: logging.Logger
     request_executor_deps: Callable[[], ExecutorDeps] = ExecutorDeps
+    trusted_consent_authorizer: TrustedConsentAuthorizer | None = None
 
 
 def attach_run_edition_run_context(
@@ -462,6 +467,7 @@ def _queue_v1_project_run_request(
                     **program_kwargs,
                     confirmed=bool(reservation.get("confirmed", False)),
                     output_fields=reservation["output_fields"],
+                    trusted_consent_authorizer=ctx.trusted_consent_authorizer,
                 )
                 progress = RunProgress(
                     run_id=prepared.run_id,
@@ -473,6 +479,7 @@ def _queue_v1_project_run_request(
                     runner_spec,
                     **program_kwargs,
                     confirmed=bool(reservation.get("confirmed", False)),
+                    trusted_consent_authorizer=ctx.trusted_consent_authorizer,
                 )
             request.entry.mark_prepared(
                 project,
@@ -502,6 +509,14 @@ def _queue_v1_project_run_request(
                     or error.code == "model_cost_requires_confirmation"
                     else "failed"
                 ),
+            )
+        except TrustedConsentRefused as exc:
+            return abort_prepare(
+                ActionError(
+                    code="derived_consent_refused",
+                    message=str(exc),
+                    action_kind=request.action.kind,
+                )
             )
         except ProviderKeyRefusal as exc:
             # Every refusal about the provider key this run would spend

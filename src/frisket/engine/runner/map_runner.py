@@ -508,6 +508,7 @@ class MapRunner:
         *,
         program: Recipe | None = None,
         confirmed: bool = False,
+        trusted_consent_authorizer: validation.TrustedConsentAuthorizer | None = None,
     ) -> RunProgress:
         """Create the op/run row synchronously without executing rows.
 
@@ -519,6 +520,7 @@ class MapRunner:
             program=program,
             confirmed=confirmed,
             resume_run_id=None,
+            trusted_consent_authorizer=trusted_consent_authorizer,
         )
         progress = RunProgress(run_id=prepared.run_id, total=prepared.row_count)
         if self.on_progress:
@@ -533,6 +535,7 @@ class MapRunner:
         confirmed: bool,
         resume_run_id: int | None,
         precomputed_output_fields: list[dict[str, Any]] | None = None,
+        trusted_consent_authorizer: validation.TrustedConsentAuthorizer | None = None,
         _validated: validation._ValidatedSpec | None = None,
     ) -> PreparedRun:
         if resume_run_id is not None and any(
@@ -551,6 +554,7 @@ class MapRunner:
             confirmed=confirmed,
             resume_run_id=resume_run_id,
             precomputed_output_fields=precomputed_output_fields,
+            trusted_consent_authorizer=trusted_consent_authorizer,
         )
         if resume_run_id is None and (
             validated.recipe.atomic_output_columns
@@ -640,6 +644,7 @@ class MapRunner:
         confirmed: bool,
         resume_run_id: int | None,
         precomputed_output_fields: list[dict[str, Any]] | None = None,
+        trusted_consent_authorizer: validation.TrustedConsentAuthorizer | None = None,
     ) -> validation._ValidatedSpec:
         recipe = program if program is not None else validation.recipe_for_spec(spec)
         if (
@@ -661,6 +666,7 @@ class MapRunner:
             composition=self.execution_composition,
             consent_coverage=self.consent_coverage,
             precomputed_output_fields=precomputed_output_fields,
+            trusted_consent_authorizer=trusted_consent_authorizer,
         )
 
     def prepare_admitted_run(
@@ -670,6 +676,7 @@ class MapRunner:
         program: Recipe | None = None,
         confirmed: bool,
         output_fields: list[dict[str, Any]],
+        trusted_consent_authorizer: validation.TrustedConsentAuthorizer | None = None,
     ) -> tuple[PreparedRun, AttemptCommitment]:
         """Prepare and admit a fresh canonical run in its caller's transaction."""
 
@@ -683,6 +690,7 @@ class MapRunner:
             confirmed=confirmed,
             resume_run_id=None,
             precomputed_output_fields=output_fields,
+            trusted_consent_authorizer=trusted_consent_authorizer,
         )
         prepared = self._prepare(
             spec,
@@ -690,6 +698,7 @@ class MapRunner:
             confirmed=confirmed,
             resume_run_id=None,
             precomputed_output_fields=output_fields,
+            trusted_consent_authorizer=trusted_consent_authorizer,
             _validated=validated,
         )
         output_column_ids = sorted(prepared.out_cols.values())
