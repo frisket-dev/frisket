@@ -236,7 +236,7 @@ function createApi(initial = snapshot()) {
     commit: vi.fn(async () => ({
       schema_version: 'frisket.pdf_import.v1', draft_id: 'draft-1', commit_id: 'commit-1',
       status: 'accepted', manifest_hash: 'manifest-1', selected_total: 2, available_through: 2,
-      uploads_complete: true, job: { sheet_id: 42 },
+      uploads_complete: true, job: { sheet_id: 42, import_ref: 'import-session-1' },
     })),
   };
   return { api, current: () => current };
@@ -459,6 +459,44 @@ describe('PDF batch import flow', () => {
     await waitFor(() => expect(imported).toHaveBeenCalledWith(42));
   });
 
+  it('does not treat an absent semantic hash as consent and locks choices while saving', async () => {
+    const initial = snapshot(2, {
+      semantic_setup: {
+        ...snapshot().semantic_setup,
+        confirmation_hash: null,
+      },
+    });
+    const { api } = createApi(initial);
+    render(<PdfBatchImportFlow
+      projectId="project-1" resumeDraftId="draft-1" destinationSheets={[]} api={api}
+      onContextChange={vi.fn()} registerCloseGuard={vi.fn()} onImported={vi.fn()}
+      onDiscarded={vi.fn()} onError={vi.fn()}
+    />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Check text →' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue →' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Search setup →' }));
+    const importButton = await screen.findByRole('button', { name: 'Import 2 PDFs' });
+    expect(importButton).toBeDisabled();
+
+    const save = deferred<PdfImportSnapshot>();
+    vi.mocked(api.updateChoices).mockImplementationOnce(async () => save.promise);
+    const semanticToggle = screen.getByRole('checkbox', { name: /Search by meaning/ });
+    fireEvent.click(semanticToggle);
+
+    expect(semanticToggle).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Back' })).toBeDisabled();
+    save.resolve(snapshot(3, {
+      choices: {
+        ...initial.choices,
+        semantic_search: false,
+        semantic_setup_confirmation: null,
+      },
+      semantic_setup: initial.semantic_setup,
+    }));
+    await waitFor(() => expect(semanticToggle).toBeEnabled());
+  });
+
   it('echoes the exact paid OCR quote only after final import confirmation', async () => {
     const confirmation = 'a'.repeat(64);
     const paid = snapshot(4, {
@@ -593,10 +631,21 @@ describe('PDF batch import flow', () => {
       uploadSignal = args[4]?.signal;
       return firstUpload.promise;
     });
-    vi.mocked(api.commit).mockResolvedValue({
-      schema_version: 'frisket.pdf_import.v1', draft_id: 'draft-1', commit_id: 'commit-1',
-      status: 'accepted', manifest_hash: 'manifest-1', selected_total: 2, available_through: 0,
-      uploads_complete: false, job: { sheet_id: 42, import_ref: 'import-session-1' },
+    let commitAccepted = false;
+    const committedStatus = snapshot(3, {
+      state: 'committing',
+      upload: initial.upload,
+      analysis: initial.analysis,
+      commit: { result: { sheet_id: 42, import_ref: 'import-session-1' } },
+    });
+    vi.mocked(api.get).mockImplementation(async () => commitAccepted ? committedStatus : initial);
+    vi.mocked(api.commit).mockImplementation(async () => {
+      commitAccepted = true;
+      return {
+        schema_version: 'frisket.pdf_import.v1', draft_id: 'draft-1', commit_id: 'commit-1',
+        status: 'accepted', manifest_hash: 'manifest-1', selected_total: 2, available_through: 0,
+        uploads_complete: false, job: { sheet_id: 42 },
+      };
     });
     const imported = vi.fn();
     const view = render(<PdfBatchImportFlow
@@ -627,12 +676,13 @@ describe('PDF batch import flow', () => {
       expect.objectContaining({ name: 'two.pdf' }),
     ]));
     expect(sessionUpload.setUploading).toHaveBeenCalledWith('import-session-1', true);
+    expect(sessionUpload.setUploading).toHaveBeenCalledWith('draft-1', true);
     view.unmount();
     expect(uploadSignal?.aborted).toBe(false);
 
     firstUpload.resolve(initial);
     await waitFor(() => expect(api.upload).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(sessionUpload.unregister).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(sessionUpload.unregister).toHaveBeenCalledTimes(2));
     expect(sessionUpload.setUploading).toHaveBeenLastCalledWith('import-session-1', false);
   });
 
@@ -732,22 +782,26 @@ describe('PDF batch import flow', () => {
       can_review_text: false,
     });
     const { api } = createApi(initial);
-    vi.mocked(api.upload).mockImplementationOnce(async (...args) => new Promise<PdfImportSnapshot>((_resolve, reject) => {
-      args[4]?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
-    }));
+    vi.mocked(api.upload)
+      .mockResolvedValueOnce(initial)
+      .mockImplementationOnce(async (...args) => new Promise<PdfImportSnapshot>((_resolve, reject) => {
+        args[4]?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+      }));
     render(<PdfBatchImportFlow
       projectId="project-1" files={files()} destinationSheets={[]} api={api}
       onContextChange={vi.fn()} registerCloseGuard={vi.fn()} onImported={vi.fn()}
       onDiscarded={vi.fn()} onError={vi.fn()}
     />);
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Pause' }));
+    await waitFor(() => expect(api.upload).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByRole('button', { name: 'Pause' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Resume' }));
 
     await waitFor(() => expect(api.upload).toHaveBeenCalledTimes(3));
     expect(api.reconcileReselection).not.toHaveBeenCalled();
-    expect(vi.mocked(api.upload).mock.calls[1][2]).toHaveLength(1);
-    expect(vi.mocked(api.upload).mock.calls[2][2]).toHaveLength(1);
+    expect(vi.mocked(api.upload).mock.calls[2][2][0].file.name).toBe('two.pdf');
+    expect(vi.mocked(api.upload).mock.calls[2][2][0].fileId)
+      .toBe(vi.mocked(api.upload).mock.calls[1][2][0].fileId);
   });
 
   it('pauses during manifest declaration before replaying one intake owner on Resume', async () => {

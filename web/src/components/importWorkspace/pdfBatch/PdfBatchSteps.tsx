@@ -163,7 +163,7 @@ function CategoryTable({ snapshot, showUnchecked = false }: { snapshot: PdfImpor
 export function CheckTextStep({
   projectId, snapshot, categories, selectedCategory, samples, selectedFileId, chosenFile,
   samplesLoading, page, pageLoading, textSource, previewRunning, checkRunning, onCategory, onSample,
-  onResample, onTextSource, onPreview, onOcrChoice, onOcrSelection, onPolicy, onBack, onContinue,
+  busy, onResample, onTextSource, onPreview, onOcrChoice, onOcrSelection, onPolicy, onBack, onContinue,
 }: {
   projectId: string;
   snapshot: PdfImportSnapshot;
@@ -178,6 +178,7 @@ export function CheckTextStep({
   textSource: 'native' | 'ocr';
   previewRunning: boolean;
   checkRunning: boolean;
+  busy: boolean;
   onCategory(category: PdfImportCategory): void;
   onSample(file: PdfImportFileSummary): void;
   onResample(): void;
@@ -261,6 +262,7 @@ export function CheckTextStep({
               query={{ schema_version: 'frisket.selector_choices_query.v1', subject: { kind: 'action', action_id: 'media.ocr', field: 'engine', params: { engine: currentOcr.engine, ...(currentOcr.kind === 'engine_model' ? { model: currentOcr.model } : {}) } } }}
               recentNamespace="pdf-batch-ocr"
               testId="pdf-batch-ocr-engine"
+              disabled={busy}
               onSelect={(choice) => { const selection = ocrSelectionOf(choice); if (selection) onOcrSelection(selection); }}
               onCurrentChoiceChange={(choice) => {
                 onOcrChoice(choice);
@@ -270,15 +272,15 @@ export function CheckTextStep({
               allowChoice={(choice) => ocrSelectionOf(choice) !== null}
             />
           </div></div>
-          <OcrPolicy snapshot={snapshot} checking={checkRunning} onPolicy={onPolicy} />
+          <OcrPolicy snapshot={snapshot} checking={checkRunning} busy={busy} onPolicy={onPolicy} />
         </div>
       </div>
     </div>
-    <StepFooter><button type="button" className="btn" onClick={onBack}>Back</button><span>{checkRunning ? 'You can continue now. Files checked later follow your choice.' : `OCR will apply to ${count(ocrPolicyCount(snapshot, snapshot.choices.ocr_policy), 'file')}.`}</span><button type="button" className="btn btn-primary" onClick={onContinue}>Continue →</button></StepFooter>
+    <StepFooter><button type="button" className="btn" disabled={busy} onClick={onBack}>Back</button><span>{checkRunning ? 'You can continue now. Files checked later follow your choice.' : `OCR will apply to ${count(ocrPolicyCount(snapshot, snapshot.choices.ocr_policy), 'file')}.`}</span><button type="button" className="btn btn-primary" disabled={busy} onClick={onContinue}>{busy ? 'Saving…' : 'Continue →'}</button></StepFooter>
   </section>;
 }
 
-function OcrPolicy({ snapshot, checking, onPolicy }: { snapshot: PdfImportSnapshot; checking: boolean; onPolicy(policy: PdfImportChoices['ocr_policy']): void }) {
+function OcrPolicy({ snapshot, checking, busy, onPolicy }: { snapshot: PdfImportSnapshot; checking: boolean; busy: boolean; onPolicy(policy: PdfImportChoices['ocr_policy']): void }) {
   const options: Array<{ value: PdfImportChoices['ocr_policy']; label: string; detail: string }> = [
     { value: 'missing_or_suspicious', label: 'Missing or suspicious text', detail: 'Scans, images, and PDFs whose text may be garbled' },
     { value: 'all', label: 'All PDFs and images', detail: 'Read every supported file with OCR' },
@@ -286,7 +288,7 @@ function OcrPolicy({ snapshot, checking, onPolicy }: { snapshot: PdfImportSnapsh
   ];
   return <fieldset className="pdf-batch-ocr-policy" aria-label="Apply OCR to">
     {options.map((option) => <label key={option.value} className={snapshot.choices.ocr_policy === option.value ? 'active' : ''}>
-      <input type="radio" name="pdf-batch-ocr-policy" value={option.value} checked={snapshot.choices.ocr_policy === option.value} onChange={() => onPolicy(option.value)} />
+      <input type="radio" name="pdf-batch-ocr-policy" value={option.value} disabled={busy} checked={snapshot.choices.ocr_policy === option.value} onChange={() => onPolicy(option.value)} />
       <span><strong>{option.label}</strong><small>{option.detail}</small></span>
       <b>{ocrPolicyCount(snapshot, option.value).toLocaleString()}{checking ? ' so far' : ''}</b>
     </label>)}
@@ -348,7 +350,7 @@ export function DestinationStep({ projectId, snapshot, destination, sheets, busy
         </div>)}
       </div>
     </div>
-    <StepFooter><button type="button" className="btn" onClick={onBack}>Back</button><span>{matching
+    <StepFooter><button type="button" className="btn" disabled={busy} onClick={onBack}>Back</button><span>{matching
       ? 'Comparing file names and sizes…'
       : destination.kind === 'new' ? `Creates “${sheetName}”.` : `New rows are added at the end of ${sheetName}.`}</span><button type="button" className="btn btn-primary" disabled={busy || !destinationIsReady(snapshot, destination) || matching} onClick={onContinue}>{matching ? 'Comparing…' : busy ? 'Saving…' : 'Search setup →'}</button></StepFooter>
   </section>;
@@ -387,11 +389,11 @@ export function SearchSetupStep({ snapshot, semanticEnabled, consent, busy, impo
   return <section className="pdf-batch-step pdf-batch-search" aria-label="Search setup">
     <div className="pdf-batch-step-body">
       <header><h2>Search setup</h2><p>Keyword search is included. You can also prepare these documents for search by meaning.</p></header>
-      <label className="pdf-batch-semantic-choice"><input type="checkbox" checked={semanticEnabled} onChange={(event) => onSemantic(event.currentTarget.checked)} /><span><strong>Search by meaning</strong><small>Find related ideas even when the exact words differ.</small></span></label>
+      <label className="pdf-batch-semantic-choice"><input type="checkbox" disabled={busy} checked={semanticEnabled} onChange={(event) => onSemantic(event.currentTarget.checked)} /><span><strong>Search by meaning</strong><small>Find related ideas even when the exact words differ.</small></span></label>
       {semanticEnabled && <div className="pdf-batch-model-setup" data-state={setup.ready ? 'ready' : setup.available ? 'setup' : 'unavailable'}>
         <div><strong>{setup.display_name}</strong><span>{setup.ready ? 'Ready on this device' : setup.runtime_ready ? 'Required for search by meaning' : 'Model and runtime setup required'}</span></div>
         <b>{setup.download_bytes == null ? 'Size not measured' : `About ${bytesLabel(setup.download_bytes)}`}</b>
-        {setup.needs_confirmation && <label><input type="checkbox" checked={consent} onChange={(event) => onConsent(event.currentTarget.checked)} /> Download this model when the import starts</label>}
+        {setup.needs_confirmation && <label><input type="checkbox" disabled={busy} checked={consent} onChange={(event) => onConsent(event.currentTarget.checked)} /> Download this model when the import starts</label>}
         {!setup.available && <p role="alert">Model setup is unavailable.</p>}
       </div>}
       {ocrPolicyCount(snapshot, snapshot.choices.ocr_policy) > 0 && <div className="pdf-batch-ocr-review" data-state={!ocrAvailable ? 'setup' : snapshot.batch_ocr?.state ?? 'idle'}>

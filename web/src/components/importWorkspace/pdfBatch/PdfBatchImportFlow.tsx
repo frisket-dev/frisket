@@ -666,7 +666,8 @@ export function PdfBatchImportFlow({
     const semanticSetup = snapshot.semantic_setup;
     if ((semanticEnabled ?? snapshot.choices.semantic_search)
       && semanticSetup.needs_confirmation
-      && snapshot.choices.semantic_setup_confirmation !== semanticSetup.confirmation_hash) return;
+      && (!semanticSetup.confirmation_hash
+        || snapshot.choices.semantic_setup_confirmation !== semanticSetup.confirmation_hash)) return;
     const remoteOcr = ocrPolicyCount(snapshot, snapshot.choices.ocr_policy) > 0
       && ocrEngine(snapshot.choices.ocr_selection) !== 'rapidocr';
     if (remoteOcr && snapshot.batch_ocr.needs_confirmation) {
@@ -701,13 +702,14 @@ export function PdfBatchImportFlow({
         ...(ocrConfirmation ? { ocr_confirmation: ocrConfirmation } : {}),
       });
       committed.current = true;
-      await registerCommittedUpload(accepted.job?.import_ref);
+      await registerCommittedUpload(accepted.job?.import_ref ?? accepted.draft_id);
+      const refreshed = await refresh();
+      const importRef = accepted.job?.import_ref ?? refreshed?.commit?.result?.import_ref;
       const sheetId = accepted.job?.sheet_id;
-      if (sheetId) {
+      if (sheetId && importRef && importedSheet.current !== sheetId) {
         importedSheet.current = sheetId;
-        onImported(sheetId);
+        onImportedRef.current(sheetId);
       }
-      await refresh();
     } catch (problem) {
       if (problem instanceof PdfImportResponseError && problem.status === 409) {
         setBatchOcrConsent(null);
@@ -750,7 +752,8 @@ export function PdfBatchImportFlow({
   const semanticSearch = semanticEnabled ?? snapshot.choices.semantic_search;
   const semanticNeedsConsent = semanticSearch && snapshot.semantic_setup.needs_confirmation;
   const semanticAuthorized = !semanticNeedsConsent || (
-    snapshot.choices.semantic_setup_confirmation === snapshot.semantic_setup.confirmation_hash
+    Boolean(snapshot.semantic_setup.confirmation_hash)
+    && snapshot.choices.semantic_setup_confirmation === snapshot.semantic_setup.confirmation_hash
   );
   const matching = destination.kind === 'existing' && snapshot.match.state === 'running';
   const nothingNew = destination.kind === 'existing'
@@ -807,6 +810,7 @@ export function PdfBatchImportFlow({
             textSource={textSource}
             previewRunning={previewRunning}
             checkRunning={checkRunning}
+            busy={mutationBusy}
             onCategory={chooseCategory}
             onSample={selectSample}
             onResample={() => {
@@ -851,7 +855,8 @@ export function PdfBatchImportFlow({
           <SearchSetupStep
             snapshot={snapshot}
             semanticEnabled={semanticSearch}
-            consent={snapshot.choices.semantic_setup_confirmation === snapshot.semantic_setup.confirmation_hash}
+            consent={Boolean(snapshot.semantic_setup.confirmation_hash)
+              && snapshot.choices.semantic_setup_confirmation === snapshot.semantic_setup.confirmation_hash}
             busy={mutationBusy}
             importLabel={nothingNew ? 'Nothing new to import' : matching ? 'Comparing…' : `Import ${count(
               destination.kind === 'existing' && snapshot.match.state === 'ready'
@@ -875,7 +880,7 @@ export function PdfBatchImportFlow({
               }
             }}
             onConsent={(consent) => {
-              if (consent) void mutateChoices({
+              if (consent && snapshot.semantic_setup.confirmation_hash) void mutateChoices({
                 semantic_search: true,
                 semantic_setup_confirmation: snapshot.semantic_setup.confirmation_hash,
               });

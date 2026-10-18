@@ -43,6 +43,7 @@ export function usePdfBatchIntake({
   const running = useRef<Promise<void> | null>(null);
   const selected = useRef<SelectedPdf[]>([]);
   const manifestBatchIds = useRef<string[]>([]);
+  const uploadedFileIds = useRef<Set<string>>(new Set());
 
   const configure = useCallback((files: readonly File[]): IntakeSelection => {
     selected.current = files.map((file) => ({
@@ -51,6 +52,7 @@ export function usePdfBatchIntake({
       logicalPath: file.webkitRelativePath || file.name,
       batchId: crypto.randomUUID(),
     }));
+    uploadedFileIds.current = new Set();
     manifestBatchIds.current = Array.from(
       { length: Math.ceil(files.length / 256) },
       () => crypto.randomUUID(),
@@ -114,6 +116,7 @@ export function usePdfBatchIntake({
         if (shouldPublish()) publish(latest);
       }
       for (const item of selected.current) {
+        if (uploadedFileIds.current.has(item.fileId)) continue;
         const uploaded = await api.upload(
           projectId,
           source.draft_id,
@@ -121,6 +124,7 @@ export function usePdfBatchIntake({
           item.batchId,
           { signal },
         );
+        uploadedFileIds.current.add(item.fileId);
         if (shouldPublish()) publish(uploaded);
       }
     });
