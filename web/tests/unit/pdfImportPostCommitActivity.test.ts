@@ -250,6 +250,25 @@ describe('PDF import post-commit activity', () => {
 });
 
 describe('table import progress', () => {
+  it('does not leave placeholders for processed duplicates', () => {
+    const activity = importActivity(session({
+      intake_kind: 'table', state: 'running', selected_total: 100,
+      processed_rows: 50, committed_rows: 25, skipped_duplicates: 25,
+    }));
+    expect(pendingImportRowCount(activity)).toBe(50);
+  });
+
+  it('keeps an estimate at least as large as the rows already processed', () => {
+    const activity = importActivity(session({
+      intake_kind: 'table', state: 'running', selected_total: null,
+      estimated_rows: 100, processed_rows: 120, committed_rows: 110,
+    }));
+    const combined = composeImportSearchActivity(activity, null);
+    expect(combined?.lines[0]).toMatchObject({ completed: 120, total: 120 });
+    expect(activity?.lines[0].completed).toBe(110);
+    expect(pendingImportRowCount(activity)).toBe(0);
+  });
+
   it('keeps an unknown row total indeterminate and shows actual processed rows', () => {
     const activity = importActivity(session({
       intake_kind: 'table', state: 'running', selected_total: null,

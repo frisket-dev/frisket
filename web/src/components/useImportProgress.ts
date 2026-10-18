@@ -67,13 +67,17 @@ export interface ImportActivity {
 export function pendingImportRowCount(activity: ImportActivity | null): number {
   if (!activity || !['admitting', 'running'].includes(activity.session.state)) return 0;
   const selectedTotal = importRowTotal(activity.session) ?? activity.session.committed_rows;
-  return Math.max(selectedTotal - activity.session.committed_rows, 0);
+  const processed = activity.session.intake_kind === 'table'
+    ? activity.session.processed_rows ?? activity.session.committed_rows
+    : activity.session.committed_rows;
+  return Math.max(selectedTotal - processed, 0);
 }
 
 function importRowTotal(session: ImportSessionStatus): number | null {
-  return session.intake_kind === 'table'
-    ? session.selected_total ?? session.estimated_rows ?? null
-    : session.selected_total ?? session.admitted_files;
+  if (session.intake_kind !== 'table') return session.selected_total ?? session.admitted_files;
+  if (session.selected_total != null) return session.selected_total;
+  if (session.estimated_rows == null) return null;
+  return Math.max(session.estimated_rows, session.processed_rows ?? 0, session.committed_rows);
 }
 
 export function preferredImportActivity(activities: ImportActivity[]): ImportActivity | null {
