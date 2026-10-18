@@ -327,7 +327,7 @@ describe('TableImportFlow', () => {
     await waitFor(() => expect(api.updateDestination).toHaveBeenLastCalledWith(
       'project-1', expect.any(String), expect.any(Number),
       expect.objectContaining({ kind: 'existing', sheet_id: 9 }),
-      [{ source_index: 0, target: { kind: 'new', name: 'contributor_id' } }],
+      [{ source_index: 0, target: { kind: 'new', name: 'contributor_id 2' } }],
       expect.anything(),
     ));
   });
@@ -521,10 +521,10 @@ describe('TableImportFlow', () => {
     expect(screen.getByText('Sheet column is Integer.')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Add as new Text column' }));
     expect(onDestination).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
-      mappings: [expect.objectContaining({ source_index: 0, target: { kind: 'new', name: 'contributor_id' } })],
+      mappings: [expect.objectContaining({ source_index: 0, target: { kind: 'new', name: 'contributor_id 2' } })],
     }));
 
-    view.rerender(<ImportTableStep draft={{ ...current, destination: { ...current.destination!, mappings: [{ ...current.destination!.mappings[0], target: { kind: 'new', name: 'contributor_id' }, match: 'new' }], comparison: { ...current.destination!.comparison, new_columns: 1, type_clashes: 0 } } }} destination={{ kind: 'existing', sheet_id: 9 }} destinationSheets={[{ id: 9, name: 'People', rowCount: 4, columns: [{ id: 77, name: 'contributor_id' }] }]} busy={false} onBack={vi.fn()} onCommit={vi.fn()} onDestination={onDestination} />);
+    view.rerender(<ImportTableStep draft={{ ...current, destination: { ...current.destination!, mappings: [{ ...current.destination!.mappings[0], target: { kind: 'new', name: 'contributor_id 2' }, match: 'new' }], comparison: { ...current.destination!.comparison, new_columns: 1, type_clashes: 0 } } }} destination={{ kind: 'existing', sheet_id: 9 }} destinationSheets={[{ id: 9, name: 'People', rowCount: 4, columns: [{ id: 77, name: 'contributor_id' }] }]} busy={false} onBack={vi.fn()} onCommit={vi.fn()} onDestination={onDestination} />);
     expect(screen.getByText('1 new column added')).toBeVisible();
   });
 
