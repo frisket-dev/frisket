@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import Field
 
 from frisket.contracts.http.models import WireModel
+from frisket.contracts.http.pdf_imports import PdfImportStatus
 
 
 BulkImportOutputKind = Literal["csv_group", "xlsx", "files_group", "email"]
@@ -31,6 +32,22 @@ class BulkImportPlanResponse(WireModel):
     questions: list[BulkImportQuestion]
     proposed_outputs: list[BulkImportProposedOutput]
     message: str
+
+
+class PrepareImportFilesPdfResponse(WireModel):
+    kind: Literal["pdf_import"]
+    draft: PdfImportStatus
+
+
+class PrepareImportFilesBulkResponse(WireModel):
+    kind: Literal["bulk"]
+    plan: BulkImportPlanResponse
+
+
+PrepareImportFilesResponse = Annotated[
+    PrepareImportFilesPdfResponse | PrepareImportFilesBulkResponse,
+    Field(discriminator="kind"),
+]
 
 
 class BulkImportExecuteBody(WireModel):
@@ -80,4 +97,7 @@ __all__ = [
     "BulkImportPlanResponse",
     "BulkImportProposedOutput",
     "BulkImportQuestion",
+    "PrepareImportFilesBulkResponse",
+    "PrepareImportFilesPdfResponse",
+    "PrepareImportFilesResponse",
 ]
