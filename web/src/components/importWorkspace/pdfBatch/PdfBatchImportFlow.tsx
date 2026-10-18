@@ -72,7 +72,7 @@ export interface PdfBatchImportFlowProps {
 }
 
 const CHECK_CATEGORY_ORDER: readonly PdfImportCategory[] = [
-  'suspicious', 'missing', 'text', 'image', 'other', 'unreadable',
+  'suspicious', 'missing', 'text', 'unreadable',
 ];
 
 function errorMessage(error: unknown): string {
@@ -367,7 +367,11 @@ export function PdfBatchImportFlow({
     }
   }, [api, projectId, publish, registerCommittedUpload, reportError]);
 
-  usePoll(refresh, {
+  const refreshStatus = useCallback(async () => {
+    await refresh();
+  }, [refresh]);
+
+  usePoll(refreshStatus, {
     active: Boolean(snapshot && (
       snapshot.state === 'committing'
       || snapshot.state === 'cancelling'
@@ -490,7 +494,7 @@ export function PdfBatchImportFlow({
     try {
       await runReselection(source, pdfs, {
         shouldPublish: isCurrent,
-        refresh,
+        refresh: refreshStatus,
       });
     } catch (problem) {
       if (!(problem instanceof DOMException && problem.name === 'AbortError') && isCurrent()) reportError(problem);
@@ -817,7 +821,7 @@ export function PdfBatchImportFlow({
               void loadSamples(selectedCategory, sampleCursor ?? undefined);
             }}
             onTextSource={setTextSource}
-            onPreview={() => chosenFile && void startPreview(chosenFile.occurrence_id, 1, undefined, refresh)}
+            onPreview={() => chosenFile && void startPreview(chosenFile.occurrence_id, 1, undefined, refreshStatus)}
             onOcrChoice={(choice) => {
               if (choice) setReportedOcrChoice(choice);
             }}
@@ -902,7 +906,7 @@ export function PdfBatchImportFlow({
             <div className="modal-title"><AlertTriangle size={15} className="modal-warn-icon" /> Discard this import?</div>
             <p className="modal-body-text">Copied files and your choices will be removed. Nothing has been added to the project.</p>
             <div className="form-actions">
-              <button type="button" className="btn" onClick={() => void keepDraft()}>Keep working</button>
+              <button type="button" className="btn" autoFocus onClick={() => void keepDraft()}>Keep working</button>
               <button type="submit" className="btn btn-danger" disabled={discarding}>Discard import</button>
             </div>
           </form>
@@ -920,7 +924,7 @@ export function PdfBatchImportFlow({
               pending.fileId,
               pending.page,
               pending.estimate.estimate?.promise_set_hash ?? undefined,
-              refresh,
+              refreshStatus,
             );
           }}
         />

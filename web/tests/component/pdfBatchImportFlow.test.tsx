@@ -459,6 +459,33 @@ describe('PDF batch import flow', () => {
     await waitFor(() => expect(imported).toHaveBeenCalledWith(42));
   });
 
+  it('uses PDF-only review copy and explains what is blocking semantic search setup', async () => {
+    const { api } = createApi();
+    render(<PdfBatchImportFlow
+      projectId="project-1" files={files()} destinationSheets={[]} api={api}
+      onContextChange={vi.fn()} registerCloseGuard={vi.fn()} onImported={vi.fn()}
+      onDiscarded={vi.fn()} onError={vi.fn()}
+    />);
+
+    await screen.findByRole('heading', { name: 'Add files' });
+    expect(screen.queryByText('Images')).not.toBeInTheDocument();
+    expect(screen.queryByText('Other files')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Check text →' }));
+    await screen.findByText('Broken native text');
+    expect(screen.getByRole('radio', { name: /All PDFs.*2 files/ })).toBeInTheDocument();
+    expect(screen.queryByText(/PDFs and images|Scans, images/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue →' }));
+    const sheetName = await screen.findByLabelText('Sheet name');
+    expect(sheetName.closest('.pdf-batch-destination-card')).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Search setup →' }));
+
+    expect(await screen.findByText('1 file · RapidOCR')).toBeInTheDocument();
+    expect(screen.getByText(/Allow the .* download, or turn off search by meaning\./)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Import 2 PDFs' })).toBeDisabled();
+  });
+
   it('does not treat an absent semantic hash as consent and locks choices while saving', async () => {
     const initial = snapshot(2, {
       semantic_setup: {
@@ -707,6 +734,7 @@ describe('PDF batch import flow', () => {
     await waitFor(() => expect(uploadSignal).toBeDefined());
     expect(guard?.()).toBe(false);
     expect(await screen.findByTestId('pdf-batch-discard-dialog')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Keep working' })).toHaveFocus();
     await waitFor(() => expect(api.pause).toHaveBeenCalled());
     fireEvent.click(screen.getByRole('button', { name: 'Discard import' }));
 

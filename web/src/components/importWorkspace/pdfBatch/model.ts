@@ -47,7 +47,9 @@ export const PDF_CATEGORY_TONE: Record<PdfImportCategory, string> = {
 };
 
 export function visibleCategories(snapshot: PdfImportSnapshot): PdfImportCategory[] {
-  return PDF_CATEGORY_ORDER.filter((category) => (snapshot.category_counts[category] ?? 0) > 0);
+  return PDF_CATEGORY_ORDER.filter((category) => category !== 'image'
+    && category !== 'other'
+    && (snapshot.category_counts[category] ?? 0) > 0);
 }
 
 export function representativeFiles(
