@@ -79,19 +79,23 @@ def thumbnail(
     page: int,
 ) -> ThumbnailLease:
     cache_key = hashlib.sha256(occurrence_id.encode()).hexdigest()
-    cached = directory / "cache" / f"{cache_key}-{page}.png"
+    cache = directory / "cache"
+    cache.mkdir(parents=True, exist_ok=True)
+    cached = cache / f"{cache_key}-{page}.png"
     if not cached.is_file():
-        rendered = asyncio.run(
-            render_pdf_pages(
-                source,
-                directory / "cache",
-                pages=[page],
-                dpi=96,
-                max_edge=1200,
-                timeout_seconds=30,
+        with tempfile.TemporaryDirectory(prefix=".thumbnail-", dir=cache) as raw:
+            scratch = Path(raw)
+            rendered = asyncio.run(
+                render_pdf_pages(
+                    source,
+                    scratch,
+                    pages=[page],
+                    dpi=96,
+                    max_edge=1200,
+                    timeout_seconds=30,
+                )
             )
-        )
-        os.replace(rendered.pages[0][1], cached)
+            os.replace(rendered.pages[0][1], cached)
     descriptor, raw = tempfile.mkstemp(
         prefix="frisket-pdf-import-thumb-", suffix=".png"
     )

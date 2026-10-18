@@ -28,11 +28,55 @@ from frisket.server.services.pdf_imports.inventory import PdfDraftInventory
 from frisket.server.services.pdf_imports.previews import (
     preview_settings,
     read_native_page,
+    thumbnail,
 )
 from frisket.server.workspace import Workspace
 
 
 PDF = b"%PDF-test-pdf-intake"
+
+
+def test_concurrent_thumbnails_use_isolated_render_scratch(
+    tmp_path: Path, monkeypatch
+) -> None:
+    barrier = threading.Barrier(2)
+    scratches = []
+
+    async def render(source, scratch, **_kwargs):
+        scratches.append(scratch)
+        barrier.wait(timeout=5)
+        rendered = scratch / "page-1.png"
+        rendered.write_bytes(source.read_bytes())
+        barrier.wait(timeout=5)
+        return SimpleNamespace(pages=((1, rendered),))
+
+    monkeypatch.setattr(
+        "frisket.server.services.pdf_imports.previews.render_pdf_pages", render
+    )
+    sources = []
+    for name, payload in (("one.pdf", b"first"), ("two.pdf", b"second")):
+        source = tmp_path / name
+        source.write_bytes(payload)
+        sources.append(source)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        leases = list(
+            pool.map(
+                lambda item: thumbnail(
+                    tmp_path,
+                    source=item[1],
+                    occurrence_id=item[0],
+                    page=1,
+                ),
+                (("one", sources[0]), ("two", sources[1])),
+            )
+        )
+    try:
+        assert len(set(scratches)) == 2
+        assert [lease.path.read_bytes() for lease in leases] == [b"first", b"second"]
+    finally:
+        for lease in leases:
+            lease.close()
 
 
 def test_dense_first_page_keeps_representative_navigation_without_false_unreadable(
