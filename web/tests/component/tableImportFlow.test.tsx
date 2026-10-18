@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { TableImportDraft, TableImportsApi } from '../../src/api/tableImports';
 import { TableImportFlow } from '../../src/components/importWorkspace/tableImport';
+import { importSessionSnapshot } from '../../src/components/importProgressSession';
 
 afterEach(() => { document.body.innerHTML = ''; });
 
@@ -98,6 +99,7 @@ function renderFlow(api: TableImportsApi, props: Partial<ComponentProps<typeof T
 describe('TableImportFlow', () => {
   it('uses the staged draft across all four steps and defaults to a new sheet', async () => {
     const api = mockApi();
+    const progressVersion = importSessionSnapshot();
     const { onImported } = renderFlow(api);
 
     expect(screen.getByRole('button', { name: 'Check rows →' })).toBeEnabled();
@@ -117,6 +119,7 @@ describe('TableImportFlow', () => {
     await waitFor(() => expect(api.updateDestination).toHaveBeenCalled());
     fireEvent.click(await screen.findByRole('button', { name: 'Import 2 rows →' }));
     await waitFor(() => expect(onImported).toHaveBeenCalledWith(41));
+    expect(importSessionSnapshot()).toBeGreaterThan(progressVersion);
   });
 
   it('keeps several selected files intact when handing off to Multiple files', async () => {
@@ -131,6 +134,16 @@ describe('TableImportFlow', () => {
     expect(api.createFromFile).not.toHaveBeenCalled();
   });
 
+  it('hands the selected PDF itself to Split a PDF', async () => {
+    const api = mockApi();
+    const onUsePdfSplit = vi.fn();
+    renderFlow(api, { initialFile: null, onUsePdfSplit });
+    const file = new File(['%PDF'], 'packet.pdf', { type: 'application/pdf' });
+    fireEvent.change(screen.getByRole('button', { name: 'Choose file' }).closest('.table-import-dropzone')!.querySelector('input')!, { target: { files: [file] } });
+    fireEvent.click(await screen.findByRole('button', { name: 'Split a PDF' }));
+    await waitFor(() => expect(onUsePdfSplit).toHaveBeenCalledWith(file));
+  });
+
   it('sends an extensionless file to server content inspection only after Check rows', async () => {
     const api = mockApi();
     renderFlow(api, { initialFile: null });
@@ -142,5 +155,26 @@ describe('TableImportFlow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Check rows →' }));
 
     await waitFor(() => expect(api.createFromFile).toHaveBeenCalledWith('project-1', file, expect.anything()));
+  });
+
+  it('uses record ordinals when a displayed physical line follows a multiline record', async () => {
+    const initial = draft({
+      preview: {
+        ...draft().preview!,
+        head: [{
+          role: 'header', record_ordinal: 2, physical_line_start: 3, physical_line_end: 3,
+          cells: ['contributor_id'], hidden_cell_count: 0, issues: [],
+        }],
+      },
+    });
+    const api = mockApi(initial);
+    renderFlow(api);
+    fireEvent.click(screen.getByRole('button', { name: 'Check rows →' }));
+    fireEvent.click(await screen.findByRole('button', { name: '3' }));
+
+    await waitFor(() => expect(api.updateSettings).toHaveBeenCalledWith(
+      'project-1', initial.draft_id, initial.revision,
+      expect.objectContaining({ skip_rows_start: 1 }),
+    ));
   });
 });

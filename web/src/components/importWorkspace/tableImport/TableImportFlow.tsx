@@ -13,6 +13,7 @@ import {
   type TableImportsApi,
 } from '../../../api/tableImports';
 import { usePoll } from '../../../hooks/usePoll';
+import { notifyImportSessionChanged } from '../../importProgressSession';
 import { DiscardImportConfirm } from '../pdfBatch/DiscardImportConfirm';
 import {
   AddDataStep,
@@ -378,6 +379,7 @@ export function TableImportFlow({
       if (!source) return;
       try {
         const result = await api.commit(projectId, source.draft_id, source.revision, commitKey.current);
+        notifyImportSessionChanged();
         callbacks.current.onImported(result.sheet_id);
       } catch (problem) {
         if (!(problem instanceof TableImportResponseError) || problem.status !== 409) throw problem;

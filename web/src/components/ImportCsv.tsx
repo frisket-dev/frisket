@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type DragEvent } from 'react';
 import {
   AtSign,
-  CheckCircle2,
   FileText,
   Globe2,
   Link2,
@@ -13,29 +12,18 @@ import {
   X,
 } from 'lucide-react';
 import {
-  confirmImportRowsDraft,
-  detectPastedRowsDraft,
-  importCsv,
   createImportSession,
   getImportSession,
   importFiles,
   importFollowTheMoney,
+  importCsv,
   importUrls,
   importXlsx,
   snapshotImportFiles,
   uploadFilesToImportSession,
   executeBulkImport,
   prepareImportFiles,
-  previewCsv,
-  previewXlsx,
-  previewImportRowUpdates,
-  previewImportedFileUpdates,
-  updateRowsFromImportedFile,
-  type ImportDraft,
-  type ImportDraftMappingColumn,
-  type ImportCsvPreview,
   type ImportSessionStatus,
-  type ImportUpdatePreview,
   type BulkImportFailedOutput,
   type BulkImportPlan,
   type PreparedImportFiles,
@@ -55,10 +43,8 @@ import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { usePoll } from '../hooks/usePoll';
 import { PanelSelect } from './PanelSelect';
 import { SegmentedToggle } from './PanelPrimitives';
-import { ImportDraftMappingPanel } from './importWorkspace/ImportDraftMappingPanel';
 import { ImportSessionProgress } from './importWorkspace/ImportSessionProgress';
 import { ImportModeRail } from './importWorkspace/ImportModeRail';
-import { ImportPasteDetectPanel } from './importWorkspace/ImportPasteDetectPanel';
 import { ImportStageStepper } from './importWorkspace/ImportStageStepper';
 import {
   PdfPacketImportFlow,
@@ -77,13 +63,7 @@ import {
   type TableImportShellContext,
 } from './importWorkspace/tableImport';
 import { SearchPreparationReceipt } from './SearchPreparationReceipt';
-import {
-  IMPORT_MODES,
-  IMPORT_WORKSPACE_STAGES,
-  type FileImportMode,
-  type ImportMode,
-  type ImportWorkspaceStage,
-} from './importWorkspace/model';
+import { IMPORT_MODES, type FileImportMode, type ImportMode } from './importWorkspace/model';
 import {
   describeColumns,
   nerImportOffer,
@@ -222,18 +202,6 @@ const ACCEPTS: Record<FileImportMode, string> = {
 const FTM_ACCEPT = '.json,.jsonl,application/json,application/x-ndjson';
 type SingleFileFormat = 'csv' | 'ftm';
 
-const CSV_ENCODINGS = [
-  { value: '', label: 'Auto-detect' },
-  { value: 'utf-8', label: 'UTF-8' },
-  { value: 'cp1252', label: 'Windows-1252' },
-  { value: 'iso-8859-1', label: 'ISO-8859-1 (Latin-1)' },
-  { value: 'iso-8859-2', label: 'ISO-8859-2 (Central European)' },
-  { value: 'shift_jis', label: 'Shift JIS' },
-  { value: 'mac_roman', label: 'Mac Roman' },
-  { value: 'utf-16', label: 'UTF-16' },
-  { value: 'utf-32', label: 'UTF-32' },
-] as const;
-
 function classifySingleImportFile(
   file: File,
 ): Extract<FileImportMode, 'csv' | 'xlsx'> | null {
@@ -296,52 +264,17 @@ function bulkPlanValidationError(plan: BulkImportPlan): string | null {
 
 interface ImportWorkspaceState {
   mode: ImportMode;
-  stage: ImportWorkspaceStage;
   urlText: string;
-  pasteText: string;
-  draft: ImportDraft | null;
-  draftColumns: ImportDraftMappingColumn[];
-  draftSheetName: string;
-  draftBusy: boolean;
-  draftError: string | null;
 }
 
 type ImportWorkspaceAction =
   | { type: 'selectMode'; mode: ImportMode }
-  | { type: 'resetDraft' }
-  | { type: 'setUrlText'; value: string }
-  | { type: 'setPasteText'; value: string }
-  | { type: 'setDraftSheetName'; value: string }
-  | { type: 'setDraftStage'; stage: ImportWorkspaceStage }
-  | { type: 'updateDraftColumn'; key: string; patch: Partial<ImportDraftMappingColumn> }
-  | { type: 'detectDraftStart' }
-  | { type: 'detectDraftSuccess'; draft: ImportDraft }
-  | { type: 'draftFailure'; message: string }
-  | { type: 'confirmDraftStart' }
-  | { type: 'confirmDraftSettled' };
+  | { type: 'setUrlText'; value: string };
 
 const initialImportWorkspaceState = (mode: ImportMode): ImportWorkspaceState => ({
   mode,
-  stage: 'detect',
   urlText: '',
-  pasteText: '',
-  draft: null,
-  draftColumns: [],
-  draftSheetName: '',
-  draftBusy: false,
-  draftError: null,
 });
-
-function resetImportDraft(state: ImportWorkspaceState): ImportWorkspaceState {
-  return {
-    ...state,
-    stage: 'detect',
-    draft: null,
-    draftColumns: [],
-    draftSheetName: '',
-    draftError: null,
-  };
-}
 
 function importWorkspaceReducer(
   state: ImportWorkspaceState,
@@ -349,48 +282,9 @@ function importWorkspaceReducer(
 ): ImportWorkspaceState {
   switch (action.type) {
     case 'selectMode':
-      return resetImportDraft({ ...state, mode: action.mode });
-    case 'resetDraft':
-      return resetImportDraft(state);
+      return { ...state, mode: action.mode };
     case 'setUrlText':
       return { ...state, urlText: action.value };
-    case 'setPasteText':
-      return { ...state, pasteText: action.value, draftError: null };
-    case 'setDraftSheetName':
-      return { ...state, draftSheetName: action.value };
-    case 'setDraftStage':
-      return { ...state, stage: action.stage };
-    case 'updateDraftColumn':
-      return {
-        ...state,
-        draftColumns: state.draftColumns.map((column) =>
-          column.key === action.key ? { ...column, ...action.patch } : column,
-        ),
-      };
-    case 'detectDraftStart':
-      return { ...state, draftBusy: true, draftError: null };
-    case 'detectDraftSuccess':
-      return {
-        ...state,
-        draft: action.draft,
-        draftColumns: action.draft.columns.map((column) => ({
-          key: column.key,
-          name: column.name,
-          type: column.type,
-          format: column.format,
-          include: column.include,
-        })),
-        draftSheetName: action.draft.sheet_name,
-        stage: 'map',
-        draftBusy: false,
-        draftError: null,
-      };
-    case 'draftFailure':
-      return { ...state, draftBusy: false, draftError: action.message };
-    case 'confirmDraftStart':
-      return { ...state, draftBusy: true, draftError: null };
-    case 'confirmDraftSettled':
-      return { ...state, draftBusy: false };
     default:
       return state;
   }
@@ -1070,6 +964,7 @@ function OpenImportWorkspaceSession({
     subtitle: null,
     busy: false,
   });
+  const [pdfPacketInitialFile, setPdfPacketInitialFile] = useState<File | null>(null);
   const updatePdfPacketContext = useCallback((context: PdfPacketShellContext) => {
     setPdfPacketContext(context);
   }, []);
@@ -1083,20 +978,11 @@ function OpenImportWorkspaceSession({
   );
   const {
     mode,
-    stage,
     urlText,
-    pasteText,
-    draft,
-    draftColumns,
-    draftSheetName,
-    draftBusy,
-    draftError,
   } = state;
   const fileMode: FileImportMode =
     mode === 'xlsx' || mode === 'files' ? mode : 'csv';
-  const railMode: ImportMode =
-    mode === 'paste' || mode === 'xlsx' ? 'csv' : mode === 'urls' ? 'files' : mode;
-  const active = IMPORT_MODES.find((m) => m.id === railMode) ?? IMPORT_MODES[0];
+  const railMode: ImportMode = mode === 'xlsx' ? 'csv' : mode === 'urls' ? 'files' : mode;
 
   // Sibling to
   // FeedSourceForm's own `populate` state — local, not a store slot,
@@ -1121,15 +1007,10 @@ function OpenImportWorkspaceSession({
   const [preparationStep, setPreparationStep] = useState<'summary' | 'review'>(initialPreparationBatchId ? 'review' : 'summary');
   const [fileSummary, setFileSummary] = useState<{ names: string[]; count: number } | null>(null);
   const [preparationFollowupError, setPreparationFollowupError] = useState<string | null>(null);
-  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [ftmFile, setFtmFile] = useState<File | null>(null);
   const [singleFileFormat, setSingleFileFormat] = useState<SingleFileFormat>('csv');
   const tableImportSelected = railMode === 'csv' && singleFileFormat !== 'ftm';
   const [ftmDatasetName, setFtmDatasetName] = useState('');
-  const [csvEncoding, setCsvEncoding] = useState('');
-  const [csvPreview, setCsvPreview] = useState<ImportCsvPreview | null>(null);
-  const [csvPreviewBusy, setCsvPreviewBusy] = useState(false);
-  const [csvPreviewError, setCsvPreviewError] = useState<string | null>(null);
-  const csvPreviewControllerRef = useRef<AbortController | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const zipInputRef = useRef<HTMLInputElement | null>(null);
   const bulkPlanControllerRef = useRef<AbortController | null>(null);
@@ -1153,20 +1034,7 @@ function OpenImportWorkspaceSession({
   const [filesDragging, setFilesDragging] = useState(false);
   const selectionPreparationGeneration = useRef(0);
   const [destinationSheets, setDestinationSheets] = useState<SheetMeta[]>([]);
-  const [destinationSheetId, setDestinationSheetId] = useState('');
-  const [draftDestinationMode, setDraftDestinationMode] = useState<'append' | 'update'>('append');
-  const [keepExistingOnBlank, setKeepExistingOnBlank] = useState(false);
-  const [updatePreview, setUpdatePreview] = useState<ImportUpdatePreview | null>(null);
-  const updatePreviewControllerRef = useRef<AbortController | null>(null);
-  const [csvColumnMapping, setCsvColumnMapping] = useState<Record<string, string | null>>({});
-  const [fileDestinationMode, setFileDestinationMode] = useState<'append' | 'update'>('append');
-  const [fileColumnPolicies, setFileColumnPolicies] = useState<Record<string, 'match' | 'update'>>({});
-  const [fileUpdatePreview, setFileUpdatePreview] = useState<ImportUpdatePreview | null>(null);
-  const fileUpdateControllerRef = useRef<AbortController | null>(null);
-  const [fileUpdateBusy, setFileUpdateBusy] = useState(false);
-  const [fileUpdateApplying, setFileUpdateApplying] = useState(false);
-  const busy = uploadBusy || fileUpdateApplying;
-  const [appendRequestKey, setAppendRequestKey] = useState(() => crypto.randomUUID());
+  const busy = uploadBusy;
 
   const prepareSelection = useCallback((files: File[], use: (prepared: PreparedFileSelection) => void) => {
     setImportSessionStatus(null);
@@ -1180,8 +1048,6 @@ function OpenImportWorkspaceSession({
       if (generation === selectionPreparationGeneration.current) setSelectionPreparing(false);
     });
   }, []);
-  const activeCsvFile = csvFile;
-  const activeCsvPreview = csvPreview;
   // SheetMeta.parent is populated only from the list wire's parent_sheet_id;
   // imported roots may have a creation parent_op_id and remain appendable.
   const appendDestinationSheets = useMemo(
@@ -1190,64 +1056,6 @@ function OpenImportWorkspaceSession({
   );
   // A destination can disappear from a refreshed sheet list. Treat that
   // stale value as a new-sheet choice everywhere that can write an import.
-  const appendDestinationSheetId = appendDestinationSheets.some(
-    (sheet) => sheet.id === destinationSheetId,
-  ) ? destinationSheetId : '';
-  const appendColumnMapping = useCallback((preview: ImportCsvPreview, sheetId: string) => {
-    const destination = appendDestinationSheets.find((sheet) => sheet.id === sheetId);
-    if (!destination) return {};
-    return Object.fromEntries(preview.columns.map((column) => [
-      column.name,
-      destination.columns.find(
-        (target) => target.name.toLocaleLowerCase() === column.name.toLocaleLowerCase(),
-      )?.name ?? null,
-    ]));
-  }, [appendDestinationSheets]);
-
-  const loadCsvPreview = useCallback((file: File, encoding: string) => {
-    fileUpdateControllerRef.current?.abort();
-    fileUpdateControllerRef.current = null;
-    setFileUpdateBusy(false);
-    csvPreviewControllerRef.current?.abort();
-    const controller = new AbortController();
-    csvPreviewControllerRef.current = controller;
-    setCsvPreviewBusy(true);
-    setCsvPreview(null);
-    setCsvPreviewError(null);
-    setFileUpdatePreview(null);
-    const previewRequest = classifySingleImportFile(file) === 'xlsx'
-      ? previewXlsx(projectId, file)
-      : previewCsv(projectId, file, encoding || undefined, { signal: controller.signal });
-    void previewRequest.then((nextPreview) => {
-      if (controller.signal.aborted) return;
-      setCsvPreview(nextPreview);
-      setCsvColumnMapping(appendColumnMapping(nextPreview, appendDestinationSheetId));
-      setCsvPreviewBusy(false);
-    }).catch((error: unknown) => {
-      if (controller.signal.aborted) return;
-      setCsvPreviewError(error instanceof Error ? error.message : String(error));
-      setCsvPreviewBusy(false);
-    });
-  }, [appendColumnMapping, appendDestinationSheetId, projectId]);
-
-  const resetCsvPreview = useCallback(() => {
-    fileUpdateControllerRef.current?.abort();
-    fileUpdateControllerRef.current = null;
-    csvPreviewControllerRef.current?.abort();
-    csvPreviewControllerRef.current = null;
-    setCsvFile(null);
-    setCsvEncoding('');
-    setCsvPreview(null);
-    setCsvPreviewBusy(false);
-    setCsvPreviewError(null);
-    setFileDestinationMode('append');
-    setFileColumnPolicies({});
-    setFileUpdatePreview(null);
-    setFileUpdateBusy(false);
-    setAppendRequestKey(crypto.randomUUID());
-  }, []);
-
-  useEffect(() => () => fileUpdateControllerRef.current?.abort(), []);
 
   const invalidateBulkRequests = useCallback(() => {
     bulkGenerationRef.current += 1;
@@ -1279,20 +1087,9 @@ function OpenImportWorkspaceSession({
   // publish into the next one, and unmount discards all local UI state.
   useEffect(() => () => {
     selectionPreparationGeneration.current += 1;
-    csvPreviewControllerRef.current?.abort();
-    csvPreviewControllerRef.current = null;
     invalidateBulkRequests();
     onModeChangeRef.current?.(null);
   }, [invalidateBulkRequests]);
-
-  const resetDraft = useCallback(() => {
-    updatePreviewControllerRef.current?.abort();
-    dispatch({ type: 'resetDraft' });
-    setDestinationSheetId('');
-    setDraftDestinationMode('append');
-    setKeepExistingOnBlank(false);
-    setUpdatePreview(null);
-  }, []);
 
   useEffect(() => {
     let active = true;
@@ -1304,39 +1101,15 @@ function OpenImportWorkspaceSession({
     return () => { active = false; };
   }, [projectApi]);
 
-  const selectDraftDestination = (sheetId: string) => {
-    updatePreviewControllerRef.current?.abort();
-    setUpdatePreview(null);
-    setDestinationSheetId(sheetId);
-    if (!sheetId) {
-      setDraftDestinationMode('append');
-      return;
-    }
-    const destination = destinationSheets.find((sheet) => sheet.id === sheetId);
-    if (!destination || destination.parent !== undefined) {
-      setDestinationSheetId('');
-      return;
-    }
-    for (const source of draftColumns) {
-      const matched = destination.columns.find(
-        (column) => column.name.toLocaleLowerCase() === source.name.trim().toLocaleLowerCase(),
-      );
-      if (matched) {
-        dispatch({ type: 'updateDraftColumn', key: source.key, patch: { name: matched.name, type: matched.type } });
-      }
-    }
-  };
-
   const closeWorkspace = useCallback(() => {
-    resetDraft();
-    resetCsvPreview();
     resetBulkPlan();
+    setFtmFile(null);
     setDownloadPrompt(null);
     setNerPrompt(null);
     setPreparationReceipt(null);
     setPreparationFollowupError(null);
     onClose();
-  }, [onClose, resetBulkPlan, resetCsvPreview, resetDraft]);
+  }, [onClose, resetBulkPlan]);
   const closeWorkspaceFromUser = useCallback(() => {
     if (bulkPrepareDiscardPromptRef.current) return;
     if (pdfBatchActive) {
@@ -1352,10 +1125,10 @@ function OpenImportWorkspaceSession({
       }
       return;
     }
-    if (selectionPreparing || (busy && !sessionBusy) || bulkBusy || draftBusy || pdfPacketContext.busy) return;
+    if (selectionPreparing || (busy && !sessionBusy) || bulkBusy || pdfPacketContext.busy) return;
     if (mode === 'pdf_split' && pdfPacketCloseGuardRef.current && !pdfPacketCloseGuardRef.current()) return;
     closeWorkspace();
-  }, [bulkBusy, bulkPreparing, busy, closeWorkspace, draftBusy, mode, pdfBatchActive, pdfPacketContext.busy, selectionPreparing, sessionBusy, tableImportSelected]);
+  }, [bulkBusy, bulkPreparing, busy, closeWorkspace, mode, pdfBatchActive, pdfPacketContext.busy, selectionPreparing, sessionBusy, tableImportSelected]);
 
   // The ONE shared success
   // handler replacing the three independent close-on-success calls
@@ -1471,7 +1244,6 @@ function OpenImportWorkspaceSession({
     selectionPreparationGeneration.current += 1;
     setSelectionPreparing(false);
     setFilesDragging(false);
-    resetCsvPreview();
     resetBulkPlan();
     setPdfPacketContext({ active: false, stage: 'check', subtitle: null, busy: false });
     pdfPacketCloseGuardRef.current = null;
@@ -1479,6 +1251,7 @@ function OpenImportWorkspaceSession({
       setSingleFileFormat('csv');
       setFtmDatasetName('');
     }
+    if (nextMode !== 'pdf_split') setPdfPacketInitialFile(null);
     onSessionModeChange(nextMode);
     dispatch({ type: 'selectMode', mode: nextMode });
   };
@@ -1501,116 +1274,6 @@ function OpenImportWorkspaceSession({
 
   const dismissNerPrompt = () => {
     closeWorkspace();
-  };
-
-  const detectPasteDraft = async () => {
-    if (draftBusy || !pasteText.trim()) return;
-    dispatch({ type: 'detectDraftStart' });
-    try {
-      const nextDraft = await detectPastedRowsDraft(projectId, pasteText);
-      dispatch({ type: 'detectDraftSuccess', draft: nextDraft });
-    } catch (e) {
-      const message = `Import detection failed: ${e instanceof Error ? e.message : String(e)}`;
-      dispatch({ type: 'draftFailure', message });
-      onError(message);
-    }
-  };
-
-  const updateDraftColumn = (
-    key: string,
-    patch: Partial<ImportDraftMappingColumn>,
-  ) => {
-    updatePreviewControllerRef.current?.abort();
-    setUpdatePreview(null);
-    dispatch({ type: 'updateDraftColumn', key, patch });
-  };
-
-  const previewDraftUpdates = async () => {
-    if (!draft || draftBusy || !appendDestinationSheetId) return;
-    const keyColumns = draftColumns
-      .filter((column) => column.include && column.updatePolicy === 'match')
-      .map((column) => column.name.trim());
-    const controller = new AbortController();
-    updatePreviewControllerRef.current?.abort();
-    updatePreviewControllerRef.current = controller;
-    dispatch({ type: 'confirmDraftStart' });
-    try {
-      const preview = await previewImportRowUpdates(projectId, {
-        destinationSheetId: Number(appendDestinationSheetId),
-        columns: draftColumns,
-        keyColumns,
-        raw: draft.raw,
-        draftId: draft.draft_id,
-        keepExistingOnBlank,
-      }, { signal: controller.signal });
-      if (controller.signal.aborted) return;
-      setUpdatePreview(preview);
-      dispatch({ type: 'setDraftStage', stage: 'confirm' });
-    } catch (e) {
-      if (controller.signal.aborted) return;
-      const message = `Preview failed: ${e instanceof Error ? e.message : String(e)}`;
-      dispatch({ type: 'draftFailure', message });
-      onError(message);
-    } finally {
-      if (updatePreviewControllerRef.current === controller) {
-        updatePreviewControllerRef.current = null;
-        dispatch({ type: 'confirmDraftSettled' });
-      }
-    }
-  };
-
-  const confirmDraft = async () => {
-    if (!draft || draftBusy) return;
-    if (draftDestinationMode === 'update' && !updatePreview) {
-      const message = 'Preview updates before confirming.';
-      dispatch({ type: 'draftFailure', message });
-      onError(message);
-      return;
-    }
-    dispatch({ type: 'confirmDraftStart' });
-    const startedAt = performance.now();
-    const bytes = byteBucket(new TextEncoder().encode(pasteText).byteLength);
-    sendProductTelemetry({ type: 'Import.started', properties: { importKind: 'paste', format: 'text', bytes } }, projectId);
-    try {
-      const result = await confirmImportRowsDraft(projectId, draft, {
-        sheetName: draftSheetName,
-        destination: appendDestinationSheetId
-          ? { kind: 'existing_sheet', sheetId: Number(appendDestinationSheetId) }
-          : { kind: 'new_sheet' },
-        columns: draftColumns,
-        ...(draftDestinationMode === 'update' && updatePreview ? {
-          update: {
-            keyColumns: draftColumns
-              .filter((column) => column.include && column.updatePolicy === 'match')
-              .map((column) => column.name.trim()),
-            keepExistingOnBlank,
-            confirmation: updatePreview.confirmation,
-          },
-        } : {}),
-      });
-      sendProductTelemetry({
-        type: 'Import.finished',
-        properties: {
-          importKind: 'paste', format: 'text', bytes,
-          rows: rowBucket(result.rows), columns: columnBucket(result.columns?.length),
-          requestDuration: durationBucket(performance.now() - startedAt), result: 'success', failureCategory: 'none',
-        },
-      }, projectId);
-      await finishImport(result.sheet_id);
-    } catch (e) {
-      sendProductTelemetry({
-        type: 'Import.finished',
-        properties: {
-          importKind: 'paste', format: 'text', bytes, rows: 'unknown', columns: 'unknown',
-          requestDuration: durationBucket(performance.now() - startedAt), result: 'failed', failureCategory: failureCategory(e),
-        },
-      }, projectId);
-      const message = `Import failed: ${e instanceof Error ? e.message : String(e)}`;
-      dispatch({ type: 'draftFailure', message });
-      onError(message);
-    } finally {
-      dispatch({ type: 'confirmDraftSettled' });
-    }
   };
 
   const executeBulkPlan = useCallback((
@@ -1805,21 +1468,10 @@ function OpenImportWorkspaceSession({
       setPdfBatchFiles(files);
       return;
     }
-    const selectedFile = files[0];
     prepareSelection(files, (prepared) => {
       if (prepared.directNeedsBulkPlan) {
-        resetCsvPreview();
         startBulkPlan(files, selectionExpandsArchives(files));
-      } else if (fileMode === 'csv' && singleFileFormat === 'csv' && selectedFile && classifySingleImportFile(selectedFile)) {
-        resetBulkPlan();
-        setAppendRequestKey(crypto.randomUUID());
-        setCsvFile(selectedFile);
-        setCsvEncoding('');
-        setCsvPreview(null);
-        setCsvPreviewError(null);
-        loadCsvPreview(selectedFile, '');
       } else {
-        resetCsvPreview();
         resetBulkPlan();
         void uploadFiles(
           singleFileFormat === 'ftm' ? 'ftm' : fileMode,
@@ -1831,10 +1483,8 @@ function OpenImportWorkspaceSession({
     fileMode,
     finishFileImport,
     ftmDatasetName,
-    loadCsvPreview,
     prepareSelection,
     resetBulkPlan,
-    resetCsvPreview,
     singleFileFormat,
     startBulkPlan,
     uploadFiles,
@@ -1969,7 +1619,6 @@ function OpenImportWorkspaceSession({
               setPdfBatchFiles(files);
               return;
             }
-            resetCsvPreview();
             prepareSelection(files, (prepared) => {
               if (prepared.usesAttachmentSession) {
                 resetBulkPlan();
@@ -1992,7 +1641,6 @@ function OpenImportWorkspaceSession({
           data-testid="import-zip-input"
           onChange={(e) => {
             const files = snapshotImportFiles(e.target.files);
-            resetCsvPreview();
             if (!files.length || files.some((file) => !file.name.toLowerCase().endsWith('.zip'))) {
               resetBulkPlan();
               setBulkError('Choose a ZIP archive to import its contents.');
@@ -2027,7 +1675,6 @@ function OpenImportWorkspaceSession({
               selectionPreparing
               || (busy && !sessionBusy)
               || (bulkBusy && !bulkPreparing)
-              || draftBusy
               || pdfPacketContext.busy
             )}
             onClick={closeWorkspaceFromUser}
@@ -2042,16 +1689,6 @@ function OpenImportWorkspaceSession({
             </aside>
           ) : null}
           <main className="import-workspace-content">
-            {/* Only the paste path has the numbered `detect → map → confirm`
-                stages. CSV shows its preview and explicit confirmation inline;
-                XLSX and generic file modes commit in one step.
-                Drawn unconditionally, the numbered header promised a Check and
-                a Confirm step that a Files import silently skipped — the sheet
-                was already written behind the still-open dialog. The steps are
-                drawn where they are real. */}
-            {mode === 'paste' ? (
-              <ImportStageStepper stages={IMPORT_WORKSPACE_STAGES} stage={stage} />
-            ) : null}
             <div className={`import-workspace-panel${mode === 'pdf_split' || pdfBatchActive || tableImportActive ? ' pdf-packet-workspace-panel' : ''}`}>
               {tableImportActive ? (
                 <TableImportFlow
@@ -2074,9 +1711,12 @@ function OpenImportWorkspaceSession({
                     selectMode('files');
                     if (files?.length) startBulkPlan(files, selectionExpandsArchives(files));
                   }}
-                  onUsePdfSplit={() => selectMode('pdf_split')}
+                  onUsePdfSplit={(file) => {
+                    setPdfPacketInitialFile(file);
+                    selectMode('pdf_split');
+                  }}
                   onUseFollowTheMoney={(file) => {
-                    setCsvFile(file);
+                    setFtmFile(file);
                     setSingleFileFormat('ftm');
                     setFtmDatasetName('');
                   }}
@@ -2194,11 +1834,11 @@ function OpenImportWorkspaceSession({
                   onRun={runNerPrompt}
                   onDismiss={dismissNerPrompt}
                 />
-              ) : singleFileFormat === 'ftm' && activeCsvFile ? (
+              ) : singleFileFormat === 'ftm' && ftmFile ? (
                 <section className="table-import-ftm-handoff">
                   <FileText size={26} aria-hidden />
                   <h2>Import FollowTheMoney data</h2>
-                  <p>{activeCsvFile.name}</p>
+                  <p>{ftmFile.name}</p>
                   <label className="import-field-label" htmlFor="import-ftm-dataset-name">Dataset name (optional)</label>
                   <input
                     id="import-ftm-dataset-name"
@@ -2209,16 +1849,17 @@ function OpenImportWorkspaceSession({
                   />
                   <div className="import-step-actions">
                     <button type="button" className="btn" disabled={busy} onClick={() => {
-                      setCsvFile(null);
+                      setFtmFile(null);
                       setSingleFileFormat('csv');
                     }}>Back</button>
                     <button type="button" className="btn btn-primary" disabled={busy} onClick={() => {
-                      void uploadFiles('ftm', [activeCsvFile], undefined, ftmDatasetName).then(finishFileImport);
+                      void uploadFiles('ftm', [ftmFile], undefined, ftmDatasetName).then(finishFileImport);
                     }}>{busy ? 'Importing…' : 'Import'}</button>
                   </div>
                 </section>
               ) : mode === 'pdf_split' ? (
                 <PdfPacketImportFlow
+                  initialFile={pdfPacketInitialFile}
                   projectId={projectId}
                   onContextChange={updatePdfPacketContext}
                   registerCloseGuard={registerPdfPacketCloseGuard}
@@ -2228,73 +1869,6 @@ function OpenImportWorkspaceSession({
                   }}
                   onError={onError}
                 />
-              ) : mode === 'paste' ? (
-                stage === 'map' && draft ? (
-                  <ImportDraftMappingPanel
-                    draft={draft}
-                    columns={draftColumns}
-                    sheetName={draftSheetName}
-                    sheets={appendDestinationSheets}
-                    destinationSheetId={appendDestinationSheetId}
-                    destinationMode={draftDestinationMode}
-                    keepExistingOnBlank={keepExistingOnBlank}
-                    busy={draftBusy}
-                    error={draftError}
-                    onSheetNameChange={(value) => dispatch({ type: 'setDraftSheetName', value })}
-                    onDestinationSheetChange={selectDraftDestination}
-                    onDestinationModeChange={(value) => {
-                      updatePreviewControllerRef.current?.abort();
-                      setUpdatePreview(null);
-                      setDraftDestinationMode(value);
-                      if (value === 'update') {
-                        for (const column of draftColumns) {
-                          dispatch({
-                            type: 'updateDraftColumn',
-                            key: column.key,
-                            patch: {
-                              updatePolicy: 'update',
-                            },
-                          });
-                        }
-                      }
-                    }}
-                    onKeepExistingOnBlankChange={(value) => {
-                      updatePreviewControllerRef.current?.abort();
-                      setUpdatePreview(null);
-                      setKeepExistingOnBlank(value);
-                    }}
-                    onColumnChange={updateDraftColumn}
-                    onBack={() => dispatch({ type: 'setDraftStage', stage: 'detect' })}
-                    onContinue={() => {
-                      if (draftDestinationMode === 'update') void previewDraftUpdates();
-                      else dispatch({ type: 'setDraftStage', stage: 'confirm' });
-                    }}
-                  />
-                ) : stage === 'confirm' && draft ? (
-                  <ImportDraftConfirmStep
-                    draft={draft}
-                    columns={draftColumns}
-                    sheetName={draftSheetName}
-                    destinationSheet={appendDestinationSheets.find((sheet) => sheet.id === appendDestinationSheetId) ?? null}
-                    updatePreview={draftDestinationMode === 'update' ? updatePreview : null}
-                    busy={draftBusy}
-                    error={draftError}
-                    onBack={() => dispatch({ type: 'setDraftStage', stage: 'map' })}
-                    onConfirm={() => void confirmDraft()}
-                  />
-                ) : (
-                  <ImportPasteDetectPanel
-                    pasteText={pasteText}
-                    busy={draftBusy}
-                    error={draftError}
-                    onPasteTextChange={(value) => {
-                      dispatch({ type: 'setPasteText', value });
-                    }}
-                    onDetect={() => {
-                      void detectPasteDraft();
-                    }}
-                  />
-                )
               ) : mode === 'urls' ? (
                 <>
                   <label className="import-field-label" htmlFor="import-url-list">
@@ -2327,253 +1901,36 @@ function OpenImportWorkspaceSession({
                 <FeedSourceForm onCreated={onClose} onImported={onImported} onError={onError} />
               ) : (
                 <>
-                  {railMode !== 'files' ? (
-                    <div className="import-mode-summary">
-                      <Upload size={16} aria-hidden />
-                      <strong>{active.label}</strong>
-                      <span>{active.hint}</span>
+                  <div
+                    className="import-files-chooser"
+                    data-testid="import-files-chooser"
+                    data-dragging={filesDragging || undefined}
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      event.dataTransfer.dropEffect = busy || bulkBusy || selectionPreparing ? 'none' : 'copy';
+                      if (!busy && !bulkBusy && !selectionPreparing) setFilesDragging(true);
+                    }}
+                    onDragLeave={(event) => {
+                      if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFilesDragging(false);
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setFilesDragging(false);
+                      if (busy || bulkBusy || selectionPreparing) return;
+                      handlePickedFiles(snapshotImportFiles(event.dataTransfer.files));
+                    }}
+                  >
+                    <Upload size={34} aria-hidden />
+                    <h2>Drop files here</h2>
+                    <p>Drop files or a ZIP archive here, or choose a folder.</p>
+                    <div className="import-files-chooser-actions">
+                      <button type="button" className="btn btn-primary" data-testid="import-file-picker" disabled={busy || bulkBusy || selectionPreparing} onClick={() => inputRef.current?.click()}>Pick files</button>
+                      <button type="button" className="btn" disabled={busy || bulkBusy || selectionPreparing} onClick={() => folderInputRef.current?.click()}>Choose folder</button>
+                      <button type="button" className="btn" disabled={busy || bulkBusy || selectionPreparing} onClick={() => zipInputRef.current?.click()}>Upload ZIP</button>
                     </div>
-                  ) : null}
-                  {railMode === 'csv' ? (
-                    <>
-                      <label className="import-field-label" htmlFor="import-file-format">
-                        Format
-                      </label>
-                      <select
-                        id="import-file-format"
-                        className="form-input"
-                        data-testid="import-file-format"
-                        value={singleFileFormat}
-                        onChange={(event) => {
-                          const next = event.target.value as SingleFileFormat;
-                          setSingleFileFormat(next);
-                          resetCsvPreview();
-                        }}
-                      >
-                        <option value="csv">CSV / Excel (autodetect)</option>
-                        {ftmImportEnabled ? <option value="ftm">FollowTheMoney (JSON/JSONL)</option> : null}
-                      </select>
-                      {singleFileFormat === 'ftm' ? (
-                        <>
-                          <label className="import-field-label" htmlFor="import-ftm-dataset-name">
-                            Dataset name (optional)
-                          </label>
-                          <input
-                            id="import-ftm-dataset-name"
-                            className="form-input"
-                            data-testid="import-ftm-dataset-name"
-                            value={ftmDatasetName}
-                            onChange={(event) => setFtmDatasetName(event.target.value)}
-                          />
-                        </>
-                      ) : null}
-                    </>
-                  ) : null}
-                  {railMode === 'files' ? (
-                    <div
-                      className="import-files-chooser"
-                      data-testid="import-files-chooser"
-                      data-dragging={filesDragging || undefined}
-                      onDragOver={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        event.dataTransfer.dropEffect = busy || bulkBusy || selectionPreparing ? 'none' : 'copy';
-                        if (!busy && !bulkBusy && !selectionPreparing) setFilesDragging(true);
-                      }}
-                      onDragLeave={(event) => {
-                        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFilesDragging(false);
-                      }}
-                      onDrop={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        setFilesDragging(false);
-                        if (busy || bulkBusy || selectionPreparing) return;
-                        handlePickedFiles(snapshotImportFiles(event.dataTransfer.files));
-                      }}
-                    >
-                      <Upload size={34} aria-hidden />
-                      <h2>Drop files here</h2>
-                      <p>Drop files or a ZIP archive here, or choose a folder.</p>
-                      <div className="import-files-chooser-actions">
-                        <button
-                          type="button"
-                          className="btn btn-primary"
-                          data-testid="import-file-picker"
-                          disabled={busy || bulkBusy || selectionPreparing}
-                          onClick={() => inputRef.current?.click()}
-                        >
-                          Pick files
-                        </button>
-                        <button
-                          type="button"
-                          className="btn"
-                          disabled={busy || bulkBusy || selectionPreparing}
-                          onClick={() => folderInputRef.current?.click()}
-                        >
-                          Choose folder
-                        </button>
-                        <button
-                          type="button"
-                          className="btn"
-                          disabled={busy || bulkBusy || selectionPreparing}
-                          onClick={() => zipInputRef.current?.click()}
-                        >
-                          Upload ZIP
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      className="btn btn-primary import-primary import-file-choose"
-                      data-testid="import-file-picker"
-                      disabled={busy || bulkBusy}
-                      onClick={() => inputRef.current?.click()}
-                    >
-                      <Upload size={13} /> Choose one file
-                    </button>
-                  )}
-                  {railMode === 'csv' && (
-                    <div className="import-step-actions">
-                      <button
-                        type="button"
-                        className="btn"
-                        disabled={busy || bulkBusy}
-                        onClick={() => folderInputRef.current?.click()}
-                      >
-                        Choose folder
-                      </button>
-                      <button
-                        type="button"
-                        className="btn"
-                        disabled={busy || bulkBusy}
-                        onClick={() => zipInputRef.current?.click()}
-                      >
-                        Choose ZIP
-                      </button>
-                    </div>
-                  )}
-                  {railMode === 'csv' && (
-                    <>
-                      <p className="form-hint import-entry-note" data-testid="import-single-supported">
-                        Frisket detects CSV and Excel files after you choose one.
-                      </p>
-                      {activeCsvFile ? (
-                        <CsvEncodingPreview
-                          file={activeCsvFile}
-                          selectedEncoding={csvEncoding}
-                          preview={activeCsvPreview}
-                          busy={csvPreviewBusy}
-                          importBusy={busy || fileUpdateBusy}
-                          error={csvPreviewError}
-                          sheets={appendDestinationSheets}
-                          destinationSheetId={appendDestinationSheetId}
-                          destinationMode={fileDestinationMode}
-                          columnPolicies={fileColumnPolicies}
-                          keepExistingOnBlank={keepExistingOnBlank}
-                          updatePreview={fileUpdatePreview}
-                          onDestinationSheetChange={(value) => {
-                            setDestinationSheetId(value);
-                            setCsvColumnMapping(
-                              value && activeCsvPreview ? appendColumnMapping(activeCsvPreview, value) : {},
-                            );
-                            setAppendRequestKey(crypto.randomUUID());
-                            if (!value) setFileDestinationMode('append');
-                            setFileUpdatePreview(null);
-                          }}
-                          onDestinationModeChange={(value) => {
-                            setFileDestinationMode(value);
-                            setAppendRequestKey(crypto.randomUUID());
-                            setFileUpdatePreview(null);
-                            setFileColumnPolicies(Object.fromEntries(
-                              (activeCsvPreview?.columns ?? []).map((column) => [column.name, 'update']),
-                            ));
-                          }}
-                          onColumnPolicyChange={(source, policy) => {
-                            setFileColumnPolicies((current) => ({ ...current, [source]: policy }));
-                            setAppendRequestKey(crypto.randomUUID());
-                            setFileUpdatePreview(null);
-                          }}
-                          onKeepExistingOnBlankChange={(value) => {
-                            setKeepExistingOnBlank(value);
-                            setAppendRequestKey(crypto.randomUUID());
-                            setFileUpdatePreview(null);
-                          }}
-                          columnMapping={csvColumnMapping}
-                          onColumnMappingChange={(source, target) => {
-                            setCsvColumnMapping((current) => ({ ...current, [source]: target }));
-                            setAppendRequestKey(crypto.randomUUID());
-                            setFileUpdatePreview(null);
-                          }}
-                          onEncodingChange={(encoding) => {
-                            setCsvFile(activeCsvFile);
-                            setCsvEncoding(encoding);
-                            loadCsvPreview(activeCsvFile, encoding);
-                          }}
-                          onImport={() => {
-                            if (fileDestinationMode === 'update' && appendDestinationSheetId && activeCsvPreview) {
-                              const format = classifySingleImportFile(activeCsvFile) === 'xlsx' ? 'xlsx' : 'csv';
-                              const keyColumns = activeCsvPreview.columns
-                                .filter((column) => csvColumnMapping[column.name] && fileColumnPolicies[column.name] === 'match')
-                                .map((column) => csvColumnMapping[column.name] as string);
-                              const input = {
-                                destinationSheetId: Number(appendDestinationSheetId),
-                                columnMapping: csvColumnMapping,
-                                keyColumns,
-                                keepExistingOnBlank,
-                                ...(format === 'csv' && csvEncoding ? { encoding: csvEncoding } : {}),
-                              };
-                              if (fileUpdatePreview) {
-                                setFileUpdateApplying(true);
-                                void updateRowsFromImportedFile(projectId, activeCsvFile, format, {
-                                  ...input, confirmation: fileUpdatePreview.confirmation,
-                                  requestKey: appendRequestKey,
-                                }).then((result) => finishImport(result.sheet_id))
-                                  .catch((error) => onError(`Import failed: ${error instanceof Error ? error.message : String(error)}`))
-                                  .finally(() => setFileUpdateApplying(false));
-                                return;
-                              }
-                              fileUpdateControllerRef.current?.abort();
-                              const controller = new AbortController();
-                              fileUpdateControllerRef.current = controller;
-                              setFileUpdateBusy(true);
-                              void previewImportedFileUpdates(projectId, activeCsvFile, format, input, { signal: controller.signal }).then((preview) => {
-                                if (controller.signal.aborted) return null;
-                                setFileUpdatePreview(preview);
-                                return null;
-                              }).catch((error) => {
-                                if (!controller.signal.aborted) {
-                                  onError(`Import failed: ${error instanceof Error ? error.message : String(error)}`);
-                                }
-                              }).finally(() => {
-                                if (fileUpdateControllerRef.current === controller) {
-                                  fileUpdateControllerRef.current = null;
-                                  setFileUpdateBusy(false);
-                                }
-                              });
-                              return;
-                            }
-                            void uploadFiles(
-                              classifySingleImportFile(activeCsvFile) ?? 'csv',
-                              [activeCsvFile], csvEncoding || undefined, undefined,
-                              appendDestinationSheetId ? Number(appendDestinationSheetId) : undefined,
-                              appendDestinationSheetId ? csvColumnMapping : undefined,
-                              appendRequestKey,
-                            )
-                              .then(finishFileImport);
-                          }}
-                        />
-                      ) : null}
-                      <button
-                        type="button"
-                        className="mini-btn import-secondary"
-                        data-testid="import-mode-paste"
-                        onClick={() => selectMode('paste')}
-                      >
-                        Paste rows instead
-                      </button>
-                    </>
-                  )}
+                  </div>
                   {(bulkPlan || bulkBusy || bulkError || bulkSuccessMessage || bulkWarnings.length || bulkFailures.length || bulkFailuresOmitted > 0) && (
                     <BulkImportPlanPanel
                       plan={bulkPlan}
@@ -2743,346 +2100,6 @@ function BulkImportPlanPanel({
   );
 }
 
-function previewCell(value: unknown): string {
-  if (value === null || value === undefined || value === '') return '—';
-  if (typeof value === 'object') return JSON.stringify(value);
-  return String(value);
-}
-
-function fileUpdateButtonLabel(preview: ImportUpdatePreview | null, isXlsx: boolean): string {
-  if (!preview) return `Preview ${isXlsx ? 'Excel' : 'CSV'} updates`;
-  return `Update ${preview.matched} rows`;
-}
-
-function ImportUpdatePreviewSummary({ preview, testId }: {
-  preview: ImportUpdatePreview;
-  testId: string;
-}) {
-  const readableValues = (values: Record<string, unknown>) => Object.entries(values)
-    .map(([name, value]) => `${name}: ${value == null ? '(blank)' : String(value)}`)
-    .join(' · ');
-  return (
-    <div data-testid={testId}>
-      <div className={preview.ambiguous ? 'import-field-error' : 'import-draft-warnings'}>
-        {preview.matched} matched · {preview.unmatched} unmatched · {preview.blank_keys} blank keys · {preview.ambiguous} ambiguous
-      </div>
-      <div className="import-confirm-summary">
-        <span>{preview.changed_cells} cells changed · {preview.cleared_cells} cells cleared</span>
-      </div>
-      {preview.samples.length > 0 && (
-        <div className="import-draft-preview">
-          <table>
-            <thead><tr><th>Source row</th><th>Status</th><th>Before</th><th>After</th></tr></thead>
-            <tbody>
-              {preview.samples.slice(0, 8).map((sample, index) => (
-                <tr key={`${sample.source_row}-${index}`}>
-                  <td>{sample.source_row}</td>
-                  <td>{sample.status}</td>
-                  <td>{readableValues(sample.before)}</td>
-                  <td>{readableValues(sample.after)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function CsvEncodingPreview({
-  file,
-  selectedEncoding,
-  preview,
-  busy,
-  importBusy,
-  error,
-  sheets,
-  destinationSheetId,
-  destinationMode,
-  columnPolicies,
-  keepExistingOnBlank,
-  updatePreview,
-  onDestinationSheetChange,
-  onDestinationModeChange,
-  onColumnPolicyChange,
-  onKeepExistingOnBlankChange,
-  columnMapping,
-  onColumnMappingChange,
-  onEncodingChange,
-  onImport,
-}: {
-  file: File;
-  selectedEncoding: string;
-  preview: ImportCsvPreview | null;
-  busy: boolean;
-  importBusy: boolean;
-  error: string | null;
-  sheets: SheetMeta[];
-  destinationSheetId: string;
-  destinationMode: 'append' | 'update';
-  columnPolicies: Record<string, 'match' | 'update'>;
-  keepExistingOnBlank: boolean;
-  updatePreview: ImportUpdatePreview | null;
-  onDestinationSheetChange(value: string): void;
-  onDestinationModeChange(value: 'append' | 'update'): void;
-  onColumnPolicyChange(source: string, policy: 'match' | 'update'): void;
-  onKeepExistingOnBlankChange(value: boolean): void;
-  columnMapping: Record<string, string | null>;
-  onColumnMappingChange(source: string, target: string | null): void;
-  onEncodingChange(value: string): void;
-  onImport(): void;
-}) {
-  const isXlsx = classifySingleImportFile(file) === 'xlsx';
-  const destination = sheets.find((sheet) => sheet.id === destinationSheetId);
-  const incompatible = destination && preview
-    ? preview.columns.filter((column) => columnMapping[column.name] != null && !destination.columns.some(
-      (target) => target.name === columnMapping[column.name],
-    ))
-    : [];
-  const mappedTargets = preview?.columns.map((column) => columnMapping[column.name]) ?? [];
-  const hasMappedTarget = mappedTargets.some(Boolean);
-  const hasDuplicateTargets = new Set(mappedTargets.filter(Boolean)).size
-    !== mappedTargets.filter(Boolean).length;
-  const updateMode = Boolean(destination && destinationMode === 'update');
-  const matchedKeys = preview?.columns.filter(
-    (column) => columnMapping[column.name] && columnPolicies[column.name] === 'match',
-  ) ?? [];
-  const updateColumns = preview?.columns.filter(
-    (column) => columnMapping[column.name] && columnPolicies[column.name] !== 'match',
-  ) ?? [];
-  return (
-    <div className="import-csv-preview" data-testid="import-csv-preview">
-      <div className="import-csv-preview-controls">
-        <div>
-          <strong>{file.name}</strong>
-          {preview ? (
-            <span>
-              {preview.row_count} {preview.row_count === 1 ? 'row' : 'rows'} ·{' '}
-              {preview.columns.length} {preview.columns.length === 1 ? 'column' : 'columns'}
-            </span>
-          ) : null}
-        </div>
-        {!isXlsx ? (
-          <label className="import-field-label" htmlFor="import-csv-encoding">
-            Character encoding
-            <PanelSelect
-              id="import-csv-encoding"
-              className="form-input import-csv-encoding"
-              testId="import-csv-encoding"
-              ariaLabel="Character encoding"
-              value={selectedEncoding}
-              disabled={importBusy}
-              options={[...CSV_ENCODINGS]}
-              onValueChange={onEncodingChange}
-            />
-          </label>
-        ) : null}
-      </div>
-      <label className="import-field-label" htmlFor="import-csv-destination">
-        Destination
-        <PanelSelect
-          id="import-csv-destination"
-          className="form-input"
-          value={destinationSheetId}
-          disabled={importBusy || busy}
-          onChange={(event) => onDestinationSheetChange(event.target.value)}
-        >
-          <option value="">New sheet</option>
-          {sheets.map((sheet) => <option key={sheet.id} value={sheet.id}>{sheet.name}</option>)}
-        </PanelSelect>
-      </label>
-      {destination ? (
-        <label className="import-field-label" htmlFor="import-file-destination-mode">
-          Import method
-          <PanelSelect
-            id="import-file-destination-mode"
-            className="form-input"
-            value={destinationMode}
-            disabled={importBusy}
-            onChange={(event) => onDestinationModeChange(event.target.value as 'append' | 'update')}
-          >
-            <option value="append">Append rows</option>
-            <option value="update">Update matching rows</option>
-          </PanelSelect>
-        </label>
-      ) : null}
-      {updateMode ? (
-        <label className="import-check-inline">
-          <input type="checkbox" checked={keepExistingOnBlank} disabled={importBusy}
-            onChange={(event) => onKeepExistingOnBlankChange(event.target.checked)} />
-          Keep existing values where imported cells are blank
-        </label>
-      ) : null}
-      {busy ? <div className="form-hint">Reading preview…</div> : null}
-      {error ? <div className="import-field-error" role="alert">{error}</div> : null}
-      {preview ? (
-        <>
-          {!isXlsx ? (
-            <p className="form-hint import-csv-detected" data-testid="import-csv-detected">
-              {selectedEncoding ? 'Using' : 'Detected'} {preview.encoding}; delimiter:{' '}
-              {preview.delimiter === '\t' ? 'tab' : preview.delimiter}
-            </p>
-          ) : null}
-          {destination ? (
-            <div className={incompatible.length || hasDuplicateTargets ? 'import-field-error' : 'import-draft-warnings'}>
-              {!hasMappedTarget
-                ? 'Choose at least one destination column.'
-                : hasDuplicateTargets
-                ? 'Each source column must map to a different destination column.'
-                : incompatible.length
-                ? `${incompatible.length} source column${incompatible.length === 1 ? '' : 's'} still need a destination.`
-                : updateMode
-                  ? 'Preview exact matches before updating existing rows; unmatched rows will be left unchanged.'
-                  : `${preview.row_count} rows will be appended; no existing rows will be changed.`}
-            </div>
-          ) : null}
-          {destination ? preview.columns.map((column) => (
-            <div className="import-field-label" key={column.name}>
-              <span>{column.name}</span>
-              <PanelSelect
-                className="form-input"
-                value={columnMapping[column.name] ?? ''}
-                disabled={importBusy}
-                onChange={(event) => onColumnMappingChange(
-                  column.name,
-                  event.target.value || null,
-                )}
-              >
-                <option value="">Do not import</option>
-                {destination.columns.map((target) => (
-                  <option key={target.id} value={target.name}>{target.name} ({target.type})</option>
-                ))}
-              </PanelSelect>
-              {updateMode && columnMapping[column.name] ? (
-                <PanelSelect
-                  className="form-input"
-                  aria-label={`${column.name} update action`}
-                  value={columnPolicies[column.name] ?? 'update'}
-                  disabled={importBusy}
-                  onChange={(event) => onColumnPolicyChange(
-                    column.name, event.target.value as 'match' | 'update',
-                  )}
-                >
-                  <option value="match">Match</option>
-                  <option value="update">Update</option>
-                </PanelSelect>
-              ) : null}
-            </div>
-          )) : null}
-          {updateMode && updatePreview ? (
-            <ImportUpdatePreviewSummary preview={updatePreview} testId="import-file-update-preview" />
-          ) : null}
-          <div className="import-draft-preview" data-testid="import-csv-preview-table">
-            <table>
-              <thead>
-                <tr>
-                  {preview.columns.map((column) => (
-                    <th key={column.name}>
-                      {column.name}<small>{column.type}</small>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {preview.preview_rows.map((row, rowIndex) => (
-                  <tr key={rowIndex}>
-                    {preview.columns.map((column) => (
-                      <td key={column.name}>{previewCell(row[column.name])}</td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <button
-            type="button"
-            className="btn btn-primary import-primary"
-            data-testid="import-csv-confirm"
-            disabled={importBusy || busy || Boolean(destination && !hasMappedTarget) || incompatible.length > 0 || hasDuplicateTargets || (updateMode && (matchedKeys.length === 0 || updateColumns.length === 0 || Boolean(updatePreview?.ambiguous)))}
-            onClick={onImport}
-          >
-            {importBusy ? 'Importing…' : updateMode
-              ? fileUpdateButtonLabel(updatePreview, isXlsx)
-              : `Import ${isXlsx ? 'Excel' : 'CSV'}`}
-          </button>
-        </>
-      ) : null}
-    </div>
-  );
-}
-
-function ImportDraftConfirmStep({
-  draft,
-  columns,
-  sheetName,
-  destinationSheet,
-  updatePreview,
-  busy,
-  error,
-  onBack,
-  onConfirm,
-}: {
-  draft: ImportDraft;
-  columns: ImportDraftMappingColumn[];
-  sheetName: string;
-  destinationSheet: SheetMeta | null;
-  updatePreview: ImportUpdatePreview | null;
-  busy: boolean;
-  error: string | null;
-  onBack(): void;
-  onConfirm(): void;
-}) {
-  const activeColumns = columns.filter((column) => column.include);
-  const updateBlocked = Boolean(updatePreview && updatePreview.ambiguous > 0);
-  return (
-    <div className="import-draft-step">
-      <div className="import-mode-summary">
-        <CheckCircle2 size={16} aria-hidden />
-        <strong>Confirm import</strong>
-        <span>Review the write before it happens</span>
-      </div>
-      <div className="import-confirm-summary" data-testid="import-confirm-summary">
-        <strong>{destinationSheet?.name ?? (sheetName || draft.sheet_name)}</strong>
-        <span>{updatePreview ? `${updatePreview.matched} matched rows` : `${draft.row_count} rows`}</span>
-        <span>{activeColumns.length} columns</span>
-        <span>{updatePreview ? `Update ${updatePreview.matched} rows` : destinationSheet ? 'Appends to the selected sheet' : 'Creates a new sheet'}</span>
-      </div>
-      {updatePreview && (
-        <ImportUpdatePreviewSummary preview={updatePreview} testId="import-update-preview" />
-      )}
-      <div className="import-confirm-columns">
-        {activeColumns.map((column) => (
-          <span key={column.key}>{column.name}: {column.type}</span>
-        ))}
-      </div>
-      {error && (
-        <div className="import-field-error" role="alert">
-          {error}
-        </div>
-      )}
-      <div className="import-step-actions">
-        <button type="button" className="btn" disabled={busy} onClick={onBack}>Back</button>
-        <button
-          type="button"
-          className="btn btn-primary import-primary"
-          data-testid="import-confirm-submit"
-          disabled={busy || updateBlocked}
-          onClick={onConfirm}
-        >
-          {busy ? 'Importing...' : updatePreview ? `Update ${updatePreview.matched} rows` : 'Import rows'}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// The "playlist moment": an import that lands URL rows nothing has downloaded yet
-// prompts "Download media?", never "Transcribe these?" (transcribe only
-// makes sense once a media column exists, which this import path hasn't
-// produced). Modeled directly on FeedSourceForm's own populate prompt below
-// (same shape: durable inline swap, "Not now" quietly closes, the primary
-// action closes + hands off to the real action surface).
 function MediaDownloadPrompt({
   columnName,
   onRun,

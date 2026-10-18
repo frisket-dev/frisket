@@ -254,7 +254,7 @@ export function CheckRowsStep({ draft, busy, onBack, onContinue, onSettings }: {
         <label className="table-import-header-check"><input type="checkbox" checked={requested.first_row_is_header ?? true} disabled={busy} onChange={(event) => update('first_row_is_header', event.currentTarget.checked)} /> First row has column names</label>
         <NumberStepper label="Skip rows at end" value={requested.skip_rows_end ?? 0} disabled={busy} onChange={(value) => update('skip_rows_end', value)} />
       </div>
-      {preview ? <TablePreview preview={preview} onLineClick={(line) => update('skip_rows_start', Math.max(0, line - 1))} /> : <div className="table-import-preview-loading" role="status">Reading rows…</div>}
+      {preview ? <TablePreview preview={preview} onRecordClick={(ordinal) => update('skip_rows_start', Math.max(0, ordinal - 1))} /> : <div className="table-import-preview-loading" role="status">Reading rows…</div>}
       {preview && <PreviewNotice preview={preview} />}
     </div>
     <ImportStepFooter><button type="button" className="btn" disabled={busy} onClick={onBack}>Back</button><span>{footerRows} · {count(preview?.columns.length ?? draft.columns.length, 'column')}{delimited ? ` · ${displayDelimiter(resolved.delimiter)} · ${displayEncoding(resolved.encoding)}` : ''}</span><button type="button" className="btn btn-primary" disabled={busy || preview === null || preview.columns.length === 0} onClick={onContinue}>Columns →</button></ImportStepFooter>
@@ -276,7 +276,7 @@ function lineLabel(row: TableImportPreview['head'][number]): string {
   return '';
 }
 
-function TablePreview({ preview, onLineClick }: { preview: TableImportPreview; onLineClick(line: number): void }) {
+function TablePreview({ preview, onRecordClick }: { preview: TableImportPreview; onRecordClick(recordOrdinal: number): void }) {
   const visibleColumns = preview.columns.slice(0, 8);
   const rows = [...preview.head, ...preview.tail];
   return <div className="table-import-preview-wrap">
@@ -285,7 +285,7 @@ function TablePreview({ preview, onLineClick }: { preview: TableImportPreview; o
       {rows.map((row, index) => <Fragment key={`${row.role}:${row.record_ordinal}`}>
         {index === preview.head.length && preview.tail.length > 0 && <tr className="table-import-preview-gap" key="gap"><th colSpan={visibleColumns.length + 1}>⋯ {preview.omitted_rows == null ? 'more rows' : count(preview.omitted_rows, 'more row')}</th></tr>}
         <tr data-role={row.role} data-issue={row.issues.length > 0 || undefined}>
-          <th><button type="button" disabled={row.physical_line_start == null} onClick={() => { if (row.physical_line_start != null) onLineClick(row.physical_line_start); }}>{row.physical_line_start ?? row.record_ordinal}</button><small>{lineLabel(row)}</small></th>
+          <th><button type="button" disabled={row.physical_line_start == null} onClick={() => onRecordClick(row.record_ordinal)}>{row.physical_line_start ?? row.record_ordinal}</button><small>{lineLabel(row)}</small></th>
           {visibleColumns.map((column, columnIndex) => <td key={column.index} data-extra={columnIndex >= preview.expected_values || undefined}>{row.cells[columnIndex] ?? ''}</td>)}
         </tr>
       </Fragment>) }

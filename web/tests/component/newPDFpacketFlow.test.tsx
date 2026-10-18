@@ -187,6 +187,19 @@ afterEach(() => {
 });
 
 describe('PDF packet import flow boundaries', () => {
+  it('starts with the PDF handed off by Add data', async () => {
+    const file = new File(['pdf'], 'Handed-off.pdf', { type: 'application/pdf' });
+    const props = {
+      projectId: 'project-1', initialFile: file, onContextChange: vi.fn(), registerCloseGuard: vi.fn(),
+      onImported: vi.fn(), onError: vi.fn(),
+    };
+    render(<PdfPacketImportFlow {...props} />);
+
+    await waitFor(() => expect(api.createPdfPacketSplit).toHaveBeenCalledWith(
+      'project-1', file, expect.any(String), expect.anything(),
+    ));
+  });
+
   it('accepts a dropped PDF and goes directly to Check text while its page loads', async () => {
     let resolvePage!: (page: PdfPacketPage) => void;
     api.getPdfPacketPage.mockReturnValue(new Promise((resolve) => {

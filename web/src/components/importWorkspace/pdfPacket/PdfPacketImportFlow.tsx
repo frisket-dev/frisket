@@ -51,6 +51,7 @@ export interface PdfPacketShellContext {
 }
 
 interface PdfPacketImportFlowProps {
+  initialFile?: File | null;
   projectId: string;
   onContextChange(context: PdfPacketShellContext): void;
   registerCloseGuard(guard: (() => boolean) | null): void;
@@ -114,6 +115,7 @@ function loadRememberedOptions(projectId: string): PdfPacketRememberedOptions | 
 }
 
 export function PdfPacketImportFlow({
+  initialFile = null,
   projectId,
   onContextChange,
   registerCloseGuard,
@@ -407,7 +409,8 @@ export function PdfPacketImportFlow({
     return () => controller.abort();
   }, [loadPage, splitId, state.confirmedStarts, state.pages, state.stage]);
 
-  const chooseFile = async (file: File) => {
+  const initialFileConsumed = useRef<File | null>(null);
+  const chooseFile = useCallback(async (file: File) => {
     if (!(file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'))) {
       dispatch({ type: 'error', message: 'Choose a PDF packet.' });
       return;
@@ -429,7 +432,13 @@ export function PdfPacketImportFlow({
     } finally {
       if (epoch === projectEpoch.current) setUploading(false);
     }
-  };
+  }, [beginAction, onError, projectId]);
+
+  useEffect(() => {
+    if (!initialFile || initialFileConsumed.current === initialFile) return;
+    initialFileConsumed.current = initialFile;
+    void chooseFile(initialFile);
+  }, [chooseFile, initialFile]);
 
   const launchOcr = async ({
     engine,

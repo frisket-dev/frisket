@@ -176,11 +176,11 @@
 .table-import-preview { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 11px; }
 .table-import-preview th, .table-import-preview td { min-width: 105px; padding: 7px 9px; overflow: hidden; border-right: 1px solid #efeae5; border-bottom: 1px solid #efeae5; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .table-import-preview th:first-child { width: 94px; min-width: 94px; }
-.table-import-preview tbody th { display: flex; align-items: center; gap: 5px; background: #fbf9f7; font-weight: 500; }
+.table-import-preview tbody th { background: #fbf9f7; font-weight: 500; }
 .table-import-preview tbody th button { min-width: 24px; padding: 0; border: 0; background: transparent; color: #8a817a; font: inherit; cursor: pointer; }
 .table-import-preview tbody th button:not(:disabled):hover { text-decoration: underline; }
 .table-import-preview tbody th button:disabled { color: #756c66; cursor: default; }
-.table-import-preview tbody th small { padding: 2px 4px; border-radius: 3px; color: #756c66; font-size: 9px; font-weight: 700; text-transform: uppercase; }
+.table-import-preview tbody th small { display: inline-block; margin-left: 5px; padding: 2px 4px; border-radius: 3px; color: #756c66; font-size: 9px; font-weight: 700; text-transform: uppercase; vertical-align: middle; }
 .table-import-preview tr[data-role='header'] { background: #f4f4fe; font-weight: 700; }
 .table-import-preview tr[data-role='skipped_start'], .table-import-preview tr[data-role='skipped_end'], .table-import-preview tr[data-role='blank'] { color: #8a817a; background: #fbf9f7; }
 .table-import-preview tr[data-issue] th small, .table-import-preview td[data-extra] { background: #fcefd9; color: #9a5b06; }
