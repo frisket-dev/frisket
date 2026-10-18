@@ -1262,9 +1262,13 @@ class SearchPreparationService:
             pdf_preparation = None
         if pdf_preparation is not None:
             scheduled = self.progress_pdf_import(row.project_id, row.import_ref)
+            summary = self.pdf_import_summary(row.project_id, row.import_ref)
             if (
-                session.state not in {"active", "paused", "cancelled"}
-                and scheduled >= session.cursor
+                summary.stopped
+                or (
+                    session.state not in {"active", "paused", "cancelled"}
+                    and scheduled >= session.cursor
+                )
             ):
                 self.store.mark_settled(
                     row.id,

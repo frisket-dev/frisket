@@ -816,6 +816,14 @@ def test_stop_completed_import_keeps_rows_and_terminates_pending_preparation(
     actions.ocr_busy = False
     preparation.recover()
     assert len(actions.bodies) == before
+    pending = preparation.store.for_receipt(
+        storage_org_id=workspace.queue_storage_org_id,
+        project_id=project_id,
+        receipt_id=result.receipt_id,
+        include_pending=True,
+    )
+    assert pending is not None
+    assert pending.settled_at is not None
 
 
 def test_reviewed_text_handoff_refuses_to_reinterpret_paid_draft_consent(

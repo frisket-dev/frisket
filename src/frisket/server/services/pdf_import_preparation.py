@@ -693,9 +693,25 @@ class PdfImportPreparationCoordinator:
         project = self.workspace.get(project_id)
         directory = import_intake_dir(project.path, import_ref)
         with FileLock(str(directory / ".pdf-preparation.lock")):
+            header = read_import_header(directory)
             with PdfImportPreparationStore(directory / "inventory.db") as preparation:
                 preparation.stop()
-                return preparation.summary(project, import_ref=import_ref)
+                summary = preparation.summary(project, import_ref=import_ref)
+            receipt_id = header.envelope.get("receipt_id")
+            if isinstance(receipt_id, str) and receipt_id:
+                pending = self.pending_store.for_receipt(
+                    storage_org_id=self.workspace.queue_storage_org_id,
+                    project_id=project_id,
+                    receipt_id=receipt_id,
+                    include_pending=True,
+                )
+                if pending is not None:
+                    self.pending_store.mark_settled(
+                        pending.id,
+                        project_id=project_id,
+                        storage_org_id=self.workspace.queue_storage_org_id,
+                    )
+            return summary
 
 
 __all__ = [
