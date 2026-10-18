@@ -14,6 +14,7 @@ import type {
 import { PdfImportResponseError } from '../../src/api/pdfImports';
 import { PdfBatchImportFlow } from '../../src/components/importWorkspace/pdfBatch/PdfBatchImportFlow';
 import { bytesLabel, canHandlePdfBatch } from '../../src/components/importWorkspace/pdfBatch/model';
+import { subscribeImportSessions } from '../../src/components/importProgressSession';
 
 const selectorState = vi.hoisted(() => ({
   canRun: true,
@@ -31,7 +32,8 @@ const sessionUpload = vi.hoisted(() => ({
   unregister: vi.fn(),
 }));
 
-vi.mock('../../src/components/importProgressSession', () => ({
+vi.mock('../../src/components/importProgressSession', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../src/components/importProgressSession')>(),
   registerImportSessionUploadAbort: (importRef: string, abort: () => void) => {
     sessionUpload.importRef = importRef;
     sessionUpload.abort = abort;
@@ -435,6 +437,8 @@ describe('PDF batch import flow', () => {
   it('preserves choices on Back and commits only after semantic download consent', async () => {
     const { api } = createApi();
     const imported = vi.fn();
+    const sessionChanged = vi.fn();
+    const unsubscribe = subscribeImportSessions(sessionChanged);
     render(<PdfBatchImportFlow
       projectId="project-1" files={files()} destinationSheets={[]} api={api}
       onContextChange={vi.fn()} registerCloseGuard={vi.fn()} onImported={imported}
@@ -468,6 +472,9 @@ describe('PDF batch import flow', () => {
     }));
     expect(vi.mocked(api.commit).mock.calls[0][2]).not.toHaveProperty('ocr_confirmation');
     await waitFor(() => expect(imported).toHaveBeenCalledWith(42));
+    expect(sessionUpload.importRef).toBeNull();
+    expect(sessionChanged).toHaveBeenCalledTimes(1);
+    unsubscribe();
   });
 
   it('uses PDF-only review copy and explains what is blocking semantic search setup', async () => {
@@ -801,7 +808,7 @@ describe('PDF batch import flow', () => {
     });
     let commitAccepted = false;
     const committedStatus = snapshot(3, {
-      state: 'committing',
+      state: 'committed',
       upload: initial.upload,
       analysis: initial.analysis,
       commit: { result: { sheet_id: 42, import_ref: 'import-session-1' } },
@@ -819,6 +826,8 @@ describe('PDF batch import flow', () => {
       };
     });
     const imported = vi.fn();
+    const sessionChanged = vi.fn();
+    const unsubscribe = subscribeImportSessions(sessionChanged);
     const view = render(<PdfBatchImportFlow
       projectId="project-1" files={files()} destinationSheets={[]} api={api}
       onContextChange={vi.fn()} registerCloseGuard={vi.fn()} onImported={imported}
@@ -844,6 +853,7 @@ describe('PDF batch import flow', () => {
     expect(sessionUpload.remember).not.toHaveBeenCalledWith('draft-1', expect.anything());
     committedRefresh.resolve(committedStatus);
     await waitFor(() => expect(imported).toHaveBeenCalledWith(42));
+    expect(sessionChanged).toHaveBeenCalledTimes(1);
     expect(sessionUpload.importRef).toBe('import-session-1');
     expect(sessionUpload.registrations.has('draft-1')).toBe(false);
     expect(sessionUpload.registrations.has('import-session-1')).toBe(true);
@@ -862,6 +872,7 @@ describe('PDF batch import flow', () => {
     await waitFor(() => expect(api.upload).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(sessionUpload.unregister).toHaveBeenCalledTimes(2));
     expect(sessionUpload.setUploading).toHaveBeenLastCalledWith('import-session-1', false);
+    unsubscribe();
   });
 
   it('pauses for close confirmation and aborts the browser upload before discard', async () => {

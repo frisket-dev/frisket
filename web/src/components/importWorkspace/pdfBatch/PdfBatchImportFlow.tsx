@@ -25,6 +25,7 @@ import { usePoll } from '../../../hooks/usePoll';
 import { CostGateModal } from '../../CostGateModal';
 import {
   forgetImportSelection,
+  notifyImportSessionChanged,
   registerImportSessionUploadAbort,
   rememberImportSessionFiles,
   setImportSessionBrowserUploading,
@@ -191,6 +192,13 @@ export function PdfBatchImportFlow({
     const message = errorMessage(problem);
     setError(message);
     onErrorRef.current(message);
+  }, []);
+  const completeImportHandoff = useCallback((sheetId: number) => {
+    if (importedSheet.current === sheetId) return;
+    committed.current = true;
+    importedSheet.current = sheetId;
+    notifyImportSessionChanged();
+    onImportedRef.current(sheetId);
   }, []);
   const getCurrentDraft = useCallback(() => currentDraft.current, []);
   const preview = usePdfBatchPreview({
@@ -377,18 +385,14 @@ export function PdfBatchImportFlow({
       await registerCommittedUpload(next.commit?.result?.import_ref);
       if (next.state === 'cancelled') onDiscardedRef.current();
       const sheetId = next.commit?.result?.sheet_id;
-      if (next.state === 'committed' && sheetId && importedSheet.current !== sheetId) {
-        committed.current = true;
-        importedSheet.current = sheetId;
-        onImportedRef.current(sheetId);
-      }
+      if (next.state === 'committed' && sheetId) completeImportHandoff(sheetId);
       return next;
     } catch (problem) {
       if (!controller.signal.aborted && generation.current === epoch) reportError(problem);
     } finally {
       if (refreshController.current === controller) refreshController.current = null;
     }
-  }, [api, projectId, publish, registerCommittedUpload, reportError]);
+  }, [api, completeImportHandoff, projectId, publish, registerCommittedUpload, reportError]);
 
   const refreshStatus = useCallback(async () => {
     await refresh();
@@ -737,10 +741,7 @@ export function PdfBatchImportFlow({
       const refreshed = await refresh();
       const importRef = accepted.job?.import_ref ?? refreshed?.commit?.result?.import_ref;
       const sheetId = accepted.job?.sheet_id;
-      if (sheetId && importRef && importedSheet.current !== sheetId) {
-        importedSheet.current = sheetId;
-        onImportedRef.current(sheetId);
-      }
+      if (sheetId && importRef) completeImportHandoff(sheetId);
     } catch (problem) {
       if (problem instanceof PdfImportResponseError && problem.status === 409) {
         setBatchOcrConsent(null);
