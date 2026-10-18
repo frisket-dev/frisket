@@ -195,6 +195,8 @@ export interface BulkImportPlan {
   message?: string;
 }
 
+export type PreparedImportFiles = HttpContractSuccessResponse<'tenant.prepare_import_files.post'>;
+
 export interface BulkImportCreatedOutput {
   search_preparation_batch_id?: string | null;
   id: string;
@@ -977,6 +979,32 @@ export function planBulkImport(
 ): Promise<BulkImportPlan> {
   return createOnboardingImportsApi(actionLaunchErrorFromContract, projectId)
     .planBulkImport(files, logicalPaths, expandArchive, options);
+}
+
+export function prepareImportFiles(
+  projectId: string,
+  files: File[],
+  logicalPaths: string[],
+  expandArchive: boolean,
+  options: OnboardingImportOptions = {},
+): Promise<PreparedImportFiles> {
+  if (!files.length || files.length !== logicalPaths.length) {
+    throw new TypeError('Prepared import files and logical paths must stay aligned.');
+  }
+  const body = new FormData();
+  for (let index = 0; index < files.length; index += 1) {
+    body.append('files', files[index]);
+    body.append('logical_paths', logicalPaths[index]);
+  }
+  body.append('expand_archive', String(expandArchive));
+  return httpContract('tenant.prepare_import_files.post', {
+    pathParams: { pid: projectId },
+    query: {},
+    body,
+    signal: options.signal,
+    headers: options.headers,
+    errorFactory: actionLaunchErrorFromContract,
+  });
 }
 
 export function executeBulkImport(

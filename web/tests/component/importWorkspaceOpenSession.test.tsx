@@ -5,6 +5,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const planBulkImport = vi.hoisted(() => vi.fn());
+const prepareImportFiles = vi.hoisted(() => vi.fn());
 const executeBulkImport = vi.hoisted(() => vi.fn());
 const importFollowTheMoney = vi.hoisted(() => vi.fn());
 const importCsv = vi.hoisted(() => vi.fn());
@@ -19,12 +20,14 @@ const createSearchPreparation = vi.hoisted(() => vi.fn());
 const replanSearchPreparation = vi.hoisted(() => vi.fn());
 const listPdfImportDrafts = vi.hoisted(() => vi.fn());
 const createPdfImport = vi.hoisted(() => vi.fn());
+const getPdfImport = vi.hoisted(() => vi.fn());
 const projectApi = vi.hoisted(() => ({ getSheetData: vi.fn(), listSheets: vi.fn() }));
 
 vi.mock('../../src/api/open', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/api/open')>();
   return {
     ...actual,
+    prepareImportFiles,
     planBulkImport,
     executeBulkImport,
     importFollowTheMoney,
@@ -65,6 +68,7 @@ vi.mock('../../src/api/pdfImports', async (importOriginal) => {
       ...actual.pdfImportsApi,
       list: listPdfImportDrafts,
       create: createPdfImport,
+      get: getPdfImport,
     },
   };
 });
@@ -104,6 +108,8 @@ beforeEach(() => {
   listPdfImportDrafts.mockResolvedValue([]);
   createPdfImport.mockReset();
   createPdfImport.mockImplementation(() => new Promise(() => undefined));
+  getPdfImport.mockReset();
+  getPdfImport.mockImplementation(() => new Promise(() => undefined));
   getSearchPreparationTextSamples.mockReset();
   getSearchPreparationTextSamples.mockResolvedValue({ batch_id: 'prep', samples: [] });
   createSearchPreparation.mockReset();
@@ -124,6 +130,8 @@ beforeEach(() => {
     value() { this.open = false; },
   });
   planBulkImport.mockResolvedValue(plan);
+  prepareImportFiles.mockReset();
+  prepareImportFiles.mockResolvedValue({ kind: 'bulk', plan });
   importFollowTheMoney.mockResolvedValue({
     schema_version: 'frisket.action_result.v1',
     status: 'completed',
@@ -237,6 +245,54 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     expect(planBulkImport).not.toHaveBeenCalled();
   });
 
+  it('prepares ZIP selections before routing even when direct siblings include two PDFs', async () => {
+    prepareImportFiles.mockResolvedValue({
+      kind: 'pdf_import',
+      draft: { draft_id: 'zip-pdf-draft' },
+    });
+    renderDialog(true);
+    fireEvent.click(screen.getByTestId('import-mode-files'));
+    const selected = [
+      new File(['one'], 'one.pdf', { type: 'application/pdf' }),
+      new File(['two'], 'two.pdf', { type: 'application/pdf' }),
+      new File(['zip-a'], 'first.zip', { type: 'application/zip' }),
+      new File(['zip-b'], 'second.zip', { type: 'application/zip' }),
+      new File(['notes'], 'notes.txt', { type: 'text/plain' }),
+    ];
+
+    fireEvent.change(screen.getByTestId('import-file-input'), { target: { files: selected } });
+
+    await waitFor(() => expect(prepareImportFiles).toHaveBeenCalledWith(
+      'open-session-project',
+      selected,
+      selected.map((file) => file.name),
+      true,
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    ));
+    await waitFor(() => expect(getPdfImport).toHaveBeenCalledWith(
+      'open-session-project', 'zip-pdf-draft', expect.anything(),
+    ));
+    expect(createPdfImport).not.toHaveBeenCalled();
+    expect(planBulkImport).not.toHaveBeenCalled();
+    expect(screen.getByText('Preparing file import…')).toBeInTheDocument();
+  });
+
+  it('sends every archive selected in the ZIP picker through one preparation request', async () => {
+    renderDialog(true);
+    const selected = [
+      new File(['zip-a'], 'first.zip', { type: 'application/zip' }),
+      new File(['zip-b'], 'second.zip', { type: 'application/zip' }),
+    ];
+
+    fireEvent.change(screen.getByTestId('import-zip-input'), { target: { files: selected } });
+
+    await waitFor(() => expect(prepareImportFiles).toHaveBeenCalledWith(
+      'open-session-project', selected, ['first.zip', 'second.zip'], true,
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    ));
+    expect(planBulkImport).not.toHaveBeenCalled();
+  });
+
   it('keeps mixed selections with fewer than two PDFs on the existing file-import path', async () => {
     renderDialog(true);
     fireEvent.click(screen.getByTestId('import-mode-files'));
@@ -305,7 +361,7 @@ describe('ImportWorkspaceDialog controlled open session', () => {
   });
 
   it('keeps an automatic ZIP import in the shared receipt and reviews each created sheet', async () => {
-    planBulkImport.mockResolvedValue({ ...plan, questions: [] });
+    prepareImportFiles.mockResolvedValue({ kind: 'bulk', plan: { ...plan, questions: [] } });
     executeBulkImport.mockResolvedValue({
       created: [
         { id: 'a', kind: 'sheet', sheet_id: 41, sheet_name: 'PDFs', logical_paths: ['report.pdf'], search_preparation_batch_id: 'zip-pdf-prep' },
@@ -346,7 +402,7 @@ describe('ImportWorkspaceDialog controlled open session', () => {
   });
 
   it('keeps sheet B selected when sheet A replacement OCR finishes after switching sheets', async () => {
-    planBulkImport.mockResolvedValue({ ...plan, questions: [] });
+    prepareImportFiles.mockResolvedValue({ kind: 'bulk', plan: { ...plan, questions: [] } });
     executeBulkImport.mockResolvedValue({
       created: [
         { id: 'a', kind: 'sheet', sheet_id: 41, sheet_name: 'A', logical_paths: ['a.pdf'], search_preparation_batch_id: 'prep-a' },
@@ -390,7 +446,7 @@ describe('ImportWorkspaceDialog controlled open session', () => {
   });
 
   it('opens the receipt for a successful automatic ZIP without warnings', async () => {
-    planBulkImport.mockResolvedValue({ ...plan, questions: [] });
+    prepareImportFiles.mockResolvedValue({ kind: 'bulk', plan: { ...plan, questions: [] } });
     executeBulkImport.mockResolvedValue({
       created: [{ id: 'pdf', kind: 'sheet', sheet_id: 41, sheet_name: 'PDFs', logical_paths: ['report.pdf'], search_preparation_batch_id: 'zip-success' }],
       failed: [], failed_omitted: 0, first_sheet_id: 41, message: 'Imported 1 file.', warnings: [],
@@ -409,7 +465,7 @@ describe('ImportWorkspaceDialog controlled open session', () => {
   });
 
   it('finishes automatic bulk spreadsheet imports when no preparation batch was created', async () => {
-    planBulkImport.mockResolvedValue({ ...plan, questions: [] });
+    prepareImportFiles.mockResolvedValue({ kind: 'bulk', plan: { ...plan, questions: [] } });
     executeBulkImport.mockResolvedValue({
       created: [
         { id: 'csv', kind: 'sheet', sheet_id: 41, sheet_name: 'CSV records', logical_paths: ['records.csv'], search_preparation_batch_id: null },

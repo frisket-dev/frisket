@@ -204,6 +204,7 @@ function createApi(initial = snapshot()) {
       schema_version: 'frisket.pdf_import.v1', draft_id: 'draft-1', items: [],
     })),
     upload: vi.fn(async () => current),
+    analyze: vi.fn(async () => current),
     pause: vi.fn(async () => {
       current = { ...current, revision: current.revision + 1, paused: true };
       return current;
@@ -358,6 +359,94 @@ describe('PDF batch import flow', () => {
       .toEqual(['one.pdf', 'two.pdf', 'scan.png', 'notes.txt']);
     expect(vi.mocked(api.sealManifest).mock.invocationCallOrder[0])
       .toBeLessThan(vi.mocked(api.upload).mock.invocationCallOrder[0]);
+  });
+
+  it('advances a staged archive draft in bounded analysis calls without asking for file reselection', async () => {
+    let analyzed = 0;
+    const initial = snapshot(1, {
+      source_label: 'records.zip',
+      manifest: { files_done: 17, files_total: 17, bytes_done: 170, bytes_total: 170, sealed: true },
+      upload: { files_done: 17, files_total: 17, bytes_done: 170, bytes_total: 170, sealed: true },
+      analysis: { files_done: 0, files_total: 17, sealed: false },
+      category_counts: { text: 0, suspicious: 0, missing: 0, image: 0, other: 0, unreadable: 0, unchecked: 17 },
+      sample_ready_counts: {},
+      can_review_text: false,
+    });
+    const { api } = createApi(initial);
+    vi.mocked(api.analyze).mockImplementation(async () => {
+      analyzed = Math.min(17, analyzed + 8);
+      return snapshot(1 + Math.ceil(analyzed / 8), {
+        ...initial,
+        revision: 1 + Math.ceil(analyzed / 8),
+        analysis: { files_done: analyzed, files_total: 17, sealed: analyzed === 17 },
+        category_counts: { text: analyzed, suspicious: 0, missing: 0, image: 0, other: 0, unreadable: 0, unchecked: 17 - analyzed },
+        sample_ready_counts: { text: Math.min(analyzed, 6) },
+        can_review_text: analyzed > 0,
+      });
+    });
+
+    render(<PdfBatchImportFlow
+      projectId="project-1" resumeDraftId="draft-1" destinationSheets={[]} api={api}
+      onContextChange={vi.fn()} registerCloseGuard={vi.fn()} onImported={vi.fn()}
+      onDiscarded={vi.fn()} onError={vi.fn()}
+    />);
+
+    await waitFor(() => expect(api.analyze).toHaveBeenCalledTimes(3), { timeout: 6_000 });
+    expect(api.analyze).toHaveBeenNthCalledWith(
+      1, 'project-1', 'draft-1', expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    expect(api.reconcileReselection).not.toHaveBeenCalled();
+    expect(api.upload).not.toHaveBeenCalled();
+    expect(screen.queryByText('Some files still need to be copied')).not.toBeInTheDocument();
+  });
+
+  it('aborts an in-flight staged analysis request before pausing for cancel', async () => {
+    const initial = snapshot(1, {
+      upload: { files_done: 2, files_total: 2, bytes_done: 6, bytes_total: 6, sealed: true },
+      analysis: { files_done: 0, files_total: 2, sealed: false },
+      category_counts: { text: 0, suspicious: 0, missing: 0, image: 0, other: 0, unreadable: 0, unchecked: 2 },
+      sample_ready_counts: {},
+      can_review_text: false,
+    });
+    const pending = deferred<PdfImportSnapshot>();
+    const { api } = createApi(initial);
+    vi.mocked(api.analyze).mockReturnValue(pending.promise);
+    render(<PdfBatchImportFlow
+      projectId="project-1" resumeDraftId="draft-1" destinationSheets={[]} api={api}
+      onContextChange={vi.fn()} registerCloseGuard={vi.fn()} onImported={vi.fn()}
+      onDiscarded={vi.fn()} onError={vi.fn()}
+    />);
+
+    await waitFor(() => expect(api.analyze).toHaveBeenCalledOnce(), { timeout: 3_000 });
+    const signal = vi.mocked(api.analyze).mock.calls[0][2]?.signal;
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    await waitFor(() => expect(signal?.aborted).toBe(true));
+    await waitFor(() => expect(api.pause).toHaveBeenCalledOnce());
+    pending.resolve(initial);
+  });
+
+  it('falls back to status polling without tightly retrying a failed staged analysis call', async () => {
+    const initial = snapshot(1, {
+      upload: { files_done: 2, files_total: 2, bytes_done: 6, bytes_total: 6, sealed: true },
+      analysis: { files_done: 0, files_total: 2, sealed: false },
+      category_counts: { text: 0, suspicious: 0, missing: 0, image: 0, other: 0, unreadable: 0, unchecked: 2 },
+      sample_ready_counts: {},
+      can_review_text: false,
+    });
+    const { api } = createApi(initial);
+    vi.mocked(api.analyze).mockRejectedValue(new Error('analysis unavailable'));
+    const onError = vi.fn();
+    render(<PdfBatchImportFlow
+      projectId="project-1" resumeDraftId="draft-1" destinationSheets={[]} api={api}
+      onContextChange={vi.fn()} registerCloseGuard={vi.fn()} onImported={vi.fn()}
+      onDiscarded={vi.fn()} onError={onError}
+    />);
+
+    await waitFor(() => expect(api.analyze).toHaveBeenCalledOnce(), { timeout: 3_000 });
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2), { timeout: 3_000 });
+    expect(api.analyze).toHaveBeenCalledOnce();
+    expect(onError).toHaveBeenCalledWith('analysis unavailable');
   });
 
   it('does not create another draft when parent callback identities change', async () => {

@@ -8,7 +8,7 @@ vi.mock('pluralize', () => ({
   }),
 }));
 
-import { ApiError, cancelImportSession, chunkImportFiles, confirmImportRowsDraft, createImportSession, detectPastedRowsDraft, importCsv, importFiles, importPdf, importXlsx, importUrls, listImportSessions, previewCsv, previewImportRowUpdates, resolveImportSession, resumeImportSession, sealImportSession, seedSampleProject, snapshotImportFiles, uploadFilesToImportSession, uploadImportSessionFiles } from '../../src/api/open';
+import { ApiError, cancelImportSession, chunkImportFiles, confirmImportRowsDraft, createImportSession, detectPastedRowsDraft, importCsv, importFiles, importPdf, importXlsx, importUrls, listImportSessions, prepareImportFiles, previewCsv, previewImportRowUpdates, resolveImportSession, resumeImportSession, sealImportSession, seedSampleProject, snapshotImportFiles, uploadFilesToImportSession, uploadImportSessionFiles } from '../../src/api/open';
 import {
   createOnboardingImportsApi,
   type OnboardingImportOptions,
@@ -245,6 +245,35 @@ describe('onboarding/import generated HTTP contracts', () => {
     expect(body.get('file')).toBe(file);
     expect(body.get('dataset_name')).toBe('Entities');
     expect(new Headers(requests[0]?.init?.headers).get('content-type')).toBeNull();
+  });
+
+  it('prepares aligned archive selections through the generated discriminated-union route', async () => {
+    const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({ input, init });
+      return jsonResponse({ kind: 'pdf_import', draft: { draft_id: 'archive-draft-1' } });
+    }));
+    const first = new File(['zip'], 'records.zip', { type: 'application/zip' });
+    const second = new File(['notes'], 'notes.txt', { type: 'text/plain' });
+    const signal = new AbortController().signal;
+
+    await expect(prepareImportFiles(
+      'project / archive',
+      [first, second],
+      ['folder/records.zip', 'folder/notes.txt'],
+      true,
+      { headers: { Authorization: 'Bearer archive' }, signal },
+    )).resolves.toMatchObject({ kind: 'pdf_import', draft: { draft_id: 'archive-draft-1' } });
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0].input).toBe('/api/projects/project%20%2F%20archive/import/files/prepare');
+    expect(requests[0].init?.method).toBe('POST');
+    expect(requests[0].init?.signal).toBe(signal);
+    expect(new Headers(requests[0].init?.headers).get('Authorization')).toBe('Bearer archive');
+    const body = requests[0].init?.body as FormData;
+    expect(body.getAll('files')).toEqual([first, second]);
+    expect(body.getAll('logical_paths')).toEqual(['folder/records.zip', 'folder/notes.txt']);
+    expect(body.get('expand_archive')).toBe('true');
   });
 
   it('plans bulk file import with aligned multipart paths and executes exact decisions in output order', async () => {

@@ -25,7 +25,7 @@ import {
   snapshotImportFiles,
   uploadFilesToImportSession,
   executeBulkImport,
-  planBulkImport,
+  prepareImportFiles,
   previewCsv,
   previewXlsx,
   previewImportRowUpdates,
@@ -240,8 +240,8 @@ function logicalPathForImport(file: File): string {
   return typeof relativePath === 'string' && relativePath ? relativePath : file.name;
 }
 
-function directSelectionExpandsArchive(files: File[]): boolean {
-  return files.length === 1 && files[0].name.toLowerCase().endsWith('.zip');
+function selectionExpandsArchives(files: readonly File[]): boolean {
+  return files.some((file) => file.name.toLowerCase().endsWith('.zip'));
 }
 
 function bulkPlanValidationError(plan: BulkImportPlan): string | null {
@@ -1662,7 +1662,9 @@ function OpenImportWorkspaceSession({
 
   const startBulkPlan = useCallback((files: File[], expandArchive: boolean) => {
     if (busy || !files.length) return;
-    if (canHandlePdfBatch(files)) {
+    const expandsArchives = expandArchive || selectionExpandsArchives(files);
+    if (!expandsArchives && canHandlePdfBatch(files)) {
+      setPdfBatchResumeId(null);
       setPdfBatchFiles(files);
       return;
     }
@@ -1681,14 +1683,20 @@ function OpenImportWorkspaceSession({
     setBulkFailures([]);
     setBulkFailuresOmitted(0);
     setBulkBusy(true);
-    void planBulkImport(
+    void prepareImportFiles(
       projectId,
       files,
       files.map(logicalPathForImport),
-      expandArchive,
+      expandsArchives,
       { signal: controller.signal },
-    ).then((nextPlan) => {
+    ).then((prepared) => {
       if (controller.signal.aborted || bulkGenerationRef.current !== generation) return;
+      if (prepared.kind === 'pdf_import') {
+        setPdfBatchFiles(null);
+        setPdfBatchResumeId(prepared.draft.draft_id);
+        return;
+      }
+      const nextPlan = prepared.plan;
       const validationError = bulkPlanValidationError(nextPlan);
       if (validationError) {
         setBulkPlan(nextPlan);
@@ -1717,7 +1725,8 @@ function OpenImportWorkspaceSession({
 
   const handlePickedFiles = useCallback((files: File[]) => {
     if (!files.length) return;
-    if (canHandlePdfBatch(files)) {
+    if (!selectionExpandsArchives(files) && canHandlePdfBatch(files)) {
+      setPdfBatchResumeId(null);
       setPdfBatchFiles(files);
       return;
     }
@@ -1725,7 +1734,7 @@ function OpenImportWorkspaceSession({
     prepareSelection(files, (prepared) => {
       if (prepared.directNeedsBulkPlan) {
         resetCsvPreview();
-        startBulkPlan(files, directSelectionExpandsArchive(files));
+        startBulkPlan(files, selectionExpandsArchives(files));
       } else if (fileMode === 'csv' && singleFileFormat === 'csv' && selectedFile && classifySingleImportFile(selectedFile)) {
         resetBulkPlan();
         setAppendRequestKey(crypto.randomUUID());
@@ -1759,7 +1768,7 @@ function OpenImportWorkspaceSession({
   useEffect(() => {
     if (initialFilesConsumedRef.current || !initialFiles?.length) return;
     initialFilesConsumedRef.current = true;
-    startBulkPlan(initialFiles, directSelectionExpandsArchive(initialFiles));
+    startBulkPlan(initialFiles, selectionExpandsArchives(initialFiles));
   }, [initialFiles, startBulkPlan]);
 
   const executePlannedImport = () => {
@@ -1879,7 +1888,8 @@ function OpenImportWorkspaceSession({
             const files = snapshotImportFiles(e.target.files);
             e.target.value = '';
             if (!files.length) return;
-            if (canHandlePdfBatch(files)) {
+            if (!selectionExpandsArchives(files) && canHandlePdfBatch(files)) {
+              setPdfBatchResumeId(null);
               setPdfBatchFiles(files);
               return;
             }
@@ -1900,17 +1910,18 @@ function OpenImportWorkspaceSession({
           aria-label="Choose ZIP"
           ref={zipInputRef}
           type="file"
+          multiple
           accept=".zip,application/zip,application/x-zip-compressed"
           style={{ display: 'none' }}
           data-testid="import-zip-input"
           onChange={(e) => {
-            const file = e.target.files?.[0];
+            const files = snapshotImportFiles(e.target.files);
             resetCsvPreview();
-            if (!file || !file.name.toLowerCase().endsWith('.zip')) {
+            if (!files.length || files.some((file) => !file.name.toLowerCase().endsWith('.zip'))) {
               resetBulkPlan();
               setBulkError('Choose a ZIP archive to import its contents.');
             } else {
-              startBulkPlan([file], true);
+              startBulkPlan(files, true);
             }
             e.target.value = '';
           }}
@@ -3418,7 +3429,7 @@ export function ImportDropzone(props: ImportHandlers & {
     if (rich.busy || previewing || preparing) return;
     const files = snapshotImportFiles(e.dataTransfer.files);
     if (!files.length) return;
-    if (canHandlePdfBatch(files)) {
+    if (!selectionExpandsArchives(files) && canHandlePdfBatch(files)) {
       onOpenBulk(files);
       return;
     }

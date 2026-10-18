@@ -152,6 +152,11 @@ export function PdfBatchImportFlow({
   const [reportedOcrChoice, setReportedOcrChoice] = useState<SelectorChoice | null>(null);
   const lifecycleController = useRef<AbortController | null>(null);
   const refreshController = useRef<AbortController | null>(null);
+  const analysisAdvanceBlocked = useRef<{
+    draftId: string;
+    revision: number;
+    retryAfter: number;
+  } | null>(null);
   const batchEstimateInFlight = useRef<symbol | null>(null);
   const discardPause = useRef<Promise<void> | null>(null);
   const commitKey = useRef(crypto.randomUUID());
@@ -270,6 +275,7 @@ export function PdfBatchImportFlow({
     const sourceFolder = selectedFolderName(selectedFiles);
     const intakeSelection = configureIntake(selectedFiles);
     batchEstimateInFlight.current = null;
+    analysisAdvanceBlocked.current = null;
     sampleRequestEpoch.current += 1;
     recoveryFiles.current = [];
     commitKey.current = crypto.randomUUID();
@@ -367,16 +373,31 @@ export function PdfBatchImportFlow({
     if (rememberSelection) await rememberImportSessionFiles(importRef, intakeFiles());
   }, [activeIntake, intakeFiles]);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (analysisSource?: PdfImportSnapshot | null) => {
     const draftId = currentDraft.current;
     if (!draftId) return;
     const epoch = generation.current;
     const controller = new AbortController();
     refreshController.current?.abort();
     refreshController.current = controller;
+    const blocked = analysisAdvanceBlocked.current;
+    const canAdvanceAnalysis = Boolean(
+      analysisSource
+      && analysisSource.draft_id === draftId
+      && analysisSource.state === 'open'
+      && !analysisSource.paused
+      && analysisSource.analysis.files_done < analysisSource.upload.files_done
+      && !activeIntake()
+      && !(blocked?.draftId === draftId
+        && blocked.revision === analysisSource.revision
+        && blocked.retryAfter > Date.now()),
+    );
     try {
-      const next = await api.get(projectId, draftId, { signal: controller.signal });
+      const next = canAdvanceAnalysis
+        ? await api.analyze(projectId, draftId, { signal: controller.signal })
+        : await api.get(projectId, draftId, { signal: controller.signal });
       if (controller.signal.aborted || generation.current !== epoch || currentDraft.current !== draftId) return;
+      if (canAdvanceAnalysis) analysisAdvanceBlocked.current = null;
       publish(next);
       await registerCommittedUpload(next.commit?.result?.import_ref);
       if (next.state === 'cancelled') onDiscardedRef.current();
@@ -384,15 +405,24 @@ export function PdfBatchImportFlow({
       if (next.state === 'committed' && sheetId) completeImportHandoff(sheetId);
       return next;
     } catch (problem) {
-      if (!controller.signal.aborted && generation.current === epoch) reportError(problem);
+      if (!controller.signal.aborted && generation.current === epoch) {
+        if (canAdvanceAnalysis && analysisSource) {
+          analysisAdvanceBlocked.current = {
+            draftId,
+            revision: analysisSource.revision,
+            retryAfter: Date.now() + 5_000,
+          };
+        }
+        reportError(problem);
+      }
     } finally {
       if (refreshController.current === controller) refreshController.current = null;
     }
-  }, [api, completeImportHandoff, projectId, publish, registerCommittedUpload, reportError]);
+  }, [activeIntake, api, completeImportHandoff, projectId, publish, registerCommittedUpload, reportError]);
 
   const refreshStatus = useCallback(async () => {
-    await refresh();
-  }, [refresh]);
+    await refresh(snapshot);
+  }, [refresh, snapshot]);
 
   usePoll(refreshStatus, {
     active: Boolean(snapshot && (
@@ -420,6 +450,7 @@ export function PdfBatchImportFlow({
   const pauseForDiscard = useCallback(() => {
     if (!snapshot || snapshot.state !== 'open' || discardPrompt) return;
     setDiscardPrompt(true);
+    refreshController.current?.abort();
     const request = (async () => {
       await stopIntake();
       publish(await api.pause(projectId, snapshot.draft_id));
@@ -533,6 +564,7 @@ export function PdfBatchImportFlow({
   const pauseCopying = async () => {
     if (!snapshot) return;
     try {
+      refreshController.current?.abort();
       await stopIntake();
       publish(await api.pause(projectId, snapshot.draft_id));
     } catch (problem) {

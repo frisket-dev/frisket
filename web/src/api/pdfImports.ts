@@ -76,6 +76,7 @@ export interface PdfImportsApi {
   samples(projectId: string, importId: string, category: PdfImportCategory, cursor?: string, options?: PdfImportRequestOptions): Promise<PdfImportSamples>;
   reconcileReselection(projectId: string, importId: string, files: PdfImportReselectFile[], options?: PdfImportRequestOptions): Promise<PdfImportReselectResponse>;
   upload(projectId: string, importId: string, files: PdfImportUpload[], batchId: string, options?: PdfImportRequestOptions): Promise<PdfImportSnapshot>;
+  analyze(projectId: string, importId: string, options?: PdfImportRequestOptions): Promise<PdfImportSnapshot>;
   pause(projectId: string, importId: string, options?: PdfImportRequestOptions): Promise<PdfImportSnapshot>;
   resume(projectId: string, importId: string, options?: PdfImportRequestOptions): Promise<PdfImportSnapshot>;
   updateChoices(projectId: string, importId: string, choices: PdfImportChoices & { expected_revision: number }, options?: PdfImportRequestOptions): Promise<PdfImportSnapshot>;
@@ -173,6 +174,12 @@ export function createPdfImportsApi(): PdfImportsApi {
       body.append('batch_id', batchId);
       return httpContract('tenant.upload_pdf_import_files.post', {
         pathParams: { pid: projectId, draft_id: importId }, query: {}, body,
+        ...requestOptions(options),
+      }, (wire) => wire as PdfImportSnapshot);
+    },
+    analyze(projectId, importId, options = {}) {
+      return httpContract('tenant.analyze_staged_pdf_import.post', {
+        pathParams: { pid: projectId, draft_id: importId }, query: {},
         ...requestOptions(options),
       }, (wire) => wire as PdfImportSnapshot);
     },
