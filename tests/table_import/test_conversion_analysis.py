@@ -44,15 +44,67 @@ def test_conversion_preserves_text_and_reports_changes_and_failures() -> None:
     assert (number.value, number.display, number.outcome) == (
         1234.5,
         "1,234.50",
-        "changed",
+        "unchanged",
     )
     assert invalid.value is None
     assert invalid.outcome == "invalid"
     assert invalid.issue is not None
-    assert (moment.value, moment.display) == (
+    assert (moment.value, moment.display, moment.outcome) == (
         "2026-10-18T12:30:00",
         "2026-10-18 12:30:00",
+        "unchanged",
     )
+
+
+def test_conversion_marks_only_semantic_loss_or_introduced_time_as_changed() -> None:
+    unchanged = (
+        convert_cell(RawCell("Y"), "boolean"),
+        convert_cell(RawCell("Mar 4, 2024"), "date"),
+        convert_cell(
+            RawCell("1.250,00"),
+            "number",
+            decimal_separator=",",
+            thousands_separator=".",
+        ),
+        convert_cell(RawCell("03/04/2026 12:30"), "datetime"),
+    )
+    changed = (
+        convert_cell(RawCell("00104"), "integer"),
+        convert_cell(RawCell("001.25"), "number"),
+        convert_cell(RawCell("4471820993345529871"), "integer"),
+        convert_cell(RawCell("4471820993345529871"), "number"),
+        convert_cell(RawCell("0.1234567890123456789"), "number"),
+        convert_cell(RawCell("03/04/2026 12:30"), "date"),
+        convert_cell(RawCell("03/04/2026"), "datetime"),
+    )
+
+    assert [result.outcome for result in unchanged] == ["unchanged"] * 4
+    assert [result.outcome for result in changed] == ["changed"] * 7
+    assert changed[-2].value == "2026-03-04"
+    assert changed[-1].value == "2026-03-04T00:00:00"
+
+
+def test_stats_use_semantic_changes_instead_of_display_normalization() -> None:
+    columns = (
+        SourceColumn(0, "amount", "amount", "original"),
+        SourceColumn(1, "active", "active", "original"),
+        SourceColumn(2, "day", "day", "original"),
+        SourceColumn(3, "moment", "moment", "original"),
+    )
+    stats = ColumnStatsAccumulator(
+        columns,
+        decimal_separator=",",
+        thousands_separator=".",
+    )
+    stats.accept(_row(1, "1.250,00", "Y", "03/04/2026", "03/04/2026 12:30"))
+
+    by_column = stats.snapshot(complete=True).columns
+    assert by_column[0].counts_by_type["number"].changed == 0
+    assert by_column[1].counts_by_type["boolean"].changed == 0
+    assert by_column[2].counts_by_type["date"].changed == 0
+    assert by_column[2].counts_by_type["datetime"].changed == 1
+    assert by_column[3].counts_by_type["date"].changed == 1
+    assert by_column[3].counts_by_type["datetime"].changed == 0
 
 
 def test_conversion_preserves_datetime_precision_and_rejects_storage_overflow() -> None:

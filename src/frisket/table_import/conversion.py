@@ -39,18 +39,25 @@ def convert_cell(
 
     try:
         if target_type in {"integer", "number"}:
-            decimal = _parse_decimal(
+            parsed_number = _parse_decimal_details(
                 original,
                 decimal_separator=decimal_separator,
                 thousands_separator=thousands_separator,
             )
-            value, display = _numeric_value(decimal, target_type)
+            value, display = _numeric_value(parsed_number.value, target_type)
+            outcome = _numeric_semantic_outcome(
+                parsed_number,
+                value=value,
+                target_type=target_type,
+            )
         elif target_type == "boolean":
             value = _parse_boolean(original)
             display = "Yes" if value else "No"
+            outcome = "unchanged"
         elif target_type in {"date", "datetime"}:
             parsed = _parse_datetime(original, date_order=date_order)
             value, display = _temporal_value(parsed, target_type)
+            outcome = _temporal_semantic_outcome(cell, target_type)
         else:  # pragma: no cover - TargetType keeps this closed for typed callers.
             raise ValueError(f"unsupported target type: {target_type}")
     except (InvalidOperation, OverflowError, ValueError):
@@ -61,7 +68,6 @@ def convert_cell(
         )
         return CellConversion(original, None, "", "invalid", issue)
 
-    outcome = "unchanged" if display == original else "changed"
     return CellConversion(original, value, display, outcome)
 
 
@@ -89,14 +95,14 @@ def _conversion_outcomes(
         return _ConversionOutcomes(*("blank" for _ in range(8)))
 
     try:
-        boolean = _parse_boolean(original)
+        _parse_boolean(original)
     except ValueError:
         boolean_outcome: ConversionOutcome = "invalid"
     else:
-        boolean_outcome = _changed_outcome(original, "Yes" if boolean else "No")
+        boolean_outcome = "unchanged"
 
     try:
-        decimal = _parse_decimal(
+        parsed_number = _parse_decimal_details(
             original,
             decimal_separator=decimal_separator,
             thousands_separator=thousands_separator,
@@ -105,8 +111,8 @@ def _conversion_outcomes(
         integer_outcome: ConversionOutcome = "invalid"
         number_outcome: ConversionOutcome = "invalid"
     else:
-        integer_outcome = _numeric_outcome(original, decimal, "integer")
-        number_outcome = _numeric_outcome(original, decimal, "number")
+        integer_outcome = _numeric_outcome(parsed_number, "integer")
+        number_outcome = _numeric_outcome(parsed_number, "number")
 
     parsed_by_order = _parse_datetime_orders(original)
     temporal_outcomes: list[ConversionOutcome] = []
@@ -116,8 +122,7 @@ def _conversion_outcomes(
             temporal_outcomes.extend(("invalid", "invalid"))
         else:
             for target in ("date", "datetime"):
-                _value, display = _temporal_value(parsed, target)
-                temporal_outcomes.append(_changed_outcome(original, display))
+                temporal_outcomes.append(_temporal_semantic_outcome(cell, target))
     return _ConversionOutcomes(
         "unchanged",
         integer_outcome,
@@ -127,18 +132,48 @@ def _conversion_outcomes(
     )
 
 
+class _ParsedNumber(NamedTuple):
+    value: Decimal
+    leading_zero: bool
+    long_integer: bool
+
+
 def _numeric_outcome(
-    original: str, decimal: Decimal, target_type: TargetType
+    parsed_number: _ParsedNumber, target_type: TargetType
 ) -> ConversionOutcome:
     try:
-        _value, display = _numeric_value(decimal, target_type)
+        value, _display = _numeric_value(parsed_number.value, target_type)
     except (OverflowError, ValueError):
         return "invalid"
-    return _changed_outcome(original, display)
+    return _numeric_semantic_outcome(
+        parsed_number,
+        value=value,
+        target_type=target_type,
+    )
 
 
-def _changed_outcome(original: str, display: str) -> ConversionOutcome:
-    return "unchanged" if display == original else "changed"
+def _numeric_semantic_outcome(
+    parsed_number: _ParsedNumber,
+    *,
+    value: int | float,
+    target_type: TargetType,
+) -> ConversionOutcome:
+    if parsed_number.leading_zero or parsed_number.long_integer:
+        return "changed"
+    if target_type == "number" and Decimal(str(value)) != parsed_number.value:
+        return "changed"
+    return "unchanged"
+
+
+def _temporal_semantic_outcome(
+    cell: RawCell, target_type: TargetType
+) -> ConversionOutcome:
+    has_explicit_time = cell.kind == "datetime" or (
+        cell.kind != "date" and _EXPLICIT_TIME.search(cell.text.strip()) is not None
+    )
+    if target_type == "date":
+        return "changed" if has_explicit_time else "unchanged"
+    return "unchanged" if has_explicit_time else "changed"
 
 
 def _numeric_value(
@@ -208,6 +243,16 @@ _CURRENCY = re.compile(r"^[\s$£€¥]+|[\s$£€¥]+$")
 def _parse_decimal(
     raw: str, *, decimal_separator: str, thousands_separator: str | None
 ) -> Decimal:
+    return _parse_decimal_details(
+        raw,
+        decimal_separator=decimal_separator,
+        thousands_separator=thousands_separator,
+    ).value
+
+
+def _parse_decimal_details(
+    raw: str, *, decimal_separator: str, thousands_separator: str | None
+) -> _ParsedNumber:
     text = raw.strip().replace("\u00a0", "").replace("\u202f", "")
     negative = text.startswith("(") and text.endswith(")")
     if negative:
@@ -226,6 +271,10 @@ def _parse_decimal(
         text = text.replace(decimal_separator, ".")
     if not text:
         raise ValueError("empty number")
+    unsigned_mantissa = text.lower().partition("e")[0].lstrip("+-")
+    integer_digits, decimal_mark, _fraction = unsigned_mantissa.partition(".")
+    leading_zero = len(integer_digits) > 1 and integer_digits.startswith("0")
+    long_integer = not decimal_mark and integer_digits.isdigit() and len(integer_digits) > 15
     value = Decimal(text)
     if not value.is_finite():
         raise ValueError("non-finite number")
@@ -233,7 +282,7 @@ def _parse_decimal(
         value = -value
     if percent:
         value /= Decimal(100)
-    return value
+    return _ParsedNumber(value, leading_zero, long_integer)
 
 
 def _remove_grouping(
@@ -311,6 +360,7 @@ def _parse_datetime_orders(raw: str) -> dict[DateOrder, datetime]:
 
 
 _TIME_SUFFIX = r"(?:\s+\d{1,2}:\d{2}(?::\d{2}(?:\.\d{1,6})?)?)?"
+_EXPLICIT_TIME = re.compile(r"(?:T|\s)\d{1,2}:\d{2}\b")
 _SLASH_DATE = re.compile(rf"^\d{{1,4}}/\d{{1,2}}/\d{{1,4}}{_TIME_SUFFIX}$")
 _DAY_MONTH_NAME = re.compile(rf"^\d{{1,2}}-[A-Za-z]{{3,9}}-\d{{2,4}}{_TIME_SUFFIX}$")
 _MONTH_NAME_DATE = re.compile(
