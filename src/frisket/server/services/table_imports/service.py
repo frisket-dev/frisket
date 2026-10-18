@@ -474,7 +474,11 @@ class TableImportService:
                     settings_revision=revision,
                     settings_hash=settings_hash,
                     scanned_rows=int(scan["record_count"]),
-                    estimated_rows=None,
+                    estimated_rows=(
+                        None
+                        if scan.get("estimated_rows") is None
+                        else int(scan["estimated_rows"])
+                    ),
                     exact_rows=int(scan["data_rows"]),
                     complete=True,
                     problem_count=sum(scan["issue_counts"].values()),
@@ -994,7 +998,11 @@ class TableImportService:
                 settings_revision=revision,
                 settings_hash=settings_hash,
                 scanned_rows=int(scan["record_count"]),
-                estimated_rows=None,
+                estimated_rows=(
+                    None
+                    if scan.get("estimated_rows") is None
+                    else int(scan["estimated_rows"])
+                ),
                 exact_rows=None,
                 complete=False,
                 problem_count=sum(scan["issue_counts"].values()),
@@ -1031,7 +1039,11 @@ class TableImportService:
             ),
             "job_id": header.get("analysis_job_id"),
             "scanned_rows": int(scan.get("data_rows", 0)) if scan else 0,
-            "estimated_rows": None,
+            "estimated_rows": (
+                None
+                if not scan or scan.get("estimated_rows") is None
+                else int(scan["estimated_rows"])
+            ),
             "exact_rows": int(scan["data_rows"])
             if scan and scan.get("complete")
             else None,

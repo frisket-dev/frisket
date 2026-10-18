@@ -21,6 +21,7 @@ from frisket.table_import import (
 PREFIX_RECORDS = 64
 PREVIEW_HEAD = 12
 PREVIEW_COLUMNS = 8
+ESTIMATE_SAMPLE_BYTES = 1024 * 1024
 
 
 def build_prefix_scan(
@@ -42,7 +43,7 @@ def build_prefix_scan(
         stats.accept(row)
         data_rows += int(row.role == "data")
         count_issues(issues, row.issues)
-    return _scan_payload(
+    payload = _scan_payload(
         settings_revision=settings_revision,
         record_count=len(prefix.rows),
         data_rows=data_rows,
@@ -52,6 +53,10 @@ def build_prefix_scan(
         issues=issues,
         encoding=settings.encoding,
     )
+    payload["estimated_rows"] = _estimate_delimited_rows(
+        source_path, settings, prefix.rows, data_rows
+    )
+    return payload
 
 
 def build_complete_scan(
@@ -85,6 +90,47 @@ def build_complete_scan(
             issues=issues,
             encoding=settings.encoding,
         )
+
+
+def _estimate_delimited_rows(
+    source_path: Path,
+    settings: TableReadSettings,
+    rows: Sequence[Any],
+    data_rows: int,
+) -> int | None:
+    """Estimate data rows from a bounded, already-parsed delimited prefix."""
+
+    encoding = (settings.encoding or "").lower().replace("_", "-")
+    if settings.kind != "delimited" or encoding.startswith(("utf-16", "utf-32")):
+        return None
+    physical_line_end = max(
+        (
+            int(row.source.physical_line_end)
+            for row in rows
+            if row.source.physical_line_end is not None
+        ),
+        default=0,
+    )
+    observed_records = max((int(row.source.record_ordinal) for row in rows), default=0)
+    if not physical_line_end or not observed_records or not data_rows:
+        return None
+    size = source_path.stat().st_size
+    sample_size = min(size, ESTIMATE_SAMPLE_BYTES)
+    with source_path.open("rb") as source:
+        sample = source.read(sample_size)
+    lines = sample.splitlines(keepends=True)
+    if sample_size < size and lines and not lines[-1].endswith((b"\n", b"\r")):
+        lines.pop()
+    if len(lines) < physical_line_end:
+        return None
+    consumed_bytes = sum(len(line) for line in lines[:physical_line_end])
+    if consumed_bytes <= 0:
+        return None
+    estimated_records = max(
+        observed_records, round(observed_records * size / consumed_bytes)
+    )
+    estimated_data = round(data_rows * estimated_records / observed_records)
+    return max(data_rows, estimated_data - settings.skip_rows_end)
 
 
 def public_columns(

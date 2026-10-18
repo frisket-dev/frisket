@@ -54,6 +54,7 @@ def test_table_draft_stages_privately_and_freezes_reviewed_plan(tmp_path: Path) 
     assert created.preview is not None and created.preview.tail_pending is True
     assert created.preview.notice.kind == "consistent"
     assert created.analysis.exact_rows is None
+    assert created.analysis.estimated_rows == 2
     assert created.can_commit is True
     assert directory.joinpath("source").read_bytes() == CSV
     assert project.sheets() == []
