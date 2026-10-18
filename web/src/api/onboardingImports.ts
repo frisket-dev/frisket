@@ -39,7 +39,6 @@ export type ImportSessionStatus = HttpImportSessionStatus & {
   ocr_completed: number;
   ocr_total: number;
   unreadable_total: number;
-  preparation_pending_confirmation: Record<string, unknown> | null;
   preparation_children: ImportPreparationChild[];
 };
 
@@ -71,11 +70,7 @@ function normalizeImportSession(status: HttpImportSessionStatus): ImportSessionS
     unreadable_total: 'unreadable_total' in status && typeof status.unreadable_total === 'number'
       ? status.unreadable_total
       : 0,
-    preparation_pending_confirmation: 'preparation_pending_confirmation' in status
-      && status.preparation_pending_confirmation
-      && typeof status.preparation_pending_confirmation === 'object'
-      ? status.preparation_pending_confirmation as Record<string, unknown>
-      : null,
+    preparation_pending_confirmation: status.preparation_pending_confirmation ?? null,
     preparation_children: 'preparation_children' in status
       && Array.isArray(status.preparation_children)
       ? status.preparation_children as ImportPreparationChild[]

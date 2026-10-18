@@ -284,6 +284,8 @@ export interface SheetGridProps {
   /** An ordinary server-started preparation run that shares live refresh. */
   backgroundLiveRun?: RunProgress | null;
   priorityReadingRowId?: string | null;
+  /** UI-only rows reserved for files the active import has not committed yet. */
+  pendingImportRowCount?: number;
   /** Global row height (Google-Sheets select-all style: every row alike). */
   rowHeight: number;
   /** Wrap long text in text cells (pairs with taller rows). */
@@ -913,13 +915,40 @@ function useRunColumnsAnnotation(
 }
 
 function selectedRowsPayload(sheetId: string, cache: RowCache, rows: CompactSelection) {
-  const rowIndexes = rows.toArray();
+  const rowIndexes: number[] = [];
   const rowIds: string[] = [];
-  for (const rowIndex of rowIndexes) {
+  for (const rowIndex of rows) {
+    rowIndexes.push(rowIndex);
     const rowId = cache.getRow(rowIndex)?.id;
     if (rowId !== undefined) rowIds.push(rowId);
   }
   return { sheetId, rowIds, rowIndexes };
+}
+
+function realRowSelection(selection: GridSelection, realRowCount: number): GridSelection {
+  const rows = selection.rows.remove([realRowCount, Number.MAX_SAFE_INTEGER]);
+  const current = selection.current;
+  if (!current || current.cell[1] >= realRowCount) {
+    return { columns: selection.columns, rows };
+  }
+  const clampRange = (range: Readonly<Rectangle>): Rectangle | null => {
+    const height = Math.min(range.height, realRowCount - range.y);
+    return height > 0 ? { ...range, height } : null;
+  };
+  const range = clampRange(current.range);
+  if (!range) return { columns: selection.columns, rows };
+  return {
+    columns: selection.columns,
+    rows,
+    current: {
+      cell: current.cell,
+      range,
+      rangeStack: current.rangeStack.flatMap((item) => {
+        const clamped = clampRange(item);
+        return clamped ? [clamped] : [];
+      }),
+    },
+  };
 }
 
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -1139,6 +1168,7 @@ interface SheetGridController {
 
 function useSheetGridController({
   sheet, dataVersion, liveRun, backgroundLiveRun = null, priorityReadingRowId = null,
+  pendingImportRowCount = 0,
   rowHeight, wrapText, childSheet, parentRowFilter,
   activeFilter, activeSort, columnOrder, lensRowIds, lensScores, scopeRowIds, citationColumnId,
   previewColumns, previewCells,
@@ -1196,7 +1226,13 @@ function useSheetGridController({
     dataOptions,
     projectApi,
   );
-  const rowCount = cache.rowCount;
+  const realRowCount = cache.rowCount;
+  const showImportPlaceholders = !lensActive && !parentRowFilter && activeFilter == null
+    && scopeRowIds == null;
+  const placeholderRowCount = showImportPlaceholders
+    ? Math.max(0, Math.floor(pendingImportRowCount))
+    : 0;
+  const rowCount = realRowCount + placeholderRowCount;
   const gridRef = useRef<DataEditorRef | null>(null);
   const visibleRegion = useRef<Rectangle>({ x: 0, y: 0, width: 1, height: 1 });
   const selectedItem = useRef<Item | null>(null);
@@ -1262,7 +1298,7 @@ function useSheetGridController({
     || (backgroundRunActive && isStreamingRunStatus(backgroundLiveRun?.status));
   useLiveRunRefresh(runActive || backgroundRunActive, liveActive, cache);
   const hasNativeColumnGroups = columnGroups.groups.length > 0;
-  const gridReady = rowCount === 0 || cache.getRow(0) !== undefined;
+  const gridReady = realRowCount === 0 || cache.getRow(0) !== undefined;
   const headerHandlers = useGridHeaderHandlers(
     columns,
     gridColumns,
@@ -1679,10 +1715,12 @@ function useSheetGridController({
   const onVisibleRegionChanged = useCallback(
     (range: Rectangle) => {
       visibleRegion.current = range;
-      cache.onVisibleRowsChanged(range.y, range.y + range.height);
+      const firstRealRow = Math.min(range.y, realRowCount);
+      const lastRealRow = Math.min(range.y + range.height, realRowCount);
+      if (lastRealRow > firstRealRow) cache.onVisibleRowsChanged(firstRealRow, lastRealRow);
       recomputeDetailIconBounds();
     },
-    [cache, recomputeDetailIconBounds],
+    [cache, realRowCount, recomputeDetailIconBounds],
   );
 
   const openCell = useCallback(
@@ -1881,9 +1919,10 @@ function useSheetGridController({
 
   const onGridSelectionChange = useCallback(
     (selection: GridSelection) => {
-      setGridSelection(selection);
-      onSelectedRowsChange?.(selectedRowsPayload(sheet.id, cache, selection.rows));
-      const cell = selection.current?.cell;
+      const realSelection = realRowSelection(selection, realRowCount);
+      setGridSelection(realSelection);
+      onSelectedRowsChange?.(selectedRowsPayload(sheet.id, cache, realSelection.rows));
+      const cell = realSelection.current?.cell;
       if (!cell) {
         selectedItem.current = null;
         recomputeDetailIconBounds();
@@ -1903,6 +1942,7 @@ function useSheetGridController({
       openCell,
       recomputeDetailIconBounds,
       rowDrawerOpen,
+      realRowCount,
       sheet.id,
     ],
   );

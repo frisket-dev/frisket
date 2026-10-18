@@ -579,9 +579,17 @@ export function useWorkspaceModel({
     onChanged: handleImportSessionChanged,
     onError: showError,
   });
-  const importLiveRun = sheet
-    ? importProgress.activities.find((activity) => activity.session.sheet_id === Number(sheet.id))?.liveRun ?? null
+  const activeImportActivity = sheet
+    ? importProgress.activities.find((activity) => activity.session.sheet_id === Number(sheet.id)) ?? null
     : null;
+  const importLiveRun = activeImportActivity?.liveRun ?? null;
+  const pendingImportRowCount = activeImportActivity
+    ? Math.max(
+      (activeImportActivity.session.selected_total
+        ?? activeImportActivity.session.admitted_files) - activeImportActivity.session.committed_rows,
+      0,
+    )
+    : 0;
   const closeActionDrawerRef = useRef<() => void>(() => {});
   const onLaunchAccepted = useCallback(() => closeActionDrawerRef.current(), []);
   const { startProposal, startRun } = useRunController({
@@ -3637,6 +3645,7 @@ export function useWorkspaceModel({
           liveRun={run}
           backgroundLiveRun={importLiveRun}
           priorityReadingRowId={activeDocumentPriority?.sheetId === sheet.id ? activeDocumentPriority.rowId : null}
+          pendingImportRowCount={pendingImportRowCount}
           rowHeight={rowHeight}
           wrapText={wrapText}
           columnGroupsStorageScope={project.id}
@@ -3712,6 +3721,7 @@ export function useWorkspaceModel({
     dataVersion,
     run,
     importLiveRun,
+    pendingImportRowCount,
     activeDocumentPriority,
     rowHeight,
     wrapText,
