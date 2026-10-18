@@ -495,6 +495,18 @@ def test_real_pdf_import_http_create_upload_sample_page_and_discard(
         "engine": "llm",
         "model": "openai/gpt-4.1-mini",
     }
+    choices = client.patch(
+        f"{base}/{draft_id}/choices",
+        json={
+            "expected_revision": uploaded.json()["revision"],
+            "ocr_policy": "all",
+            "ocr_selection": preview_selection,
+            "semantic_search": False,
+            "semantic_setup_confirmation": None,
+            "destination": {"kind": "new", "sheet_name": "PDFs"},
+        },
+    )
+    assert choices.status_code == 200, choices.text
     estimate = client.post(
         f"{base}/{draft_id}/files/{sample['occurrence_id']}/pages/1/"
         "ocr-preview/estimate",

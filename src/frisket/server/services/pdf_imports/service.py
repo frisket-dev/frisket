@@ -367,7 +367,6 @@ class PdfImportService:
                 retry = inventory.upload_batch_through(batch_id, facts)
             except ValueError as exc:
                 raise PdfImportDraftError(409, str(exc)) from exc
-            self._drain_commit_ready(project_id, draft_id, directory, header)
             selected = [
                 inventory.selected(str(fact["occurrence_id"])) for fact in facts
             ]
@@ -384,6 +383,7 @@ class PdfImportService:
                         raise PdfImportDraftError(
                             409, "uploaded PDF changed after selection"
                         )
+        self._drain_commit_ready(project_id, draft_id, directory)
 
         if retry is None:
             with self._files_lock(directory):
@@ -456,7 +456,7 @@ class PdfImportService:
                         "revision": int(header["revision"]) + 1
                     }
                 self._save(directory, header)
-                self._drain_commit_ready(project_id, draft_id, directory, header)
+            self._drain_commit_ready(project_id, draft_id, directory)
 
         return self.status(project_id, draft_id)
 
@@ -550,9 +550,16 @@ class PdfImportService:
         self, project_id: str, draft_id: str, occurrence_id: str, page: int
     ) -> dict[str, Any]:
         directory, header = self._open(project_id, draft_id)
+        action_params = self._ocr_action_params(header["choices"]["ocr_selection"])
+        _settings, settings_hash = preview_settings(action_params)
         with PdfDraftInventory(directory / "inventory.db") as inventory:
             item = self._staged(inventory, occurrence_id)
-            cached = inventory.cached_ocr(str(item["sha256"]), page)
+            cached = inventory.cached_ocr(
+                str(item["sha256"]),
+                page,
+                str(action_params["engine"]),
+                settings_hash,
+            )
         if page < 1 or page > int(item["page_count"] or 0):
             raise PdfImportDraftError(404, "PDF page not found")
         native_text, native_text_truncated = read_native_page(
@@ -1135,10 +1142,25 @@ class PdfImportService:
                 header["state"] = "committed"
                 header["commit"]["result"] = value
             else:
-                if commit.get("promoted") or commit.get("promotion_target"):
+                if commit.get("promoted"):
                     raise PdfImportDraftError(
                         409, "promoted PDF import cannot return to draft state"
                     )
+                promotion_target = commit.get("promotion_target")
+                if isinstance(promotion_target, Mapping):
+                    for source_key, target_key in (
+                        ("commit_inventory_path", "inventory_path"),
+                        ("source_files_root", "source_files_root"),
+                    ):
+                        source = Path(commit[source_key])
+                        target = Path(promotion_target[target_key])
+                        if source.exists() and target.exists():
+                            raise PdfImportDraftError(
+                                409, "PDF import promotion rollback is ambiguous"
+                            )
+                        if target.exists():
+                            os.replace(target, source)
+                            fsync_directory(source.parent)
                 commit_inventory_path = commit.get("commit_inventory_path")
                 if isinstance(commit_inventory_path, str):
                     self._remove_commit_inventory(Path(commit_inventory_path))
@@ -1176,6 +1198,16 @@ class PdfImportService:
             commit = header.get("commit") or {}
             if commit.get("idempotency_key") != idempotency_key:
                 raise PdfImportDraftError(409, "PDF import commit identity changed")
+            intended = {
+                "inventory_path": str(target),
+                "source_files_root": str(staged_target),
+            }
+            existing = commit.get("promotion_target")
+            if existing is not None and existing != intended:
+                raise PdfImportDraftError(409, "PDF import promotion target changed")
+            if commit.get("promoted"):
+                with PdfDraftInventory(directory / "inventory.db") as inventory:
+                    return self._frozen(directory, header, inventory)
             stats = self._stats(directory)
             if stats["analyzed_count"] != stats["staged_count"]:
                 raise PdfImportDraftError(409, "PDF text analysis is still running")
@@ -1197,13 +1229,6 @@ class PdfImportService:
                     409,
                     "PDF import staging and the project must be on the same filesystem",
                 )
-            intended = {
-                "inventory_path": str(target),
-                "source_files_root": str(staged_target),
-            }
-            existing = commit.get("promotion_target")
-            if existing is not None and existing != intended:
-                raise PdfImportDraftError(409, "PDF import promotion target changed")
             if existing is None:
                 commit["promotion_target"] = intended
                 self._save(directory, header)
@@ -1546,24 +1571,34 @@ class PdfImportService:
         project_id: str,
         draft_id: str,
         directory: Path,
-        header: dict[str, Any],
     ) -> None:
-        commit = header.get("commit")
-        notification = (commit or {}).get("ready_notification")
-        if (
-            header.get("state") == "committing"
-            and commit is not None
-            and notification is not None
-            and self._on_commit_ready is not None
-        ):
-            self._on_commit_ready(
-                project_id,
-                draft_id,
-                str(commit["idempotency_key"]),
-                int(notification["revision"]),
-            )
-            commit["ready_notification"] = None
-            self._save(directory, header)
+        if self._on_commit_ready is None:
+            return
+        with self._lock(directory):
+            header = self._header(project_id, directory)
+            commit = header.get("commit")
+            notification = (commit or {}).get("ready_notification")
+            if (
+                header.get("state") != "committing"
+                or commit is None
+                or notification is None
+            ):
+                return
+            idempotency_key = str(commit["idempotency_key"])
+            revision = int(notification["revision"])
+
+        self._on_commit_ready(project_id, draft_id, idempotency_key, revision)
+
+        with self._lock(directory):
+            header = self._header(project_id, directory)
+            commit = header.get("commit")
+            if (
+                commit is not None
+                and commit.get("idempotency_key") == idempotency_key
+                and commit.get("ready_notification") == notification
+            ):
+                commit["ready_notification"] = None
+                self._save(directory, header)
 
     @staticmethod
     def _staged(inventory: PdfDraftInventory, occurrence_id: str) -> dict[str, Any]:

@@ -4,6 +4,7 @@ import errno
 import hashlib
 import io
 import json
+import shutil
 import sqlite3
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -23,7 +24,11 @@ from frisket.engine.pdf_text import PdfTextBatch, PdfTextError, PdfTextSample
 from frisket.server.services.import_uploads import AdmittedUpload
 from frisket.server.services.pdf_imports import PdfImportDraftError, PdfImportService
 from frisket.server.services.pdf_imports.analysis import analyze_pdf
-from frisket.server.services.pdf_imports.previews import read_native_page
+from frisket.server.services.pdf_imports.inventory import PdfDraftInventory
+from frisket.server.services.pdf_imports.previews import (
+    preview_settings,
+    read_native_page,
+)
 from frisket.server.workspace import Workspace
 
 
@@ -348,6 +353,13 @@ def test_freeze_projects_unmatched_inventory_and_late_bytes_advance_it(
 
     def notify_ready(*args):
         ready_calls.append(args)
+        replay = service.freeze_for_commit(
+            project_id,
+            draft_id,
+            idempotency_key="commit-1",
+            expected_revision=0,
+        )
+        assert replay.commit_id == frozen.commit_id
         if len(ready_calls) == 1:
             raise RuntimeError("queue temporarily unavailable")
 
@@ -458,6 +470,14 @@ def test_freeze_projects_unmatched_inventory_and_late_bytes_advance_it(
             4,
             0,
         )
+    shutil.rmtree(replay.source_files_root)
+    promoted_replay = service.promote_commit_inventory(
+        project_id,
+        draft_id,
+        idempotency_key="commit-1",
+        target_path=intake_root / "inventory.db",
+    )
+    assert promoted_replay.commit_id == replay.commit_id
     handoff = service.record_commit_handoff(
         project_id,
         draft_id,
@@ -903,6 +923,115 @@ def test_service_startup_purges_expired_terminal_draft(
     service._store.write_header(directory, header)
     PdfImportService(workspace)
     assert not directory.exists()
+
+
+def test_failed_promotion_intent_rolls_back_before_reopening(
+    tmp_path: Path, monkeypatch
+) -> None:
+    workspace, project_id, service = _service(tmp_path, monkeypatch)
+    draft_id, status = _declared(service, project_id)
+    status = service.upload(
+        project_id,
+        draft_id,
+        [_upload(), _upload("two.pdf")],
+        file_ids=["one", "two"],
+        logical_paths=["north/one.pdf", "south/two.pdf"],
+        batch_id="promote-upload",
+    )
+    status = service.update_choices(
+        project_id,
+        draft_id,
+        expected_revision=status["revision"],
+        ocr_policy="none",
+        ocr_selection={"kind": "engine", "engine": "rapidocr"},
+        semantic_search=False,
+        semantic_setup_confirmation=None,
+        destination={"kind": "new", "sheet_name": "PDFs"},
+    )
+    service.freeze_for_commit(
+        project_id,
+        draft_id,
+        idempotency_key="promotion-failure",
+        expected_revision=status["revision"],
+    )
+    intake_root = workspace.get(project_id).path / ".imports" / "failed-promotion"
+    intake_root.mkdir(parents=True)
+    original_promote = service._promote_path
+    calls = 0
+
+    def fail_second(source, target):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("staged move failed")
+        return original_promote(source, target)
+
+    monkeypatch.setattr(service, "_promote_path", fail_second)
+    with pytest.raises(RuntimeError, match="staged move failed"):
+        service.promote_commit_inventory(
+            project_id,
+            draft_id,
+            idempotency_key="promotion-failure",
+            target_path=intake_root / "inventory.db",
+        )
+
+    reopened = service.reconcile_commit(
+        project_id,
+        draft_id,
+        idempotency_key="promotion-failure",
+        committed=False,
+    )
+
+    assert reopened["state"] == "open"
+    assert not (intake_root / "inventory.db").exists()
+    assert (workspace.root / ".pdf_import_drafts" / draft_id / "files").is_dir()
+
+
+def test_page_uses_current_ocr_engine_and_settings_cache(
+    tmp_path: Path, monkeypatch
+) -> None:
+    workspace, project_id, service = _service(tmp_path, monkeypatch)
+    draft_id, _ = _declared(service, project_id)
+    status = service.upload(
+        project_id,
+        draft_id,
+        [_upload(), _upload("two.pdf")],
+        file_ids=["one", "two"],
+        logical_paths=["north/one.pdf", "south/two.pdf"],
+        batch_id="cache-upload",
+    )
+    directory = workspace.root / ".pdf_import_drafts" / draft_id
+    digest = hashlib.sha256(PDF).hexdigest()
+    rapid_params = {"engine": "rapidocr"}
+    llm_params = {"engine": "llm", "model": "openai/gpt-4.1-mini"}
+    with PdfDraftInventory(directory / "inventory.db") as inventory:
+        for params, text in ((rapid_params, "rapid text"), (llm_params, "llm text")):
+            _settings, settings_hash = preview_settings(params)
+            inventory.cache_ocr(
+                digest,
+                1,
+                params["engine"],
+                settings_hash,
+                {"text": text, "blocks": [], "ocr_action_params": params},
+            )
+
+    assert service.page(project_id, draft_id, "one", 1)["ocr_text"] == "rapid text"
+    status = service.update_choices(
+        project_id,
+        draft_id,
+        expected_revision=status["revision"],
+        ocr_policy="all",
+        ocr_selection={
+            "kind": "engine_model",
+            "engine": "llm",
+            "model": "openai/gpt-4.1-mini",
+        },
+        semantic_search=False,
+        semantic_setup_confirmation=None,
+        destination={"kind": "new", "sheet_name": "PDFs"},
+    )
+    assert status["choices"]["ocr_selection"]["engine"] == "llm"
+    assert service.page(project_id, draft_id, "one", 1)["ocr_text"] == "llm text"
 
 
 def test_cross_filesystem_commit_promotion_is_explicitly_refused(
