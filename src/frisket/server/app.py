@@ -95,6 +95,7 @@ from frisket.server.services.document_priority import DocumentPriorityService
 from frisket.server.routes.pdf_packet_splits import register_pdf_packet_split_routes
 from frisket.server.routes.pdf_imports import register_pdf_import_routes
 from frisket.server.services.pdf_imports import FrozenPdfImport, PdfImportService
+from frisket.server.services.pdf_import_ocr_approval import PdfImportOcrApprovalQuoter
 from frisket.server.services.pdf_import_commit import PdfImportCommitService
 from frisket.server.thread_worker import await_thread_worker
 from frisket.documents.text_quality import assess_text_quality
@@ -771,6 +772,7 @@ def create_app(
         ws,
         preview_runs=action_preview_run_service,
         quality_assessor=assess_text_quality,
+        batch_ocr_quoter=PdfImportOcrApprovalQuoter(ws).quote,
         on_commit_ready=enqueue_pdf_import_continuation,
     )
     app.state.pdf_import_service = pdf_import_service

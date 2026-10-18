@@ -6075,9 +6075,7 @@ type HttpImportSessionList_ImportSessionStatus = ({
 })) | ((null)));
   "preparation_stopped"?: (boolean);
   "preparation_total"?: (number);
-  "row_error_summary"?: ((({
-  [key: string]: (HttpImportSessionList_JsonValue);
-})) | ((null)));
+  "row_error_summary"?: (((HttpImportSessionList_RunRowErrorSummary)) | ((null)));
   "sealed": (boolean);
   "search_preparation_batch_id"?: (((string)) | ((null)));
   "search_preparation_status": ("pending" | "available" | "none") & (string);
@@ -6090,6 +6088,23 @@ type HttpImportSessionList_ImportSessionStatus = ({
 });
 
 type HttpImportSessionList_JsonValue = JsonValue;
+
+type HttpImportSessionList_RunRowErrorGroup = ({
+  "code": (((string)) | ((null)));
+  "count": (number);
+  "details"?: ((({
+  [key: string]: (boolean);
+})) | ((null)));
+  "message": (string);
+  "outcome"?: (((string)) | ((null)));
+  "row_ids": (Array<(number)>);
+  "terminal"?: (boolean);
+});
+
+type HttpImportSessionList_RunRowErrorSummary = ({
+  "groups": (Array<(HttpImportSessionList_RunRowErrorGroup)>);
+  "total_failed_rows": (number);
+});
 
 export type HttpImportSessionList = ({
   "sessions": (Array<(HttpImportSessionList_ImportSessionStatus)>);
@@ -6111,6 +6126,23 @@ type HttpImportSessionStatus_ImportPreparationChild = ({
 
 type HttpImportSessionStatus_JsonValue = JsonValue;
 
+type HttpImportSessionStatus_RunRowErrorGroup = ({
+  "code": (((string)) | ((null)));
+  "count": (number);
+  "details"?: ((({
+  [key: string]: (boolean);
+})) | ((null)));
+  "message": (string);
+  "outcome"?: (((string)) | ((null)));
+  "row_ids": (Array<(number)>);
+  "terminal"?: (boolean);
+});
+
+type HttpImportSessionStatus_RunRowErrorSummary = ({
+  "groups": (Array<(HttpImportSessionStatus_RunRowErrorGroup)>);
+  "total_failed_rows": (number);
+});
+
 export type HttpImportSessionStatus = ({
   "admitted_bytes": (number);
   "admitted_files": (number);
@@ -6128,9 +6160,7 @@ export type HttpImportSessionStatus = ({
 })) | ((null)));
   "preparation_stopped"?: (boolean);
   "preparation_total"?: (number);
-  "row_error_summary"?: ((({
-  [key: string]: (HttpImportSessionStatus_JsonValue);
-})) | ((null)));
+  "row_error_summary"?: (((HttpImportSessionStatus_RunRowErrorSummary)) | ((null)));
   "sealed": (boolean);
   "search_preparation_batch_id"?: (((string)) | ((null)));
   "search_preparation_status": ("pending" | "available" | "none") & (string);
@@ -8816,6 +8846,7 @@ export type HttpPdfImportBatchOcrState = ({
   [key: string]: JsonValue;
 })) | ((null)));
   "purpose"?: ((("batch_pdf_ocr") & (string)) | ((null)));
+  "revision"?: (((number)) | ((null)));
   "selected_count": (number);
   "selected_through": (number);
   "state": ("idle" | "ready" | "error") & (string);
@@ -8855,6 +8886,7 @@ export type HttpPdfImportChoicesRequest = ({
 export type HttpPdfImportCommitRequest = ({
   "expected_revision": (number);
   "idempotency_key": (string);
+  "ocr_confirmation"?: (((string)) | ((null)));
 });
 
 export type HttpPdfImportCommitResponse = ({
@@ -8938,6 +8970,7 @@ type HttpPdfImportListResponse_PdfImportBatchOcrState = ({
   [key: string]: JsonValue;
 })) | ((null)));
   "purpose"?: ((("batch_pdf_ocr") & (string)) | ((null)));
+  "revision"?: (((number)) | ((null)));
   "selected_count": (number);
   "selected_through": (number);
   "state": ("idle" | "ready" | "error") & (string);
@@ -9287,6 +9320,7 @@ type HttpPdfImportStatus_PdfImportBatchOcrState = ({
   [key: string]: JsonValue;
 })) | ((null)));
   "purpose"?: ((("batch_pdf_ocr") & (string)) | ((null)));
+  "revision"?: (((number)) | ((null)));
   "selected_count": (number);
   "selected_through": (number);
   "state": ("idle" | "ready" | "error") & (string);
