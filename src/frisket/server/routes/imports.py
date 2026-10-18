@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Annotated, Any
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
@@ -164,15 +165,28 @@ def register_import_bulk_routes(
     )
     async def prepare_import_files(
         pid: str,
+        request: Request,
         files: Annotated[list[UploadFile], File()],
         logical_paths: Annotated[list[str], Form()],
         expand_archive: Annotated[bool, Form()] = False,
-    ) -> dict[str, Any]:
-        return await service.prepare(
-            pid,
-            uploads=aligned_uploads(files, logical_paths),
-            expand_archive=expand_archive,
-        )
+    ) -> dict[str, Any] | Response:
+        prepared: dict[str, Any] | None = None
+        try:
+            if await request.is_disconnected():
+                return Response(status_code=499)
+            prepared = await service.prepare(
+                pid,
+                uploads=aligned_uploads(files, logical_paths),
+                expand_archive=expand_archive,
+            )
+            if await request.is_disconnected():
+                await service.discard_prepared(pid, prepared)
+                return Response(status_code=499)
+            return prepared
+        except asyncio.CancelledError:
+            if prepared is not None:
+                await service.discard_prepared(pid, prepared)
+            raise
 
     @app.post(
         "/api/projects/{pid}/import/bulk/{plan_id}/execute",

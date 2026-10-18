@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 from starlette.datastructures import UploadFile
+from starlette.requests import Request
 
 from frisket.server.app import create_app
 from frisket.server.services import import_bulk_sources
@@ -253,6 +254,8 @@ def test_prepare_offloads_pdf_adoption_and_drains_it_before_cancel_cleanup(
     observed: dict[str, Any] = {}
 
     class BlockingAdopter:
+        discarded: list[tuple[str, str]] = []
+
         def adopt_staged(
             self,
             _project_id: str,
@@ -270,11 +273,15 @@ def test_prepare_offloads_pdf_adoption_and_drains_it_before_cancel_cleanup(
             started.set()
             assert release.wait(timeout=5)
             assert staging_dir.is_dir(), "caller must retain bytes until worker exits"
-            return {"unused": True}
+            return {"draft_id": "pdf-cancelled"}
 
+        def discard(self, project_id: str, draft_id: str) -> None:
+            self.discarded.append((project_id, draft_id))
+
+    adopter = BlockingAdopter()
     service = ImportBulkService(
         app.state.workspace,
-        pdf_import_service=BlockingAdopter(),
+        pdf_import_service=adopter,
     )
     uploads = [
         BulkUpload(
@@ -310,6 +317,65 @@ def test_prepare_offloads_pdf_adoption_and_drains_it_before_cancel_cleanup(
     asyncio.run(exercise())
 
     assert not observed["staging_dir"].exists()
+    assert adopter.discarded == [(project_id, "pdf-cancelled")]
+    assert _private_directories(client, project_id) == []
+
+
+def test_prepare_discards_adopted_pdf_when_request_disconnects(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = TestClient(create_app(tmp_path / "workspace"))
+    project_id = _project(client)
+    adopted: dict[str, Any] = {}
+    disconnect_checks = 0
+
+    def adopt(
+        service: PdfImportService,
+        selected_project_id: str,
+        staging_dir: Path,
+        entries: list[dict[str, Any]],
+        *,
+        source_label: str,
+    ) -> dict[str, Any]:
+        status = service.create(
+            selected_project_id,
+            expected_files=len(entries),
+            expected_bytes=sum(int(entry["size"]) for entry in entries),
+            source_label=source_label,
+        )
+        adopted.update(status)
+        shutil.rmtree(staging_dir)
+        return status
+
+    async def disconnect_after_prepare(_request: Request) -> bool:
+        nonlocal disconnect_checks
+        disconnect_checks += 1
+        return disconnect_checks >= 2
+
+    monkeypatch.setattr(PdfImportService, "adopt_staged", adopt, raising=False)
+    monkeypatch.setattr(Request, "is_disconnected", disconnect_after_prepare)
+
+    response = _prepare(
+        client,
+        project_id,
+        [
+            ("a.pdf", b"%PDF-a", "application/pdf", "a.pdf"),
+            ("b.pdf", b"%PDF-b", "application/pdf", "b.pdf"),
+        ],
+        expand_archive=False,
+    )
+
+    assert response.status_code == 499
+    assert response.content == b""
+    assert disconnect_checks == 2
+    assert adopted["draft_id"]
+    assert (
+        client.app.state.pdf_import_service.status(project_id, adopted["draft_id"])[
+            "state"
+        ]
+        == "cancelled"
+    )
+    assert client.app.state.pdf_import_service.list(project_id) == []
     assert _private_directories(client, project_id) == []
 
 

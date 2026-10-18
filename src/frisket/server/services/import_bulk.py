@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import shutil
 import time
 import logging
@@ -83,13 +84,24 @@ class ImportBulkService:
             if pdf_count >= 2:
                 if self.pdf_import_service is None:
                     raise RuntimeError("PDF import service is unavailable")
-                draft = await await_thread_worker(
-                    self.pdf_import_service.adopt_staged,
-                    project_id,
-                    staging.draft,
-                    staging.staged,
-                    source_label=_source_label(uploads),
-                )
+                adopted: dict[str, Any] | None = None
+
+                def adopt() -> dict[str, Any]:
+                    nonlocal adopted
+                    adopted = self.pdf_import_service.adopt_staged(
+                        project_id,
+                        staging.draft,
+                        staging.staged,
+                        source_label=_source_label(uploads),
+                    )
+                    return adopted
+
+                try:
+                    draft = await await_thread_worker(adopt)
+                except asyncio.CancelledError:
+                    if adopted is not None:
+                        await self._discard_pdf_import(project_id, adopted)
+                    raise
                 return {"kind": "pdf_import", "draft": draft}
             plan = self.plan_lifecycle.publish_plan(project, project_id, staging)
             return {"kind": "bulk", "plan": plan}
@@ -98,6 +110,22 @@ class ImportBulkService:
             # also the request-owned cleanup for cancellation and failed handoff.
             shutil.rmtree(staging.draft, ignore_errors=True)
             import_bulk_sources.fsync_directory(staging.root)
+
+    async def discard_prepared(self, project_id: str, prepared: dict[str, Any]) -> None:
+        if prepared.get("kind") == "pdf_import" and isinstance(
+            prepared.get("draft"), dict
+        ):
+            await self._discard_pdf_import(project_id, prepared["draft"])
+
+    async def _discard_pdf_import(self, project_id: str, draft: dict[str, Any]) -> None:
+        draft_id = draft.get("draft_id")
+        if not isinstance(draft_id, str) or not draft_id:
+            raise RuntimeError("adopted PDF import has no draft identity")
+        await await_thread_worker(
+            self.pdf_import_service.discard,
+            project_id,
+            draft_id,
+        )
 
     def execute(
         self,
