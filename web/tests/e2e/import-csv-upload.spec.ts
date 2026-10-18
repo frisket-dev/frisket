@@ -51,7 +51,10 @@ test('existing-sheet import matches columns and skips duplicate keys without upd
   await destination.getByRole('radio', { name: 'Add to an existing sheet' }).check();
   await destination.getByLabel('Sheet', { exact: true }).selectOption(String(sheetId));
   await expect(destination.getByLabel('Map id')).toHaveValue(/^existing:/);
-  await destination.getByRole('checkbox', { name: /Skip rows already in people/ }).check();
+  const skipDuplicates = destination.getByRole('checkbox', { name: /Skip rows already in people/ });
+  // This control reflects the saved draft, so wait for the server-backed state.
+  await skipDuplicates.click();
+  await expect(skipDuplicates).toBeChecked();
   await destination.getByLabel('Duplicate key', { exact: true }).selectOption('0');
   await expect(destination.getByText('1 row found', { exact: true })).toBeVisible();
   expect(await commitTableImport(page, pid)).toBe(sheetId);
