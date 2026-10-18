@@ -35,17 +35,14 @@ class PreviewAccumulator:
         self._rows_seen = 0
 
     def accept(self, row: TableRow) -> None:
-        configured = row.cells[: self._column_limit]
-        remaining = self._column_limit - len(configured)
-        visible = (*configured, *row.extra_values[:remaining])
-        total_cells = len(row.cells) + len(row.extra_values)
+        source_cells = row.source.cells
         preview = PreviewRow(
             role=row.role,
             record_ordinal=row.source.record_ordinal,
             physical_line_start=row.source.physical_line_start,
             physical_line_end=row.source.physical_line_end,
-            cells=tuple(cell.text for cell in visible),
-            hidden_cell_count=max(0, total_cells - self._column_limit),
+            cells=tuple(cell.text for cell in source_cells[: self._column_limit]),
+            hidden_cell_count=max(0, len(source_cells) - self._column_limit),
             issues=row.issues,
         )
         self._rows_seen += 1
