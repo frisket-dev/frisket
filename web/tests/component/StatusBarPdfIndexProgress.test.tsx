@@ -29,7 +29,7 @@ function jsonResponse(body: unknown): Response {
 function importSession(): ImportSessionStatus {
   return {
     import_ref: 'import-00000000000000000000000000000000',
-    state: 'running',
+    state: 'completed',
     admitted_files: 2,
     admitted_bytes: 1_000,
     through: 2,

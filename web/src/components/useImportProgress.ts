@@ -89,6 +89,7 @@ function activeChild(session: ImportSessionStatus): ImportPreparationChild | nul
 
 export function importActivity(session: ImportSessionStatus): ImportActivity | null {
   const selectedTotal = session.selected_total ?? session.admitted_files;
+  const committedRows = Math.min(session.committed_rows, selectedTotal);
   const preparationIncomplete = session.preparation_completed < session.preparation_total;
   const active = ['admitting', 'running', 'paused', 'cancelling', 'cancelled'].includes(session.state)
     || Boolean(session.error)
@@ -99,8 +100,9 @@ export function importActivity(session: ImportSessionStatus): ImportActivity | n
   const lines: ImportActivityLine[] = [{
     key: 'adding',
     label: 'Adding rows',
-    completed: Math.min(session.committed_rows, selectedTotal),
+    completed: committedRows,
     total: selectedTotal,
+    complete: ['completed', 'kept'].includes(session.state) && committedRows >= selectedTotal,
   }];
   const nativeTotal = Math.max(session.preparation_total - session.ocr_total, 0);
   const nativeCompleted = Math.max(Math.min(

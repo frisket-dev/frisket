@@ -86,7 +86,8 @@ it('refreshes a completed setup into a ready choice while keeping the pinned sel
   await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Download and set up' })); });
   await act(async () => { await Promise.resolve(); });
   expect(choices).toHaveBeenCalledTimes(2);
-  expect(within(dialog).getByRole('progressbar')).toHaveAttribute('aria-valuenow', '20');
+  expect(within(dialog).getByRole('progressbar')).toHaveAttribute('value', '200');
+  expect(within(dialog).getByRole('progressbar')).toHaveAttribute('max', '1000');
   await act(async () => { await vi.advanceTimersByTimeAsync(0); });
   expect(screen.getByTestId('engine-selector-dialog')).toBe(dialog);
   expect(dialog).toBeVisible();
@@ -94,7 +95,7 @@ it('refreshes a completed setup into a ready choice while keeping the pinned sel
   await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
   await act(async () => { await Promise.resolve(); });
   expect(polls).toHaveBeenCalledTimes(1);
-  expect(within(dialog).getByRole('progressbar')).toHaveAttribute('aria-valuenow', '60');
+  expect(within(dialog).getByRole('progressbar')).toHaveAttribute('value', '600');
   expect(choices).toHaveBeenCalledTimes(2);
   await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
   await act(async () => { await Promise.resolve(); });
@@ -127,7 +128,8 @@ it('projects a durable operation name and byte progress on the closed selected f
   });
   const trigger = screen.getByRole('button', { name: /Parakeet/ });
   expect(trigger).toHaveTextContent('Parakeet setup');
-  expect(within(trigger).getByRole('progressbar')).toHaveAttribute('aria-valuenow', '38');
+  expect(within(trigger).getByRole('progressbar')).toHaveAttribute('value', '38');
+  expect(within(trigger).getByRole('progressbar')).toHaveAttribute('max', '100');
   expect(screen.queryByTestId('engine-selector-dialog')).not.toBeInTheDocument();
 });
 
