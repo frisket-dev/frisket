@@ -195,6 +195,7 @@ export function CheckTextStep({
   const currentOcr = snapshot.choices.ocr_selection;
   const ocrReady = Boolean(page && page.ocr_text !== null && pageUsesSelection(page, currentOcr));
   const shownText = textSource === 'ocr' ? page?.ocr_text ?? '' : page?.native_text ?? '';
+  const unreadableCount = snapshot.category_counts.unreadable ?? 0;
   return <section className="pdf-batch-step pdf-batch-check" aria-label="Check text">
     <div className="pdf-batch-check-body">
       <aside className="pdf-batch-check-sidebar">
@@ -228,9 +229,11 @@ export function CheckTextStep({
       </aside>
       <div className="pdf-batch-check-main">
         <section className="pdf-batch-preview">
-          {samplesLoading && !chosenFile
+          {nonViewer
+            ? <FileIssueList files={samples} loading={samplesLoading} />
+            : samplesLoading && !chosenFile
             ? <div className="pdf-batch-empty-preview" role="status"><LoaderCircle className="spin" size={16} /> Loading sample…</div>
-            : nonViewer ? <FileIssueList files={samples} /> : chosenFile ? <>
+            : chosenFile ? <>
             <header><div><strong>{chosenFile.filename}</strong><span>{chosenFile.page_count == null ? 'Reading pages…' : count(chosenFile.page_count, 'page')}</span></div>
             <SegmentedToggle ariaLabel="Text preview" className="segmented-toolbar" fullWidth={false} value={textSource} onValueChange={(value) => {
               if (value === 'ocr' && !ocrReady) onPreview();
@@ -276,7 +279,7 @@ export function CheckTextStep({
         </div>
       </div>
     </div>
-    <StepFooter><button type="button" className="btn" disabled={busy} onClick={onBack}>Back</button><span>{checkRunning ? 'You can continue now. Files checked later follow your choice.' : `OCR will apply to ${count(ocrPolicyCount(snapshot, snapshot.choices.ocr_policy), 'file')}.`}</span><button type="button" className="btn btn-primary" disabled={busy} onClick={onContinue}>{busy ? 'Saving…' : 'Continue →'}</button></StepFooter>
+    <StepFooter><button type="button" className="btn" disabled={busy} onClick={onBack}>Back</button><span>{checkRunning ? 'You can continue now. Files checked later follow your choice.' : `OCR will apply to ${count(ocrPolicyCount(snapshot, snapshot.choices.ocr_policy), 'file')}${unreadableCount > 0 ? ` · ${unreadableCount.toLocaleString()} couldn't be read` : ''}.`}</span><button type="button" className="btn btn-primary" disabled={busy} onClick={onContinue}>{busy ? 'Saving…' : 'Continue →'}</button></StepFooter>
   </section>;
 }
 
@@ -296,13 +299,18 @@ function OcrPolicy({ snapshot, checking, busy, onPolicy }: { snapshot: PdfImport
   </fieldset>;
 }
 
-function FileIssueList({ files }: { files: PdfImportFileSummary[] }) {
-  const groups = new Map<string, number>();
-  for (const file of files) {
-    const message = file.error || file.filename.split('.').pop()?.toUpperCase() || 'Unknown file';
-    groups.set(message, (groups.get(message) ?? 0) + 1);
-  }
-  return <div className="pdf-batch-issue-list"><h3>Files in this group</h3>{[...groups].map(([message, amount]) => <div key={message}><span>{message}</span><b>{amount.toLocaleString()}</b></div>)}</div>;
+function FileIssueList({ files, loading }: { files: PdfImportFileSummary[]; loading: boolean }) {
+  return <div className="pdf-batch-issue-list">
+    <h3>Couldn't read these PDFs</h3>
+    {loading
+      ? <p role="status"><LoaderCircle className="spin" size={15} /> Loading file details…</p>
+      : files.length > 0
+        ? files.map((file) => <div key={file.occurrence_id}>
+          <strong>{file.filename}</strong>
+          <span>{file.error || "This file couldn't be opened."} It will be imported without text.</span>
+        </div>)
+        : <p>No file details are available. These PDFs will be imported without text.</p>}
+  </div>;
 }
 
 export function DestinationStep({ projectId, snapshot, destination, sheets, busy, onDestination, onBack, onContinue }: {

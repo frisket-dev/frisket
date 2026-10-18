@@ -424,6 +424,18 @@
 .pdf-batch-engine { width: min(390px, 55%); min-height: 36px; display: flex; align-items: center; gap: 8px; }
 .pdf-batch-engine > span { flex: 0 0 auto; color: #756c66; font-size: 11px; }
 .pdf-batch-engine > :last-child { min-width: 0; min-height: 36px; flex: 1 1 auto; }
+.pdf-batch-engine > .engine-selector-field-loading {
+  display: flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid #ddd5cd;
+  border-radius: 6px;
+  background: #fff;
+  color: #756c66;
+  font-size: 11px;
+  line-height: 1;
+}
 .pdf-batch-preview { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .pdf-batch-preview > header {
   flex: 0 0 auto;
@@ -444,7 +456,7 @@
 .pdf-batch-preview > header .segmented-toolbar button.active { background: #fff; color: #25201c; font-weight: 700; box-shadow: 0 1px 3px rgba(40, 30, 20, 0.16); }
 .pdf-batch-preview .pdf-packet-page-and-text { flex: 1 1 auto; min-height: 0; }
 .pdf-batch-preview .pdf-packet-page-and-text > img { max-height: none; }
-.pdf-batch-preview .pdf-packet-text-card pre { font-family: inherit; white-space: normal; overflow-wrap: anywhere; }
+.pdf-batch-preview .pdf-packet-text-card pre { font-family: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
 .pdf-batch-preview .pdf-packet-text-card > p { color: #8a817a; font-family: inherit; font-style: italic; line-height: 1.5; }
 .pdf-batch-garbled {
   display: flex;
@@ -459,7 +471,9 @@
 .pdf-batch-empty-preview { margin: auto; color: #8a817a; font-size: 12px; }
 .pdf-batch-issue-list { display: grid; align-content: start; gap: 0; padding: 22px; }
 .pdf-batch-issue-list h3 { margin: 0 0 10px; font-size: 15px; }
-.pdf-batch-issue-list > div { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid #efeae5; font-size: 12px; }
+.pdf-batch-issue-list > div { display: grid; gap: 3px; padding: 10px 0; border-bottom: 1px solid #efeae5; font-size: 12px; }
+.pdf-batch-issue-list > div > span { color: #756c66; line-height: 1.4; }
+.pdf-batch-issue-list > p { display: flex; align-items: center; gap: 7px; margin: 0; color: #756c66; font-size: 12px; }
 
 .pdf-batch-destination .pdf-batch-step-body,
 .pdf-batch-search .pdf-batch-step-body { width: 100%; margin: 0; }

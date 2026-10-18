@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type {
   PdfImportCategory,
+  PdfImportSamples,
   PdfImportSnapshot,
   PdfImportsApi,
 } from '../../src/api/pdfImports';
@@ -484,6 +485,54 @@ describe('PDF batch import flow', () => {
     expect(await screen.findByText('1 file · RapidOCR')).toBeInTheDocument();
     expect(screen.getByText(/Allow the .* download, or turn off search by meaning\./)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Import 2 PDFs' })).toBeDisabled();
+  });
+
+  it('resolves an unreadable category to file details and excludes it from OCR counts', async () => {
+    const initial = snapshot(3, {
+      category_counts: {
+        text: 0, suspicious: 0, missing: 1, image: 0, other: 0, unreadable: 1, unchecked: 0,
+      },
+      sample_ready_counts: { missing: 1, unreadable: 1 },
+    });
+    const unreadableSamples = deferred<PdfImportSamples>();
+    const { api } = createApi(initial);
+    vi.mocked(api.samples).mockImplementation(async (_projectId, _draftId, category) => {
+      if (category === 'unreadable') return unreadableSamples.promise;
+      return {
+        items: [{
+          occurrence_id: 'missing-1', logical_path: 'folder/missing.pdf', filename: 'missing.pdf',
+          size: 3, page_count: 1, category: 'missing', analysis_state: 'done', sample_pages: [1],
+          thumbnail_url: '/thumbnail', error: null,
+        }],
+        next_cursor: null,
+      };
+    });
+    render(<PdfBatchImportFlow
+      projectId="project-1" resumeDraftId="draft-1" destinationSheets={[]} api={api}
+      onContextChange={vi.fn()} registerCloseGuard={vi.fn()} onImported={vi.fn()}
+      onDiscarded={vi.fn()} onError={vi.fn()}
+    />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Check text →' }));
+    fireEvent.click(await screen.findByRole('button', { name: /Couldn't read1/ }));
+    expect(screen.getByText('Loading file details…')).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /All PDFs.*1 file/ })).toBeInTheDocument();
+
+    unreadableSamples.resolve({
+      items: [{
+        occurrence_id: 'damaged-1', logical_path: 'folder/damaged.pdf', filename: 'damaged.pdf',
+        size: 3, page_count: null, category: 'unreadable', analysis_state: 'error', sample_pages: [],
+        thumbnail_url: null, error: 'Could not read PDF.',
+      }],
+      next_cursor: null,
+    });
+
+    expect(await screen.findByText('damaged.pdf')).toBeInTheDocument();
+    expect(screen.getByText('Could not read PDF. It will be imported without text.')).toBeInTheDocument();
+    expect(screen.getByText("OCR will apply to 1 file · 1 couldn't be read.")).toBeInTheDocument();
+    expect(api.getPage).not.toHaveBeenCalledWith(
+      'project-1', 'draft-1', 'damaged-1', 1, expect.anything(),
+    );
   });
 
   it('lets a paused partial upload be reviewed but does not commit it', async () => {

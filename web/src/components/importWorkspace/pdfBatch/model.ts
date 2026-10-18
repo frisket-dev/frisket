@@ -86,7 +86,10 @@ export function ocrPolicyCount(snapshot: PdfImportSnapshot, policy: PdfImportOcr
     : snapshot.category_counts;
   if (policy === 'none') return 0;
   if (policy === 'all') {
-    return PDF_CATEGORY_ORDER.reduce((total, category) => total + (counts[category] ?? 0), 0);
+    return (counts.text ?? 0)
+      + (counts.suspicious ?? 0)
+      + (counts.missing ?? 0)
+      + (counts.unchecked ?? 0);
   }
   return (counts.suspicious ?? 0) + (counts.missing ?? 0);
 }
