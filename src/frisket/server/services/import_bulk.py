@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import shutil
 import time
 import logging
+from pathlib import PurePosixPath
 from typing import Any
 
 from frisket.engine.executor import ExecutorDeps
@@ -16,6 +18,7 @@ from frisket.server.services.import_bulk_types import (
     BulkUpload,
     ImportBulkRouteError,
 )
+from frisket.server.thread_worker import await_thread_worker
 from frisket.server.workspace import Workspace
 
 LOG = logging.getLogger(__name__)
@@ -29,11 +32,13 @@ class ImportBulkService:
         limits: BulkImportLimits | None = None,
         clock=time.time,
         search_preparation: Any = None,
+        pdf_import_service: Any = None,
     ):
         self.ws, self.limits = workspace, limits or BulkImportLimits()
         self.plan_lifecycle = BulkPlanLifecycle(clock)
         self.executor = BulkExecutor(workspace)
         self.search_preparation = search_preparation
+        self.pdf_import_service = pdf_import_service
 
     def executor_deps_for_request(self, project_id: str, request: Any) -> ExecutorDeps:
         """Resolve the deployment composition once at the HTTP boundary."""
@@ -53,6 +58,73 @@ class ImportBulkService:
             uploads=uploads,
             expand_archive=expand_archive,
             limits=self.limits,
+        )
+
+    async def prepare(
+        self,
+        project_id: str,
+        *,
+        uploads: list[BulkUpload],
+        expand_archive: bool,
+    ) -> dict[str, Any]:
+        project = self.ws.get(project_id)
+        staging = await self.plan_lifecycle.stage_request(
+            project,
+            uploads=uploads,
+            expand_archive=expand_archive,
+            limits=self.limits,
+            mixed_archives=True,
+        )
+        try:
+            pdf_count = sum(
+                item["mime"].casefold() == "application/pdf"
+                or PurePosixPath(item["filename"]).suffix.casefold() == ".pdf"
+                for item in staging.staged
+            )
+            if pdf_count >= 2:
+                if self.pdf_import_service is None:
+                    raise RuntimeError("PDF import service is unavailable")
+                adopted: dict[str, Any] | None = None
+
+                def adopt() -> dict[str, Any]:
+                    nonlocal adopted
+                    adopted = self.pdf_import_service.adopt_staged(
+                        project_id,
+                        staging.draft,
+                        staging.staged,
+                        source_label=_source_label(uploads),
+                    )
+                    return adopted
+
+                try:
+                    draft = await await_thread_worker(adopt)
+                except asyncio.CancelledError:
+                    if adopted is not None:
+                        await self._discard_pdf_import(project_id, adopted)
+                    raise
+                return {"kind": "pdf_import", "draft": draft}
+            plan = self.plan_lifecycle.publish_plan(project, project_id, staging)
+            return {"kind": "bulk", "plan": plan}
+        finally:
+            # Publication and PDF adoption both consume the directory. This is
+            # also the request-owned cleanup for cancellation and failed handoff.
+            shutil.rmtree(staging.draft, ignore_errors=True)
+            import_bulk_sources.fsync_directory(staging.root)
+
+    async def discard_prepared(self, project_id: str, prepared: dict[str, Any]) -> None:
+        if prepared.get("kind") == "pdf_import" and isinstance(
+            prepared.get("draft"), dict
+        ):
+            await self._discard_pdf_import(project_id, prepared["draft"])
+
+    async def _discard_pdf_import(self, project_id: str, draft: dict[str, Any]) -> None:
+        draft_id = draft.get("draft_id")
+        if not isinstance(draft_id, str) or not draft_id:
+            raise RuntimeError("adopted PDF import has no draft identity")
+        await await_thread_worker(
+            self.pdf_import_service.discard,
+            project_id,
+            draft_id,
         )
 
     def execute(
@@ -110,6 +182,20 @@ class ImportBulkService:
             claim.release()
             shutil.rmtree(plan, ignore_errors=True)
             import_bulk_sources.fsync_directory(root)
+
+
+def _source_label(uploads: list[BulkUpload]) -> str:
+    if len(uploads) == 1:
+        path = PurePosixPath(uploads[0].logical_path)
+        return path.stem.strip() or "Imported files"
+    parents = {
+        PurePosixPath(upload.logical_path).parent.as_posix() for upload in uploads
+    }
+    if len(parents) == 1:
+        parent = next(iter(parents))
+        if parent not in {"", "."}:
+            return PurePosixPath(parent).name or "Imported files"
+    return "Imported files"
 
 
 __all__ = [

@@ -50,6 +50,19 @@ describe('PDF imports API', () => {
     expect(new Headers(init?.headers).has('Content-Type')).toBe(false);
   });
 
+  it('uses the generated staged-analysis route without inventing a request body', async () => {
+    const fetch = vi.fn(async () => jsonResponse({ draft_id: 'draft-1', revision: 4 }));
+    const api = createPdfImportsApi();
+
+    await api.analyze('project / one', 'draft / one', { fetch });
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const [path, init] = fetch.mock.calls[0];
+    expect(path).toBe('/api/projects/project%20%2F%20one/import/pdf-imports/draft%20%2F%20one/analyze');
+    expect(init?.method).toBe('POST');
+    expect(init?.body).toBeUndefined();
+  });
+
   it('sends the exact paid OCR approval hash with the final commit', async () => {
     const fetch = vi.fn(async () => jsonResponse({ draft_id: 'draft-1', status: 'accepted' }, 202));
     const api = createPdfImportsApi();

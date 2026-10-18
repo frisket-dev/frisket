@@ -9,6 +9,7 @@ import secrets
 import shutil
 import stat
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -27,6 +28,14 @@ TTL = 86_400
 INVALID_CSV_HEADER = "CSV header is invalid"
 
 
+@dataclass(frozen=True)
+class PrivateBulkStaging:
+    root: Path
+    draft: Path
+    plan_id: str
+    staged: list[dict[str, Any]]
+
+
 class BulkPlanLifecycle:
     def __init__(self, clock):
         self.clock = clock
@@ -40,9 +49,31 @@ class BulkPlanLifecycle:
         expand_archive: bool,
         limits: BulkImportLimits,
     ) -> dict[str, Any]:
-        if expand_archive and (
-            len(uploads) != 1
-            or import_bulk_sources.source_suffix(uploads[0].logical_path) != ".zip"
+        staging = await self.stage_request(
+            project,
+            uploads=uploads,
+            expand_archive=expand_archive,
+            limits=limits,
+            mixed_archives=False,
+        )
+        return self.publish_plan(project, project_id, staging)
+
+    async def stage_request(
+        self,
+        project: Any,
+        *,
+        uploads: list[BulkUpload],
+        expand_archive: bool,
+        limits: BulkImportLimits,
+        mixed_archives: bool,
+    ) -> PrivateBulkStaging:
+        if (
+            expand_archive
+            and not mixed_archives
+            and (
+                len(uploads) != 1
+                or import_bulk_sources.source_suffix(uploads[0].logical_path) != ".zip"
+            )
         ):
             raise ImportBulkRouteError(
                 400, "archive expansion requires one explicitly selected ZIP"
@@ -64,6 +95,27 @@ class BulkPlanLifecycle:
             staged = await import_bulk_sources.stage_uploads(
                 uploads, draft, expand_archive, limits
             )
+            return PrivateBulkStaging(root, draft, pid, staged)
+        except BaseException:
+            shutil.rmtree(draft, ignore_errors=True)
+            import_bulk_sources.fsync_directory(root)
+            raise
+
+    def publish_plan(
+        self,
+        project: Any,
+        project_id: str,
+        staging: PrivateBulkStaging,
+    ) -> dict[str, Any]:
+        root, draft, pid, staged = (
+            staging.root,
+            staging.draft,
+            staging.plan_id,
+            staging.staged,
+        )
+        published = root / pid
+        did_publish = False
+        try:
             outputs, questions = build_plan(staged, draft)
             now = self.clock()
             storage_identity = project.storage_identity
@@ -83,10 +135,13 @@ class BulkPlanLifecycle:
             )
             with lock(root / ".lock"):
                 self.purge(root)
-                os.replace(draft, root / pid)
+                os.replace(draft, published)
+                did_publish = True
                 import_bulk_sources.fsync_directory(root)
-        except Exception:
+        except BaseException:
             shutil.rmtree(draft, ignore_errors=True)
+            if did_publish:
+                shutil.rmtree(published, ignore_errors=True)
             import_bulk_sources.fsync_directory(root)
             raise
         return {
@@ -338,6 +393,7 @@ def safe_plan_id(value):
 __all__ = [
     "BulkPlanLifecycle",
     "INVALID_CSV_HEADER",
+    "PrivateBulkStaging",
     "TTL",
     "lock",
     "open_lock_file",

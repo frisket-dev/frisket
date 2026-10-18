@@ -414,6 +414,15 @@ def test_commit_appends_only_unmatched_rows_and_replay_is_idempotent(
     assert first == replay
     assert first.state == "completed"
     assert first.committed_rows == 1
+    assert first.selected_total == 1
+    status = ImportSessionService(workspace).status(project_id, first.import_ref)
+    assert status.committed_rows == status.selected_total == 1
+    audit = ReceiptStore(project).find_by_id(first.receipt_id)
+    assert audit is not None
+    commit_input = next(
+        value for value in audit.parsed().inputs if value.name == "pdf_import_commit"
+    )
+    assert commit_input.ref["selected_total"] == 2
     assert project.row_count(sheet_id) == 2
     assert len(text.calls) == 1
     assert text.calls[0]["import_ref"] == first.import_ref

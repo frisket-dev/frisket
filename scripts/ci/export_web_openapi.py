@@ -406,6 +406,12 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
         ): "tenant.import_followthemoney.post",
         ("tenant", "import_pdf", "POST"): "tenant.import_pdf.post",
         ("tenant", "create_pdf_import", "POST"): "tenant.create_pdf_import.post",
+        ("tenant", "prepare_import_files", "POST"): "tenant.prepare_import_files.post",
+        (
+            "tenant",
+            "analyze_staged_pdf_import",
+            "POST",
+        ): "tenant.analyze_staged_pdf_import.post",
         ("tenant", "list_pdf_imports", "GET"): "tenant.list_pdf_imports.get",
         ("tenant", "get_pdf_import", "GET"): "tenant.get_pdf_import.get",
         (
@@ -1149,6 +1155,7 @@ def _native_form_data_request(
         ("tenant", "import_xlsx_update_preview", "POST"),
         ("tenant", "update_xlsx", "POST"),
         ("tenant", "import_bulk_plan", "POST"),
+        ("tenant", "prepare_import_files", "POST"),
         ("tenant", "import_csv_preview", "POST"),
         ("tenant", "import_xlsx", "POST"),
         ("tenant", "import_pdf", "POST"),

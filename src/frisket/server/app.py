@@ -893,6 +893,7 @@ def create_app(
             ws,
             limits=bulk_limits,
             search_preparation=search_preparation_service,
+            pdf_import_service=pdf_import_service,
         ),
     )
 

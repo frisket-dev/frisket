@@ -523,3 +523,22 @@ def test_org_owner_fallback_satisfies_the_strongest_base_project_role(
         assert access.can_on_project(1, "proof", int(ACTOR["id"]), "owner")
     finally:
         engine.dispose()
+
+
+@pytest.mark.parametrize(
+    "path",
+    (
+        "/api/projects/proof/import/files/prepare",
+        "/api/projects/proof/import/pdf-imports/pdf-test/analyze",
+    ),
+)
+@pytest.mark.parametrize("role", ("viewer", "editor"))
+def test_file_preparation_requires_project_editor(
+    tmp_path: Path, path: str, role: str
+) -> None:
+    access = _RecordingProjectAccess(role)
+    app = _protect(_core(tmp_path, "file-preparation"), access)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.post(path, json={})
+        assert access.pop_required_role() == "editor"
+        assert (response.status_code == 403) == (role == "viewer")

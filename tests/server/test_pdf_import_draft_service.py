@@ -4,6 +4,7 @@ import errno
 import hashlib
 import io
 import json
+import os
 import shutil
 import sqlite3
 import threading
@@ -207,6 +208,32 @@ def _png_payload() -> bytes:
     return output.getvalue()
 
 
+def _staged_selection(
+    root: Path, items: list[tuple[str, bytes, str]]
+) -> tuple[Path, list[dict]]:
+    staging = root / "private-staging"
+    files = staging / "files"
+    files.mkdir(parents=True)
+    entries = []
+    for logical_path, payload, mime in items:
+        digest = hashlib.sha256(payload).hexdigest()
+        target = files / digest
+        if not target.exists():
+            target.write_bytes(payload)
+        entries.append(
+            {
+                "logical_path": logical_path,
+                "filename": Path(logical_path).name,
+                "mime": mime,
+                "kind": "files",
+                "path": f"files/{digest}",
+                "sha256": digest,
+                "size": len(payload),
+            }
+        )
+    return staging, entries
+
+
 def _service(tmp_path: Path, monkeypatch, **kwargs):
     workspace = Workspace(tmp_path / "workspace", enable_local_model_pull=False)
     project_id = str(workspace.create("PDF intake", project_id="pdf-intake")["id"])
@@ -283,6 +310,149 @@ def test_pdf_draft_stages_outside_project_and_recovers_bounded_status(
     samples = service.samples(project_id, draft_id, category="missing", limit=1)
     assert len(samples["items"]) == 1
     assert samples["next_cursor"] is not None
+
+
+def test_adopted_server_staging_publishes_all_bytes_before_bounded_analysis(
+    tmp_path: Path, monkeypatch
+) -> None:
+    workspace, project_id, service = _service(tmp_path, monkeypatch)
+    note = b"supporting attachment"
+    staging, entries = _staged_selection(
+        tmp_path,
+        [
+            ("one.pdf", PDF, "application/pdf"),
+            ("two.pdf", PDF + b"-two", "application/pdf"),
+            ("notes/readme.txt", note, "text/plain"),
+        ],
+    )
+
+    adopted = service.adopt_staged(
+        project_id, staging, entries, source_label="Archive evidence"
+    )
+
+    assert not staging.exists()
+    assert adopted["manifest"]["files_done"] == 3
+    assert adopted["manifest"]["sealed"] is True
+    assert adopted["upload"]["files_done"] == 3
+    assert adopted["upload"]["sealed"] is True
+    assert adopted["analysis"] == {"files_done": 0, "files_total": 3}
+    assert adopted["category_counts"]["unchecked"] == 3
+    directory = workspace.root / ".pdf_import_drafts" / adopted["draft_id"]
+    assert {path.name for path in (directory / "files").iterdir()} == {
+        str(entry["sha256"]) for entry in entries
+    }
+
+    first = service.analyze_staged(project_id, adopted["draft_id"], limit=2)
+    assert first["analysis"]["files_done"] == 2
+    second = service.analyze_staged(project_id, adopted["draft_id"], limit=2)
+    assert second["analysis"]["files_done"] == 3
+    replay = service.analyze_staged(project_id, adopted["draft_id"], limit=2)
+    assert replay["revision"] == second["revision"]
+    assert replay["category_counts"] == {
+        "text": 0,
+        "suspicious": 0,
+        "missing": 2,
+        "image": 0,
+        "other": 1,
+        "unreadable": 0,
+        "unchecked": 0,
+    }
+
+
+def test_adopted_server_staging_failure_has_one_cleanup_owner(
+    tmp_path: Path, monkeypatch
+) -> None:
+    workspace, project_id, service = _service(tmp_path, monkeypatch)
+    staging, entries = _staged_selection(
+        tmp_path,
+        [
+            ("one.pdf", PDF, "application/pdf"),
+            ("two.pdf", PDF + b"-two", "application/pdf"),
+        ],
+    )
+    entries[1]["size"] += 1
+
+    with pytest.raises(PdfImportDraftError, match="staged source"):
+        service.adopt_staged(project_id, staging, entries)
+
+    assert not staging.exists()
+    assert list((workspace.root / ".pdf_import_drafts").iterdir()) == []
+
+
+def test_stale_unpublished_adoption_is_reclaimed(tmp_path: Path) -> None:
+    workspace = Workspace(tmp_path / "workspace", enable_local_model_pull=False)
+    hidden = workspace.root / ".pdf_import_drafts" / ".adopt-pdf-interrupted"
+    hidden.mkdir(parents=True)
+    (hidden / "files").mkdir()
+    os.utime(hidden, (0, 0))
+
+    PdfImportService(workspace)
+
+    assert not hidden.exists()
+
+
+def test_overlapping_staged_analysis_runs_each_occurrence_once(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _workspace, project_id, service = _service(tmp_path, monkeypatch)
+    staging, entries = _staged_selection(
+        tmp_path,
+        [
+            ("one.pdf", PDF, "application/pdf"),
+            ("two.pdf", PDF + b"-two", "application/pdf"),
+        ],
+    )
+    adopted = service.adopt_staged(project_id, staging, entries)
+    started = threading.Event()
+    second_lock_attempt = threading.Event()
+    release = threading.Event()
+    calls = 0
+    lock_calls = 0
+    count_lock = threading.Lock()
+    original_files_lock = service._files_lock
+
+    def tracked_files_lock(directory):
+        nonlocal lock_calls
+        with count_lock:
+            lock_calls += 1
+            if lock_calls == 2:
+                second_lock_attempt.set()
+        return original_files_lock(directory)
+
+    def analyze(_path):
+        nonlocal calls
+        calls += 1
+        started.set()
+        assert release.wait(5)
+        return {
+            "analysis_state": "done",
+            "page_count": 1,
+            "category": "text",
+            "sample_pages": [1],
+            "error": None,
+        }
+
+    monkeypatch.setattr(service, "_analyze", analyze)
+    monkeypatch.setattr(service, "_files_lock", tracked_files_lock)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(
+            service.analyze_staged,
+            project_id,
+            adopted["draft_id"],
+            limit=1,
+        )
+        assert started.wait(5)
+        second = executor.submit(
+            service.analyze_staged,
+            project_id,
+            adopted["draft_id"],
+            limit=1,
+        )
+        assert second_lock_attempt.wait(5)
+        release.set()
+        assert first.result(timeout=5)["analysis"]["files_done"] == 1
+        assert second.result(timeout=5)["analysis"]["files_done"] == 1
+    assert calls == 1
 
 
 def test_mixed_files_keep_mime_preview_and_missing_ocr_scope(
@@ -506,7 +676,7 @@ def test_slow_analysis_does_not_block_status_or_cancel(
         }
 
     monkeypatch.setattr(service, "_analyze", analyze)
-    with ThreadPoolExecutor(max_workers=1) as executor:
+    with ThreadPoolExecutor(max_workers=2) as executor:
         future = executor.submit(
             service.upload,
             project_id,
@@ -520,9 +690,12 @@ def test_slow_analysis_does_not_block_status_or_cancel(
         pending = service.status(project_id, draft_id)
         assert pending["upload"]["files_done"] == 1
         assert pending["analysis"]["files_done"] == 0
-        assert service.discard(project_id, draft_id)["state"] == "cancelled"
+        discarded = executor.submit(service.discard, project_id, draft_id)
+        assert not discarded.done()
         release.set()
-        assert future.result(timeout=5)["state"] == "cancelled"
+        assert discarded.result(timeout=5)["state"] == "cancelled"
+        assert future.result(timeout=5)["state"] in {"open", "cancelled"}
+        assert service.status(project_id, draft_id)["state"] == "cancelled"
 
 
 def test_status_reconciles_preview_registry_terminal_state(

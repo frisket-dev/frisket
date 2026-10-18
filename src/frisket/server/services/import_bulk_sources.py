@@ -10,10 +10,12 @@ import secrets
 import stat
 import zipfile
 import zlib
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO
 
 from frisket.engine.store.disk_capacity import require_disk_headroom
+from frisket.server.thread_worker import await_thread_worker
 from frisket.server.services.import_bulk_types import (
     BulkImportLimits,
     BulkUpload,
@@ -25,6 +27,12 @@ from frisket.server.services.import_bulk_types import (
 CHUNK = 1024 * 1024
 DETECTION_PREFIX_BYTES = 128 * 1024
 _EMAIL_HEADER_RE = re.compile(rb"(?im)^(date|from|to|cc|subject|message-id):")
+
+
+@dataclass
+class _ArchiveBudget:
+    members: int = 0
+    expanded_bytes: int = 0
 
 
 def enforce_limit(label, actual, limit):
@@ -239,6 +247,7 @@ async def stage_uploads(
     staged = []
     seen = set()
     total_size = 0
+    archive_budget = _ArchiveBudget()
     for i, u in enumerate(uploads):
         logical = normalize_logical_path(u.logical_path)
         if logical in seen:
@@ -263,9 +272,17 @@ async def stage_uploads(
                 if durable:
                     sink.flush()
                     os.fsync(sink.fileno())
-            if expand:
-                staged += stage_zip(temp, draft / "files", limits)
-            elif not is_junk_path(logical):
+            if is_junk_path(logical):
+                continue
+            if expand and source_suffix(logical) == ".zip":
+                staged += await await_thread_worker(
+                    stage_zip,
+                    temp,
+                    draft / "files",
+                    limits,
+                    budget=archive_budget,
+                )
+            else:
                 publish_staged_file(
                     temp,
                     draft / "files" / digest.hexdigest(),
@@ -289,16 +306,23 @@ async def stage_uploads(
 
 
 def stage_zip(
-    path: Path, files: Path, limits: BulkImportLimits
+    path: Path,
+    files: Path,
+    limits: BulkImportLimits,
+    *,
+    budget: _ArchiveBudget | None = None,
 ) -> list[dict[str, Any]]:
     staged = []
     seen = set()
-    expanded = 0
+    request_budget = budget or _ArchiveBudget()
     try:
         with zipfile.ZipFile(path) as archive:
             infos = sorted(archive.infolist(), key=lambda x: x.filename)
+            request_budget.members += len(infos)
             enforce_limit(
-                "archive member count", len(infos), limits.max_archive_members
+                "archive member count",
+                request_budget.members,
+                limits.max_archive_members,
             )
             for info in infos:
                 # ZipInfo.filename is truncated at the first NUL by the
@@ -349,10 +373,10 @@ def stage_zip(
                             if not chunk:
                                 break
                             size += len(chunk)
-                            expanded += len(chunk)
+                            request_budget.expanded_bytes += len(chunk)
                             enforce_limit(
                                 "expanded archive bytes",
-                                expanded,
+                                request_budget.expanded_bytes,
                                 limits.max_expanded_bytes,
                             )
                             digest.update(chunk)

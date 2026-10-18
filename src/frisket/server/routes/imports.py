@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Annotated, Any
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
@@ -13,6 +14,7 @@ from frisket.contracts.http.bulk_imports import (
     BulkImportExecuteBody,
     BulkImportExecuteResponse,
     BulkImportPlanResponse,
+    PrepareImportFilesResponse,
 )
 from frisket.contracts.http.onboarding_imports import (
     IMPORT_CSV_ERROR_RESPONSES,
@@ -121,6 +123,23 @@ def register_import_bulk_routes(
     *,
     service: ImportBulkService,
 ) -> None:
+    def aligned_uploads(
+        files: list[UploadFile], logical_paths: list[str]
+    ) -> list[BulkUpload]:
+        if len(files) != len(logical_paths):
+            raise ImportBulkRouteError(
+                400, "files and logical_paths must have the same length"
+            )
+        return [
+            BulkUpload(
+                filename=file.filename or "upload",
+                logical_path=logical_path,
+                mime=file.content_type or "application/octet-stream",
+                file=file,
+            )
+            for file, logical_path in zip(files, logical_paths, strict=True)
+        ]
+
     @app.post(
         "/api/projects/{pid}/import/bulk/plan",
         response_model=BulkImportPlanResponse,
@@ -132,20 +151,42 @@ def register_import_bulk_routes(
         logical_paths: Annotated[list[str], Form()],
         expand_archive: Annotated[bool, Form()] = False,
     ) -> dict[str, Any]:
-        if len(files) != len(logical_paths):
-            raise ImportBulkRouteError(
-                400, "files and logical_paths must have the same length"
+        return await service.plan(
+            pid,
+            uploads=aligned_uploads(files, logical_paths),
+            expand_archive=expand_archive,
+        )
+
+    @app.post(
+        "/api/projects/{pid}/import/files/prepare",
+        operation_id="prepareImportFiles",
+        response_model=PrepareImportFilesResponse,
+        responses=http_error_responses(400, 401, 403, 404, 413, 422, 500),
+    )
+    async def prepare_import_files(
+        pid: str,
+        request: Request,
+        files: Annotated[list[UploadFile], File()],
+        logical_paths: Annotated[list[str], Form()],
+        expand_archive: Annotated[bool, Form()] = False,
+    ) -> dict[str, Any] | Response:
+        prepared: dict[str, Any] | None = None
+        try:
+            if await request.is_disconnected():
+                return Response(status_code=499)
+            prepared = await service.prepare(
+                pid,
+                uploads=aligned_uploads(files, logical_paths),
+                expand_archive=expand_archive,
             )
-        uploads = [
-            BulkUpload(
-                filename=file.filename or "upload",
-                logical_path=logical_path,
-                mime=file.content_type or "application/octet-stream",
-                file=file,
-            )
-            for file, logical_path in zip(files, logical_paths, strict=True)
-        ]
-        return await service.plan(pid, uploads=uploads, expand_archive=expand_archive)
+            if await request.is_disconnected():
+                await service.discard_prepared(pid, prepared)
+                return Response(status_code=499)
+            return prepared
+        except asyncio.CancelledError:
+            if prepared is not None:
+                await service.discard_prepared(pid, prepared)
+            raise
 
     @app.post(
         "/api/projects/{pid}/import/bulk/{plan_id}/execute",

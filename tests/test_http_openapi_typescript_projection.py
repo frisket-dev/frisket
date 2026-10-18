@@ -261,6 +261,7 @@ void path; void created;
     "operation_id",
     (
         "tenant.import_csv.post",
+        "tenant.prepare_import_files.post",
         "tenant.import_csv_preview.post",
         "tenant.import_xlsx.post",
         "tenant.import_pdf.post",

@@ -6,6 +6,7 @@ import json
 import os
 import secrets
 import shutil
+import stat
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
@@ -104,6 +105,14 @@ class PdfDraftStore:
 
     def purge_expired(self) -> None:
         current_time = datetime.now(UTC)
+        cutoff = current_time.timestamp() - DRAFT_TTL_SECONDS
+        for directory in self.root.glob(".adopt-pdf-*"):
+            try:
+                metadata = directory.lstat()
+                if stat.S_ISDIR(metadata.st_mode) and metadata.st_mtime <= cutoff:
+                    shutil.rmtree(directory, ignore_errors=True)
+            except OSError:
+                continue
         terminal = {"open", "committed", "cancelling", "cancelled", "error"}
         for path in self.root.glob("pdf-*/manifest.json"):
             directory = path.parent
