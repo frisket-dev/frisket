@@ -8,6 +8,7 @@ import {
 
 import {
   pdfImportsApi,
+  PdfImportResponseError,
   type PdfImportCategory,
   type PdfImportBatchOcrEstimate,
   type PdfImportChoices,
@@ -468,9 +469,9 @@ export function PdfBatchImportFlow({
     }
   };
 
-  const estimateBatchOcr = async () => {
-    if (!snapshot || batchEstimateBusy) return;
-    if (ocrPolicyCount(snapshot, snapshot.choices.ocr_policy) === 0) {
+  const estimateBatchOcr = async (source = snapshot) => {
+    if (!source || batchEstimateBusy) return;
+    if (ocrPolicyCount(source, source.choices.ocr_policy) === 0) {
       setBatchOcrConsent(null);
       return;
     }
@@ -479,10 +480,10 @@ export function PdfBatchImportFlow({
     try {
       const estimate = await api.estimateBatchOcr(
         projectId,
-        snapshot.draft_id,
-        snapshot.choices.ocr_engine,
-        snapshot.choices.ocr_policy,
-        snapshot.revision,
+        source.draft_id,
+        source.choices.ocr_engine,
+        source.choices.ocr_policy,
+        source.revision,
       );
       setBatchOcrConsent(estimate.needs_confirmation ? estimate : null);
       await refresh();
@@ -538,6 +539,7 @@ export function PdfBatchImportFlow({
       }
       await refresh();
     } catch (problem) {
+      if (!(problem instanceof PdfImportResponseError)) committed.current = true;
       reportError(problem);
       void refresh();
     } finally {
@@ -648,8 +650,10 @@ export function PdfBatchImportFlow({
             onBack={() => setStage('check')}
             onContinue={() => {
               setStage('search');
-              void api.refreshSemanticSetup(projectId, snapshot.draft_id).then(publish).catch(reportError);
-              void estimateBatchOcr();
+              void api.refreshSemanticSetup(projectId, snapshot.draft_id).then((refreshed) => {
+                publish(refreshed);
+                return estimateBatchOcr(refreshed);
+              }).catch(reportError);
             }}
           />
         )}

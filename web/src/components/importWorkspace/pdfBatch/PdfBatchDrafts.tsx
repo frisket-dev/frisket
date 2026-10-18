@@ -17,7 +17,7 @@ function activeDraft(snapshot: PdfImportSnapshot): boolean {
 
 export function PdfBatchDrafts({ projectId, onResume, api = pdfImportsApi }: PdfBatchDraftsProps) {
   const [drafts, setDrafts] = useState<PdfImportSnapshot[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
   const [discardId, setDiscardId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -29,7 +29,7 @@ export function PdfBatchDrafts({ projectId, onResume, api = pdfImportsApi }: Pdf
     }).catch((problem: unknown) => {
       if (!controller.signal.aborted) setError(problem instanceof Error ? problem.message : String(problem));
     }).finally(() => {
-      if (!controller.signal.aborted) setLoading(false);
+      if (!controller.signal.aborted) setLoadedProjectId(projectId);
     });
     return () => controller.abort();
   }, [api, projectId]);
@@ -51,7 +51,7 @@ export function PdfBatchDrafts({ projectId, onResume, api = pdfImportsApi }: Pdf
     }
   };
 
-  if (loading) return <div className="pdf-batch-drafts-loading" role="status"><LoaderCircle className="spin" size={14} /> Checking unfinished PDF imports…</div>;
+  if (loadedProjectId !== projectId) return <div className="pdf-batch-drafts-loading" role="status"><LoaderCircle className="spin" size={14} /> Checking unfinished PDF imports…</div>;
   if (drafts.length === 0 && !error) return null;
 
   return <section className="pdf-batch-drafts" aria-label="Unfinished PDF imports">
@@ -65,12 +65,12 @@ export function PdfBatchDrafts({ projectId, onResume, api = pdfImportsApi }: Pdf
         <div><strong>{draft.source_label || count(total, 'PDF')}</strong><span>{draft.state === 'cancelling'
           ? `Removing ${bytesLabel(draft.cleanup.bytes_done)} of ${bytesLabel(draft.cleanup.bytes_total ?? 0)}`
           : `${copied.toLocaleString()} of ${total.toLocaleString()} copied${draft.paused ? ' · Paused' : ''}`}</span></div>
-        {confirming ? <div className="pdf-batch-draft-confirm">
+        {draft.state === 'cancelling' ? <LoaderCircle className="spin" size={15} aria-label="Removing import" /> : confirming ? <div className="pdf-batch-draft-confirm">
           <span>Discard this import?</span>
           <button type="button" className="btn" onClick={() => setDiscardId(null)}>Keep</button>
           <button type="button" className="btn btn-danger" disabled={busyId === draft.draft_id} onClick={() => void discard(draft)}>Discard draft</button>
         </div> : <div className="pdf-batch-draft-actions">
-          {draft.state !== 'cancelling' && <button type="button" className="btn" onClick={() => onResume(draft.draft_id)}>Resume</button>}
+          <button type="button" className="btn" onClick={() => onResume(draft.draft_id)}>Resume</button>
           <button type="button" className="icon-btn" aria-label={`Discard ${draft.source_label || 'PDF import'}`} onClick={() => setDiscardId(draft.draft_id)}><Trash2 size={14} /></button>
         </div>}
       </article>;

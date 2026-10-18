@@ -273,7 +273,7 @@ export interface PdfImportCommitResponse {
   job: { sheet_id?: number; [key: string]: unknown } | null;
 }
 
-class PdfImportResponseError extends Error {
+export class PdfImportResponseError extends Error {
   readonly status: number;
   readonly payload: unknown;
 
