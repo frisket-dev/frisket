@@ -220,7 +220,9 @@ class _FailingTextPreparation(_TextPreparation):
 class _FailedPromotionIntake(_Intake):
     def promote_commit_inventory(self, *_args, target_path, **_kwargs):
         target_path.parent.mkdir(parents=True, exist_ok=True)
-        raise PdfImportPromotionRejected("promotion failed before ownership transfer")
+        raise PdfImportPromotionRejected(
+            409, "promotion failed before ownership transfer"
+        )
 
 
 def _staged(root: Path, ordinal: int, name: str, *, category: str) -> _Occurrence:
@@ -594,9 +596,7 @@ class _PaidActions:
         )
 
 
-def _paid_grant(
-    frozen: _Frozen, occurrences: list[_Occurrence]
-) -> PdfImportOcrGrant:
+def _paid_grant(frozen: _Frozen, occurrences: list[_Occurrence]) -> PdfImportOcrGrant:
     action_params = dict(frozen.ocr_action_params)
     digest = hashlib.sha256()
     for occurrence in occurrences:
@@ -648,40 +648,42 @@ def _paid_grant(
         "promises": [],
         "quote": {"policy_id": policy_id, "billed_cost": page_count},
     }
-    return PdfImportOcrGrant.from_mapping({
-        "schema_version": "frisket.pdf_import_ocr_approval.v1",
-        "actor": "installation:user:paid-import",
-        "promise_set_hash": "0" * 64,
-        "scope_hash": "1" * 64,
-        "scope": {
-            "schema_version": "frisket.pdf_import_ocr_scope.v1",
-            "identity": frozen.manifest_hash,
-            "storage_identity": frozen.storage_identity,
-            "draft_id": frozen.draft_id,
-            "roster_digest": roster_digest,
-            "source_count": len(occurrences),
-            "page_count": page_count,
-            "ocr_params_hash": replay_generated_value_hash(action_params),
-            "child_partitions_hash": "2" * 64,
-        },
-        "ocr_action_params": action_params,
-        "target": {},
-        "route": {},
-        "promises": [],
-        "quote": {"billed_cost": page_count},
-        "allocation": {
-            "schema_version": "frisket.pdf_import_ocr_allocation.v1",
-            "roster": "effective_unmatched_ocr_selected_commit_order",
-            "max_commit_occurrences_per_child": 256,
-            "source_count": len(occurrences),
-            "page_count": page_count,
-            "approved_billed_cost": page_count,
-            "currency": "USD",
-            "policy_id": policy_id,
-            "row_quote_authority": "canonical_commit_occurrences",
-            "children": [child],
-        },
-    })
+    return PdfImportOcrGrant.from_mapping(
+        {
+            "schema_version": "frisket.pdf_import_ocr_approval.v1",
+            "actor": "installation:user:paid-import",
+            "promise_set_hash": "0" * 64,
+            "scope_hash": "1" * 64,
+            "scope": {
+                "schema_version": "frisket.pdf_import_ocr_scope.v1",
+                "identity": frozen.manifest_hash,
+                "storage_identity": frozen.storage_identity,
+                "draft_id": frozen.draft_id,
+                "roster_digest": roster_digest,
+                "source_count": len(occurrences),
+                "page_count": page_count,
+                "ocr_params_hash": replay_generated_value_hash(action_params),
+                "child_partitions_hash": "2" * 64,
+            },
+            "ocr_action_params": action_params,
+            "target": {},
+            "route": {},
+            "promises": [],
+            "quote": {"billed_cost": page_count},
+            "allocation": {
+                "schema_version": "frisket.pdf_import_ocr_allocation.v1",
+                "roster": "effective_unmatched_ocr_selected_commit_order",
+                "max_commit_occurrences_per_child": 256,
+                "source_count": len(occurrences),
+                "page_count": page_count,
+                "approved_billed_cost": page_count,
+                "currency": "USD",
+                "policy_id": policy_id,
+                "row_quote_authority": "canonical_commit_occurrences",
+                "children": [child],
+            },
+        }
+    )
 
 
 def test_reviewed_text_handoff_uses_one_designated_column_and_action_authority(
