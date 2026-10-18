@@ -22,7 +22,7 @@ PdfImportState = Literal[
 PdfTextCategory = Literal[
     "text", "suspicious", "missing", "image", "other", "unreadable", "unchecked"
 ]
-PdfOcrPolicy = Literal["missing_or_suspicious", "all", "none"]
+PdfOcrPolicy = Literal["missing", "missing_or_suspicious", "all", "none"]
 PdfImportOcrSelection = Annotated[
     EngineSelection | EngineModelSelection, Field(discriminator="kind")
 ]
@@ -227,12 +227,19 @@ class PdfImportSample(WireModel):
     error: str | None
 
 
+class PdfImportExtensionCount(WireModel):
+    extension: str = Field(max_length=64)
+    count: int = Field(ge=1)
+
+
 class PdfImportSamplesResponse(WireModel):
     schema_version: Literal[PDF_IMPORT_SCHEMA_VERSION]
     draft_id: str
     category: PdfTextCategory
     items: list[PdfImportSample] = Field(max_length=6)
     next_cursor: str | None
+    extension_counts: list[PdfImportExtensionCount] = Field(max_length=32)
+    unlisted_extension_count: int = Field(ge=0)
 
 
 class PdfImportPageResponse(WireModel):
