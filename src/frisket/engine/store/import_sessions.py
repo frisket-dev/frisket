@@ -116,6 +116,37 @@ class ImportSessionStore:
             raise ImportSessionConflict("import session disappeared")
         return session
 
+    def upgrade_append_undo(self, session: ImportSession) -> None:
+        """Adopt ledger membership for an append resumed across an upgrade.
+
+        Runs inside the page transaction: older append sessions stored row IDs
+        in the operation, but already recorded the same durable membership.
+        """
+        operation = self.db.execute(
+            "SELECT undo_info FROM ops WHERE id=?", (session.op_id,)
+        ).fetchone()
+        if operation is None:
+            raise ImportSessionConflict("import operation is unavailable")
+        undo = json.loads(operation["undo_info"] or "{}")
+        if (
+            "created_rows" not in undo
+            or "created_sheets" in undo
+            or "created_rows_import_session_id" in undo
+        ):
+            return
+        count = self.db.execute(
+            "SELECT COUNT(*) FROM import_session_rows WHERE session_id=?",
+            (session.id,),
+        ).fetchone()[0]
+        if count != session.committed_rows:
+            raise ImportSessionConflict("import row membership is incomplete")
+        undo["created_rows"] = []
+        undo["created_rows_import_session_id"] = session.id
+        self.db.execute(
+            "UPDATE ops SET undo_info=? WHERE id=?",
+            (json.dumps(undo), session.op_id),
+        )
+
     def set_state(
         self,
         session_id: str,

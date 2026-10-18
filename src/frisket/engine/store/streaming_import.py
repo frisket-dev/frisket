@@ -670,6 +670,7 @@ class StreamingSheetWriter:
                 self._writer_authority,
                 expected_cursor,
             )
+            ImportSessionStore(self.project).upgrade_append_undo(session)
             row_ids = self.project.add_rows(
                 self.sheet_id,
                 batch,

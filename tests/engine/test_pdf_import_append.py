@@ -187,6 +187,52 @@ def test_append_undo_hides_columns_created_for_the_import(tmp_path: Path) -> Non
         project.close()
 
 
+@pytest.mark.parametrize("replace_writer", [False, True])
+def test_pre_upgrade_append_undo_includes_rows_added_after_restart(
+    tmp_path: Path, replace_writer: bool
+) -> None:
+    project = Project.create(tmp_path / "old-append.frisket", name="append")
+    try:
+        sheet_id, columns = _existing_sheet(project)
+        writer = _start_append(project, sheet_id)
+        old_rows = writer.append_page(
+            [{"filename": "before-upgrade.pdf"}], expected_cursor=0, next_cursor=1
+        )
+        session = ImportSessionStore(project).get("pdf-commit:one")
+        assert session is not None
+        project.db.execute(
+            "UPDATE ops SET undo_info=? WHERE id=?",
+            (
+                json.dumps({"created_rows": old_rows, "created_columns": []}),
+                session.op_id,
+            ),
+        )
+        project.db.commit()
+        if replace_writer:
+            resumed = StreamingSheetWriter.resume_session(
+                project,
+                session_id=session.id,
+                writer_authority="claim:two",
+                expected_cursor=1,
+            )
+        else:
+            resumed = StreamingSheetWriter._from_session(project, session)
+        resumed.append_page(
+            [{"filename": "after-upgrade.pdf"}], expected_cursor=1, next_cursor=2
+        )
+        publication = resumed.finalize_session(expected_cursor=2)
+        assert project.undo() == publication.op_id
+        assert _visible_names(project, sheet_id, columns["filename"]) == ["before.pdf"]
+        assert project.redo() == publication.op_id
+        assert _visible_names(project, sheet_id, columns["filename"]) == [
+            "before.pdf",
+            "before-upgrade.pdf",
+            "after-upgrade.pdf",
+        ]
+    finally:
+        project.close()
+
+
 def test_cancelled_append_is_kept_then_removed_by_normal_undo(tmp_path: Path) -> None:
     project = Project.create(tmp_path / "remove-append.frisket", name="append")
     try:
@@ -387,19 +433,28 @@ def test_large_append_keeps_undo_metadata_bounded(tmp_path: Path) -> None:
         }
         assert set(metadata_sizes) == {len(undo_info)}
         assert len(undo_info) < 160
-        assert project.db.execute(
-            "SELECT COUNT(*) FROM import_session_rows WHERE session_id=?",
-            ("pdf-commit:one",),
-        ).fetchone()[0] == 10_000
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM import_session_rows WHERE session_id=?",
+                ("pdf-commit:one",),
+            ).fetchone()[0]
+            == 10_000
+        )
 
         assert project.undo() == publication.op_id
-        assert project.db.execute(
-            "SELECT COUNT(*) FROM rows WHERE sheet_id=? AND hidden=1", (sheet_id,)
-        ).fetchone()[0] == 10_000
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM rows WHERE sheet_id=? AND hidden=1", (sheet_id,)
+            ).fetchone()[0]
+            == 10_000
+        )
         assert project.redo() == publication.op_id
-        assert project.db.execute(
-            "SELECT COUNT(*) FROM rows WHERE sheet_id=? AND hidden=0", (sheet_id,)
-        ).fetchone()[0] == 10_001
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM rows WHERE sheet_id=? AND hidden=0", (sheet_id,)
+            ).fetchone()[0]
+            == 10_001
+        )
         assert _visible_names(project, sheet_id, columns["filename"])[0] == "before.pdf"
     finally:
         project.close()
