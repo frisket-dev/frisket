@@ -338,8 +338,15 @@ def test_import_undo_after_derived_text_result_preserves_existing_rows(
             ],
         )
         _seal(generations, derived, columns["text"])
+        RunResultStore(project).finish_run(derived.run_id)
         _release(project, derived)
 
+        assert (
+            project.db.execute(
+                "SELECT status FROM runs WHERE id=?", (derived.run_id,)
+            ).fetchone()["status"]
+            == "completed"
+        )
         assert project.get_values(sheet_id, columns["text"])[imported_row] == (
             "generated document text"
         )
