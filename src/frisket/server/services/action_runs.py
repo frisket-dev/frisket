@@ -307,13 +307,14 @@ class ActionRunService:
         trusted_consent_authorizer: TrustedConsentAuthorizer | None = None,
         trusted_consent_principal: str | None = None,
     ) -> ActionRunResponse:
-        if (trusted_consent_authorizer is None) != (
-            trusted_consent_principal is None
-        ):
+        if (trusted_consent_authorizer is None) != (trusted_consent_principal is None):
             raise ValueError(
                 "trusted consent authority and principal must be supplied together"
             )
-        if trusted_consent_principal is not None and not trusted_consent_principal.strip():
+        if (
+            trusted_consent_principal is not None
+            and not trusted_consent_principal.strip()
+        ):
             raise ValueError("trusted consent principal must be non-empty")
         # Payload-only gates FIRST, before the project is resolved. These two
         # read nothing but the action envelope and this process's environment,

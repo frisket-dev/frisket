@@ -152,11 +152,19 @@ committed sheets together with failed and unattempted outputs.
 
 Resumable attachments use a paged inventory of canonical blobs and the same typed
 `import.files` producer. Pages atomically commit rows, provenance and a cursor to
-one new sheet under one operation/receipt. Completed rows are browsable, but the
-sheet is read-only until completion or Cancel followed by Keep/Remove. Remove
-clears only that session's new sheet; this is not append-to-existing-sheet undo.
+a new or existing sheet under one operation/receipt. Completed rows are
+browsable, but the destination is read-only until completion or Cancel followed
+by Keep/Remove. Remove discards only the session's imported rows and columns;
+it preserves existing destination data.
 Queue claims own publication authority. Upload batches and worker claims are
 bounded independently; neither carries the full corpus in a request or receipt.
+
+Multi-PDF review stages files outside the project until final Import. Text and
+OCR then use ordinary queued actions writing the shared document-text column,
+with separate Undo steps. Paid OCR is quoted against the staged file inventory
+and confirmed at final Import; each queued child must still satisfy ordinary
+action admission and the approved allocation. A display label must never alter
+the action identity or its queued execution parameters.
 
 CSV, XLSX and paste build their existing typed Params and use
 `run_tabular_action` for create, append and update. The browser sends raw paste

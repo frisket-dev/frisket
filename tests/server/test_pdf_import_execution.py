@@ -634,7 +634,9 @@ def test_reviewed_native_text_child_keeps_queued_identity_through_real_worker(
     project = workspace.get(project_id)
     sheet_id = project.add_sheet("Documents")
     media_id = project.add_column(sheet_id, "media", type="file")
-    payload = (Path(__file__).parents[1] / "fixtures/pdf_tables/simple_table.pdf").read_bytes()
+    payload = (
+        Path(__file__).parents[1] / "fixtures/pdf_tables/simple_table.pdf"
+    ).read_bytes()
     digest = project.add_blob(payload, filename="native.pdf", mime="application/pdf")
     row_id = project.add_rows(
         sheet_id,
@@ -1116,9 +1118,9 @@ def test_paid_parent_grant_admits_exact_ordinary_child_once(
         ).fetchone()["params"]
     )
     assert "group_label" not in prepared_spec
-    assert len(
-        workspace.queue.list_project_jobs(project_id, kind=PROJECT_RUN_KIND)
-    ) == 1
+    assert (
+        len(workspace.queue.list_project_jobs(project_id, kind=PROJECT_RUN_KIND)) == 1
+    )
 
     changed = [{**rows[0], "sha256": "0" * 64}]
     try:
