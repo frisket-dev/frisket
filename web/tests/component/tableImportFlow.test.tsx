@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 
 import '@testing-library/jest-dom/vitest';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import type { ComponentProps } from 'react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { StrictMode, type ComponentProps } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { TableImportDraft, TableImportMappingRequest, TableImportsApi } from '../../src/api/tableImports';
@@ -79,9 +79,9 @@ function mockApi(initial = draft()) {
   return api;
 }
 
-function renderFlow(api: TableImportsApi, props: Partial<ComponentProps<typeof TableImportFlow>> = {}) {
+function renderFlow(api: TableImportsApi, props: Partial<ComponentProps<typeof TableImportFlow>> = {}, strict = false) {
   const onImported = vi.fn();
-  render(<TableImportFlow
+  const flow = <TableImportFlow
     api={api}
     projectId="project-1"
     initialFile={new File(['contributor_id\n00418823'], 'contributions.csv', { type: 'text/csv' })}
@@ -95,8 +95,15 @@ function renderFlow(api: TableImportsApi, props: Partial<ComponentProps<typeof T
     onUsePdfSplit={vi.fn()}
     onUseFollowTheMoney={vi.fn()}
     {...props}
-  />);
+  />;
+  render(strict ? <StrictMode>{flow}</StrictMode> : flow);
   return { onImported };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((next) => { resolve = next; });
+  return { promise, resolve };
 }
 
 describe('TableImportFlow', () => {
@@ -172,6 +179,23 @@ describe('TableImportFlow', () => {
     expect(await screen.findByLabelText('Check rows')).toBeVisible();
   });
 
+  it('restarts initial file inspection after a Strict Mode effect replay', async () => {
+    const api = mockApi();
+    const stale = deferred<TableImportDraft>();
+    const current = deferred<TableImportDraft>();
+    vi.mocked(api.createFromFile).mockReset()
+      .mockImplementationOnce(() => stale.promise)
+      .mockImplementationOnce(() => current.promise);
+
+    renderFlow(api, { initialFile: new File(['name\nAda'], 'people.csv', { type: 'text/csv' }) }, true);
+    await waitFor(() => expect(api.createFromFile).toHaveBeenCalledTimes(2));
+
+    await act(async () => { stale.resolve(draft({ draft_id: 'stale-file', id: 'stale-file' })); await stale.promise; });
+    expect(screen.queryByLabelText('Check rows')).not.toBeInTheDocument();
+    await act(async () => { current.resolve(draft()); await current.promise; });
+    expect(await screen.findByLabelText('Check rows')).toBeVisible();
+  });
+
   it('uses record ordinals when a displayed physical line follows a multiline record', async () => {
     const initial = draft({
       preview: {
@@ -220,6 +244,38 @@ describe('TableImportFlow', () => {
     expect(api.get).toHaveBeenCalledWith('project-1', 'import-ref-7', expect.anything());
     expect(api.rerun).toHaveBeenCalledWith('project-1', 'import-ref-7', 'January', expect.anything());
     expect(screen.getByRole('combobox', { name: /Sheet/ })).toHaveValue('January');
+  });
+
+  it('restarts a retained workbook rerun after Strict Mode cleanup and ignores the stale read', async () => {
+    const retained = draft({
+      draft_id: 'import-ref-strict', id: 'import-ref-strict', state: 'committed',
+      source: {
+        ...draft().source, filename: 'workbook.xlsx', format: 'xlsx', can_rerun_workbook: true,
+        sheets: [{ index: 0, name: 'January', hidden: false, empty: false }],
+      },
+      settings: {
+        ...draft().settings!,
+        requested: { ...draft().settings!.requested, worksheet: 'January' },
+        resolved: { ...draft().settings!.resolved, kind: 'xlsx', delimiter: null, encoding: null, worksheet: 'January' },
+      },
+    });
+    const next = draft({ draft_id: 'rerun-strict', id: 'rerun-strict', source: retained.source, settings: retained.settings });
+    const staleGet = deferred<TableImportDraft>();
+    const currentGet = deferred<TableImportDraft>();
+    const api = mockApi(next);
+    vi.mocked(api.get).mockReset()
+      .mockImplementationOnce(() => staleGet.promise)
+      .mockImplementationOnce(() => currentGet.promise);
+    vi.mocked(api.rerun).mockResolvedValue(next);
+
+    renderFlow(api, { initialFile: null, initialRerunDraftId: retained.draft_id }, true);
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+    await act(async () => { staleGet.resolve(retained); await staleGet.promise; });
+    expect(api.rerun).not.toHaveBeenCalled();
+    await act(async () => { currentGet.resolve(retained); await currentGet.promise; });
+
+    expect(await screen.findByLabelText('Check rows')).toBeVisible();
+    expect(api.rerun).toHaveBeenCalledTimes(1);
   });
 
   it('shows the inferred date order until the user chooses another order', async () => {

@@ -105,7 +105,7 @@ export function TableImportFlow({
   const [password, setPassword] = useState('');
   const [snapshot, setSnapshot] = useState<TableImportDraft | null>(null);
   const [destination, setDestination] = useState<TableImportDestinationConfig>({ kind: 'new', sheet_name: 'Imported table' });
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(() => initialFile !== null || initialRerunDraftId !== null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [discardPrompt, setDiscardPrompt] = useState(false);
@@ -118,8 +118,6 @@ export function TableImportFlow({
   const commitKey = useRef(crypto.randomUUID());
   const destinationSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const callbacks = useRef({ onDiscarded, onError, onImported });
-  const rerunSource = useRef<string | null>(null);
-  const initialFileStarted = useRef<File | null>(null);
 
   useEffect(() => { callbacks.current = { onDiscarded, onError, onImported }; }, [onDiscarded, onError, onImported]);
 
@@ -198,10 +196,28 @@ export function TableImportFlow({
   }, [createFromFile, followTheMoneyEnabled]);
 
   useEffect(() => {
-    if (!initialFile || initialFileStarted.current === initialFile) return;
-    initialFileStarted.current = initialFile;
-    chooseFiles([initialFile]);
-  }, [chooseFiles, initialFile]);
+    if (!initialFile) return;
+    const epoch = ++generation.current;
+    requestController.current?.abort();
+    const controller = new AbortController();
+    requestController.current = controller;
+    void api.createFromFile(projectId, initialFile, { signal: controller.signal }).then((next) => {
+      if (generation.current !== epoch || controller.signal.aborted) return;
+      publish(next);
+      setDestination({ kind: 'new', sheet_name: tableImportDefaultSheetName(next.source.filename, next.source.input_kind) });
+      setStage(next.state === 'password_required' ? 'add' : 'rows');
+    }).catch((problem: unknown) => {
+      if (generation.current !== epoch || controller.signal.aborted) return;
+      if (problem instanceof TableImportResponseError && (problem.code === 'empty_source' || problem.code === 'unsupported_source' || problem.code === 'invalid_table')) {
+        setSourceIssue(problem.code === 'empty_source' ? { kind: 'empty', filename: initialFile.name } : { kind: 'unsupported', filename: initialFile.name, message: problem.message });
+      } else reportError(problem);
+    }).finally(() => {
+      if (generation.current === epoch && requestController.current === controller) {
+        requestController.current = null;
+        setBusy(false);
+      }
+    });
+  }, [api, initialFile, projectId, publish, reportError]);
 
   const createFromPaste = useCallback(async (confirmed: boolean) => {
     if (!pasteText.trim()) return;
@@ -242,17 +258,15 @@ export function TableImportFlow({
   }, [api, pasteText, projectId, publish, reportError]);
 
   useEffect(() => {
-    if (!initialRerunDraftId || rerunSource.current === initialRerunDraftId) return;
-    rerunSource.current = initialRerunDraftId;
+    if (!initialRerunDraftId) return;
     const epoch = ++generation.current;
     requestController.current?.abort();
     const controller = new AbortController();
     requestController.current = controller;
-    setBusy(true);
-    setError(null);
     void (async () => {
       try {
         const retained = await api.get(projectId, initialRerunDraftId, { signal: controller.signal });
+        if (generation.current !== epoch || controller.signal.aborted) return;
         if (!retained.source.can_rerun_workbook) throw new Error('This workbook is no longer available to import another sheet.');
         const worksheet = retained.settings?.resolved.worksheet
           ?? retained.settings?.requested.worksheet
