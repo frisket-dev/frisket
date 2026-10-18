@@ -329,6 +329,7 @@ def test_preparation_indexing_prefers_running_claim_over_queued_continuation(
         "error": None,
         "pdf_files": [],
         "pdf_files_truncated": False,
+        "sheet_names": [],
     }
     assert queue.complete(running_id, "index-test", {"complete": False})
     assert service.list(project_id).indexing.model_dump() == {
@@ -337,6 +338,7 @@ def test_preparation_indexing_prefers_running_claim_over_queued_continuation(
         "error": None,
         "pdf_files": [],
         "pdf_files_truncated": False,
+        "sheet_names": [],
     }
 
 
@@ -344,7 +346,9 @@ def test_pdf_progress_is_optional_and_skipped_when_indexing_is_idle(
     tmp_path, monkeypatch
 ):
     monkeypatch.setattr(preparation_module, "_requirements", lambda: ())
-    monkeypatch.setattr(preparation_module, "index_work_marker", lambda *_args: None)
+    monkeypatch.setattr(
+        preparation_module, "index_work_marker", lambda *_args, **_kwargs: None
+    )
     workspace = Workspace(tmp_path / "workspace")
     project_id = workspace.create("Optional progress")["id"]
     service = SearchPreparationService(workspace)
@@ -368,6 +372,29 @@ def test_pdf_progress_is_optional_and_skipped_when_indexing_is_idle(
     assert calls == [True]
     assert status.status == "queued" and status.job_id == job
     assert status.pdf_files == [] and status.pdf_files_truncated is False
+    assert status.sheet_names == []
+
+
+def test_indexing_sheet_names_follow_visible_explicit_lexical_scope(
+    tmp_path, monkeypatch
+) -> None:
+    from frisket.search import drain_index
+
+    monkeypatch.setattr(preparation_module, "_requirements", lambda: ())
+    workspace = Workspace(tmp_path / "workspace")
+    project_id = workspace.create("Scoped indexing")["id"]
+    project = workspace.get(project_id)
+    drain_index(project)
+    sheet_id = project.add_sheet("Notes")
+    column_id = project.add_column(sheet_id, "Note", type="text")
+    project.add_rows(sheet_id, [{"Note": "new text"}], {"Note": column_id})
+    project._frisket_schedule_search_index()
+    service = SearchPreparationService(workspace)
+
+    assert service.list(project_id).indexing.sheet_names == ["Notes"]
+    project.db.execute("UPDATE sheets SET hidden=1 WHERE id=?", (sheet_id,))
+    project.db.commit()
+    assert service.list(project_id).indexing.sheet_names == []
 
 
 def test_preparation_list_projects_durable_indexing_work(tmp_path, monkeypatch) -> None:
@@ -387,6 +414,17 @@ def test_preparation_list_projects_durable_indexing_work(tmp_path, monkeypatch) 
     ]
     assert active["status"] == "queued"
     assert active["job_id"] is not None
+    # A new project's leading global repair has no exact sheet context.
+    assert active["sheet_names"] == []
+    project.db.execute(
+        "UPDATE search_dirty_scopes SET scan_cursor=? WHERE sheet_id IS NULL",
+        (json.dumps([text_column, 0]),),
+    )
+    project.db.commit()
+    checkpointed = client.get(f"/api/projects/{project_id}/search-preparation").json()[
+        "indexing"
+    ]
+    assert checkpointed["sheet_names"] == ["Notes"]
 
     drain_index(project)
     assert client.app.state.workspace.queue.cancel(active["job_id"])
@@ -399,6 +437,7 @@ def test_preparation_list_projects_durable_indexing_work(tmp_path, monkeypatch) 
         "error": None,
         "pdf_files": [],
         "pdf_files_truncated": False,
+        "sheet_names": ["Notes"],
     }
     repeated = client.get(f"/api/projects/{project_id}/search-preparation").json()[
         "indexing"
@@ -426,6 +465,7 @@ def test_preparation_list_projects_durable_indexing_work(tmp_path, monkeypatch) 
         "error": "queue_job_failed: index failed",
         "pdf_files": [],
         "pdf_files_truncated": False,
+        "sheet_names": ["Notes"],
     }
     assert queue.find_job_by_refs("search.index", project_id=project_id) is None
 
@@ -454,6 +494,7 @@ def test_search_recovers_index_work_without_a_queued_job(tmp_path, monkeypatch, 
         "error": None,
         "pdf_files": [],
         "pdf_files_truncated": False,
+        "sheet_names": [],
     }
     body = {
         "scope": {"kind": "project"},
@@ -1986,6 +2027,7 @@ def test_empty_project_does_not_queue_or_report_search_preparation(tmp_path):
                 "error": None,
                 "pdf_files": [],
                 "pdf_files_truncated": False,
+                "sheet_names": [],
             },
         }
     assert workspace.queue.counts()["queued"] == 0

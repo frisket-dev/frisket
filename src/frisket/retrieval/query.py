@@ -1155,6 +1155,52 @@ class PdfIndexingProgress:
     total: int
 
 
+_INDEXING_SHEET_SOURCE_CANDIDATES = 64
+
+
+def read_preparation_sheet_names(project: Any, *, limit: int) -> tuple[str, ...]:
+    """Read names for a bounded sample of current semantic preparation work."""
+    if limit < 1:
+        raise ValueError("sheet name limit must be positive")
+    if not (Path(project.path) / RETRIEVAL_DB_NAME).is_file():
+        return ()
+    with PinnedRetrievalReader(project) as reader:
+        rows = reader.db.execute(
+            f"""WITH candidate_work AS MATERIALIZED (
+              SELECT source_id,target_version_kind,target_version_value,
+                     target_version_type
+              FROM idx.preparation
+              WHERE status IN ('pending','preparing')
+              ORDER BY CASE status WHEN 'preparing' THEN 0 ELSE 1 END,
+                       source_id,recipe_id,channel
+              LIMIT ?
+            )
+            SELECT sheet.name
+            FROM main.sheets AS sheet
+            WHERE sheet.hidden=0 AND EXISTS (
+              SELECT 1
+              FROM candidate_work AS preparation
+              JOIN idx.sources AS source
+                ON source.source_id=preparation.source_id
+               AND source.version_kind=preparation.target_version_kind
+               AND source.version_value=preparation.target_version_value
+               AND source.version_type=preparation.target_version_type
+              JOIN idx.bindings AS retrieval_binding
+                ON retrieval_binding.source_key=source.source_key
+               AND retrieval_binding.sheet_id=sheet.id
+              JOIN main.rows AS source_row
+                ON source_row.id=retrieval_binding.row_id
+               AND source_row.sheet_id=retrieval_binding.sheet_id
+               AND source_row.hidden=0
+              WHERE {_visible_column("retrieval_binding")}
+                AND {_binding_is_current("retrieval_binding")}
+            )
+            ORDER BY sheet.position,sheet.id LIMIT ?""",
+            (_INDEXING_SHEET_SOURCE_CANDIDATES, limit),
+        ).fetchall()
+    return tuple(str(row["name"]) for row in rows)
+
+
 def read_pdf_indexing_progress(
     project: Any, *, space_id: str, recipe_id: str, limit: int
 ) -> tuple[tuple[PdfIndexingProgress, ...], bool]:

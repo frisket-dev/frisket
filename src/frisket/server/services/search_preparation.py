@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from frisket.contracts.http.search_preparation import (
+    MAX_INDEXING_SHEET_NAMES,
     MAX_PDF_INDEXING_FILES,
     SearchPreparationBatch,
     SearchPreparationBatchList,
@@ -24,6 +25,7 @@ from frisket.contracts.http.search_preparation import (
     SearchPreparationTextSamples,
 )
 from frisket.engine.jobs.search_index import index_work_marker
+from frisket.engine.store.search_index_work import read_dirty_scopes
 from frisket.engine.jobs.search_preparation_store import (
     SearchPreparationBatchRow,
     SearchPreparationChildRow,
@@ -45,7 +47,10 @@ from frisket.engine.store.receipts import ReceiptStore
 from frisket.project_settings import read_project_settings
 from frisket.retrieval.source_adapter import resolve_cell_blob_source
 from frisket.retrieval.preparation import DEFAULT_TEXT_SPACE, PDF_PAGE_RECIPE_ID
-from frisket.retrieval.query import read_pdf_indexing_progress
+from frisket.retrieval.query import (
+    read_pdf_indexing_progress,
+    read_preparation_sheet_names,
+)
 from frisket.server.route_errors import RouteError
 from frisket.server.services.action_runs import ActionRunRouteError, ActionRunService
 from frisket.server.services.pdf_import_preparation import (
@@ -86,6 +91,39 @@ _JOB_TO_CHILD_STATE = {
 }
 _ACTIVE_PROGRESS_STATES = frozenset({"queued", "running", "stalled", "orphaned"})
 _PREPARATION_WARNING_LIMIT = 100
+_INDEXING_SHEET_SCOPE_CANDIDATES = 64
+
+
+def _lexical_indexing_sheet_names(project: Any) -> tuple[str, ...]:
+    scopes = read_dirty_scopes(project.db, limit=_INDEXING_SHEET_SCOPE_CANDIDATES)
+    if not scopes:
+        return ()
+    if scopes[0].sheet_id is None:
+        column_id, _row_id = json.loads(scopes[0].scan_cursor)
+        if column_id <= 0:
+            return ()
+        row = project.db.execute(
+            "SELECT sheet.name FROM columns AS column "
+            "JOIN sheets AS sheet ON sheet.id=column.sheet_id "
+            "WHERE column.id=? AND column.hidden=0 AND sheet.hidden=0",
+            (column_id,),
+        ).fetchone()
+        return () if row is None else (str(row["name"]),)
+    sheet_ids: list[int] = []
+    for scope in scopes:
+        if scope.sheet_id is None:
+            break
+        if scope.sheet_id not in sheet_ids:
+            sheet_ids.append(scope.sheet_id)
+    placeholders = ",".join("?" for _ in sheet_ids)
+    rows = project.db.execute(
+        f"SELECT id,name FROM sheets WHERE hidden=0 AND id IN ({placeholders})",
+        sheet_ids,
+    ).fetchall()
+    names = {int(row["id"]): str(row["name"]) for row in rows}
+    return tuple(names[sheet_id] for sheet_id in sheet_ids if sheet_id in names)[
+        :MAX_INDEXING_SHEET_NAMES
+    ]
 
 
 def _sha(value: object) -> str:
@@ -762,7 +800,18 @@ class SearchPreparationService:
             else "idle"
         )
         pdf_files, pdf_files_truncated = (), False
+        sheet_names: tuple[str, ...] = ()
         if indexing_status != "idle":
+            try:
+                if index_work_marker(project, include_preparation=False) is not None:
+                    sheet_names = _lexical_indexing_sheet_names(project)
+                else:
+                    sheet_names = read_preparation_sheet_names(
+                        project, limit=MAX_INDEXING_SHEET_NAMES
+                    )
+            except sqlite3.Error:
+                # Optional context must not hide the authoritative queue state.
+                pass
             try:
                 pdf_files, pdf_files_truncated = read_pdf_indexing_progress(
                     project,
@@ -787,6 +836,7 @@ class SearchPreparationService:
                 for file in pdf_files
             ],
             pdf_files_truncated=pdf_files_truncated,
+            sheet_names=list(sheet_names),
         )
 
     def get(

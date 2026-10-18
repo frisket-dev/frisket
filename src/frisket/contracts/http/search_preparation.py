@@ -113,6 +113,7 @@ class SearchPreparationBatch(WireModel):
 
 
 MAX_PDF_INDEXING_FILES = 8
+MAX_INDEXING_SHEET_NAMES = 8
 
 
 class SearchPreparationPdfFile(WireModel):
@@ -130,6 +131,9 @@ class SearchPreparationIndexing(WireModel):
         default_factory=list, max_length=MAX_PDF_INDEXING_FILES
     )
     pdf_files_truncated: bool = False
+    sheet_names: list[str] = Field(
+        default_factory=list, max_length=MAX_INDEXING_SHEET_NAMES
+    )
 
 
 class SearchPreparationBatchList(WireModel):

@@ -22,7 +22,11 @@ from frisket.retrieval.contracts import (
     WeightedTerm,
 )
 from frisket.retrieval.encoding import EmbeddingGemma2Space, EncodingError
-from frisket.retrieval.query import RetrievalQueryError, read_pdf_indexing_progress
+from frisket.retrieval.query import (
+    RetrievalQueryError,
+    read_pdf_indexing_progress,
+    read_preparation_sheet_names,
+)
 from frisket.retrieval.service import search_with_encoding
 from frisket.retrieval.sources import input_hash
 from frisket.retrieval.store import (
@@ -199,6 +203,26 @@ def test_pdf_indexing_progress_omits_invalid_stale_hidden_and_terminal_work(
         recipe_id=PDF_PAGE_RECIPE_ID,
         limit=2,
     ) == ((), False)
+
+
+@pytest.mark.parametrize("unavailable_context", ["hidden", "stale"])
+def test_preparation_sheet_names_require_current_visible_bindings(
+    pdf_indexing_sources, unavailable_context
+):
+    project, sheet, column, _sources = pdf_indexing_sources
+    assert read_preparation_sheet_names(project, limit=8) == ("PDFs",)
+
+    if unavailable_context == "hidden":
+        project.db.execute("UPDATE sheets SET hidden=1 WHERE id=?", (sheet,))
+    else:
+        project.db.execute(
+            "UPDATE current_cells SET retrieval_revision=retrieval_revision+1 "
+            "WHERE column_id=?",
+            (column,),
+        )
+    project.db.commit()
+
+    assert read_preparation_sheet_names(project, limit=8) == ()
 
 
 class Encoder:
