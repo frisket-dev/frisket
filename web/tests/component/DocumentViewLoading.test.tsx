@@ -119,7 +119,7 @@ describe('DocumentView loading state', () => {
     await waitFor(() => expect(hydrateRow).toHaveBeenCalledWith('7', ['file']));
   });
 
-  it('requests priority only after an explicit PDF list click', async () => {
+  it.each(['pdf', 'image'] as const)('requests priority only after an explicit %s list click', async (sourceKind) => {
     const onRequestDocumentPriority = vi.fn();
     render(
       <DocumentView
@@ -127,7 +127,7 @@ describe('DocumentView loading state', () => {
         onChangeState={() => undefined} onDocumentFocus={() => undefined} onOpenDetail={() => undefined}
         queryDocuments={async () => ({
           items: [{ rowId: '7', ordinal: 7, title: 'Roster scan', titleTruncated: false,
-            sourceKind: 'pdf', sourcePresent: true, sourceLabel: 'roster-scan.pdf',
+            sourceKind, sourcePresent: true, sourceLabel: 'roster-scan',
             sourceLabelTruncated: false, characterCount: null }],
           nextCursor: null, previousCursor: null,
         })}
