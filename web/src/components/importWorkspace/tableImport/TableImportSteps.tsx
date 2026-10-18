@@ -280,9 +280,9 @@ function lineLabel(row: TableImportPreview['head'][number], expectedValues: numb
   if (row.role === 'skipped_start' || row.role === 'skipped_end') return 'Skipped';
   if (row.role === 'blank') return 'Blank';
   const extra = row.issues.find((issue) => issue.code === 'extra_values');
-  if (extra) return `+${Math.max(extra.original_values.length, actualValues - expectedValues, extra.count)} values`;
+  if (extra) return `+${Math.max(extra.original_values.length, actualValues - expectedValues, extra.count ?? 0)} values`;
   const missing = row.issues.find((issue) => issue.code === 'missing_values');
-  if (missing) return `−${Math.max(expectedValues - actualValues, missing.count, 1)} values`;
+  if (missing) return `−${Math.max(expectedValues - actualValues, missing.count ?? 0, 1)} values`;
   return '';
 }
 

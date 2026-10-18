@@ -1,5 +1,4 @@
-import type { HttpActionJob } from '../generated/openHttpContracts';
-import type { RunRowErrorGroup } from '../api/open';
+import type { ActionJob, RunRowErrorGroup } from '../api/open';
 
 // Distinct per-row failure messages grouped with counts + example row ids,
 // rendered under the raw run-level error (the receipt's old aggregate —
@@ -34,7 +33,7 @@ export function RowErrorGroupList({ groups }: { groups: RunRowErrorGroup[] }) {
 }
 
 /** Import diagnostics refer to source lines, including rows that were not added. */
-export function ImportErrorGroupList({ groups }: { groups: NonNullable<HttpActionJob['import_errors']> }) {
+export function ImportErrorGroupList({ groups }: { groups: NonNullable<ActionJob['importErrors']> }) {
   return <ul className="bottom-dock-row-error-groups">
     {groups.map((group) => <li key={group.code} className="bottom-dock-row-error-group">
       <span className="bottom-dock-row-error-count">{group.count.toLocaleString()}×:</span>{' '}
