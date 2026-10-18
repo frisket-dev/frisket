@@ -6049,20 +6049,7 @@ export type HttpImportSessionCreateBody = ({
 });
 
 type HttpImportSessionList_ImportSessionStatus = ({
-  "admitted_bytes": (number);
-  "admitted_files": (number);
-  "cancel_requested": (boolean);
-  "committed_bytes"?: (number);
-  "committed_rows"?: (number);
-  "error"?: (((string)) | ((null)));
-  "import_ref": (string);
-  "sealed": (boolean);
-  "search_preparation_batch_id"?: (((string)) | ((null)));
-  "search_preparation_status": ("pending" | "available" | "none") & (string);
-  "sheet_id"?: (((number)) | ((null)));
-  "sheet_name": (string);
-  "state": ("admitting" | "running" | "paused" | "cancelling" | "cancelled" | "completed" | "kept" | "removed") & (string);
-  "through": (number);
+  [key: string]: JsonValue;
 });
 
 export type HttpImportSessionList = ({
@@ -6074,20 +6061,7 @@ export type HttpImportSessionResolveBody = ({
 });
 
 export type HttpImportSessionStatus = ({
-  "admitted_bytes": (number);
-  "admitted_files": (number);
-  "cancel_requested": (boolean);
-  "committed_bytes"?: (number);
-  "committed_rows"?: (number);
-  "error"?: (((string)) | ((null)));
-  "import_ref": (string);
-  "sealed": (boolean);
-  "search_preparation_batch_id"?: (((string)) | ((null)));
-  "search_preparation_status": ("pending" | "available" | "none") & (string);
-  "sheet_id"?: (((number)) | ((null)));
-  "sheet_name": (string);
-  "state": ("admitting" | "running" | "paused" | "cancelling" | "cancelled" | "completed" | "kept" | "removed") & (string);
-  "through": (number);
+  [key: string]: JsonValue;
 });
 
 type HttpImportUpdatePreviewBody_ImportUpdatePreviewColumn = ({
@@ -8702,10 +8676,21 @@ export type HttpOrganizationProviderCatalog = ({
   "schemaVersion": ("frisket.provider_catalog.v1") & (string);
 });
 
-export type HttpPdfImportBatchOcrEstimateRequest = ({
+type HttpPdfImportBatchOcrEstimateRequest_EngineModelSelection = ({
   "engine": (string);
+  "kind": ("engine_model") & (string);
+  "model": (((string)) | ((null)));
+});
+
+type HttpPdfImportBatchOcrEstimateRequest_EngineSelection = ({
+  "engine": (string);
+  "kind": ("engine") & (string);
+});
+
+export type HttpPdfImportBatchOcrEstimateRequest = ({
   "expected_revision": (number);
   "ocr_policy": ("missing_or_suspicious" | "all" | "none") & (string);
+  "ocr_selection": (((HttpPdfImportBatchOcrEstimateRequest_EngineSelection)) | ((HttpPdfImportBatchOcrEstimateRequest_EngineModelSelection)));
 });
 
 type HttpPdfImportBatchOcrState_ActionEstimate = ({
@@ -8737,7 +8722,6 @@ export type HttpPdfImportBatchOcrState = ({
   "destination"?: ((({
   [key: string]: JsonValue;
 })) | ((null)));
-  "engine": (((string)) | ((null)));
   "estimate": (((HttpPdfImportBatchOcrState_ActionEstimate)) | ((null)));
   "known_pages"?: (number);
   "manifest_hash": (((string)) | ((null)));
@@ -8746,6 +8730,9 @@ export type HttpPdfImportBatchOcrState = ({
   [key: string]: JsonValue;
 })) | ((null)));
   "needs_confirmation": (boolean);
+  "ocr_action_params"?: ((({
+  [key: string]: JsonValue;
+})) | ((null)));
   "ocr_policy": ((("missing_or_suspicious" | "all" | "none") & (string)) | ((null)));
   "options"?: ((({
   [key: string]: JsonValue;
@@ -8755,6 +8742,17 @@ export type HttpPdfImportBatchOcrState = ({
   "selected_through": (number);
   "state": ("idle" | "ready" | "error") & (string);
   "work_scope_hash"?: (((string)) | ((null)));
+});
+
+type HttpPdfImportChoicesRequest_EngineModelSelection = ({
+  "engine": (string);
+  "kind": ("engine_model") & (string);
+  "model": (((string)) | ((null)));
+});
+
+type HttpPdfImportChoicesRequest_EngineSelection = ({
+  "engine": (string);
+  "kind": ("engine") & (string);
 });
 
 type HttpPdfImportChoicesRequest_PdfImportExistingDestination = ({
@@ -8770,9 +8768,8 @@ type HttpPdfImportChoicesRequest_PdfImportNewDestination = ({
 export type HttpPdfImportChoicesRequest = ({
   "destination": (((HttpPdfImportChoicesRequest_PdfImportNewDestination)) | ((HttpPdfImportChoicesRequest_PdfImportExistingDestination)));
   "expected_revision": (number);
-  "ocr_confirmation": (((string)) | ((null)));
-  "ocr_engine": (string);
   "ocr_policy": ("missing_or_suspicious" | "all" | "none") & (string);
+  "ocr_selection": (((HttpPdfImportChoicesRequest_EngineSelection)) | ((HttpPdfImportChoicesRequest_EngineModelSelection)));
   "semantic_search": (boolean);
   "semantic_setup_confirmation": (((string)) | ((null)));
 });
@@ -8826,6 +8823,17 @@ type HttpPdfImportListResponse_ActionEstimateClaim = ({
   "field": (string);
 });
 
+type HttpPdfImportListResponse_EngineModelSelection = ({
+  "engine": (string);
+  "kind": ("engine_model") & (string);
+  "model": (((string)) | ((null)));
+});
+
+type HttpPdfImportListResponse_EngineSelection = ({
+  "engine": (string);
+  "kind": ("engine") & (string);
+});
+
 type HttpPdfImportListResponse_PdfImportAnalysisProgress = ({
   "files_done": (number);
   "files_total": (number);
@@ -8836,7 +8844,6 @@ type HttpPdfImportListResponse_PdfImportBatchOcrState = ({
   "destination"?: ((({
   [key: string]: JsonValue;
 })) | ((null)));
-  "engine": (((string)) | ((null)));
   "estimate": (((HttpPdfImportListResponse_ActionEstimate)) | ((null)));
   "known_pages"?: (number);
   "manifest_hash": (((string)) | ((null)));
@@ -8845,6 +8852,9 @@ type HttpPdfImportListResponse_PdfImportBatchOcrState = ({
   [key: string]: JsonValue;
 })) | ((null)));
   "needs_confirmation": (boolean);
+  "ocr_action_params"?: ((({
+  [key: string]: JsonValue;
+})) | ((null)));
   "ocr_policy": ((("missing_or_suspicious" | "all" | "none") & (string)) | ((null)));
   "options"?: ((({
   [key: string]: JsonValue;
@@ -8868,9 +8878,8 @@ type HttpPdfImportListResponse_PdfImportCategoryCounts = ({
 
 type HttpPdfImportListResponse_PdfImportChoices = ({
   "destination": (((HttpPdfImportListResponse_PdfImportNewDestination)) | ((HttpPdfImportListResponse_PdfImportExistingDestination)));
-  "ocr_confirmation": (((string)) | ((null)));
-  "ocr_engine": (string);
   "ocr_policy": ("missing_or_suspicious" | "all" | "none") & (string);
+  "ocr_selection": (((HttpPdfImportListResponse_EngineSelection)) | ((HttpPdfImportListResponse_EngineModelSelection)));
   "semantic_search": (boolean);
   "semantic_setup_confirmation": (((string)) | ((null)));
 });
@@ -8907,10 +8916,12 @@ type HttpPdfImportListResponse_PdfImportPreflight = ({
 });
 
 type HttpPdfImportListResponse_PdfImportPreviewJob = ({
-  "engine": (string);
   "error"?: (((string)) | ((null)));
   "job_id": (string);
   "occurrence_id": (string);
+  "ocr_action_params": ({
+  [key: string]: JsonValue;
+});
   "page": (number);
   "receipt_id": (((string)) | ((null)));
   "status": ("running" | "done" | "failed" | "cancelled") & (string);
@@ -9010,16 +9021,29 @@ type HttpPdfImportOcrPreviewEstimate_ActionEstimateClaim = ({
 export type HttpPdfImportOcrPreviewEstimate = ({
   "cached": (boolean);
   "draft_id": (string);
-  "engine": (string);
   "estimate": (((HttpPdfImportOcrPreviewEstimate_ActionEstimate)) | ((null)));
   "occurrence_id": (string);
+  "ocr_action_params": ({
+  [key: string]: JsonValue;
+});
   "page": (number);
   "schema_version": ("frisket.pdf_import.v1") & (string);
 });
 
+type HttpPdfImportOcrPreviewRequest_EngineModelSelection = ({
+  "engine": (string);
+  "kind": ("engine_model") & (string);
+  "model": (((string)) | ((null)));
+});
+
+type HttpPdfImportOcrPreviewRequest_EngineSelection = ({
+  "engine": (string);
+  "kind": ("engine") & (string);
+});
+
 export type HttpPdfImportOcrPreviewRequest = ({
   "confirmation"?: (((string)) | ((null)));
-  "engine": (string);
+  "ocr_selection": (((HttpPdfImportOcrPreviewRequest_EngineSelection)) | ((HttpPdfImportOcrPreviewRequest_EngineModelSelection)));
 });
 
 type HttpPdfImportOcrPreviewStart_ActionEstimate = ({
@@ -9052,6 +9076,9 @@ export type HttpPdfImportOcrPreviewStart = ({
   "job_id": (((string)) | ((null)));
   "needs_confirmation": (boolean);
   "occurrence_id": (string);
+  "ocr_action_params": ({
+  [key: string]: JsonValue;
+});
   "page": (number);
   "receipt_id": (((string)) | ((null)));
   "schema_version": ("frisket.pdf_import.v1") & (string);
@@ -9061,11 +9088,14 @@ export type HttpPdfImportOcrPreviewStart = ({
 export type HttpPdfImportPageResponse = ({
   "draft_id": (string);
   "native_text": (string);
+  "native_text_truncated": (boolean);
   "occurrence_id": (string);
+  "ocr_action_params": ((({
+  [key: string]: JsonValue;
+})) | ((null)));
   "ocr_blocks": (Array<({
   [key: string]: JsonValue;
 })>);
-  "ocr_engine": (((string)) | ((null)));
   "ocr_text": (((string)) | ((null)));
   "page": (number);
   "schema_version": ("frisket.pdf_import.v1") & (string);
@@ -9142,6 +9172,17 @@ type HttpPdfImportStatus_ActionEstimateClaim = ({
   "field": (string);
 });
 
+type HttpPdfImportStatus_EngineModelSelection = ({
+  "engine": (string);
+  "kind": ("engine_model") & (string);
+  "model": (((string)) | ((null)));
+});
+
+type HttpPdfImportStatus_EngineSelection = ({
+  "engine": (string);
+  "kind": ("engine") & (string);
+});
+
 type HttpPdfImportStatus_PdfImportAnalysisProgress = ({
   "files_done": (number);
   "files_total": (number);
@@ -9152,7 +9193,6 @@ type HttpPdfImportStatus_PdfImportBatchOcrState = ({
   "destination"?: ((({
   [key: string]: JsonValue;
 })) | ((null)));
-  "engine": (((string)) | ((null)));
   "estimate": (((HttpPdfImportStatus_ActionEstimate)) | ((null)));
   "known_pages"?: (number);
   "manifest_hash": (((string)) | ((null)));
@@ -9161,6 +9201,9 @@ type HttpPdfImportStatus_PdfImportBatchOcrState = ({
   [key: string]: JsonValue;
 })) | ((null)));
   "needs_confirmation": (boolean);
+  "ocr_action_params"?: ((({
+  [key: string]: JsonValue;
+})) | ((null)));
   "ocr_policy": ((("missing_or_suspicious" | "all" | "none") & (string)) | ((null)));
   "options"?: ((({
   [key: string]: JsonValue;
@@ -9184,9 +9227,8 @@ type HttpPdfImportStatus_PdfImportCategoryCounts = ({
 
 type HttpPdfImportStatus_PdfImportChoices = ({
   "destination": (((HttpPdfImportStatus_PdfImportNewDestination)) | ((HttpPdfImportStatus_PdfImportExistingDestination)));
-  "ocr_confirmation": (((string)) | ((null)));
-  "ocr_engine": (string);
   "ocr_policy": ("missing_or_suspicious" | "all" | "none") & (string);
+  "ocr_selection": (((HttpPdfImportStatus_EngineSelection)) | ((HttpPdfImportStatus_EngineModelSelection)));
   "semantic_search": (boolean);
   "semantic_setup_confirmation": (((string)) | ((null)));
 });
@@ -9223,10 +9265,12 @@ type HttpPdfImportStatus_PdfImportPreflight = ({
 });
 
 type HttpPdfImportStatus_PdfImportPreviewJob = ({
-  "engine": (string);
   "error"?: (((string)) | ((null)));
   "job_id": (string);
   "occurrence_id": (string);
+  "ocr_action_params": ({
+  [key: string]: JsonValue;
+});
   "page": (number);
   "receipt_id": (((string)) | ((null)));
   "status": ("running" | "done" | "failed" | "cancelled") & (string);
