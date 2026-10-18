@@ -421,7 +421,7 @@ function ColumnSamples({ column }: { column: TableImportColumn }) {
     <span className="table-import-column-samples" data-expanded={expanded || undefined}>
       {samples.map((sample, index) => <i key={index} data-outcome={sample.outcome}>{sampleDisplay(column, sample, !expanded)}</i>)}
     </span>
-    {canExpand && <button type="button" className="text-btn" aria-expanded={expanded} aria-label={`${expanded ? 'Collapse' : 'Show full'} values for ${column.name}`} onClick={() => setExpanded((value) => !value)}>{expanded ? 'Show less' : 'Show full values'}</button>}
+    {canExpand && <button type="button" className="text-btn" aria-expanded={expanded} aria-label={`${expanded ? 'Show less' : 'Show full values'} for ${column.name}`} onClick={() => setExpanded((value) => !value)}>{expanded ? 'Show less' : 'Show full values'}</button>}
   </span>;
 }
 

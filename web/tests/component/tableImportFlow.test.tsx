@@ -558,7 +558,7 @@ describe('TableImportFlow', () => {
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText(`${longOriginal} → blank`)).toBeVisible();
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse values for amount' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Show less for amount' }));
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByText(`${longOriginal} → blank`)).not.toBeInTheDocument();
   });
