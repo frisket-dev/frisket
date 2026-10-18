@@ -81,6 +81,8 @@ class PdfDraftInventory:
               ON pdf_selected_state(category,analysis_state,occurrence_id);
             CREATE INDEX IF NOT EXISTS idx_pdf_selected_path_size
               ON pdf_selected(logical_path,size);
+            CREATE INDEX IF NOT EXISTS idx_pdf_selected_filename_size
+              ON pdf_selected(filename,size);
             """
         )
         self.db.commit()
@@ -464,6 +466,54 @@ class PdfDraftInventory:
     def clear_matches(self) -> None:
         with self.db:
             self.db.execute("UPDATE pdf_selected_state SET matched=0")
+
+    def match_project_values(
+        self,
+        project_db_path: Path,
+        *,
+        sheet_id: int,
+        filename_column_id: int,
+        size_column_id: int,
+    ) -> None:
+        """Match the full roster with one current-value SQL projection pass."""
+
+        self.clear_matches()
+        self.db.execute(
+            "ATTACH DATABASE ? AS pdf_import_project", (str(project_db_path),)
+        )
+        try:
+            with self.db:
+                self.db.execute(
+                    "UPDATE pdf_selected_state AS state SET matched=1 "
+                    "WHERE state.occurrence_id IN ("
+                    "SELECT selected.occurrence_id "
+                    "FROM pdf_import_project.rows AS project_row "
+                    "JOIN pdf_import_project.current_cell_values AS filename "
+                    "ON filename.row_id=project_row.id AND filename.column_id=? "
+                    "AND filename.validity='valid' "
+                    "JOIN pdf_import_project.current_cell_values AS size "
+                    "ON size.row_id=project_row.id AND size.column_id=? "
+                    "AND size.validity='valid' "
+                    "JOIN pdf_selected AS selected "
+                    "ON selected.filename=filename.value AND selected.size=size.value "
+                    "WHERE project_row.sheet_id=? AND project_row.hidden=0)",
+                    (filename_column_id, size_column_id, sheet_id),
+                )
+        finally:
+            self.db.execute("DETACH DATABASE pdf_import_project")
+
+    def match_summary(self) -> tuple[int, dict[str, int]]:
+        matched = self.db.execute(
+            "SELECT COUNT(*) value FROM pdf_selected_state WHERE matched=1"
+        ).fetchone()
+        categories = {
+            str(row["category"]): int(row["value"])
+            for row in self.db.execute(
+                "SELECT category,COUNT(*) value FROM pdf_selected_state "
+                "WHERE matched=0 GROUP BY category"
+            )
+        }
+        return int(matched["value"]), categories
 
     def ocr_scope_hash(self, policy: str) -> tuple[str, int, int]:
         """Hash exact ordered staged OCR facts without materializing the roster."""

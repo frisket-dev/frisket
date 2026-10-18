@@ -6,6 +6,7 @@ from typing import Annotated, Literal
 
 from pydantic import Field
 
+from frisket.contracts.http.action_estimate_validation import ActionEstimate
 from frisket.contracts.http.models import WireModel
 
 
@@ -112,6 +113,7 @@ class PdfImportMatch(WireModel):
     total: int = Field(ge=0)
     matched_count: int = Field(ge=0)
     new_count: int = Field(ge=0)
+    new_category_counts: dict[PdfTextCategory, int]
     error: str | None
 
 
@@ -130,7 +132,7 @@ class PdfImportBatchOcrState(WireModel):
     work_scope_hash: str | None = None
     destination: dict | None = None
     match: dict | None = None
-    estimate: dict | None
+    estimate: ActionEstimate | None
     needs_confirmation: bool
 
 
@@ -153,8 +155,9 @@ class PdfImportPreviewJob(WireModel):
     occurrence_id: str
     page: int = Field(ge=1)
     engine: str
-    status: str
+    status: Literal["running", "done", "failed", "cancelled"]
     receipt_id: str | None
+    error: str | None = None
 
 
 class PdfImportCleanup(WireModel):
@@ -238,7 +241,7 @@ class PdfImportOcrPreviewEstimate(WireModel):
     page: int = Field(ge=1)
     engine: str
     cached: bool
-    estimate: dict | None
+    estimate: ActionEstimate | None
 
 
 class PdfImportOcrPreviewStart(WireModel):
@@ -249,7 +252,7 @@ class PdfImportOcrPreviewStart(WireModel):
     job_id: str | None
     status: Literal["running", "done"]
     receipt_id: str | None
-    estimate: dict | None
+    estimate: ActionEstimate | None
     needs_confirmation: bool
 
 

@@ -6,7 +6,7 @@ import inspect
 from collections.abc import Callable, Mapping
 from typing import Annotated, Any
 
-from fastapi import FastAPI, File, Form, Query, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
@@ -34,6 +34,9 @@ from frisket.server.route_errors import http_error_responses
 from frisket.server.services.import_bulk_types import BulkImportLimits
 from frisket.server.services.import_uploads import admit_uploads
 from frisket.server.services.pdf_imports import FrozenPdfImport, PdfImportService
+from frisket.server.services.selector_choices_capabilities import (
+    SelectorCapabilitiesFor,
+)
 from frisket.server.thread_worker import await_thread_worker
 
 
@@ -44,11 +47,19 @@ def register_pdf_import_routes(
     app: FastAPI,
     *,
     service: PdfImportService,
+    capabilities_for: SelectorCapabilitiesFor,
     limits: BulkImportLimits = BulkImportLimits(),
     commit_handler: CommitHandler | None = None,
 ) -> None:
     base = "/api/projects/{pid}/import/pdf-imports"
     responses = http_error_responses(400, 401, 402, 403, 404, 409, 413, 422, 500, 503)
+
+    def require_action_run(request: Request, pid: str) -> None:
+        if not capabilities_for(request, pid).may_run_actions:
+            raise HTTPException(
+                status_code=403,
+                detail="Project action execution access is required.",
+            )
 
     @app.post(
         base,
@@ -167,8 +178,16 @@ def register_pdf_import_routes(
         responses=responses,
     )
     async def update_pdf_import_choices(
-        pid: str, draft_id: str, body: PdfImportChoicesRequest
+        request: Request, pid: str, draft_id: str, body: PdfImportChoicesRequest
     ) -> PdfImportStatus:
+        if (
+            body.semantic_setup_confirmation is not None
+            and not capabilities_for(request, pid).manage_model_downloads
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="Model download management access is required.",
+            )
         return await await_thread_worker(
             service.update_choices,
             pid,
@@ -286,6 +305,7 @@ def register_pdf_import_routes(
         draft_id: str,
         body: PdfImportBatchOcrEstimateRequest,
     ) -> PdfImportBatchOcrState:
+        require_action_run(request, pid)
         return await await_thread_worker(
             service.estimate_batch_ocr,
             pid,
@@ -310,6 +330,7 @@ def register_pdf_import_routes(
         page: int,
         body: PdfImportOcrPreviewRequest,
     ) -> PdfImportOcrPreviewEstimate:
+        require_action_run(request, pid)
         return await await_thread_worker(
             service.estimate_ocr_preview,
             pid,
@@ -335,6 +356,7 @@ def register_pdf_import_routes(
         page: int,
         body: PdfImportOcrPreviewRequest,
     ) -> PdfImportOcrPreviewStart:
+        require_action_run(request, pid)
         return await await_thread_worker(
             service.start_ocr_preview,
             pid,
@@ -356,6 +378,7 @@ def register_pdf_import_routes(
     async def commit_pdf_import(
         request: Request, pid: str, draft_id: str, body: PdfImportCommitRequest
     ) -> PdfImportCommitResponse:
+        require_action_run(request, pid)
         frozen = await await_thread_worker(
             service.freeze_for_commit,
             pid,

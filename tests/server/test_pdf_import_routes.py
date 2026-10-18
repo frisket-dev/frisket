@@ -7,6 +7,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from frisket.server.routes.pdf_imports import register_pdf_import_routes
+from frisket.server.services.pdf_imports import PdfImportService
+from frisket.server.services.selector_choices_capabilities import SelectorCapabilities
+from frisket.server.workspace import Workspace
 
 
 def _status(revision=1):
@@ -70,6 +73,15 @@ def _status(revision=1):
             "total": 0,
             "matched_count": 0,
             "new_count": 0,
+            "new_category_counts": {
+                "text": 0,
+                "suspicious": 0,
+                "missing": 0,
+                "image": 0,
+                "other": 0,
+                "unreadable": 0,
+                "unchecked": 0,
+            },
             "error": None,
         },
         "batch_ocr": {
@@ -100,6 +112,14 @@ def _status(revision=1):
         "cleanup": {"bytes_done": 0, "bytes_total": 0},
         "commit": None,
     }
+
+
+def _capabilities(_request, _project_id):
+    return SelectorCapabilities(
+        may_author_actions=True,
+        may_run_actions=True,
+        manage_model_downloads=True,
+    )
 
 
 class _Service:
@@ -177,7 +197,13 @@ class _Service:
             "manifest_hash": "a" * 64,
             "selected_through": 2,
             "selected_count": 2,
-            "estimate": {"cost": 0},
+            "estimate": {
+                "rows": 2,
+                "cost": 0.0,
+                "cost_source": "local",
+                "billed_cost": 0,
+                "policy_id": "local",
+            },
             "needs_confirmation": False,
         }
 
@@ -189,7 +215,13 @@ class _Service:
             "page": page,
             "engine": kwargs["engine"],
             "cached": False,
-            "estimate": {"cost": 0},
+            "estimate": {
+                "rows": 1,
+                "cost": 0.0,
+                "cost_source": "local",
+                "billed_cost": 0,
+                "policy_id": "local",
+            },
         }
 
     def start_ocr_preview(self, pid, draft_id, occurrence_id, page, **kwargs):
@@ -201,7 +233,13 @@ class _Service:
             "job_id": "preview-1",
             "status": "running",
             "receipt_id": None,
-            "estimate": {"cost": 0},
+            "estimate": {
+                "rows": 1,
+                "cost": 0.0,
+                "cost_source": "local",
+                "billed_cost": 0,
+                "policy_id": "local",
+            },
             "needs_confirmation": False,
         }
 
@@ -223,7 +261,7 @@ class _Service:
 def test_pdf_import_http_contract_and_operation_ids(tmp_path: Path) -> None:
     app = FastAPI()
     service = _Service(tmp_path)
-    register_pdf_import_routes(app, service=service)  # type: ignore[arg-type]
+    register_pdf_import_routes(app, service=service, capabilities_for=_capabilities)  # type: ignore[arg-type]
     client = TestClient(app)
     created = client.post(
         "/api/projects/p/import/pdf-imports",
@@ -300,3 +338,104 @@ def test_pdf_import_http_contract_and_operation_ids(tmp_path: Path) -> None:
         "commitPdfImport",
         "discardPdfImport",
     }.issubset(operations)
+
+
+def test_real_pdf_import_http_create_upload_sample_page_and_discard(
+    tmp_path: Path,
+) -> None:
+    workspace = Workspace(tmp_path / "workspace", enable_local_model_pull=False)
+    project_id = str(workspace.create("PDF HTTP", project_id="pdf-http")["id"])
+    service = PdfImportService(
+        workspace,
+        semantic_setup_resolver=lambda _pid, _context: {
+            "setup_ref": "semantic-ready",
+            "display_name": "Local semantic search",
+            "ready": True,
+            "runtime_ready": True,
+            "download_bytes": 0,
+            "additional_runtime_download": False,
+            "license": "Apache-2.0",
+            "source_url": "https://example.test/model",
+            "available": True,
+        },
+    )
+    app = FastAPI()
+    register_pdf_import_routes(app, service=service, capabilities_for=_capabilities)
+    client = TestClient(app)
+    payload = (
+        Path(__file__).parents[1] / "fixtures" / "pdf_tables" / "simple_table.pdf"
+    ).read_bytes()
+    base = f"/api/projects/{project_id}/import/pdf-imports"
+    created = client.post(
+        base,
+        json={
+            "expected_files": 2,
+            "expected_bytes": 2 * len(payload),
+            "source_label": "PDFs",
+        },
+    )
+    assert created.status_code == 201, created.text
+    draft_id = created.json()["draft_id"]
+    manifest = client.post(
+        f"{base}/{draft_id}/manifest",
+        json={
+            "batch_id": "manifest-1",
+            "files": [
+                {
+                    "client_file_id": occurrence_id,
+                    "logical_path": f"{occurrence_id}.pdf",
+                    "filename": f"{occurrence_id}.pdf",
+                    "size": len(payload),
+                }
+                for occurrence_id in ("one", "two")
+            ],
+        },
+    )
+    assert manifest.status_code == 200, manifest.text
+    sealed = client.post(f"{base}/{draft_id}/manifest/seal")
+    assert sealed.status_code == 200, sealed.text
+    uploaded = client.post(
+        f"{base}/{draft_id}/uploads",
+        files=[
+            ("files", ("one.pdf", payload, "application/pdf")),
+            ("files", ("two.pdf", payload, "application/pdf")),
+            ("file_ids", (None, "one")),
+            ("file_ids", (None, "two")),
+            ("logical_paths", (None, "one.pdf")),
+            ("logical_paths", (None, "two.pdf")),
+            ("batch_id", (None, "upload-1")),
+        ],
+    )
+    assert uploaded.status_code == 200, uploaded.text
+    assert uploaded.json()["analysis"]["files_done"] == 2
+    samples = client.get(f"{base}/{draft_id}/samples", params={"category": "text"})
+    assert samples.status_code == 200, samples.text
+    sample = samples.json()["items"][0]
+    page = client.get(f"{base}/{draft_id}/files/{sample['occurrence_id']}/pages/1")
+    assert page.status_code == 200, page.text
+    assert page.json()["native_text"]
+    assert workspace.get(project_id).sheets() == []
+    discarded = client.delete(f"{base}/{draft_id}")
+    assert discarded.status_code == 202, discarded.text
+    assert discarded.json()["state"] == "cancelled"
+
+
+def test_preview_and_commit_require_action_capability(tmp_path: Path) -> None:
+    app = FastAPI()
+    register_pdf_import_routes(
+        app,
+        service=_Service(tmp_path),  # type: ignore[arg-type]
+        capabilities_for=lambda _request, _pid: SelectorCapabilities(),
+    )
+    client = TestClient(app)
+    preview = client.post(
+        "/api/projects/p/import/pdf-imports/pdf-one/files/one/pages/1/"
+        "ocr-preview/estimate",
+        json={"engine": "rapidocr"},
+    )
+    assert preview.status_code == 403
+    commit = client.post(
+        "/api/projects/p/import/pdf-imports/pdf-one/commit",
+        json={"expected_revision": 1, "idempotency_key": "commit-1"},
+    )
+    assert commit.status_code == 403

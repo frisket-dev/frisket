@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
+import sqlite3
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -177,6 +180,46 @@ def test_slow_analysis_does_not_block_status_or_cancel(
         assert future.result(timeout=5)["state"] == "cancelled"
 
 
+def test_status_reconciles_preview_registry_terminal_state(
+    tmp_path: Path, monkeypatch
+) -> None:
+    preview_runs = SimpleNamespace(
+        get_preview=lambda _project_id, _job_id: SimpleNamespace(
+            status_code=200,
+            payload={
+                "status": "done",
+                "accounting": {"receipt_id": "receipt-1"},
+            },
+        )
+    )
+    workspace, project_id, service = _service(
+        tmp_path, monkeypatch, preview_runs=preview_runs
+    )
+    draft_id, _ = _declared(service, project_id)
+    manifest_path = workspace.root / ".pdf_import_drafts" / draft_id / "manifest.json"
+    header = json.loads(manifest_path.read_text("utf-8"))
+    header["preview_jobs"] = [
+        {
+            "job_id": "preview-1",
+            "occurrence_id": "one",
+            "page": 1,
+            "engine": "rapidocr",
+            "status": "running",
+            "receipt_id": None,
+            "error": None,
+        }
+    ]
+    service._store.write_header(manifest_path.parent, header)
+    status = service.status(project_id, draft_id)
+    assert status["preview_jobs"] == [
+        {
+            **header["preview_jobs"][0],
+            "status": "done",
+            "receipt_id": "receipt-1",
+        }
+    ]
+
+
 def test_freeze_projects_unmatched_inventory_and_late_bytes_advance_it(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -192,7 +235,7 @@ def test_freeze_projects_unmatched_inventory_and_late_bytes_advance_it(
         if len(ready_calls) == 1:
             raise RuntimeError("queue temporarily unavailable")
 
-    _workspace, project_id, service = _service(
+    workspace, project_id, service = _service(
         tmp_path,
         monkeypatch,
         destination_matcher=matcher,
@@ -221,6 +264,7 @@ def test_freeze_projects_unmatched_inventory_and_late_bytes_advance_it(
     compared = service.match_destination(project_id, draft_id)
     assert compared["match"]["matched_count"] == 1
     assert compared["match"]["new_count"] == 1
+    assert compared["match"]["new_category_counts"]["unchecked"] == 1
     assert matched_calls == [(7, [("one.pdf", len(PDF)), ("two.pdf", len(PDF))])]
     frozen = service.freeze_for_commit(
         project_id,
@@ -231,6 +275,16 @@ def test_freeze_projects_unmatched_inventory_and_late_bytes_advance_it(
     assert frozen.committed_total == 1
     assert frozen.available_through == 0
     assert frozen.uploads_complete is False
+    intake_root = workspace.get(project_id).path / ".imports" / "pdf-import-1"
+    intake_root.mkdir(parents=True)
+    promoted = service.promote_commit_inventory(
+        project_id,
+        draft_id,
+        idempotency_key="commit-1",
+        target_path=intake_root / "inventory.db",
+    )
+    assert promoted.commit_inventory_path == intake_root / "inventory.db"
+    assert promoted.source_files_root == intake_root / "staged"
     with pytest.raises(RuntimeError, match="temporarily unavailable"):
         service.upload(
             project_id,
@@ -261,6 +315,15 @@ def test_freeze_projects_unmatched_inventory_and_late_bytes_advance_it(
     (occurrence,) = replay.page_occurrences()
     assert occurrence.occurrence_id == "two"
     assert occurrence.inventory_ordinal == 2
+    assert occurrence.path is not None
+    assert occurrence.path.parent == intake_root / "staged"
+    with replay.commit_inventory_path.open("rb"):
+        pass
+    with sqlite3.connect(replay.commit_inventory_path) as db:
+        assert db.execute(
+            "SELECT occurrence_id,category,ocr_selected "
+            "FROM pdf_commit_occurrences WHERE ordinal=1"
+        ).fetchone() == ("two", "missing", 0)
     handoff = service.record_commit_handoff(
         project_id,
         draft_id,
@@ -285,6 +348,50 @@ def test_freeze_projects_unmatched_inventory_and_late_bytes_advance_it(
         "sheet_id": 11,
         "session_ref": "import-1",
     }
+
+
+def test_destination_match_uses_bounded_current_value_projection(
+    tmp_path: Path, monkeypatch
+) -> None:
+    workspace, project_id, service = _service(tmp_path, monkeypatch)
+    project = workspace.get(project_id)
+    sheet_id = project.add_sheet("Existing PDFs")
+    columns = {
+        "filename": project.add_column(sheet_id, "Filename"),
+        "size": project.add_column(sheet_id, "Size", type="integer"),
+    }
+    project.add_rows(
+        sheet_id,
+        [
+            {
+                "filename": "one.pdf" if index == 1024 else f"existing-{index}.pdf",
+                "size": len(PDF),
+            }
+            for index in range(2048)
+        ],
+        columns,
+    )
+    monkeypatch.setattr(
+        project,
+        "get_values",
+        lambda *_args, **_kwargs: pytest.fail("destination match loaded a full column"),
+    )
+    draft_id, status = _declared(service, project_id)
+    status = service.update_choices(
+        project_id,
+        draft_id,
+        expected_revision=status["revision"],
+        ocr_policy="none",
+        ocr_engine="rapidocr",
+        ocr_confirmation=None,
+        semantic_search=True,
+        semantic_setup_confirmation=status["semantic_setup"]["confirmation_hash"],
+        destination={"kind": "existing", "sheet_id": sheet_id},
+    )
+    matched = service.match_destination(project_id, draft_id)
+    assert matched["match"]["checked"] == 2
+    assert matched["match"]["matched_count"] == 1
+    assert matched["match"]["new_count"] == 1
 
 
 def test_manifest_scope_and_preflight_are_enforced(tmp_path: Path, monkeypatch) -> None:
