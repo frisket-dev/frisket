@@ -133,18 +133,33 @@ describe('PDF import post-commit activity', () => {
         { source_id: 'a', filename: 'a.pdf', completed: 2, total: 5 },
         { source_id: 'b', filename: 'b.pdf', completed: 3, total: 7 },
       ],
+      pdfFilesTruncated: true,
     } satisfies SearchPreparationNotice;
 
     const combined = composeImportSearchActivity(importActivity(session()), search);
 
     expect(combined?.notice.activityKey).toBe('import:import-00000000000000000000000000000000');
     expect(combined?.notice.title).toBe('Preparing search');
+    expect(combined?.notice.pdfFiles).toEqual(search.pdfFiles);
+    expect(combined?.notice.pdfFilesTruncated).toBe(true);
     expect(combined?.lines.map((line) => line.label)).toEqual([
       'Adding rows',
       'OCR',
       'Search index',
     ]);
     expect(combined?.lines[2]).toMatchObject({ completed: 5, total: 12 });
+  });
+
+  it('keeps unknown search progress indeterminate instead of inventing a completed count', () => {
+    const combined = composeImportSearchActivity(importActivity(session()), null);
+
+    expect(combined?.lines[2]).toMatchObject({
+      key: 'search-index',
+      completed: null,
+      total: null,
+      complete: false,
+      detail: 'Waiting for search activity',
+    });
   });
 
   it('renders the OCR wait as UI-only pending data', () => {

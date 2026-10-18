@@ -8,6 +8,7 @@ export interface ActivityProgressLine {
   completed: number | null;
   total: number | null;
   detail?: string;
+  complete?: boolean;
 }
 
 export function SearchPreparationNotice({
@@ -57,6 +58,22 @@ export function SearchPreparationNotice({
     : notice.stage === 'prepare'
       ? 'Preparing files for search'
       : 'Preparing search';
+  const searchLine = progressLines?.find((line) => line.key === 'search-index') ?? null;
+  const searchFooter = searchLine
+    ? notice.tone === 'error'
+      ? 'Search preparation needs attention.'
+      : searchLine.complete
+      ? 'Ready files are searchable.'
+      : 'Search is indexing text as it becomes ready.'
+    : null;
+  const canStop = Boolean(notice.stopBatchId && onStopPreparation);
+  const canReview = Boolean(
+    notice.reviewBatchId && onReviewPreparation
+      && (notice.stage === 'approval' || notice.stage === 'failed'),
+  );
+  const hasFooter = Boolean(
+    searchFooter || canStop || onResumeImport || onKeepImport || importMessage || canReview,
+  );
 
   return (
     <section
@@ -67,167 +84,186 @@ export function SearchPreparationNotice({
       aria-live={notice.tone === 'error' ? 'assertive' : 'polite'}
       aria-atomic="true"
     >
-      {onDismiss && (
-        <button
-          type="button"
-          className="icon-btn status-notice-dismiss"
-          data-testid="search-preparation-dismiss"
-          aria-label="Dismiss activity notification"
-          onClick={onDismiss}
-        >
-          <X size={14} aria-hidden />
-        </button>
-      )}
-      <div className="active-run-main">
-        {notice.tone === 'error' || notice.tone === 'warning' ? (
-          <AlertTriangle size={16} className="run-warning-icon" aria-hidden />
-        ) : notice.tone === 'complete' ? (
-          <CheckCircle2 size={16} className="search-preparation-complete-icon" aria-hidden />
-        ) : (
-          <span className="run-spinner" aria-hidden />
-        )}
-        <div className="active-run-copy">
-          <strong>{notice.title}</strong>
-          <span>{notice.detail}</span>
+      <div className="search-preparation-header">
+        <div className="active-run-main">
+          {notice.tone === 'error' || notice.tone === 'warning' ? (
+            <AlertTriangle size={16} className="run-warning-icon" aria-hidden />
+          ) : notice.tone === 'complete' ? (
+            <CheckCircle2 size={16} className="search-preparation-complete-icon" aria-hidden />
+          ) : null}
+          <div className="active-run-copy">
+            <strong>{notice.title}</strong>
+            <span>{notice.detail}</span>
+          </div>
         </div>
-      </div>
-
-      {!!progressLines?.length && (
-        <div className="run-file-progress-list" role="group" aria-label="Import preparation progress">
-          {progressLines.map((line) => {
-            const boundedTotal = line.total !== null && line.total > 0 ? line.total : null;
-            const completed = boundedTotal === null || line.completed === null
-              ? null
-              : Math.max(0, Math.min(line.completed, boundedTotal));
-            return (
-              <div className="run-file-progress" key={line.key}>
-                <div className="run-file-progress-copy">
-                  <span className="run-file-progress-name">{line.label}</span>
-                  <span className="run-file-progress-count">
-                    {line.detail ?? (completed !== null && boundedTotal !== null
-                      ? `${completed.toLocaleString()} / ${boundedTotal.toLocaleString()}`
-                      : 'Waiting')}
-                  </span>
-                </div>
-                {boundedTotal !== null && completed !== null ? (
-                  <progress
-                    className="run-file-progress-bar"
-                    aria-label={`${line.label} progress`}
-                    max={boundedTotal}
-                    value={completed}
-                  />
-                ) : (
-                  <span
-                    className="model-pull-progress-bar indeterminate"
-                    role="progressbar"
-                    aria-label={`${line.label} progress`}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                  ><span className="model-pull-progress-fill" /></span>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-      {now && <p className="search-preparation-details" data-testid="import-activity-now">Now · {now} · opened by you</p>}
-
-      {!progressLines?.length && ((active && (notice.stage === 'download' || notice.stage === 'index' || notice.progress !== null))
-        || (notice.tone === 'error' && notice.progress !== null)) && (
-        <div className="search-preparation-progress" data-testid="search-preparation-progress">
-          <span
-            className={`model-pull-progress-bar${notice.progress === null ? ' indeterminate' : ''}`}
-            role="progressbar"
-            aria-label={progressLabel}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            {...(notice.progress !== null ? { 'aria-valuenow': notice.progress } : {})}
-          >
-            <span
-              className="model-pull-progress-fill"
-              style={notice.progress !== null ? { width: `${notice.progress}%` } : undefined}
-            />
-          </span>
-          {notice.progress !== null && <span>{notice.progress}%</span>}
-        </div>
-      )}
-
-      {!!notice.pdfFiles?.length && (
-        <div className="run-file-progress-list" role="group" aria-label="PDF indexing progress">
-          {notice.pdfFiles.map((file) => (
-            <div className="run-file-progress" key={file.source_id}>
-              <div className="run-file-progress-copy">
-                <span className="run-file-progress-name">{file.filename || 'PDF document'}</span>
-                <span className="run-file-progress-count">
-                  {file.completed.toLocaleString()} / {file.total.toLocaleString()} pages · {(file.total - file.completed).toLocaleString()} remaining
-                </span>
-              </div>
-              <progress
-                className="run-file-progress-bar"
-                aria-label={`Indexing pages for ${file.filename || 'PDF document'}`}
-                max={file.total}
-                value={file.completed}
-              />
-            </div>
-          ))}
-        </div>
-      )}
-      {notice.pdfFilesTruncated && <p className="search-preparation-details">More PDFs are being indexed.</p>}
-
-      {notice.details.length > 0 && (
-        <div className="search-preparation-details">
+        {onDismiss && (
           <button
             type="button"
-            className="search-preparation-details-toggle"
-            data-testid="search-preparation-details"
-            aria-expanded={detailsOpen}
-            onClick={() => setDetailsOpen((open) => !open)}
+            className="icon-btn status-notice-dismiss"
+            data-testid="search-preparation-dismiss"
+            aria-label="Dismiss activity notification"
+            onClick={onDismiss}
           >
-            {detailsOpen ? <ChevronUp size={12} aria-hidden /> : <ChevronDown size={12} aria-hidden />}
-            Details
+            <X size={14} aria-hidden />
           </button>
-          {detailsOpen && (
-            <ul>
-              {notice.details.map((detail, index) => <li key={`${index}:${detail}`}>{detail}</li>)}
-            </ul>
-          )}
-        </div>
-      )}
-      {notice.stopBatchId && onStopPreparation && (
-        <div className="search-preparation-actions">
-          <button type="button" className="btn btn-compact" disabled={currentStop?.busy}
-            onClick={() => void stop()}>
-            {currentStop?.busy ? 'Stopping…' : stopLabel}
-          </button>
-          {currentStop?.error && <span role="alert">{currentStop.error}</span>}
-        </div>
-      )}
-      {(onResumeImport || onKeepImport || importMessage) && (
-        <div className="search-preparation-actions">
-          {onResumeImport && (
-            <button type="button" className="btn btn-compact" disabled={importActionBusy} onClick={onResumeImport}>
-              Resume
+        )}
+      </div>
+
+      <div className="search-preparation-body">
+        {!!progressLines?.length && (
+          <div className="activity-progress-list" role="group" aria-label="Import preparation progress">
+            {progressLines.map((line) => {
+              const boundedTotal = line.total !== null && line.total > 0 ? line.total : null;
+              const completed = boundedTotal === null || line.completed === null
+                ? null
+                : Math.max(0, Math.min(line.completed, boundedTotal));
+              const done = line.complete === true
+                || (completed !== null && boundedTotal !== null && completed >= boundedTotal);
+              const doneLabel = line.key === 'search-index'
+                ? '✓ Ready'
+                : line.key === 'ocr' ? '✓ Read' : '✓ Done';
+              const count = done
+                ? doneLabel
+                : line.detail ?? (completed !== null && boundedTotal !== null
+                  ? `${completed.toLocaleString()} of ${boundedTotal.toLocaleString()}`
+                  : 'Waiting');
+              return (
+                <div className={`activity-progress-row${done ? ' is-complete' : ''}`} key={line.key}>
+                  <span className="activity-progress-label">
+                    <strong>{line.label}</strong>
+                    {boundedTotal !== null && (
+                      <span>{boundedTotal.toLocaleString()}{line.key === 'search-index' ? ' pages' : ''}</span>
+                    )}
+                  </span>
+                  {boundedTotal !== null && completed !== null ? (
+                    <progress
+                      className="run-file-progress-bar"
+                      aria-label={`${line.label} progress`}
+                      max={boundedTotal}
+                      value={completed}
+                    />
+                  ) : (
+                    <span
+                      className={`model-pull-progress-bar${done ? ' complete' : ' indeterminate'}`}
+                      role="progressbar"
+                      aria-label={`${line.label} progress`}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      {...(done ? { 'aria-valuenow': 100 } : {})}
+                    ><span className="model-pull-progress-fill" /></span>
+                  )}
+                  <span className="activity-progress-count">{count}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {now && <p className="import-activity-now" data-testid="import-activity-now"><strong>Now</strong><span>{now}</span><span>opened by you</span></p>}
+
+        {!progressLines?.length && !notice.pdfFiles?.length
+          && ((active && (notice.stage === 'download' || notice.stage === 'index' || notice.progress !== null))
+            || (notice.tone === 'error' && notice.progress !== null)) && (
+          <div className="search-preparation-progress" data-testid="search-preparation-progress">
+            <span
+              className={`model-pull-progress-bar${notice.progress === null ? ' indeterminate' : ''}`}
+              role="progressbar"
+              aria-label={progressLabel}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              {...(notice.progress !== null ? { 'aria-valuenow': notice.progress } : {})}
+            >
+              <span
+                className="model-pull-progress-fill"
+                style={notice.progress !== null ? { width: `${notice.progress}%` } : undefined}
+              />
+            </span>
+            {notice.progress !== null && <span>{notice.progress}%</span>}
+          </div>
+        )}
+
+        {!!notice.pdfFiles?.length && (
+          <div className="pdf-index-progress-list" role="group" aria-label="PDF indexing progress">
+            {notice.pdfFiles.map((file) => {
+              const filename = file.filename || 'PDF document';
+              return (
+                <div className="pdf-index-progress" key={file.source_id}>
+                  <div className="run-file-progress-copy">
+                    <span className="run-file-progress-name" title={filename}>{filename}</span>
+                    <span className="run-file-progress-count">
+                      {file.completed.toLocaleString()} / {file.total.toLocaleString()} pages · {Math.max(file.total - file.completed, 0).toLocaleString()} remaining
+                    </span>
+                  </div>
+                  <progress
+                    className="run-file-progress-bar"
+                    aria-label={`Indexing pages for ${filename}`}
+                    max={file.total}
+                    value={file.completed}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {notice.pdfFilesTruncated && <p className="search-preparation-details">More PDFs are being indexed.</p>}
+
+        {notice.details.length > 0 && (
+          <div className="search-preparation-details">
+            <button
+              type="button"
+              className="search-preparation-details-toggle"
+              data-testid="search-preparation-details"
+              aria-expanded={detailsOpen}
+              onClick={() => setDetailsOpen((open) => !open)}
+            >
+              {detailsOpen ? <ChevronUp size={12} aria-hidden /> : <ChevronDown size={12} aria-hidden />}
+              Details
             </button>
+            {detailsOpen && (
+              <ul>
+                {notice.details.map((detail, index) => <li key={`${index}:${detail}`}>{detail}</li>)}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
+
+      {hasFooter && (
+        <div className="search-preparation-footer">
+          {searchFooter && <span className="search-preparation-footer-copy">{searchFooter}</span>}
+          <div className="search-preparation-actions">
+            {canStop && (
+              <button type="button" className="search-preparation-action" disabled={currentStop?.busy}
+                onClick={() => void stop()}>
+                {currentStop?.busy ? 'Stopping…' : stopLabel}
+              </button>
+            )}
+            {onResumeImport && (
+              <button type="button" className="search-preparation-action" disabled={importActionBusy} onClick={onResumeImport}>
+                Resume
+              </button>
+            )}
+            {onKeepImport && (
+              <button type="button" className="search-preparation-action" disabled={importActionBusy} onClick={onKeepImport}>
+                Keep what's added
+              </button>
+            )}
+            {canReview && (
+              <button
+                type="button"
+                className="search-preparation-action search-preparation-review"
+                data-testid="search-preparation-review"
+                onClick={() => onReviewPreparation!(notice.reviewBatchId!)}
+              >
+                {notice.stage === 'approval' ? 'Review text' : 'Review files'}
+              </button>
+            )}
+          </div>
+          {(currentStop?.error || importMessage) && (
+            <span className="search-preparation-footer-error" role="alert">
+              {currentStop?.error || importMessage}
+            </span>
           )}
-          {onKeepImport && (
-            <button type="button" className="btn btn-compact" disabled={importActionBusy} onClick={onKeepImport}>
-              Keep what's added
-            </button>
-          )}
-          {importMessage && <span role="alert">{importMessage}</span>}
         </div>
-      )}
-      {notice.reviewBatchId && onReviewPreparation && (notice.stage === 'approval' || notice.stage === 'failed') && (
-        <button
-          type="button"
-          className="btn btn-compact search-preparation-review"
-          data-testid="search-preparation-review"
-          onClick={() => onReviewPreparation(notice.reviewBatchId!)}
-        >
-          {notice.stage === 'approval'
-            ? 'Review text'
-            : 'Review files'}
-        </button>
       )}
     </section>
   );

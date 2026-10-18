@@ -327,7 +327,9 @@ describe('search preparation notice projection', () => {
     expect(result.current).toMatchObject({ stage: 'index', activityKey: 'preparation:prep-1',
       detail: 'Indexing search content', progress: null });
     view.rerender(<SearchPreparationNotice notice={result.current!} />);
-    expect(screen.getByRole('progressbar', { name: 'Preparing search' })).toBe(progress);
+    expect(screen.queryByRole('progressbar', { name: 'Preparing search' })).toBeNull();
+    expect(screen.getByRole('progressbar', { name: 'Indexing pages for Council papers.pdf' }))
+      .toHaveAttribute('value', '1896');
     list.mockResolvedValue({
       schemaVersion: 'frisket.search_preparation_list.v1', batches: [],
       indexing: { status: 'queued', job_id: 782, error: null,
@@ -338,8 +340,9 @@ describe('search preparation notice projection', () => {
       detail: 'Indexing search content', progress: null,
       pdfFiles: [{ source_id: 'pdf:one', completed: 1_897, total: 24_909 }] });
     view.rerender(<SearchPreparationNotice notice={result.current!} />);
-    expect(screen.getByRole('progressbar', { name: 'Preparing search' })).toBe(progress);
-    expect(progress).not.toHaveAttribute('aria-valuenow');
+    expect(screen.queryByRole('progressbar', { name: 'Preparing search' })).toBeNull();
+    expect(screen.getByRole('progressbar', { name: 'Indexing pages for Council papers.pdf' }))
+      .toHaveAttribute('value', '1897');
     expect(screen.getByTestId('search-preparation-banner')).not.toHaveTextContent(/queued|finished|ready|%/);
     list.mockResolvedValue({
       schemaVersion: 'frisket.search_preparation_list.v1', batches: [],

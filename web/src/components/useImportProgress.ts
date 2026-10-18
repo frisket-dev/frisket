@@ -339,6 +339,7 @@ export interface ImportSearchActivityLine {
   completed: number | null;
   total: number | null;
   detail?: string;
+  complete?: boolean;
 }
 
 export function composeImportSearchActivity(
@@ -357,16 +358,20 @@ export function composeImportSearchActivity(
   const indexedPages = pdfIndexFiles.reduce((total, file) => total + file.completed, 0);
   const indexPages = pdfIndexFiles.reduce((total, file) => total + file.total, 0);
   const indexActive = search?.tone === 'active';
+  const indexComplete = search?.tone === 'complete';
+  const ocrLine = activity.lines.find((line) => line.key === 'ocr') ?? null;
+  const readingOcr = ocrLine !== null && ocrLine.completed < ocrLine.total;
   const lines: ImportSearchActivityLine[] = [
     ...activity.lines.map((line) => ({ ...line })),
     {
       key: 'search-index',
       label: 'Search index',
-      completed: indexPages > 0 ? indexedPages : indexActive ? null : 1,
-      total: indexPages > 0 ? indexPages : indexActive ? null : 1,
+      completed: indexPages > 0 ? indexedPages : null,
+      total: indexPages > 0 ? indexPages : null,
+      complete: indexComplete,
       detail: indexPages > 0
         ? `${indexedPages.toLocaleString()} / ${indexPages.toLocaleString()} pages`
-        : indexActive ? 'Indexing ready files' : 'Ready files are searchable',
+        : indexComplete ? 'Ready' : indexActive ? 'Indexing ready files' : 'Waiting for search activity',
     },
   ];
   const failed = Boolean(session.error) || search?.tone === 'error';
@@ -383,9 +388,13 @@ export function composeImportSearchActivity(
         : recovering ? 'Import interrupted' : 'Preparing search',
       detail: session.error ?? (recovering
         ? `${session.committed_rows.toLocaleString()} rows added`
-        : `${readyFiles.toLocaleString()} of ${selectedTotal.toLocaleString()} files ready`),
+        : readingOcr && ocrLine
+          ? `Reading text with OCR · ${ocrLine.completed.toLocaleString()} of ${ocrLine.total.toLocaleString()} files`
+          : `${readyFiles.toLocaleString()} of ${selectedTotal.toLocaleString()} files ready`),
       progress: null,
       details: search?.details ?? [],
+      pdfFiles: search?.pdfFiles,
+      pdfFilesTruncated: search?.pdfFilesTruncated,
     },
     lines,
   };
