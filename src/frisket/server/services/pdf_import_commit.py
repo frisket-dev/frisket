@@ -157,6 +157,15 @@ class PdfImportCommitService:
             idempotency_key=idempotency_key,
             expected_revision=expected_revision,
         )
+        return self.commit_frozen(project_id, frozen)
+
+    def commit_frozen(
+        self, project_id: str, frozen: Any
+    ) -> PdfImportCommitResult:
+        """Commit a snapshot already frozen by the request-authority route."""
+
+        draft_id = str(frozen.draft_id)
+        idempotency_key = str(frozen.idempotency_key)
         if frozen.project_id != project_id:
             raise ValueError("frozen PDF import belongs to another project")
         project = self._workspace.get(project_id)

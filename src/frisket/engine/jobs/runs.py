@@ -71,7 +71,9 @@ from frisket.project_identity import ProjectStorageKey
 
 from .ports import JobHandlerContext, WorkerPorts, coerce_worker_ports
 from .queue import (
+    BACKGROUND_PRIORITY_PAYLOAD_KEY,
     CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY,
+    PDF_IMPORT_OCR_BACKGROUND,
     JobQueue,
     claimed_project_location,
 )
@@ -81,6 +83,27 @@ from .worker import HandlerRegistration, HandlerRegistry
 RUN_PROJECT_KIND = "project.run"
 _RESPONSE_CACHE_UNSET = object()
 LOG = logging.getLogger(__name__)
+
+
+def _pdf_import_preferred_row_callback(
+    queue: JobQueue | None,
+    payload: Mapping[str, Any],
+    context: JobHandlerContext,
+) -> Callable[[], int | None] | None:
+    """Bind the queue hint only for the server-marked automatic OCR job."""
+
+    if (
+        queue is None
+        or payload.get("action_kind") != "media.ocr"
+        or payload.get(BACKGROUND_PRIORITY_PAYLOAD_KEY) != PDF_IMPORT_OCR_BACKGROUND
+        or context.job_id is None
+        or not context.handler_authority_id
+    ):
+        return None
+    return lambda: queue.take_preferred_row_id(
+        context.job_id,
+        authority_id=context.handler_authority_id,
+    )
 
 
 def _enqueue_search_index_after_completion(
@@ -1067,6 +1090,9 @@ def register_project_run_handler(
                 ),
                 authority=authority,
                 execution_composition=execution_composition,
+                take_preferred_row=_pdf_import_preferred_row_callback(
+                    queue, payload, handler_context
+                ),
             )
             action_kind = str(payload.get("action_kind") or "")
             deferred_publication = _deferred_publication(project, run_id)

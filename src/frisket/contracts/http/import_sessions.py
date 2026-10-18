@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal
 
-from pydantic import Field, JsonValue, SerializerFunctionWrapHandler, model_serializer
+from pydantic import Field, JsonValue
 
 from frisket.contracts.http.models import WireModel
 
@@ -50,28 +50,10 @@ class ImportSessionStatus(WireModel):
     ocr_completed: int = 0
     ocr_total: int = 0
     unreadable_total: int = 0
+    preparation_stopped: bool = False
     preparation_pending_confirmation: dict[str, JsonValue] | None = None
+    row_error_summary: dict[str, JsonValue] | None = None
     preparation_children: list[ImportPreparationChild] = Field(default_factory=list)
-
-    @model_serializer(mode="wrap")
-    def _omit_pdf_fields_for_ordinary_imports(
-        self, handler: SerializerFunctionWrapHandler
-    ) -> dict[str, Any]:
-        payload = handler(self)
-        if self.selected_total is None:
-            for name in (
-                "selected_total",
-                "preparation_completed",
-                "preparation_total",
-                "ocr_completed",
-                "ocr_total",
-                "unreadable_total",
-                "preparation_pending_confirmation",
-                "preparation_children",
-            ):
-                payload.pop(name, None)
-        return payload
-
 
 class ImportSessionList(WireModel):
     sessions: list[ImportSessionStatus]
