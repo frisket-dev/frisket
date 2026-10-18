@@ -141,6 +141,12 @@ def test_extra_values_column_is_reserved_for_provisional_or_observed_overflow(
         _upload(b"name\nAlice,overflow\n", "overflow.csv"),
         input_kind="file",
     )
+    assert overflow.preview is not None
+    overflow_row = next(row for row in overflow.preview.head if row.role == "data")
+    assert overflow_row.cells == ["Alice", "overflow"]
+    assert overflow_row.hidden_cell_count == 0
+    assert overflow_row.issues[0].code == "extra_values"
+    assert overflow_row.issues[0].original_values == ["overflow"]
     overflow_plan = service.freeze_for_commit(
         project_id,
         overflow.draft_id,
