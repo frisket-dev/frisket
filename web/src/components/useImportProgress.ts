@@ -198,9 +198,23 @@ export interface ImportProgressController {
   keep(activity: ImportActivity): void;
 }
 
+export interface ImportProgressChange {
+  sheetId: number | null;
+  refreshData: boolean;
+}
+
+function pollSignature(session: ImportSessionStatus): string {
+  return `${session.state}:${session.committed_rows}:${session.preparation_completed}:${session.ocr_completed}:${session.sheet_id ?? ''}`;
+}
+
+function isSoftTableProgress(session: ImportSessionStatus): boolean {
+  return session.intake_kind === 'table'
+    && (session.state === 'admitting' || session.state === 'running');
+}
+
 export function useImportProgress({ projectId, onChanged, onError }: {
   projectId: string;
-  onChanged?(sheetId: number | null): void;
+  onChanged?(change: ImportProgressChange): void;
   onError?(message: string): void;
 }): ImportProgressController {
   const [sessions, setSessions] = useState<ImportSessionStatus[]>([]);
@@ -226,19 +240,25 @@ export function useImportProgress({ projectId, onChanged, onError }: {
     try {
       const result = await listImportSessions(projectId, { signal });
       if (signal?.aborted || generation !== refreshGeneration.current) return;
-      const next = new Map(result.sessions.map((session) => [
-        session.import_ref,
-        `${session.state}:${session.committed_rows}:${session.preparation_completed}:${session.ocr_completed}:${session.sheet_id ?? ''}`,
-      ]));
+      const next = new Map(result.sessions.map((session) => [session.import_ref, pollSignature(session)]));
       for (const session of result.sessions) {
         if (session.sealed || ['cancelled', 'completed', 'kept', 'removed'].includes(session.state)) {
           forgetImportSelection(session.import_ref);
         }
       }
       const previous = previousRef.current;
-      if (previous && result.sessions.some((session) => (
-        previous.get(session.import_ref) !== next.get(session.import_ref)
-      ))) onChanged?.(null);
+      if (previous) {
+        const changed = result.sessions.filter((session) => (
+          previous.get(session.import_ref) !== next.get(session.import_ref)
+        ));
+        const removed = [...previous.keys()].some((importRef) => !next.has(importRef));
+        if (changed.length > 0 || removed) {
+          onChanged?.({
+            sheetId: null,
+            refreshData: removed || changed.some((session) => !isSoftTableProgress(session)),
+          });
+        }
+      }
       previousRef.current = next;
       setSessions(result.sessions);
     } catch (error) {
@@ -272,12 +292,21 @@ export function useImportProgress({ projectId, onChanged, onError }: {
     try {
       const next = await run();
       refreshGeneration.current += 1;
+      if (previousRef.current) {
+        const updated = new Map(previousRef.current);
+        if (next.state === 'removed' || (next.state === 'kept' && next.intake_kind !== 'table')) {
+          updated.delete(next.import_ref);
+        } else {
+          updated.set(next.import_ref, pollSignature(next));
+        }
+        previousRef.current = updated;
+      }
       setSessions((current) => (
         next.state === 'removed' || (next.state === 'kept' && next.intake_kind !== 'table')
           ? current.filter((item) => item.import_ref !== next.import_ref)
           : current.map((item) => (item.import_ref === next.import_ref ? next : item))
       ));
-      onChanged?.(next.sheet_id);
+      onChanged?.({ sheetId: next.sheet_id, refreshData: true });
     } catch (error) {
       const text = error instanceof Error ? error.message : String(error);
       setMessage(text);
@@ -292,7 +321,7 @@ export function useImportProgress({ projectId, onChanged, onError }: {
     setImportSessionBrowserUploading(session.import_ref, true);
     try {
       await uploadFilesToImportSession(projectId, session, files);
-      onChanged?.(session.sheet_id);
+      onChanged?.({ sheetId: session.sheet_id, refreshData: true });
     } catch (error) {
       const text = error instanceof Error ? error.message : String(error);
       setMessage(text);

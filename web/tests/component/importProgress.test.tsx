@@ -27,6 +27,7 @@ import {
 import {
   useImportProgress,
   type ImportActivity,
+  type ImportProgressChange,
 } from '../../src/components/useImportProgress';
 
 const running = {
@@ -54,8 +55,8 @@ const running = {
   preparation_children: [],
 } as const;
 
-function Harness() {
-  const controller = useImportProgress({ projectId: 'project-1' });
+function Harness({ onChanged }: { onChanged?: (change: ImportProgressChange) => void } = {}) {
+  const controller = useImportProgress({ projectId: 'project-1', onChanged });
   return (
     <div>
       {controller.activities.map((activity: ImportActivity) => (
@@ -83,6 +84,50 @@ afterEach(() => {
 });
 
 describe('persistent import progress controller', () => {
+  it('uses soft refresh only for changing live table rows and hard refreshes terminal state', async () => {
+    vi.useFakeTimers();
+    const changed = vi.fn();
+    const table = {
+      ...running,
+      intake_kind: 'table',
+      selected_total: 120,
+      committed_rows: 10,
+      processed_rows: 10,
+      preparation_total: 0,
+      ocr_total: 0,
+    } as const;
+    listImportSessions
+      .mockResolvedValueOnce({ sessions: [table] })
+      .mockResolvedValueOnce({ sessions: [table] })
+      .mockResolvedValueOnce({ sessions: [{ ...table, committed_rows: 20, processed_rows: 20 }] })
+      .mockResolvedValueOnce({ sessions: [{ ...table, state: 'completed', committed_rows: 120, processed_rows: 120 }] });
+
+    render(<Harness onChanged={changed} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(changed).not.toHaveBeenCalled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(changed).toHaveBeenLastCalledWith({ sheetId: null, refreshData: false });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(changed).toHaveBeenLastCalledWith({ sheetId: null, refreshData: true });
+    expect(changed).toHaveBeenCalledTimes(2);
+  });
+
+  it('hard-refreshes PDF preparation progress', async () => {
+    vi.useFakeTimers();
+    const changed = vi.fn();
+    listImportSessions
+      .mockResolvedValueOnce({ sessions: [running] })
+      .mockResolvedValueOnce({ sessions: [{ ...running, preparation_completed: 1 }] });
+
+    render(<Harness onChanged={changed} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+
+    expect(changed).toHaveBeenCalledOnce();
+    expect(changed).toHaveBeenCalledWith({ sheetId: null, refreshData: true });
+  });
+
   it('does not let an older poll hide a newly committed import', async () => {
     vi.useFakeTimers();
     let finishOldPoll!: (value: unknown) => void;
@@ -103,13 +148,15 @@ describe('persistent import progress controller', () => {
 
   it('keeps a stopped table import visible immediately after Stop', async () => {
     const table = { ...running, intake_kind: 'table', preparation_total: 0, ocr_total: 0 };
+    const changed = vi.fn();
     listImportSessions.mockResolvedValue({ sessions: [table] });
     cancelImportSession.mockResolvedValue({ ...table, state: 'cancelled' });
     resolveImportSession.mockResolvedValue({ ...table, state: 'kept' });
-    render(<Harness />);
+    render(<Harness onChanged={changed} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Stop remaining' }));
     await waitFor(() => expect(resolveImportSession).toHaveBeenCalled());
     expect(screen.getByText('Adding rows: 3/10')).toBeInTheDocument();
+    expect(changed).toHaveBeenCalledWith({ sheetId: 9, refreshData: true });
   });
 
   it('keeps a completed import visible while ordinary PDF preparation remains', async () => {

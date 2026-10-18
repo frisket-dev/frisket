@@ -59,6 +59,7 @@ import { PanelLoading } from '../components/PanelPrimitives';
 import {
   pendingImportRowCount as selectPendingImportRowCount,
   preferredImportActivity,
+  type ImportProgressChange,
   useImportProgress,
 } from '../components/useImportProgress';
 import { documentMediaColumns } from '../workbench/documentMedia';
@@ -577,10 +578,11 @@ export function useWorkspaceModel({
   );
 
   const sheet = sheets.find((candidate) => candidate.id === activeSheetId);
-  const handleImportSessionChanged = useCallback(() => {
+  const handleImportSessionChanged = useCallback(({ refreshData }: ImportProgressChange) => {
+    if (refreshData) projectData.invalidate();
     void refreshSheets();
     void job.refresh();
-  }, [job, refreshSheets]);
+  }, [job, projectData, refreshSheets]);
   const importProgress = useImportProgress({
     projectId: project.id,
     onChanged: handleImportSessionChanged,
@@ -592,7 +594,7 @@ export function useWorkspaceModel({
   const importLiveRun = activeImportActivity?.liveRun ?? null;
   const pendingImportRowCount = selectPendingImportRowCount(activeImportActivity);
   const importRowRefreshKey = activeImportActivity
-    ? `${activeImportActivity.importRef}:${activeImportActivity.session.state}:${activeImportActivity.session.committed_rows}`
+    ? `${activeImportActivity.importRef}:${activeImportActivity.session.committed_rows}`
     : null;
   const [importRunRowScope, setImportRunRowScope] = useState<{
     runId: string;
