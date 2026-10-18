@@ -180,7 +180,7 @@ class TableImportService:
                 return self._snapshot(directory, header)
             self._inspect_and_prime(directory, header, initialize=True)
             self._store.write_json(directory / "table-draft.json", header)
-            self._enqueue_scan(project_id, directory, header)
+            header = self._enqueue_scan(project_id, directory, header)
             return self._snapshot(directory, header)
         except BaseException:
             shutil.rmtree(directory, ignore_errors=True)
@@ -218,8 +218,8 @@ class TableImportService:
             header["source"]["sha256"] = digest
             self._inspect_and_prime(directory, header, initialize=True)
             self._store.save_header(directory, header)
-            self._enqueue_scan(project_id, directory, header)
-            return self._snapshot(directory, header)
+        header = self._enqueue_scan(project_id, directory, header)
+        return self._snapshot(directory, header)
 
     def update_settings(
         self,
@@ -256,8 +256,8 @@ class TableImportService:
             (directory / "table-preview.json").unlink(missing_ok=True)
             self._publish_prefix(directory, header, prefix_scan)
             self._store.save_header(directory, header)
-            self._enqueue_scan(project_id, directory, header)
-            return self._snapshot(directory, header)
+        header = self._enqueue_scan(project_id, directory, header)
+        return self._snapshot(directory, header)
 
     def update_columns(
         self,
@@ -544,7 +544,12 @@ class TableImportService:
         *,
         expected_revision: int,
         idempotency_key: str,
+        max_rows: int | None = None,
     ) -> FrozenTableImport | TableImportCommitResponse:
+        if max_rows is not None and (
+            isinstance(max_rows, bool) or not isinstance(max_rows, int) or max_rows < 0
+        ):
+            raise ValueError("max_rows must be a non-negative integer or None")
         directory, _ = self._store.open(project_id, draft_id)
         prepared: tuple[TableImportPlan, int | None] | None = None
         with self._store.lock(directory):
@@ -570,7 +575,9 @@ class TableImportService:
                     )
             else:
                 self._require_open_revision(header, expected_revision)
-                can_commit, reason = self._commit_readiness(directory, header)
+                can_commit, reason = self._commit_readiness(
+                    directory, header, max_rows=max_rows
+                )
                 if not can_commit:
                     if reason == "limit":
                         raise TableImportDraftError(
@@ -909,7 +916,7 @@ class TableImportService:
             )
             self._prime_prefix(directory, header)
             self._store.write_json(directory / "table-draft.json", header)
-            self._enqueue_scan(project_id, directory, header)
+            header = self._enqueue_scan(project_id, directory, header)
             return self._snapshot(directory, header)
         except BaseException:
             shutil.rmtree(directory, ignore_errors=True)
@@ -1076,6 +1083,7 @@ class TableImportService:
         header: Mapping[str, Any],
         *,
         scan: Mapping[str, Any] | None = None,
+        max_rows: int | None = None,
     ) -> tuple[bool, str | None]:
         if header["state"] == "password_required":
             return False, "password_required"
@@ -1088,13 +1096,17 @@ class TableImportService:
         resolved = settings.get("resolved") or {}
         if int(resolved.get("skip_rows_end", 0)) and not scan.get("complete"):
             return False, "analyzing"
-        max_rows = header.get("max_rows")
-        if (
-            max_rows is not None
-            and scan.get("complete")
-            and int(scan.get("data_rows", 0)) > int(max_rows)
-        ):
-            return False, "limit"
+        configured_limits = [
+            int(value)
+            for value in (header.get("max_rows"), max_rows)
+            if value is not None
+        ]
+        if configured_limits:
+            effective_limit = min(configured_limits)
+            if int(scan.get("data_rows", 0)) > effective_limit:
+                return False, "limit"
+            if not scan.get("complete"):
+                return False, "analyzing"
         if (
             int(scan.get("issue_counts", {}).get("unreadable_cells", 0)) > 0
             and (settings.get("requested") or {}).get("encoding") is None
@@ -1186,14 +1198,24 @@ class TableImportService:
 
     def _enqueue_scan(
         self, project_id: str, directory: Path, header: dict[str, Any]
-    ) -> None:
+    ) -> dict[str, Any]:
         if self._enqueue_analysis is None:
-            return
+            return header
+        settings_revision = int(header["settings"]["revision"])
         job_id = self._enqueue_analysis(
-            project_id, str(header["draft_id"]), int(header["settings"]["revision"])
+            project_id, str(header["draft_id"]), settings_revision
         )
-        header["analysis_job_id"] = job_id
-        self._store.write_json(directory / "table-draft.json", header)
+        with self._store.lock(directory):
+            current = self._store.open(project_id, str(header["draft_id"]))[1]
+            settings = current.get("settings")
+            if (
+                settings is not None
+                and int(settings["revision"]) == settings_revision
+                and not self._commit_started(current)
+            ):
+                current["analysis_job_id"] = job_id
+                self._store.write_json(directory / "table-draft.json", current)
+            return current
 
     @staticmethod
     def _require_open_revision(header: Mapping[str, Any], expected: int) -> None:

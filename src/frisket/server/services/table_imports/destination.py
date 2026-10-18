@@ -77,8 +77,8 @@ def compare_destination(
         seen_sources.add(source_index)
         target = mapping.get("target", {})
         if target.get("kind") == "new":
-            target_name = str(target.get("name") or "")
-            if not target_name.strip():
+            target_name = str(target.get("name") or "").strip()
+            if not target_name:
                 raise _error(422, "invalid_destination", "New columns require names.")
             if (
                 target_name == "extra values"
@@ -92,6 +92,7 @@ def compare_destination(
                     "'extra values' is reserved for overflow values.",
                 )
             new_target_names.add(target_name)
+            target["name"] = target_name
             new += 1
             continue
         if kind == "new":
@@ -174,6 +175,7 @@ def compare_destination(
             int(target["column_id"]),
             source_path=source_path,
             settings=settings,
+            total_record_count=int(scan["record_count"]),
         )
         import_rows = max(0, int(scan["data_rows"]) - duplicate_rows)
     return {
@@ -197,6 +199,7 @@ def count_existing_duplicates(
     *,
     source_path: Path,
     settings: TableReadSettings,
+    total_record_count: int,
 ) -> int:
     scratch = directory / f".dedup-{os.getpid()}-{secrets.token_hex(4)}.db"
     connection = sqlite3.connect(scratch)
@@ -213,7 +216,9 @@ def count_existing_duplicates(
             if int(item["source_index"]) == source_index
         )
         count = 0
-        with open_table(source_path, settings, total_record_count=None) as reader:
+        with open_table(
+            source_path, settings, total_record_count=total_record_count
+        ) as reader:
             for row in reader:
                 if row.role != "data":
                     continue

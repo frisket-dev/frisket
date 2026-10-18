@@ -182,20 +182,21 @@ def register_table_import_routes(
         draft_id: str,
         body: TableImportCommitRequest,
     ) -> TableImportCommitResponse:
+        max_rows = (
+            None if max_rows_for_request is None else max_rows_for_request(pid, request)
+        )
         frozen = await await_thread_worker(
             service.freeze_for_commit,
             pid,
             draft_id,
             expected_revision=body.expected_revision,
             idempotency_key=body.idempotency_key,
+            max_rows=max_rows,
         )
         if isinstance(frozen, TableImportCommitResponse):
             return frozen
         if commit_handler is None:
             raise RuntimeError("table import commit handler is unavailable")
-        max_rows = (
-            None if max_rows_for_request is None else max_rows_for_request(pid, request)
-        )
         result = commit_handler(frozen, request, max_rows)
         if inspect.isawaitable(result):
             result = await result

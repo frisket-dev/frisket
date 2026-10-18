@@ -202,3 +202,37 @@ def test_commit_projects_execution_result_to_the_public_response() -> None:
     }
     record = next(call for call in service.calls if call[0] == "record")
     assert "receipt_id" not in record[3]["result"]
+
+
+def test_commit_checks_the_current_request_row_limit_before_handoff() -> None:
+    app = FastAPI()
+    service = _Service(_snapshot())
+
+    def commit_handler(frozen, _request, max_rows):
+        assert max_rows == 1
+        return {
+            "import_ref": frozen.import_ref,
+            "sheet_id": 7,
+            "sheet_name": "People",
+            "selected_total": 1,
+            "estimated_rows": None,
+        }
+
+    register_table_import_routes(
+        app,
+        service=service,
+        commit_handler=commit_handler,
+        max_rows_for_request=lambda _pid, _request: 1,
+    )
+    register_route_error_handler(app)
+    client = TestClient(app)
+    draft_id = "import-" + "1" * 32
+
+    response = client.post(
+        f"/api/projects/p/import/table-imports/{draft_id}/commit",
+        json={"expected_revision": 1, "idempotency_key": "request-1"},
+    )
+
+    assert response.status_code == 200, response.text
+    freeze = next(call for call in service.calls if call[0] == "freeze")
+    assert freeze[3]["max_rows"] == 1

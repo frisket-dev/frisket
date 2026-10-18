@@ -93,6 +93,27 @@ def test_table_draft_stages_privately_and_freezes_reviewed_plan(tmp_path: Path) 
     assert project.sheets() == []
 
 
+def test_immediate_analysis_callback_cannot_overwrite_completed_state(
+    tmp_path: Path,
+) -> None:
+    workspace = Workspace(tmp_path / "workspace", enable_local_model_pull=False)
+    project_id = str(workspace.create("Table intake", project_id="table-intake")["id"])
+    service: TableImportService
+
+    def enqueue(pid: str, draft_id: str, settings_revision: int) -> int:
+        completed = service.scan(pid, draft_id, settings_revision=settings_revision)
+        assert completed.state == "ready"
+        return 41
+
+    service = TableImportService(workspace, enqueue_analysis=enqueue)
+    created = service.create(project_id, _upload(CSV), input_kind="file")
+
+    assert created.state == "ready"
+    assert created.analysis.complete is True
+    assert created.analysis.job_id == 41
+    assert service.status(project_id, created.draft_id).state == "ready"
+
+
 def test_table_settings_revision_rejects_stale_preview_and_footer_waits(
     tmp_path: Path,
 ) -> None:
@@ -133,6 +154,17 @@ def test_exact_scan_blocks_the_deployment_row_limit_before_freeze(
     directory = Path(workspace.get(project_id).path) / ".imports" / created.draft_id
     assert read_import_header(directory).max_rows == 1
     assert created.analysis.exact_rows is None
+    assert created.can_commit is False
+    assert created.commit_blocked_reason == "limit"
+
+    with pytest.raises(TableImportDraftError) as prefix_rejected:
+        service.freeze_for_commit(
+            project_id,
+            created.draft_id,
+            expected_revision=created.revision,
+            idempotency_key="prefix-over-limit",
+        )
+    assert prefix_rejected.value.status_code == 413
 
     scanned = service.scan(project_id, created.draft_id, settings_revision=0)
 
@@ -148,6 +180,40 @@ def test_exact_scan_blocks_the_deployment_row_limit_before_freeze(
         )
     assert rejected.value.status_code == 413
     assert rejected.value.detail["code"] == "source_too_large"
+
+
+def test_configured_row_limit_waits_for_exact_under_limit_count(tmp_path: Path) -> None:
+    _workspace, project_id, service = _service(tmp_path)
+    created = service.create(project_id, _upload(CSV), input_kind="file", max_rows=2)
+
+    assert created.analysis.exact_rows is None
+    assert created.can_commit is False
+    assert created.commit_blocked_reason == "analyzing"
+
+    scanned = service.scan(project_id, created.draft_id, settings_revision=0)
+
+    assert scanned.analysis.exact_rows == 2
+    assert scanned.can_commit is True
+
+
+def test_current_row_limit_is_checked_before_commit_state_changes(
+    tmp_path: Path,
+) -> None:
+    _workspace, project_id, service = _service(tmp_path)
+    created = service.create(project_id, _upload(CSV), input_kind="file")
+    scanned = service.scan(project_id, created.draft_id, settings_revision=0)
+
+    with pytest.raises(TableImportDraftError) as rejected:
+        service.freeze_for_commit(
+            project_id,
+            created.draft_id,
+            expected_revision=scanned.revision,
+            idempotency_key="tightened-limit",
+            max_rows=1,
+        )
+
+    assert rejected.value.status_code == 413
+    assert service.status(project_id, created.draft_id).state == "ready"
 
 
 def test_invalid_settings_leave_the_published_revision_retryable(
@@ -324,6 +390,53 @@ def test_existing_destination_preview_counts_only_frozen_sheet_duplicates(
     assert replayed.plan_hash == frozen.plan_hash
 
 
+def test_footer_skip_dedup_uses_the_completed_record_count(tmp_path: Path) -> None:
+    workspace, project_id, service = _service(tmp_path)
+    project = workspace.get(project_id)
+    sheet_id = project.add_sheet("People")
+    name_column = project.add_column(sheet_id, "name", type="text")
+    project.add_rows(sheet_id, [{"name": "Alice"}], {"name": name_column})
+    created = service.create(project_id, _upload(CSV), input_kind="file")
+    assert created.settings is not None
+    settings = created.settings.requested.model_copy(update={"skip_rows_end": 1})
+    changed = service.update_settings(
+        project_id,
+        created.draft_id,
+        expected_revision=created.revision,
+        settings=settings.model_dump(mode="json"),
+    )
+    assert changed.settings is not None
+    scanned = service.scan(
+        project_id,
+        created.draft_id,
+        settings_revision=changed.settings.revision,
+    )
+
+    compared = service.update_destination(
+        project_id,
+        created.draft_id,
+        expected_revision=scanned.revision,
+        destination={"kind": "existing", "sheet_id": sheet_id},
+        mappings=[
+            {
+                "source_index": column.source_index,
+                "target": (
+                    {"kind": "existing", "column_id": name_column}
+                    if column.name == "name"
+                    else {"kind": "new", "name": column.name}
+                ),
+            }
+            for column in scanned.columns
+            if column.included
+        ],
+        dedup={"enabled": True, "key_source_index": 0},
+    )
+
+    assert compared.destination is not None
+    assert compared.destination.comparison.complete is True
+    assert compared.destination.comparison.duplicate_rows == 1
+
+
 def test_full_scan_finishes_the_current_reviewed_dedup_comparison(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -409,6 +522,26 @@ def test_destination_rejects_duplicate_and_reserved_output_names(
         )
     assert duplicate.value.status_code == 422
     assert duplicate.value.detail["code"] == "invalid_destination"
+
+    with pytest.raises(TableImportDraftError) as spaced_duplicate:
+        service.update_destination(
+            project_id,
+            created.draft_id,
+            expected_revision=scanned.revision,
+            destination={"kind": "new", "sheet_name": "People"},
+            mappings=[
+                {
+                    "source_index": column.source_index,
+                    "target": {
+                        "kind": "new",
+                        "name": "same" if index == 0 else " same ",
+                    },
+                }
+                for index, column in enumerate(included)
+            ],
+            dedup={"enabled": False, "key_source_index": None},
+        )
+    assert spaced_duplicate.value.detail["code"] == "invalid_destination"
 
     reserved = service.create(
         project_id,
