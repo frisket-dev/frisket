@@ -487,6 +487,7 @@ class _ActionRuns:
     def __init__(self) -> None:
         self.bodies: list[dict[str, Any]] = []
         self.priorities: list[str | None] = []
+        self.group_labels: list[str | None] = []
 
     def run_action(
         self,
@@ -494,9 +495,11 @@ class _ActionRuns:
         body: dict[str, Any],
         *,
         background_priority: str | None = None,
+        output_group_label: str | None = None,
     ):
         self.bodies.append(body)
         self.priorities.append(background_priority)
+        self.group_labels.append(output_group_label)
         return ActionRunResponse(
             status_code=202,
             payload={"status": "queued", "receipt_id": f"text-{len(self.bodies)}"},
@@ -514,9 +517,11 @@ class _BusyThenReadyActions(_ActionRuns):
         body: dict[str, Any],
         *,
         background_priority: str | None = None,
+        output_group_label: str | None = None,
     ):
         self.bodies.append(body)
         self.priorities.append(background_priority)
+        self.group_labels.append(output_group_label)
         if body["action_id"] == "media.ocr" and self.ocr_busy:
             return ActionRunResponse(
                 status_code=409,
@@ -599,6 +604,7 @@ def test_reviewed_text_handoff_uses_one_designated_column_and_action_authority(
     assert actions.bodies[1]["scope"]["row_ids"] == [rows[1]]
     assert actions.bodies[1]["params"]["engine"] == "rapidocr"
     assert actions.bodies[1]["params"]["model"] == "document-v2"
+    assert actions.group_labels == ["Document text", "Document text"]
     assert actions.priorities == [None, "pdf_import_ocr"]
     assert {body["output_names"]["text"] for body in actions.bodies} == {"text"}
     assert [str(column["name"]) for column in project.columns(sheet_id)].count(
@@ -939,6 +945,7 @@ def test_paid_parent_grant_admits_exact_ordinary_child_once(
             "source_count": 1,
             "page_count": 2,
             "roster_digest": roster,
+            "row_pages": {"1": 2},
         }
     ]
     action_params = {"engine": "anthropic/claude-haiku-4-5"}
@@ -1024,6 +1031,13 @@ def test_paid_parent_grant_admits_exact_ordinary_child_once(
     consents = RouteStore.for_run(project, int(started[0]["run_id"])).consents()
     assert len(consents) == 1
     assert consents[0].grant_basis == "pdf_import_grant_derived"
+    prepared_spec = json.loads(
+        project.db.execute(
+            "SELECT runs.params FROM runs WHERE runs.id=?",
+            (int(started[0]["run_id"]),),
+        ).fetchone()["params"]
+    )
+    assert prepared_spec["group_label"] == "Document text"
     assert len(
         workspace.queue.list_project_jobs(project_id, kind=PROJECT_RUN_KIND)
     ) == 1

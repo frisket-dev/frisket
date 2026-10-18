@@ -599,7 +599,8 @@ class PdfImportPreparationCoordinator:
                 for name in body["output_names"].values()
             }
             run_kwargs: dict[str, Any] = {
-                "background_priority": "pdf_import_ocr" if ocr else None
+                "background_priority": "pdf_import_ocr" if ocr else None,
+                "output_group_label": "Document text",
             }
             if ocr and grant is not None:
                 run_kwargs["trusted_consent_authorizer"] = (
@@ -662,6 +663,8 @@ class PdfImportPreparationCoordinator:
             basis = row.get("basis")
             if isinstance(basis, dict):
                 basis.pop("row_quote_quantities", None)
+                basis.pop("row_quote_quantities_digest", None)
+                basis.pop("row_quote_quantities_count", None)
                 basis.pop("work_scope", None)
         return normalized
 
@@ -774,7 +777,31 @@ class PdfImportPreparationCoordinator:
             expected_quote, Mapping
         ):
             raise ValueError("paid PDF OCR child authority is incomplete")
-        if promise_rows_hash(expected_promises) != child.get("promise_set_hash"):
+        canonical_quantities = [
+            [int(row["ordinal"]), int(row["page_count"])]
+            for row in sorted(ocr_rows, key=lambda value: int(value["ordinal"]))
+        ]
+        encoded_quantities = json.dumps(
+            canonical_quantities, sort_keys=True, separators=(",", ":")
+        ).encode()
+        quantities_digest = hashlib.sha256(encoded_quantities).hexdigest()
+        restored_promises = json.loads(
+            json.dumps(expected_promises, sort_keys=True, allow_nan=False)
+        )
+        for promise in restored_promises:
+            basis = promise.get("basis")
+            if not isinstance(basis, dict):
+                continue
+            if basis.get("row_quote_quantities_digest") is None:
+                continue
+            if (
+                basis.pop("row_quote_quantities_digest") != quantities_digest
+                or basis.pop("row_quote_quantities_count", None)
+                != len(canonical_quantities)
+            ):
+                raise ValueError("paid PDF OCR child row quote authority changed")
+            basis["row_quote_quantities"] = canonical_quantities
+        if promise_rows_hash(restored_promises) != child.get("promise_set_hash"):
             raise ValueError("paid PDF OCR child promise set changed")
 
         def authorize(context: TrustedConsentContext) -> Any:
@@ -799,7 +826,9 @@ class PdfImportPreparationCoordinator:
             actual_promises = promise_rows(resolved.promise_set)
             row_quantities: dict[int, int] = {}
             row_quantities_required = False
-            for promise in actual_promises:
+            if len(actual_promises) != len(expected_promises):
+                return refusal("paid PDF OCR promise set changed")
+            for promise_index, promise in enumerate(actual_promises):
                 basis = promise.get("basis")
                 if not isinstance(basis, Mapping):
                     continue
@@ -807,9 +836,16 @@ class PdfImportPreparationCoordinator:
                     row_quantities_required = True
                 quantities = basis.get("row_quote_quantities")
                 if quantities is None:
+                    expected_basis = expected_promises[promise_index].get("basis")
+                    if isinstance(expected_basis, Mapping) and (
+                        expected_basis.get("row_quote_quantities_digest") is not None
+                        or expected_basis.get("row_quote_quantities_count") is not None
+                    ):
+                        return refusal("paid PDF OCR row quote is incomplete")
                     continue
                 if not isinstance(quantities, list):
                     return refusal("paid PDF OCR row quote is invalid")
+                canonical_quantities = []
                 for pair in quantities:
                     if not isinstance(pair, list | tuple) or len(pair) != 2:
                         return refusal("paid PDF OCR row quote is invalid")
@@ -826,6 +862,22 @@ class PdfImportPreparationCoordinator:
                     ):
                         return refusal("paid PDF OCR per-row page quote changed")
                     row_quantities[row_id] = int(quantity)
+                    canonical_quantities.append(
+                        [int(expected_row["ordinal"]), int(quantity)]
+                    )
+                expected_basis = expected_promises[promise_index].get("basis")
+                if not isinstance(expected_basis, Mapping):
+                    return refusal("paid PDF OCR row quote authority is missing")
+                encoded = json.dumps(
+                    canonical_quantities, sort_keys=True, separators=(",", ":")
+                ).encode()
+                if (
+                    expected_basis.get("row_quote_quantities_digest")
+                    != hashlib.sha256(encoded).hexdigest()
+                    or expected_basis.get("row_quote_quantities_count")
+                    != len(canonical_quantities)
+                ):
+                    return refusal("paid PDF OCR row quote allocation changed")
             if row_quantities_required and set(row_quantities) != set(by_row_id):
                 return refusal("paid PDF OCR per-row page quote is incomplete")
             if self._promises_without_row_coordinates(
