@@ -790,7 +790,12 @@ export function PdfBatchImportFlow({
           onConfirm={() => {
             const pending = previewConsent;
             setPreviewConsent(null);
-            void startPreview(pending.fileId, pending.page, pending.estimate.estimate?.promise_set_hash, refresh);
+            void startPreview(
+              pending.fileId,
+              pending.page,
+              pending.estimate.estimate?.promise_set_hash ?? undefined,
+              refresh,
+            );
           }}
         />
       )}

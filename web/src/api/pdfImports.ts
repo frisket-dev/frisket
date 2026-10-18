@@ -1,200 +1,57 @@
+import type {
+  HttpPdfImportBatchOcrState,
+  HttpPdfImportChoicesRequest,
+  HttpPdfImportCommitRequest,
+  HttpPdfImportCommitResponse,
+  HttpPdfImportCreateRequest,
+  HttpPdfImportListResponse,
+  HttpPdfImportManifestBatchRequest,
+  HttpPdfImportOcrPreviewEstimate,
+  HttpPdfImportOcrPreviewStart,
+  HttpPdfImportPageResponse,
+  HttpPdfImportReselectRequest,
+  HttpPdfImportReselectResponse,
+  HttpPdfImportSamplesResponse,
+  HttpPdfImportStatus,
+} from '../generated/openHttpContracts';
+import { httpContract } from './httpContract';
 import type { RunEstimate } from './open';
 
-export type PdfImportStatus =
-  | 'open'
-  | 'committing'
-  | 'committed'
-  | 'cancelling'
-  | 'cancelled'
-  | 'error';
-
-export type PdfImportCategory =
-  | 'text'
-  | 'suspicious'
-  | 'missing'
-  | 'image'
-  | 'other'
-  | 'unreadable'
-  | 'unchecked';
-
-export type PdfImportOcrPolicy = 'missing_or_suspicious' | 'all' | 'none';
-
-export type PdfImportOcrSelection =
-  | { kind: 'engine'; engine: string }
-  | { kind: 'engine_model'; engine: string; model: string | null };
-
-export type PdfImportDestination =
-  | { kind: 'new'; sheet_name: string }
-  | { kind: 'existing'; sheet_id: number };
-
-export interface PdfImportProgress {
-  files_done: number;
-  files_total: number;
-  bytes_done?: number;
-  bytes_total?: number | null;
-  sealed?: boolean;
-}
-
-export interface PdfImportCleanupProgress {
-  bytes_done: number;
-  bytes_total: number | null;
-}
-
-export interface PdfImportFileSummary {
-  occurrence_id: string;
-  logical_path: string;
-  filename: string;
-  size: number;
-  page_count: number | null;
-  category: PdfImportCategory;
-  analysis_state: 'pending' | 'done' | 'error';
-  upload_state?: 'pending' | 'staged';
-  sample_pages: number[];
-  thumbnail_url: string | null;
-  error?: string | null;
-}
-
-export interface PdfImportChoices {
-  ocr_policy: PdfImportOcrPolicy;
-  ocr_selection: PdfImportOcrSelection;
-  semantic_search: boolean;
-  semantic_setup_confirmation: string | null;
-  destination: PdfImportDestination;
-}
-
-export interface PdfImportBatchOcr {
-  state: 'idle' | 'ready' | 'error';
-  advisory?: boolean;
-  purpose?: 'batch_pdf_ocr' | null;
-  ocr_action_params?: Record<string, unknown> | null;
-  options?: Record<string, unknown> | null;
-  ocr_policy: PdfImportOcrPolicy | null;
-  manifest_revision: number | null;
-  manifest_hash: string | null;
-  selected_through: number;
-  selected_count: number;
-  known_pages?: number;
-  work_scope_hash?: string | null;
+export type PdfImportCategory = HttpPdfImportSamplesResponse['category'];
+export type PdfImportOcrPolicy = HttpPdfImportChoicesRequest['ocr_policy'];
+export type PdfImportOcrSelection = HttpPdfImportChoicesRequest['ocr_selection'];
+export type PdfImportDestination = HttpPdfImportChoicesRequest['destination'];
+export type PdfImportChoices = Omit<HttpPdfImportChoicesRequest, 'expected_revision'>;
+export type PdfImportBatchOcr = Omit<HttpPdfImportBatchOcrState, 'estimate'> & {
   estimate: RunEstimate | null;
-  needs_confirmation: boolean;
   error?: string | null;
-}
-
-export interface PdfImportMatch {
-  state: 'idle' | 'running' | 'ready' | 'error';
-  checked: number;
-  total: number;
-  matched_count: number;
-  new_count: number;
-  new_category_counts?: Partial<Record<PdfImportCategory, number>>;
-  error?: string | null;
-}
-
-export interface PdfImportSemanticSetup {
-  setup_ref: string | null;
-  display_name: string;
-  ready: boolean;
-  runtime_ready: boolean;
-  download_bytes: number | null;
-  additional_runtime_download: boolean;
-  needs_confirmation: boolean;
-  confirmation_hash: string | null;
-  license: string | null;
-  source_url: string | null;
-  available: boolean;
-}
-
-export interface PdfImportCommitResult {
-  sheet_id: number;
-  job_id: string;
-}
-
-export interface PdfImportSnapshot {
-  schema_version: string;
-  id: string;
-  draft_id: string;
-  revision: number;
-  updated_at: string;
-  state: PdfImportStatus;
-  paused: boolean;
-  created_at: string;
-  source_label: string | null;
-  preflight: { state: 'waiting' | 'ready' | 'insufficient'; free_bytes: number | null };
-  manifest: PdfImportProgress;
-  upload: PdfImportProgress;
-  analysis: PdfImportProgress;
-  cleanup: PdfImportCleanupProgress;
-  category_counts: Partial<Record<PdfImportCategory, number>>;
-  sample_ready_counts: Partial<Record<PdfImportCategory, number>>;
-  can_review_text: boolean;
-  choices: PdfImportChoices;
-  match: PdfImportMatch;
-  semantic_setup: PdfImportSemanticSetup;
-  batch_ocr?: PdfImportBatchOcr | null;
-  preview_jobs?: PdfImportPreviewJob[];
-  commit?: {
-    commit_id: string;
-    idempotency_key: string;
-    result?: { sheet_id?: number } | null;
-    [key: string]: unknown;
-  } | null;
-  error?: string | null;
-  expires_at?: string;
-}
-
-export interface PdfImportPage {
-  schema_version: string;
-  draft_id: string;
-  import_id?: string;
-  occurrence_id: string;
-  page: number;
-  native_text: string;
-  ocr_text: string | null;
-  ocr_blocks?: Array<Record<string, unknown>>;
-  ocr_action_params: Record<string, unknown> | null;
-  thumbnail_url: string;
-}
-
-export interface PdfImportPreviewEstimate {
-  schema_version?: string;
-  draft_id?: string;
-  occurrence_id?: string;
-  page?: number;
-  ocr_action_params: Record<string, unknown>;
-  cached: boolean;
+};
+export type PdfImportFileSummary = HttpPdfImportSamplesResponse['items'][number];
+export type PdfImportPage = HttpPdfImportPageResponse & { native_text_truncated?: boolean };
+export type PdfImportPreviewEstimate = Omit<HttpPdfImportOcrPreviewEstimate, 'estimate'> & {
   estimate: RunEstimate | null;
-}
+};
+export type PdfImportPreviewStart = HttpPdfImportOcrPreviewStart;
+export type PdfImportCreateFile = HttpPdfImportManifestBatchRequest['files'][number];
+export type PdfImportSamples = Pick<HttpPdfImportSamplesResponse, 'items' | 'next_cursor'>;
+export type PdfImportReselectFile = HttpPdfImportReselectRequest['files'][number];
+export type PdfImportReselectResult = HttpPdfImportReselectResponse['items'][number];
+export type PdfImportReselectResponse = HttpPdfImportReselectResponse;
+export type PdfImportBatchOcrEstimate = PdfImportBatchOcr;
+export type PdfImportCommitInput = HttpPdfImportCommitRequest;
 
-export interface PdfImportJobRef {
-  schema_version: string;
-  import_id: string;
-  job_id: string;
-  kind: 'ocr_preview' | 'commit' | 'discard';
-  sheet_id?: number | null;
-}
+type PdfImportCommitRecord = NonNullable<HttpPdfImportStatus['commit']> & {
+  result?: { sheet_id?: number; import_ref?: string } | null;
+};
 
-export interface PdfImportPreviewJob {
-  occurrence_id: string;
-  page: number;
-  ocr_action_params: Record<string, unknown>;
-  job_id: string;
-  status: string;
-  receipt_id: string | null;
-  error?: string | null;
-}
+export type PdfImportSnapshot = Omit<HttpPdfImportStatus, 'batch_ocr' | 'commit'> & {
+  batch_ocr: PdfImportBatchOcr;
+  commit: PdfImportCommitRecord | null;
+};
 
-export interface PdfImportPreviewStart {
-  schema_version: string;
-  draft_id: string;
-  occurrence_id: string;
-  page: number;
-  ocr_action_params: Record<string, unknown>;
-  job_id: string | null;
-  status: 'running' | 'done';
-  receipt_id: string | null;
-  estimate: RunEstimate | null;
-  needs_confirmation: boolean;
-}
+export type PdfImportCommitResponse = Omit<HttpPdfImportCommitResponse, 'job'> & {
+  job?: ({ sheet_id?: number; import_ref?: string; [key: string]: unknown }) | null;
+};
 
 export interface PdfImportRequestOptions {
   signal?: AbortSignal;
@@ -205,53 +62,6 @@ export interface PdfImportUpload {
   fileId: string;
   file: File;
   logicalPath?: string;
-}
-
-export interface PdfImportCreateFile {
-  client_file_id: string;
-  logical_path: string;
-  filename: string;
-  size: number;
-}
-
-export interface PdfImportSamples {
-  items: PdfImportFileSummary[];
-  next_cursor: string | null;
-}
-
-export interface PdfImportReselectFile {
-  logical_path: string;
-  filename: string;
-  size: number;
-}
-
-export interface PdfImportReselectResult extends PdfImportReselectFile {
-  matched: boolean;
-  occurrence_id: string | null;
-  upload_needed: boolean;
-}
-
-export interface PdfImportReselectResponse {
-  schema_version: string;
-  draft_id: string;
-  items: PdfImportReselectResult[];
-}
-
-export interface PdfImportBatchOcrEstimate {
-  state: 'idle' | 'ready' | 'error';
-  advisory?: boolean;
-  purpose?: 'batch_pdf_ocr' | null;
-  ocr_action_params?: Record<string, unknown> | null;
-  options?: Record<string, unknown> | null;
-  ocr_policy: PdfImportOcrPolicy | null;
-  manifest_revision: number | null;
-  manifest_hash: string | null;
-  selected_through: number;
-  selected_count: number;
-  known_pages?: number;
-  work_scope_hash?: string | null;
-  estimate: RunEstimate | null;
-  needs_confirmation: boolean;
 }
 
 export interface PdfImportsApi {
@@ -277,23 +87,6 @@ export interface PdfImportsApi {
   commit(projectId: string, importId: string, input: PdfImportCommitInput, options?: PdfImportRequestOptions): Promise<PdfImportCommitResponse>;
 }
 
-export interface PdfImportCommitInput {
-  idempotency_key: string;
-  expected_revision: number;
-}
-
-export interface PdfImportCommitResponse {
-  schema_version: string;
-  draft_id: string;
-  commit_id: string;
-  status: 'accepted';
-  manifest_hash: string;
-  selected_total: number;
-  available_through: number;
-  uploads_complete: boolean;
-  job: { sheet_id?: number; import_ref?: string; [key: string]: unknown } | null;
-}
-
 export class PdfImportResponseError extends Error {
   readonly status: number;
   readonly payload: unknown;
@@ -311,76 +104,58 @@ export class PdfImportResponseError extends Error {
 const root = (projectId: string) =>
   `/api/projects/${encodeURIComponent(projectId)}/import/pdf-imports`;
 
-async function request<Response>(
-  path: string,
-  init: RequestInit,
-  implementation: typeof globalThis.fetch = globalThis.fetch,
-): Promise<Response> {
-  const response = await implementation(path, init);
-  let payload: unknown;
-  try {
-    payload = await response.json();
-  } catch (error) {
-    if (!(error instanceof SyntaxError)) throw error;
-    payload = null;
-  }
-  if (!response.ok) throw new PdfImportResponseError(response.status, payload);
-  return payload as Response;
-}
-
-function jsonRequest<Response>(
-  path: string,
-  method: string,
-  body: unknown,
-  options: PdfImportRequestOptions,
-): Promise<Response> {
-  return request<Response>(path, {
-    method,
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+function requestOptions(options: PdfImportRequestOptions) {
+  return {
     signal: options.signal,
-  }, options.fetch);
+    fetch: options.fetch,
+    errorFactory: (status: number, payload: unknown) => new PdfImportResponseError(status, payload),
+  };
 }
 
 export function createPdfImportsApi(): PdfImportsApi {
   return {
     create(projectId, expectedFiles, expectedBytes, sourceLabel, options = {}) {
-      return jsonRequest(root(projectId), 'POST', {
+      const body: HttpPdfImportCreateRequest = {
         expected_files: expectedFiles,
         expected_bytes: expectedBytes,
         source_label: sourceLabel,
-      }, options);
+      };
+      return httpContract('tenant.create_pdf_import.post', {
+        pathParams: { pid: projectId }, query: {}, body, ...requestOptions(options),
+      }, (wire) => wire as PdfImportSnapshot);
     },
     addManifest(projectId, importId, files, batchId, options = {}) {
-      return jsonRequest(`${root(projectId)}/${encodeURIComponent(importId)}/manifest`, 'POST', {
-        batch_id: batchId, files,
-      }, options);
+      return httpContract('tenant.append_pdf_import_manifest.post', {
+        pathParams: { pid: projectId, draft_id: importId }, query: {},
+        body: { batch_id: batchId, files }, ...requestOptions(options),
+      }, (wire) => wire as PdfImportSnapshot);
     },
     sealManifest(projectId, importId, options = {}) {
-      return request(`${root(projectId)}/${encodeURIComponent(importId)}/manifest/seal`, {
-        method: 'POST', signal: options.signal,
-      }, options.fetch);
+      return httpContract('tenant.seal_pdf_import_manifest.post', {
+        pathParams: { pid: projectId, draft_id: importId }, query: {}, ...requestOptions(options),
+      }, (wire) => wire as PdfImportSnapshot);
     },
-    async list(projectId, options = {}) {
-      const response = await request<PdfImportSnapshot[] | { items: PdfImportSnapshot[] }>(
-        root(projectId), { method: 'GET', signal: options.signal }, options.fetch,
-      );
-      return Array.isArray(response) ? response : response.items;
+    list(projectId, options = {}) {
+      return httpContract('tenant.list_pdf_imports.get', {
+        pathParams: { pid: projectId }, query: {}, ...requestOptions(options),
+      }, (wire: HttpPdfImportListResponse) => wire.items as PdfImportSnapshot[]);
     },
     get(projectId, importId, options = {}) {
-      return request(`${root(projectId)}/${encodeURIComponent(importId)}`, {
-        method: 'GET', signal: options.signal,
-      }, options.fetch);
+      return httpContract('tenant.get_pdf_import.get', {
+        pathParams: { pid: projectId, draft_id: importId }, query: {}, ...requestOptions(options),
+      }, (wire) => wire as PdfImportSnapshot);
     },
     samples(projectId, importId, category, cursor, options = {}) {
-      const query = new URLSearchParams({ category, limit: '6' });
-      if (cursor) query.set('cursor', cursor);
-      return request(`${root(projectId)}/${encodeURIComponent(importId)}/samples?${query.toString()}`, {
-        method: 'GET', signal: options.signal,
-      }, options.fetch);
+      return httpContract('tenant.list_pdf_import_samples.get', {
+        pathParams: { pid: projectId, draft_id: importId },
+        query: { category, cursor, limit: 6 }, ...requestOptions(options),
+      }, (wire) => ({ items: wire.items, next_cursor: wire.next_cursor }));
     },
     reconcileReselection(projectId, importId, files, options = {}) {
-      return jsonRequest(`${root(projectId)}/${encodeURIComponent(importId)}/reselect`, 'POST', { files }, options);
+      return httpContract('tenant.reconcile_pdf_import_reselection.post', {
+        pathParams: { pid: projectId, draft_id: importId }, query: {}, body: { files },
+        ...requestOptions(options),
+      });
     },
     upload(projectId, importId, files, batchId, options = {}) {
       const body = new FormData();
@@ -388,59 +163,75 @@ export function createPdfImportsApi(): PdfImportsApi {
       for (const item of files) body.append('file_ids', item.fileId);
       for (const item of files) body.append('logical_paths', item.logicalPath || item.file.webkitRelativePath || item.file.name);
       body.append('batch_id', batchId);
-      return request(`${root(projectId)}/${encodeURIComponent(importId)}/uploads`, {
-        method: 'POST', body, signal: options.signal,
-      }, options.fetch);
+      return httpContract('tenant.upload_pdf_import_files.post', {
+        pathParams: { pid: projectId, draft_id: importId }, query: {}, body,
+        ...requestOptions(options),
+      }, (wire) => wire as PdfImportSnapshot);
     },
     pause(projectId, importId, options = {}) {
-      return request(`${root(projectId)}/${encodeURIComponent(importId)}/pause`, {
-        method: 'POST', signal: options.signal,
-      }, options.fetch);
+      return httpContract('tenant.pause_pdf_import.post', {
+        pathParams: { pid: projectId, draft_id: importId }, query: {}, ...requestOptions(options),
+      }, (wire) => wire as PdfImportSnapshot);
     },
     resume(projectId, importId, options = {}) {
-      return request(`${root(projectId)}/${encodeURIComponent(importId)}/resume`, {
-        method: 'POST', signal: options.signal,
-      }, options.fetch);
+      return httpContract('tenant.resume_pdf_import.post', {
+        pathParams: { pid: projectId, draft_id: importId }, query: {}, ...requestOptions(options),
+      }, (wire) => wire as PdfImportSnapshot);
     },
     updateChoices(projectId, importId, choices, options = {}) {
-      return jsonRequest(`${root(projectId)}/${encodeURIComponent(importId)}/choices`, 'PATCH', choices, options);
+      return httpContract('tenant.update_pdf_import_choices.patch', {
+        pathParams: { pid: projectId, draft_id: importId }, query: {}, body: choices,
+        ...requestOptions(options),
+      }, (wire) => wire as PdfImportSnapshot);
     },
     refreshSemanticSetup(projectId, importId, options = {}) {
-      return request(`${root(projectId)}/${encodeURIComponent(importId)}/semantic-setup/refresh`, {
-        method: 'POST', signal: options.signal,
-      }, options.fetch);
+      return httpContract('tenant.refresh_pdf_import_semantic_setup.post', {
+        pathParams: { pid: projectId, draft_id: importId }, query: {}, ...requestOptions(options),
+      }, (wire) => wire as PdfImportSnapshot);
     },
     estimateBatchOcr(projectId, importId, selection, ocrPolicy, expectedRevision, options = {}) {
-      return jsonRequest(`${root(projectId)}/${encodeURIComponent(importId)}/ocr-estimate`, 'POST', {
-        ocr_selection: selection, ocr_policy: ocrPolicy, expected_revision: expectedRevision,
-      }, options);
+      return httpContract('tenant.estimate_pdf_import_batch_ocr.post', {
+        pathParams: { pid: projectId, draft_id: importId }, query: {},
+        body: { ocr_selection: selection, ocr_policy: ocrPolicy, expected_revision: expectedRevision },
+        ...requestOptions(options),
+      }, (wire) => wire as PdfImportBatchOcrEstimate);
     },
     match(projectId, importId, options = {}) {
-      return request(`${root(projectId)}/${encodeURIComponent(importId)}/match`, {
-        method: 'POST', signal: options.signal,
-      }, options.fetch);
+      return httpContract('tenant.compare_pdf_import_destination.post', {
+        pathParams: { pid: projectId, draft_id: importId }, query: {}, ...requestOptions(options),
+      }, (wire) => wire as PdfImportSnapshot);
     },
     getPage(projectId, importId, fileId, page, options = {}) {
-      return request(`${root(projectId)}/${encodeURIComponent(importId)}/files/${encodeURIComponent(fileId)}/pages/${page}`, {
-        method: 'GET', signal: options.signal,
-      }, options.fetch);
+      return httpContract('tenant.get_pdf_import_page.get', {
+        pathParams: { pid: projectId, draft_id: importId, occurrence_id: fileId, page },
+        query: {}, ...requestOptions(options),
+      });
     },
     thumbnailUrl(projectId, importId, fileId, page) {
       return `${root(projectId)}/${encodeURIComponent(importId)}/files/${encodeURIComponent(fileId)}/pages/${page}/thumbnail`;
     },
     estimateOcrPreview(projectId, importId, fileId, page, selection, options = {}) {
-      return jsonRequest(`${root(projectId)}/${encodeURIComponent(importId)}/files/${encodeURIComponent(fileId)}/pages/${page}/ocr-preview/estimate`, 'POST', { ocr_selection: selection }, options);
+      return httpContract('tenant.estimate_pdf_import_ocr_preview.post', {
+        pathParams: { pid: projectId, draft_id: importId, occurrence_id: fileId, page }, query: {},
+        body: { ocr_selection: selection }, ...requestOptions(options),
+      }, (wire) => wire as PdfImportPreviewEstimate);
     },
     startOcrPreview(projectId, importId, fileId, page, selection, confirmation, options = {}) {
-      return jsonRequest(`${root(projectId)}/${encodeURIComponent(importId)}/files/${encodeURIComponent(fileId)}/pages/${page}/ocr-preview`, 'POST', { ocr_selection: selection, confirmation }, options);
+      return httpContract('tenant.start_pdf_import_ocr_preview.post', {
+        pathParams: { pid: projectId, draft_id: importId, occurrence_id: fileId, page }, query: {},
+        body: { ocr_selection: selection, confirmation }, ...requestOptions(options),
+      });
     },
     discard(projectId, importId, options = {}) {
-      return request(`${root(projectId)}/${encodeURIComponent(importId)}`, {
-        method: 'DELETE', signal: options.signal,
-      }, options.fetch);
+      return httpContract('tenant.discard_pdf_import.delete', {
+        pathParams: { pid: projectId, draft_id: importId }, query: {}, ...requestOptions(options),
+      }, (wire) => wire as PdfImportSnapshot);
     },
     commit(projectId, importId, input, options = {}) {
-      return jsonRequest(`${root(projectId)}/${encodeURIComponent(importId)}/commit`, 'POST', input, options);
+      return httpContract('tenant.commit_pdf_import.post', {
+        pathParams: { pid: projectId, draft_id: importId }, query: {}, body: input,
+        ...requestOptions(options),
+      });
     },
   };
 }

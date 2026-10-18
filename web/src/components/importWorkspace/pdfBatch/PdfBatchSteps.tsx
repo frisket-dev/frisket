@@ -243,6 +243,7 @@ export function CheckTextStep({
               thumbnailAlt={`Page 1 of ${chosenFile.filename}`}
               heading={textSource === 'ocr' ? 'Extracted text' : 'Text layer in this PDF'}
               text={shownText}
+              truncated={textSource === 'native' && Boolean(page?.native_text_truncated)}
               loading={pageLoading || (textSource === 'ocr' && previewRunning)}
               loadingCopy={textSource === 'ocr' ? 'Applying OCR to this page…' : 'Loading preview…'}
               emptyCopy={textSource === 'ocr'
