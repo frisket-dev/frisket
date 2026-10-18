@@ -23,6 +23,7 @@
   top: 50%;
   width: min(660px, 56vw);
   transform: translate(-50%, -50%);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   border: 0;
   background: transparent;
 }
@@ -135,6 +136,26 @@
   color: #756c66;
   font-size: 12px;
 }
+
+.pdf-batch-preflight-error {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 16px;
+  padding: 14px;
+  border: 1px solid #e2b8ae;
+  border-radius: 8px;
+  background: #fff7f5;
+  color: #8f3023;
+}
+
+.pdf-batch-preflight-error > div {
+  flex: 1 1 auto;
+  display: grid;
+  gap: 3px;
+}
+
+.pdf-batch-preflight-error span { color: #756c66; font-size: 12px; }
 
 .pdf-batch-reselect {
   display: flex;
@@ -457,11 +478,25 @@
 .pdf-batch-sheet-field { display: grid; gap: 6px; width: min(420px, 100%); margin-bottom: 14px; color: #4a433e; font-size: 12px; font-weight: 650; }
 .pdf-batch-matching { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center; padding: 10px 0 14px; color: #756c66; font-size: 12px; }
 .pdf-batch-matching progress { grid-column: 1 / -1; }
-.pdf-batch-review-counts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; margin: 16px 0; border: 1px solid #e7e1db; border-radius: 8px; overflow: hidden; background: #e7e1db; }
-.pdf-batch-review-counts > div { display: flex; gap: 10px; align-items: center; padding: 14px; background: #fff; }
-.pdf-batch-review-counts strong { font-size: 20px; }
-.pdf-batch-review-counts span { display: grid; gap: 2px; color: #4a433e; font-size: 11px; }
-.pdf-batch-review-counts small { color: #8a817a; }
+.pdf-batch-destination-summary { display: flex; align-items: baseline; gap: 12px; margin: 18px 0 10px; }
+.pdf-batch-destination-summary strong { font-size: 15px; }
+.pdf-batch-destination-summary span { color: #756c66; font-size: 12px; }
+.pdf-batch-destination-table { overflow: hidden; border: 1px solid #e7e1db; border-radius: 8px; background: #fff; }
+.pdf-batch-destination-table > div { display: grid; grid-template-columns: minmax(0, 1fr) 100px minmax(160px, 0.55fr); min-height: 39px; align-items: center; padding: 0 13px; border-bottom: 1px solid #efeae5; font-size: 12px; }
+.pdf-batch-destination-table > div:last-child { border-bottom: 0; }
+.pdf-batch-destination-table .pdf-batch-destination-heading { min-height: 34px; background: #fbf9f7; color: #756c66; }
+.pdf-batch-destination-table .pdf-batch-existing-row { min-height: 49px; background: #fbf9f7; }
+.pdf-batch-destination-table [role='cell']:nth-child(2),
+.pdf-batch-destination-table [role='columnheader']:nth-child(2) { text-align: right; padding-right: 16px; }
+.pdf-batch-destination-table [role='cell']:last-child { display: flex; align-items: center; gap: 9px; }
+.pdf-batch-existing-row > span:first-child { display: grid; gap: 2px; }
+.pdf-batch-existing-row small { color: #8a817a; font-size: 10px; }
+.pdf-batch-text-badge { display: inline-flex; width: fit-content; padding: 2px 8px; border-radius: 999px; font-style: normal; font-size: 11px; }
+.pdf-batch-text-badge.native { background: #e3f1ea; color: #18785b; }
+.pdf-batch-text-badge.ocr { background: #eef0fd; color: #4143c4; }
+.pdf-batch-text-badge.neutral { background: #f1eeeb; color: #756c66; }
+.pdf-batch-destination-table .link-btn { display: inline-flex; align-items: center; gap: 3px; color: #4143c4; text-decoration: none; }
+.pdf-batch-destination-table .link-btn:hover { text-decoration: underline; }
 
 .pdf-batch-semantic-choice { margin-top: 20px; }
 .pdf-batch-model-setup,
@@ -484,8 +519,7 @@
 .pdf-batch-ocr-review > b { color: #1f7a5a; font-size: 12px; }
 .pdf-batch-model-setup > label { grid-column: 1 / -1; display: flex; gap: 8px; padding-top: 10px; border-top: 1px solid #e7e1db; font-size: 12px; }
 .pdf-batch-model-setup > p { grid-column: 1 / -1; margin: 0; color: #b3412e; font-size: 12px; }
-.pdf-batch-final-review { display: grid; gap: 5px; margin-top: 18px; padding: 14px; border-left: 3px solid #4b4ddb; background: #eef0fd; }
-.pdf-batch-final-review span { color: #4a433e; font-size: 12px; }
+.pdf-batch-inline-progress { display: inline-flex; align-items: center; gap: 5px; color: #756c66; font-size: 11px; }
 
 @media (max-width: 820px) {
   .pdf-batch-progress-grid,
@@ -495,7 +529,7 @@
   .pdf-batch-preview { min-height: 520px; }
   .pdf-batch-ocr-policy { grid-template-columns: 1fr; }
   .pdf-batch-engine { width: min(270px, 55%); }
-  .pdf-batch-review-counts { grid-template-columns: 1fr; }
+  .pdf-batch-destination-table > div { grid-template-columns: minmax(0, 1fr) 70px 140px; }
   .pdf-batch-footer > span { display: none; }
   .pdf-batch-footer .btn-primary { margin-left: auto; }
 }

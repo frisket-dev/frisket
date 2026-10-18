@@ -17,7 +17,7 @@ export function canHandlePdfBatch(files: readonly File[]): boolean {
 export const PDF_BATCH_STAGES: ReadonlyArray<{ id: PdfBatchStage; label: string; testId: string }> = [
   { id: 'add', label: 'Add files', testId: 'pdf-batch-stage-add' },
   { id: 'check', label: 'Check text', testId: 'pdf-batch-stage-check' },
-  { id: 'destination', label: 'Review destination', testId: 'pdf-batch-stage-destination' },
+  { id: 'destination', label: 'Destination', testId: 'pdf-batch-stage-destination' },
   { id: 'search', label: 'Search setup', testId: 'pdf-batch-stage-search' },
 ];
 
@@ -76,16 +76,16 @@ export function representativeFiles(
 }
 
 export function ocrPolicyCount(snapshot: PdfImportSnapshot, policy: PdfImportOcrPolicy): number {
+  const counts = snapshot.choices.destination.kind === 'existing'
+    && snapshot.match.state === 'ready'
+    && snapshot.match.new_category_counts
+    ? snapshot.match.new_category_counts
+    : snapshot.category_counts;
   if (policy === 'none') return 0;
   if (policy === 'all') {
-    return (snapshot.category_counts.text ?? 0)
-      + (snapshot.category_counts.suspicious ?? 0)
-      + (snapshot.category_counts.missing ?? 0)
-      + (snapshot.category_counts.image ?? 0);
+    return PDF_CATEGORY_ORDER.reduce((total, category) => total + (counts[category] ?? 0), 0);
   }
-  return (snapshot.category_counts.suspicious ?? 0)
-    + (snapshot.category_counts.missing ?? 0)
-    + (snapshot.category_counts.image ?? 0);
+  return (counts.suspicious ?? 0) + (counts.missing ?? 0);
 }
 
 export function canOpenCheckText(snapshot: PdfImportSnapshot): boolean {

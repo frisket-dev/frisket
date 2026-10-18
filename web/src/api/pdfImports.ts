@@ -19,6 +19,10 @@ export type PdfImportCategory =
 
 export type PdfImportOcrPolicy = 'missing_or_suspicious' | 'all' | 'none';
 
+export type PdfImportOcrSelection =
+  | { kind: 'engine'; engine: string }
+  | { kind: 'engine_model'; engine: string; model: string | null };
+
 export type PdfImportDestination =
   | { kind: 'new'; sheet_name: string }
   | { kind: 'existing'; sheet_id: number };
@@ -52,21 +56,25 @@ export interface PdfImportFileSummary {
 
 export interface PdfImportChoices {
   ocr_policy: PdfImportOcrPolicy;
-  ocr_engine: string;
+  ocr_selection: PdfImportOcrSelection;
   semantic_search: boolean;
   semantic_setup_confirmation: string | null;
-  ocr_confirmation?: string | null;
   destination: PdfImportDestination;
 }
 
 export interface PdfImportBatchOcr {
   state: 'idle' | 'ready' | 'error';
-  engine: string | null;
+  advisory?: boolean;
+  purpose?: 'batch_pdf_ocr' | null;
+  ocr_action_params?: Record<string, unknown> | null;
+  options?: Record<string, unknown> | null;
   ocr_policy: PdfImportOcrPolicy | null;
   manifest_revision: number | null;
   manifest_hash: string | null;
   selected_through: number;
   selected_count: number;
+  known_pages?: number;
+  work_scope_hash?: string | null;
   estimate: RunEstimate | null;
   needs_confirmation: boolean;
   error?: string | null;
@@ -78,6 +86,7 @@ export interface PdfImportMatch {
   total: number;
   matched_count: number;
   new_count: number;
+  new_category_counts?: Partial<Record<PdfImportCategory, number>>;
   error?: string | null;
 }
 
@@ -141,12 +150,17 @@ export interface PdfImportPage {
   page: number;
   native_text: string;
   ocr_text: string | null;
-  ocr_engine: string | null;
+  ocr_blocks?: Array<Record<string, unknown>>;
+  ocr_action_params: Record<string, unknown> | null;
   thumbnail_url: string;
 }
 
 export interface PdfImportPreviewEstimate {
-  engine: string;
+  schema_version?: string;
+  draft_id?: string;
+  occurrence_id?: string;
+  page?: number;
+  ocr_action_params: Record<string, unknown>;
   cached: boolean;
   estimate: RunEstimate | null;
 }
@@ -162,6 +176,7 @@ export interface PdfImportJobRef {
 export interface PdfImportPreviewJob {
   occurrence_id: string;
   page: number;
+  ocr_action_params: Record<string, unknown>;
   job_id: string;
   status: string;
   receipt_id: string | null;
@@ -173,6 +188,7 @@ export interface PdfImportPreviewStart {
   draft_id: string;
   occurrence_id: string;
   page: number;
+  ocr_action_params: Record<string, unknown>;
   job_id: string | null;
   status: 'running' | 'done';
   receipt_id: string | null;
@@ -223,12 +239,17 @@ export interface PdfImportReselectResponse {
 
 export interface PdfImportBatchOcrEstimate {
   state: 'idle' | 'ready' | 'error';
-  engine: string | null;
+  advisory?: boolean;
+  purpose?: 'batch_pdf_ocr' | null;
+  ocr_action_params?: Record<string, unknown> | null;
+  options?: Record<string, unknown> | null;
   ocr_policy: PdfImportOcrPolicy | null;
   manifest_revision: number | null;
   manifest_hash: string | null;
   selected_through: number;
   selected_count: number;
+  known_pages?: number;
+  work_scope_hash?: string | null;
   estimate: RunEstimate | null;
   needs_confirmation: boolean;
 }
@@ -246,12 +267,12 @@ export interface PdfImportsApi {
   resume(projectId: string, importId: string, options?: PdfImportRequestOptions): Promise<PdfImportSnapshot>;
   updateChoices(projectId: string, importId: string, choices: PdfImportChoices & { expected_revision: number }, options?: PdfImportRequestOptions): Promise<PdfImportSnapshot>;
   refreshSemanticSetup(projectId: string, importId: string, options?: PdfImportRequestOptions): Promise<PdfImportSnapshot>;
-  estimateBatchOcr(projectId: string, importId: string, engine: string, ocrPolicy: PdfImportOcrPolicy, expectedRevision: number, options?: PdfImportRequestOptions): Promise<PdfImportBatchOcrEstimate>;
+  estimateBatchOcr(projectId: string, importId: string, selection: PdfImportOcrSelection, ocrPolicy: PdfImportOcrPolicy, expectedRevision: number, options?: PdfImportRequestOptions): Promise<PdfImportBatchOcrEstimate>;
   match(projectId: string, importId: string, options?: PdfImportRequestOptions): Promise<PdfImportSnapshot>;
   getPage(projectId: string, importId: string, fileId: string, page: number, options?: PdfImportRequestOptions): Promise<PdfImportPage>;
   thumbnailUrl(projectId: string, importId: string, fileId: string, page: number): string;
-  estimateOcrPreview(projectId: string, importId: string, fileId: string, page: number, engine: string, options?: PdfImportRequestOptions): Promise<PdfImportPreviewEstimate>;
-  startOcrPreview(projectId: string, importId: string, fileId: string, page: number, engine: string, confirmation: string | undefined, options?: PdfImportRequestOptions): Promise<PdfImportPreviewStart>;
+  estimateOcrPreview(projectId: string, importId: string, fileId: string, page: number, selection: PdfImportOcrSelection, options?: PdfImportRequestOptions): Promise<PdfImportPreviewEstimate>;
+  startOcrPreview(projectId: string, importId: string, fileId: string, page: number, selection: PdfImportOcrSelection, confirmation: string | undefined, options?: PdfImportRequestOptions): Promise<PdfImportPreviewStart>;
   discard(projectId: string, importId: string, options?: PdfImportRequestOptions): Promise<PdfImportSnapshot>;
   commit(projectId: string, importId: string, input: PdfImportCommitInput, options?: PdfImportRequestOptions): Promise<PdfImportCommitResponse>;
 }
@@ -270,7 +291,7 @@ export interface PdfImportCommitResponse {
   selected_total: number;
   available_through: number;
   uploads_complete: boolean;
-  job: { sheet_id?: number; [key: string]: unknown } | null;
+  job: { sheet_id?: number; import_ref?: string; [key: string]: unknown } | null;
 }
 
 export class PdfImportResponseError extends Error {
@@ -389,9 +410,9 @@ export function createPdfImportsApi(): PdfImportsApi {
         method: 'POST', signal: options.signal,
       }, options.fetch);
     },
-    estimateBatchOcr(projectId, importId, engine, ocrPolicy, expectedRevision, options = {}) {
+    estimateBatchOcr(projectId, importId, selection, ocrPolicy, expectedRevision, options = {}) {
       return jsonRequest(`${root(projectId)}/${encodeURIComponent(importId)}/ocr-estimate`, 'POST', {
-        engine, ocr_policy: ocrPolicy, expected_revision: expectedRevision,
+        ocr_selection: selection, ocr_policy: ocrPolicy, expected_revision: expectedRevision,
       }, options);
     },
     match(projectId, importId, options = {}) {
@@ -407,11 +428,11 @@ export function createPdfImportsApi(): PdfImportsApi {
     thumbnailUrl(projectId, importId, fileId, page) {
       return `${root(projectId)}/${encodeURIComponent(importId)}/files/${encodeURIComponent(fileId)}/pages/${page}/thumbnail`;
     },
-    estimateOcrPreview(projectId, importId, fileId, page, engine, options = {}) {
-      return jsonRequest(`${root(projectId)}/${encodeURIComponent(importId)}/files/${encodeURIComponent(fileId)}/pages/${page}/ocr-preview/estimate`, 'POST', { engine }, options);
+    estimateOcrPreview(projectId, importId, fileId, page, selection, options = {}) {
+      return jsonRequest(`${root(projectId)}/${encodeURIComponent(importId)}/files/${encodeURIComponent(fileId)}/pages/${page}/ocr-preview/estimate`, 'POST', { ocr_selection: selection }, options);
     },
-    startOcrPreview(projectId, importId, fileId, page, engine, confirmation, options = {}) {
-      return jsonRequest(`${root(projectId)}/${encodeURIComponent(importId)}/files/${encodeURIComponent(fileId)}/pages/${page}/ocr-preview`, 'POST', { engine, confirmation }, options);
+    startOcrPreview(projectId, importId, fileId, page, selection, confirmation, options = {}) {
+      return jsonRequest(`${root(projectId)}/${encodeURIComponent(importId)}/files/${encodeURIComponent(fileId)}/pages/${page}/ocr-preview`, 'POST', { ocr_selection: selection, confirmation }, options);
     },
     discard(projectId, importId, options = {}) {
       return request(`${root(projectId)}/${encodeURIComponent(importId)}`, {
