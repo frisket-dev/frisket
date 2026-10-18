@@ -91,9 +91,7 @@ def _managed_run(
     return run_id
 
 
-_OCR_REVIEW_ROLES_PRIOR_DIGEST = (
-    "frisket.schema.v1:ce1bc34b85c900fad11f0fdc948a0ce8"
-)
+_OCR_REVIEW_ROLES_PRIOR_DIGEST = "frisket.schema.v1:ce1bc34b85c900fad11f0fdc948a0ce8"
 
 
 def test_ocr_review_uses_authored_roles_and_migrates_frozen_runs(
@@ -109,7 +107,9 @@ def test_ocr_review_uses_authored_roles_and_migrates_frozen_runs(
         blocks = project.add_column(
             sheet_id, "Geometry", type="json", ai_generated=True, default_hidden=True
         )
-        pdf = project.add_column(sheet_id, "Search copy", type="file", ai_generated=True)
+        pdf = project.add_column(
+            sheet_id, "Search copy", type="file", ai_generated=True
+        )
         row_ids = project.add_rows(sheet_id, [{}], {})
         run_id = _managed_run(
             project,
@@ -138,9 +138,7 @@ def test_ocr_review_uses_authored_roles_and_migrates_frozen_runs(
     # Recreate the exact preceding revision: its DDL was identical, but it had
     # no role marker and froze review fields using column-name conventions.
     with sqlite3.connect(path / "project.db") as db:
-        db.execute(
-            "DELETE FROM meta WHERE key=?", (REVIEW_OUTPUT_ROLES_META_KEY,)
-        )
+        db.execute("DELETE FROM meta WHERE key=?", (REVIEW_OUTPUT_ROLES_META_KEY,))
         db.execute(
             "UPDATE meta SET value=? WHERE key=?",
             (_OCR_REVIEW_ROLES_PRIOR_DIGEST, SCHEMA_DIGEST_META_KEY),
@@ -173,9 +171,9 @@ def test_ocr_review_uses_authored_roles_and_migrates_frozen_runs(
         assert [field["column_name"] for field in runs["runs"][0]["fields"]] == [
             "source"
         ]
-        bundle = review_bundle_page(
-            migrated, run_id=run_id, include_reviewed=True
-        )["bundles"][0]
+        bundle = review_bundle_page(migrated, run_id=run_id, include_reviewed=True)[
+            "bundles"
+        ][0]
         assert [field["column_name"] for field in bundle["fields"]] == ["source"]
         assert {field["column_name"] for field in bundle["evidence"]} == {
             "Geometry",
