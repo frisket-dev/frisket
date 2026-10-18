@@ -19,6 +19,7 @@ from frisket.engine.jobs import HandlerRegistry, SqliteJobQueue, Worker
 from frisket.engine.jobs.import_table import (
     register_import_table_analysis_handler,
     register_import_table_handler,
+    table_import_dedupe_key,
 )
 from frisket.engine.jobs.queue import (
     IMPORT_TABLE_ANALYSIS_KIND,
@@ -237,6 +238,128 @@ def test_commit_table_binds_bootstraps_and_enqueues_exact_frozen_plan(
             if item.name == "source"
         )
         assert source_input.ref["reviewed_plan"]["columns"][0]["target_name"] == "id"
+
+        # Bootstrap deliberately pauses until the ordinary worker owns the
+        # writer.  While that job is queued, the public status must stay live
+        # so clients keep polling and never ask for the committed source again.
+        StreamingSheetWriter._from_session(project, session).pause(expected_cursor=0)
+        with closing(SqliteJobQueue(tmp_path / "queue.db")) as queue:
+            job_id = queue.enqueue(
+                IMPORT_TABLE_STREAM_KIND,
+                {
+                    "project_id": PROJECT_ID,
+                    "import_ref": IMPORT_REF,
+                    "plan_hash": frozen.plan_hash,
+                    "dedupe_key": table_import_dedupe_key(
+                        PROJECT_ID, IMPORT_REF, frozen.plan_hash
+                    ),
+                },
+            )
+            projected_workspace = SimpleNamespace(
+                queue=queue,
+                queue_storage_org_id=None,
+                get=lambda _project_id: project,
+            )
+            projected_service = ImportSessionService(projected_workspace)
+            queued_status = projected_service.status(PROJECT_ID, IMPORT_REF)
+            assert queued_status.state == "running"
+            assert queued_status.sealed is True
+            assert queued_status.committed_rows == 0
+
+            claimed = queue.claim("retrying-worker")
+            assert claimed is not None and claimed.id == job_id
+            assert queue.fail(job_id, "retrying-worker", "retry once", retry=True)
+            assert projected_service.status(PROJECT_ID, IMPORT_REF).state == "running"
+
+            registry = HandlerRegistry()
+            register_import_table_handler(
+                registry, workspace_root=tmp_path, queue=queue
+            )
+            assert Worker(queue, registry, worker_id="status-worker").run_once()
+            job = queue.get(job_id)
+            assert job is not None and job.status == "done", job.error
+
+            completed_status = projected_service.status(PROJECT_ID, IMPORT_REF)
+            assert completed_status.state == "completed"
+            assert completed_status.sealed is True
+            assert completed_status.committed_rows == 1
+
+
+def test_table_import_list_keeps_live_first_and_completed_by_recency(
+    tmp_path: Path,
+) -> None:
+    project_path = tmp_path / f"{PROJECT_ID}.frisket"
+    data = b"id\none\n"
+    with closing(Project.create(project_path)) as project:
+        service = ImportSessionService(
+            SimpleNamespace(get=lambda _project_id: project),
+            enqueue_table=lambda *_args: None,
+        )
+
+        def commit(ref: str) -> None:
+            directory = import_intake_dir(project.path, ref)
+            directory.mkdir(parents=True)
+            (directory / "source").write_bytes(data)
+            settings = TableReadSettings(
+                kind="delimited", delimiter=",", encoding="utf-8"
+            )
+            initialize_table_intake(
+                directory,
+                ImportIntakeHeader(PROJECT_ID, project.storage_identity, {}),
+                source=TableImportSource(
+                    filename="rows.csv",
+                    size=len(data),
+                    sha256=hashlib.sha256(data).hexdigest(),
+                    kind="delimited",
+                ),
+                settings=settings,
+            )
+            settings_hash = read_table_settings(directory)[1]
+            write_table_scan(
+                directory,
+                TableImportScan(0, settings_hash, 1, 1, 1, True),
+                expected_settings_revision=0,
+            )
+            frozen = freeze_table_plan(
+                directory,
+                TableImportPlan(
+                    settings_revision=0,
+                    settings=settings,
+                    sheet_name=f"Imported {ref[-1]}",
+                    destination_sheet_id=None,
+                    columns=(TableImportColumn(0, "id", "id", "text"),),
+                ),
+            )
+            asyncio.run(service.commit_table(PROJECT_ID, frozen))
+
+        older = "import-" + "1" * 32
+        newer = "import-" + "2" * 32
+        live = "import-" + "9" * 32
+        for ref in (older, newer, live):
+            commit(ref)
+        live_session = ImportSessionStore(project).get(live)
+        assert live_session is not None
+        StreamingSheetWriter._from_session(project, live_session).pause(
+            expected_cursor=0
+        )
+        project.db.execute(
+            "UPDATE import_sessions SET state='completed',updated_at=? WHERE id=?",
+            ("2026-01-01 00:00:00", older),
+        )
+        project.db.execute(
+            "UPDATE import_sessions SET state='completed',updated_at=? WHERE id=?",
+            ("2026-01-02 00:00:00", newer),
+        )
+        project.db.commit()
+
+        listed = service.list(PROJECT_ID).sessions
+
+        assert [status.import_ref for status in listed] == [live, newer, older]
+        assert [status.state for status in listed] == [
+            "paused",
+            "completed",
+            "completed",
+        ]
 
 
 def test_table_worker_streams_real_source_and_publishes_durable_errors(

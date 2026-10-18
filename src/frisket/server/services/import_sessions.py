@@ -584,13 +584,15 @@ class ImportSessionService:
             str(row["id"]): str(row["state"])
             for row in project.db.execute("SELECT id,state FROM import_sessions")
         }
-        recent_completed = {
+        completed_by_recency = [
             str(row["id"])
             for row in project.db.execute(
                 "SELECT id FROM import_sessions WHERE state='completed' "
                 "ORDER BY updated_at DESC LIMIT 10"
             )
-        }
+        ]
+        recent_completed = set(completed_by_recency)
+        completed_rank = {ref: rank for rank, ref in enumerate(completed_by_recency)}
         if root.is_dir():
             for directory in sorted(root.iterdir()):
                 if not directory.is_dir():
@@ -614,6 +616,12 @@ class ImportSessionService:
                             )
                 except (KeyError, OSError, ValueError):
                     continue
+        sessions.sort(
+            key=lambda status: (
+                status.state == "completed",
+                completed_rank.get(status.import_ref, 0),
+            )
+        )
         return ImportSessionList(sessions=sessions)
 
     def _open(self, project_id: str, ref: str):
@@ -780,7 +788,9 @@ class ImportSessionService:
             table_source = table_frozen.source
             totals = {"count": 1, "bytes": table_source.size}
             through = table_status.source_cursor
-            sealed = table_status.phase == "terminal"
+            # The reviewed source and plan are immutable once committed.  A
+            # queued/retrying writer never requires the browser to reselect it.
+            sealed = table_status.phase in {"committed", "terminal"}
         else:
             owned = inventory is None
             inventory = inventory or ImportInventory(directory / "inventory.db")
@@ -792,6 +802,13 @@ class ImportSessionService:
                 if owned:
                     inventory.close()
         session = ImportSessionStore(project).get(ref)
+        provider_job = (
+            self._latest_provider_job(
+                header.project_id, ref, through, sealed, header=header
+            )
+            if header.intake_kind == "table"
+            else None
+        )
         if header.pdf_preparation is not None and header.resolution is not None:
             state = header.resolution
         elif session is not None:
@@ -803,6 +820,14 @@ class ImportSessionService:
                 "kept": "kept",
                 "removed": "removed",
             }[session.state]
+            if (
+                session.state in {"active", "paused"}
+                and provider_job is not None
+                and provider_job.status in {"queued", "running"}
+            ):
+                # A paused writer is an internal recovery checkpoint while its
+                # owning queue job remains live, not a user-stopped import.
+                state = "running"
             if header.cancel_requested and session.state in {"active", "paused"}:
                 state = "cancelling"
         elif header.resolution is not None:
@@ -814,7 +839,7 @@ class ImportSessionService:
             except Timeout:
                 state = "cancelling"
         else:
-            job = self._latest_provider_job(
+            job = provider_job or self._latest_provider_job(
                 header.project_id, ref, through, sealed, header=header
             )
             state = (
