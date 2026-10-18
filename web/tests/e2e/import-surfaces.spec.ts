@@ -126,6 +126,10 @@ function multipartFilenames(body: string): string[] {
   return [...body.matchAll(/name="files"; filename="([^"]+)"/g)].map((match) => match[1]);
 }
 
+function bulkPreparation(plan: Record<string, unknown>): string {
+  return JSON.stringify({ kind: 'bulk', plan });
+}
+
 async function chooseZip(page: Page, picker: Locator, name: string) {
   const chooser = page.waitForEvent('filechooser');
   await picker.click();
@@ -188,11 +192,11 @@ for (const scenario of EMPTY_DROPZONE_BULK_CASES) {
     const pid = await createProject(page.request, uniqueName('e2e-empty-drop-bulk'));
     let planBody = '';
     let legacyFilesCount = 0;
-    await page.route(`**/api/projects/${pid}/import/bulk/plan`, async (route) => {
+    await page.route(`**/api/projects/${pid}/import/files/prepare`, async (route) => {
       planBody = route.request().postData() ?? '';
       await route.fulfill({
         contentType: 'application/json',
-        body: JSON.stringify({
+        body: bulkPreparation({
           plan_id: 'empty-drop-plan',
           questions: [],
           proposed_outputs: [],
@@ -225,10 +229,10 @@ for (const scenario of EMPTY_DROPZONE_BULK_CASES) {
 
 test('empty-project dropzone keeps a single ordinary file on legacy file import', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-empty-drop-legacy'));
-  let bulkPlanCount = 0;
+  let preparationCount = 0;
   let legacyFilesCount = 0;
-  await page.route(`**/api/projects/${pid}/import/bulk/plan`, async (route) => {
-    bulkPlanCount += 1;
+  await page.route(`**/api/projects/${pid}/import/files/prepare`, async (route) => {
+    preparationCount += 1;
     await route.fulfill({ status: 500, body: 'ordinary single files must not use bulk planning' });
   });
   await page.route(`**/api/projects/${pid}/import/files`, async (route) => {
@@ -244,8 +248,8 @@ test('empty-project dropzone keeps a single ordinary file on legacy file import'
     buffer: Buffer.from('ordinary notes\n'),
   }]);
 
-  await expect.poll(() => ({ bulkPlanCount, legacyFilesCount })).toEqual({
-    bulkPlanCount: 0,
+  await expect.poll(() => ({ preparationCount, legacyFilesCount })).toEqual({
+    preparationCount: 0,
     legacyFilesCount: 1,
   });
 });
@@ -289,11 +293,11 @@ test('CSV folder selection plans a bulk import, keeps paths aligned, and execute
   const seedSheetId = await importCsv(page.request, pid, 'seed.csv', 'name\nseed\n');
   let planBody = '';
   let executeBody: unknown = null;
-  await page.route(`**/api/projects/${pid}/import/bulk/plan`, async (route) => {
+  await page.route(`**/api/projects/${pid}/import/files/prepare`, async (route) => {
     planBody = route.request().postData() ?? '';
     await route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify({
+      body: bulkPreparation({
         plan_id: 'matching-csv-plan',
         questions: [{
           id: 'matching-csv',
@@ -369,11 +373,11 @@ test('a sole ZIP plans with archive expansion', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-bulk-zip'));
   await importCsv(page.request, pid, 'seed.csv', 'name\nseed\n');
   let planBody = '';
-  await page.route(`**/api/projects/${pid}/import/bulk/plan`, async (route) => {
+  await page.route(`**/api/projects/${pid}/import/files/prepare`, async (route) => {
     planBody = route.request().postData() ?? '';
     await route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify({ plan_id: 'zip-plan', questions: [], proposed_outputs: [], message: 'Ready.' }),
+      body: bulkPreparation({ plan_id: 'zip-plan', questions: [], proposed_outputs: [], message: 'Ready.' }),
     });
   });
 
@@ -395,10 +399,10 @@ test('a question-bearing CSV plan waits for a choice and an execute click', asyn
   const pid = await createProject(page.request, uniqueName('e2e-bulk-csv-question'));
   const seedSheetId = await importCsv(page.request, pid, 'seed.csv', 'name\nseed\n');
   let executeBody: unknown = null;
-  await page.route(`**/api/projects/${pid}/import/bulk/plan`, async (route) => {
+  await page.route(`**/api/projects/${pid}/import/files/prepare`, async (route) => {
     await route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify({
+      body: bulkPreparation({
         plan_id: 'csv-question-plan',
         questions: [{
           id: 'matching-csv',
@@ -458,11 +462,11 @@ test('closing a planned bulk import clears it before the workspace reopens', asy
   const pid = await createProject(page.request, uniqueName('e2e-bulk-close-reset'));
   await importCsv(page.request, pid, 'seed.csv', 'name\nseed\n');
   let planCount = 0;
-  await page.route(`**/api/projects/${pid}/import/bulk/plan`, async (route) => {
+  await page.route(`**/api/projects/${pid}/import/files/prepare`, async (route) => {
     planCount += 1;
     await route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify({
+      body: bulkPreparation({
         plan_id: 'close-reset-plan',
         questions: [{
           id: 'matching-csv',
@@ -509,11 +513,11 @@ test('a question-free bulk plan executes exactly once without showing an execute
   const executeGate = new Promise<void>((resolve) => {
     releaseExecute = resolve;
   });
-  await page.route(`**/api/projects/${pid}/import/bulk/plan`, async (route) => {
+  await page.route(`**/api/projects/${pid}/import/files/prepare`, async (route) => {
     planCount += 1;
     await route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify({
+      body: bulkPreparation({
         plan_id: 'auto-execute-plan',
         questions: [],
         proposed_outputs: [{
@@ -566,12 +570,12 @@ test('Files accepts two XLSX workbooks, bulk-plans them once, and opens the desi
   let legacyXlsxCount = 0;
   let releaseExecute = () => {};
   const executeGate = new Promise<void>((resolve) => { releaseExecute = resolve; });
-  await page.route(`**/api/projects/${pid}/import/bulk/plan`, async (route) => {
+  await page.route(`**/api/projects/${pid}/import/files/prepare`, async (route) => {
     planCount += 1;
     planBody = route.request().postData() ?? '';
     await route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify({
+      body: bulkPreparation({
         plan_id: 'two-xlsx-plan',
         questions: [],
         proposed_outputs: [{
@@ -638,11 +642,11 @@ test('two generic Files selections use the shared bulk planner', async ({ page }
   await importCsv(page.request, pid, 'seed.csv', 'name\nseed\n');
   let planBody = '';
   let legacyFilesCount = 0;
-  await page.route(`**/api/projects/${pid}/import/bulk/plan`, async (route) => {
+  await page.route(`**/api/projects/${pid}/import/files/prepare`, async (route) => {
     planBody = route.request().postData() ?? '';
     await route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify({
+      body: bulkPreparation({
         plan_id: 'generic-pair-plan', questions: [], proposed_outputs: [],
         message: 'No importable files found.',
       }),
@@ -676,11 +680,11 @@ test('a directly selected extensionless file is sent to the bulk planner', async
   await importCsv(page.request, pid, 'seed.csv', 'name\nseed\n');
   let planBody = '';
   let legacyImportCount = 0;
-  await page.route(`**/api/projects/${pid}/import/bulk/plan`, async (route) => {
+  await page.route(`**/api/projects/${pid}/import/files/prepare`, async (route) => {
     planBody = route.request().postData() ?? '';
     await route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify({
+      body: bulkPreparation({
         plan_id: 'extensionless-plan',
         questions: [],
         proposed_outputs: [],
@@ -718,10 +722,10 @@ test('bulk email warnings remain inert text alongside a successful import', asyn
   const pid = await createProject(page.request, uniqueName('e2e-bulk-email-warning'));
   const seedSheetId = await importCsv(page.request, pid, 'seed.csv', 'name\nseed\n');
   const warning = 'mail/bad.eml: <img src="not-a-preview"> has no recognizable headers';
-  await page.route(`**/api/projects/${pid}/import/bulk/plan`, async (route) => {
+  await page.route(`**/api/projects/${pid}/import/files/prepare`, async (route) => {
     await route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify({
+      body: bulkPreparation({
         plan_id: 'email-warning-plan',
         questions: [],
         proposed_outputs: [{
@@ -764,10 +768,10 @@ test('bulk email warnings remain visible alongside a partial import failure', as
   const seedSheetId = await importCsv(page.request, pid, 'seed.csv', 'name\nseed\n');
   const warning = 'mail/bad.eml: <img src="not-a-preview"> has no recognizable headers';
   const partialMessage = 'Imported 1 sheet; 1 output failed.';
-  await page.route(`**/api/projects/${pid}/import/bulk/plan`, async (route) => {
+  await page.route(`**/api/projects/${pid}/import/files/prepare`, async (route) => {
     await route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify({
+      body: bulkPreparation({
         plan_id: 'email-partial-warning-plan',
         questions: [],
         proposed_outputs: [{
@@ -811,11 +815,11 @@ test('a bulk plan with no proposed outputs reports that status and cannot execut
   await importCsv(page.request, pid, 'seed.csv', 'name\nseed\n');
   let planCount = 0;
   let executeCount = 0;
-  await page.route(`**/api/projects/${pid}/import/bulk/plan`, async (route) => {
+  await page.route(`**/api/projects/${pid}/import/files/prepare`, async (route) => {
     planCount += 1;
     await route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify({
+      body: bulkPreparation({
         plan_id: 'empty-plan', questions: [], proposed_outputs: [], message: 'No importable files found.',
       }),
     });

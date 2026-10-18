@@ -251,7 +251,14 @@ describe('onboarding/import generated HTTP contracts', () => {
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       requests.push({ input, init });
-      return jsonResponse({ kind: 'pdf_import', draft: { draft_id: 'archive-draft-1' } });
+      return jsonResponse(requests.length === 1
+        ? { kind: 'pdf_import', draft: { draft_id: 'archive-draft-1' } }
+        : {
+            kind: 'bulk',
+            plan: {
+              plan_id: 'archive-plan-1', questions: [], proposed_outputs: [], message: 'Ready.',
+            },
+          });
     }));
     const first = new File(['zip'], 'records.zip', { type: 'application/zip' });
     const second = new File(['notes'], 'notes.txt', { type: 'text/plain' });
@@ -264,8 +271,14 @@ describe('onboarding/import generated HTTP contracts', () => {
       true,
       { headers: { Authorization: 'Bearer archive' }, signal },
     )).resolves.toMatchObject({ kind: 'pdf_import', draft: { draft_id: 'archive-draft-1' } });
+    await expect(prepareImportFiles(
+      'project / archive', [first], ['records.zip'], true,
+    )).resolves.toEqual({
+      kind: 'bulk',
+      plan: { plan_id: 'archive-plan-1', questions: [], proposed_outputs: [], message: 'Ready.' },
+    });
 
-    expect(requests).toHaveLength(1);
+    expect(requests).toHaveLength(2);
     expect(requests[0].input).toBe('/api/projects/project%20%2F%20archive/import/files/prepare');
     expect(requests[0].init?.method).toBe('POST');
     expect(requests[0].init?.signal).toBe(signal);

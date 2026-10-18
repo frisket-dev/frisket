@@ -4,7 +4,6 @@ import '@testing-library/jest-dom/vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const planBulkImport = vi.hoisted(() => vi.fn());
 const prepareImportFiles = vi.hoisted(() => vi.fn());
 const executeBulkImport = vi.hoisted(() => vi.fn());
 const importFollowTheMoney = vi.hoisted(() => vi.fn());
@@ -28,7 +27,6 @@ vi.mock('../../src/api/open', async (importOriginal) => {
   return {
     ...actual,
     prepareImportFiles,
-    planBulkImport,
     executeBulkImport,
     importFollowTheMoney,
     importCsv,
@@ -129,7 +127,6 @@ beforeEach(() => {
     configurable: true,
     value() { this.open = false; },
   });
-  planBulkImport.mockResolvedValue(plan);
   prepareImportFiles.mockReset();
   prepareImportFiles.mockResolvedValue({ kind: 'bulk', plan });
   importFollowTheMoney.mockResolvedValue({
@@ -242,7 +239,7 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     ));
     expect(await screen.findByText('Preparing file import…')).toBeInTheDocument();
     expect(createImportSession).not.toHaveBeenCalled();
-    expect(planBulkImport).not.toHaveBeenCalled();
+    expect(prepareImportFiles).not.toHaveBeenCalled();
   });
 
   it('prepares ZIP selections before routing even when direct siblings include two PDFs', async () => {
@@ -273,7 +270,6 @@ describe('ImportWorkspaceDialog controlled open session', () => {
       'open-session-project', 'zip-pdf-draft', expect.anything(),
     ));
     expect(createPdfImport).not.toHaveBeenCalled();
-    expect(planBulkImport).not.toHaveBeenCalled();
     expect(screen.getByText('Preparing file import…')).toBeInTheDocument();
   });
 
@@ -290,7 +286,6 @@ describe('ImportWorkspaceDialog controlled open session', () => {
       'open-session-project', selected, ['first.zip', 'second.zip'], true,
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     ));
-    expect(planBulkImport).not.toHaveBeenCalled();
   });
 
   it('keeps mixed selections with fewer than two PDFs on the existing file-import path', async () => {
@@ -883,7 +878,7 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
 
     expect(createImportSession).not.toHaveBeenCalled();
-    expect(planBulkImport).not.toHaveBeenCalled();
+    expect(prepareImportFiles).not.toHaveBeenCalled();
     expect(uploadFilesToImportSession).not.toHaveBeenCalled();
   });
 
@@ -899,7 +894,7 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
 
     expect(createImportSession).not.toHaveBeenCalled();
-    expect(planBulkImport).not.toHaveBeenCalled();
+    expect(prepareImportFiles).not.toHaveBeenCalled();
     expect(uploadFilesToImportSession).not.toHaveBeenCalled();
   });
 
