@@ -209,16 +209,19 @@ export function useImportProgress({ projectId, onChanged, onError }: {
     importSessionSnapshot,
   );
   const preparationGeneration = useRef(0);
+  const refreshGeneration = useRef(0);
   const previousRef = useRef<Map<string, string> | null>(null);
 
   useEffect(() => () => {
     preparationGeneration.current += 1;
+    refreshGeneration.current += 1;
   }, [projectId]);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
+    const generation = ++refreshGeneration.current;
     try {
       const result = await listImportSessions(projectId, { signal });
-      if (signal?.aborted) return;
+      if (signal?.aborted || generation !== refreshGeneration.current) return;
       const next = new Map(result.sessions.map((session) => [
         session.import_ref,
         `${session.state}:${session.committed_rows}:${session.preparation_completed}:${session.ocr_completed}:${session.sheet_id ?? ''}`,
@@ -235,7 +238,9 @@ export function useImportProgress({ projectId, onChanged, onError }: {
       previousRef.current = next;
       setSessions(result.sessions);
     } catch (error) {
-      if (!signal?.aborted) setMessage(error instanceof Error ? error.message : String(error));
+      if (!signal?.aborted && generation === refreshGeneration.current) {
+        setMessage(error instanceof Error ? error.message : String(error));
+      }
     }
   }, [onChanged, projectId]);
 
@@ -262,8 +267,9 @@ export function useImportProgress({ projectId, onChanged, onError }: {
     setMessage(null);
     try {
       const next = await run();
+      refreshGeneration.current += 1;
       setSessions((current) => (
-        next.state === 'kept' || next.state === 'removed'
+        next.state === 'removed' || (next.state === 'kept' && next.intake_kind !== 'table')
           ? current.filter((item) => item.import_ref !== next.import_ref)
           : current.map((item) => (item.import_ref === next.import_ref ? next : item))
       ));

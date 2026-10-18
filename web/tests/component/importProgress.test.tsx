@@ -21,6 +21,7 @@ vi.mock('../../src/api/open', () => ({
 }));
 
 import {
+  notifyImportSessionChanged,
   registerImportSessionUploadAbort,
 } from '../../src/components/importProgressSession';
 import {
@@ -77,11 +78,40 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
-  vi.clearAllMocks();
+  vi.resetAllMocks();
   vi.useRealTimers();
 });
 
 describe('persistent import progress controller', () => {
+  it('does not let an older poll hide a newly committed import', async () => {
+    vi.useFakeTimers();
+    let finishOldPoll!: (value: unknown) => void;
+    listImportSessions
+      .mockResolvedValueOnce({ sessions: [running] })
+      .mockImplementationOnce(() => new Promise((resolve) => { finishOldPoll = resolve; }))
+      .mockResolvedValue({ sessions: [{ ...running, committed_rows: 7 }] });
+    render(<Harness />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(listImportSessions).toHaveBeenCalledTimes(2);
+    act(() => notifyImportSessionChanged());
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByText('Adding rows: 7/10')).toBeInTheDocument();
+    await act(async () => { finishOldPoll({ sessions: [running] }); });
+    expect(screen.getByText('Adding rows: 7/10')).toBeInTheDocument();
+  });
+
+  it('keeps a stopped table import visible immediately after Stop', async () => {
+    const table = { ...running, intake_kind: 'table', preparation_total: 0, ocr_total: 0 };
+    listImportSessions.mockResolvedValue({ sessions: [table] });
+    cancelImportSession.mockResolvedValue({ ...table, state: 'cancelled' });
+    resolveImportSession.mockResolvedValue({ ...table, state: 'kept' });
+    render(<Harness />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Stop remaining' }));
+    await waitFor(() => expect(resolveImportSession).toHaveBeenCalled());
+    expect(screen.getByText('Adding rows: 3/10')).toBeInTheDocument();
+  });
+
   it('keeps a completed import visible while ordinary PDF preparation remains', async () => {
     listImportSessions.mockResolvedValue({
       sessions: [{ ...running, state: 'completed', committed_rows: 10 }],
