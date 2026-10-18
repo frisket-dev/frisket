@@ -479,7 +479,7 @@ function ExistingDestination({ draft, destination, sheet, busy, onDestination }:
   };
   const newColumnTarget = (sourceIndex: number, sourceName: string) => ({
     kind: 'new' as const,
-    name: uniqueNewColumnName(sourceName, sourceIndex, snapshot, sheet, !draft.analysis.complete || (draft.analysis.issue_counts.extra_values ?? 0) > 0),
+    name: uniqueNewColumnName(sourceName, sourceIndex, snapshot, !draft.analysis.complete || (draft.analysis.issue_counts.extra_values ?? 0) > 0),
   });
   return <div className="table-import-existing">
     <header><strong>Columns</strong><span>Matched by name. Change any match with its menu.</span></header>
@@ -493,9 +493,9 @@ function ExistingDestination({ draft, destination, sheet, busy, onDestination }:
   </div>;
 }
 
-function uniqueNewColumnName(baseName: string, sourceIndex: number, snapshot: TableImportDestinationSnapshot, sheet: TableImportDestinationSheet | null, reserveExtraValues: boolean): string {
+function uniqueNewColumnName(baseName: string, sourceIndex: number, snapshot: TableImportDestinationSnapshot, reserveExtraValues: boolean): string {
   const base = baseName.trim() || 'column';
-  const occupied = new Set(sheet?.columns.map((column) => column.name) ?? []);
+  const occupied = new Set(snapshot.occupied_column_names);
   for (const mapping of snapshot.mappings) {
     if (mapping.source_index !== sourceIndex && mapping.target.kind === 'new') occupied.add(mapping.target.name);
   }

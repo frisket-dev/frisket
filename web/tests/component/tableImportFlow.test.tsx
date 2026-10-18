@@ -57,6 +57,7 @@ function mockApi(initial = draft()) {
     revision: 4,
     destination: {
       configuration: destination as never,
+      occupied_column_names: destination.kind === 'existing' ? ['contributor_id'] : [],
       mappings: [{ source_index: 0, source_name: 'contributor_id', source_type: 'text', target: (mappings?.[0]?.target ?? (destination.kind === 'existing' ? { kind: 'existing', column_id: 77 } : { kind: 'new', name: 'contributor_id' })) as never, match: destination.kind === 'existing' ? 'matched' : 'new', detail: null }],
       dedup: { enabled: false, key_source_index: null },
       comparison: { state: 'ready', matched_columns: 0, new_columns: 1, type_clashes: 0, duplicate_rows: 0, import_rows: 2, complete: true, error: null },
@@ -482,6 +483,7 @@ describe('TableImportFlow', () => {
       columns,
       destination: {
         configuration: { kind: 'existing', sheet_id: 9 },
+        occupied_column_names: ['matched'],
         mappings: [
           { source_index: 0, source_name: 'matched', source_type: 'text', target: { kind: 'existing', column_id: 77 }, match: 'matched', detail: null },
           { source_index: 1, source_name: 'new_value', source_type: 'text', target: { kind: 'new', name: 'new_value' }, match: 'new', detail: null },
@@ -507,8 +509,9 @@ describe('TableImportFlow', () => {
     const current = draft({
       destination: {
         configuration: { kind: 'existing', sheet_id: 9 },
+        occupied_column_names: ['amount'],
         mappings: [{
-          source_index: 0, source_name: 'contributor_id', source_type: 'text',
+          source_index: 0, source_name: 'amount', source_type: 'text',
           target: { kind: 'existing', column_id: 77 }, match: 'type_clash', detail: 'Sheet column is Integer.',
         }],
         dedup: { enabled: false, key_source_index: null },
@@ -516,15 +519,15 @@ describe('TableImportFlow', () => {
       },
     });
     const onDestination = vi.fn();
-    const view = render(<ImportTableStep draft={current} destination={{ kind: 'existing', sheet_id: 9 }} destinationSheets={[{ id: 9, name: 'People', rowCount: 4, columns: [{ id: 77, name: 'contributor_id' }] }]} busy={false} onBack={vi.fn()} onCommit={vi.fn()} onDestination={onDestination} />);
+    const view = render(<ImportTableStep draft={current} destination={{ kind: 'existing', sheet_id: 9 }} destinationSheets={[{ id: 9, name: 'People', rowCount: 4, columns: [{ id: 77, name: 'amount' }] }]} busy={false} onBack={vi.fn()} onCommit={vi.fn()} onDestination={onDestination} />);
 
     expect(screen.getByText('Sheet column is Integer.')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Add as new Text column' }));
     expect(onDestination).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
-      mappings: [expect.objectContaining({ source_index: 0, target: { kind: 'new', name: 'contributor_id 2' } })],
+      mappings: [expect.objectContaining({ source_index: 0, target: { kind: 'new', name: 'amount 2' } })],
     }));
 
-    view.rerender(<ImportTableStep draft={{ ...current, destination: { ...current.destination!, mappings: [{ ...current.destination!.mappings[0], target: { kind: 'new', name: 'contributor_id 2' }, match: 'new' }], comparison: { ...current.destination!.comparison, new_columns: 1, type_clashes: 0 } } }} destination={{ kind: 'existing', sheet_id: 9 }} destinationSheets={[{ id: 9, name: 'People', rowCount: 4, columns: [{ id: 77, name: 'contributor_id' }] }]} busy={false} onBack={vi.fn()} onCommit={vi.fn()} onDestination={onDestination} />);
+    view.rerender(<ImportTableStep draft={{ ...current, destination: { ...current.destination!, mappings: [{ ...current.destination!.mappings[0], target: { kind: 'new', name: 'amount 2' }, match: 'new' }], comparison: { ...current.destination!.comparison, new_columns: 1, type_clashes: 0 } } }} destination={{ kind: 'existing', sheet_id: 9 }} destinationSheets={[{ id: 9, name: 'People', rowCount: 4, columns: [{ id: 77, name: 'amount' }] }]} busy={false} onBack={vi.fn()} onCommit={vi.fn()} onDestination={onDestination} />);
     expect(screen.getByText('1 new column added')).toBeVisible();
   });
 
