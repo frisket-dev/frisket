@@ -5,6 +5,7 @@ import type {
   PdfImportOcrPolicy,
   PdfImportSnapshot,
 } from '../../../api/pdfImports';
+import { formatNumberDisplay } from '../../../format';
 
 export type PdfBatchStage = 'add' | 'check' | 'destination' | 'search';
 
@@ -107,9 +108,7 @@ export function newerSnapshot(
 }
 
 export function bytesLabel(value: number): string {
-  if (value < 1024 * 1024) return `${Math.max(1, Math.round(value / 1024))} KB`;
-  if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(value < 10 * 1024 * 1024 ? 1 : 0)} MB`;
-  return `${(value / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  return formatNumberDisplay(value, 'filesize') ?? `${value} B`;
 }
 
 export function count(value: number, singular: string, plural = `${singular}s`): string {

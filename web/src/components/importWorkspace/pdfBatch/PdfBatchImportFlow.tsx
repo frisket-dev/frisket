@@ -20,6 +20,7 @@ import {
 import type { SelectorChoice } from '../../../api/selectorChoices';
 import { usePoll } from '../../../hooks/usePoll';
 import { CostGateModal } from '../../CostGateModal';
+import { registerImportSessionUploadAbort } from '../../importProgressSession';
 import {
   PDF_BATCH_STAGES,
   bytesLabel,
@@ -131,6 +132,7 @@ export function PdfBatchImportFlow({
   const generation = useRef(0);
   const sampleRequestEpoch = useRef(0);
   const importedSheet = useRef<number | null>(null);
+  const registeredUpload = useRef<string | null>(null);
   const filesProp = useRef(files);
   const recoveryFiles = useRef<File[]>([]);
   const committed = useRef(false);
@@ -169,6 +171,7 @@ export function PdfBatchImportFlow({
   });
   const intake = usePdfBatchIntake({ api, projectId, publish });
   const {
+    active: activeIntake,
     abort: abortIntake,
     configure: configureIntake,
     files: intakeFiles,
@@ -207,6 +210,7 @@ export function PdfBatchImportFlow({
     recoveryFiles.current = [];
     commitKey.current = crypto.randomUUID();
     importedSheet.current = null;
+    registeredUpload.current = null;
     committed.current = false;
     const start = async () => {
       await Promise.resolve();
@@ -264,6 +268,19 @@ export function PdfBatchImportFlow({
     };
   }, [abortIntake, api, clearPreview, configureIntake, projectId, publish, reportError, resumeDraftId, runFreshIntake]);
 
+  const registerCommittedUpload = useCallback((importRef: string | null | undefined) => {
+    if (!importRef || registeredUpload.current === importRef) return;
+    const running = activeIntake();
+    if (!running) return;
+    const unregister = registerImportSessionUploadAbort(importRef, running.abort);
+    registeredUpload.current = importRef;
+    const release = () => {
+      unregister();
+      if (registeredUpload.current === importRef) registeredUpload.current = null;
+    };
+    void running.done.then(release, release);
+  }, [activeIntake]);
+
   const refresh = useCallback(async () => {
     const draftId = currentDraft.current;
     if (!draftId) return;
@@ -275,6 +292,7 @@ export function PdfBatchImportFlow({
       const next = await api.get(projectId, draftId, { signal: controller.signal });
       if (controller.signal.aborted || generation.current !== epoch || currentDraft.current !== draftId) return;
       publish(next);
+      registerCommittedUpload(next.commit?.result?.import_ref);
       if (next.state === 'cancelled') onDiscardedRef.current();
       const sheetId = next.commit?.result?.sheet_id;
       if (next.state === 'committed' && sheetId && importedSheet.current !== sheetId) {
@@ -287,7 +305,7 @@ export function PdfBatchImportFlow({
     } finally {
       if (refreshController.current === controller) refreshController.current = null;
     }
-  }, [api, projectId, publish, reportError]);
+  }, [api, projectId, publish, registerCommittedUpload, reportError]);
 
   usePoll(refresh, {
     active: Boolean(snapshot && (
@@ -597,6 +615,7 @@ export function PdfBatchImportFlow({
         expected_revision: snapshot.revision,
       });
       committed.current = true;
+      registerCommittedUpload(accepted.job?.import_ref);
       const sheetId = accepted.job?.sheet_id;
       if (sheetId) {
         importedSheet.current = sheetId;

@@ -11,9 +11,22 @@ import type {
   PdfImportsApi,
 } from '../../src/api/pdfImports';
 import { PdfBatchImportFlow } from '../../src/components/importWorkspace/pdfBatch/PdfBatchImportFlow';
-import { canHandlePdfBatch } from '../../src/components/importWorkspace/pdfBatch/model';
+import { bytesLabel, canHandlePdfBatch } from '../../src/components/importWorkspace/pdfBatch/model';
 
 const selectorState = vi.hoisted(() => ({ canRun: true, blocker: null as string | null }));
+const sessionUpload = vi.hoisted(() => ({
+  abort: null as (() => void) | null,
+  importRef: null as string | null,
+  unregister: vi.fn(),
+}));
+
+vi.mock('../../src/components/importProgressSession', () => ({
+  registerImportSessionUploadAbort: (importRef: string, abort: () => void) => {
+    sessionUpload.importRef = importRef;
+    sessionUpload.abort = abort;
+    return sessionUpload.unregister;
+  },
+}));
 
 vi.mock('../../src/engine-selector/SelectorField', () => ({
   SelectorField: ({ query, onCurrentChoiceChange }: {
@@ -201,8 +214,11 @@ function deferred<Value>() {
 }
 
 beforeEach(() => {
-    selectorState.canRun = true;
-    selectorState.blocker = null;
+  selectorState.canRun = true;
+  selectorState.blocker = null;
+  sessionUpload.abort = null;
+  sessionUpload.importRef = null;
+  sessionUpload.unregister.mockReset();
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
   if (!globalThis.crypto?.randomUUID) {
     let id = 0;
@@ -220,6 +236,7 @@ describe('PDF batch import flow', () => {
     expect(canHandlePdfBatch(files())).toBe(true);
     expect(canHandlePdfBatch(files().slice(0, 1))).toBe(false);
     expect(canHandlePdfBatch([...files(), new File(['csv'], 'rows.csv', { type: 'text/csv' })])).toBe(false);
+    expect(bytesLabel(0)).toBe('0 B');
   });
 
   it('declares and seals the bounded manifest before uploading occurrences', async () => {
@@ -388,6 +405,55 @@ describe('PDF batch import flow', () => {
       idempotency_key: expect.any(String), expected_revision: expect.any(Number),
     }));
     await waitFor(() => expect(imported).toHaveBeenCalledWith(42));
+  });
+
+  it('keeps late browser uploads alive after commit closes the flow', async () => {
+    const initial = snapshot(2, {
+      upload: { files_done: 0, files_total: 2, bytes_done: 0, bytes_total: 6, sealed: true },
+      analysis: { files_done: 0, files_total: 2 },
+    });
+    const { api } = createApi(initial);
+    const firstUpload = deferred<PdfImportSnapshot>();
+    let uploadSignal: AbortSignal | undefined;
+    vi.mocked(api.upload).mockImplementationOnce(async (...args) => {
+      uploadSignal = args[4]?.signal;
+      return firstUpload.promise;
+    });
+    vi.mocked(api.commit).mockResolvedValue({
+      schema_version: 'frisket.pdf_import.v1', draft_id: 'draft-1', commit_id: 'commit-1',
+      status: 'accepted', manifest_hash: 'manifest-1', selected_total: 2, available_through: 0,
+      uploads_complete: false, job: { sheet_id: 42, import_ref: 'import-session-1' },
+    });
+    const imported = vi.fn();
+    const view = render(<PdfBatchImportFlow
+      projectId="project-1" files={files()} destinationSheets={[]} api={api}
+      onContextChange={vi.fn()} registerCloseGuard={vi.fn()} onImported={imported}
+      onDiscarded={vi.fn()} onError={vi.fn()}
+    />);
+
+    await waitFor(() => expect(uploadSignal).toBeDefined());
+    fireEvent.click(screen.getByRole('button', { name: 'Check text →' }));
+    await screen.findByText('Broken native text');
+    fireEvent.click(screen.getByRole('radio', { name: /None/ }));
+    await waitFor(() => expect(api.updateChoices).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: 'Continue →' }));
+    const searchSetup = screen.getByRole('button', { name: 'Search setup →' });
+    await waitFor(() => expect(searchSetup).toBeEnabled());
+    fireEvent.click(searchSetup);
+    await screen.findByRole('heading', { name: 'Search setup' });
+    fireEvent.click(screen.getByRole('checkbox', { name: /Search by meaning/ }));
+    const importButton = await screen.findByRole('button', { name: 'Import 2 PDFs' });
+    await waitFor(() => expect(importButton).toBeEnabled());
+    fireEvent.click(importButton);
+
+    await waitFor(() => expect(imported).toHaveBeenCalledWith(42));
+    expect(sessionUpload.importRef).toBe('import-session-1');
+    view.unmount();
+    expect(uploadSignal?.aborted).toBe(false);
+
+    firstUpload.resolve(initial);
+    await waitFor(() => expect(api.upload).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(sessionUpload.unregister).toHaveBeenCalledTimes(1));
   });
 
   it('pauses for close confirmation and aborts the browser upload before discard', async () => {
