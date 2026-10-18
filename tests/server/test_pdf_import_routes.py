@@ -60,8 +60,7 @@ def _status(revision=1):
         "can_review_text": False,
         "choices": {
             "ocr_policy": "missing_or_suspicious",
-            "ocr_engine": "rapidocr",
-            "ocr_confirmation": None,
+            "ocr_selection": {"kind": "engine", "engine": "rapidocr"},
             "semantic_search": True,
             "semantic_setup_confirmation": None,
             "destination": {"kind": "new", "sheet_name": "Evidence"},
@@ -86,7 +85,7 @@ def _status(revision=1):
         },
         "batch_ocr": {
             "state": "idle",
-            "engine": None,
+            "ocr_action_params": None,
             "ocr_policy": None,
             "manifest_revision": None,
             "manifest_hash": None,
@@ -120,6 +119,53 @@ def _capabilities(_request, _project_id):
         may_run_actions=True,
         manage_model_downloads=True,
     )
+
+
+class _PreviewRuns:
+    def __init__(self) -> None:
+        self.on_page = None
+        self.payload = None
+
+    def prepare_ocr_scratch_path(self, _project_id, source, **kwargs):
+        self.on_page = kwargs["on_page"]
+        self.payload = kwargs["payload"]
+        return ({"plan": "ocr"}, source, object(), object(), object())
+
+    def scratch_estimate(self, _project_id, _plan):
+        return {
+            "rows": 1,
+            "cost": 0.0,
+            "cost_source": "local",
+            "billed_cost": 0,
+            "policy_id": "local",
+        }
+
+    def start_scratch_preview(self, _project_id, _plan, **_kwargs):
+        assert self.on_page is not None
+        self.on_page(
+            {
+                "page": 1,
+                "text": "preview text",
+                "blocks": [],
+                "receipt_id": "receipt-1",
+            }
+        )
+        return SimpleNamespace(
+            status_code=202,
+            payload={"preview_id": "preview-1", "receipt_id": "receipt-1"},
+        )
+
+    def get_preview(self, _project_id, _preview_id):
+        return SimpleNamespace(
+            status_code=200,
+            payload={
+                "status": "done",
+                "accounting": {"receipt_id": "receipt-1"},
+            },
+        )
+
+    def cancel_preview(self, _project_id, _preview_id):
+        return None
 
 
 class _Service:
@@ -182,7 +228,7 @@ class _Service:
             "native_text": "native",
             "ocr_text": None,
             "ocr_blocks": [],
-            "ocr_engine": None,
+            "ocr_action_params": None,
         }
 
     def thumbnail(self, *args):
@@ -191,7 +237,7 @@ class _Service:
     def estimate_batch_ocr(self, pid, draft_id, **kwargs):
         return {
             "state": "ready",
-            "engine": "rapidocr",
+            "ocr_action_params": {"engine": "rapidocr"},
             "ocr_policy": "all",
             "manifest_revision": 1,
             "manifest_hash": "a" * 64,
@@ -213,7 +259,7 @@ class _Service:
             "draft_id": draft_id,
             "occurrence_id": occurrence_id,
             "page": page,
-            "engine": kwargs["engine"],
+            "ocr_action_params": {"engine": "rapidocr"},
             "cached": False,
             "estimate": {
                 "rows": 1,
@@ -230,6 +276,7 @@ class _Service:
             "draft_id": draft_id,
             "occurrence_id": occurrence_id,
             "page": page,
+            "ocr_action_params": {"engine": "rapidocr"},
             "job_id": "preview-1",
             "status": "running",
             "receipt_id": None,
@@ -345,8 +392,10 @@ def test_real_pdf_import_http_create_upload_sample_page_and_discard(
 ) -> None:
     workspace = Workspace(tmp_path / "workspace", enable_local_model_pull=False)
     project_id = str(workspace.create("PDF HTTP", project_id="pdf-http")["id"])
+    preview_runs = _PreviewRuns()
     service = PdfImportService(
         workspace,
+        preview_runs=preview_runs,
         semantic_setup_resolver=lambda _pid, _context: {
             "setup_ref": "semantic-ready",
             "display_name": "Local semantic search",
@@ -414,6 +463,37 @@ def test_real_pdf_import_http_create_upload_sample_page_and_discard(
     page = client.get(f"{base}/{draft_id}/files/{sample['occurrence_id']}/pages/1")
     assert page.status_code == 200, page.text
     assert page.json()["native_text"]
+    preview_selection = {
+        "kind": "engine_model",
+        "engine": "llm",
+        "model": "openai/gpt-4.1-mini",
+    }
+    estimate = client.post(
+        f"{base}/{draft_id}/files/{sample['occurrence_id']}/pages/1/"
+        "ocr-preview/estimate",
+        json={"ocr_selection": preview_selection},
+    )
+    assert estimate.status_code == 200, estimate.text
+    assert estimate.json()["cached"] is False
+    assert estimate.json()["ocr_action_params"] == {
+        "engine": "llm",
+        "model": "openai/gpt-4.1-mini",
+    }
+    assert preview_runs.payload["model"] == "openai/gpt-4.1-mini"
+    started = client.post(
+        f"{base}/{draft_id}/files/{sample['occurrence_id']}/pages/1/ocr-preview",
+        json={"ocr_selection": preview_selection},
+    )
+    assert started.status_code == 202, started.text
+    assert started.json()["ocr_action_params"] == estimate.json()["ocr_action_params"]
+    previewed = client.get(
+        f"{base}/{draft_id}/files/{sample['occurrence_id']}/pages/1"
+    )
+    assert previewed.status_code == 200, previewed.text
+    assert previewed.json()["ocr_text"] == "preview text"
+    assert previewed.json()["ocr_action_params"] == estimate.json()[
+        "ocr_action_params"
+    ]
     assert workspace.get(project_id).sheets() == []
     discarded = client.delete(f"{base}/{draft_id}")
     assert discarded.status_code == 202, discarded.text
@@ -431,7 +511,7 @@ def test_preview_and_commit_require_action_capability(tmp_path: Path) -> None:
     preview = client.post(
         "/api/projects/p/import/pdf-imports/pdf-one/files/one/pages/1/"
         "ocr-preview/estimate",
-        json={"engine": "rapidocr"},
+        json={"ocr_selection": {"kind": "engine", "engine": "rapidocr"}},
     )
     assert preview.status_code == 403
     commit = client.post(

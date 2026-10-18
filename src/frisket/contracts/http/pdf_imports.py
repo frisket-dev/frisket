@@ -8,6 +8,10 @@ from pydantic import Field
 
 from frisket.contracts.http.action_estimate_validation import ActionEstimate
 from frisket.contracts.http.models import WireModel
+from frisket.contracts.http.selector_choices import (
+    EngineModelSelection,
+    EngineSelection,
+)
 
 
 PDF_IMPORT_SCHEMA_VERSION = "frisket.pdf_import.v1"
@@ -18,6 +22,9 @@ PdfTextCategory = Literal[
     "text", "suspicious", "missing", "image", "other", "unreadable", "unchecked"
 ]
 PdfOcrPolicy = Literal["missing_or_suspicious", "all", "none"]
+PdfImportOcrSelection = Annotated[
+    EngineSelection | EngineModelSelection, Field(discriminator="kind")
+]
 
 
 class PdfImportCategoryCounts(WireModel):
@@ -105,8 +112,7 @@ PdfImportDestination = Annotated[
 
 class PdfImportChoices(WireModel):
     ocr_policy: PdfOcrPolicy
-    ocr_engine: str = Field(min_length=1)
-    ocr_confirmation: str | None
+    ocr_selection: PdfImportOcrSelection
     semantic_search: bool
     semantic_setup_confirmation: str | None
     destination: PdfImportDestination
@@ -131,7 +137,7 @@ class PdfImportBatchOcrState(WireModel):
     state: Literal["idle", "ready", "error"]
     advisory: bool = True
     purpose: Literal["batch_pdf_ocr"] | None = None
-    engine: str | None
+    ocr_action_params: dict | None = None
     options: dict | None = None
     ocr_policy: PdfOcrPolicy | None
     manifest_revision: int | None = Field(default=None, ge=1)
@@ -164,7 +170,7 @@ class PdfImportPreviewJob(WireModel):
     job_id: str
     occurrence_id: str
     page: int = Field(ge=1)
-    engine: str
+    ocr_action_params: dict
     status: Literal["running", "done", "failed", "cancelled"]
     receipt_id: str | None
     error: str | None = None
@@ -236,11 +242,11 @@ class PdfImportPageResponse(WireModel):
     native_text: str
     ocr_text: str | None
     ocr_blocks: list[dict]
-    ocr_engine: str | None
+    ocr_action_params: dict | None
 
 
 class PdfImportOcrPreviewRequest(WireModel):
-    engine: str = Field(min_length=1)
+    ocr_selection: PdfImportOcrSelection
     confirmation: str | None = None
 
 
@@ -249,7 +255,7 @@ class PdfImportOcrPreviewEstimate(WireModel):
     draft_id: str
     occurrence_id: str
     page: int = Field(ge=1)
-    engine: str
+    ocr_action_params: dict
     cached: bool
     estimate: ActionEstimate | None
 
@@ -259,6 +265,7 @@ class PdfImportOcrPreviewStart(WireModel):
     draft_id: str
     occurrence_id: str
     page: int = Field(ge=1)
+    ocr_action_params: dict
     job_id: str | None
     status: Literal["running", "done"]
     receipt_id: str | None
@@ -268,7 +275,7 @@ class PdfImportOcrPreviewStart(WireModel):
 
 class PdfImportBatchOcrEstimateRequest(WireModel):
     expected_revision: int = Field(ge=1)
-    engine: str = Field(min_length=1)
+    ocr_selection: PdfImportOcrSelection
     ocr_policy: PdfOcrPolicy
 
 

@@ -30,9 +30,9 @@ class ThumbnailLease:
         self.path.unlink(missing_ok=True)
 
 
-def preview_settings(engine: str) -> tuple[dict[str, Any], str]:
+def preview_settings(action_params: Mapping[str, Any]) -> tuple[dict[str, Any], str]:
     settings = {
-        "engine": engine,
+        **action_params,
         "dpi": 200,
         "language": None,
         "keep_text_position": True,
@@ -66,7 +66,8 @@ def thumbnail(
     occurrence_id: str,
     page: int,
 ) -> ThumbnailLease:
-    cached = directory / "cache" / f"{occurrence_id}-{page}.png"
+    cache_key = hashlib.sha256(occurrence_id.encode()).hexdigest()
+    cached = directory / "cache" / f"{cache_key}-{page}.png"
     if not cached.is_file():
         rendered = asyncio.run(
             render_pdf_pages(
@@ -96,11 +97,11 @@ def prepare_ocr(
     item: Mapping[str, Any],
     occurrence_id: str,
     page: int,
-    engine: str,
+    action_params: Mapping[str, Any],
     request_context: Any,
     on_page: Callable[[Mapping[str, Any]], None],
 ) -> dict[str, Any]:
-    settings, settings_hash = preview_settings(engine)
+    settings, settings_hash = preview_settings(action_params)
     plan, _source, router, composition, execution_context = (
         preview_runs.prepare_ocr_scratch_path(
             project_id,

@@ -311,7 +311,7 @@ def register_pdf_import_routes(
             pid,
             draft_id,
             expected_revision=body.expected_revision,
-            engine=body.engine,
+            ocr_selection=body.ocr_selection.model_dump(mode="json"),
             ocr_policy=body.ocr_policy,
             request_context=request,
         )
@@ -337,7 +337,7 @@ def register_pdf_import_routes(
             draft_id,
             occurrence_id,
             page,
-            engine=body.engine,
+            ocr_selection=body.ocr_selection.model_dump(mode="json"),
             request_context=request,
         )
 
@@ -363,7 +363,7 @@ def register_pdf_import_routes(
             draft_id,
             occurrence_id,
             page,
-            engine=body.engine,
+            ocr_selection=body.ocr_selection.model_dump(mode="json"),
             confirmation=body.confirmation,
             request_context=request,
         )

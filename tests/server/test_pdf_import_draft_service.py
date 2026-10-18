@@ -11,12 +11,53 @@ from types import SimpleNamespace
 
 import pytest
 
+from frisket.actions.document_extraction_types import Box, PositionedPage, PositionedToken
+from frisket.engine.pdf_text import PdfTextBatch
 from frisket.server.services.import_uploads import AdmittedUpload
 from frisket.server.services.pdf_imports import PdfImportDraftError, PdfImportService
+from frisket.server.services.pdf_imports.analysis import analyze_pdf
 from frisket.server.workspace import Workspace
 
 
 PDF = b"%PDF-test-pdf-intake"
+
+
+def test_dense_first_page_keeps_representative_navigation_without_false_unreadable(
+    tmp_path: Path, monkeypatch
+) -> None:
+    calls = []
+
+    async def extract(_path, *, start_page, max_pages, max_chars, timeout_seconds):
+        calls.append((start_page, max_pages, max_chars, timeout_seconds))
+        return PdfTextBatch(
+            pages=[
+                PositionedPage(
+                    page=start_page,
+                    width=612,
+                    height=792,
+                    tokens=[
+                        PositionedToken(
+                            text="x" * max_chars,
+                            box=Box(x0=0.1, y0=0.1, x1=0.9, y1=0.2),
+                        )
+                    ],
+                )
+            ],
+            page_count=8,
+            next_page=2,
+        )
+
+    monkeypatch.setattr(
+        "frisket.server.services.pdf_imports.analysis.extract_pdf_text_batch", extract
+    )
+    result = analyze_pdf(
+        tmp_path / "dense.pdf", quality_assessor=lambda *_args, **_kwargs: ()
+    )
+    assert result["analysis_state"] == "done"
+    assert result["category"] == "text"
+    assert result["page_count"] == 8
+    assert len(result["sample_pages"]) == 6
+    assert calls == [(1, 1, 12_000, 30)]
 
 
 def _upload(name: str = "one.pdf", payload: bytes = PDF) -> AdmittedUpload:
@@ -203,7 +244,7 @@ def test_status_reconciles_preview_registry_terminal_state(
             "job_id": "preview-1",
             "occurrence_id": "one",
             "page": 1,
-            "engine": "rapidocr",
+                "ocr_action_params": {"engine": "rapidocr"},
             "status": "running",
             "receipt_id": None,
             "error": None,
@@ -255,8 +296,11 @@ def test_freeze_projects_unmatched_inventory_and_late_bytes_advance_it(
         draft_id,
         expected_revision=status["revision"],
         ocr_policy="none",
-        ocr_engine="rapidocr",
-        ocr_confirmation=None,
+        ocr_selection={
+            "kind": "engine_model",
+            "engine": "llm",
+            "model": "openai/gpt-4.1-mini",
+        },
         semantic_search=True,
         semantic_setup_confirmation=status["semantic_setup"]["confirmation_hash"],
         destination={"kind": "existing", "sheet_id": 7},
@@ -275,6 +319,10 @@ def test_freeze_projects_unmatched_inventory_and_late_bytes_advance_it(
     assert frozen.committed_total == 1
     assert frozen.available_through == 0
     assert frozen.uploads_complete is False
+    assert frozen.ocr_action_params == {
+        "engine": "llm",
+        "model": "openai/gpt-4.1-mini",
+    }
     intake_root = workspace.get(project_id).path / ".imports" / "pdf-import-1"
     intake_root.mkdir(parents=True)
     promoted = service.promote_commit_inventory(
@@ -302,6 +350,10 @@ def test_freeze_projects_unmatched_inventory_and_late_bytes_advance_it(
         logical_paths=["south/two.pdf"],
         batch_id="upload-2",
     )
+    assert late["match"]["state"] == "ready"
+    assert late["match"]["matched_count"] == 1
+    assert late["match"]["new_category_counts"]["unchecked"] == 0
+    assert late["match"]["new_category_counts"]["missing"] == 1
     expected_ready = (project_id, draft_id, "commit-1", late["revision"] - 1)
     assert ready_calls == [expected_ready, expected_ready]
     replay = service.freeze_for_commit(
@@ -321,9 +373,9 @@ def test_freeze_projects_unmatched_inventory_and_late_bytes_advance_it(
         pass
     with sqlite3.connect(replay.commit_inventory_path) as db:
         assert db.execute(
-            "SELECT occurrence_id,category,ocr_selected "
+            "SELECT occurrence_id,category,error,ocr_selected "
             "FROM pdf_commit_occurrences WHERE ordinal=1"
-        ).fetchone() == ("two", "missing", 0)
+        ).fetchone() == ("two", "missing", None, 0)
     handoff = service.record_commit_handoff(
         project_id,
         draft_id,
@@ -331,6 +383,9 @@ def test_freeze_projects_unmatched_inventory_and_late_bytes_advance_it(
         result={"sheet_id": 11, "session_ref": "import-1"},
     )
     assert handoff["state"] == "committing"
+    assert "commit_inventory_path" not in handoff["commit"]
+    assert "source_files_root" not in handoff["commit"]
+    assert "promotion_target" not in handoff["commit"]
     service.reconcile_commit(
         project_id,
         draft_id,
@@ -382,8 +437,7 @@ def test_destination_match_uses_bounded_current_value_projection(
         draft_id,
         expected_revision=status["revision"],
         ocr_policy="none",
-        ocr_engine="rapidocr",
-        ocr_confirmation=None,
+        ocr_selection={"kind": "engine", "engine": "rapidocr"},
         semantic_search=True,
         semantic_setup_confirmation=status["semantic_setup"]["confirmation_hash"],
         destination={"kind": "existing", "sheet_id": sheet_id},
@@ -392,6 +446,44 @@ def test_destination_match_uses_bounded_current_value_projection(
     assert matched["match"]["checked"] == 2
     assert matched["match"]["matched_count"] == 1
     assert matched["match"]["new_count"] == 1
+
+
+def test_upload_preserves_full_roster_destination_match(
+    tmp_path: Path, monkeypatch
+) -> None:
+    workspace, project_id, service = _service(
+        tmp_path,
+        monkeypatch,
+        destination_matcher=lambda _project, _sheet, candidates: {
+            candidates[0]
+        },
+    )
+    draft_id, status = _declared(service, project_id)
+    status = service.update_choices(
+        project_id,
+        draft_id,
+        expected_revision=status["revision"],
+        ocr_policy="none",
+        ocr_selection={"kind": "engine", "engine": "rapidocr"},
+        semantic_search=True,
+        semantic_setup_confirmation=status["semantic_setup"]["confirmation_hash"],
+        destination={"kind": "existing", "sheet_id": 7},
+    )
+    matched = service.match_destination(project_id, draft_id)
+    assert matched["match"]["new_category_counts"]["unchecked"] == 1
+    uploaded = service.upload(
+        project_id,
+        draft_id,
+        [_upload("two.pdf")],
+        file_ids=["two"],
+        logical_paths=["south/two.pdf"],
+        batch_id="upload-after-match",
+    )
+    assert uploaded["match"]["state"] == "ready"
+    assert uploaded["match"]["matched_count"] == 1
+    assert uploaded["match"]["new_category_counts"]["unchecked"] == 0
+    assert uploaded["match"]["new_category_counts"]["missing"] == 1
+    assert workspace.get(project_id).sheets() == []
 
 
 def test_manifest_scope_and_preflight_are_enforced(tmp_path: Path, monkeypatch) -> None:

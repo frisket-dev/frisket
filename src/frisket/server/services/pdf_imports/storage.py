@@ -100,7 +100,7 @@ class PdfDraftStore:
 
     def purge_expired(self) -> None:
         current_time = datetime.now(UTC)
-        terminal = {"open", "cancelled", "error"}
+        terminal = {"open", "committed", "cancelled", "error"}
         for path in self.root.glob("pdf-*/manifest.json"):
             directory = path.parent
             try:

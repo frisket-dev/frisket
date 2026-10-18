@@ -45,7 +45,11 @@ def analyze_pdf(
         page_count = first.page_count
         sample_pages = representative_pages(page_count)
         pages = {1: first.pages[0]}
-        remaining = MAX_SAMPLE_CHARS
+        remaining = max(
+            0,
+            MAX_SAMPLE_CHARS
+            - sum(len(token.text) for token in first.pages[0].tokens),
+        )
         for page_number in sample_pages:
             if page_number == 1 or remaining <= 0:
                 continue
@@ -60,11 +64,12 @@ def analyze_pdf(
             )
             pages[page_number] = batch.pages[0]
             remaining -= sum(len(token.text) for token in batch.pages[0].tokens)
-        tokens = [token for page in sample_pages for token in pages[page].tokens]
+        loaded_pages = [page for page in sample_pages if page in pages]
+        tokens = [token for page in loaded_pages for token in pages[page].tokens]
         text = positioned_tokens_text(tokens)[:MAX_SAMPLE_CHARS]
         category = "missing" if not text.strip() else "text"
         if text.strip() and _quality_flags(
-            path, text, sample_pages, pages, quality_assessor
+            path, text, loaded_pages, pages, quality_assessor
         ):
             category = "suspicious"
         return {

@@ -456,6 +456,10 @@ class PdfDraftInventory:
         )
         return [self._row(row) for row in rows]
 
+    def reset_commit_projection(self) -> None:
+        with self.db:
+            self.db.execute("DELETE FROM pdf_commit_projection")
+
     def mark_matches(self, occurrence_ids: list[str]) -> None:
         with self.db:
             self.db.executemany(
