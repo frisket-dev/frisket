@@ -32,6 +32,8 @@ class ImportIntakeHeader:
     destination_sheet_id: int | None = None
     pdf_preparation: Mapping[str, Any] | None = None
     staged_files: bool = False
+    intake_kind: Literal["files", "table"] = "files"
+    provider_state: Mapping[str, Any] | None = None
 
     def to_json(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -49,10 +51,20 @@ class ImportIntakeHeader:
             payload["pdf_preparation"] = dict(self.pdf_preparation)
         if self.staged_files:
             payload["staged_files"] = True
+        if self.intake_kind != "files":
+            payload["intake_kind"] = self.intake_kind
+        if self.provider_state is not None:
+            payload["provider_state"] = dict(self.provider_state)
         return payload
 
     @classmethod
     def from_json(cls, value: Mapping[str, Any]) -> ImportIntakeHeader:
+        intake_kind = value.get("intake_kind", "files")
+        if intake_kind not in {"files", "table"}:
+            raise ValueError("unsupported import intake kind")
+        provider_state = value.get("provider_state")
+        if provider_state is not None and not isinstance(provider_state, Mapping):
+            raise ValueError("import provider state must be an object")
         return cls(
             project_id=str(value["project_id"]),
             storage_identity=str(value["storage_identity"]),
@@ -72,6 +84,8 @@ class ImportIntakeHeader:
                 else dict(value["pdf_preparation"])
             ),
             staged_files=bool(value.get("staged_files", False)),
+            intake_kind=intake_kind,
+            provider_state=(None if provider_state is None else dict(provider_state)),
         )
 
 
