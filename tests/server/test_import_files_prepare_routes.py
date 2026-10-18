@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import io
 import shutil
+import threading
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -238,4 +239,75 @@ def test_prepare_cancellation_cleans_private_staging(
     with pytest.raises(asyncio.CancelledError):
         asyncio.run(service.prepare(project_id, uploads=[upload], expand_archive=False))
 
+    assert _private_directories(client, project_id) == []
+
+
+def test_prepare_offloads_pdf_adoption_and_drains_it_before_cancel_cleanup(
+    tmp_path: Path,
+) -> None:
+    app = create_app(tmp_path / "workspace")
+    client = TestClient(app)
+    project_id = _project(client)
+    started = threading.Event()
+    release = threading.Event()
+    observed: dict[str, Any] = {}
+
+    class BlockingAdopter:
+        def adopt_staged(
+            self,
+            _project_id: str,
+            staging_dir: Path,
+            entries: list[dict[str, Any]],
+            *,
+            source_label: str,
+        ) -> dict[str, Any]:
+            observed.update(
+                staging_dir=staging_dir,
+                entries=entries,
+                source_label=source_label,
+                thread_id=threading.get_ident(),
+            )
+            started.set()
+            assert release.wait(timeout=5)
+            assert staging_dir.is_dir(), "caller must retain bytes until worker exits"
+            return {"unused": True}
+
+    service = ImportBulkService(
+        app.state.workspace,
+        pdf_import_service=BlockingAdopter(),
+    )
+    uploads = [
+        BulkUpload(
+            filename=name,
+            logical_path=name,
+            mime="application/pdf",
+            file=UploadFile(io.BytesIO(payload), filename=name),
+        )
+        for name, payload in (("a.pdf", b"%PDF-a"), ("b.pdf", b"%PDF-b"))
+    ]
+
+    async def exercise() -> None:
+        loop_thread = threading.get_ident()
+        task = asyncio.create_task(
+            service.prepare(project_id, uploads=uploads, expand_archive=False)
+        )
+        for _ in range(100):
+            if started.is_set():
+                break
+            await asyncio.sleep(0.01)
+        assert started.is_set(), "adoption worker did not start"
+        assert observed["thread_id"] != loop_thread
+
+        task.cancel()
+        await asyncio.sleep(0.05)
+        assert not task.done(), "cancellation must drain the source-owning worker"
+        assert observed["staging_dir"].is_dir()
+
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(exercise())
+
+    assert not observed["staging_dir"].exists()
     assert _private_directories(client, project_id) == []

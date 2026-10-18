@@ -17,6 +17,7 @@ from frisket.server.services.import_bulk_types import (
     BulkUpload,
     ImportBulkRouteError,
 )
+from frisket.server.thread_worker import await_thread_worker
 from frisket.server.workspace import Workspace
 
 LOG = logging.getLogger(__name__)
@@ -82,7 +83,8 @@ class ImportBulkService:
             if pdf_count >= 2:
                 if self.pdf_import_service is None:
                     raise RuntimeError("PDF import service is unavailable")
-                draft = self.pdf_import_service.adopt_staged(
+                draft = await await_thread_worker(
+                    self.pdf_import_service.adopt_staged,
                     project_id,
                     staging.draft,
                     staging.staged,
