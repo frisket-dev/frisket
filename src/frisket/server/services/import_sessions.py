@@ -584,15 +584,16 @@ class ImportSessionService:
             str(row["id"]): str(row["state"])
             for row in project.db.execute("SELECT id,state FROM import_sessions")
         }
-        completed_by_recency = [
+        terminal_by_recency = [
             str(row["id"])
             for row in project.db.execute(
-                "SELECT id FROM import_sessions WHERE state='completed' "
+                "SELECT id FROM import_sessions "
+                "WHERE state IN ('completed','kept') "
                 "ORDER BY updated_at DESC LIMIT 10"
             )
         ]
-        recent_completed = set(completed_by_recency)
-        completed_rank = {ref: rank for rank, ref in enumerate(completed_by_recency)}
+        recent_terminal = set(terminal_by_recency)
+        terminal_rank = {ref: rank for rank, ref in enumerate(terminal_by_recency)}
         if root.is_dir():
             for directory in sorted(root.iterdir()):
                 if not directory.is_dir():
@@ -601,11 +602,15 @@ class ImportSessionService:
                     ref = directory.name
                     header = self._validated_header(project, project_id, directory)
                     db_state = db_states.get(ref)
-                    if db_state in {"kept", "removed"} or (
-                        db_state == "completed" and ref not in recent_completed
+                    if db_state == "removed" or (
+                        db_state in {"completed", "kept"} and ref not in recent_terminal
                     ):
                         continue
-                    if header.resolution in {"kept", "removed"}:
+                    if db_state == "kept" and header.intake_kind != "table":
+                        continue
+                    if header.resolution == "removed" or (
+                        header.resolution == "kept" and header.intake_kind != "table"
+                    ):
                         continue
                     if header.intake_kind == "table":
                         sessions.append(self._status(project, ref, directory, header))
@@ -618,8 +623,8 @@ class ImportSessionService:
                     continue
         sessions.sort(
             key=lambda status: (
-                status.state == "completed",
-                completed_rank.get(status.import_ref, 0),
+                status.state in {"completed", "kept"},
+                terminal_rank.get(status.import_ref, 0),
             )
         )
         return ImportSessionList(sessions=sessions)

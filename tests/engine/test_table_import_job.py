@@ -910,10 +910,11 @@ def test_stop_keeps_committed_table_rows_and_finishes_intake(tmp_path: Path) -> 
             directory,
             ImportIntakeHeader(PROJECT_ID, project.storage_identity, {}),
             source=TableImportSource(
-                filename="stop.csv",
+                filename="stop.xlsx",
                 size=len(data),
                 sha256=hashlib.sha256(data).hexdigest(),
-                kind="delimited",
+                kind="xlsx",
+                retain_for_workbook_reuse=True,
             ),
             settings=settings,
         )
@@ -971,4 +972,9 @@ def test_stop_keeps_committed_table_rows_and_finishes_intake(tmp_path: Path) -> 
         assert session is not None and session.state == "kept"
         assert project.row_count(session.sheet_id) == 1
         assert table_import_status(directory).phase == "terminal"
-        assert not (directory / "source").exists()
+        assert (directory / "source").is_file()
+
+        [listed] = ImportSessionService(workspace).list(PROJECT_ID).sessions
+        assert listed.state == "kept"
+        assert (listed.committed_rows, listed.processed_rows) == (1, 1)
+        assert listed.can_rerun_workbook is True
