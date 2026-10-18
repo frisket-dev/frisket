@@ -17,6 +17,7 @@ const getSearchPreparation = vi.hoisted(() => vi.fn());
 const getSearchPreparationTextSamples = vi.hoisted(() => vi.fn());
 const createSearchPreparation = vi.hoisted(() => vi.fn());
 const replanSearchPreparation = vi.hoisted(() => vi.fn());
+const listPdfImportDrafts = vi.hoisted(() => vi.fn());
 const projectApi = vi.hoisted(() => ({ getSheetData: vi.fn(), listSheets: vi.fn() }));
 
 vi.mock('../../src/api/open', async (importOriginal) => {
@@ -35,12 +36,17 @@ vi.mock('../../src/api/open', async (importOriginal) => {
   };
 });
 
-vi.mock('../../src/bind/useWorkspaceStores', () => ({
-  useWorkspaceStores: () => ({
-    projectApi,
-    chromePreferences: { projectId: 'open-session-project' },
-  }),
-}));
+vi.mock('../../src/bind/useWorkspaceStores', async () => {
+  const { createRouteStore } = await import('../../src/state/routeStore');
+  const route = createRouteStore('open-session-project');
+  return {
+    useWorkspaceStores: () => ({
+      projectApi,
+      route,
+      chromePreferences: { projectId: 'open-session-project' },
+    }),
+  };
+});
 
 vi.mock('../../src/api/searchPreparation', async (importOriginal) => ({
   ...await importOriginal<typeof import('../../src/api/searchPreparation')>(),
@@ -49,6 +55,14 @@ vi.mock('../../src/api/searchPreparation', async (importOriginal) => ({
   createSearchPreparation,
   replanSearchPreparation,
 }));
+
+vi.mock('../../src/api/pdfImports', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/api/pdfImports')>();
+  return {
+    ...actual,
+    pdfImportsApi: { ...actual.pdfImportsApi, list: listPdfImportDrafts },
+  };
+});
 
 import { ImportDropzone, ImportWorkspaceDialog } from '../../src/components/ImportCsv';
 
@@ -81,6 +95,8 @@ function renderDialog(open: boolean, onImported = vi.fn(), onClose = vi.fn()) {
 }
 
 beforeEach(() => {
+  listPdfImportDrafts.mockReset();
+  listPdfImportDrafts.mockResolvedValue([]);
   getSearchPreparationTextSamples.mockReset();
   getSearchPreparationTextSamples.mockResolvedValue({ batch_id: 'prep', samples: [] });
   createSearchPreparation.mockReset();
@@ -409,8 +425,8 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     renderDialog(true);
     fireEvent.click(screen.getByTestId('import-mode-files'));
     fireEvent.change(screen.getByTestId('import-file-input'), { target: { files: [
-      new File(['a'], 'a.pdf', { type: 'application/pdf' }),
-      new File(['b'], 'b.pdf', { type: 'application/pdf' }),
+      new File(['a'], 'a.txt', { type: 'text/plain' }),
+      new File(['b'], 'b.txt', { type: 'text/plain' }),
     ] } });
 
     expect(await screen.findByText('Uploading 1 of 2 files')).toBeVisible();
@@ -440,8 +456,8 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     renderDialog(true, vi.fn(), onClose);
     fireEvent.click(screen.getByTestId('import-mode-files'));
     fireEvent.change(screen.getByTestId('import-file-input'), { target: { files: [
-      new File(['a'], 'a.pdf', { type: 'application/pdf' }),
-      new File(['b'], 'b.pdf', { type: 'application/pdf' }),
+      new File(['a'], 'a.txt', { type: 'text/plain' }),
+      new File(['b'], 'b.txt', { type: 'text/plain' }),
     ] } });
     await waitFor(() => expect(getImportSession).toHaveBeenCalledTimes(1));
     expect(screen.getByText('Files saved. Checking text and search setup…')).toBeVisible();
@@ -485,8 +501,8 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     renderDialog(true);
     fireEvent.click(screen.getByTestId('import-mode-files'));
     fireEvent.change(screen.getByTestId('import-file-input'), { target: { files: [
-      new File(['a'], 'a.pdf', { type: 'application/pdf' }),
-      new File(['b'], 'b.pdf', { type: 'application/pdf' }),
+      new File(['a'], 'a.txt', { type: 'text/plain' }),
+      new File(['b'], 'b.txt', { type: 'text/plain' }),
     ] } });
     await waitFor(() => expect(getImportSession).toHaveBeenCalledOnce());
     expect(screen.getByText('Adding files to the sheet — 1 of 2 saved')).toBeVisible();
@@ -513,8 +529,8 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     renderDialog(true);
     fireEvent.click(screen.getByTestId('import-mode-files'));
     fireEvent.change(screen.getByTestId('import-file-input'), { target: { files: [
-      new File(['a'], 'a.pdf', { type: 'application/pdf' }),
-      new File(['b'], 'b.pdf', { type: 'application/pdf' }),
+      new File(['a'], 'a.txt', { type: 'text/plain' }),
+      new File(['b'], 'b.txt', { type: 'text/plain' }),
     ] } });
 
     expect(await screen.findByRole('heading', { name: 'Import paused' })).toBeVisible();
@@ -533,8 +549,8 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     renderDialog(true);
     fireEvent.click(screen.getByTestId('import-mode-files'));
     fireEvent.change(screen.getByTestId('import-file-input'), { target: { files: [
-      new File(['a'], 'a.pdf', { type: 'application/pdf' }),
-      new File(['b'], 'b.pdf', { type: 'application/pdf' }),
+      new File(['a'], 'a.txt', { type: 'text/plain' }),
+      new File(['b'], 'b.txt', { type: 'text/plain' }),
     ] } });
 
     expect(await screen.findByRole('heading', { name: 'Import cancelled' })).toBeVisible();
@@ -725,12 +741,12 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     fireEvent.click(screen.getByTestId('import-mode-files'));
     const files = Array.from(
       { length: 4_096 },
-      (_, index) => new File(['x'], `${index}.pdf`, { type: 'application/pdf' }),
+      (_, index) => new File(['x'], `${index}.txt`, { type: 'text/plain' }),
     );
 
     fireEvent.change(screen.getByTestId('import-file-input'), { target: { files } });
 
-    expect(screen.getByRole('status')).toHaveTextContent('Preparing selected files');
+    expect(screen.getByText('Preparing selected files…')).toBeVisible();
     expect(createImportSession).not.toHaveBeenCalled();
     await waitFor(() => expect(createImportSession).toHaveBeenCalledWith(
       'open-session-project', { sheetName: 'files' },
@@ -746,10 +762,10 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     fireEvent.click(screen.getByTestId('import-mode-files'));
     const files = Array.from(
       { length: 4_096 },
-      (_, index) => new File(['x'], `${index}.pdf`, { type: 'application/pdf' }),
+      (_, index) => new File(['x'], `${index}.txt`, { type: 'text/plain' }),
     );
     fireEvent.change(screen.getByTestId('import-file-input'), { target: { files } });
-    expect(screen.getByRole('status')).toHaveTextContent('Preparing selected files');
+    expect(screen.getByText('Preparing selected files…')).toBeVisible();
 
     view.rerender(
       <ImportWorkspaceDialog
@@ -772,7 +788,7 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     fireEvent.click(screen.getByTestId('import-mode-files'));
     const files = Array.from(
       { length: 4_096 },
-      (_, index) => new File(['x'], `${index}.pdf`, { type: 'application/pdf' }),
+      (_, index) => new File(['x'], `${index}.txt`, { type: 'text/plain' }),
     );
     fireEvent.change(screen.getByTestId('import-file-input'), { target: { files } });
     fireEvent.click(screen.getByTestId('import-mode-csv'));
@@ -797,7 +813,7 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     );
     const files = Array.from(
       { length: 4_096 },
-      (_, index) => new File(['x'], `${index}.pdf`, { type: 'application/pdf' }),
+      (_, index) => new File(['x'], `${index}.txt`, { type: 'text/plain' }),
     );
     fireEvent.drop(screen.getByTestId('import-dropzone'), { dataTransfer: { files } });
     expect(screen.getByText('Preparing selected files…')).toBeVisible();
