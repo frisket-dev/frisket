@@ -10,6 +10,7 @@ import type {
   PdfImportSnapshot,
   PdfImportsApi,
 } from '../../src/api/pdfImports';
+import { PdfImportResponseError } from '../../src/api/pdfImports';
 import { PdfBatchImportFlow } from '../../src/components/importWorkspace/pdfBatch/PdfBatchImportFlow';
 import { bytesLabel, canHandlePdfBatch } from '../../src/components/importWorkspace/pdfBatch/model';
 
@@ -142,11 +143,20 @@ function snapshot(revision = 1, patch: Partial<PdfImportSnapshot> = {}): PdfImpo
     },
     batch_ocr: {
       state: 'idle',
+      revision: null,
+      advisory: false,
+      purpose: null,
+      ocr_action_params: null,
+      options: null,
       ocr_policy: null,
       manifest_revision: null,
       manifest_hash: null,
       selected_through: 0,
       selected_count: 0,
+      known_pages: 0,
+      work_scope_hash: null,
+      destination: null,
+      match: null,
       estimate: null,
       needs_confirmation: false,
     },
@@ -199,16 +209,13 @@ function createApi(initial = snapshot()) {
     estimateBatchOcr: vi.fn(async () => {
       current = { ...current, revision: current.revision + 1,
         batch_ocr: {
+          ...current.batch_ocr,
           state: 'ready', ocr_policy: 'missing_or_suspicious',
           manifest_revision: current.revision, manifest_hash: 'manifest-1', estimate: null,
           selected_through: 2, selected_count: 1, needs_confirmation: false,
         },
       };
-      return {
-        ocr_policy: 'missing_or_suspicious', manifest_revision: current.revision,
-        manifest_hash: 'manifest-1', selected_through: 2, selected_count: 1,
-        estimate: null, needs_confirmation: false,
-      };
+      return current.batch_ocr;
     }),
     match: vi.fn(async () => current),
     getPage: vi.fn(async () => ({
@@ -448,7 +455,130 @@ describe('PDF batch import flow', () => {
     expect(vi.mocked(api.commit).mock.calls[0][2]).toEqual(expect.objectContaining({
       idempotency_key: expect.any(String), expected_revision: expect.any(Number),
     }));
+    expect(vi.mocked(api.commit).mock.calls[0][2]).not.toHaveProperty('ocr_confirmation');
     await waitFor(() => expect(imported).toHaveBeenCalledWith(42));
+  });
+
+  it('echoes the exact paid OCR quote only after final import confirmation', async () => {
+    const confirmation = 'a'.repeat(64);
+    const paid = snapshot(4, {
+      choices: {
+        ocr_policy: 'missing_or_suspicious',
+        ocr_selection: { kind: 'engine_model', engine: 'cloud-ocr', model: 'vision-1' },
+        semantic_search: false,
+        semantic_setup_confirmation: null,
+        destination: { kind: 'new', sheet_name: 'Imported PDFs' },
+      },
+      semantic_setup: {
+        ...snapshot().semantic_setup,
+        ready: true,
+        needs_confirmation: false,
+      },
+      batch_ocr: {
+        state: 'ready',
+        revision: 4,
+        advisory: false,
+        purpose: 'batch_pdf_ocr',
+        ocr_action_params: { engine: 'cloud-ocr', model: 'vision-1' },
+        options: {},
+        ocr_policy: 'missing_or_suspicious',
+        manifest_revision: 2,
+        manifest_hash: 'manifest-1',
+        selected_through: 2,
+        selected_count: 1,
+        known_pages: 3,
+        work_scope_hash: 'scope-1',
+        destination: { kind: 'new', sheet_name: 'Imported PDFs' },
+        match: null,
+        estimate: {
+          cost: 1.25,
+          billed_cost: 1_250_000,
+          rows: 3,
+          cost_source: 'server_quote',
+          policy_id: 'pdf-ocr-v1',
+          requires_confirmation: true,
+          promise_set_hash: confirmation,
+        },
+        needs_confirmation: true,
+      },
+    });
+    const { api } = createApi(paid);
+    render(<PdfBatchImportFlow
+      projectId="project-1" resumeDraftId="draft-1" destinationSheets={[]} api={api}
+      onContextChange={vi.fn()} registerCloseGuard={vi.fn()} onImported={vi.fn()}
+      onDiscarded={vi.fn()} onError={vi.fn()}
+    />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Check text →' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue →' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Search setup →' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Import 2 PDFs' }));
+
+    expect(api.commit).not.toHaveBeenCalled();
+    expect(await screen.findByTestId('cost-gate-estimate')).toHaveTextContent('$1.25');
+    expect(screen.getByText('Run cloud-ocr OCR on 1 file when importing?')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('cost-gate-confirm'));
+
+    await waitFor(() => expect(api.commit).toHaveBeenCalledWith(
+      'project-1',
+      'draft-1',
+      expect.objectContaining({ ocr_confirmation: confirmation }),
+    ));
+  });
+
+  it('requires paid OCR confirmation again after a stale commit conflict', async () => {
+    const confirmation = 'b'.repeat(64);
+    const paid = snapshot(4, {
+      choices: {
+        ocr_policy: 'missing_or_suspicious',
+        ocr_selection: { kind: 'engine', engine: 'cloud-ocr' },
+        semantic_search: false,
+        semantic_setup_confirmation: null,
+        destination: { kind: 'new', sheet_name: 'Imported PDFs' },
+      },
+      batch_ocr: {
+        ...snapshot().batch_ocr,
+        state: 'ready',
+        revision: 4,
+        advisory: false,
+        ocr_policy: 'missing_or_suspicious',
+        selected_through: 2,
+        selected_count: 1,
+        estimate: {
+          cost: 0.5,
+          billed_cost: 500_000,
+          rows: 1,
+          cost_source: 'server_quote',
+          policy_id: 'pdf-ocr-v1',
+          requires_confirmation: true,
+          promise_set_hash: confirmation,
+        },
+        needs_confirmation: true,
+      },
+    });
+    const { api } = createApi(paid);
+    vi.mocked(api.estimateBatchOcr).mockResolvedValue(paid.batch_ocr);
+    vi.mocked(api.commit).mockRejectedValueOnce(new PdfImportResponseError(409, {
+      detail: 'PDF OCR quote changed; review the current price',
+    }));
+    render(<PdfBatchImportFlow
+      projectId="project-1" resumeDraftId="draft-1" destinationSheets={[]} api={api}
+      onContextChange={vi.fn()} registerCloseGuard={vi.fn()} onImported={vi.fn()}
+      onDiscarded={vi.fn()} onError={vi.fn()}
+    />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Check text →' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue →' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Search setup →' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Import 2 PDFs' }));
+    fireEvent.click(await screen.findByTestId('cost-gate-confirm'));
+
+    expect(await screen.findByText('The import details changed. Review the current OCR estimate and confirm again.')).toBeInTheDocument();
+    expect(api.estimateBatchOcr).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('cost-gate-modal')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Import 2 PDFs' }));
+    expect(await screen.findByTestId('cost-gate-modal')).toBeInTheDocument();
+    expect(api.commit).toHaveBeenCalledTimes(1);
   });
 
   it('keeps late browser uploads alive after commit closes the flow', async () => {
@@ -854,6 +984,7 @@ describe('PDF batch import flow', () => {
           ...server,
           revision: server.revision + 1,
           batch_ocr: {
+            ...server.batch_ocr,
             state: 'ready', ocr_policy: 'missing_or_suspicious',
             manifest_revision: server.revision, manifest_hash: 'manifest-remote', estimate: null,
             selected_through: 2, selected_count: 1, needs_confirmation: false,

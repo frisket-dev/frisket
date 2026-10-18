@@ -19,6 +19,7 @@ import {
   type PdfImportsApi,
 } from '../../../api/pdfImports';
 import type { HttpSelectorChoicesQuery, HttpSelectorChoicesResponse, SelectorChoice } from '../../../api/selectorChoices';
+import type { RunEstimate } from '../../../api/open';
 import { useSelectorChoices } from '../../../engine-selector/useSelectorChoices';
 import { usePoll } from '../../../hooks/usePoll';
 import { CostGateModal } from '../../CostGateModal';
@@ -106,6 +107,14 @@ function selectedFolderName(files: readonly File[]): string | null {
   return logicalPath.split('/')[0] || null;
 }
 
+interface PendingBatchOcrConsent {
+  draftId: string;
+  confirmation: string;
+  estimate: RunEstimate;
+  selectedCount: number;
+  engine: string;
+}
+
 export function PdfBatchImportFlow({
   projectId,
   files = [],
@@ -128,6 +137,7 @@ export function PdfBatchImportFlow({
   const [sampleCursor, setSampleCursor] = useState<string | null>(null);
   const [batchEstimateBusy, setBatchEstimateBusy] = useState(false);
   const [batchEstimateError, setBatchEstimateError] = useState<string | null>(null);
+  const [batchOcrConsent, setBatchOcrConsent] = useState<PendingBatchOcrConsent | null>(null);
   const [discardPrompt, setDiscardPrompt] = useState(false);
   const [discarding, setDiscarding] = useState(false);
   const [reselecting, setReselecting] = useState(false);
@@ -270,6 +280,7 @@ export function PdfBatchImportFlow({
       clearPreview();
       setBatchEstimateBusy(false);
       setBatchEstimateError(null);
+      setBatchOcrConsent(null);
       setDiscardPrompt(false);
       setDiscarding(false);
       setReselecting(false);
@@ -348,6 +359,7 @@ export function PdfBatchImportFlow({
         importedSheet.current = sheetId;
         onImportedRef.current(sheetId);
       }
+      return next;
     } catch (problem) {
       if (!controller.signal.aborted && generation.current === epoch) reportError(problem);
     } finally {
@@ -649,18 +661,44 @@ export function PdfBatchImportFlow({
     }
   };
 
-  const commit = async () => {
+  const commit = async (ocrConfirmation?: string) => {
     if (!snapshot || mutationBusy || !destinationIsReady(snapshot, destination)) return;
     const semanticSetup = snapshot.semantic_setup;
     if ((semanticEnabled ?? snapshot.choices.semantic_search)
       && semanticSetup.needs_confirmation
       && snapshot.choices.semantic_setup_confirmation !== semanticSetup.confirmation_hash) return;
+    const remoteOcr = ocrPolicyCount(snapshot, snapshot.choices.ocr_policy) > 0
+      && ocrEngine(snapshot.choices.ocr_selection) !== 'rapidocr';
+    if (remoteOcr && snapshot.batch_ocr.needs_confirmation) {
+      const estimate = snapshot.batch_ocr.estimate;
+      const confirmation = estimate?.promise_set_hash;
+      if (!estimate || !confirmation) {
+        reportError(new Error('The OCR estimate did not include its authorization token.'));
+        return;
+      }
+      if (!ocrConfirmation) {
+        setBatchOcrConsent({
+          draftId: snapshot.draft_id,
+          confirmation,
+          estimate,
+          selectedCount: snapshot.batch_ocr.selected_count,
+          engine: ocrEngine(snapshot.choices.ocr_selection),
+        });
+        return;
+      }
+      if (ocrConfirmation !== confirmation) {
+        setBatchOcrConsent(null);
+        setError('The OCR quote changed. Review the current estimate and confirm again.');
+        return;
+      }
+    }
     setMutationBusy(true);
     setError(null);
     try {
       const accepted = await api.commit(projectId, snapshot.draft_id, {
         idempotency_key: commitKey.current,
         expected_revision: snapshot.revision,
+        ...(ocrConfirmation ? { ocr_confirmation: ocrConfirmation } : {}),
       });
       committed.current = true;
       await registerCommittedUpload(accepted.job?.import_ref);
@@ -671,6 +709,13 @@ export function PdfBatchImportFlow({
       }
       await refresh();
     } catch (problem) {
+      if (problem instanceof PdfImportResponseError && problem.status === 409) {
+        setBatchOcrConsent(null);
+        const latest = await refresh();
+        if (latest && remoteOcr) await estimateBatchOcr(latest);
+        setError('The import details changed. Review the current OCR estimate and confirm again.');
+        return;
+      }
       if (!(problem instanceof PdfImportResponseError)) committed.current = true;
       reportError(problem);
       void refresh();
@@ -710,14 +755,19 @@ export function PdfBatchImportFlow({
   const matching = destination.kind === 'existing' && snapshot.match.state === 'running';
   const nothingNew = destination.kind === 'existing'
     && snapshot.match.state === 'ready' && snapshot.match.new_count === 0;
+  const activeBatchOcrConsent = batchOcrConsent
+    && batchOcrConsent.draftId === snapshot.draft_id
+    && snapshot.batch_ocr.state === 'ready'
+    && batchOcrConsent.confirmation === snapshot.batch_ocr.estimate?.promise_set_hash
+    ? batchOcrConsent
+    : null;
   const canCommit = destinationIsReady(snapshot, destination)
     && !matching && semanticAuthorized
     && snapshot.analysis.files_done >= snapshot.upload.files_done
     && (ocrPolicyCount(snapshot, snapshot.choices.ocr_policy) === 0
       || (Boolean(ocrChoice?.can_run) && (
         ocrEngine(snapshot.choices.ocr_selection) === 'rapidocr'
-        || (snapshot.batch_ocr?.state === 'ready'
-        && snapshot.batch_ocr.advisory !== false))
+        || snapshot.batch_ocr?.state === 'ready')
       ))
     && snapshot.state === 'open' && !mutationBusy;
 
@@ -867,6 +917,18 @@ export function PdfBatchImportFlow({
               pending.estimate.estimate?.promise_set_hash ?? undefined,
               refresh,
             );
+          }}
+        />
+      )}
+      {activeBatchOcrConsent && (
+        <CostGateModal
+          estimate={activeBatchOcrConsent.estimate}
+          message={`Run ${activeBatchOcrConsent.engine} OCR on ${count(activeBatchOcrConsent.selectedCount, 'file')} when importing?`}
+          onCancel={() => setBatchOcrConsent(null)}
+          onConfirm={() => {
+            const pending = activeBatchOcrConsent;
+            setBatchOcrConsent(null);
+            void commit(pending.confirmation);
           }}
         />
       )}

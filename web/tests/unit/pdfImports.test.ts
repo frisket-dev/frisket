@@ -50,6 +50,27 @@ describe('PDF imports API', () => {
     expect(new Headers(init?.headers).has('Content-Type')).toBe(false);
   });
 
+  it('sends the exact paid OCR approval hash with the final commit', async () => {
+    const fetch = vi.fn(async () => jsonResponse({ draft_id: 'draft-1', status: 'accepted' }, 202));
+    const api = createPdfImportsApi();
+    const confirmation = 'a'.repeat(64);
+
+    await api.commit('project-1', 'draft-1', {
+      expected_revision: 9,
+      idempotency_key: 'commit-key-1',
+      ocr_confirmation: confirmation,
+    }, { fetch });
+
+    const [path, init] = fetch.mock.calls[0];
+    expect(path).toBe('/api/projects/project-1/import/pdf-imports/draft-1/commit');
+    expect(init?.method).toBe('POST');
+    expect(JSON.parse(String(init?.body))).toEqual({
+      expected_revision: 9,
+      idempotency_key: 'commit-key-1',
+      ocr_confirmation: confirmation,
+    });
+  });
+
   it('preserves the PDF workflow response error used for revision retries', async () => {
     const fetch = vi.fn(async () => jsonResponse({ detail: 'revision changed' }, 409));
     const api = createPdfImportsApi();
