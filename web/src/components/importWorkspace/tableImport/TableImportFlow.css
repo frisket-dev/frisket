@@ -217,13 +217,14 @@
 .table-import-column-row > span:nth-child(2) strong { font-size: 12px; }
 .table-import-column-row small { color: #756c66; }
 .table-import-column-row > span:nth-child(3) { display: grid; gap: 4px; }
-.table-import-column-samples { display: flex; gap: 4px; overflow: hidden; }
-.table-import-column-samples i { width: 76px; max-width: 90px; padding: 3px 2px; overflow: hidden; color: #4a433e; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
-.table-import-column-samples i[data-outcome='changed'] { background: #fcefd9; color: #9a5b06; }
-.table-import-column-samples i[data-outcome='invalid'] { background: #fbeae6; color: #b3412e; }
-.table-import-column-samples i[data-outcome='changed'], .table-import-column-samples i[data-outcome='invalid'] { width: auto; min-width: 76px; max-width: 140px; }
-.table-import-column-samples[data-type='datetime'] i { width: auto; min-width: 116px; max-width: 150px; }
+.table-import-column-values { min-width: 0; display: grid; gap: 6px; }
+.table-import-column-values > .text-btn { justify-self: start; font-size: 11px; }
+.table-import-column-samples { display: flex; flex-wrap: wrap; align-items: start; gap: 5px; min-width: 0; }
+.table-import-column-samples i { flex: 0 1 auto; max-width: 100%; padding: 3px 6px; border: 1px solid #e7e1db; border-radius: 4px; color: #4a433e; font-style: normal; white-space: pre-wrap; overflow-wrap: anywhere; }
+.table-import-column-samples i[data-outcome='changed'] { border-color: #efd7b2; background: #fcefd9; color: #9a5b06; }
+.table-import-column-samples i[data-outcome='invalid'] { border-color: #efd0c9; background: #fbeae6; color: #b3412e; }
 .table-import-column-samples i[data-outcome='blank'] { color: #8a817a; font-style: italic; }
+.table-import-column-samples[data-expanded] { max-height: 280px; overflow: auto; }
 .table-import-column-note { color: #756c66; }
 .table-import-column-note .panel-select-shell { width: 225px; max-width: 100%; }
 .table-import-column-note select { width: 100%; }
@@ -269,6 +270,7 @@
 .table-import-ftm-handoff p { color: #756c66; }
 
 @media (max-width: 980px) {
+  .table-import-column-heading, .table-import-column-row { min-width: 760px; grid-template-columns: 28px minmax(110px, 140px) minmax(100px, 120px) minmax(240px, 1.7fr) minmax(140px, .9fr); }
   .table-import-workspace .import-workspace-header > div:first-child { min-width: 200px; max-width: 240px; }
   .table-import-workspace .import-workspace-header > .import-workspace-stages { gap: 24px; }
   .table-import-reader-controls { flex-wrap: wrap; }
