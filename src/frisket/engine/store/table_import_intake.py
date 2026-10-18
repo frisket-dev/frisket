@@ -13,7 +13,7 @@ import os
 import sqlite3
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
-from typing import Any, Literal, Mapping, Sequence
+from typing import Any, Iterable, Literal, Mapping, Sequence
 
 from frisket.engine.store.import_intake import (
     ImportIntakeHeader,
@@ -375,6 +375,8 @@ def initialize_table_intake(
     source: TableImportSource,
     settings: TableReadSettings,
 ) -> None:
+    if header.envelope or header.destination_sheet_id is not None:
+        raise ValueError("table draft cannot reserve its action before review")
     path = _source_path(directory)
     if not path.is_file() or path.stat().st_size != source.size:
         raise ValueError("staged table source does not match its admitted size")
@@ -494,6 +496,10 @@ def freeze_table_plan(
         raise ValueError("table plan scan is stale")
     if require_exact_count and (scan is None or not scan.complete):
         raise ValueError("table plan requires a complete row count")
+    if plan.dedup is not None and plan.dedup.snapshot_revision != _dedup_revision(
+        directory
+    ):
+        raise ValueError("table dedup snapshot is stale")
     payload = plan.to_json()
     plan_hash = _hash(payload)
     if state.plan_hash is not None and state.plan_hash != plan_hash:
@@ -517,6 +523,10 @@ def frozen_table_import(directory: Path) -> FrozenTableImport:
     revision, settings_hash, settings = read_table_settings(directory)
     if revision != plan.settings_revision or settings != plan.settings:
         raise ValueError("frozen table settings changed")
+    if plan.dedup is not None and plan.dedup.snapshot_revision != _dedup_revision(
+        directory
+    ):
+        raise ValueError("frozen table dedup snapshot changed")
     scan = read_table_scan(directory, required=False)
     return FrozenTableImport(
         import_ref=directory.name,
@@ -536,16 +546,48 @@ def frozen_table_import(directory: Path) -> FrozenTableImport:
 
 
 def mark_table_committed(
-    directory: Path, *, expected_plan_hash: str
+    directory: Path,
+    *,
+    expected_plan_hash: str,
+    envelope: Mapping[str, Any],
+    destination_sheet_id: int | None,
 ) -> FrozenTableImport:
     frozen = frozen_table_import(directory)
     state = _TableState.from_json(_read_json(_state_path(directory)))
+    header = read_import_header(directory)
+    final_envelope = dict(envelope)
+    if not final_envelope:
+        raise ValueError("table commit requires a reserved action envelope")
     if frozen.plan_hash != expected_plan_hash:
         raise ValueError("table plan hash is stale")
     if state.phase not in {"frozen", "committed"}:
         raise ValueError("table intake cannot be committed")
+    if frozen.plan.destination_sheet_id != destination_sheet_id:
+        raise ValueError("table commit destination changed")
+    if header.envelope and header.envelope != final_envelope:
+        raise ValueError("table commit action changed")
+    if (
+        header.destination_sheet_id is not None
+        and header.destination_sheet_id != destination_sheet_id
+    ):
+        raise ValueError("table commit destination changed")
     if state.phase == "frozen":
+        # Write authority first. A crash leaves a frozen intake whose exact
+        # replay can finish; execution never sees committed state without it.
+        write_import_header(
+            directory,
+            replace(
+                header,
+                envelope=final_envelope,
+                destination_sheet_id=destination_sheet_id,
+            ),
+        )
         _write_json(_state_path(directory), replace(state, phase="committed").to_json())
+    elif (
+        header.envelope != final_envelope
+        or header.destination_sheet_id != destination_sheet_id
+    ):
+        raise ValueError("table commit replay changed")
     return frozen
 
 
@@ -617,6 +659,10 @@ def _open_table_db(directory: Path) -> sqlite3.Connection:
     db.row_factory = sqlite3.Row
     db.executescript(
         "CREATE TABLE IF NOT EXISTS dedup_keys (value TEXT PRIMARY KEY);"
+        "CREATE TABLE IF NOT EXISTS dedup_meta ("
+        "singleton INTEGER PRIMARY KEY CHECK(singleton=1),"
+        "revision INTEGER NOT NULL);"
+        "INSERT OR IGNORE INTO dedup_meta(singleton,revision) VALUES(1,0);"
         "CREATE TABLE IF NOT EXISTS issues ("
         "source_ordinal INTEGER NOT NULL,line_start INTEGER,line_end INTEGER,"
         "column_name TEXT NOT NULL DEFAULT '',code TEXT NOT NULL,message TEXT NOT NULL,"
@@ -628,15 +674,69 @@ def _open_table_db(directory: Path) -> sqlite3.Connection:
     return db
 
 
+def _dedup_revision(directory: Path) -> int:
+    with _open_table_db(directory) as db:
+        row = db.execute("SELECT revision FROM dedup_meta WHERE singleton=1").fetchone()
+    return int(row[0])
+
+
 def append_table_dedup_keys(directory: Path, values: Sequence[str]) -> int:
     clean = [value for value in values if isinstance(value, str) and value != ""]
     with _open_table_db(directory) as db:
+        state = _TableState.from_json(_read_json(_state_path(directory)))
+        if state.phase != "draft":
+            raise ValueError("table dedup snapshot is frozen")
         before = db.total_changes
         db.executemany(
             "INSERT OR IGNORE INTO dedup_keys(value) VALUES(?)",
             ((value,) for value in clean),
         )
-        return db.total_changes - before
+        added = db.total_changes - before
+        db.execute("UPDATE dedup_meta SET revision=revision+1 WHERE singleton=1")
+        return added
+
+
+def replace_table_dedup_keys(
+    directory: Path,
+    values: Iterable[str],
+    *,
+    expected_revision: int,
+) -> int:
+    """Atomically replace the final existing-destination key snapshot."""
+
+    state = _TableState.from_json(_read_json(_state_path(directory)))
+    if state.phase != "draft":
+        raise ValueError("table dedup snapshot is frozen")
+    with _open_table_db(directory) as db:
+        db.execute("BEGIN IMMEDIATE")
+        try:
+            row = db.execute(
+                "SELECT revision FROM dedup_meta WHERE singleton=1"
+            ).fetchone()
+            if int(row[0]) != expected_revision:
+                raise ValueError("table dedup snapshot revision is stale")
+            db.execute("DELETE FROM dedup_keys")
+
+            def clean_values() -> Iterable[tuple[str]]:
+                for value in values:
+                    if not isinstance(value, str):
+                        raise ValueError("table dedup keys must be text")
+                    if value != "":
+                        yield (value,)
+
+            db.executemany(
+                "INSERT OR IGNORE INTO dedup_keys(value) VALUES(?)", clean_values()
+            )
+            next_revision = expected_revision + 1
+            db.execute(
+                "UPDATE dedup_meta SET revision=? WHERE singleton=1",
+                (next_revision,),
+            )
+            db.commit()
+            return next_revision
+        except BaseException:
+            db.rollback()
+            raise
 
 
 def table_key_exists(directory: Path, value: str) -> bool:
@@ -781,6 +881,7 @@ __all__ = [
     "read_table_settings",
     "read_table_source",
     "record_table_issues",
+    "replace_table_dedup_keys",
     "replace_table_settings",
     "table_import_status",
     "table_issue_groups",

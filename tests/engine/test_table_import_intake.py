@@ -12,6 +12,7 @@ from frisket.engine.store.import_intake import (
 )
 from frisket.engine.store.table_import_intake import (
     TableImportColumn,
+    TableImportDedup,
     TableImportIssue,
     TableImportPlan,
     TableImportScan,
@@ -24,6 +25,7 @@ from frisket.engine.store.table_import_intake import (
     mark_table_committed,
     read_table_settings,
     record_table_issues,
+    replace_table_dedup_keys,
     replace_table_settings,
     table_import_status,
     table_issue_groups,
@@ -37,7 +39,7 @@ def _header() -> ImportIntakeHeader:
     return ImportIntakeHeader(
         project_id="project-one",
         storage_identity="storage-one",
-        envelope={"project_id": "project-one", "action": {"sheet_name": "Rows"}},
+        envelope={},
     )
 
 
@@ -89,14 +91,33 @@ def test_table_intake_freezes_revisioned_plan_and_replays_commit(
     )
     frozen = freeze_table_plan(directory, plan)
     assert frozen.exact_rows == 2
+    envelope = {"schema_version": "test.action", "receipt_id": "receipt-one"}
     assert (
-        mark_table_committed(directory, expected_plan_hash=frozen.plan_hash).plan_hash
+        mark_table_committed(
+            directory,
+            expected_plan_hash=frozen.plan_hash,
+            envelope=envelope,
+            destination_sheet_id=None,
+        ).plan_hash
         == frozen.plan_hash
     )
     assert (
-        mark_table_committed(directory, expected_plan_hash=frozen.plan_hash).plan_hash
+        mark_table_committed(
+            directory,
+            expected_plan_hash=frozen.plan_hash,
+            envelope=envelope,
+            destination_sheet_id=None,
+        ).plan_hash
         == frozen.plan_hash
     )
+    assert read_import_header(directory).envelope == envelope
+    with pytest.raises(ValueError, match="action changed"):
+        mark_table_committed(
+            directory,
+            expected_plan_hash=frozen.plan_hash,
+            envelope={"schema_version": "changed"},
+            destination_sheet_id=None,
+        )
 
     advance_table_progress(directory, expected_cursor=0, source_cursor=1)
     advance_table_progress(directory, expected_cursor=1, source_cursor=2, exact_rows=2)
@@ -171,6 +192,31 @@ def test_dedup_snapshot_is_exact_text_blank_exempt_and_issues_are_bounded(
     assert group["count"] == 1
     assert group["examples"][0]["source_ordinal"] == 2
     assert len(group["examples"][0]["original"]) == 4096
+
+
+def test_final_dedup_snapshot_replaces_stale_preview_keys(tmp_path: Path) -> None:
+    directory, settings = _setup(tmp_path)
+    assert append_table_dedup_keys(directory, ["stale"]) == 1
+    revision = replace_table_dedup_keys(
+        directory, (value for value in ["current", "", "current"]), expected_revision=1
+    )
+    assert revision == 2
+    assert not table_key_exists(directory, "stale")
+    assert table_key_exists(directory, "current")
+    frozen = freeze_table_plan(
+        directory,
+        TableImportPlan(
+            settings_revision=0,
+            settings=settings,
+            sheet_name="Rows",
+            destination_sheet_id=9,
+            columns=(TableImportColumn(0, "id", "id", "text"),),
+            dedup=TableImportDedup(0, 12, revision),
+        ),
+    )
+    assert frozen.plan.dedup is not None
+    with pytest.raises(ValueError, match="frozen"):
+        replace_table_dedup_keys(directory, ["changed"], expected_revision=revision)
 
 
 def test_table_intake_validates_source_authority_and_preserves_provider_state(
