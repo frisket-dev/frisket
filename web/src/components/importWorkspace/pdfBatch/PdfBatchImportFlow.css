@@ -536,6 +536,15 @@
 .pdf-batch-model-setup > label { grid-column: 1 / -1; display: flex; gap: 8px; padding-top: 10px; border-top: 1px solid #e7e1db; font-size: 12px; }
 .pdf-batch-model-setup > p { grid-column: 1 / -1; margin: 0; color: #b3412e; font-size: 12px; }
 .pdf-batch-inline-progress { display: inline-flex; align-items: center; gap: 5px; color: #756c66; font-size: 11px; }
+.pdf-batch-paused-import {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border: 1px solid #e7d6b8;
+  border-radius: 7px;
+  background: #fff8e9;
+  color: #7d571b;
+  font-size: 12px;
+}
 
 @media (max-width: 820px) {
   .pdf-batch-progress-grid,

@@ -420,8 +420,11 @@ export function SearchSetupStep({ snapshot, semanticEnabled, consent, busy, impo
               ? <button type="button" className="btn" title={batchEstimateError ?? snapshot.batch_ocr?.error ?? undefined} disabled={batchEstimateBusy} onClick={onEstimateOcr}>{batchEstimateBusy ? 'Checking…' : 'Try again'}</button>
               : <span className="pdf-batch-inline-progress"><LoaderCircle className="spin" size={13} /> Checking…</span>}
       </div>}
+      {snapshot.paused && <p className="pdf-batch-paused-import" role="status">Copying is paused. Go back to Add files to resume before importing.</p>}
     </div>
-    <StepFooter><button type="button" className="btn" disabled={busy} onClick={onBack}>Back</button><span>{semanticWaitingForConsent
+    <StepFooter><button type="button" className="btn" disabled={busy} onClick={onBack}>Back</button><span>{snapshot.paused
+      ? 'Copying is paused. Go back to Add files to resume.'
+      : semanticWaitingForConsent
       ? `Allow the ${setup.download_bytes == null ? 'model' : bytesLabel(setup.download_bytes)} download, or turn off search by meaning.`
       : semanticEnabled ? 'Keyword search and search by meaning will be prepared.' : 'Keyword search will be prepared.'}</span><button type="button" className="btn btn-primary" disabled={!canImport} onClick={onImport}>{busy ? 'Importing…' : importLabel}</button></StepFooter>
   </section>;

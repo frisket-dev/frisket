@@ -486,6 +486,40 @@ describe('PDF batch import flow', () => {
     expect(screen.getByRole('button', { name: 'Import 2 PDFs' })).toBeDisabled();
   });
 
+  it('lets a paused partial upload be reviewed but does not commit it', async () => {
+    const initial = snapshot(3, {
+      paused: true,
+      upload: { files_done: 1, files_total: 2, bytes_done: 3, bytes_total: 6, sealed: false },
+      analysis: { files_done: 1, files_total: 2, sealed: false },
+      choices: {
+        ...snapshot().choices,
+        semantic_search: false,
+      },
+      semantic_setup: {
+        ...snapshot().semantic_setup,
+        ready: true,
+        needs_confirmation: false,
+      },
+    });
+    const { api } = createApi(initial);
+    render(<PdfBatchImportFlow
+      projectId="project-1" resumeDraftId="draft-1" destinationSheets={[]} api={api}
+      onContextChange={vi.fn()} registerCloseGuard={vi.fn()} onImported={vi.fn()}
+      onDiscarded={vi.fn()} onError={vi.fn()}
+    />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Check text →' }));
+    await screen.findByText('Broken native text');
+    fireEvent.click(screen.getByRole('button', { name: 'Continue →' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Search setup →' }));
+
+    expect(await screen.findByText('Copying is paused. Go back to Add files to resume before importing.')).toBeInTheDocument();
+    const importButton = screen.getByRole('button', { name: 'Import 2 PDFs' });
+    expect(importButton).toBeDisabled();
+    fireEvent.click(importButton);
+    expect(api.commit).not.toHaveBeenCalled();
+  });
+
   it('does not treat an absent semantic hash as consent and locks choices while saving', async () => {
     const initial = snapshot(2, {
       semantic_setup: {

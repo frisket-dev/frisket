@@ -769,7 +769,7 @@ export function PdfBatchImportFlow({
     ? batchOcrConsent
     : null;
   const canCommit = destinationIsReady(snapshot, destination)
-    && !matching && semanticAuthorized
+    && !snapshot.paused && !matching && semanticAuthorized
     && snapshot.analysis.files_done >= snapshot.upload.files_done
     && (ocrPolicyCount(snapshot, snapshot.choices.ocr_policy) === 0
       || (Boolean(ocrChoice?.can_run) && (
