@@ -94,6 +94,8 @@ from frisket.server.routes.document_priority import register_document_priority_r
 from frisket.server.services.document_priority import DocumentPriorityService
 from frisket.server.routes.pdf_packet_splits import register_pdf_packet_split_routes
 from frisket.server.routes.pdf_imports import register_pdf_import_routes
+from frisket.server.routes.table_imports import register_table_import_routes
+from frisket.server.services.table_imports import TableImportService
 from frisket.server.services.pdf_imports import FrozenPdfImport, PdfImportService
 from frisket.server.services.pdf_import_ocr_approval import PdfImportOcrApprovalQuoter
 from frisket.server.services.pdf_import_commit import PdfImportCommitService
@@ -968,6 +970,10 @@ def create_app(
         limits=bulk_limits,
         capabilities_for=selector_capabilities_for,
         commit_handler=commit_pdf_import,
+    )
+    register_table_import_routes(
+        app,
+        service=TableImportService(ws, max_upload_bytes=bulk_limits.max_upload_bytes),
     )
     register_import_followthemoney_routes(
         app,

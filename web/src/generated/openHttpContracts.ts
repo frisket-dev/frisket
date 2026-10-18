@@ -571,6 +571,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
+      "id": "tenant.commit_table_import.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/import/table-imports/{draft_id}/commit",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
       "id": "tenant.compact_project.post",
       "method": "POST",
       "path": "/api/projects/{pid}/compact",
@@ -678,6 +687,24 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "path": "/api/skills",
       "request": {
         "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
+      "id": "tenant.create_table_import_from_file.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/import/table-imports/file",
+      "request": {
+        "mediaType": "multipart/form-data",
+        "required": true
+      }
+    },
+    {
+      "id": "tenant.create_table_import_from_paste.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/import/table-imports/paste",
+      "request": {
+        "mediaType": "multipart/form-data",
         "required": true
       }
     },
@@ -802,6 +829,12 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "id": "tenant.discard_pdf_import.delete",
       "method": "DELETE",
       "path": "/api/projects/{pid}/import/pdf-imports/{draft_id}",
+      "request": null
+    },
+    {
+      "id": "tenant.discard_table_import.delete",
+      "method": "DELETE",
+      "path": "/api/projects/{pid}/import/table-imports/{draft_id}",
       "request": null
     },
     {
@@ -1087,6 +1120,12 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "id": "tenant.get_source_health_ep.get",
       "method": "GET",
       "path": "/api/projects/{pid}/sources/{source_id}/health",
+      "request": null
+    },
+    {
+      "id": "tenant.get_table_import.get",
+      "method": "GET",
+      "path": "/api/projects/{pid}/import/table-imports/{draft_id}",
       "request": null
     },
     {
@@ -1726,6 +1765,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
+      "id": "tenant.rerun_table_import_worksheet.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/import/table-imports/{draft_id}/rerun",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
       "id": "tenant.resolve_import_session.post",
       "method": "POST",
       "path": "/api/projects/{pid}/import/files/sessions/{ref}/resolve",
@@ -2059,6 +2107,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
+      "id": "tenant.unlock_table_import.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/import/table-imports/{draft_id}/unlock",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
       "id": "tenant.update_csv.post",
       "method": "POST",
       "path": "/api/projects/{pid}/import/csv/update",
@@ -2143,6 +2200,33 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "id": "tenant.update_skill.put",
       "method": "PUT",
       "path": "/api/skills/{skill_id}",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
+      "id": "tenant.update_table_import_columns.patch",
+      "method": "PATCH",
+      "path": "/api/projects/{pid}/import/table-imports/{draft_id}/columns",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
+      "id": "tenant.update_table_import_destination.patch",
+      "method": "PATCH",
+      "path": "/api/projects/{pid}/import/table-imports/{draft_id}/destination",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
+      "id": "tenant.update_table_import_settings.patch",
+      "method": "PATCH",
+      "path": "/api/projects/{pid}/import/table-imports/{draft_id}/settings",
       "request": {
         "mediaType": "application/json",
         "required": true
@@ -12253,6 +12337,317 @@ export type HttpSpendReport = ({
   "unknown_cost_models": (Array<(string)>);
 });
 
+type HttpTableImportColumnsRequest_TableImportColumnChoice = ({
+  "date_order"?: ((("month_first" | "day_first") & (string)) | ((null)));
+  "included": (boolean);
+  "source_index": (number);
+  "target_type": ("text" | "integer" | "number" | "date" | "datetime" | "boolean" | "omit") & (string);
+});
+
+export type HttpTableImportColumnsRequest = ({
+  "columns": (Array<(HttpTableImportColumnsRequest_TableImportColumnChoice)>);
+  "expected_revision": (number);
+});
+
+export type HttpTableImportCommitRequest = ({
+  "expected_revision": (number);
+  "idempotency_key": (string);
+});
+
+export type HttpTableImportCommitResponse = ({
+  "draft_id": (string);
+  "estimated_rows"?: (((number)) | ((null)));
+  "import_ref": (string);
+  "schema_version": ("frisket.table_import.v1") & (string);
+  "selected_total"?: (((number)) | ((null)));
+  "sheet_id": (number);
+  "sheet_name": (string);
+  "status": ("accepted") & (string);
+});
+
+type HttpTableImportDestinationRequest_TableImportDedup = ({
+  "enabled": (boolean);
+  "key_source_index"?: (((number)) | ((null)));
+});
+
+type HttpTableImportDestinationRequest_TableImportExistingColumnTarget = ({
+  "column_id": (number);
+  "kind": ("existing") & (string);
+});
+
+type HttpTableImportDestinationRequest_TableImportExistingDestination = ({
+  "kind": ("existing") & (string);
+  "sheet_id": (number);
+});
+
+type HttpTableImportDestinationRequest_TableImportMappingRequest = ({
+  "source_index": (number);
+  "target": (((HttpTableImportDestinationRequest_TableImportExistingColumnTarget)) | ((HttpTableImportDestinationRequest_TableImportNewColumnTarget)));
+});
+
+type HttpTableImportDestinationRequest_TableImportNewColumnTarget = ({
+  "kind": ("new") & (string);
+  "name": (string);
+});
+
+type HttpTableImportDestinationRequest_TableImportNewDestination = ({
+  "kind": ("new") & (string);
+  "sheet_name": (string);
+});
+
+export type HttpTableImportDestinationRequest = ({
+  "dedup": (HttpTableImportDestinationRequest_TableImportDedup);
+  "destination": (((HttpTableImportDestinationRequest_TableImportNewDestination)) | ((HttpTableImportDestinationRequest_TableImportExistingDestination)));
+  "expected_revision": (number);
+  "mappings": (Array<(HttpTableImportDestinationRequest_TableImportMappingRequest)>);
+});
+
+type HttpTableImportDraft_TableImportAnalysis = ({
+  "complete": (boolean);
+  "error": (((string)) | ((null)));
+  "estimated_rows"?: (((number)) | ((null)));
+  "exact_rows"?: (((number)) | ((null)));
+  "issue_counts": (HttpTableImportDraft_TableImportIssueCounts);
+  "job_id"?: (((number)) | ((null)));
+  "scanned_rows": (number);
+  "state": ("idle" | "running" | "complete" | "error") & (string);
+});
+
+type HttpTableImportDraft_TableImportColumn = ({
+  "ambiguous_date_order": (boolean);
+  "conversion_counts": (HttpTableImportDraft_TableImportConversionCounts);
+  "date_order": ((("month_first" | "day_first") & (string)) | ((null)));
+  "included": (boolean);
+  "name": (string);
+  "name_status": ("original" | "duplicate" | "missing") & (string);
+  "needs_review": (Array<("leading_zeros" | "long_integer" | "ambiguous_date_order" | "invalid_values" | "time_dropped") & (string)>);
+  "original_name": (((string)) | ((null)));
+  "samples": (Array<(HttpTableImportDraft_TableImportConversionSample)>);
+  "source_index": (number);
+  "stats_complete": (boolean);
+  "suggested_type": ("text" | "integer" | "number" | "date" | "datetime" | "boolean" | "omit") & (string);
+  "target_type": ("text" | "integer" | "number" | "date" | "datetime" | "boolean" | "omit") & (string);
+});
+
+type HttpTableImportDraft_TableImportCommitResponse = ({
+  "draft_id": (string);
+  "estimated_rows"?: (((number)) | ((null)));
+  "import_ref": (string);
+  "schema_version": ("frisket.table_import.v1") & (string);
+  "selected_total"?: (((number)) | ((null)));
+  "sheet_id": (number);
+  "sheet_name": (string);
+  "status": ("accepted") & (string);
+});
+
+type HttpTableImportDraft_TableImportConversionCounts = ({
+  "blank": (number);
+  "changed": (number);
+  "invalid": (number);
+  "leading_zero_loss": (number);
+  "rows_checked": (number);
+  "time_dropped": (number);
+  "valid": (number);
+});
+
+type HttpTableImportDraft_TableImportConversionSample = ({
+  "display": (string);
+  "original": (string);
+  "outcome": ("unchanged" | "changed" | "blank" | "invalid") & (string);
+  "value": (((string)) | ((number)) | ((number)) | ((boolean)) | ((null)));
+});
+
+type HttpTableImportDraft_TableImportDedup = ({
+  "enabled": (boolean);
+  "key_source_index"?: (((number)) | ((null)));
+});
+
+type HttpTableImportDraft_TableImportDestination = ({
+  "comparison": (HttpTableImportDraft_TableImportDestinationComparison);
+  "configuration": (((HttpTableImportDraft_TableImportNewDestination)) | ((HttpTableImportDraft_TableImportExistingDestination)));
+  "dedup": (HttpTableImportDraft_TableImportDedup);
+  "mappings": (Array<(HttpTableImportDraft_TableImportMapping)>);
+});
+
+type HttpTableImportDraft_TableImportDestinationComparison = ({
+  "complete": (boolean);
+  "duplicate_rows"?: (((number)) | ((null)));
+  "error": (((string)) | ((null)));
+  "import_rows"?: (((number)) | ((null)));
+  "matched_columns": (number);
+  "new_columns": (number);
+  "state": ("idle" | "running" | "ready" | "error") & (string);
+  "type_clashes": (number);
+});
+
+type HttpTableImportDraft_TableImportExistingColumnTarget = ({
+  "column_id": (number);
+  "kind": ("existing") & (string);
+});
+
+type HttpTableImportDraft_TableImportExistingDestination = ({
+  "kind": ("existing") & (string);
+  "sheet_id": (number);
+});
+
+type HttpTableImportDraft_TableImportIssueCounts = ({
+  "extra_values"?: (number);
+  "malformed_records"?: (number);
+  "missing_values"?: (number);
+  "unreadable_cells"?: (number);
+});
+
+type HttpTableImportDraft_TableImportMapping = ({
+  "detail": (((string)) | ((null)));
+  "match": ("matched" | "similar" | "new" | "type_clash") & (string);
+  "source_index": (number);
+  "source_name": (string);
+  "source_type": ("text" | "integer" | "number" | "date" | "datetime" | "boolean" | "omit") & (string);
+  "target": (((HttpTableImportDraft_TableImportExistingColumnTarget)) | ((HttpTableImportDraft_TableImportNewColumnTarget)));
+});
+
+type HttpTableImportDraft_TableImportNewColumnTarget = ({
+  "kind": ("new") & (string);
+  "name": (string);
+});
+
+type HttpTableImportDraft_TableImportNewDestination = ({
+  "kind": ("new") & (string);
+  "sheet_name": (string);
+});
+
+type HttpTableImportDraft_TableImportPreview = ({
+  "columns": (Array<(HttpTableImportDraft_TableImportSourceColumn)>);
+  "complete": (boolean);
+  "expected_values": (number);
+  "head": (Array<(HttpTableImportDraft_TableImportPreviewRow)>);
+  "notice": (HttpTableImportDraft_TableImportPreviewNotice);
+  "omitted_rows"?: (((number)) | ((null)));
+  "rows_seen": (number);
+  "tail": (Array<(HttpTableImportDraft_TableImportPreviewRow)>);
+  "tail_pending": (boolean);
+});
+
+type HttpTableImportDraft_TableImportPreviewNotice = ({
+  "common_values"?: (((number)) | ((null)));
+  "count"?: (((number)) | ((null)));
+  "encoding": (((string)) | ((null)));
+  "expected_values"?: (((number)) | ((null)));
+  "kind": ("extra_values" | "unreadable_characters" | "one_column" | "mostly_wrong_width" | "some_wrong_width" | "consistent" | "counting") & (string);
+});
+
+type HttpTableImportDraft_TableImportPreviewRow = ({
+  "cells": (Array<(string)>);
+  "hidden_cell_count": (number);
+  "issues": (Array<(HttpTableImportDraft_TableImportRowIssue)>);
+  "physical_line_end"?: (((number)) | ((null)));
+  "physical_line_start"?: (((number)) | ((null)));
+  "record_ordinal": (number);
+  "role": ("skipped_start" | "header" | "data" | "blank" | "skipped_end") & (string);
+});
+
+type HttpTableImportDraft_TableImportRequestedSettings = ({
+  "decimal_separator"?: ("auto" | "." | ",") & (string);
+  "delimiter": (((string)) | ((null)));
+  "encoding"?: (((string)) | ((null)));
+  "first_row_is_header"?: (boolean);
+  "skip_rows_end"?: (number);
+  "skip_rows_start"?: (number);
+  "thousands_separator"?: ("auto" | "," | "." | " " | "none") & (string);
+  "worksheet"?: (((string)) | ((null)));
+});
+
+type HttpTableImportDraft_TableImportResolvedSettings = ({
+  "decimal_separator": ("." | ",") & (string);
+  "delimiter"?: (((string)) | ((null)));
+  "encoding"?: (((string)) | ((null)));
+  "first_row_is_header": (boolean);
+  "kind": ("delimited" | "xlsx" | "xls" | "ods") & (string);
+  "skip_rows_end": (number);
+  "skip_rows_start": (number);
+  "thousands_separator"?: (((string)) | ((null)));
+  "worksheet"?: (((string)) | ((null)));
+});
+
+type HttpTableImportDraft_TableImportRowIssue = ({
+  "code": ("extra_values" | "missing_values" | "malformed_record" | "unreadable_cell") & (string);
+  "message": (string);
+  "original_values": (Array<(string)>);
+});
+
+type HttpTableImportDraft_TableImportSettings = ({
+  "requested": (HttpTableImportDraft_TableImportRequestedSettings);
+  "resolved": (HttpTableImportDraft_TableImportResolvedSettings);
+  "revision": (number);
+});
+
+type HttpTableImportDraft_TableImportSheetInfo = ({
+  "empty": (boolean);
+  "hidden": (boolean);
+  "index": (number);
+  "name": (string);
+});
+
+type HttpTableImportDraft_TableImportSource = ({
+  "can_rerun_workbook": (boolean);
+  "filename": (string);
+  "format": ((("delimited" | "xlsx" | "xls" | "ods") & (string)) | ((null)));
+  "input_kind": ("file" | "paste") & (string);
+  "sha256": (string);
+  "sheets": (Array<(HttpTableImportDraft_TableImportSheetInfo)>);
+  "size": (number);
+});
+
+type HttpTableImportDraft_TableImportSourceColumn = ({
+  "index": (number);
+  "name": (string);
+  "name_status": ("original" | "duplicate" | "missing") & (string);
+  "original_name": (((string)) | ((null)));
+});
+
+export type HttpTableImportDraft = ({
+  "analysis": (HttpTableImportDraft_TableImportAnalysis);
+  "can_commit": (boolean);
+  "columns": (Array<(HttpTableImportDraft_TableImportColumn)>);
+  "commit": (((HttpTableImportDraft_TableImportCommitResponse)) | ((null)));
+  "commit_blocked_reason": ((("password_required" | "analyzing" | "empty" | "destination" | "error") & (string)) | ((null)));
+  "created_at": (string);
+  "destination": (((HttpTableImportDraft_TableImportDestination)) | ((null)));
+  "draft_id": (string);
+  "id": (string);
+  "preview": (((HttpTableImportDraft_TableImportPreview)) | ((null)));
+  "revision": (number);
+  "schema_version": ("frisket.table_import.v1") & (string);
+  "settings": (((HttpTableImportDraft_TableImportSettings)) | ((null)));
+  "source": (HttpTableImportDraft_TableImportSource);
+  "state": ("password_required" | "analyzing" | "ready" | "committing" | "committed" | "error") & (string);
+  "updated_at": (string);
+});
+
+export type HttpTableImportRerunRequest = ({
+  "worksheet": (string);
+});
+
+type HttpTableImportSettingsRequest_TableImportRequestedSettings = ({
+  "decimal_separator"?: ("auto" | "." | ",") & (string);
+  "delimiter": (((string)) | ((null)));
+  "encoding"?: (((string)) | ((null)));
+  "first_row_is_header"?: (boolean);
+  "skip_rows_end"?: (number);
+  "skip_rows_start"?: (number);
+  "thousands_separator"?: ("auto" | "," | "." | " " | "none") & (string);
+  "worksheet"?: (((string)) | ((null)));
+});
+
+export type HttpTableImportSettingsRequest = ({
+  "expected_revision": (number);
+  "settings": (HttpTableImportSettingsRequest_TableImportRequestedSettings);
+});
+
+export type HttpTableImportUnlockRequest = ({
+  "password": (string);
+});
+
 export type HttpTeamArtifactPullRequest = ({
   "ref": (string);
   "unpinned_acknowledged"?: (boolean);
@@ -14278,6 +14673,23 @@ export type HttpContractOperationMap = {
       readonly "503": HttpError;
     };
   };
+  readonly "tenant.commit_table_import.post": {
+    readonly pathParams: HttpInline_4695a2cbe654ff39;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpTableImportCommitRequest;
+    readonly responses: {
+      readonly "200": HttpTableImportCommitResponse;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "413": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+      readonly "503": HttpError;
+    };
+  };
   readonly "tenant.compact_project.post": {
     readonly pathParams: HttpInline_87cacc773db826e7;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -14468,6 +14880,40 @@ export type HttpContractOperationMap = {
       readonly "415": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.create_table_import_from_file.post": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: FormData;
+    readonly responses: {
+      readonly "201": HttpTableImportDraft;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "413": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+      readonly "503": HttpError;
+    };
+  };
+  readonly "tenant.create_table_import_from_paste.post": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: FormData;
+    readonly responses: {
+      readonly "201": HttpTableImportDraft;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "413": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+      readonly "503": HttpError;
     };
   };
   readonly "tenant.create_view.post": {
@@ -14706,6 +15152,23 @@ export type HttpContractOperationMap = {
       readonly "400": HttpError;
       readonly "401": HttpError;
       readonly "402": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "413": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+      readonly "503": HttpError;
+    };
+  };
+  readonly "tenant.discard_table_import.delete": {
+    readonly pathParams: HttpInline_4695a2cbe654ff39;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "204": undefined;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
       readonly "403": HttpError;
       readonly "404": HttpError;
       readonly "409": HttpError;
@@ -15286,6 +15749,23 @@ export type HttpContractOperationMap = {
       readonly "409": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.get_table_import.get": {
+    readonly pathParams: HttpInline_4695a2cbe654ff39;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpTableImportDraft;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "413": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+      readonly "503": HttpError;
     };
   };
   readonly "tenant.health.get": {
@@ -16478,6 +16958,23 @@ export type HttpContractOperationMap = {
       readonly "503": HttpError;
     };
   };
+  readonly "tenant.rerun_table_import_worksheet.post": {
+    readonly pathParams: HttpInline_4695a2cbe654ff39;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpTableImportRerunRequest;
+    readonly responses: {
+      readonly "201": HttpTableImportDraft;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "413": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+      readonly "503": HttpError;
+    };
+  };
   readonly "tenant.resolve_import_session.post": {
     readonly pathParams: HttpInline_8527488b5f6abaa7;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -17107,6 +17604,23 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
+  readonly "tenant.unlock_table_import.post": {
+    readonly pathParams: HttpInline_4695a2cbe654ff39;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpTableImportUnlockRequest;
+    readonly responses: {
+      readonly "200": HttpTableImportDraft;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "413": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+      readonly "503": HttpError;
+    };
+  };
   readonly "tenant.update_csv.post": {
     readonly pathParams: HttpInline_87cacc773db826e7;
     readonly query: HttpInline_eefa27bb2810a1d9;
@@ -17249,6 +17763,57 @@ export type HttpContractOperationMap = {
       readonly "415": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.update_table_import_columns.patch": {
+    readonly pathParams: HttpInline_4695a2cbe654ff39;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpTableImportColumnsRequest;
+    readonly responses: {
+      readonly "200": HttpTableImportDraft;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "413": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+      readonly "503": HttpError;
+    };
+  };
+  readonly "tenant.update_table_import_destination.patch": {
+    readonly pathParams: HttpInline_4695a2cbe654ff39;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpTableImportDestinationRequest;
+    readonly responses: {
+      readonly "200": HttpTableImportDraft;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "413": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+      readonly "503": HttpError;
+    };
+  };
+  readonly "tenant.update_table_import_settings.patch": {
+    readonly pathParams: HttpInline_4695a2cbe654ff39;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpTableImportSettingsRequest;
+    readonly responses: {
+      readonly "200": HttpTableImportDraft;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "413": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+      readonly "503": HttpError;
     };
   };
   readonly "tenant.update_xlsx.post": {
