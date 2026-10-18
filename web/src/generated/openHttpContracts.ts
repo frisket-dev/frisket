@@ -424,6 +424,12 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
+      "id": "tenant.analyze_staged_pdf_import.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/import/pdf-imports/{draft_id}/analyze",
+      "request": null
+    },
+    {
       "id": "tenant.append_csv.post",
       "method": "POST",
       "path": "/api/projects/{pid}/import/csv/append",
@@ -1505,6 +1511,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "method": "GET",
       "path": "/api/cloud-connection/device-authorizations/{authorization_id}",
       "request": null
+    },
+    {
+      "id": "tenant.prepare_import_files.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/import/files/prepare",
+      "request": {
+        "mediaType": "multipart/form-data",
+        "required": true
+      }
     },
     {
       "id": "tenant.product_telemetry_installation.post",
@@ -7258,6 +7273,219 @@ export type HttpInline_9e7b45d6a7a78694 = ({
   "limit"?: (number);
   "offset"?: (number);
 });
+
+type HttpInline_a10062e5b1ce4f0e_ActionEstimate = ({
+  "audio_seconds"?: (((number)) | ((null)));
+  "avg_input_tokens"?: (((number)) | ((null)));
+  "billed_cost": (((number)) | ((null)));
+  "billing_label"?: (((string)) | ((null)));
+  "claims"?: (((Array<(HttpInline_a10062e5b1ce4f0e_ActionEstimateClaim)>)) | ((null)));
+  "cost": (((number)) | ((null)));
+  "cost_source": (string);
+  "engine"?: (((string)) | ((null)));
+  "policy_id": (string);
+  "pricing_key"?: (((string)) | ((null)));
+  "promise_set_hash"?: (((string)) | ((null)));
+  "remote_capability"?: (((string)) | ((null)));
+  "requires_confirmation"?: (((boolean)) | ((null)));
+  "rows": (number);
+  "venue_label"?: (((string)) | ((null)));
+  "warning"?: (((string)) | ((null)));
+});
+
+type HttpInline_a10062e5b1ce4f0e_ActionEstimateClaim = ({
+  "display": (string);
+  "field": (string);
+});
+
+type HttpInline_a10062e5b1ce4f0e_BulkImportPlanResponse = ({
+  "message": (string);
+  "plan_id": (string);
+  "proposed_outputs": (Array<(HttpInline_a10062e5b1ce4f0e_BulkImportProposedOutput)>);
+  "questions": (Array<(HttpInline_a10062e5b1ce4f0e_BulkImportQuestion)>);
+});
+
+type HttpInline_a10062e5b1ce4f0e_BulkImportProposedOutput = ({
+  "id": (string);
+  "kind": ("csv_group" | "xlsx" | "files_group" | "email") & (string);
+  "logical_paths": (Array<(string)>);
+  "sheet_name": (string);
+});
+
+type HttpInline_a10062e5b1ce4f0e_BulkImportQuestion = ({
+  "default": ("combine") & (string);
+  "id": (string);
+  "kind": ("csv_combine") & (string);
+  "logical_paths": (Array<(string)>);
+});
+
+type HttpInline_a10062e5b1ce4f0e_EngineModelSelection = ({
+  "engine": (string);
+  "kind": ("engine_model") & (string);
+  "model": (((string)) | ((null)));
+});
+
+type HttpInline_a10062e5b1ce4f0e_EngineSelection = ({
+  "engine": (string);
+  "kind": ("engine") & (string);
+});
+
+type HttpInline_a10062e5b1ce4f0e_PdfImportAnalysisProgress = ({
+  "files_done": (number);
+  "files_total": (number);
+});
+
+type HttpInline_a10062e5b1ce4f0e_PdfImportBatchOcrState = ({
+  "advisory"?: (boolean);
+  "destination"?: ((({
+  [key: string]: JsonValue;
+})) | ((null)));
+  "estimate": (((HttpInline_a10062e5b1ce4f0e_ActionEstimate)) | ((null)));
+  "known_pages"?: (number);
+  "manifest_hash": (((string)) | ((null)));
+  "manifest_revision"?: (((number)) | ((null)));
+  "match"?: ((({
+  [key: string]: JsonValue;
+})) | ((null)));
+  "needs_confirmation": (boolean);
+  "ocr_action_params"?: ((({
+  [key: string]: JsonValue;
+})) | ((null)));
+  "ocr_policy": ((("missing" | "missing_or_suspicious" | "all" | "none") & (string)) | ((null)));
+  "options"?: ((({
+  [key: string]: JsonValue;
+})) | ((null)));
+  "purpose"?: ((("batch_pdf_ocr") & (string)) | ((null)));
+  "revision"?: (((number)) | ((null)));
+  "selected_count": (number);
+  "selected_through": (number);
+  "state": ("idle" | "ready" | "error") & (string);
+  "work_scope_hash"?: (((string)) | ((null)));
+});
+
+type HttpInline_a10062e5b1ce4f0e_PdfImportCategoryCounts = ({
+  "image"?: (number);
+  "missing"?: (number);
+  "other"?: (number);
+  "suspicious"?: (number);
+  "text"?: (number);
+  "unchecked"?: (number);
+  "unreadable"?: (number);
+});
+
+type HttpInline_a10062e5b1ce4f0e_PdfImportChoices = ({
+  "destination": (((HttpInline_a10062e5b1ce4f0e_PdfImportNewDestination)) | ((HttpInline_a10062e5b1ce4f0e_PdfImportExistingDestination)));
+  "ocr_policy": ("missing" | "missing_or_suspicious" | "all" | "none") & (string);
+  "ocr_selection": (((HttpInline_a10062e5b1ce4f0e_EngineSelection)) | ((HttpInline_a10062e5b1ce4f0e_EngineModelSelection)));
+  "semantic_search": (boolean);
+  "semantic_setup_confirmation": (((string)) | ((null)));
+});
+
+type HttpInline_a10062e5b1ce4f0e_PdfImportCleanup = ({
+  "bytes_done": (number);
+  "bytes_total": (number);
+});
+
+type HttpInline_a10062e5b1ce4f0e_PdfImportExistingDestination = ({
+  "kind": ("existing") & (string);
+  "sheet_id": (number);
+});
+
+type HttpInline_a10062e5b1ce4f0e_PdfImportMatch = ({
+  "checked": (number);
+  "error": (((string)) | ((null)));
+  "matched_count": (number);
+  "new_category_counts": (HttpInline_a10062e5b1ce4f0e_PdfImportCategoryCounts);
+  "new_count": (number);
+  "sheet_id"?: (((number)) | ((null)));
+  "state": ("idle" | "running" | "ready" | "error") & (string);
+  "total": (number);
+});
+
+type HttpInline_a10062e5b1ce4f0e_PdfImportNewDestination = ({
+  "kind": ("new") & (string);
+  "sheet_name": (string);
+});
+
+type HttpInline_a10062e5b1ce4f0e_PdfImportPreflight = ({
+  "free_bytes"?: (((number)) | ((null)));
+  "state": ("waiting" | "ready" | "insufficient") & (string);
+});
+
+type HttpInline_a10062e5b1ce4f0e_PdfImportPreviewJob = ({
+  "error"?: (((string)) | ((null)));
+  "job_id": (string);
+  "occurrence_id": (string);
+  "ocr_action_params": ({
+  [key: string]: JsonValue;
+});
+  "page": (number);
+  "receipt_id": (((string)) | ((null)));
+  "status": ("running" | "done" | "failed" | "cancelled") & (string);
+});
+
+type HttpInline_a10062e5b1ce4f0e_PdfImportProgress = ({
+  "bytes_done"?: (((number)) | ((null)));
+  "bytes_total"?: (((number)) | ((null)));
+  "files_done": (number);
+  "files_total": (number);
+  "sealed"?: (((boolean)) | ((null)));
+});
+
+type HttpInline_a10062e5b1ce4f0e_PdfImportSemanticSetup = ({
+  "additional_runtime_download": (boolean);
+  "available": (boolean);
+  "confirmation_hash": (((string)) | ((null)));
+  "display_name": (string);
+  "download_bytes"?: (((number)) | ((null)));
+  "license": (((string)) | ((null)));
+  "needs_confirmation": (boolean);
+  "ready": (boolean);
+  "runtime_ready": (boolean);
+  "setup_ref": (((string)) | ((null)));
+  "source_url": (((string)) | ((null)));
+});
+
+type HttpInline_a10062e5b1ce4f0e_PdfImportStatus = ({
+  "analysis": (HttpInline_a10062e5b1ce4f0e_PdfImportAnalysisProgress);
+  "batch_ocr": (HttpInline_a10062e5b1ce4f0e_PdfImportBatchOcrState);
+  "can_review_text": (boolean);
+  "category_counts": (HttpInline_a10062e5b1ce4f0e_PdfImportCategoryCounts);
+  "choices": (HttpInline_a10062e5b1ce4f0e_PdfImportChoices);
+  "cleanup": (HttpInline_a10062e5b1ce4f0e_PdfImportCleanup);
+  "commit": ((({
+  [key: string]: JsonValue;
+})) | ((null)));
+  "created_at": (string);
+  "draft_id": (string);
+  "expires_at": (string);
+  "id": (string);
+  "manifest": (HttpInline_a10062e5b1ce4f0e_PdfImportProgress);
+  "match": (HttpInline_a10062e5b1ce4f0e_PdfImportMatch);
+  "paused": (boolean);
+  "preflight": (HttpInline_a10062e5b1ce4f0e_PdfImportPreflight);
+  "preview_jobs": (Array<(HttpInline_a10062e5b1ce4f0e_PdfImportPreviewJob)>);
+  "revision": (number);
+  "sample_ready_counts": (HttpInline_a10062e5b1ce4f0e_PdfImportCategoryCounts);
+  "schema_version": ("frisket.pdf_import.v1") & (string);
+  "semantic_setup": (HttpInline_a10062e5b1ce4f0e_PdfImportSemanticSetup);
+  "source_label": (((string)) | ((null)));
+  "state": ("open" | "committing" | "committed" | "cancelling" | "cancelled" | "error") & (string);
+  "updated_at": (string);
+  "upload": (HttpInline_a10062e5b1ce4f0e_PdfImportProgress);
+});
+
+type HttpInline_a10062e5b1ce4f0e_PrepareImportFilesBulkResponse = ({
+  "kind": ("bulk") & (string);
+  "plan": (HttpInline_a10062e5b1ce4f0e_BulkImportPlanResponse);
+});
+
+type HttpInline_a10062e5b1ce4f0e_PrepareImportFilesPdfResponse = ({
+  "draft": (HttpInline_a10062e5b1ce4f0e_PdfImportStatus);
+  "kind": ("pdf_import") & (string);
+});
+
+export type HttpInline_a10062e5b1ce4f0e = (((HttpInline_a10062e5b1ce4f0e_PrepareImportFilesPdfResponse)) | ((HttpInline_a10062e5b1ce4f0e_PrepareImportFilesBulkResponse)));
 
 type HttpInline_a49ce2f0046bf7fe_ActionError = ({
   "action_kind"?: (((string)) | ((null)));
@@ -13736,6 +13964,24 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
+  readonly "tenant.analyze_staged_pdf_import.post": {
+    readonly pathParams: HttpInline_4695a2cbe654ff39;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpPdfImportStatus;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "402": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "413": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+      readonly "503": HttpError;
+    };
+  };
   readonly "tenant.append_csv.post": {
     readonly pathParams: HttpInline_87cacc773db826e7;
     readonly query: HttpInline_eefa27bb2810a1d9;
@@ -15836,6 +16082,21 @@ export type HttpContractOperationMap = {
       readonly "200": HttpCloudDeviceAuthorizationPollResponse;
       readonly "404": HttpError;
       readonly "503": HttpError;
+    };
+  };
+  readonly "tenant.prepare_import_files.post": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: FormData;
+    readonly responses: {
+      readonly "200": HttpInline_a10062e5b1ce4f0e;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "413": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
     };
   };
   readonly "tenant.product_telemetry_installation.post": {

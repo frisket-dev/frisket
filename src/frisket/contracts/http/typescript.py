@@ -761,6 +761,7 @@ def _is_native_form_data_request(operation_id: str, content: object) -> bool:
         operation_id
         in {
             "tenant.import_bulk_plan.post",
+            "tenant.prepare_import_files.post",
             "tenant.import_csv.post",
             "tenant.append_csv.post",
             "tenant.update_csv.post",
@@ -791,6 +792,7 @@ def _is_native_form_data_request(operation_id: str, content: object) -> bool:
 def _is_native_form_data_operation(operation_id: str, media_type: str) -> bool:
     return media_type == "multipart/form-data" and operation_id in {
         "tenant.import_bulk_plan.post",
+        "tenant.prepare_import_files.post",
         "tenant.import_csv.post",
         "tenant.append_csv.post",
         "tenant.update_csv.post",
