@@ -192,7 +192,7 @@ class PdfDraftInventory:
                 logical_path = str(raw["logical_path"])
                 filename = str(raw["filename"])
                 size = int(raw["size"])
-                extension = PurePosixPath(filename).suffix.casefold()
+                extension = PurePosixPath(filename).suffix.casefold()[:64]
                 sample_key = hashlib.sha256(
                     f"{logical_path.rpartition('/')[0]}\0{occurrence_id}".encode()
                 ).hexdigest()

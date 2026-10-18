@@ -1485,7 +1485,7 @@ class PdfImportService:
     def _classify_upload(upload: AdmittedUpload, *, filename: str) -> tuple[str, str]:
         """Classify bounded upload bytes while retaining useful MIME information."""
 
-        claimed = upload.mime.partition(";")[0].strip().casefold()
+        claimed = upload.mime.partition(";")[0].strip().casefold()[:255]
         guessed = (mimetypes.guess_type(filename)[0] or "").casefold()
         suffix = PurePosixPath(filename).suffix.casefold()
         with PdfImportService._source(upload) as source:
