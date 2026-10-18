@@ -1,0 +1,389 @@
+import { Fragment, useMemo, useRef, useState, type DragEvent } from 'react';
+import { AlertTriangle, CheckCircle2, LockKeyhole, Search, Upload } from 'lucide-react';
+
+import type {
+  TableImportColumn,
+  TableImportColumnPatch,
+  TableImportDestinationConfig,
+  TableImportDestinationSnapshot,
+  TableImportDraft,
+  TableImportPreview,
+  TableImportRequestedSettings,
+  TableImportTargetType,
+} from '../../../api/tableImports';
+import { PanelSelect } from '../../PanelSelect';
+import { SegmentedToggle } from '../../PanelPrimitives';
+import { ImportDestinationChoice, ImportDestinationOptions } from '../ImportDestinationChoice';
+import { ImportStepFooter } from '../ImportStepFooter';
+import {
+  summarizePasteForDisplay,
+  type TableImportSourceIssue,
+  type TableImportSourceMode,
+} from './model';
+
+import './TableImportFlow.css';
+
+export interface TableImportDestinationSheet {
+  columns: Array<{ id: string; name: string }>;
+  id: number;
+  name: string;
+  rowCount: number;
+}
+
+function count(value: number, singular: string, plural = `${singular}s`): string {
+  return `${value.toLocaleString()} ${value === 1 ? singular : plural}`;
+}
+
+function formatBytes(value: number): string {
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 ** 2) return `${Math.ceil(value / 1024).toLocaleString()} KB`;
+  return `${(value / 1024 ** 2).toFixed(value < 10 * 1024 ** 2 ? 1 : 0)} MB`;
+}
+
+function displayPasteSummary(value: string): string {
+  const summary = summarizePasteForDisplay(value);
+  if (!summary.lines) return 'Paste rows to see a quick size estimate.';
+  if (summary.delimiter === 'one') return `${count(summary.lines, 'line')} · one column`;
+  return `${count(summary.lines, 'line')} × ${count(summary.columns, 'column')}, separated by ${summary.delimiter}.`;
+}
+
+export function AddDataStep({
+  busy,
+  issue,
+  mode,
+  password,
+  passwordFilename,
+  pasteText,
+  onCancel,
+  onChooseFtm,
+  onChooseMode,
+  onFiles,
+  onLargePasteConfirm,
+  onMultipleFiles,
+  onPasswordChange,
+  onPasteChange,
+  onPasteSubmit,
+  onResetIssue,
+  onSplitPdf,
+  onUnlock,
+}: {
+  busy: boolean;
+  issue: TableImportSourceIssue | null;
+  mode: TableImportSourceMode;
+  password: string;
+  passwordFilename: string | null;
+  pasteText: string;
+  onCancel(): void;
+  onChooseFtm(file: File): void;
+  onChooseMode(mode: TableImportSourceMode): void;
+  onFiles(files: File[]): void;
+  onLargePasteConfirm(): void;
+  onMultipleFiles(files?: File[]): void;
+  onPasswordChange(value: string): void;
+  onPasteChange(value: string): void;
+  onPasteSubmit(): void;
+  onResetIssue(): void;
+  onSplitPdf(file: File): void;
+  onUnlock(): void;
+}) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const submitPaste = issue?.kind === 'large_paste' ? onLargePasteConfirm : onPasteSubmit;
+  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    if (!busy) onFiles(Array.from(event.dataTransfer.files));
+  };
+
+  return <section className="table-import-step table-import-add" aria-label="Add data">
+    <div className="table-import-step-body table-import-add-body">
+      <header><h2>Add data</h2><p>Choose one table file or paste rows. Nothing is added to the project until you click Import.</p></header>
+      <SegmentedToggle
+        ariaLabel="Table source"
+        value={mode}
+        disabled={busy}
+        onValueChange={(value) => onChooseMode(value as TableImportSourceMode)}
+        options={[{ value: 'file', label: 'Choose a file' }, { value: 'paste', label: 'Paste rows' }]}
+        buttonTestId={(value) => `table-import-source-${value}`}
+      />
+      {passwordFilename ? <div className="table-import-message" data-tone="warning">
+        <LockKeyhole size={20} aria-hidden />
+        <div><h3>{passwordFilename} needs a password</h3><p>Enter the workbook password to check its rows. The password isn’t saved.</p></div>
+        <label><span>Password</span><input className="form-input" type="password" autoComplete="off" value={password} disabled={busy} onChange={(event) => onPasswordChange(event.currentTarget.value)} /></label>
+        <button type="button" className="btn btn-primary" disabled={busy || !password} onClick={onUnlock}>{busy ? 'Opening…' : 'Open'}</button>
+      </div> : issue ? <SourceIssue issue={issue} busy={busy} onFiles={onFiles} onMultipleFiles={onMultipleFiles} onReset={onResetIssue} onSplitPdf={onSplitPdf} onChooseFtm={onChooseFtm} />
+        : mode === 'file' ? <>
+          <div className="table-import-dropzone" onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = busy ? 'none' : 'copy'; }} onDrop={handleDrop}>
+            <input ref={inputRef} type="file" accept=".csv,.tsv,.txt,.xlsx,.xls,.ods,.pdf,.json,.jsonl" multiple hidden onChange={(event) => { onFiles(Array.from(event.currentTarget.files ?? [])); event.currentTarget.value = ''; }} />
+            <Upload size={32} aria-hidden />
+            <h3>Drop a CSV or Excel file here</h3>
+            <p>.csv · .tsv · .txt · .xlsx · .xls · .ods</p>
+            <button type="button" className="btn btn-primary" disabled={busy} onClick={() => inputRef.current?.click()}>{busy ? 'Checking…' : 'Choose file'}</button>
+          </div>
+          <p className="table-import-source-note">One file at a time. To bring in many files or a folder, use <button type="button" className="text-btn" onClick={() => onMultipleFiles()}>Multiple files</button>.</p>
+        </> : <div className="table-import-paste">
+          <textarea aria-label="Paste rows" autoFocus spellCheck={false} value={pasteText} disabled={busy} placeholder={'Name\tAmount\tDate'} onChange={(event) => onPasteChange(event.currentTarget.value)} />
+          <p data-ready={pasteText.trim().length > 0 || undefined}><i />{displayPasteSummary(pasteText)}</p>
+        </div>}
+    </div>
+    <ImportStepFooter>
+      <button type="button" className="btn" disabled={busy} onClick={onCancel}>Cancel</button>
+      <span>{mode === 'paste' ? 'Pasted rows are read the same way as a file.' : 'Choose or drop a file to continue.'}</span>
+      {mode === 'paste' && <button type="button" className="btn btn-primary" disabled={busy || !pasteText.trim()} onClick={submitPaste}>{busy ? 'Checking…' : issue?.kind === 'large_paste' ? 'Continue with the paste' : 'Check rows →'}</button>}
+    </ImportStepFooter>
+  </section>;
+}
+
+function SourceIssue({ issue, busy, onFiles, onMultipleFiles, onReset, onSplitPdf, onChooseFtm }: {
+  issue: TableImportSourceIssue;
+  busy: boolean;
+  onFiles(files: File[]): void;
+  onMultipleFiles(files?: File[]): void;
+  onReset(): void;
+  onSplitPdf(file: File): void;
+  onChooseFtm(file: File): void;
+}) {
+  const chooseRef = useRef<HTMLInputElement | null>(null);
+  let title: string;
+  let body: string;
+  if (issue.kind === 'multiple') {
+    title = 'One file at a time';
+    const names = issue.files.slice(0, 2).map((file) => file.name).join(' and ');
+    body = `You dropped ${names}${issue.files.length > 2 ? ` and ${issue.files.length - 2} more` : ''}. Import one now, or use Multiple files to bring them in together.`;
+  } else if (issue.kind === 'pdf') {
+    title = `${issue.file.name} is a PDF`;
+    body = 'Use Multiple files to import it as a document, or Split a PDF to turn a packet into separate files.';
+  } else if (issue.kind === 'follow_the_money') {
+    title = `${issue.file.name} is FollowTheMoney data`;
+    body = 'Open the existing FollowTheMoney importer to choose a dataset name and import it.';
+  } else if (issue.kind === 'empty') {
+    title = `${issue.filename} is empty`;
+    body = 'Choose a file that contains rows.';
+  } else if (issue.kind === 'large_paste') {
+    title = `That’s ${formatBytes(issue.size)} of pasted text`;
+    body = 'Large pastes are slow to check. Saving the rows as a CSV and choosing the file is faster and gives the same result.';
+  } else {
+    title = `${issue.filename} isn’t a supported table file`;
+    body = issue.message ?? 'Export it as CSV or Excel, then choose the exported file.';
+  }
+  return <div className="table-import-message" data-tone="warning">
+    <AlertTriangle size={20} aria-hidden />
+    <div><h3>{title}</h3><p>{body}</p></div>
+    <div className="table-import-message-actions">
+      {issue.kind === 'multiple' && <><button type="button" className="btn btn-primary" disabled={busy} onClick={() => onFiles([issue.files[0]])}>Import {issue.files[0].name}</button><button type="button" className="btn" disabled={busy} onClick={() => onMultipleFiles(issue.files)}>Use Multiple files</button></>}
+      {issue.kind === 'pdf' && <><button type="button" className="btn btn-primary" disabled={busy} onClick={() => onMultipleFiles([issue.file])}>Use Multiple files</button><button type="button" className="btn" disabled={busy} onClick={() => onSplitPdf(issue.file)}>Split a PDF</button></>}
+      {issue.kind === 'follow_the_money' && <button type="button" className="btn btn-primary" disabled={busy} onClick={() => onChooseFtm(issue.file)}>Use FollowTheMoney import</button>}
+      {(issue.kind === 'unsupported' || issue.kind === 'empty') && <button type="button" className="btn" disabled={busy} onClick={() => chooseRef.current?.click()}>Choose another file</button>}
+      {issue.kind === 'large_paste' && <button type="button" className="btn" disabled={busy} onClick={onReset}>Choose a file instead</button>}
+    </div>
+    <input ref={chooseRef} hidden type="file" accept=".csv,.tsv,.txt,.xlsx,.xls,.ods" onChange={(event) => { onFiles(Array.from(event.currentTarget.files ?? [])); event.currentTarget.value = ''; }} />
+  </div>;
+}
+
+const DELIMITERS = [
+  { value: '', label: 'Auto' },
+  { value: ',', label: 'Comma' },
+  { value: ';', label: 'Semicolon' },
+  { value: '\t', label: 'Tab' },
+  { value: '|', label: 'Pipe' },
+];
+
+const ENCODINGS = [
+  { value: '', label: 'Auto' },
+  { value: 'utf-8', label: 'UTF-8' },
+  { value: 'windows-1252', label: 'Windows-1252' },
+  { value: 'iso-8859-1', label: 'ISO-8859-1' },
+  { value: 'mac-roman', label: 'Mac Roman' },
+  { value: 'utf-16', label: 'UTF-16' },
+];
+
+function resolvedAuto(label: string, value: string | null): string {
+  return value ? `${label} (${value === '\t' ? 'Tab' : value})` : label;
+}
+
+export function CheckRowsStep({ draft, busy, onBack, onContinue, onSettings }: {
+  draft: TableImportDraft;
+  busy: boolean;
+  onBack(): void;
+  onContinue(): void;
+  onSettings(settings: TableImportRequestedSettings): void;
+}) {
+  const { requested, resolved } = draft.settings;
+  const delimited = resolved.kind === 'delimited';
+  const preview = draft.preview;
+  const update = <K extends keyof TableImportRequestedSettings>(key: K, value: TableImportRequestedSettings[K]) => onSettings({ ...requested, [key]: value });
+  const rowCount = draft.analysis.exact_rows ?? draft.analysis.estimated_rows ?? draft.analysis.scanned_rows;
+  const footerRows = draft.analysis.complete ? count(rowCount, 'row') : `${count(rowCount, 'row')} so far`;
+  return <section className="table-import-step table-import-rows" aria-label="Check rows">
+    <div className="table-import-step-body">
+      <header><h2>Check rows</h2><p>Choose how this file is read. The same settings will be used when it is imported.</p></header>
+      <div className="table-import-reader-controls">
+        {delimited ? <>
+          <label><span>Separator</span><PanelSelect value={requested.delimiter ?? ''} disabled={busy} onChange={(event) => update('delimiter', event.currentTarget.value || null)}>{DELIMITERS.map((option) => <option key={option.value} value={option.value}>{option.value === '' ? resolvedAuto('Auto', resolved.delimiter) : option.label}</option>)}</PanelSelect></label>
+          {draft.source.input_kind === 'file' && <label><span>Character encoding</span><PanelSelect value={requested.encoding ?? ''} disabled={busy} onChange={(event) => update('encoding', event.currentTarget.value || null)}>{ENCODINGS.map((option) => <option key={option.value} value={option.value}>{option.value === '' ? resolvedAuto('Auto', resolved.encoding) : option.label}</option>)}</PanelSelect></label>}
+          <label><span>Numbers</span><PanelSelect value={`${requested.decimal_separator}:${requested.thousands_separator}`} disabled={busy} onChange={(event) => {
+            const [decimal, thousands] = event.currentTarget.value.split(':') as [TableImportRequestedSettings['decimal_separator'], TableImportRequestedSettings['thousands_separator']];
+            onSettings({ ...requested, decimal_separator: decimal, thousands_separator: thousands });
+          }}><option value="auto:auto">Auto ({resolved.thousands_separator ? `1${resolved.thousands_separator}234${resolved.decimal_separator}56` : `1234${resolved.decimal_separator}56`})</option><option value=".:,">1,234.56</option><option value=",:.">1.234,56</option></PanelSelect></label>
+        </> : <label className="table-import-sheet-control"><span>Sheet</span><PanelSelect value={requested.worksheet ?? ''} disabled={busy} onChange={(event) => update('worksheet', event.currentTarget.value)}>{draft.source.sheets.map((sheet) => <option key={sheet.index} value={sheet.name} disabled={sheet.empty}>{sheet.name}{sheet.hidden ? ' (hidden)' : ''}{sheet.empty ? ' · no cells' : ''}</option>)}</PanelSelect></label>}
+        <NumberStepper label="Skip rows at start" value={requested.skip_rows_start} disabled={busy} onChange={(value) => update('skip_rows_start', value)} />
+        <label className="table-import-header-check"><input type="checkbox" checked={requested.first_row_is_header} disabled={busy} onChange={(event) => update('first_row_is_header', event.currentTarget.checked)} /> First row has column names</label>
+        <NumberStepper label="Skip rows at end" value={requested.skip_rows_end} disabled={busy} onChange={(value) => update('skip_rows_end', value)} />
+      </div>
+      {preview ? <TablePreview preview={preview} onLineClick={(line) => update('skip_rows_start', Math.max(0, line - 1))} /> : <div className="table-import-preview-loading" role="status">Reading rows…</div>}
+      {preview && <PreviewNotice preview={preview} />}
+      {draft.analysis.state === 'running' && <div className="table-import-analysis-progress" role="status"><span>Checking the rest of the file · {count(draft.analysis.scanned_rows, 'row')} scanned</span><progress max={draft.analysis.estimated_rows ?? Math.max(1, draft.analysis.scanned_rows + 1)} value={draft.analysis.scanned_rows} /></div>}
+    </div>
+    <ImportStepFooter><button type="button" className="btn" disabled={busy} onClick={onBack}>Back</button><span>{footerRows} · {count(preview?.columns.length ?? draft.columns.length, 'column')}{delimited ? ` · ${resolved.delimiter === '\t' ? 'Tab' : resolved.delimiter ?? 'Auto'} · ${resolved.encoding ?? 'Auto'}` : ''}</span><button type="button" className="btn btn-primary" disabled={busy || preview === null || preview.columns.length === 0} onClick={onContinue}>Columns →</button></ImportStepFooter>
+  </section>;
+}
+
+function NumberStepper({ label, value, disabled, onChange }: { label: string; value: number; disabled: boolean; onChange(value: number): void }) {
+  return <label className="table-import-number-stepper"><span>{label}</span><span><button type="button" disabled={disabled || value <= 0} aria-label={`Decrease ${label}`} onClick={() => onChange(Math.max(0, value - 1))}>−</button><b>{value}</b><button type="button" disabled={disabled} aria-label={`Increase ${label}`} onClick={() => onChange(value + 1)}>+</button></span></label>;
+}
+
+function lineLabel(row: TableImportPreview['head'][number]): string {
+  if (row.role === 'header') return 'Names';
+  if (row.role === 'skipped_start' || row.role === 'skipped_end') return 'Skipped';
+  if (row.role === 'blank') return 'Blank';
+  const extra = row.issues.find((issue) => issue.code === 'extra_values');
+  if (extra) return `+${extra.original_values.length} values`;
+  const missing = row.issues.find((issue) => issue.code === 'missing_values');
+  if (missing) return `−${missing.original_values.length || 1} values`;
+  return '';
+}
+
+function TablePreview({ preview, onLineClick }: { preview: TableImportPreview; onLineClick(line: number): void }) {
+  const visibleColumns = preview.columns.slice(0, 8);
+  const rows = [...preview.head, ...preview.tail];
+  return <div className="table-import-preview-wrap">
+    <div className="table-import-preview-heading"><strong>Start and end of the file</strong><span>{preview.columns.length > visibleColumns.length ? `First ${visibleColumns.length} of ${preview.columns.length} columns` : `${preview.columns.length} columns`}</span></div>
+    <div className="table-import-preview-scroll"><table className="table-import-preview"><thead><tr><th>Line</th>{visibleColumns.map((column) => <th key={column.index}>{column.name}</th>)}</tr></thead><tbody>
+      {rows.map((row, index) => <Fragment key={`${row.role}:${row.record_ordinal}`}>
+        {index === preview.head.length && preview.tail.length > 0 && <tr className="table-import-preview-gap" key="gap"><th colSpan={visibleColumns.length + 1}>⋯ {preview.omitted_rows === null ? 'more rows' : count(preview.omitted_rows, 'more row')}</th></tr>}
+        <tr data-role={row.role} data-issue={row.issues.length > 0 || undefined}>
+          <th><button type="button" disabled={row.physical_line_start === null} onClick={() => { if (row.physical_line_start !== null) onLineClick(row.physical_line_start); }}>{row.physical_line_start ?? row.record_ordinal}</button><small>{lineLabel(row)}</small></th>
+          {visibleColumns.map((column, columnIndex) => <td key={column.index} data-extra={columnIndex >= preview.expected_values || undefined}>{row.cells[columnIndex] ?? ''}</td>)}
+        </tr>
+      </Fragment>) }
+    </tbody></table></div>
+  </div>;
+}
+
+function PreviewNotice({ preview }: { preview: TableImportPreview }) {
+  const notice = preview.notice;
+  let text: string;
+  if (notice.kind === 'unreadable_characters') text = `${count(notice.count ?? 0, 'character')} in the preview can’t be read as ${notice.encoding ?? 'this encoding'}. Try another encoding.`;
+  else if (notice.kind === 'one_column') text = 'Only one column found. If each line holds several values, try another separator.';
+  else if (notice.kind === 'mostly_wrong_width') text = `Most lines don’t have ${notice.expected_values ?? preview.expected_values} values. Try another separator.`;
+  else if (notice.kind === 'some_wrong_width') text = `${count(notice.count ?? 0, 'line')} ${notice.count === 1 ? 'doesn’t' : 'don’t'} have ${notice.expected_values ?? preview.expected_values} values. ${notice.count === 1 ? 'It' : 'They'} will be imported and listed in Errors.`;
+  else if (notice.kind === 'counting') text = 'Checking the rest of the file…';
+  else if (notice.kind === 'extra_values') text = `${count(notice.count ?? 0, 'line')} contain extra values. The values will be kept and listed in Errors.`;
+  else text = `Every line shown has ${notice.common_values ?? preview.expected_values} values.`;
+  const tone = notice.kind === 'consistent' ? 'success' : notice.kind === 'counting' ? 'neutral' : 'warning';
+  return <div className="table-import-preview-notice" data-tone={tone}>{tone === 'success' ? <CheckCircle2 size={15} /> : tone === 'warning' ? <AlertTriangle size={15} /> : null}<span>{text}</span></div>;
+}
+
+const TARGET_TYPES: Array<{ value: TableImportTargetType; label: string }> = [
+  { value: 'text', label: 'Text' }, { value: 'integer', label: 'Integer' }, { value: 'number', label: 'Number' },
+  { value: 'date', label: 'Date' }, { value: 'datetime', label: 'Date & time' }, { value: 'boolean', label: 'Yes/No' }, { value: 'omit', label: 'Leave out' },
+];
+
+type ColumnFilter = 'all' | 'review' | 'omitted';
+
+export function ColumnsStep({ draft, busy, onBack, onColumns, onContinue }: {
+  draft: TableImportDraft;
+  busy: boolean;
+  onBack(): void;
+  onColumns(columns: TableImportColumnPatch[]): void;
+  onContinue(): void;
+}) {
+  const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState<ColumnFilter>('all');
+  const [selected, setSelected] = useState<Set<number>>(() => new Set());
+  const [bulkType, setBulkType] = useState<TableImportTargetType>('text');
+  const reviewCount = draft.columns.filter((column) => column.needs_review.length > 0).length;
+  const omittedCount = draft.columns.filter((column) => !column.included || column.target_type === 'omit').length;
+  const shown = useMemo(() => draft.columns.filter((column) => {
+    if (!column.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())) return false;
+    if (filter === 'review') return column.needs_review.length > 0;
+    if (filter === 'omitted') return !column.included || column.target_type === 'omit';
+    return true;
+  }), [draft.columns, filter, query]);
+  const patchFor = (column: TableImportColumn, patch: Partial<TableImportColumnPatch>): TableImportColumnPatch => ({ source_index: column.source_index, included: column.included, target_type: column.target_type, date_order: column.date_order, ...patch });
+  const changeOne = (column: TableImportColumn, patch: Partial<TableImportColumnPatch>) => onColumns(draft.columns.map((candidate) => patchFor(candidate, candidate.source_index === column.source_index ? patch : {})));
+  const applySelected = (targetType: TableImportTargetType) => {
+    onColumns(draft.columns.map((column) => patchFor(column, selected.has(column.source_index) ? { target_type: targetType, included: targetType !== 'omit' } : {})));
+    setSelected(new Set());
+  };
+  return <section className="table-import-step table-import-columns" aria-label="Columns">
+    <div className="table-import-step-body">
+      <header><h2>Columns</h2><p>Choose what each column becomes. Values that change or won’t convert are shown before import.</p></header>
+      <div className="table-import-column-toolbar">
+        {selected.size > 0 ? <><strong>{count(selected.size, 'column')} selected</strong><label>Set type <PanelSelect value={bulkType} onChange={(event) => setBulkType(event.currentTarget.value as TableImportTargetType)}>{TARGET_TYPES.filter((type) => type.value !== 'omit').map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</PanelSelect></label><button type="button" className="btn" disabled={busy} onClick={() => applySelected(bulkType)}>Apply</button><button type="button" className="btn" disabled={busy} onClick={() => applySelected('omit')}>Leave out</button><button type="button" className="text-btn" onClick={() => setSelected(new Set())}>Clear</button></> : <><label className="table-import-column-search"><Search size={14} /><input value={query} placeholder="Find columns" aria-label="Find columns" onChange={(event) => setQuery(event.currentTarget.value)} /></label><div className="table-import-filter-chips">{([['all', `All ${draft.columns.length}`], ['review', `Needs a look ${reviewCount}`], ['omitted', `Left out ${omittedCount}`]] as Array<[ColumnFilter, string]>).map(([value, label]) => <button type="button" key={value} className={filter === value ? 'active' : ''} onClick={() => setFilter(value)}>{label}</button>)}</div><span>Shift-click to select a range.</span></>}
+      </div>
+      <div className="table-import-column-list" role="table" aria-label="Columns to import">
+        <div role="row" className="table-import-column-heading"><span role="columnheader"><input type="checkbox" aria-label="Select shown columns" checked={shown.length > 0 && shown.every((column) => selected.has(column.source_index))} onChange={(event) => setSelected((current) => { const next = new Set(current); shown.forEach((column) => event.currentTarget.checked ? next.add(column.source_index) : next.delete(column.source_index)); return next; })} /></span><strong role="columnheader">Column</strong><strong role="columnheader">Type</strong><strong role="columnheader">Values as imported</strong><strong role="columnheader">Note</strong></div>
+        {shown.map((column) => <ColumnRow key={column.source_index} column={column} selected={selected.has(column.source_index)} busy={busy} onSelected={(checked) => setSelected((current) => { const next = new Set(current); if (checked) next.add(column.source_index); else next.delete(column.source_index); return next; })} onChange={(patch) => changeOne(column, patch)} />)}
+      </div>
+    </div>
+    <ImportStepFooter><button type="button" className="btn" disabled={busy} onClick={onBack}>Back</button><span>{draft.columns.filter((column) => column.included && column.target_type !== 'omit').length} of {draft.columns.length} columns will be imported.</span><button type="button" className="btn btn-primary" disabled={busy || draft.columns.every((column) => !column.included || column.target_type === 'omit')} onClick={onContinue}>Import →</button></ImportStepFooter>
+  </section>;
+}
+
+function ColumnRow({ column, selected, busy, onSelected, onChange }: { column: TableImportColumn; selected: boolean; busy: boolean; onSelected(checked: boolean): void; onChange(patch: Partial<TableImportColumnPatch>): void }) {
+  const omitted = !column.included || column.target_type === 'omit';
+  const note = omitted ? 'Not imported' : column.conversion_counts.invalid > 0 ? `${count(column.conversion_counts.invalid, 'value')} won’t convert` : column.conversion_counts.leading_zero_loss > 0 ? `${count(column.conversion_counts.leading_zero_loss, 'value')} lose leading zeros` : column.conversion_counts.time_dropped > 0 ? 'Times are dropped' : column.stats_complete ? 'All fit' : 'Checking values…';
+  const noteTone = omitted ? 'neutral' : column.needs_review.length > 0 || column.conversion_counts.invalid > 0 ? 'warning' : 'success';
+  return <div role="row" className="table-import-column-row" data-omitted={omitted || undefined}>
+    <span role="cell"><input type="checkbox" checked={selected} onChange={(event) => onSelected(event.currentTarget.checked)} /></span>
+    <span role="cell"><strong>{column.name}</strong>{column.name_status === 'duplicate' && <small>In the file: {column.original_name}</small>}{column.name_status === 'missing' && <small>No name in the file</small>}</span>
+    <span role="cell"><PanelSelect aria-label={`Type for ${column.name}`} value={omitted ? 'omit' : column.target_type} disabled={busy} onChange={(event) => { const next = event.currentTarget.value as TableImportTargetType; onChange({ target_type: next, included: next !== 'omit' }); }}>{TARGET_TYPES.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</PanelSelect>{column.ambiguous_date_order && (column.target_type === 'date' || column.target_type === 'datetime') && <PanelSelect aria-label={`Date order for ${column.name}`} value={column.date_order ?? 'month_first'} disabled={busy} onChange={(event) => onChange({ date_order: event.currentTarget.value as 'month_first' | 'day_first' })}><option value="month_first">Month first (03/04 = Mar 4)</option><option value="day_first">Day first (03/04 = Apr 3)</option></PanelSelect>}</span>
+    <span role="cell" className="table-import-column-samples">{column.samples.slice(0, 5).map((sample, index) => <i key={`${index}:${sample.original}`} data-outcome={sample.outcome}>{sample.display || 'blank'}</i>)}</span>
+    <span role="cell" className="table-import-column-note" data-tone={noteTone}>{note}</span>
+  </div>;
+}
+
+export function ImportTableStep({ draft, destination, destinationSheets, busy, onBack, onCommit, onDestination }: {
+  draft: TableImportDraft;
+  destination: TableImportDestinationConfig;
+  destinationSheets: readonly TableImportDestinationSheet[];
+  busy: boolean;
+  onBack(): void;
+  onCommit(): void;
+  onDestination(destination: TableImportDestinationConfig, snapshot?: TableImportDestinationSnapshot | null): void;
+}) {
+  const comparison = draft.destination?.comparison ?? null;
+  const existingSheet = destination.kind === 'existing' ? destinationSheets.find((sheet) => sheet.id === destination.sheet_id) : null;
+  const exactRows = draft.analysis.exact_rows ?? 0;
+  return <section className="table-import-step table-import-destination" aria-label="Import">
+    <div className="table-import-step-body">
+      <header><h2>Import into</h2><p>Choose a destination and review exactly what will be added.</p></header>
+      <ImportDestinationOptions>
+        <ImportDestinationChoice name="table-import-destination" selected={destination.kind === 'new'} disabled={busy} title="New sheet" description="Create a sheet for these rows" onSelect={() => onDestination({ kind: 'new', sheet_name: destination.kind === 'new' ? destination.sheet_name : draft.source.input_kind === 'paste' ? 'Pasted rows' : draft.source.filename.replace(/\.[^.]+$/, '') })}>
+          {destination.kind === 'new' && <label className="import-destination-choice-field">Sheet name<input className="form-input" value={destination.sheet_name} disabled={busy} onChange={(event) => onDestination({ kind: 'new', sheet_name: event.currentTarget.value })} /></label>}
+        </ImportDestinationChoice>
+        <ImportDestinationChoice name="table-import-destination" selected={destination.kind === 'existing'} disabled={busy || destinationSheets.length === 0} title="Add to an existing sheet" description="Match columns and append rows" onSelect={() => { const sheet = destinationSheets[0]; if (sheet) onDestination({ kind: 'existing', sheet_id: sheet.id }); }}>
+          {destination.kind === 'existing' && <label className="import-destination-choice-field">Sheet<PanelSelect value={String(destination.sheet_id)} disabled={busy} onChange={(event) => onDestination({ kind: 'existing', sheet_id: Number(event.currentTarget.value) })}>{destinationSheets.map((sheet) => <option value={sheet.id} key={sheet.id}>{sheet.name} · {count(sheet.rowCount, 'row')}</option>)}</PanelSelect></label>}
+        </ImportDestinationChoice>
+      </ImportDestinationOptions>
+      {destination.kind === 'existing' && <ExistingDestination draft={draft} destination={destination} sheetName={existingSheet?.name ?? 'this sheet'} busy={busy} onDestination={onDestination} />}
+      <div className="table-import-summary">
+        <div><span>Rows in file</span><strong>{exactRows.toLocaleString()}</strong></div>
+        {destination.kind === 'existing' && comparison?.duplicate_rows != null && <div><span>Already in {existingSheet?.name ?? 'sheet'}</span><strong>{comparison.duplicate_rows.toLocaleString()}</strong></div>}
+        <div><span>Rows to import</span><strong>{(comparison?.import_rows ?? exactRows).toLocaleString()}</strong></div>
+        <div><span>Columns</span><strong>{draft.columns.filter((column) => column.included && column.target_type !== 'omit').length.toLocaleString()}</strong></div>
+      </div>
+      {comparison?.type_clashes ? <p className="table-import-clash-warning"><AlertTriangle size={15} /> {count(comparison.type_clashes, 'column')} need a new column because their values don’t fit the matched sheet column.</p> : null}
+    </div>
+    <ImportStepFooter><button type="button" className="btn" disabled={busy} onClick={onBack}>Back</button><span>{destination.kind === 'new' ? `Creates ${destination.sheet_name || 'a new sheet'}.` : `Adds rows to ${existingSheet?.name ?? 'the selected sheet'}.`}</span><button type="button" className="btn btn-primary" disabled={busy || !draft.can_commit || (destination.kind === 'new' && !destination.sheet_name.trim())} onClick={onCommit}>{busy ? 'Importing…' : `Import ${count(comparison?.import_rows ?? exactRows, 'row')} →`}</button></ImportStepFooter>
+  </section>;
+}
+
+function ExistingDestination({ draft, destination, sheetName, busy, onDestination }: { draft: TableImportDraft; destination: Extract<TableImportDestinationConfig, { kind: 'existing' }>; sheetName: string; busy: boolean; onDestination(destination: TableImportDestinationConfig, snapshot?: TableImportDestinationSnapshot | null): void }) {
+  const snapshot = draft.destination;
+  if (!snapshot || snapshot.configuration.kind !== 'existing' || snapshot.configuration.sheet_id !== destination.sheet_id) return <div className="table-import-destination-loading" role="status">Matching columns…</div>;
+  return <div className="table-import-existing">
+    <header><strong>Columns</strong><span>Matched by name. Change any match with its menu.</span></header>
+    <div className="table-import-mappings">{snapshot.mappings.map((mapping) => <div key={mapping.source_index}><strong>{mapping.source_name}</strong><span>→</span><span>{mapping.target.kind === 'new' ? `+ ${mapping.target.name}` : mapping.target.column_id}</span><b data-match={mapping.match}>{mapping.match === 'matched' ? 'Matched' : mapping.match === 'similar' ? 'Similar name' : mapping.match === 'type_clash' ? mapping.detail ?? 'Type clash' : 'Not in the sheet yet'}</b></div>)}</div>
+    <label className="table-import-dedup"><input type="checkbox" checked={snapshot.dedup.enabled} disabled={busy} onChange={(event) => onDestination(destination, { ...snapshot, dedup: { enabled: event.currentTarget.checked, key_source_index: event.currentTarget.checked ? snapshot.dedup.key_source_index ?? draft.columns.find((column) => column.included)?.source_index ?? null : null } })} /> Skip rows already in {sheetName}, matched on <PanelSelect aria-label="Duplicate key" value={snapshot.dedup.key_source_index ?? ''} disabled={busy || !snapshot.dedup.enabled} onChange={(event) => onDestination(destination, { ...snapshot, dedup: { enabled: true, key_source_index: Number(event.currentTarget.value) } })}><option value="">Choose a column</option>{draft.columns.filter((column) => column.included).map((column) => <option key={column.source_index} value={column.source_index}>{column.name}</option>)}</PanelSelect>{snapshot.comparison.duplicate_rows !== null && <span>{count(snapshot.comparison.duplicate_rows, 'row')} found</span>}</label>
+  </div>;
+}

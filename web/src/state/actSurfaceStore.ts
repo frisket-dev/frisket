@@ -15,7 +15,6 @@ import type { ActionLaunchPrefill } from '../actions/actionFormInitial';
 import type { ExportTarget } from '../exportTargets';
 import type { ExportModalKind } from '../components/TopNav';
 import type { ImportMode } from '../components/importWorkspace/model';
-import type { ImportCsvPreview } from '../api/onboardingImports';
 
 export interface ActionLaunch {
   kind: string;
@@ -57,10 +56,9 @@ export interface ActSurfaceState {
    *  inside the dialog rather than forcing one. Cleared on close so it never
    *  leaks into a later generic open. */
   importDialogEntryMode: ImportMode | null;
-  /** A CSV dropped on the empty-project surface. The drop surface performs
-   *  the non-mutating read, then hands its File and preview to the global
-   *  dialog, which remains the sole owner of confirmation. */
-  importDialogCsv: { file: File; preview: ImportCsvPreview } | null;
+  /** A table file dropped on the empty-project surface. The dialog stages it
+   *  through the same server reader used by the import. */
+  importDialogTableFile: File | null;
   /** Files dropped on the empty-project surface that need the dialog's bulk
    *  planner. The dialog consumes this handoff once per open session. */
   importDialogFiles: File[] | null;
@@ -79,7 +77,7 @@ export function createActSurfaceState(): ActSurfaceState {
     actionLaunchId: 0,
     importDialogOpen: false,
     importDialogEntryMode: null,
-    importDialogCsv: null,
+    importDialogTableFile: null,
     importDialogFiles: null,
     importPreparationBatchId: null,
     sourcesConnectionsOpen: false,
@@ -102,7 +100,7 @@ export function createActSurfaceStore(): {
    *  Sources' "Add source" -> 'feed'); omitted, the dialog keeps whatever
    *  mode the user last had selected (the generic-entry-point behavior). */
   openImportDialog(entryMode?: ImportMode): void;
-  openCsvImport(file: File, preview: ImportCsvPreview): void;
+  openTableImport(file: File): void;
   openBulkImport(files: File[]): void;
   openImportPreparation(batchId: string): void;
   closeImportDialog(): void;
@@ -148,7 +146,7 @@ export function createActSurfaceStore(): {
           ...s,
           importDialogOpen: false,
           importDialogEntryMode: null,
-          importDialogCsv: null,
+          importDialogTableFile: null,
           importDialogFiles: null,
           importPreparationBatchId: null,
         });
@@ -158,7 +156,7 @@ export function createActSurfaceStore(): {
       store.set((s) =>
         s.importDialogOpen
         && s.importDialogEntryMode === nextEntryMode
-        && s.importDialogCsv === null
+        && s.importDialogTableFile === null
         && s.importDialogFiles === null
         && s.importPreparationBatchId === null
           ? s
@@ -166,18 +164,18 @@ export function createActSurfaceStore(): {
             ...s,
             importDialogOpen: true,
             importDialogEntryMode: nextEntryMode,
-            importDialogCsv: null,
+            importDialogTableFile: null,
             importDialogFiles: null,
             importPreparationBatchId: null,
           },
       );
     },
-    openCsvImport(file, preview) {
+    openTableImport(file) {
       store.set((s) => ({
         ...s,
         importDialogOpen: true,
         importDialogEntryMode: 'csv',
-        importDialogCsv: { file, preview },
+        importDialogTableFile: file,
         importDialogFiles: null,
         importPreparationBatchId: null,
       }));
@@ -187,7 +185,7 @@ export function createActSurfaceStore(): {
         ...s,
         importDialogOpen: true,
         importDialogEntryMode: 'files',
-        importDialogCsv: null,
+        importDialogTableFile: null,
         importDialogFiles: files,
         importPreparationBatchId: null,
       }));
@@ -197,7 +195,7 @@ export function createActSurfaceStore(): {
         ...s,
         importDialogOpen: true,
         importDialogEntryMode: null,
-        importDialogCsv: null,
+        importDialogTableFile: null,
         importDialogFiles: null,
         importPreparationBatchId: batchId,
       }));
@@ -205,14 +203,14 @@ export function createActSurfaceStore(): {
     closeImportDialog() {
       store.set((s) =>
         s.importDialogOpen
-        || s.importDialogCsv !== null
+        || s.importDialogTableFile !== null
         || s.importDialogFiles !== null
         || s.importPreparationBatchId !== null
           ? {
             ...s,
             importDialogOpen: false,
             importDialogEntryMode: null,
-            importDialogCsv: null,
+            importDialogTableFile: null,
             importDialogFiles: null,
             importPreparationBatchId: null,
           }
