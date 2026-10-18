@@ -79,8 +79,74 @@ def test_existing_positioned_tokens_detect_predominantly_vertical_words() -> Non
         _token(f"word{index}", 0.02 * index, 0.1, 0.02 * index + 0.01, 0.5)
         for index in range(24)
     ]
-    assert assess_text_quality("Recognized text", positioned_tokens=tokens) == (
-        TextQualityFlag.PREDOMINANTLY_VERTICAL_WORDS,
+    image = np.full((400, 600), 255, dtype=np.uint8)
+    assert assess_text_quality(
+        "Recognized text", grayscale_thumbnail=image, positioned_tokens=tokens
+    ) == (TextQualityFlag.PREDOMINANTLY_VERTICAL_WORDS,)
+
+
+def test_positioned_tokens_without_a_thumbnail_do_not_run_page_geometry() -> None:
+    tokens = [
+        _token(f"word{index}", 0.02 * index, 0.1, 0.02 * index + 0.01, 0.5)
+        for index in range(24)
+    ]
+    assert assess_text_quality("Recognized text", positioned_tokens=tokens) == ()
+
+
+def test_page_geometry_uses_the_thumbnail_aspect_ratio() -> None:
+    tokens = [
+        _token(f"word{index}", 0.02 * index, 0.1, 0.02 * index + 0.01, 0.5)
+        for index in range(24)
+    ]
+    wide_image = np.full((100, 4_000), 255, dtype=np.uint8)
+
+    assert (
+        assess_text_quality(
+            "Recognized text",
+            grayscale_thumbnail=wide_image,
+            positioned_tokens=tokens,
+        )
+        == ()
+    )
+
+
+def test_nonword_or_truncated_token_streams_abstain_from_page_flags() -> None:
+    image = np.full((400, 600), 255, dtype=np.uint8)
+    cv2.putText(
+        image,
+        "VISIBLE TEXT WITHOUT WORD BOXES",
+        (20, 180),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.7,
+        0,
+        2,
+        cv2.LINE_AA,
+    )
+    assert assess_text_quality(_ROTATED_OCR, grayscale_thumbnail=image) == (
+        TextQualityFlag.GARBLED_TEXT,
+    )
+    line_tokens = [
+        PositionedToken(
+            text=f"line{index}",
+            box=Box(x0=0.02 * index, y0=0.1, x1=0.02 * index + 0.01, y1=0.5),
+            granularity="line",
+        )
+        for index in range(24)
+    ]
+    assert assess_text_quality(
+        _ROTATED_OCR,
+        grayscale_thumbnail=image,
+        positioned_tokens=line_tokens,
+    ) == (TextQualityFlag.GARBLED_TEXT,)
+
+    vertical_word = _token("word", 0.1, 0.1, 0.11, 0.5)
+    assert (
+        assess_text_quality(
+            "Recognized text",
+            grayscale_thumbnail=image,
+            positioned_tokens=[vertical_word] * 5_001,
+        )
+        == ()
     )
 
 
@@ -105,9 +171,9 @@ def test_unboxed_textlike_ink_is_flagged_but_explained_ink_is_not() -> None:
             cv2.LINE_AA,
         )
 
-    assert assess_text_quality("Partial extraction", grayscale_thumbnail=image) == (
-        TextQualityFlag.UNEXPLAINED_TEXTLIKE_INK,
-    )
+    assert assess_text_quality(
+        "Partial extraction", grayscale_thumbnail=image, positioned_tokens=[]
+    ) == (TextQualityFlag.UNEXPLAINED_TEXTLIKE_INK,)
 
     covering_tokens = [
         _token("line", 0.04, 0.10, 0.95, 0.20),

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from itertools import islice
 import math
 import statistics
 from typing import TYPE_CHECKING
@@ -25,27 +24,33 @@ def page_quality_signals(
     grayscale_thumbnail: NDArray[np.uint8] | None,
     positioned_tokens: Sequence[PositionedToken] | None,
 ) -> tuple[bool, bool]:
-    tokens = positioned_tokens or ()
+    if grayscale_thumbnail is None:
+        return False, False
+    _validate_thumbnail(grayscale_thumbnail)
+    if positioned_tokens is None:
+        return False, False
+    tokens = positioned_tokens
+    # Calibration used complete word boxes. Line/block boxes change both the
+    # orientation denominator and ink coverage, so unsupported streams abstain.
+    if len(tokens) > _MAX_TOKENS or any(
+        token.granularity != "word" for token in tokens
+    ):
+        return False, False
     boxes = _normalized_boxes(tokens)
-    image_shape = None
-    if isinstance(grayscale_thumbnail, np.ndarray) and grayscale_thumbnail.ndim == 2:
-        image_shape = (
-            int(grayscale_thumbnail.shape[0]),
-            int(grayscale_thumbnail.shape[1]),
-        )
-    vertical_words = _predominantly_vertical(boxes, image_shape=image_shape)
-    boxes_truncated = len(tokens) > _MAX_TOKENS
-    unexplained_ink = bool(
-        grayscale_thumbnail is not None
-        and not boxes_truncated
-        and _has_unexplained_ink(grayscale_thumbnail, boxes)
+    if len(boxes) != len(tokens):
+        return False, False
+    image_shape = (
+        int(grayscale_thumbnail.shape[0]),
+        int(grayscale_thumbnail.shape[1]),
     )
+    vertical_words = _predominantly_vertical(boxes, image_shape=image_shape)
+    unexplained_ink = _has_unexplained_ink(grayscale_thumbnail, boxes)
     return vertical_words, unexplained_ink
 
 
 def _normalized_boxes(tokens: Sequence[PositionedToken]) -> list[_PageBox]:
     boxes: list[_PageBox] = []
-    for token in islice(tokens, _MAX_TOKENS):
+    for token in tokens:
         box = token.box
         values = (float(box.x0), float(box.y0), float(box.x1), float(box.y1))
         if not all(math.isfinite(value) for value in values):
@@ -58,12 +63,12 @@ def _normalized_boxes(tokens: Sequence[PositionedToken]) -> list[_PageBox]:
 
 
 def _predominantly_vertical(
-    boxes: list[_PageBox], *, image_shape: tuple[int, int] | None
+    boxes: list[_PageBox], *, image_shape: tuple[int, int]
 ) -> bool:
     words = [box for box in boxes if len(str(box[4]).strip()) >= 2]
     if len(boxes) < 20 or not words:
         return False
-    height_scale, width_scale = image_shape or (1, 1)
+    height_scale, width_scale = image_shape
     vertical_fraction = sum(
         (box[2] - box[0]) * width_scale < 0.8 * (box[3] - box[1]) * height_scale
         for box in words
@@ -81,10 +86,7 @@ def _predominantly_vertical(
 
 
 def _has_unexplained_ink(image: NDArray[np.uint8], boxes: list[_PageBox]) -> bool:
-    if not isinstance(image, np.ndarray) or image.ndim != 2 or image.size == 0:
-        raise ValueError("grayscale_thumbnail must be a non-empty 2D numpy array")
-    if image.dtype != np.uint8:
-        raise ValueError("grayscale_thumbnail must use uint8 pixels")
+    _validate_thumbnail(image)
 
     import cv2
 
@@ -156,3 +158,10 @@ def _has_unexplained_ink(image: NDArray[np.uint8], boxes: list[_PageBox]) -> boo
         and eligible_ink_fraction >= 0.002
         and raw_ink_fraction <= 0.25
     )
+
+
+def _validate_thumbnail(image: NDArray[np.uint8]) -> None:
+    if not isinstance(image, np.ndarray) or image.ndim != 2 or image.size == 0:
+        raise ValueError("grayscale_thumbnail must be a non-empty 2D numpy array")
+    if image.dtype != np.uint8:
+        raise ValueError("grayscale_thumbnail must use uint8 pixels")

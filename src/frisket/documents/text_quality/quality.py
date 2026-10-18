@@ -32,9 +32,10 @@ def assess_text_quality(
 ) -> tuple[TextQualityFlag, ...]:
     """Return reason flags for text that may need manual review.
 
-    Text checks inspect at most 12,000 characters. Page checks use only the
-    supplied, already-rendered grayscale thumbnail and normalized positioned
-    text. This function never renders a page or invokes OCR.
+    Text checks inspect at most 12,000 characters and run independently. Page
+    flags require an aligned, already-rendered grayscale thumbnail and a
+    complete sequence of normalized word tokens. This function never renders
+    a page or invokes OCR.
 
     No flags means that these narrow checks found no issue; it is not evidence
     that extraction is accurate or complete.
