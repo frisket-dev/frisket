@@ -385,6 +385,7 @@ def register_pdf_import_routes(
             draft_id,
             idempotency_key=body.idempotency_key,
             expected_revision=body.expected_revision,
+            ocr_confirmation=body.ocr_confirmation,
             request_context=request,
         )
         job = None

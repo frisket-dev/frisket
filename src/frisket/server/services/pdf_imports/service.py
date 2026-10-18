@@ -17,6 +17,7 @@ from typing import Any
 
 from filelock import FileLock
 
+from frisket.contracts.http.action_estimate_validation import ActionEstimate
 from frisket.contracts.http.pdf_imports import (
     PDF_IMPORT_OCCURRENCE_ID_PATTERN,
     PdfImportStatus,
@@ -36,6 +37,11 @@ from .previews import (
     thumbnail as render_thumbnail,
 )
 from .storage import PdfDraftStore, PdfImportDraftError, SCHEMA_VERSION, now
+from frisket.server.services.pdf_import_ocr_approval import (
+    PDF_IMPORT_OCR_APPROVAL_SCHEMA,
+    PdfImportOcrApprovalError,
+    PdfImportOcrGrant,
+)
 
 
 MAX_MANIFEST_BATCH = 256
@@ -76,7 +82,7 @@ class FrozenPdfImport:
     destination: Mapping[str, Any]
     ocr_policy: str
     ocr_action_params: Mapping[str, Any]
-    ocr_authorization: Mapping[str, Any] | None
+    ocr_authorization: PdfImportOcrGrant | None
     semantic_search: bool
     semantic_setup_confirmation: str | None
     directory: Path
@@ -153,7 +159,7 @@ class PdfImportService:
         ]
         | None = None,
         quality_assessor: Callable[..., Sequence[Any]] | None = None,
-        batch_ocr_estimator: Callable[[str, Mapping[str, Any], Any], Mapping[str, Any]]
+        batch_ocr_quoter: Callable[[str, Mapping[str, Any], Any], Mapping[str, Any]]
         | None = None,
         semantic_setup_resolver: Callable[[str, Any], Mapping[str, Any]] | None = None,
         on_commit_ready: Callable[[str, str, str, int], None] | None = None,
@@ -164,7 +170,7 @@ class PdfImportService:
         self._preview_runs = preview_runs
         self._destination_matcher = destination_matcher
         self._quality_assessor = quality_assessor
-        self._batch_ocr_estimator = batch_ocr_estimator
+        self._batch_ocr_quoter = batch_ocr_quoter
         self._semantic_setup_resolver = semantic_setup_resolver
         self._on_commit_ready = on_commit_ready
         self._store.purge_expired()
@@ -219,6 +225,7 @@ class PdfImportService:
                 },
                 "match": self._empty_match(),
                 "batch_ocr": self._empty_batch_ocr(),
+                "ocr_approval": None,
                 "semantic_setup": self._resolve_semantic_setup(project_id, None),
                 "preview_jobs": [],
                 "cleanup": {"bytes_done": 0, "bytes_total": 0},
@@ -417,7 +424,7 @@ class PdfImportService:
                         raise PdfImportDraftError(409, str(exc)) from exc
                     if raced is None:
                         if header["state"] == "open":
-                            header["batch_ocr"] = self._empty_batch_ocr()
+                            self._clear_batch_ocr(header)
                         self._save(directory, header)
 
         # Analysis is bounded but may still be slow or encounter a hostile PDF.
@@ -621,12 +628,12 @@ class PdfImportService:
             if old["destination"] != normalized_destination:
                 inventory.clear_matches()
                 header["match"] = self._empty_match()
-                header["batch_ocr"] = self._empty_batch_ocr()
+                self._clear_batch_ocr(header)
             if (
                 old["ocr_policy"] != ocr_policy
                 or old["ocr_selection"] != normalized_selection
             ):
-                header["batch_ocr"] = self._empty_batch_ocr()
+                self._clear_batch_ocr(header)
             old.update(
                 {
                     "ocr_policy": ocr_policy,
@@ -732,7 +739,7 @@ class PdfImportService:
                     "total": inventory.stats()["selected_count"],
                     "error": (str(exc) or "Destination comparison failed")[:500],
                 }
-                header["batch_ocr"] = self._empty_batch_ocr()
+                self._clear_batch_ocr(header)
                 self._save(directory, header)
                 return self._snapshot(header, inventory.stats())
             header["match"] = {
@@ -745,7 +752,7 @@ class PdfImportService:
                 "new_category_counts": new_categories,
                 "error": None,
             }
-            header["batch_ocr"] = self._empty_batch_ocr()
+            self._clear_batch_ocr(header)
             self._save(directory, header)
             return self._snapshot(header, inventory.stats())
 
@@ -770,9 +777,15 @@ class PdfImportService:
             stats = inventory.stats()
             if stats["analyzed_count"] != stats["staged_count"]:
                 raise PdfImportDraftError(409, "PDF text analysis is still running")
-            action_params = self._ocr_action_params(
-                self._ocr_selection(ocr_selection)
-            )
+            action_params = self._ocr_action_params(self._ocr_selection(ocr_selection))
+            if (
+                action_params
+                != self._ocr_action_params(header["choices"]["ocr_selection"])
+                or ocr_policy != header["choices"]["ocr_policy"]
+            ):
+                raise PdfImportDraftError(
+                    409, "OCR estimate must match the current PDF import choices"
+                )
             if (
                 not self._is_rapidocr(action_params)
                 and stats["staged_count"] != stats["selected_count"]
@@ -780,59 +793,32 @@ class PdfImportService:
                 raise PdfImportDraftError(
                     409, "paid or remote OCR estimate requires every selected PDF"
                 )
-            scope_hash, exact_count, known_pages = inventory.ocr_scope_hash(ocr_policy)
-            selected_count = (
-                exact_count
-                if stats["staged_count"] == stats["selected_count"]
-                else self._ocr_count(stats, ocr_policy)
+            binding = self._batch_ocr_binding(
+                header, inventory, action_params=action_params, ocr_policy=ocr_policy
             )
-            binding = {
-                "purpose": "batch_pdf_ocr",
-                "ocr_action_params": action_params,
-                "options": {
-                    "dpi": 200,
-                    "language": None,
-                    "keep_text_position": True,
-                },
-                "ocr_policy": ocr_policy,
-                "manifest_revision": header["revision"],
-                "selected_through": inventory.selected_through(),
-                "selected_count": selected_count,
-                "known_pages": known_pages,
-                "work_scope_hash": scope_hash,
-                "destination": header["choices"]["destination"],
-                "match": header["match"],
-            }
-            binding_hash = hashlib.sha256(
-                json.dumps(binding, sort_keys=True, separators=(",", ":")).encode()
-            ).hexdigest()
-            if self._batch_ocr_estimator is not None:
-                estimate = dict(
-                    self._batch_ocr_estimator(project_id, binding, request_context)
-                )
-            elif self._is_rapidocr(action_params):
-                estimate = {
-                    "rows": selected_count,
-                    "cost": 0.0,
-                    "billed_cost": 0,
-                    "cost_source": "local",
-                    "policy_id": "local",
-                    "claims": [],
-                    "promise_set_hash": hashlib.sha256(
-                        f"rapidocr:{binding_hash}".encode()
-                    ).hexdigest(),
-                    "requires_confirmation": False,
-                }
-            else:
-                raise PdfImportDraftError(503, "batch OCR estimate is unavailable")
+            estimate, authorization = self._quote_batch_ocr(
+                project_id,
+                binding,
+                request_context=request_context,
+            )
             header["batch_ocr"] = {
                 "state": "ready",
-                "advisory": True,
-                **binding,
-                "manifest_hash": binding_hash,
+                "revision": header["revision"] + 1,
+                "advisory": False,
+                "purpose": binding["purpose"],
+                "ocr_action_params": dict(binding["ocr_action_params"]),
+                "options": dict(binding["options"]),
+                "ocr_policy": binding["ocr_policy"],
+                "manifest_revision": binding["manifest_revision"],
+                "manifest_hash": binding["manifest_hash"],
+                "selected_through": binding["selected_through"],
+                "selected_count": binding["selected_count"],
+                "known_pages": binding["known_pages"],
+                "work_scope_hash": binding["work_scope_hash"],
                 "estimate": estimate,
-                "needs_confirmation": bool(estimate.get("claims")),
+                "needs_confirmation": bool(estimate.get("requires_confirmation")),
             }
+            header["ocr_approval"] = authorization
             self._save(directory, header)
             return dict(header["batch_ocr"])
 
@@ -952,9 +938,7 @@ class PdfImportService:
                 )
                 self._save(directory, header)
         if lost_state is not None:
-            self._preview_runs.cancel_preview(
-                project_id, str(payload["preview_id"])
-            )
+            self._preview_runs.cancel_preview(project_id, str(payload["preview_id"]))
             raise PdfImportDraftError(409, f"PDF import is {lost_state}")
         return {
             "schema_version": SCHEMA_VERSION,
@@ -976,6 +960,7 @@ class PdfImportService:
         *,
         idempotency_key: str,
         expected_revision: int,
+        ocr_confirmation: str | None = None,
         request_context: Any = None,
     ) -> FrozenPdfImport:
         directory, _ = self._open(project_id, draft_id)
@@ -1002,31 +987,50 @@ class PdfImportService:
             ):
                 raise PdfImportDraftError(409, "existing sheet comparison is not ready")
             batch_ocr = header["batch_ocr"]
-            if (
-                header["choices"]["ocr_policy"] != "none"
-                and not self._is_rapidocr(
-                    self._ocr_action_params(header["choices"]["ocr_selection"])
-                )
-                and batch_ocr["state"] != "ready"
-            ):
+            action_params = self._ocr_action_params(header["choices"]["ocr_selection"])
+            remote_ocr = header["choices"][
+                "ocr_policy"
+            ] != "none" and not self._is_rapidocr(action_params)
+            if remote_ocr and batch_ocr["state"] != "ready":
                 raise PdfImportDraftError(
-                    409, "paid or remote OCR requires an exact frozen estimate"
+                    409, "paid or remote OCR requires an exact frozen quote"
                 )
+            ocr_authorization = None
             if batch_ocr["state"] == "ready":
-                scope_hash, exact_count, known_pages = inventory.ocr_scope_hash(
-                    header["choices"]["ocr_policy"]
+                current_binding = self._batch_ocr_binding(
+                    header,
+                    inventory,
+                    action_params=action_params,
+                    ocr_policy=header["choices"]["ocr_policy"],
                 )
                 if (
-                    batch_ocr.get("ocr_action_params")
-                    != self._ocr_action_params(header["choices"]["ocr_selection"])
+                    batch_ocr.get("ocr_action_params") != action_params
                     or batch_ocr["ocr_policy"] != header["choices"]["ocr_policy"]
-                    or batch_ocr.get("work_scope_hash") != scope_hash
-                    or batch_ocr["selected_count"] != exact_count
-                    or batch_ocr.get("known_pages") != known_pages
+                    or batch_ocr.get("manifest_hash")
+                    != current_binding["manifest_hash"]
                 ):
                     raise PdfImportDraftError(
-                        409, "batch OCR estimate no longer matches the selected PDFs"
+                        409, "batch OCR quote no longer matches the selected PDFs"
                     )
+                if remote_ocr:
+                    current_estimate, current_authorization = self._quote_batch_ocr(
+                        project_id,
+                        current_binding,
+                        request_context=request_context,
+                    )
+                    if current_estimate != batch_ocr.get(
+                        "estimate"
+                    ) or current_authorization != header.get("ocr_approval"):
+                        raise PdfImportDraftError(
+                            409, "PDF OCR quote changed; review the current price"
+                        )
+                    if current_estimate.get("requires_confirmation"):
+                        expected_confirmation = current_estimate.get("promise_set_hash")
+                        if ocr_confirmation != expected_confirmation:
+                            raise PdfImportDraftError(
+                                409, "PDF OCR approval does not match the exact quote"
+                            )
+                    ocr_authorization = current_authorization
             current_semantic = self._resolve_semantic_setup(project_id, request_context)
             if header["semantic_setup"] != current_semantic:
                 header["semantic_setup"] = current_semantic
@@ -1054,6 +1058,7 @@ class PdfImportService:
                 "choices": header["choices"],
                 "match": header["match"],
                 "batch_ocr": batch_ocr,
+                "ocr_authorization": ocr_authorization,
             }
             header["state"] = "committing"
             header["commit"] = {
@@ -1066,9 +1071,7 @@ class PdfImportService:
                 "selected_through": binding["selected_through"],
                 "selected_total": binding["selected_total"],
                 "result": None,
-                # Precommit estimates are advisory only. Paid/remote OCR must
-                # obtain ordinary exact action confirmation after rows exist.
-                "ocr_authorization": None,
+                "ocr_authorization": ocr_authorization,
                 "ready_notification": None,
                 "commit_inventory_path": str(directory / "commit-inventory.db"),
                 "source_files_root": str(directory / "files"),
@@ -1083,9 +1086,7 @@ class PdfImportService:
                 with contextlib.suppress(Exception):
                     persisted = self._header(project_id, directory)
                     if persisted["state"] == "open":
-                        self._remove_commit_inventory(
-                            directory / "commit-inventory.db"
-                        )
+                        self._remove_commit_inventory(directory / "commit-inventory.db")
                         inventory.reset_commit_projection()
                 raise
             return self._frozen(directory, header, inventory)
@@ -1125,9 +1126,7 @@ class PdfImportService:
                     else dict(commit.get("result") or {})
                 )
                 if commit.get("result") is not None and commit["result"] != value:
-                    raise PdfImportDraftError(
-                        409, "PDF import commit result changed"
-                    )
+                    raise PdfImportDraftError(409, "PDF import commit result changed")
                 header["state"] = "committed"
                 header["commit"]["result"] = value
             else:
@@ -1141,7 +1140,7 @@ class PdfImportService:
                 inventory.reset_commit_projection()
                 header["state"] = "open"
                 header["commit"] = None
-                header["batch_ocr"] = self._empty_batch_ocr()
+                self._clear_batch_ocr(header)
             self._save(directory, header)
             return self._snapshot(header, inventory.stats())
 
@@ -1669,11 +1668,110 @@ class PdfImportService:
             "unchecked": 0,
         }
 
+    def _batch_ocr_binding(
+        self,
+        header: Mapping[str, Any],
+        inventory: PdfDraftInventory,
+        *,
+        action_params: Mapping[str, Any],
+        ocr_policy: str,
+    ) -> dict[str, Any]:
+        scope_hash, selected_count, known_pages, child_partitions = inventory.ocr_scope(
+            ocr_policy
+        )
+        child_partitions_hash = hashlib.sha256(
+            json.dumps(child_partitions, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        scope = {
+            "purpose": "batch_pdf_ocr",
+            "storage_identity": str(header["storage_identity"]),
+            "draft_id": str(header["draft_id"]),
+            "ocr_action_params": dict(action_params),
+            "ocr_policy": ocr_policy,
+            "selected_count": selected_count,
+            "known_pages": known_pages,
+            "work_scope_hash": scope_hash,
+            "child_partitions_hash": child_partitions_hash,
+        }
+        manifest_hash = hashlib.sha256(
+            json.dumps(scope, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        return {
+            **scope,
+            "manifest_revision": int(header["revision"]),
+            "manifest_hash": manifest_hash,
+            "selected_through": inventory.selected_through(),
+            "child_partitions": child_partitions,
+            "options": {
+                "dpi": 200,
+                "language": None,
+                "keep_text_position": True,
+            },
+        }
+
+    def _quote_batch_ocr(
+        self,
+        project_id: str,
+        binding: Mapping[str, Any],
+        *,
+        request_context: Any,
+    ) -> tuple[dict[str, Any], dict[str, Any] | None]:
+        if int(binding["selected_count"]) == 0 or self._is_rapidocr(
+            binding["ocr_action_params"]
+        ):
+            estimate = ActionEstimate(
+                rows=int(binding["selected_count"]),
+                cost=0.0,
+                billed_cost=0,
+                cost_source="free_local",
+                policy_id="local",
+                engine=str(binding["ocr_action_params"]["engine"]),
+                requires_confirmation=False,
+            ).model_dump(mode="json", exclude_unset=True)
+            return estimate, None
+        if self._batch_ocr_quoter is None:
+            raise PdfImportDraftError(503, "batch OCR quote is unavailable")
+        try:
+            quoted = dict(self._batch_ocr_quoter(project_id, binding, request_context))
+            estimate = ActionEstimate.model_validate(quoted["estimate"]).model_dump(
+                mode="json", exclude_unset=True
+            )
+            grant = PdfImportOcrGrant.from_mapping(quoted["authorization"])
+            authorization = grant.as_mapping()
+        except PdfImportOcrApprovalError as exc:
+            raise PdfImportDraftError(409, str(exc)) from exc
+        except (KeyError, TypeError, ValueError) as exc:
+            raise PdfImportDraftError(503, "batch OCR quote is invalid") from exc
+        if (
+            authorization.get("schema_version") != PDF_IMPORT_OCR_APPROVAL_SCHEMA
+            or authorization.get("scope_hash") != binding["manifest_hash"]
+            or not isinstance(authorization.get("actor"), str)
+            or not authorization["actor"]
+        ):
+            raise PdfImportDraftError(503, "batch OCR quote is invalid")
+        approval_hash = authorization.get("promise_set_hash")
+        if not isinstance(approval_hash, str) or len(approval_hash) != 64:
+            raise PdfImportDraftError(503, "batch OCR quote is invalid")
+        if estimate.get("requires_confirmation"):
+            if estimate.get("promise_set_hash") != approval_hash:
+                raise PdfImportDraftError(503, "batch OCR quote is invalid")
+            if estimate.get("billed_cost") is None:
+                raise PdfImportDraftError(
+                    409, "the selected paid OCR route has no exact price"
+                )
+        return estimate, authorization
+
+    @staticmethod
+    def _clear_batch_ocr(header: dict[str, Any]) -> None:
+        header["batch_ocr"] = PdfImportService._empty_batch_ocr()
+        header["ocr_approval"] = None
+
     @staticmethod
     def _empty_batch_ocr() -> dict[str, Any]:
         return {
             "state": "idle",
-            "advisory": True,
+            "revision": None,
+            "advisory": False,
             "ocr_action_params": None,
             "ocr_policy": None,
             "manifest_revision": None,
@@ -1831,7 +1929,11 @@ class PdfImportService:
             ocr_action_params=self._ocr_action_params(
                 header["choices"]["ocr_selection"]
             ),
-            ocr_authorization=None,
+            ocr_authorization=(
+                PdfImportOcrGrant.from_mapping(commit["ocr_authorization"])
+                if commit.get("ocr_authorization") is not None
+                else None
+            ),
             semantic_search=bool(header["choices"]["semantic_search"]),
             semantic_setup_confirmation=header["choices"].get(
                 "semantic_setup_confirmation"
@@ -1993,6 +2095,8 @@ class PdfImportService:
             "selected_ordinal INTEGER NOT NULL UNIQUE,"
             "category TEXT NOT NULL,"
             "error TEXT,"
+            "sha256 TEXT,"
+            "page_count INTEGER,"
             "ocr_selected INTEGER NOT NULL CHECK(ocr_selected IN (0,1)))"
         )
         columns = {
@@ -2004,6 +2108,14 @@ class PdfImportService:
         if "error" not in columns:
             commit_inventory._db.execute(
                 "ALTER TABLE pdf_commit_occurrences ADD COLUMN error TEXT"
+            )
+        if "sha256" not in columns:
+            commit_inventory._db.execute(
+                "ALTER TABLE pdf_commit_occurrences ADD COLUMN sha256 TEXT"
+            )
+        if "page_count" not in columns:
+            commit_inventory._db.execute(
+                "ALTER TABLE pdf_commit_occurrences ADD COLUMN page_count INTEGER"
             )
         commit_inventory._db.commit()
 
@@ -2039,14 +2151,16 @@ class PdfImportService:
                 )
                 db.execute(
                     "INSERT INTO pdf_commit_occurrences"
-                    "(ordinal,occurrence_id,selected_ordinal,category,error,ocr_selected) "
-                    "VALUES(?,?,?,?,?,?)",
+                    "(ordinal,occurrence_id,selected_ordinal,category,error,sha256,"
+                    "page_count,ocr_selected) VALUES(?,?,?,?,?,?,?,?)",
                     (
                         ordinal,
                         str(row["occurrence_id"]),
                         int(row["selected_ordinal"]),
                         category,
                         str(row["error"]) if row.get("error") else None,
+                        str(row["sha256"]),
+                        int(row["page_count"] or 0),
                         int(ocr_selected),
                     ),
                 )

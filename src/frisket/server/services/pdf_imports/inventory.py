@@ -519,36 +519,84 @@ class PdfDraftInventory:
         }
         return int(matched["value"]), categories
 
-    def ocr_scope_hash(self, policy: str) -> tuple[str, int, int]:
-        """Hash exact ordered staged OCR facts without materializing the roster."""
+    def ocr_scope(
+        self, policy: str, *, child_size: int = 256
+    ) -> tuple[str, int, int, list[dict[str, Any]]]:
+        """Hash the OCR roster and summarize deterministic commit-order children."""
 
+        if child_size < 1 or child_size > 256:
+            raise ValueError("OCR child size must be 1..256")
         digest = hashlib.sha256()
-        count = pages = 0
+        child_digest = hashlib.sha256()
+        count = pages = commit_ordinal = 0
+        child_start = 1
+        child_count = child_pages = 0
+        children: list[dict[str, Any]] = []
         cursor = self.db.execute(
             "SELECT s.ordinal,s.occurrence_id,st.sha256,st.page_count,st.category "
             "FROM pdf_selected s JOIN pdf_selected_state st USING(occurrence_id) "
-            "WHERE st.upload_state='staged' AND st.matched=0 ORDER BY s.ordinal"
+            "WHERE st.matched=0 ORDER BY s.ordinal"
         )
         for row in cursor:
-            selected = policy == "all" or (
-                policy == "missing_or_suspicious"
-                and row["category"] in {"missing", "suspicious"}
+            commit_ordinal += 1
+            selected = row["sha256"] is not None and (
+                policy == "all"
+                or (
+                    policy == "missing_or_suspicious"
+                    and row["category"] in {"missing", "suspicious"}
+                )
             )
-            if not selected:
-                continue
-            fact = {
-                "ordinal": int(row["ordinal"]),
-                "occurrence_id": str(row["occurrence_id"]),
-                "sha256": str(row["sha256"]),
-                "page_count": int(row["page_count"] or 0),
-            }
-            digest.update(
-                json.dumps(fact, sort_keys=True, separators=(",", ":")).encode()
+            if selected:
+                fact = {
+                    "commit_ordinal": commit_ordinal,
+                    "selected_ordinal": int(row["ordinal"]),
+                    "occurrence_id": str(row["occurrence_id"]),
+                    "sha256": str(row["sha256"]),
+                    "page_count": int(row["page_count"] or 0),
+                    "category": str(row["category"]),
+                }
+                encoded = json.dumps(
+                    fact, sort_keys=True, separators=(",", ":")
+                ).encode()
+                digest.update(encoded)
+                digest.update(b"\n")
+                child_digest.update(encoded)
+                child_digest.update(b"\n")
+                count += 1
+                pages += fact["page_count"]
+                child_count += 1
+                child_pages += fact["page_count"]
+            if commit_ordinal % child_size == 0:
+                if child_count:
+                    children.append(
+                        {
+                            "child_key": f"commit-ordinals:{child_start}-{commit_ordinal}",
+                            "commit_ordinal_start": child_start,
+                            "commit_ordinal_end": commit_ordinal,
+                            "source_count": child_count,
+                            "page_count": child_pages,
+                            "roster_digest": child_digest.hexdigest(),
+                        }
+                    )
+                child_start = commit_ordinal + 1
+                child_count = child_pages = 0
+                child_digest = hashlib.sha256()
+        if child_count:
+            children.append(
+                {
+                    "child_key": f"commit-ordinals:{child_start}-{commit_ordinal}",
+                    "commit_ordinal_start": child_start,
+                    "commit_ordinal_end": commit_ordinal,
+                    "source_count": child_count,
+                    "page_count": child_pages,
+                    "roster_digest": child_digest.hexdigest(),
+                }
             )
-            digest.update(b"\n")
-            count += 1
-            pages += fact["page_count"]
-        return digest.hexdigest(), count, pages
+        return digest.hexdigest(), count, pages, children
+
+    def ocr_scope_hash(self, policy: str) -> tuple[str, int, int]:
+        scope_hash, count, pages, _children = self.ocr_scope(policy)
+        return scope_hash, count, pages
 
     def cache_ocr(
         self,

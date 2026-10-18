@@ -85,6 +85,8 @@ def _status(revision=1):
         },
         "batch_ocr": {
             "state": "idle",
+            "revision": None,
+            "advisory": False,
             "ocr_action_params": None,
             "ocr_policy": None,
             "manifest_revision": None,
@@ -238,6 +240,8 @@ class _Service:
     def estimate_batch_ocr(self, pid, draft_id, **kwargs):
         return {
             "state": "ready",
+            "revision": 5,
+            "advisory": False,
             "ocr_action_params": {"engine": "rapidocr"},
             "ocr_policy": "all",
             "manifest_revision": 1,
@@ -292,6 +296,7 @@ class _Service:
         }
 
     def freeze_for_commit(self, pid, draft_id, **kwargs):
+        self.calls.append(("commit", pid, draft_id, kwargs))
         return SimpleNamespace(
             commit_id="commit-1",
             manifest_hash="b" * 64,
@@ -353,10 +358,15 @@ def test_pdf_import_http_contract_and_operation_ids(tmp_path: Path) -> None:
     assert service.calls[-1][2]["file_ids"] == ["one", "two"]
     commit = client.post(
         "/api/projects/p/import/pdf-imports/pdf-one/commit",
-        json={"expected_revision": 4, "idempotency_key": "commit-client-1"},
+        json={
+            "expected_revision": 4,
+            "idempotency_key": "commit-client-1",
+            "ocr_confirmation": "a" * 64,
+        },
     )
     assert commit.status_code == 202, commit.text
     assert commit.json()["commit_id"] == "commit-1"
+    assert service.calls[-1][3]["ocr_confirmation"] == "a" * 64
 
     operations = {
         details[method]["operationId"]
@@ -516,14 +526,10 @@ def test_real_pdf_import_http_create_upload_sample_page_and_discard(
             "error": None,
         }
     ]
-    previewed = client.get(
-        f"{base}/{draft_id}/files/{sample['occurrence_id']}/pages/1"
-    )
+    previewed = client.get(f"{base}/{draft_id}/files/{sample['occurrence_id']}/pages/1")
     assert previewed.status_code == 200, previewed.text
     assert previewed.json()["ocr_text"] == "preview text"
-    assert previewed.json()["ocr_action_params"] == estimate.json()[
-        "ocr_action_params"
-    ]
+    assert previewed.json()["ocr_action_params"] == estimate.json()["ocr_action_params"]
     assert workspace.get(project_id).sheets() == []
     discarded = client.delete(f"{base}/{draft_id}")
     assert discarded.status_code == 202, discarded.text

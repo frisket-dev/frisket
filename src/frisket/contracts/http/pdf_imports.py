@@ -136,7 +136,8 @@ class PdfImportMatch(WireModel):
 
 class PdfImportBatchOcrState(WireModel):
     state: Literal["idle", "ready", "error"]
-    advisory: bool = True
+    revision: int | None = Field(default=None, ge=1)
+    advisory: bool = False
     purpose: Literal["batch_pdf_ocr"] | None = None
     ocr_action_params: dict | None = None
     options: dict | None = None
@@ -284,6 +285,7 @@ class PdfImportBatchOcrEstimateRequest(WireModel):
 class PdfImportCommitRequest(WireModel):
     expected_revision: int = Field(ge=1)
     idempotency_key: str = Field(min_length=1, max_length=256)
+    ocr_confirmation: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
 class PdfImportCommitResponse(WireModel):
