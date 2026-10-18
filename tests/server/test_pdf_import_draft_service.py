@@ -832,6 +832,139 @@ def test_remote_ocr_with_no_effective_work_needs_no_quote(
     assert frozen.ocr_policy == "missing_or_suspicious"
 
 
+def test_paid_ocr_all_excludes_unreadable_pdf_but_keeps_import_row(
+    tmp_path: Path, monkeypatch
+) -> None:
+    corrupt_pdf = b"%PDF-corrupt".ljust(len(PDF), b"x")
+    quoted = []
+
+    def quote(_project_id, binding, _request_context):
+        quoted.append(dict(binding))
+        promise_hash = "a" * 64
+        child = binding["child_partitions"][0]
+        return {
+            "estimate": {
+                "rows": 1,
+                "cost": 0.08,
+                "cost_source": "provider_quote",
+                "billed_cost": 80_000,
+                "policy_id": "identity.v1",
+                "engine": "remote-ocr",
+                "claims": [{"field": "cost", "display": "$0.08"}],
+                "promise_set_hash": promise_hash,
+                "requires_confirmation": True,
+            },
+            "authorization": {
+                "schema_version": "frisket.pdf_import_ocr_approval.v1",
+                "actor": "user:test",
+                "promise_set_hash": promise_hash,
+                "scope_hash": binding["manifest_hash"],
+                "scope": {
+                    "storage_identity": binding["storage_identity"],
+                    "draft_id": binding["draft_id"],
+                    "roster_digest": binding["work_scope_hash"],
+                    "source_count": 1,
+                    "page_count": 4,
+                },
+                "ocr_action_params": binding["ocr_action_params"],
+                "target": {"target_id": "paid"},
+                "route": {"engine": "remote-ocr"},
+                "promises": [],
+                "quote": {"billed_cost": 80_000, "policy_id": "identity.v1"},
+                "allocation": {
+                    "schema_version": "frisket.pdf_import_ocr_allocation.v1",
+                    "roster": "effective_unmatched_ocr_selected_commit_order",
+                    "max_commit_occurrences_per_child": 256,
+                    "source_count": 1,
+                    "page_count": 4,
+                    "approved_billed_cost": 80_000,
+                    "currency": "USD",
+                    "policy_id": "identity.v1",
+                    "row_quote_authority": "canonical_commit_occurrences",
+                    "children": [
+                        {
+                            **{
+                                key: value
+                                for key, value in child.items()
+                                if key != "row_pages"
+                            },
+                            "quote": {
+                                "billed_cost": 80_000,
+                                "policy_id": "identity.v1",
+                            },
+                        }
+                    ],
+                },
+            },
+        }
+
+    _workspace, project_id, service = _service(
+        tmp_path, monkeypatch, batch_ocr_quoter=quote
+    )
+
+    def analyze(path):
+        if path.read_bytes() == corrupt_pdf:
+            return {
+                "analysis_state": "error",
+                "page_count": None,
+                "category": "unreadable",
+                "sample_pages": [],
+                "error": "Could not read PDF",
+            }
+        return {
+            "analysis_state": "done",
+            "page_count": 4,
+            "category": "missing",
+            "sample_pages": [1, 2, 3, 4],
+            "error": None,
+        }
+
+    monkeypatch.setattr(service, "_analyze", analyze)
+    draft_id, _ = _declared(service, project_id)
+    status = service.upload(
+        project_id,
+        draft_id,
+        [_upload(), _upload("two.pdf", corrupt_pdf)],
+        file_ids=["one", "two"],
+        logical_paths=["north/one.pdf", "south/two.pdf"],
+        batch_id="mixed-upload",
+    )
+    status = service.update_choices(
+        project_id,
+        draft_id,
+        expected_revision=status["revision"],
+        ocr_policy="all",
+        ocr_selection={"kind": "engine", "engine": "remote-ocr"},
+        semantic_search=False,
+        semantic_setup_confirmation=None,
+        destination={"kind": "new", "sheet_name": "PDFs"},
+    )
+    estimate = service.estimate_batch_ocr(
+        project_id,
+        draft_id,
+        expected_revision=status["revision"],
+        ocr_selection={"kind": "engine", "engine": "remote-ocr"},
+        ocr_policy="all",
+    )
+    frozen = service.freeze_for_commit(
+        project_id,
+        draft_id,
+        idempotency_key="mixed-paid",
+        expected_revision=estimate["revision"],
+        ocr_confirmation="a" * 64,
+    )
+
+    assert quoted[0]["selected_count"] == 1
+    assert quoted[0]["known_pages"] == 4
+    assert quoted[0]["child_partitions"][0]["row_pages"] == {1: 4}
+    occurrences = frozen.page_occurrences()
+    assert [(row.category, row.ocr_selected) for row in occurrences] == [
+        ("missing", True),
+        ("unreadable", False),
+    ]
+    assert occurrences[1].error == "Could not read PDF"
+
+
 def test_destination_match_uses_bounded_current_value_projection(
     tmp_path: Path, monkeypatch
 ) -> None:

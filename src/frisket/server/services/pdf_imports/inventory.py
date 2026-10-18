@@ -12,6 +12,18 @@ from typing import Any
 from frisket.engine.store.import_inventory import ImportInventory
 
 
+def pdf_ocr_selected(policy: str, category: str) -> bool:
+    """Whether an analyzed PDF is eligible for OCR under the authored policy."""
+
+    if category == "unreadable" or policy == "none":
+        return False
+    if policy == "all":
+        return True
+    if policy == "missing_or_suspicious":
+        return category in {"missing", "suspicious"}
+    raise ValueError("invalid PDF OCR policy")
+
+
 class PdfDraftInventory:
     """Extend the shared import inventory with a declared-before-copy roster."""
 
@@ -540,12 +552,8 @@ class PdfDraftInventory:
         )
         for row in cursor:
             commit_ordinal += 1
-            selected = row["sha256"] is not None and (
-                policy == "all"
-                or (
-                    policy == "missing_or_suspicious"
-                    and row["category"] in {"missing", "suspicious"}
-                )
+            selected = row["sha256"] is not None and pdf_ocr_selected(
+                policy, str(row["category"])
             )
             if selected:
                 fact = {

@@ -28,7 +28,7 @@ from frisket.server.services.import_bulk_sources import fsync_directory
 from frisket.server.services.import_uploads import AdmittedUpload
 
 from .analysis import analyze_pdf
-from .inventory import PdfDraftInventory
+from .inventory import PdfDraftInventory, pdf_ocr_selected
 from .previews import (
     ThumbnailLease,
     prepare_ocr,
@@ -123,13 +123,7 @@ class FrozenPdfImport:
                 category=str(row["category"]),
                 error=str(row["error"]) if row.get("error") else None,
                 matched=bool(row.get("matched")),
-                ocr_selected=(
-                    self.ocr_policy == "all"
-                    or (
-                        self.ocr_policy == "missing_or_suspicious"
-                        and str(row["category"]) in {"missing", "suspicious"}
-                    )
-                ),
+                ocr_selected=pdf_ocr_selected(self.ocr_policy, str(row["category"])),
             )
             for row in rows
         ]
@@ -2185,10 +2179,7 @@ class PdfImportService:
                 if ordinal != int(row["commit_ordinal"]):
                     raise RuntimeError("commit inventory ordinal changed")
                 category = str(row["category"])
-                ocr_selected = ocr_policy == "all" or (
-                    ocr_policy == "missing_or_suspicious"
-                    and category in {"missing", "suspicious"}
-                )
+                ocr_selected = pdf_ocr_selected(ocr_policy, category)
                 db.execute(
                     "INSERT INTO pdf_commit_occurrences"
                     "(ordinal,occurrence_id,selected_ordinal,category,error,sha256,"
