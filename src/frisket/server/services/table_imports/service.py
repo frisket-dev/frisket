@@ -53,6 +53,7 @@ from .destination import (
     iter_existing_dedup_keys,
     needs_extra_values,
     new_destination,
+    occupied_column_names,
     public_destination,
 )
 from .storage import TableImportDraftError, TableImportDraftStore, now
@@ -723,14 +724,7 @@ class TableImportService:
         }
         extra_values_target_name = "extra values" if needs_extra_values(scan) else None
         if destination_sheet_id is not None:
-            current_names = {
-                str(row["name"])
-                for row in project.db.execute(
-                    "SELECT name FROM columns WHERE sheet_id=? "
-                    "AND active=1 AND hidden=0",
-                    (destination_sheet_id,),
-                )
-            }
+            current_names = occupied_column_names(project, destination_sheet_id)
             planned_new_names = {
                 str(target["name"])
                 for target in mappings.values()

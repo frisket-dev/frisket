@@ -35,6 +35,7 @@ def compare_destination(
     destination = request["destination"]
     kind = destination.get("kind")
     targets: dict[int, Any] = {}
+    occupied_target_names: set[str] = set()
     if kind == "new":
         if not str(destination.get("sheet_name") or "").strip():
             raise _error(422, "invalid_destination", "A new sheet name is required.")
@@ -57,6 +58,7 @@ def compare_destination(
                 (sheet_id,),
             )
         }
+        occupied_target_names = occupied_column_names(project, sheet_id)
     else:
         raise _error(422, "invalid_destination", "The import destination is invalid.")
 
@@ -64,9 +66,8 @@ def compare_destination(
     seen_sources: set[int] = set()
     seen_targets: set[int] = set()
     new_target_names: set[str] = set()
-    existing_target_names = {str(row["name"]) for row in targets.values()}
     reserve_extra_values = needs_extra_values(scan)
-    if reserve_extra_values and "extra values" in existing_target_names:
+    if reserve_extra_values and "extra values" in occupied_target_names:
         raise _error(
             409,
             "destination_changed",
@@ -90,7 +91,7 @@ def compare_destination(
             if (
                 (reserve_extra_values and target_name == "extra values")
                 or target_name in new_target_names
-                or target_name in existing_target_names
+                or target_name in occupied_target_names
             ):
                 raise _error(
                     422,
@@ -278,8 +279,10 @@ def public_destination(
     mappings = []
     project = workspace.get(header["project_id"])
     target_rows: dict[int, Any] = {}
+    occupied_names: list[str] = []
     if request["destination"]["kind"] == "existing":
         sheet_id = int(request["destination"]["sheet_id"])
+        occupied_names = sorted(occupied_column_names(project, sheet_id))
         target_rows = {
             int(row["id"]): row
             for row in project.db.execute(
@@ -318,6 +321,7 @@ def public_destination(
         )
     return {
         "configuration": request["destination"],
+        "occupied_column_names": occupied_names,
         "mappings": mappings,
         "dedup": request["dedup"],
         "comparison": request["comparison"],
@@ -374,6 +378,17 @@ def needs_extra_values(scan: Mapping[str, Any] | None) -> bool:
     )
 
 
+def occupied_column_names(project: Any, sheet_id: int) -> set[str]:
+    """Names reserved by every active destination column, including hidden ones."""
+
+    return {
+        str(row["name"])
+        for row in project.db.execute(
+            "SELECT name FROM columns WHERE sheet_id=? AND active=1", (sheet_id,)
+        )
+    }
+
+
 def _error(status_code: int, code: str, message: str) -> TableImportDraftError:
     return TableImportDraftError(status_code, {"code": code, "message": message})
 
@@ -383,5 +398,6 @@ __all__ = [
     "iter_existing_dedup_keys",
     "new_destination",
     "needs_extra_values",
+    "occupied_column_names",
     "public_destination",
 ]

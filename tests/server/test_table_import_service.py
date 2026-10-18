@@ -749,8 +749,55 @@ def test_existing_destination_rejects_reserved_overflow_column(tmp_path: Path) -
     assert rejected.value.detail["code"] == "destination_changed"
 
 
+def test_existing_destination_reserves_hidden_active_column_names(
+    tmp_path: Path,
+) -> None:
+    workspace, project_id, service = _service(tmp_path)
+    project = workspace.get(project_id)
+    sheet_id = project.add_sheet("People")
+    project.add_column(sheet_id, "amount", type="number", hidden=True)
+    created = service.create(
+        project_id, _upload(b"score\n1\n", "scores.csv"), input_kind="file"
+    )
+    included = [column for column in created.columns if column.included]
+    compared = service.update_destination(
+        project_id,
+        created.draft_id,
+        expected_revision=created.revision,
+        destination={"kind": "existing", "sheet_id": sheet_id},
+        mappings=[
+            {
+                "source_index": included[0].source_index,
+                "target": {"kind": "new", "name": "score"},
+            }
+        ],
+        dedup={"enabled": False, "key_source_index": None},
+    )
+
+    assert compared.destination is not None
+    assert compared.destination.occupied_column_names == ["amount"]
+    with pytest.raises(TableImportDraftError) as rejected:
+        service.update_destination(
+            project_id,
+            created.draft_id,
+            expected_revision=compared.revision,
+            destination={"kind": "existing", "sheet_id": sheet_id},
+            mappings=[
+                {
+                    "source_index": included[0].source_index,
+                    "target": {"kind": "new", "name": "amount"},
+                }
+            ],
+            dedup={"enabled": False, "key_source_index": None},
+        )
+
+    assert rejected.value.status_code == 422
+    assert rejected.value.detail["code"] == "invalid_destination"
+
+
+@pytest.mark.parametrize("hidden", [False, True])
 def test_freeze_rechecks_new_column_names_against_current_destination(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, hidden: bool
 ) -> None:
     workspace, project_id, service = _service(tmp_path)
     project = workspace.get(project_id)
@@ -779,7 +826,7 @@ def test_freeze_rechecks_new_column_names_against_current_destination(
         calls += 1
         result = original(*args, **kwargs)
         if calls == 1:
-            project.add_column(sheet_id, "score", type="text")
+            project.add_column(sheet_id, "score", type="text", hidden=hidden)
         return result
 
     monkeypatch.setattr(service, "_build_frozen_plan", add_collision_after_review)
