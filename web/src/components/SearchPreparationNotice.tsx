@@ -132,7 +132,7 @@ export function SearchPreparationNotice({
       )}
       {now && <p className="search-preparation-details" data-testid="import-activity-now">Now · {now} · opened by you</p>}
 
-      {((active && (notice.stage === 'download' || notice.stage === 'index' || notice.progress !== null))
+      {!progressLines?.length && ((active && (notice.stage === 'download' || notice.stage === 'index' || notice.progress !== null))
         || (notice.tone === 'error' && notice.progress !== null)) && (
         <div className="search-preparation-progress" data-testid="search-preparation-progress">
           <span

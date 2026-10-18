@@ -352,11 +352,6 @@ export function DocumentView({
         <div className="document-list-count muted mono">
           {items.length.toLocaleString()} loaded
         </div>
-        {readingPriority && (
-          <div className="document-list-message" data-testid="document-reading-priority" role="status">
-            Reading text now
-          </div>
-        )}
         <div
           className="document-list-body drawer-body"
           data-testid="document-list-body"
@@ -423,7 +418,11 @@ export function DocumentView({
                   onDoubleClick={() => onOpenDetail(rowId)}
                 >
                   <span className="document-list-item-title">{item.title}</span>
-                  <span className="document-list-item-secondary muted">{secondary}</span>
+                  <span className="document-list-item-secondary muted">
+                    {readingPriority && active ? (
+                      <span data-testid="document-reading-priority" role="status">Reading text now</span>
+                    ) : secondary}
+                  </span>
                 </button>
               );
             })}
