@@ -64,7 +64,7 @@ export function SearchPreparationNotice({
       ? 'Search preparation needs attention.'
       : searchLine.complete
       ? 'Ready files are searchable.'
-      : 'Search is indexing text as it becomes ready.'
+      : 'Files become searchable as preparation finishes.'
     : null;
   const canStop = Boolean(notice.stopBatchId && onStopPreparation);
   const canReview = Boolean(
