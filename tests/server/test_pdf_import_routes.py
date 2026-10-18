@@ -486,6 +486,19 @@ def test_real_pdf_import_http_create_upload_sample_page_and_discard(
     )
     assert started.status_code == 202, started.text
     assert started.json()["ocr_action_params"] == estimate.json()["ocr_action_params"]
+    refreshed = client.get(f"{base}/{draft_id}")
+    assert refreshed.status_code == 200, refreshed.text
+    assert refreshed.json()["preview_jobs"] == [
+        {
+            "job_id": "preview-1",
+            "occurrence_id": sample["occurrence_id"],
+            "page": 1,
+            "ocr_action_params": estimate.json()["ocr_action_params"],
+            "status": "done",
+            "receipt_id": "receipt-1",
+            "error": None,
+        }
+    ]
     previewed = client.get(
         f"{base}/{draft_id}/files/{sample['occurrence_id']}/pages/1"
     )
