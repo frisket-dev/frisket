@@ -577,7 +577,10 @@ export function useWorkspaceModel({
   );
 
   const sheet = sheets.find((candidate) => candidate.id === activeSheetId);
-  const handleImportSessionChanged = useCallback(() => { void refreshSheets(); }, [refreshSheets]);
+  const handleImportSessionChanged = useCallback(() => {
+    projectData.invalidate();
+    void refreshSheets();
+  }, [projectData, refreshSheets]);
   const importProgress = useImportProgress({
     projectId: project.id,
     onChanged: handleImportSessionChanged,

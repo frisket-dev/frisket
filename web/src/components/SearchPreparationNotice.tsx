@@ -28,6 +28,7 @@ export function SearchPreparationNotice({
   importProblemCount = 0,
   onImportAnotherSheet,
   importSourceLabel,
+  importHint,
 }: {
   notice: Notice;
   onReviewPreparation?: (batchId: string) => void;
@@ -44,6 +45,7 @@ export function SearchPreparationNotice({
   importProblemCount?: number;
   onImportAnotherSheet?(): void;
   importSourceLabel?: string | null;
+  importHint?: string;
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [stopState, setStopState] = useState<{ batchId: string; busy: boolean; error: string | null } | null>(null);
@@ -96,10 +98,10 @@ export function SearchPreparationNotice({
       dismissTestId="search-preparation-dismiss"
       footer={hasFooter ? (
         <>
-          {searchFooter && <span className="search-preparation-footer-copy">{searchFooter}</span>}
+          {(importHint || searchFooter) && <span className="search-preparation-footer-copy">{importHint || searchFooter}</span>}
           <div className="search-preparation-actions">
             {onOpenErrors && <button type="button" className="search-preparation-action" onClick={onOpenErrors}>
-              {importProblemCount.toLocaleString()} {importProblemCount === 1 ? 'problem' : 'problems'} · Errors
+              {importProblemCount.toLocaleString()} {importProblemCount === 1 ? 'problem' : 'problems'}{active ? ' so far' : ''} · Errors
             </button>}
             {onImportAnotherSheet && <button type="button" className="search-preparation-action" onClick={onImportAnotherSheet}>
               Import another sheet{importSourceLabel ? ` from ${importSourceLabel}` : ''}

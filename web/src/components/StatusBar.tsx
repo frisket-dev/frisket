@@ -251,10 +251,12 @@ export function StatusBar({
             importMessage={importActivity ? importProgress.message : null}
             importProblemCount={importActivity?.session.problem_count}
             importSourceLabel={importActivity?.session.source_label}
+            importHint={importActivity?.session.intake_kind === 'table' && importActivity.canStop
+              ? 'You can browse rows as they arrive.' : undefined}
             onImportAnotherSheet={importActivity?.session.can_rerun_workbook
               && ['completed', 'kept'].includes(importActivity.session.state)
               ? () => actSurface.openTableImportRerun(importActivity.importRef) : undefined}
-            onOpenErrors={(importActivity?.session.problem_count ?? 0) > 0
+            onOpenErrors={importActivity?.session.intake_kind === 'table' || (importActivity?.session.problem_count ?? 0) > 0
               ? () => chrome.setActiveBottomDockTab('errors') : undefined}
             onDismiss={() => setSearchNoticeOpen(false)}
           />

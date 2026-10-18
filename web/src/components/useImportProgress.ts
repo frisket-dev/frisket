@@ -110,7 +110,7 @@ export function importActivity(session: ImportSessionStatus): ImportActivity | n
     label: 'Adding rows',
     completed: committedRows,
     total: selectedTotal,
-    complete: ['completed', 'kept'].includes(session.state)
+    complete: session.state === 'completed'
       && (session.intake_kind === 'table' || (selectedTotal !== null && committedRows >= selectedTotal)),
     ...(session.intake_kind === 'table' ? {
       detail: `${committedRows.toLocaleString()} added${session.skipped_duplicates ? ` · ${session.skipped_duplicates.toLocaleString()} duplicates skipped` : ''}`,
@@ -472,7 +472,7 @@ function composeTableImportActivity(
       stopBatchId: activity.canStop ? session.import_ref : null,
       stage: session.error ? 'failed' : 'prepare',
       tone: session.error ? 'error' : activity.needsRecovery || session.state === 'kept' ? 'warning' : finished ? 'complete' : 'active',
-      title: `Import: ${session.sheet_name}`,
+      title: `${session.state === 'kept' ? 'Import stopped:' : finished ? 'Imported' : 'Importing'} ${session.source_label ?? session.sheet_name}`,
       detail,
       progress: null,
       details: session.source_label ? [session.source_label] : [],
@@ -480,8 +480,9 @@ function composeTableImportActivity(
     lines: [
       {
         key: 'adding', label: 'Adding rows', completed: processed,
-        total, complete: finished,
-        detail: total === null ? `${added} added` : `${processed.toLocaleString()} / ${session.selected_total === null ? 'about ' : ''}${total.toLocaleString()}`,
+        total, complete: session.state === 'completed',
+        detail: session.state === 'kept' ? `${added} added · stopped`
+          : total === null ? `${added} added` : `${processed.toLocaleString()} of ${session.selected_total === null ? 'about ' : ''}${total.toLocaleString()}`,
       },
       ...(!finished || search ? [{
         key: 'search-index', label: 'Search index', completed: null, total: null,

@@ -260,10 +260,19 @@ describe('table import progress', () => {
       sheet_name: 'Contributions',
     }));
     const combined = composeImportSearchActivity(activity, null);
-    expect(combined?.notice.title).toBe('Import: Contributions');
+    expect(combined?.notice.title).toBe('Importing contributions.csv');
     expect(combined?.notice.detail).toContain('475 rows added');
     expect(combined?.notice.detail).toContain('25 duplicates skipped');
     expect(combined?.lines[0]).toMatchObject({ completed: 500, total: null, complete: false });
     expect(pendingImportRowCount(activity)).toBe(0);
+  });
+  it('labels retained partial rows as stopped rather than complete', () => {
+    const activity = importActivity(session({
+      intake_kind: 'table', state: 'kept', selected_total: 100,
+      processed_rows: 20, committed_rows: 20,
+    }));
+    const combined = composeImportSearchActivity(activity, null);
+    expect(combined?.notice.tone).toBe('warning');
+    expect(combined?.lines[0]).toMatchObject({ complete: false, detail: '20 added · stopped' });
   });
 });

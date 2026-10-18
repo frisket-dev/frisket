@@ -111,6 +111,7 @@ describe('preview grid interactions', () => {
     expect(grid.getCellContent([0, 4])).toMatchObject({
       kind: GridCellKind.Loading,
       allowOverlay: false,
+      skeletonWidth: 80,
     });
     act(() => grid.onCellActivated?.([0, 4]));
     act(() => grid.onCellEdited?.([0, 4], {

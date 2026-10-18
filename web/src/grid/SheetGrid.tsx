@@ -1440,6 +1440,9 @@ function useSheetGridController({
   const getCellContent = useCallback(
     (item: Item): GridCell => {
       const [col, rowIdx] = item;
+      if (rowIdx >= realRowCount && rowIdx < rowCount) {
+        return { kind: GridCellKind.Loading, allowOverlay: false, skeletonWidth: 80, skeletonHeight: 12 };
+      }
       if (childSheet && col === gridColumns.length) {
         const row = cache.getRow(rowIdx);
         if (row === undefined) return { kind: GridCellKind.Loading, allowOverlay: false };
@@ -1554,6 +1557,8 @@ function useSheetGridController({
       sheet.id,
       audioPlaybackState,
       expandedEntityMentionCells,
+      realRowCount,
+      rowCount,
     ],
   );
 
