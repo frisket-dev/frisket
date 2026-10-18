@@ -440,7 +440,7 @@ export function TableImportFlow({
   const subtitle = useMemo(() => {
     if (!snapshot) return 'One file · CSV, Excel or pasted rows';
     const rows = snapshot.analysis.exact_rows ?? snapshot.analysis.estimated_rows;
-    return `${snapshot.source.filename}${rows == null ? '' : ` · ${snapshot.analysis.complete ? '' : 'about '}${rows.toLocaleString()} rows`}${snapshot.columns.length ? ` · ${snapshot.columns.length.toLocaleString()} columns` : ''}`;
+    return `${snapshot.source.filename}${rows == null ? '' : ` · ${snapshot.analysis.complete ? '' : 'about '}${rows.toLocaleString()} rows`}${snapshot.columns.length ? ` · ${snapshot.columns.length.toLocaleString()} ${snapshot.columns.length === 1 ? 'column' : 'columns'}` : ''}`;
   }, [snapshot]);
 
   useEffect(() => {

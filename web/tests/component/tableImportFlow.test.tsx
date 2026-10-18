@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { TableImportDraft, TableImportMappingRequest, TableImportsApi } from '../../src/api/tableImports';
 import { TableImportFlow } from '../../src/components/importWorkspace/tableImport';
-import { ImportTableStep } from '../../src/components/importWorkspace/tableImport/TableImportSteps';
+import { CheckRowsStep, ColumnsStep, ImportTableStep } from '../../src/components/importWorkspace/tableImport/TableImportSteps';
 import { importSessionSnapshot } from '../../src/components/importProgressSession';
 
 afterEach(() => { document.body.innerHTML = ''; });
@@ -290,6 +290,66 @@ describe('TableImportFlow', () => {
     expect(within(names).queryByRole('button')).not.toBeInTheDocument();
   });
 
+  it('shows width mismatches in the row tag, preview cells, and exact status copy', () => {
+    const current = draft({
+      settings: {
+        ...draft().settings!,
+        resolved: { ...draft().settings!.resolved, encoding: 'cp1252' },
+      },
+      preview: {
+        ...draft().preview!,
+        columns: [{ index: 0, name: 'name', original_name: 'name', name_status: 'original' }],
+        expected_values: 1,
+        head: [
+          { role: 'header', record_ordinal: 1, physical_line_start: 1, physical_line_end: 1, cells: ['name'], hidden_cell_count: 0, issues: [] },
+          { role: 'data', record_ordinal: 2, physical_line_start: 2, physical_line_end: 2, cells: ['Málaga;1.234', '50;19/10/2026'], hidden_cell_count: 0, issues: [{ code: 'extra_values', message: 'extra', original_values: ['50;19/10/2026'], count: 1 }] },
+        ],
+        notice: { kind: 'some_wrong_width', count: 1, common_values: 1, expected_values: 1, encoding: null },
+      },
+    });
+    render(<CheckRowsStep draft={current} busy={false} onBack={vi.fn()} onContinue={vi.fn()} onSettings={vi.fn()} />);
+
+    expect(screen.getByText('+1 values')).toBeVisible();
+    expect(screen.getByText('50;19/10/2026')).toHaveAttribute('data-extra', 'true');
+    expect(screen.getByText('Line 2 doesn’t have 1 values. It will be imported and listed in Errors.')).toBeVisible();
+    expect(screen.getAllByText('Windows-1252').length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Málaga;1\.234 →/)).not.toBeInTheDocument();
+  });
+
+  it('shows lossy and invalid samples with their originals and keeps date order in the note cell', () => {
+    const base = draft().columns[0];
+    const columns = [
+      {
+        ...base, source_index: 0, name: 'id', target_type: 'integer' as const,
+        needs_review: ['leading_zeros' as const, 'invalid_values' as const],
+        samples: [
+          { original: '00104', value: 104, display: '104', outcome: 'changed' as const },
+          { original: 'N/A', value: null, display: '', outcome: 'invalid' as const },
+        ],
+        conversion_counts: { ...base.conversion_counts, leading_zero_loss: 1, invalid: 1 },
+      },
+      {
+        ...base, source_index: 1, name: 'code', original_name: 'code', target_type: 'text' as const,
+        needs_review: ['leading_zeros' as const], samples: [{ original: '00104', value: '00104', display: '00104', outcome: 'unchanged' as const }],
+      },
+      {
+        ...base, source_index: 2, name: 'date', original_name: 'date', target_type: 'date' as const,
+        ambiguous_date_order: true, inferred_date_order: 'month_first' as const, needs_review: ['ambiguous_date_order' as const],
+        samples: [{ original: '03/04/2024', value: '2024-03-04', display: '2024-03-04', outcome: 'unchanged' as const }],
+      },
+    ];
+    render(<ColumnsStep draft={draft({ columns })} busy={false} onBack={vi.fn()} onContinue={vi.fn()} onColumns={vi.fn()} />);
+
+    expect(screen.getByText('00104 → 104')).toHaveAttribute('data-outcome', 'changed');
+    expect(screen.getByText('N/A → blank')).toHaveAttribute('data-outcome', 'invalid');
+    expect(screen.getByText('1 value loses leading zeros')).toBeVisible();
+    const codeRow = screen.getByText('code').closest('[role="row"]')!;
+    expect(within(codeRow).getByText('All fit')).toHaveAttribute('data-tone', 'success');
+    const dateRow = screen.getByText('date').closest('[role="row"]')!;
+    expect(within(dateRow).getByText('Mar 4, 2024')).toBeVisible();
+    expect(within(dateRow).getByRole('combobox', { name: 'Date order for date' }).closest('[role="cell"]')).toHaveClass('table-import-column-note');
+  });
+
   it('offers dedup keys only for mappings into existing columns', () => {
     const base = draft();
     const columns = [
@@ -319,5 +379,17 @@ describe('TableImportFlow', () => {
 
     fireEvent.change(screen.getByRole('combobox', { name: 'Map matched' }), { target: { value: 'new' } });
     expect(onDestination).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ dedup: { enabled: false, key_source_index: null } }));
+  });
+
+  it('names columns whose original values will be listed in Errors', () => {
+    const base = draft();
+    const current = draft({
+      columns: [{ ...base.columns[0], name: 'amount', conversion_counts: { ...base.columns[0].conversion_counts, invalid: 2 } }],
+      can_commit: true,
+      commit_blocked_reason: null,
+    });
+    render(<ImportTableStep draft={current} destination={{ kind: 'new', sheet_name: 'Amounts' }} destinationSheets={[]} busy={false} onBack={vi.fn()} onCommit={vi.fn()} onDestination={vi.fn()} />);
+
+    expect(screen.getByText('amount; originals listed in Errors')).toBeVisible();
   });
 });

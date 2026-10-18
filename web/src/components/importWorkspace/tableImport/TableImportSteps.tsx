@@ -218,15 +218,15 @@ function displayEncoding(value: string | null | undefined): string {
   const normalized = value.toLocaleLowerCase();
   if (normalized === 'utf-8' || normalized === 'utf8') return 'UTF-8';
   if (normalized === 'utf-16' || normalized === 'utf16') return 'UTF-16';
-  if (normalized === 'windows-1252') return 'Windows-1252';
-  if (normalized === 'iso-8859-1') return 'ISO-8859-1';
-  if (normalized === 'mac-roman') return 'Mac Roman';
+  if (normalized === 'windows-1252' || normalized === 'cp1252') return 'Windows-1252';
+  if (normalized === 'iso-8859-1' || normalized === 'latin-1' || normalized === 'latin1') return 'ISO-8859-1';
+  if (normalized === 'mac-roman' || normalized === 'macroman') return 'Mac Roman';
   return value;
 }
 
 function numberSample(draft: TableImportDraft): string | null {
   for (const column of draft.columns) {
-    const sample = column.samples.find((candidate) => /\d[., ]\d/.test(candidate.original));
+    const sample = column.samples.find((candidate) => /^\s*\(?[-+]?\s*[$€£]?\s*\d[\d., ]*(?:%|\))?\s*$/.test(candidate.original));
     if (sample) return `${sample.original} → ${sample.display || sample.original}`;
   }
   return null;
@@ -264,7 +264,7 @@ export function CheckRowsStep({ draft, busy, onBack, onContinue, onSettings }: {
         <NumberStepper label="Skip rows at end" value={requested.skip_rows_end ?? 0} disabled={busy} onChange={(value) => update('skip_rows_end', value)} />
       </div>
       {preview ? <TablePreview preview={preview} firstRowIsHeader={requested.first_row_is_header ?? true} onRecordClick={(ordinal) => update('skip_rows_start', Math.max(0, ordinal - 1))} /> : <div className="table-import-preview-loading" role="status">Reading rows…</div>}
-      {preview && <PreviewNotice preview={preview} />}
+      {preview && <PreviewNotice preview={preview} firstRowIsHeader={requested.first_row_is_header ?? true} />}
     </div>
     <ImportStepFooter><button type="button" className="btn" disabled={busy} onClick={onBack}>Back</button><span>{footerRows} · {count(preview?.columns.length ?? draft.columns.length, 'column')}{delimited ? ` · ${displayDelimiter(resolved.delimiter)} · ${displayEncoding(resolved.encoding)}` : ''}</span><button type="button" className="btn btn-primary" disabled={busy || preview === null || preview.columns.length === 0} onClick={onContinue}>Columns →</button></ImportStepFooter>
   </section>;
@@ -279,39 +279,49 @@ function lineLabel(row: TableImportPreview['head'][number]): string {
   if (row.role === 'skipped_start' || row.role === 'skipped_end') return 'Skipped';
   if (row.role === 'blank') return 'Blank';
   const extra = row.issues.find((issue) => issue.code === 'extra_values');
-  if (extra) return `+${extra.original_values.length} values`;
+  if (extra) return `+${extra.count || extra.original_values.length} values`;
   const missing = row.issues.find((issue) => issue.code === 'missing_values');
-  if (missing) return `−${missing.original_values.length || 1} values`;
+  if (missing) return `−${missing.count || missing.original_values.length || 1} values`;
   return '';
 }
 
 function TablePreview({ preview, firstRowIsHeader, onRecordClick }: { preview: TableImportPreview; firstRowIsHeader: boolean; onRecordClick(recordOrdinal: number): void }) {
   const visibleColumns = preview.columns.slice(0, 8);
   const rows = [...preview.head, ...preview.tail];
+  const visibleCellCount = Math.min(8, Math.max(visibleColumns.length, ...rows.map((row) => row.cells.length)));
+  const visibleCellIndexes = Array.from({ length: visibleCellCount }, (_, index) => index);
   return <div className="table-import-preview-wrap">
     <div className="table-import-preview-heading"><span><strong>Preview</strong> Start and end of the file</span><span>{preview.columns.length > visibleColumns.length ? `First ${visibleColumns.length} of ${preview.columns.length} columns · ` : ''}Click a line number to start there. The import uses these same settings.</span></div>
     <div className="table-import-preview-scroll"><table className="table-import-preview"><tbody>
-      {!firstRowIsHeader && <tr data-role="header" aria-label="Generated column names"><th><small>Names</small></th>{visibleColumns.map((column) => <td key={column.index}>{column.name || `column ${column.index + 1}`}</td>)}</tr>}
+      {!firstRowIsHeader && <tr data-role="header" aria-label="Generated column names"><th><small>Names</small></th>{visibleCellIndexes.map((index) => <td key={index} data-extra={index >= preview.expected_values || undefined}>{visibleColumns[index]?.name || (index >= preview.expected_values ? 'extra values' : `column ${index + 1}`)}</td>)}</tr>}
       {rows.map((row, index) => <Fragment key={`${row.role}:${row.record_ordinal}`}>
-        {index === preview.head.length && preview.tail.length > 0 && <tr className="table-import-preview-gap" key="gap"><th colSpan={visibleColumns.length + 1}>⋯ {preview.omitted_rows == null ? 'more rows' : count(preview.omitted_rows, 'more row')}</th></tr>}
+        {index === preview.head.length && preview.tail.length > 0 && <tr className="table-import-preview-gap" key="gap"><th colSpan={visibleCellCount + 1}>⋯ {preview.omitted_rows == null ? 'more rows' : count(preview.omitted_rows, 'more row')}</th></tr>}
         <tr data-role={row.role} data-issue={row.issues.length > 0 || undefined}>
-          <th><button type="button" disabled={row.physical_line_start == null} onClick={() => onRecordClick(row.record_ordinal)}>{row.physical_line_start ?? row.record_ordinal}</button><small>{lineLabel(row)}</small></th>
-          {visibleColumns.map((column, columnIndex) => <td key={column.index} data-extra={columnIndex >= preview.expected_values || undefined}>{row.cells[columnIndex] ?? ''}</td>)}
+          <th><button type="button" disabled={row.physical_line_start == null} onClick={() => onRecordClick(row.record_ordinal)}>{row.physical_line_start ?? row.record_ordinal}</button>{lineLabel(row) && <small>{lineLabel(row)}</small>}</th>
+          {visibleCellIndexes.map((columnIndex) => <td key={visibleColumns[columnIndex]?.index ?? `extra:${columnIndex}`} data-extra={columnIndex >= preview.expected_values || undefined}>{row.cells[columnIndex] ?? (row.role === 'header' && columnIndex >= preview.expected_values ? 'extra values' : '')}</td>)}
         </tr>
       </Fragment>) }
     </tbody></table></div>
   </div>;
 }
 
-function PreviewNotice({ preview }: { preview: TableImportPreview }) {
+function PreviewNotice({ preview, firstRowIsHeader }: { preview: TableImportPreview; firstRowIsHeader: boolean }) {
   const notice = preview.notice;
+  const rows = [...preview.head, ...preview.tail];
+  const firstMismatch = rows.find((row) => row.issues.some((issue) => issue.code === 'extra_values' || issue.code === 'missing_values'));
+  const namesLine = rows.find((row) => row.role === 'header')?.physical_line_start ?? 1;
+  const mismatchCount = notice.count ?? 0;
+  const expected = notice.expected_values ?? preview.expected_values;
   let text: string;
-  if (notice.kind === 'unreadable_characters') text = `${count(notice.count ?? 0, 'character')} in the preview can’t be read as ${notice.encoding ?? 'this encoding'}. Try another encoding.`;
+  if (notice.kind === 'unreadable_characters') text = `${count(notice.count ?? 0, 'character')} in the preview can’t be read as ${displayEncoding(notice.encoding ?? null)}. Try another encoding.`;
   else if (notice.kind === 'one_column') text = 'Only one column found. If each line holds several values, try another separator.';
-  else if (notice.kind === 'mostly_wrong_width') text = `Most lines don’t have ${notice.expected_values ?? preview.expected_values} values. Try another separator.`;
-  else if (notice.kind === 'some_wrong_width') text = `${count(notice.count ?? 0, 'line')} ${notice.count === 1 ? 'doesn’t' : 'don’t'} have ${notice.expected_values ?? preview.expected_values} values. ${notice.count === 1 ? 'It' : 'They'} will be imported and listed in Errors.`;
+  else if (notice.kind === 'mostly_wrong_width') text = firstRowIsHeader
+    ? `Most lines have ${notice.common_values ?? expected} values, but the column names on line ${namesLine} have ${expected}. If the file starts with a title or notes, skip those rows. Otherwise, try another separator.`
+    : `Most lines don’t have ${expected} values. Try another separator.`;
+  else if (notice.kind === 'some_wrong_width' || notice.kind === 'extra_values') text = mismatchCount === 1
+    ? `Line ${firstMismatch?.physical_line_start ?? firstMismatch?.record_ordinal ?? ''} doesn’t have ${expected} values. It will be imported and listed in Errors.`
+    : `${mismatchCount.toLocaleString()} lines don’t have ${expected} values. They will be imported and listed in Errors.`;
   else if (notice.kind === 'counting') text = 'Checking the rest of the file…';
-  else if (notice.kind === 'extra_values') text = `${count(notice.count ?? 0, 'line')} contain extra values. The values will be kept and listed in Errors.`;
   else text = `Every line shown has ${notice.common_values ?? preview.expected_values} values.`;
   const tone = notice.kind === 'consistent' ? 'success' : notice.kind === 'counting' ? 'neutral' : 'warning';
   return <div className="table-import-preview-notice" data-tone={tone}>{tone === 'success' ? <CheckCircle2 size={15} /> : tone === 'warning' ? <AlertTriangle size={15} /> : null}<span>{text}</span></div>;
@@ -382,15 +392,27 @@ export function ColumnsStep({ draft, busy, onBack, onColumns, onContinue }: {
 
 function ColumnRow({ column, selected, busy, onSelected, onChange }: { column: TableImportColumn; selected: boolean; busy: boolean; onSelected(checked: boolean, shiftKey: boolean): void; onChange(patch: Partial<TableImportColumnPatch>): void }) {
   const omitted = !column.included || column.target_type === 'omit';
-  const note = omitted ? 'Not imported' : column.conversion_counts.invalid > 0 ? `${count(column.conversion_counts.invalid, 'value')} won’t convert` : column.conversion_counts.leading_zero_loss > 0 ? `${count(column.conversion_counts.leading_zero_loss, 'value')} lose leading zeros` : column.conversion_counts.time_dropped > 0 ? 'Times are dropped' : column.stats_complete ? 'All fit' : 'Checking values…';
-  const noteTone = omitted || !column.stats_complete ? 'neutral' : column.needs_review.length > 0 || column.conversion_counts.invalid > 0 ? 'warning' : 'success';
+  const dateOrderNeeded = column.ambiguous_date_order && (column.target_type === 'date' || column.target_type === 'datetime');
+  const note = omitted ? 'Not imported' : column.conversion_counts.leading_zero_loss > 0 ? `${count(column.conversion_counts.leading_zero_loss, 'value')} ${column.conversion_counts.leading_zero_loss === 1 ? 'loses' : 'lose'} leading zeros` : column.conversion_counts.invalid > 0 ? `${count(column.conversion_counts.invalid, 'value')} won’t convert` : column.conversion_counts.time_dropped > 0 ? 'Times are dropped' : column.stats_complete ? 'All fit' : 'Checking values…';
+  const noteTone = omitted || !column.stats_complete ? 'neutral' : dateOrderNeeded || column.conversion_counts.leading_zero_loss > 0 || column.conversion_counts.invalid > 0 || column.conversion_counts.time_dropped > 0 ? 'warning' : 'success';
   return <div role="row" className="table-import-column-row" data-omitted={omitted || undefined}>
     <span role="cell"><input type="checkbox" aria-label={`Select ${column.name}`} checked={selected} onMouseDown={(event) => { event.preventDefault(); onSelected(!selected, event.shiftKey); }} onChange={(event) => onSelected(event.currentTarget.checked, false)} /></span>
     <span role="cell"><strong>{column.name}</strong>{column.name_status === 'duplicate' && <small>In the file: {column.original_name}</small>}{column.name_status === 'missing' && <small>No name in the file</small>}</span>
-    <span role="cell"><PanelSelect aria-label={`Type for ${column.name}`} value={omitted ? 'omit' : column.target_type} disabled={busy} onChange={(event) => { const next = event.currentTarget.value as TableImportTargetType; onChange({ target_type: next, included: next !== 'omit' }); }}>{TARGET_TYPES.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</PanelSelect>{column.ambiguous_date_order && (column.target_type === 'date' || column.target_type === 'datetime') && <PanelSelect aria-label={`Date order for ${column.name}`} value={column.date_order ?? column.inferred_date_order ?? 'month_first'} disabled={busy} onChange={(event) => onChange({ date_order: event.currentTarget.value as 'month_first' | 'day_first' })}><option value="month_first">Month first (03/04 = Mar 4)</option><option value="day_first">Day first (03/04 = Apr 3)</option></PanelSelect>}</span>
-    <span role="cell" className="table-import-column-samples">{column.samples.slice(0, 5).map((sample, index) => <i key={`${index}:${sample.original}`} data-outcome={sample.outcome}>{sample.display || 'blank'}</i>)}</span>
-    <span role="cell" className="table-import-column-note" data-tone={noteTone}>{note}</span>
+    <span role="cell"><PanelSelect aria-label={`Type for ${column.name}`} value={omitted ? 'omit' : column.target_type} disabled={busy} onChange={(event) => { const next = event.currentTarget.value as TableImportTargetType; onChange({ target_type: next, included: next !== 'omit' }); }}>{TARGET_TYPES.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</PanelSelect></span>
+    <span role="cell" className="table-import-column-samples">{column.samples.slice(0, 5).map((sample, index) => <i key={`${index}:${sample.original}`} data-outcome={sample.outcome}>{sampleDisplay(column, sample)}</i>)}</span>
+    <span role="cell" className="table-import-column-note" data-tone={noteTone}>{dateOrderNeeded ? <PanelSelect aria-label={`Date order for ${column.name}`} value={column.date_order ?? column.inferred_date_order ?? 'month_first'} disabled={busy} onChange={(event) => onChange({ date_order: event.currentTarget.value as 'month_first' | 'day_first' })}><option value="month_first">Month first (03/04 = Mar 4)</option><option value="day_first">Day first (03/04 = Apr 3)</option></PanelSelect> : note}</span>
   </div>;
+}
+
+function sampleDisplay(column: TableImportColumn, sample: TableImportColumn['samples'][number]): string {
+  if (sample.outcome === 'blank') return 'blank';
+  if (sample.outcome === 'invalid') return `${sample.original || 'blank'} → blank`;
+  let imported = sample.display || String(sample.value ?? sample.original);
+  if (column.target_type === 'date' && /^\d{4}-\d{2}-\d{2}$/.test(imported)) {
+    const [year, month, day] = imported.split('-').map(Number);
+    imported = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', timeZone: 'UTC', year: 'numeric' }).format(new Date(Date.UTC(year, month - 1, day)));
+  }
+  return sample.outcome === 'changed' ? `${sample.original} → ${imported}` : imported;
 }
 
 export function ImportTableStep({ draft, destination, destinationSheets, busy, onBack, onCommit, onDestination }: {
@@ -408,7 +430,8 @@ export function ImportTableStep({ draft, destination, destinationSheets, busy, o
   const importRows = comparison?.import_rows ?? rowTotal;
   const includedColumns = draft.columns.filter((column) => column.included && column.target_type !== 'omit').length;
   const omittedColumns = draft.columns.length - includedColumns;
-  const invalidValues = draft.columns.reduce((total, column) => total + column.conversion_counts.invalid, 0);
+  const invalidValues = draft.columns.reduce((total, column) => total + (column.included && column.target_type !== 'omit' ? column.conversion_counts.invalid : 0), 0);
+  const invalidColumnNames = draft.columns.filter((column) => column.included && column.target_type !== 'omit' && column.conversion_counts.invalid > 0).map((column) => column.name);
   const newSheetName = destination.kind === 'new' ? destination.sheet_name : draft.source.input_kind === 'paste' ? 'Pasted rows' : draft.source.filename.replace(/\.[^.]+$/, '');
   return <section className="table-import-step table-import-destination" aria-label="Import">
     <div className="table-import-step-body">
@@ -424,8 +447,8 @@ export function ImportTableStep({ draft, destination, destinationSheets, busy, o
       <div className="table-import-summary">
         <div><span>Rows to add</span><strong>{importRows == null ? 'Counting…' : `${draft.analysis.complete || comparison?.import_rows != null ? '' : 'About '}${importRows.toLocaleString()}`}</strong><small /></div>
         <div><span>Columns</span><strong>{includedColumns.toLocaleString()}</strong><small>{omittedColumns > 0 ? count(omittedColumns, 'column') + ' left out' : ''}</small></div>
-        {(draft.analysis.issue_counts.extra_values ?? 0) > 0 && <div><span>Lines with extra values</span><strong>{draft.analysis.issue_counts.extra_values!.toLocaleString()}</strong><small>Kept in extra_values</small></div>}
-        {invalidValues > 0 && <div><span>Values left blank</span><strong>{invalidValues.toLocaleString()}</strong><small>They don’t fit the chosen column type</small></div>}
+        {(draft.analysis.issue_counts.extra_values ?? 0) > 0 && <div><span>Lines with extra values</span><strong>{draft.analysis.issue_counts.extra_values!.toLocaleString()}</strong><small>Kept; extra values go in a column named extra values</small></div>}
+        {invalidValues > 0 && <div><span>Values left blank</span><strong>{invalidValues.toLocaleString()}</strong><small>{invalidColumnNames.join(', ')}; originals listed in Errors</small></div>}
         {(draft.analysis.issue_counts.missing_values ?? 0) > 0 && <div><span>Lines with missing values</span><strong>{draft.analysis.issue_counts.missing_values!.toLocaleString()}</strong><small>Missing cells stay blank</small></div>}
       </div>
       {comparison?.type_clashes ? <p className="table-import-clash-warning"><AlertTriangle size={15} /> {count(comparison.type_clashes, 'column')} need a new column because their values don’t fit the matched sheet column.</p> : null}

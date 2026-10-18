@@ -165,6 +165,7 @@
 .table-import-reader-controls > label { display: grid; gap: 5px; min-width: 120px; color: #4a433e; font-size: 12px; font-weight: 600; }
 .table-import-reader-controls select { height: 32px; max-width: 190px; }
 .table-import-number-format { padding-right: 12px; border-right: 1px solid #ddd5cd; }
+.table-import-number-format select { width: 100%; min-width: 145px; }
 .table-import-reader-controls .table-import-header-check { display: flex; flex-direction: row; align-items: center; min-width: 172px; min-height: 32px; gap: 7px; }
 .table-import-sheet-control { flex: 1 1 auto; }
 
@@ -181,7 +182,7 @@
 .table-import-preview-scroll { overflow: auto; background: #fff; }
 .table-import-preview { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 11px; }
 .table-import-preview th, .table-import-preview td { min-width: 105px; padding: 7px 9px; overflow: hidden; border-right: 1px solid #efeae5; border-bottom: 1px solid #efeae5; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
-.table-import-preview th:first-child { width: 94px; min-width: 94px; }
+.table-import-preview th:first-child { width: 128px; min-width: 128px; }
 .table-import-preview tbody th { background: #fbf9f7; font-weight: 500; }
 .table-import-preview tbody th button { min-width: 24px; padding: 0; border: 0; background: transparent; color: #8a817a; font: inherit; cursor: pointer; }
 .table-import-preview tbody th button:not(:disabled):hover { text-decoration: underline; }
@@ -216,8 +217,10 @@
 .table-import-column-samples i { width: 76px; max-width: 90px; padding: 3px 2px; overflow: hidden; color: #4a433e; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
 .table-import-column-samples i[data-outcome='changed'] { background: #fcefd9; color: #9a5b06; }
 .table-import-column-samples i[data-outcome='invalid'] { background: #fbeae6; color: #b3412e; }
+.table-import-column-samples i[data-outcome='changed'], .table-import-column-samples i[data-outcome='invalid'] { width: auto; min-width: 76px; max-width: 140px; }
 .table-import-column-samples i[data-outcome='blank'] { color: #8a817a; font-style: italic; }
 .table-import-column-note { color: #756c66; }
+.table-import-column-note select { width: 100%; }
 .table-import-column-note[data-tone='success'] { color: #1f7a5a; }
 .table-import-column-note[data-tone='warning'] { color: #9a5b06; }
 
