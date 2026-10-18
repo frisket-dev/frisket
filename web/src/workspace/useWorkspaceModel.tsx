@@ -580,7 +580,8 @@ export function useWorkspaceModel({
   const handleImportSessionChanged = useCallback(() => {
     projectData.invalidate();
     void refreshSheets();
-  }, [projectData, refreshSheets]);
+    void job.refresh();
+  }, [job, projectData, refreshSheets]);
   const importProgress = useImportProgress({
     projectId: project.id,
     onChanged: handleImportSessionChanged,
