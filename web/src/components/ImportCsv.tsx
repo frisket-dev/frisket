@@ -1957,7 +1957,7 @@ function OpenImportWorkspaceSession({
                 <PdfBatchImportFlow
                   projectId={projectId}
                   files={pdfBatchFiles}
-                  destinationSheets={destinationSheets.filter((sheet) => sheet.parent === undefined)}
+                  destinationSheets={destinationSheets.filter((sheet) => sheet.parent === undefined).map((sheet) => ({ id: Number(sheet.id), name: sheet.name }))}
                   onContextChange={setPdfBatchContext}
                   registerCloseGuard={registerPdfBatchCloseGuard}
                   onImported={(sheetId) => { onImported(sheetId); closeWorkspace(); }}
