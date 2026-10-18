@@ -5,7 +5,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { TableImportDraft, TableImportsApi } from '../../src/api/tableImports';
+import type { TableImportDraft, TableImportMappingRequest, TableImportsApi } from '../../src/api/tableImports';
 import { TableImportFlow } from '../../src/components/importWorkspace/tableImport';
 import { importSessionSnapshot } from '../../src/components/importProgressSession';
 
@@ -39,6 +39,7 @@ function draft(patch: Partial<TableImportDraft> = {}): TableImportDraft {
     columns: [{
       source_index: 0, name: 'contributor_id', original_name: 'contributor_id', name_status: 'original', included: true,
       target_type: 'text', date_order: null, suggested_type: 'text', ambiguous_date_order: false, needs_review: ['leading_zeros'],
+      inferred_date_order: null, conversion_counts_by_date_order: null,
       samples: [{ original: '00418823', value: '00418823', display: '00418823', outcome: 'unchanged' }],
       conversion_counts: { rows_checked: 2, valid: 2, blank: 0, changed: 0, invalid: 0, leading_zero_loss: 0, time_dropped: 0 }, stats_complete: true,
     }],
@@ -51,11 +52,11 @@ function draft(patch: Partial<TableImportDraft> = {}): TableImportDraft {
 }
 
 function mockApi(initial = draft()) {
-  const updateDestination = vi.fn(async (_project: string, _id: string, _revision: number, destination: { kind: string }) => draft({
+  const updateDestination = vi.fn(async (_project: string, _id: string, _revision: number, destination: { kind: string }, mappings?: TableImportMappingRequest[]) => draft({
     revision: 4,
     destination: {
       configuration: destination as never,
-      mappings: [{ source_index: 0, source_name: 'contributor_id', source_type: 'text', target: { kind: 'new', name: 'contributor_id' }, match: 'new', detail: null }],
+      mappings: [{ source_index: 0, source_name: 'contributor_id', source_type: 'text', target: (mappings?.[0]?.target ?? (destination.kind === 'existing' ? { kind: 'existing', column_id: 77 } : { kind: 'new', name: 'contributor_id' })) as never, match: destination.kind === 'existing' ? 'matched' : 'new', detail: null }],
       dedup: { enabled: false, key_source_index: null },
       comparison: { state: 'ready', matched_columns: 0, new_columns: 1, type_clashes: 0, duplicate_rows: 0, import_rows: 2, complete: true, error: null },
     },
@@ -66,6 +67,7 @@ function mockApi(initial = draft()) {
     createFromFile: vi.fn(async () => initial),
     createFromPaste: vi.fn(async () => initial),
     get: vi.fn(async () => initial),
+    rerun: vi.fn(async () => initial),
     unlock: vi.fn(async () => initial),
     updateSettings: vi.fn(async () => initial),
     updateColumns: vi.fn(async () => initial),
@@ -117,7 +119,7 @@ describe('TableImportFlow', () => {
     expect(screen.getByRole('radio', { name: /New sheet/ })).toBeChecked();
     expect(screen.getByRole('textbox', { name: 'Sheet name' })).toHaveValue('contributions');
     await waitFor(() => expect(api.updateDestination).toHaveBeenCalled());
-    fireEvent.click(await screen.findByRole('button', { name: 'Import 2 rows →' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Import 2 rows' }));
     await waitFor(() => expect(onImported).toHaveBeenCalledWith(41));
     expect(importSessionSnapshot()).toBeGreaterThan(progressVersion);
   });
@@ -175,6 +177,70 @@ describe('TableImportFlow', () => {
     await waitFor(() => expect(api.updateSettings).toHaveBeenCalledWith(
       'project-1', initial.draft_id, initial.revision,
       expect.objectContaining({ skip_rows_start: 1 }),
+    ));
+  });
+
+  it('reopens a retained workbook by import ref and starts a new draft for its current sheet', async () => {
+    const retained = draft({
+      draft_id: 'import-ref-7', id: 'import-ref-7', state: 'committed',
+      source: {
+        ...draft().source, filename: 'workbook.xlsx', format: 'xlsx', can_rerun_workbook: true,
+        sheets: [{ index: 0, name: 'January', hidden: false, empty: false }, { index: 1, name: 'February', hidden: false, empty: false }],
+      },
+      settings: {
+        ...draft().settings!,
+        requested: { ...draft().settings!.requested, worksheet: 'January' },
+        resolved: { ...draft().settings!.resolved, kind: 'xlsx', delimiter: null, encoding: null, worksheet: 'January' },
+      },
+    });
+    const next = draft({
+      draft_id: 'rerun-draft-8', id: 'rerun-draft-8', state: 'ready',
+      source: retained.source,
+      settings: retained.settings,
+    });
+    const api = mockApi(next);
+    vi.mocked(api.get).mockResolvedValue(retained);
+    vi.mocked(api.rerun).mockResolvedValue(next);
+
+    renderFlow(api, { initialFile: null, initialRerunDraftId: retained.draft_id });
+
+    expect(await screen.findByLabelText('Check rows')).toBeVisible();
+    expect(api.get).toHaveBeenCalledWith('project-1', 'import-ref-7', expect.anything());
+    expect(api.rerun).toHaveBeenCalledWith('project-1', 'import-ref-7', 'January', expect.anything());
+    expect(screen.getByRole('combobox', { name: /Sheet/ })).toHaveValue('January');
+  });
+
+  it('shows the inferred date order until the user chooses another order', async () => {
+    const initial = draft({
+      columns: [{
+        ...draft().columns[0], target_type: 'date', suggested_type: 'date', ambiguous_date_order: true,
+        date_order: null, inferred_date_order: 'day_first', needs_review: ['ambiguous_date_order'],
+      }],
+    });
+    const api = mockApi(initial);
+    renderFlow(api);
+    fireEvent.click(screen.getByRole('button', { name: 'Check rows →' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Columns →' }));
+
+    expect(await screen.findByRole('combobox', { name: 'Date order for contributor_id' })).toHaveValue('day_first');
+  });
+
+  it('lets an existing-sheet column match be changed to a new column', async () => {
+    const api = mockApi();
+    renderFlow(api, { destinationSheets: [{ id: 9, name: 'People', rowCount: 4, columns: [{ id: 77, name: 'contributor_id' }] }] });
+    fireEvent.click(screen.getByRole('button', { name: 'Check rows →' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Columns →' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue →' }));
+    fireEvent.click(await screen.findByRole('radio', { name: /Add to an existing sheet/ }));
+
+    const mapping = await screen.findByRole('combobox', { name: 'Map contributor_id' });
+    expect(mapping).toHaveValue('existing:77');
+    fireEvent.change(mapping, { target: { value: 'new' } });
+    await waitFor(() => expect(api.updateDestination).toHaveBeenLastCalledWith(
+      'project-1', expect.any(String), expect.any(Number),
+      expect.objectContaining({ kind: 'existing', sheet_id: 9 }),
+      [expect.objectContaining({ source_index: 0, target: { kind: 'new', name: 'contributor_id' } })],
+      expect.anything(),
     ));
   });
 });

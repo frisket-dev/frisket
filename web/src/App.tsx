@@ -1018,6 +1018,10 @@ const WorkspaceActRegion = memo(function WorkspaceActRegion() {
   const importDialogOpen = useSelector(actSurface.store, (s) => s.importDialogOpen);
   const importDialogEntryMode = useSelector(actSurface.store, (s) => s.importDialogEntryMode);
   const importDialogTableFile = useSelector(actSurface.store, (s) => s.importDialogTableFile);
+  const importDialogTableRerunDraftId = useSelector(
+    actSurface.store,
+    (s) => s.importDialogTableRerunDraftId,
+  );
   const importDialogFiles = useSelector(actSurface.store, (s) => s.importDialogFiles);
   const importPreparationBatchId = useSelector(
     actSurface.store,
@@ -1073,6 +1077,7 @@ const WorkspaceActRegion = memo(function WorkspaceActRegion() {
         open={importDialogOpen}
         entryMode={importDialogEntryMode}
         initialTableFile={importDialogTableFile}
+        initialTableRerunDraftId={importDialogTableRerunDraftId}
         initialFiles={importDialogFiles}
         initialPreparationBatchId={importPreparationBatchId}
         onClose={closeImportDialog}

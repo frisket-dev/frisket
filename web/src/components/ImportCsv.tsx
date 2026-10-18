@@ -878,6 +878,7 @@ function useImportUpload({
 type ImportWorkspaceDialogProps = ImportHandlers & {
   open: boolean;
   initialTableFile?: File | null;
+  initialTableRerunDraftId?: string | null;
   initialFiles?: File[] | null;
   initialPreparationBatchId?: string | null;
   /** The resolved `ner` catalog entry, for its engine availability. Absent
@@ -902,7 +903,7 @@ export function ImportWorkspaceDialog({ open, ...props }: ImportWorkspaceDialogP
 
   return open ? (
     <OpenImportWorkspaceSession
-      key={props.initialPreparationBatchId ?? 'import'}
+      key={props.initialPreparationBatchId ?? props.initialTableRerunDraftId ?? 'import'}
       {...props}
       initialMode={initialMode}
       onSessionModeChange={setLastMode}
@@ -914,6 +915,7 @@ function OpenImportWorkspaceSession({
   initialMode,
   onSessionModeChange,
   initialTableFile = null,
+  initialTableRerunDraftId = null,
   initialFiles = null,
   initialPreparationBatchId = null,
   onClose,
@@ -1694,6 +1696,7 @@ function OpenImportWorkspaceSession({
                 <TableImportFlow
                   projectId={projectId}
                   initialFile={initialTableFile}
+                  initialRerunDraftId={initialTableRerunDraftId}
                   followTheMoneyEnabled={ftmImportEnabled}
                   destinationSheets={appendDestinationSheets.map((sheet) => ({
                     id: Number(sheet.id),

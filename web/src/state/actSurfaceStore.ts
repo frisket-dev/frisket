@@ -59,6 +59,8 @@ export interface ActSurfaceState {
   /** A table file dropped on the empty-project surface. The dialog stages it
    *  through the same server reader used by the import. */
   importDialogTableFile: File | null;
+  /** Retained committed workbook import ref reopened to import another sheet. */
+  importDialogTableRerunDraftId: string | null;
   /** Files dropped on the empty-project surface that need the dialog's bulk
    *  planner. The dialog consumes this handoff once per open session. */
   importDialogFiles: File[] | null;
@@ -78,6 +80,7 @@ export function createActSurfaceState(): ActSurfaceState {
     importDialogOpen: false,
     importDialogEntryMode: null,
     importDialogTableFile: null,
+    importDialogTableRerunDraftId: null,
     importDialogFiles: null,
     importPreparationBatchId: null,
     sourcesConnectionsOpen: false,
@@ -101,6 +104,7 @@ export function createActSurfaceStore(): {
    *  mode the user last had selected (the generic-entry-point behavior). */
   openImportDialog(entryMode?: ImportMode): void;
   openTableImport(file: File): void;
+  openTableImportRerun(importRef: string): void;
   openBulkImport(files: File[]): void;
   openImportPreparation(batchId: string): void;
   closeImportDialog(): void;
@@ -147,6 +151,7 @@ export function createActSurfaceStore(): {
           importDialogOpen: false,
           importDialogEntryMode: null,
           importDialogTableFile: null,
+          importDialogTableRerunDraftId: null,
           importDialogFiles: null,
           importPreparationBatchId: null,
         });
@@ -157,6 +162,7 @@ export function createActSurfaceStore(): {
         s.importDialogOpen
         && s.importDialogEntryMode === nextEntryMode
         && s.importDialogTableFile === null
+        && s.importDialogTableRerunDraftId === null
         && s.importDialogFiles === null
         && s.importPreparationBatchId === null
           ? s
@@ -165,6 +171,7 @@ export function createActSurfaceStore(): {
             importDialogOpen: true,
             importDialogEntryMode: nextEntryMode,
             importDialogTableFile: null,
+            importDialogTableRerunDraftId: null,
             importDialogFiles: null,
             importPreparationBatchId: null,
           },
@@ -176,6 +183,18 @@ export function createActSurfaceStore(): {
         importDialogOpen: true,
         importDialogEntryMode: 'csv',
         importDialogTableFile: file,
+        importDialogTableRerunDraftId: null,
+        importDialogFiles: null,
+        importPreparationBatchId: null,
+      }));
+    },
+    openTableImportRerun(importRef) {
+      store.set((s) => ({
+        ...s,
+        importDialogOpen: true,
+        importDialogEntryMode: 'csv',
+        importDialogTableFile: null,
+        importDialogTableRerunDraftId: importRef,
         importDialogFiles: null,
         importPreparationBatchId: null,
       }));
@@ -186,6 +205,7 @@ export function createActSurfaceStore(): {
         importDialogOpen: true,
         importDialogEntryMode: 'files',
         importDialogTableFile: null,
+        importDialogTableRerunDraftId: null,
         importDialogFiles: files,
         importPreparationBatchId: null,
       }));
@@ -196,6 +216,7 @@ export function createActSurfaceStore(): {
         importDialogOpen: true,
         importDialogEntryMode: null,
         importDialogTableFile: null,
+        importDialogTableRerunDraftId: null,
         importDialogFiles: null,
         importPreparationBatchId: batchId,
       }));
@@ -204,6 +225,7 @@ export function createActSurfaceStore(): {
       store.set((s) =>
         s.importDialogOpen
         || s.importDialogTableFile !== null
+        || s.importDialogTableRerunDraftId !== null
         || s.importDialogFiles !== null
         || s.importPreparationBatchId !== null
           ? {
@@ -211,6 +233,7 @@ export function createActSurfaceStore(): {
             importDialogOpen: false,
             importDialogEntryMode: null,
             importDialogTableFile: null,
+            importDialogTableRerunDraftId: null,
             importDialogFiles: null,
             importPreparationBatchId: null,
           }

@@ -3,6 +3,7 @@ import type {
   HttpTableImportCommitResponse,
   HttpTableImportDestinationRequest,
   HttpTableImportDraft,
+  HttpTableImportRerunRequest,
   HttpTableImportSettingsRequest,
 } from '../generated/openHttpContracts';
 import { httpContract } from './httpContract';
@@ -33,6 +34,7 @@ export interface TableImportsApi {
   createFromFile(projectId: string, file: File, options?: TableImportRequestOptions): Promise<TableImportDraft>;
   createFromPaste(projectId: string, file: File, largePasteConfirmed: boolean, options?: TableImportRequestOptions): Promise<TableImportDraft>;
   get(projectId: string, draftId: string, options?: TableImportRequestOptions): Promise<TableImportDraft>;
+  rerun(projectId: string, draftId: string, worksheet: string, options?: TableImportRequestOptions): Promise<TableImportDraft>;
   unlock(projectId: string, draftId: string, password: string, options?: TableImportRequestOptions): Promise<TableImportDraft>;
   updateSettings(projectId: string, draftId: string, expectedRevision: number, settings: TableImportRequestedSettings, options?: TableImportRequestOptions): Promise<TableImportDraft>;
   updateColumns(projectId: string, draftId: string, expectedRevision: number, columns: TableImportColumnPatch[], options?: TableImportRequestOptions): Promise<TableImportDraft>;
@@ -88,6 +90,12 @@ export function createTableImportsApi(): TableImportsApi {
     get(projectId, draftId, options = {}) {
       return httpContract('tenant.get_table_import.get', {
         pathParams: { pid: projectId, draft_id: draftId }, query: {}, ...requestOptions(options),
+      });
+    },
+    rerun(projectId, draftId, worksheet, options = {}) {
+      const body: HttpTableImportRerunRequest = { worksheet };
+      return httpContract('tenant.rerun_table_import_worksheet.post', {
+        pathParams: { pid: projectId, draft_id: draftId }, query: {}, body, ...requestOptions(options),
       });
     },
     unlock(projectId, draftId, password, options = {}) {

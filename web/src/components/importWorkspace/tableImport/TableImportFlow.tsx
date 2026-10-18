@@ -44,6 +44,7 @@ export interface TableImportFlowProps {
   destinationSheets: readonly TableImportDestinationSheet[];
   followTheMoneyEnabled?: boolean;
   initialFile?: File | null;
+  initialRerunDraftId?: string | null;
   onContextChange(context: TableImportShellContext | null): void;
   onDiscarded(): void;
   onError(message: string): void;
@@ -84,6 +85,7 @@ export function TableImportFlow({
   destinationSheets,
   followTheMoneyEnabled = false,
   initialFile = null,
+  initialRerunDraftId = null,
   onContextChange,
   onDiscarded,
   onError,
@@ -116,6 +118,7 @@ export function TableImportFlow({
   const commitKey = useRef(crypto.randomUUID());
   const destinationSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const callbacks = useRef({ onDiscarded, onError, onImported });
+  const rerunSource = useRef<string | null>(null);
 
   useEffect(() => { callbacks.current = { onDiscarded, onError, onImported }; }, [onDiscarded, onError, onImported]);
 
@@ -229,6 +232,39 @@ export function TableImportFlow({
       }
     }
   }, [api, pasteText, projectId, publish, reportError]);
+
+  useEffect(() => {
+    if (!initialRerunDraftId || rerunSource.current === initialRerunDraftId) return;
+    rerunSource.current = initialRerunDraftId;
+    const epoch = ++generation.current;
+    requestController.current?.abort();
+    const controller = new AbortController();
+    requestController.current = controller;
+    setBusy(true);
+    setError(null);
+    void (async () => {
+      try {
+        const retained = await api.get(projectId, initialRerunDraftId, { signal: controller.signal });
+        if (!retained.source.can_rerun_workbook) throw new Error('This workbook is no longer available to import another sheet.');
+        const worksheet = retained.settings?.resolved.worksheet
+          ?? retained.settings?.requested.worksheet
+          ?? retained.source.sheets.find((sheet) => !sheet.empty)?.name;
+        if (!worksheet) throw new Error('This workbook has no other readable sheets.');
+        const next = await api.rerun(projectId, initialRerunDraftId, worksheet, { signal: controller.signal });
+        if (generation.current !== epoch || controller.signal.aborted) return;
+        publish(next);
+        setDestination({ kind: 'new', sheet_name: tableImportDefaultSheetName(next.source.filename, next.source.input_kind) });
+        setStage(next.state === 'password_required' ? 'add' : 'rows');
+      } catch (problem) {
+        if (generation.current === epoch && !controller.signal.aborted) reportError(problem);
+      } finally {
+        if (generation.current === epoch && requestController.current === controller) {
+          requestController.current = null;
+          setBusy(false);
+        }
+      }
+    })();
+  }, [api, initialRerunDraftId, projectId, publish, reportError]);
 
   const refresh = useCallback(async () => {
     const draftId = currentDraft.current;

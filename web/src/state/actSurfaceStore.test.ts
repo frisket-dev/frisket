@@ -44,6 +44,7 @@ describe('createActSurfaceStore', () => {
       store,
       openImportDialog,
       openTableImport,
+      openTableImportRerun,
       openBulkImport,
       openImportPreparation,
       closeImportDialog,
@@ -59,6 +60,15 @@ describe('createActSurfaceStore', () => {
     expect(store.get().importDialogTableFile).toBe(file);
     closeImportDialog();
     expect(store.get().importDialogTableFile).toBeNull();
+    openTableImportRerun('table-import-17');
+    expect(store.get()).toMatchObject({
+      importDialogOpen: true,
+      importDialogEntryMode: 'csv',
+      importDialogTableFile: null,
+      importDialogTableRerunDraftId: 'table-import-17',
+    });
+    closeImportDialog();
+    expect(store.get().importDialogTableRerunDraftId).toBeNull();
     const files = [new File(['Subject: tip'], 'message.eml', { type: 'message/rfc822' })];
     openBulkImport(files);
     expect(store.get().importDialogEntryMode).toBe('files');
