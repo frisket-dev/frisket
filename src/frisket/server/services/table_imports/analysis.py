@@ -107,6 +107,7 @@ def public_columns(
         target = choice["target_type"]
         date_order = choice.get("date_order")
         counts = _chosen_counts(stat, target, date_order)
+        counts_by_date_order = _counts_by_date_order(stat, target)
         samples = [
             conversion_json(
                 value,
@@ -134,11 +135,13 @@ def public_columns(
                 "included": bool(choice["included"]),
                 "target_type": target,
                 "date_order": date_order,
+                "inferred_date_order": stat.get("suggested_date_order"),
                 "suggested_type": stat["suggested_type"],
                 "ambiguous_date_order": stat["ambiguous_date_order"],
                 "needs_review": needs,
                 "samples": samples,
                 "conversion_counts": counts,
+                "conversion_counts_by_date_order": counts_by_date_order,
                 "stats_complete": bool(scan["stats"]["complete"]),
             }
         )
@@ -276,6 +279,22 @@ def _chosen_counts(
             return dict(order_counts[target])
     counts = stat["counts_by_type"].get(target)
     return dict(counts) if isinstance(counts, dict) else _zero_conversion_counts()
+
+
+def _counts_by_date_order(
+    stat: Mapping[str, Any], target: str
+) -> dict[str, dict[str, int]] | None:
+    if target not in {"date", "datetime"}:
+        return None
+    by_order = stat.get("counts_by_date_order")
+    if not isinstance(by_order, dict):
+        return None
+    return {
+        order: dict(
+            (by_order.get(order) or {}).get(target) or _zero_conversion_counts()
+        )
+        for order in ("month_first", "day_first")
+    }
 
 
 def _zero_conversion_counts() -> dict[str, int]:

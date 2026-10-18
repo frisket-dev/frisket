@@ -154,6 +154,11 @@ class TableImportConversionCounts(WireModel):
     time_dropped: int = Field(ge=0)
 
 
+class TableImportConversionCountsByDateOrder(WireModel):
+    month_first: TableImportConversionCounts
+    day_first: TableImportConversionCounts
+
+
 class TableImportColumn(WireModel):
     source_index: int = Field(ge=0)
     name: str
@@ -162,6 +167,7 @@ class TableImportColumn(WireModel):
     included: bool
     target_type: TableImportTargetType
     date_order: TableImportDateOrder | None
+    inferred_date_order: TableImportDateOrder | None
     suggested_type: TableImportTargetType
     ambiguous_date_order: bool
     needs_review: list[
@@ -176,6 +182,7 @@ class TableImportColumn(WireModel):
     ]
     samples: list[TableImportConversionSample] = Field(max_length=5)
     conversion_counts: TableImportConversionCounts
+    conversion_counts_by_date_order: TableImportConversionCountsByDateOrder | None
     stats_complete: bool
 
 

@@ -188,12 +188,23 @@ def register_table_import_routes(
             result = vars(result)
         if not isinstance(result, Mapping):
             raise RuntimeError("table import commit handler returned no result")
+        public_result = {
+            field: result[field]
+            for field in (
+                "import_ref",
+                "sheet_id",
+                "sheet_name",
+                "selected_total",
+                "estimated_rows",
+            )
+            if field in result
+        }
         return await await_thread_worker(
             service.record_commit,
             pid,
             draft_id,
             idempotency_key=body.idempotency_key,
-            result=result,
+            result=public_result,
         )
 
     @app.delete(

@@ -165,6 +165,23 @@ def test_snapshot_keeps_mixed_datetime_warning_and_resolved_number_samples(
     assert [sample.value for sample in amount.samples] == [1.5, 2.5]
 
 
+def test_snapshot_exposes_inferred_date_order_and_both_conversion_counts(
+    tmp_path: Path,
+) -> None:
+    _workspace, project_id, service = _service(tmp_path)
+    payload = b"when\n31/01/2025\n18/02/2025\n"
+    created = service.create(project_id, _upload(payload), input_kind="file")
+    scanned = service.scan(project_id, created.draft_id, settings_revision=0)
+    column = scanned.columns[0]
+
+    assert column.target_type == "date"
+    assert column.inferred_date_order == "day_first"
+    assert column.date_order == "day_first"
+    assert column.conversion_counts_by_date_order is not None
+    assert column.conversion_counts_by_date_order.day_first.valid == 2
+    assert column.conversion_counts_by_date_order.month_first.invalid == 2
+
+
 def test_full_scan_refreshes_unreviewed_prefix_inference(tmp_path: Path) -> None:
     _workspace, project_id, service = _service(tmp_path)
     payload = (

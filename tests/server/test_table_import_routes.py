@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from frisket.engine.store.table_import_intake import FrozenTableImport
 from frisket.server.route_errors import register_route_error_handler
 from frisket.server.routes.table_imports import register_table_import_routes
 
@@ -19,6 +22,30 @@ class _Service:
     def status(self, pid, draft_id):
         self.calls.append(("status", pid, draft_id))
         return self.snapshot
+
+    def freeze_for_commit(self, pid, draft_id, **kwargs):
+        self.calls.append(("freeze", pid, draft_id, kwargs))
+        return FrozenTableImport(
+            import_ref=draft_id,
+            intake_dir=Path("."),
+            source=None,
+            settings_revision=0,
+            settings_hash="settings",
+            plan_hash="plan",
+            plan=None,
+            estimated_rows=None,
+            exact_rows=2,
+            source_record_count=2,
+        )
+
+    def record_commit(self, pid, draft_id, **kwargs):
+        self.calls.append(("record", pid, draft_id, kwargs))
+        return {
+            "schema_version": "frisket.table_import.v1",
+            "draft_id": draft_id,
+            "status": "accepted",
+            **kwargs["result"],
+        }
 
 
 def _snapshot():
@@ -131,3 +158,44 @@ def test_file_and_paste_use_distinct_typed_operations() -> None:
         "discardTableImport",
         "rerunTableImportWorksheet",
     }.issubset(operation_ids)
+
+
+def test_commit_projects_execution_result_to_the_public_response() -> None:
+    app = FastAPI()
+    service = _Service(_snapshot())
+
+    def commit_handler(frozen, _request):
+        assert frozen.import_ref == "import-" + "1" * 32
+        return {
+            "import_ref": frozen.import_ref,
+            "sheet_id": 7,
+            "sheet_name": "People",
+            "selected_total": 2,
+            "estimated_rows": None,
+            "receipt_id": 99,
+            "run_id": 100,
+        }
+
+    register_table_import_routes(app, service=service, commit_handler=commit_handler)
+    register_route_error_handler(app)
+    client = TestClient(app)
+    draft_id = "import-" + "1" * 32
+
+    response = client.post(
+        f"/api/projects/p/import/table-imports/{draft_id}/commit",
+        json={"expected_revision": 1, "idempotency_key": "request-1"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "schema_version": "frisket.table_import.v1",
+        "draft_id": draft_id,
+        "status": "accepted",
+        "import_ref": draft_id,
+        "sheet_id": 7,
+        "sheet_name": "People",
+        "selected_total": 2,
+        "estimated_rows": None,
+    }
+    record = next(call for call in service.calls if call[0] == "record")
+    assert "receipt_id" not in record[3]["result"]
