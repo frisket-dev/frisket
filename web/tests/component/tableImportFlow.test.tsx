@@ -123,6 +123,22 @@ describe('TableImportFlow', () => {
     expect(importSessionSnapshot()).toBeGreaterThan(progressVersion);
   });
 
+  it('does not commit a previously saved destination when the required final save fails', async () => {
+    const api = mockApi();
+    renderFlow(api);
+    fireEvent.click(await screen.findByRole('button', { name: 'Columns →' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue →' }));
+    expect(await screen.findByLabelText('Import')).toBeVisible();
+    await waitFor(() => expect(api.updateDestination).toHaveBeenCalledTimes(1));
+
+    vi.mocked(api.updateDestination).mockRejectedValueOnce(new Error('Could not save destination'));
+    fireEvent.click(screen.getByRole('button', { name: 'Import 2 rows' }));
+
+    expect(await screen.findByText('Could not save destination')).toBeVisible();
+    expect(api.commit).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Import')).toBeVisible();
+  });
+
   it('keeps several selected files intact when handing off to Multiple files', async () => {
     const api = mockApi();
     const onUseMultipleFiles = vi.fn();

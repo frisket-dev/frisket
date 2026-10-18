@@ -356,7 +356,8 @@ export function TableImportFlow({
     const defaultDestination: TableImportDestinationConfig = { kind: 'new', sheet_name: tableImportDefaultSheetName(source.source.filename, source.source.input_kind) };
     const desired = destination.kind === 'new' && destination.sheet_name === 'Imported table' ? defaultDestination : destination;
     setDestination(desired);
-    await saveDestination(desired);
+    const saved = await saveDestination(desired);
+    if (!saved) return;
     setStage('import');
   }, [destination, saveDestination]);
 
@@ -419,8 +420,8 @@ export function TableImportFlow({
     try {
       await mutationTail.current;
       const saved = await saveDestination(destination);
-      const source = saved ?? latestSnapshot.current;
-      if (!source) return;
+      if (!saved) return;
+      const source = saved;
       try {
         const result = await api.commit(projectId, source.draft_id, source.revision, commitKey.current);
         notifyImportSessionChanged();
