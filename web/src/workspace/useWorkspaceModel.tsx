@@ -1280,28 +1280,35 @@ export function useWorkspaceModel({
   const activeDocumentPriority = documentPriority?.runId === importLiveRun?.runId
     && importLiveRun?.actionKind === 'media.ocr' ? documentPriority : null;
 
-  const openRowInDocumentView = useCallback(
+  const prioritizeDocumentRow = useCallback(
     (rowId: string, columnId: string) => {
       if (!sheet) return;
       const numericRowId = Number(rowId);
       const numericColumnId = Number(columnId);
-      if (Number.isSafeInteger(numericRowId) && Number.isSafeInteger(numericColumnId)) {
-        const request = ++documentPriorityRequest.current;
-        void promoteDocumentPriority(project.id, {
-          sheetId: Number(sheet.id),
-          rowId: numericRowId,
-          columnId: numericColumnId,
-        }).then((result) => {
-          if (request !== documentPriorityRequest.current || !result.promoted) return;
-          setDocumentPriority({
-            sheetId: sheet.id,
-            rowId,
-            columnId,
-            label: `File row ${rowId}`,
-            runId: importLiveRun?.runId ?? '',
-          });
-        }).catch(() => undefined);
-      }
+      if (!Number.isSafeInteger(numericRowId) || !Number.isSafeInteger(numericColumnId)) return;
+      const request = ++documentPriorityRequest.current;
+      void promoteDocumentPriority(project.id, {
+        sheetId: Number(sheet.id),
+        rowId: numericRowId,
+        columnId: numericColumnId,
+      }).then((result) => {
+        if (request !== documentPriorityRequest.current || !result.promoted) return;
+        setDocumentPriority({
+          sheetId: sheet.id,
+          rowId,
+          columnId,
+          label: `File row ${rowId}`,
+          runId: importLiveRun?.runId ?? '',
+        });
+      }).catch(() => undefined);
+    },
+    [importLiveRun?.runId, project.id, sheet],
+  );
+
+  const openRowInDocumentView = useCallback(
+    (rowId: string, columnId: string) => {
+      if (!sheet) return;
+      prioritizeDocumentRow(rowId, columnId);
       setOpenSplit(null);
       const base =
         documentView && documentView.sheetId === sheet.id
@@ -1324,7 +1331,7 @@ export function useWorkspaceModel({
       });
       selection.clearRowSelection(sheet.id);
     },
-    [project.id, sheet, documentView, selection, setDocumentView, setOpenSplit, importLiveRun?.runId],
+    [sheet, prioritizeDocumentRow, documentView, selection, setDocumentView, setOpenSplit],
   );
   const setDocumentPriorityLabel = useCallback((rowId: string, label: string) => {
     setDocumentPriority((current) => current?.rowId === rowId ? { ...current, label } : current);
@@ -3904,6 +3911,7 @@ export function useWorkspaceModel({
       documentView,
       documentViewShowing,
       documentPriority: activeDocumentPriority,
+      prioritizeDocumentRow,
       setDocumentPriorityLabel,
       extractViewShowing,
       annotatedTextColumnIds,
@@ -4062,6 +4070,7 @@ export function useWorkspaceModel({
       documentView,
       documentViewShowing,
       activeDocumentPriority,
+      prioritizeDocumentRow,
       setDocumentPriorityLabel,
       extractViewShowing,
       answersViewShowing,

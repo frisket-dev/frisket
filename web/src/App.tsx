@@ -3511,6 +3511,7 @@ function WorkspacePrimarySurface() {
     documentView,
     documentViewShowing,
     documentPriority,
+    prioritizeDocumentRow,
     setDocumentPriorityLabel,
     extractViewShowing,
     annotatedTextColumnIds,
@@ -3688,6 +3689,7 @@ function WorkspacePrimarySurface() {
         onSetDisabledToggleKeys={(next) => setSheetAnnotationToggles(sheet.id, next)}
         onReplayAnnotationLayer={replayAnnotationLayer}
         priorityReadingRowId={documentPriority?.sheetId === sheet.id ? documentPriority.rowId : null}
+        onRequestDocumentPriority={prioritizeDocumentRow}
         onPriorityLabel={setDocumentPriorityLabel}
         onListSort={(columnName, dir) => {
           if (dir === null) clearGridSort();

@@ -70,6 +70,7 @@ interface DocumentViewProps {
   onReplayAnnotationLayer?: ((outputColumnId: string) => void) | null;
   /** Transient state set only after the explicit-open priority endpoint accepts the row. */
   priorityReadingRowId?: string | null;
+  onRequestDocumentPriority?(rowId: string, columnId: string): void;
   onPriorityLabel?(rowId: string, label: string): void;
 }
 
@@ -92,6 +93,7 @@ export function DocumentView({
   onSetDisabledToggleKeys,
   onReplayAnnotationLayer,
   priorityReadingRowId = null,
+  onRequestDocumentPriority,
   onPriorityLabel,
 }: DocumentViewProps) {
   // The docked mention-detail panel (O3): opening a document from it keeps it
@@ -412,7 +414,12 @@ export function DocumentView({
                   role="option"
                   aria-selected={active}
                   style={{ position: 'absolute', top: `${index * LIST_ITEM_HEIGHT}px`, height: `${LIST_ITEM_HEIGHT}px` }}
-                  onClick={() => selectDocument(rowId)}
+                  onClick={() => {
+                    selectDocument(rowId);
+                    if (item.sourceKind === 'pdf' && sourceColumn) {
+                      onRequestDocumentPriority?.(rowId, String(sourceColumn.id));
+                    }
+                  }}
                   onDoubleClick={() => onOpenDetail(rowId)}
                 >
                   <span className="document-list-item-title">{item.title}</span>
