@@ -52,6 +52,7 @@ class ImportSessionStatus(WireModel):
     unreadable_total: int = 0
     preparation_stopped: bool = False
     preparation_pending_confirmation: dict[str, JsonValue] | None = None
+    semantic_preparation_error: str | None = None
     row_error_summary: RunRowErrorSummary | None = None
     preparation_children: list[ImportPreparationChild] = Field(default_factory=list)
 

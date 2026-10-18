@@ -401,6 +401,23 @@ class SearchPreparationService:
             project_id, receipt_id=receipt_id, import_ref=import_ref
         )
 
+    def abandon_pdf_import(
+        self, project_id: str, *, receipt_id: str, import_ref: str
+    ) -> None:
+        pending = self.store.for_receipt(
+            storage_org_id=self.workspace.queue_storage_org_id,
+            project_id=project_id,
+            receipt_id=receipt_id,
+            include_pending=True,
+        )
+        if pending is None or pending.import_ref != import_ref:
+            return
+        self.store.mark_settled(
+            pending.id,
+            project_id=project_id,
+            storage_org_id=self.workspace.queue_storage_org_id,
+        )
+
     def _ensure_pdf_semantic_setup(
         self,
         project_id: str,

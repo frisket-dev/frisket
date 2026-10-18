@@ -677,6 +677,9 @@ class ImportSessionService:
             preparation_pending_confirmation=(
                 None if pdf_summary is None else pdf_summary.pending_confirmation
             ),
+            semantic_preparation_error=(
+                None if pdf_summary is None else pdf_summary.semantic_error
+            ),
             row_error_summary=(
                 None if pdf_summary is None else pdf_summary.row_error_summary
             ),

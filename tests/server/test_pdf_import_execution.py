@@ -9,6 +9,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
 from frisket.ai.llm import ModelRouter
 from frisket.server.services.pdf_import_commit import PdfImportCommitService
 from frisket.server.services.pdf_imports import PdfImportService
@@ -25,6 +27,7 @@ from frisket.engine.jobs.worker import HandlerRegistry, Worker
 from frisket.engine.store.import_inventory import ImportInventory
 from frisket.engine.store.execution_routes import RouteStore
 from frisket.engine.store.media_blobs import MediaBlobStore
+from frisket.engine.store.receipts import ReceiptStore
 from frisket.server.services.pdf_import_preparation import PdfImportPreparationStore
 from frisket.server.services.pdf_import_ocr_approval import (
     PdfImportOcrApprovalQuoter,
@@ -185,6 +188,7 @@ class _Intake:
 class _TextPreparation:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
+        self.abandoned: list[dict[str, Any]] = []
 
     def progress_pdf_import(self, project_id, import_ref):
         value = {"project_id": project_id, "import_ref": import_ref}
@@ -193,6 +197,21 @@ class _TextPreparation:
 
     def reserve_pdf_import(self, _project_id, **_kwargs):
         return None
+
+    def abandon_pdf_import(self, project_id, **kwargs):
+        self.abandoned.append({"project_id": project_id, **kwargs})
+
+
+class _FailingTextPreparation(_TextPreparation):
+    def progress_pdf_import(self, project_id, import_ref):
+        super().progress_pdf_import(project_id, import_ref)
+        raise RouteError(409, "text preparation is temporarily unavailable")
+
+
+class _FailedPromotionIntake(_Intake):
+    def promote_commit_inventory(self, *_args, target_path, **_kwargs):
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        raise OSError("promotion failed before ownership transfer")
 
 
 def _staged(root: Path, ordinal: int, name: str, *, category: str) -> _Occurrence:
@@ -1228,6 +1247,238 @@ def test_commit_request_publishes_one_bounded_page_then_enqueues_continuation(
     ]
 
 
+def test_preparation_failure_cannot_block_durable_import_continuation(
+    tmp_path: Path,
+) -> None:
+    workspace, project_id = _workspace(tmp_path)
+    project = workspace.get(project_id)
+    draft = tmp_path / "draft-preparation-failure"
+    draft.mkdir()
+    occurrences = [
+        _staged(draft, ordinal, f"{ordinal}.pdf", category="text")
+        for ordinal in range(1, 258)
+    ]
+    frozen = _Frozen(
+        commit_id="pdf-commit-preparation-failure",
+        draft_id="draft-preparation-failure",
+        project_id=project_id,
+        storage_identity=project.storage_identity,
+        idempotency_key="commit-preparation-failure",
+        selected_through=257,
+        selected_total=257,
+        staged_through=257,
+        manifest_hash="sha256:frozen-preparation-failure",
+        destination={"kind": "new", "sheet_name": "Preparation failure"},
+        ocr_policy="none",
+        ocr_engine="rapidocr",
+        ocr_action_params={"engine": "rapidocr"},
+        ocr_authorization=None,
+        semantic_search=False,
+        semantic_setup_confirmation=None,
+        directory=draft,
+        commit_inventory_path=draft / "commit-inventory.db",
+        committed_total=257,
+        available_through=0,
+        uploads_complete=False,
+        sealed=False,
+        occurrences=occurrences,
+    )
+    queued: list[tuple[Any, ...]] = []
+    preparation = _FailingTextPreparation()
+
+    result = PdfImportCommitService(
+        workspace,
+        intake=_Intake(frozen),
+        text_preparation=preparation,
+        enqueue=lambda *args: queued.append(args),
+    ).commit(
+        project_id,
+        frozen.draft_id,
+        idempotency_key=frozen.idempotency_key,
+        expected_revision=1,
+    )
+
+    assert result.state == "running"
+    assert result.committed_rows == 256
+    assert queued == [(project_id, result.import_ref, 257, True)]
+    assert frozen.commit_result == {
+        "import_ref": result.import_ref,
+        "sheet_id": result.sheet_id,
+        "receipt_id": result.receipt_id,
+    }
+    assert preparation.calls == [
+        {"project_id": project_id, "import_ref": result.import_ref}
+    ]
+
+
+def test_prepromotion_failure_restores_draft_and_releases_reservation(
+    tmp_path: Path,
+) -> None:
+    workspace, project_id = _workspace(tmp_path)
+    project = workspace.get(project_id)
+    draft = tmp_path / "draft-promotion-failure"
+    draft.mkdir()
+    occurrence = _staged(draft, 1, "one.pdf", category="text")
+    frozen = _Frozen(
+        commit_id="pdf-commit-promotion-failure",
+        draft_id="draft-promotion-failure",
+        project_id=project_id,
+        storage_identity=project.storage_identity,
+        idempotency_key="commit-promotion-failure",
+        selected_through=1,
+        selected_total=1,
+        staged_through=1,
+        manifest_hash="sha256:frozen-promotion-failure",
+        destination={"kind": "new", "sheet_name": "Promotion failure"},
+        ocr_policy="none",
+        ocr_engine="rapidocr",
+        ocr_action_params={"engine": "rapidocr"},
+        ocr_authorization=None,
+        semantic_search=False,
+        semantic_setup_confirmation=None,
+        directory=draft,
+        commit_inventory_path=draft / "commit-inventory.db",
+        committed_total=1,
+        available_through=0,
+        uploads_complete=False,
+        sealed=False,
+        occurrences=[occurrence],
+    )
+    intake = _FailedPromotionIntake(frozen)
+    preparation = _TextPreparation()
+
+    with pytest.raises(OSError, match="ownership transfer"):
+        PdfImportCommitService(
+            workspace, intake=intake, text_preparation=preparation
+        ).commit(
+            project_id,
+            frozen.draft_id,
+            idempotency_key=frozen.idempotency_key,
+            expected_revision=1,
+        )
+
+    assert intake.results == [
+        {
+            "idempotency_key": frozen.idempotency_key,
+            "committed": False,
+        }
+    ]
+    assert ReceiptStore(project).find_by_idempotency_key(
+        f"pdf-import:{frozen.commit_id}"
+    ) is None
+    assert len(preparation.abandoned) == 1
+    import_ref = preparation.abandoned[0]["import_ref"]
+    assert not (project.path / ".imports" / import_ref).exists()
+
+
+def test_semantic_setup_failure_does_not_block_native_text_preparation(
+    tmp_path: Path, monkeypatch
+) -> None:
+    workspace, project_id = _workspace(tmp_path)
+    draft = tmp_path / "draft-semantic-failure"
+    draft.mkdir()
+    occurrence = _staged(draft, 1, "native.pdf", category="text")
+    frozen = _Frozen(
+        commit_id="pdf-commit-semantic-failure",
+        draft_id="draft-semantic-failure",
+        project_id=project_id,
+        storage_identity=workspace.get(project_id).storage_identity,
+        idempotency_key="commit-semantic-failure",
+        selected_through=1,
+        selected_total=1,
+        staged_through=1,
+        manifest_hash="sha256:frozen-semantic-failure",
+        destination={"kind": "new", "sheet_name": "Semantic failure"},
+        ocr_policy="none",
+        ocr_engine="rapidocr",
+        ocr_action_params={"engine": "rapidocr"},
+        ocr_authorization=None,
+        semantic_search=True,
+        semantic_setup_confirmation="stale-review",
+        directory=draft,
+        commit_inventory_path=draft / "commit-inventory.db",
+        committed_total=1,
+        available_through=0,
+        uploads_complete=False,
+        sealed=False,
+        occurrences=[occurrence],
+    )
+    actions = _ActionRuns()
+    preparation = SearchPreparationService(workspace, action_runs=actions)
+    monkeypatch.setattr(
+        preparation,
+        "_ensure_pdf_semantic_setup",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RouteError(409, "semantic setup confirmation changed")
+        ),
+    )
+
+    result = PdfImportCommitService(
+        workspace, intake=_Intake(frozen), text_preparation=preparation
+    ).commit(
+        project_id,
+        frozen.draft_id,
+        idempotency_key=frozen.idempotency_key,
+        expected_revision=1,
+    )
+
+    assert [body["action_id"] for body in actions.bodies] == [
+        "media.read_pdf_text"
+    ]
+    summary = preparation.pdf_import_summary(project_id, result.import_ref)
+    assert summary.scheduled_through == 1
+    status = ImportSessionService(
+        workspace, search_preparation=preparation
+    ).status(project_id, result.import_ref)
+    assert status.semantic_preparation_error == "semantic setup confirmation changed"
+    inventory_path = (
+        workspace.get(project_id).path
+        / ".imports"
+        / result.import_ref
+        / "inventory.db"
+    )
+    with PdfImportPreparationStore(inventory_path) as store:
+        semantic_error = store.db.execute(
+            "SELECT semantic_error FROM pdf_commit_preparation WHERE singleton=1"
+        ).fetchone()[0]
+    assert semantic_error == "semantic setup confirmation changed"
+
+
+def test_partial_preparation_children_are_terminal_for_bounded_activity(
+    tmp_path: Path,
+) -> None:
+    workspace, project_id = _workspace(tmp_path)
+    project = workspace.get(project_id)
+    inventory_path = tmp_path / "partial-children.db"
+    with ImportInventory(inventory_path) as inventory:
+        inventory._db.execute(
+            "CREATE TABLE pdf_commit_occurrences ("
+            "ordinal INTEGER PRIMARY KEY,occurrence_id TEXT NOT NULL,"
+            "selected_ordinal INTEGER NOT NULL,category TEXT NOT NULL,"
+            "error TEXT,sha256 TEXT,page_count INTEGER,"
+            "ocr_selected INTEGER NOT NULL)"
+        )
+        inventory._db.commit()
+    with PdfImportPreparationStore(inventory_path) as store:
+        for index in range(100):
+            store.record_child(
+                child_key=f"partial-{index}",
+                action_id="media.read_pdf_text",
+                row_count=1,
+                response={"status": "partial"},
+            )
+        store.record_child(
+            child_key="queued-last",
+            action_id="media.ocr",
+            row_count=1,
+            response={"status": "queued"},
+        )
+        summary = store.summary(project, import_ref="import-partial")
+
+    assert summary.children[0]["child_key"] == "queued-last"
+    assert summary.children[0]["status"] == "queued"
+
+
 def test_bootstrap_blob_promotion_uses_the_ordinary_64mib_page_budget(
     tmp_path: Path,
 ) -> None:
@@ -1244,3 +1495,31 @@ def test_bootstrap_blob_promotion_uses_the_ordinary_64mib_page_budget(
     )
 
     assert calls == [{"after": 17, "limit": 256, "byte_budget": 64 * 1024 * 1024}]
+
+
+def test_blob_promotion_reclaims_staging_and_replays_from_canonical_owner(
+    tmp_path: Path,
+) -> None:
+    workspace, project_id = _workspace(tmp_path)
+    project = workspace.get(project_id)
+    directory = tmp_path / "canonical-replay"
+    staged = directory / "staged"
+    staged.mkdir(parents=True)
+    payload = b"durable PDF bytes"
+    digest = hashlib.sha256(payload).hexdigest()
+    (staged / digest).write_bytes(payload)
+
+    class _Inventory:
+        def page(self, **_kwargs):
+            return [{"sha256": digest}]
+
+    PdfImportCommitService._promote_page_blobs(
+        project, directory, _Inventory(), after=0
+    )
+    assert not (staged / digest).exists()
+    with project.blob_store.materialize(digest) as canonical:
+        assert canonical.read_bytes() == payload
+
+    PdfImportCommitService._promote_page_blobs(
+        project, directory, _Inventory(), after=0
+    )

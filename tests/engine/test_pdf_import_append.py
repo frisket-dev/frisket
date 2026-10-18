@@ -120,10 +120,62 @@ def test_append_session_resumes_once_and_undo_owns_only_imported_rows(
             "SELECT undo_info FROM ops WHERE id=?", (publication.op_id,)
         ).fetchone()
         assert json.loads(op["undo_info"]) == {
-            "created_rows": [*first_ids, *second_ids]
+            "created_rows": [*first_ids, *second_ids],
+            "created_columns": [],
         }
         assert project.undo() == publication.op_id
         assert _visible_names(project, sheet_id, columns["filename"]) == ["before.pdf"]
+    finally:
+        project.close()
+
+
+def test_append_undo_hides_columns_created_for_the_import(tmp_path: Path) -> None:
+    project = Project.create(tmp_path / "append-column.frisket", name="append")
+    try:
+        sheet_id, _columns = _existing_sheet(project)
+        writer = StreamingSheetWriter.start_append_session(
+            project,
+            session_id="pdf-commit:column",
+            writer_authority="claim:column",
+            sheet_id=sheet_id,
+            columns=[
+                {"name": "filename", "type": "text"},
+                {"name": "PDF import note", "type": "text"},
+            ],
+            project_id="pdf-project",
+            action_kind="import.files",
+            idempotency_key="pdf-commit:column",
+            params_hash="sha256:pdf-commit-column",
+            action_id="act:pdf-commit-column",
+            receipt_id="receipt:pdf-commit-column",
+            source_ref={"kind": "pdf_import_draft", "draft_id": "draft:column"},
+        )
+        writer.append_page(
+            [{"filename": "one.pdf", "PDF import note": "created"}],
+            expected_cursor=0,
+            next_cursor=1,
+        )
+        publication = writer.finalize_session(expected_cursor=1)
+        created_column = project.db.execute(
+            "SELECT id FROM columns WHERE sheet_id=? AND name=? AND active=1",
+            (sheet_id, "PDF import note"),
+        ).fetchone()
+        assert created_column is not None
+        undo_info = json.loads(
+            project.db.execute(
+                "SELECT undo_info FROM ops WHERE id=?", (publication.op_id,)
+            ).fetchone()["undo_info"]
+        )
+        assert undo_info["created_columns"] == [int(created_column["id"])]
+
+        assert project.undo() == publication.op_id
+        assert (
+            project.db.execute(
+                "SELECT 1 FROM columns WHERE id=? AND active=1",
+                (int(created_column["id"]),),
+            ).fetchone()
+            is None
+        )
     finally:
         project.close()
 
@@ -238,12 +290,7 @@ def test_append_adds_missing_import_columns_without_touching_existing_data(
         assert project.get_values(sheet_id, notes)[old_row] == "keep"
         assert project.undo() == publication.op_id
         assert project.get_values(sheet_id, notes)[old_row] == "keep"
-        assert {str(row["name"]) for row in project.columns(sheet_id)} >= {
-            "notes",
-            "filename",
-            "media",
-            "size",
-        }
+        assert {str(row["name"]) for row in project.columns(sheet_id)} == {"notes"}
     finally:
         project.close()
 

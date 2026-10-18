@@ -12,6 +12,10 @@ from frisket.engine.store.document_text_migration import (
     migrate_document_text,
 )
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
+from frisket.engine.store.bundle_open import (
+    _IMPORT_SESSION_ROWS_FROM_DIGEST,
+    _IMPORT_SESSION_ROWS_TO_DIGEST,
+)
 
 
 def _restore_prior_layout(project: Project) -> None:
@@ -37,7 +41,7 @@ def test_prior_bundle_migrates_without_guessing_legacy_roles(tmp_path: Path) -> 
 
     reopened = Project(path)
     try:
-        assert DOCUMENT_TEXT_TO_DIGEST == SCHEMA_DIGEST
+        assert DOCUMENT_TEXT_TO_DIGEST == _IMPORT_SESSION_ROWS_FROM_DIGEST
         assert reopened.get_meta(SCHEMA_DIGEST_META_KEY) == SCHEMA_DIGEST
         assert {
             str(row[0])
@@ -64,6 +68,40 @@ def test_prior_bundle_migrates_without_guessing_legacy_roles(tmp_path: Path) -> 
             ).fetchone()[0]
         )
         assert "document_text_authority" in trigger_sql
+    finally:
+        reopened.close()
+
+
+def test_document_text_bundle_adds_stable_import_row_ledger(tmp_path: Path) -> None:
+    project = Project.create(tmp_path / "import-rows.frisket")
+    path = project.path
+    project.db.execute("DROP TABLE import_session_rows")
+    project.db.execute(
+        "UPDATE meta SET value=? WHERE key=?",
+        (_IMPORT_SESSION_ROWS_FROM_DIGEST, SCHEMA_DIGEST_META_KEY),
+    )
+    project.db.commit()
+    project.close()
+
+    reopened = Project(path)
+    try:
+        assert _IMPORT_SESSION_ROWS_TO_DIGEST == SCHEMA_DIGEST
+        assert reopened.get_meta(SCHEMA_DIGEST_META_KEY) == SCHEMA_DIGEST
+        columns = {
+            str(row[1])
+            for row in reopened.db.execute("PRAGMA table_info(import_session_rows)")
+        }
+        assert columns == {"session_id", "ordinal", "row_id"}
+        foreign_keys = {
+            (str(row[2]), str(row[3]), str(row[4]), str(row[6]))
+            for row in reopened.db.execute(
+                "PRAGMA foreign_key_list(import_session_rows)"
+            )
+        }
+        assert foreign_keys == {
+            ("rows", "row_id", "id", "CASCADE"),
+            ("import_sessions", "session_id", "id", "CASCADE"),
+        }
     finally:
         reopened.close()
 

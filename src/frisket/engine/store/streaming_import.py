@@ -417,6 +417,7 @@ class StreamingSheetWriter:
                     (int(sheet_id),),
                 ).fetchone()[0]
             )
+            created_column_ids: list[int] = []
             for name, column in zip(names, column_specs, strict=True):
                 if name in column_ids:
                     continue
@@ -436,7 +437,9 @@ class StreamingSheetWriter:
                         column.get("semantic_type"),
                     ),
                 )
-                column_ids[name] = int(cursor.lastrowid)
+                column_id = int(cursor.lastrowid)
+                column_ids[name] = column_id
+                created_column_ids.append(column_id)
 
             receipt_store = ReceiptStore(project)
             stored_receipt = receipt_store.find_by_id(receipt_id)
@@ -477,7 +480,10 @@ class StreamingSheetWriter:
                 },
                 label=f"import into {requested_name}",
                 barrier=True,
-                undo_info={"created_rows": []},
+                undo_info={
+                    "created_rows": [],
+                    "created_columns": created_column_ids,
+                },
                 commit=False,
             )
             producer_id = create_base_cell_producer(

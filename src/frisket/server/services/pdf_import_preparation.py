@@ -30,6 +30,7 @@ from frisket.server.route_errors import RouteError
 from frisket.server.services.pdf_import_ocr_approval import PdfImportOcrGrant
 
 _CHILD_STATUS_PAGE = 100
+_TERMINAL_CHILD_STATUSES = ("completed", "failed", "cancelled", "partial")
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +51,7 @@ class PdfImportPreparationSummary:
     ocr_completed: int
     unreadable_total: int
     pending_confirmation: Mapping[str, Any] | None
+    semantic_error: str | None
     children: tuple[Mapping[str, Any], ...]
     stopped: bool
     row_error_summary: Mapping[str, Any] | None
@@ -72,11 +74,20 @@ class PdfImportPreparationStore:
             "singleton INTEGER PRIMARY KEY CHECK(singleton=1),"
             "scheduled_through INTEGER NOT NULL DEFAULT 0,"
             "pending_confirmation_json TEXT,"
+            "semantic_error TEXT,"
             "stopped INTEGER NOT NULL DEFAULT 0,"
             "native_total INTEGER NOT NULL DEFAULT 0,"
             "ocr_total INTEGER NOT NULL DEFAULT 0,"
             "unreadable_total INTEGER NOT NULL DEFAULT 0)"
         )
+        columns = {
+            str(row["name"])
+            for row in self.db.execute("PRAGMA table_info(pdf_commit_preparation)")
+        }
+        if "semantic_error" not in columns:
+            self.db.execute(
+                "ALTER TABLE pdf_commit_preparation ADD COLUMN semantic_error TEXT"
+            )
         state = self.db.execute(
             "SELECT 1 FROM pdf_commit_preparation WHERE singleton=1"
         ).fetchone()
@@ -235,6 +246,13 @@ class PdfImportPreparationStore:
         )
         self.db.commit()
 
+    def record_semantic_error(self, message: str | None) -> None:
+        self.db.execute(
+            "UPDATE pdf_commit_preparation SET semantic_error=? WHERE singleton=1",
+            (message[:500] if message else None,),
+        )
+        self.db.commit()
+
     def _row_error_summary(
         self, project: Any, *, import_ref: str
     ) -> Mapping[str, Any] | None:
@@ -322,8 +340,8 @@ class PdfImportPreparationStore:
         rows = self.db.execute(
             "SELECT child_key,row_count,run_id,receipt_id,status,completed_rows "
             "FROM pdf_commit_preparation_children WHERE status NOT IN "
-            "('completed','failed','cancelled') ORDER BY rowid LIMIT ?",
-            (_CHILD_STATUS_PAGE,),
+            "(?,?,?,?) ORDER BY rowid LIMIT ?",
+            (*_TERMINAL_CHILD_STATUSES, _CHILD_STATUS_PAGE),
         ).fetchall()
         if not rows:
             return
@@ -428,15 +446,15 @@ class PdfImportPreparationStore:
         }
         active = self.db.execute(
             "SELECT * FROM pdf_commit_preparation_children WHERE status NOT IN "
-            "('completed','failed','cancelled') ORDER BY rowid LIMIT ?",
-            (_CHILD_STATUS_PAGE,),
+            "(?,?,?,?) ORDER BY rowid LIMIT ?",
+            (*_TERMINAL_CHILD_STATUSES, _CHILD_STATUS_PAGE),
         ).fetchall()
         remaining = _CHILD_STATUS_PAGE - len(active)
         terminal = (
             self.db.execute(
                 "SELECT * FROM pdf_commit_preparation_children WHERE status IN "
-                "('completed','failed','cancelled') ORDER BY rowid DESC LIMIT ?",
-                (remaining,),
+                "(?,?,?,?) ORDER BY rowid DESC LIMIT ?",
+                (*_TERMINAL_CHILD_STATUSES, remaining),
             ).fetchall()
             if remaining
             else ()
@@ -453,6 +471,9 @@ class PdfImportPreparationStore:
             ocr_completed=min(int(state["ocr_total"]), completed.get("media.ocr", 0)),
             unreadable_total=int(state["unreadable_total"]),
             pending_confirmation=pending,
+            semantic_error=(
+                str(state["semantic_error"]) if state["semantic_error"] else None
+            ),
             children=tuple(children),
             stopped=bool(state["stopped"]),
             row_error_summary=self._row_error_summary(project, import_ref=import_ref),
@@ -848,12 +869,17 @@ class PdfImportPreparationCoordinator:
                 )
                 if page.pending_confirmation is not None or not page.rows:
                     return page.scheduled_through
-                self.ensure_semantic_setup(
-                    project_id,
-                    import_receipt_id=str(header.envelope["receipt_id"]),
-                    enabled=bool(facts.get("semantic_search")),
-                    confirmation=facts.get("semantic_setup_confirmation"),
-                )
+                try:
+                    self.ensure_semantic_setup(
+                        project_id,
+                        import_receipt_id=str(header.envelope["receipt_id"]),
+                        enabled=bool(facts.get("semantic_search")),
+                        confirmation=facts.get("semantic_setup_confirmation"),
+                    )
+                except Exception as exc:  # noqa: BLE001 - semantic setup is isolated
+                    preparation.record_semantic_error(str(exc))
+                else:
+                    preparation.record_semantic_error(None)
                 try:
                     responses = self.create(
                         project_id,

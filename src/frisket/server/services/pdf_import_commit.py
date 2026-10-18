@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+import logging
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, Protocol
@@ -38,6 +40,7 @@ from frisket.server.services.import_uploads import upload_sheet_name
 
 _PAGE_SIZE = 256
 _PAGE_BYTES = 64 * 1024 * 1024
+LOG = logging.getLogger("frisket.server")
 
 
 class PdfImportIntake(Protocol):
@@ -85,6 +88,10 @@ class PdfImportTextPreparation(Protocol):
     ) -> Any: ...
 
     def progress_pdf_import(self, project_id: str, import_ref: str) -> Any: ...
+
+    def abandon_pdf_import(
+        self, project_id: str, *, receipt_id: str, import_ref: str
+    ) -> Any: ...
 
 
 @dataclass(frozen=True)
@@ -172,7 +179,17 @@ class PdfImportCommitService:
             raise ValueError("frozen PDF import storage identity changed")
 
         ref, directory, header = self._ensure_intake(project_id, frozen)
-        self._promote(project_id, draft_id, idempotency_key, directory)
+        try:
+            self._promote(project_id, draft_id, idempotency_key, directory)
+        except BaseException:
+            self._rollback_unpromoted(
+                project_id,
+                draft_id,
+                idempotency_key,
+                directory,
+                header,
+            )
+            raise
         envelope = ActionJobEnvelope.from_json(header.envelope)
         bound = bind_typed_action_job(envelope, project=project)
         if isinstance(bound, ActionResult):
@@ -238,12 +255,6 @@ class PdfImportCommitService:
                             destination_sheet_id=header.destination_sheet_id,
                         )
             handoff = self._record_handoff(project_id, draft_id, frozen, ref, session)
-            if session.state in {"completed", "kept"}:
-                with import_admit_lock(directory):
-                    compact_terminal_inventory(directory)
-
-        if self._text_preparation is not None:
-            self._text_preparation.progress_pdf_import(project_id, ref)
 
         with ImportInventory(directory / "inventory.db") as inventory:
             through, sealed = inventory.through, inventory.sealed
@@ -251,6 +262,19 @@ class PdfImportCommitService:
             self._enqueue(project_id, ref, through, sealed)
         if sealed:
             self._mark_handed_off(project_id, draft_id, frozen, handoff)
+        if self._text_preparation is not None:
+            try:
+                self._text_preparation.progress_pdf_import(project_id, ref)
+            except Exception:  # noqa: BLE001 - durable recovery owns retries
+                LOG.warning(
+                    "reviewed PDF text preparation will retry in recovery",
+                    exc_info=True,
+                    extra={"project_id": project_id, "import_ref": ref},
+                )
+        if session.state in {"completed", "kept"}:
+            with import_worker_lock(directory, timeout=5):
+                with import_admit_lock(directory):
+                    compact_terminal_inventory(directory)
         return self._result(frozen, ref, session, through, sealed)
 
     @staticmethod
@@ -332,13 +356,40 @@ class PdfImportCommitService:
         draft_id: str,
         idempotency_key: str,
         directory: Path,
-    ) -> dict[str, Any]:
+    ) -> None:
         self._intake.promote_commit_inventory(
             project_id,
             draft_id,
             idempotency_key=idempotency_key,
             target_path=directory / "inventory.db",
         )
+
+    def _rollback_unpromoted(
+        self,
+        project_id: str,
+        draft_id: str,
+        idempotency_key: str,
+        directory: Path,
+        header: ImportIntakeHeader,
+    ) -> None:
+        """Restore draft ownership before releasing an unused reservation."""
+
+        self._intake.reconcile_commit(
+            project_id,
+            draft_id,
+            idempotency_key=idempotency_key,
+            committed=False,
+        )
+        envelope = ActionJobEnvelope.from_json(header.envelope)
+        project = self._workspace.get(project_id)
+        ReceiptStore(project).delete_queued(envelope.receipt_id)
+        if self._text_preparation is not None:
+            self._text_preparation.abandon_pdf_import(
+                project_id,
+                receipt_id=envelope.receipt_id,
+                import_ref=self._ref(str(header.pdf_preparation["commit_id"])),
+            )
+        shutil.rmtree(directory, ignore_errors=True)
 
     @staticmethod
     def _destination(project: Any, frozen: Any) -> tuple[int | None, str]:
@@ -367,7 +418,7 @@ class PdfImportCommitService:
     @staticmethod
     def _start_reserved_receipt(
         project: Any, envelope: ActionJobEnvelope, frozen: Any
-    ) -> None:
+    ) -> dict[str, Any]:
         receipts = ReceiptStore(project)
         stored = receipts.find_by_id(envelope.receipt_id)
         if stored is None:
@@ -415,12 +466,21 @@ class PdfImportCommitService:
             after=after, limit=_PAGE_SIZE, byte_budget=_PAGE_BYTES
         ):
             digest = str(item["sha256"])
-            observed = project.blob_store.put_path(
-                directory / "staged" / digest,
-                expected_digest=digest,
-            )
-            if observed != digest:
-                raise ValueError("promoted PDF staging digest changed")
+            staged = directory / "staged" / digest
+            if staged.is_file():
+                observed = project.blob_store.put_path(
+                    staged,
+                    expected_digest=digest,
+                )
+                if observed != digest:
+                    raise ValueError("promoted PDF staging digest changed")
+                staged.unlink()
+            else:
+                # A crash can land after the content-addressed copy and unlink
+                # but before the ordinary import page commits. Re-verify the
+                # canonical owner instead of requiring a second staged copy.
+                with project.blob_store.materialize(digest):
+                    pass
 
     def _record_handoff(
         self,
