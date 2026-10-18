@@ -56,10 +56,17 @@ function snapshot(revision = 1, patch: Partial<PdfImportSnapshot> = {}): PdfImpo
     destination: null,
     match: { state: 'idle', checked: 0, total: 0, matched_count: 0, new_count: 2 },
     semantic_setup: {
-      state: 'needs_consent',
-      model_name: 'EmbeddingGemma',
+      setup_ref: 'embeddinggemma',
+      display_name: 'EmbeddingGemma',
+      ready: false,
+      runtime_ready: true,
       download_bytes: 320_000_000,
-      confirmation: 'semantic-setup-1',
+      additional_runtime_download: false,
+      needs_confirmation: true,
+      confirmation_hash: 'semantic-setup-1',
+      license: 'Apache-2.0',
+      source_url: null,
+      available: true,
     },
     batch_ocr: {
       state: 'idle',
@@ -78,8 +85,8 @@ function snapshot(revision = 1, patch: Partial<PdfImportSnapshot> = {}): PdfImpo
   };
 }
 
-function createApi() {
-  let current = snapshot();
+function createApi(initial = snapshot()) {
+  let current = initial;
   const api: PdfImportsApi = {
     create: vi.fn(async () => current),
     addManifest: vi.fn(async () => current),
@@ -101,6 +108,9 @@ function createApi() {
       }],
       next_cursor: null,
     })),
+    reconcileReselection: vi.fn(async () => ({
+      schema_version: 'frisket.pdf_import.v1', draft_id: 'draft-1', items: [],
+    })),
     upload: vi.fn(async () => current),
     pause: vi.fn(async () => {
       current = snapshot(current.revision + 1, { paused: true });
@@ -114,6 +124,7 @@ function createApi() {
       current = snapshot(current.revision + 1, { choices });
       return current;
     }),
+    refreshSemanticSetup: vi.fn(async () => current),
     estimateBatchOcr: vi.fn(async () => {
       current = snapshot(current.revision + 1, {
         batch_ocr: {
@@ -262,5 +273,40 @@ describe('PDF batch import flow', () => {
     await waitFor(() => expect(api.discard).toHaveBeenCalled());
     expect(uploadSignal?.aborted).toBe(true);
     expect(onError).not.toHaveBeenCalled();
+  });
+
+  it('reconciles a resumed selection and uploads only matched pending occurrences', async () => {
+    const initial = snapshot(3, {
+      paused: true,
+      upload: { files_done: 1, files_total: 2, bytes_done: 3, bytes_total: 6, sealed: false },
+      analysis: { files_done: 1, files_total: 2 },
+    });
+    const { api } = createApi(initial);
+    vi.mocked(api.reconcileReselection).mockResolvedValue({
+      schema_version: 'frisket.pdf_import.v1',
+      draft_id: 'draft-1',
+      items: [{
+        logical_path: 'two.pdf', filename: 'two.pdf', size: 3,
+        matched: true, occurrence_id: 'pending-two', upload_needed: true,
+      }],
+    });
+    render(<PdfBatchImportFlow
+      projectId="project-1" resumeDraftId="draft-1" destinationSheets={[]} api={api}
+      onContextChange={vi.fn()} registerCloseGuard={vi.fn()} onImported={vi.fn()}
+      onDiscarded={vi.fn()} onError={vi.fn()}
+    />);
+
+    await screen.findByText('Some files still need to be copied');
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(input).not.toBeNull();
+    fireEvent.change(input!, { target: { files: [new File(['two'], 'two.pdf', { type: 'application/pdf' })] } });
+
+    await waitFor(() => expect(api.reconcileReselection).toHaveBeenCalledWith(
+      'project-1', 'draft-1', [{ logical_path: 'two.pdf', filename: 'two.pdf', size: 3 }], expect.anything(),
+    ));
+    await waitFor(() => expect(api.upload).toHaveBeenCalled());
+    expect(vi.mocked(api.upload).mock.calls[0][2]).toEqual([
+      expect.objectContaining({ fileId: 'pending-two', logicalPath: 'two.pdf' }),
+    ]);
   });
 });

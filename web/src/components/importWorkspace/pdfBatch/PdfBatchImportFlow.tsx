@@ -16,6 +16,7 @@ import {
   type PdfImportPage,
   type PdfImportPreviewEstimate,
   type PdfImportSnapshot,
+  type PdfImportUpload,
   type PdfImportsApi,
 } from '../../../api/pdfImports';
 import { usePoll } from '../../../hooks/usePoll';
@@ -111,6 +112,7 @@ export function PdfBatchImportFlow({
   const [batchEstimateBusy, setBatchEstimateBusy] = useState(false);
   const [discardPrompt, setDiscardPrompt] = useState(false);
   const [discarding, setDiscarding] = useState(false);
+  const [reselecting, setReselecting] = useState(false);
   const [mutationBusy, setMutationBusy] = useState(false);
   const [destination, setDestination] = useState<PdfImportDestination>(() => (
     initialDestinationSheetId == null
@@ -118,6 +120,7 @@ export function PdfBatchImportFlow({
       : { kind: 'existing', sheet_id: initialDestinationSheetId }
   ));
   const [semanticConsent, setSemanticConsent] = useState(false);
+  const [semanticEnabled, setSemanticEnabled] = useState<boolean | null>(null);
   const uploadController = useRef<AbortController | null>(null);
   const liveController = useRef<AbortController | null>(null);
   const commitKey = useRef(crypto.randomUUID());
@@ -361,6 +364,55 @@ export function PdfBatchImportFlow({
     if (file.category !== 'other' && file.category !== 'unreadable') void loadPage(file);
   };
 
+  const reconcileFiles = async (selected: File[]) => {
+    if (!snapshot || reselecting) return;
+    const pdfs = selected.filter((file) => file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'));
+    if (pdfs.length === 0) {
+      reportError(new Error('Select the original PDF files or folder.'));
+      return;
+    }
+    setReselecting(true);
+    setError(null);
+    const upload = new AbortController();
+    uploadController.current?.abort();
+    uploadController.current = upload;
+    try {
+      if (snapshot.paused) publish(await api.resume(projectId, snapshot.draft_id, { signal: upload.signal }));
+      const pending: PdfImportUpload[] = [];
+      for (let start = 0; start < pdfs.length; start += 256) {
+        const batch = pdfs.slice(start, start + 256);
+        const facts = batch.map((file) => ({
+          logical_path: file.webkitRelativePath || file.name,
+          filename: file.name,
+          size: file.size,
+        }));
+        const matched = await api.reconcileReselection(
+          projectId, snapshot.draft_id, facts, { signal: upload.signal },
+        );
+        matched.items.forEach((item, index) => {
+          if (item.matched && item.upload_needed && item.occurrence_id) {
+            pending.push({ fileId: item.occurrence_id, file: batch[index], logicalPath: item.logical_path });
+          }
+        });
+      }
+      for (let start = 0; start < pending.length; start += 64) {
+        publish(await api.upload(
+          projectId,
+          snapshot.draft_id,
+          pending.slice(start, start + 64),
+          crypto.randomUUID(),
+          { signal: upload.signal },
+        ));
+      }
+      await refresh();
+    } catch (problem) {
+      if (!upload.signal.aborted) reportError(problem);
+    } finally {
+      if (uploadController.current === upload) uploadController.current = null;
+      setReselecting(false);
+    }
+  };
+
   const startPreview = async (fileId: string, selectedPage = 1, confirmation?: string) => {
     if (!snapshot || previewStarting) return;
     setPreviewStarting(true);
@@ -470,7 +522,7 @@ export function PdfBatchImportFlow({
   const commit = async () => {
     if (!snapshot || mutationBusy || !destinationIsReady(snapshot, destination)) return;
     const semanticSetup = snapshot.semantic_setup;
-    if (snapshot.choices.semantic_search && semanticSetup?.state === 'needs_consent' && !semanticConsent) return;
+    if ((semanticEnabled ?? snapshot.choices.semantic_search) && semanticSetup?.needs_confirmation && !semanticConsent) return;
     setMutationBusy(true);
     setError(null);
     try {
@@ -516,13 +568,17 @@ export function PdfBatchImportFlow({
   const samples = sampleFiles;
   const checkRunning = snapshot.analysis.files_done < (snapshot.analysis.files_total ?? Infinity);
   const totalFiles = snapshot.upload.files_total ?? files.length;
-  const semanticNeedsConsent = snapshot.choices.semantic_search
-    && snapshot.semantic_setup?.state === 'needs_consent';
+  const semanticSearch = semanticEnabled ?? snapshot.choices.semantic_search;
+  const semanticNeedsConsent = semanticSearch && snapshot.semantic_setup.needs_confirmation;
+  const semanticAuthorized = !semanticNeedsConsent || (
+    semanticConsent
+    && snapshot.choices.semantic_setup_confirmation === snapshot.semantic_setup.confirmation_hash
+  );
   const matching = destination.kind === 'existing' && snapshot.match.state === 'running';
   const nothingNew = destination.kind === 'existing'
     && snapshot.match.state === 'ready' && snapshot.match.new_count === 0;
   const canCommit = destinationIsReady(snapshot, destination)
-    && !matching && (!semanticNeedsConsent || semanticConsent)
+    && !matching && semanticAuthorized
     && (ocrPolicyCount(snapshot, snapshot.choices.ocr_policy) === 0
       || (snapshot.batch_ocr?.state === 'ready'
         && (!snapshot.batch_ocr.needs_confirmation || Boolean(snapshot.choices.ocr_confirmation))))
@@ -535,6 +591,9 @@ export function PdfBatchImportFlow({
           <AddFilesStep
             snapshot={snapshot}
             totalFiles={totalFiles}
+            needsReselection={Boolean(resumeDraftId && snapshot.upload.files_done < snapshot.upload.files_total)}
+            reselecting={reselecting}
+            onReselect={(selected) => void reconcileFiles(selected)}
             onPause={() => void (snapshot.paused
               ? api.resume(projectId, snapshot.draft_id).then(publish).catch(reportError)
               : api.pause(projectId, snapshot.draft_id).then(publish).catch(reportError))}
@@ -589,6 +648,7 @@ export function PdfBatchImportFlow({
             onBack={() => setStage('check')}
             onContinue={() => {
               setStage('search');
+              void api.refreshSemanticSetup(projectId, snapshot.draft_id).then(publish).catch(reportError);
               void estimateBatchOcr();
             }}
           />
@@ -596,7 +656,9 @@ export function PdfBatchImportFlow({
         {stage === 'search' && (
           <SearchSetupStep
             snapshot={snapshot}
-            consent={semanticConsent}
+            semanticEnabled={semanticSearch}
+            consent={semanticConsent
+              && snapshot.choices.semantic_setup_confirmation === snapshot.semantic_setup.confirmation_hash}
             busy={mutationBusy}
             importLabel={nothingNew ? 'Nothing new to import' : matching ? 'Comparing…' : `Import ${count(
               destination.kind === 'existing' && snapshot.match.state === 'ready'
@@ -607,13 +669,17 @@ export function PdfBatchImportFlow({
             batchEstimateBusy={batchEstimateBusy}
             onEstimateOcr={() => void estimateBatchOcr()}
             onSemantic={(enabled) => {
+              setSemanticEnabled(enabled);
               setSemanticConsent(false);
-              void mutateChoices({ semantic_search: enabled, semantic_setup_confirmation: null });
+              if (!enabled || !snapshot.semantic_setup.needs_confirmation) {
+                void mutateChoices({ semantic_search: enabled, semantic_setup_confirmation: null });
+              }
             }}
             onConsent={(consent) => {
               setSemanticConsent(consent);
-              void mutateChoices({
-                semantic_setup_confirmation: consent ? snapshot.semantic_setup?.confirmation ?? null : null,
+              if (consent) void mutateChoices({
+                semantic_search: true,
+                semantic_setup_confirmation: snapshot.semantic_setup.confirmation_hash,
               });
             }}
             onBack={() => setStage('destination')}

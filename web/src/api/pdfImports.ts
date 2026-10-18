@@ -82,11 +82,17 @@ export interface PdfImportMatch {
 }
 
 export interface PdfImportSemanticSetup {
-  state: 'ready' | 'needs_consent' | 'setting_up' | 'unavailable' | 'error';
-  model_name: string;
+  setup_ref: string | null;
+  display_name: string;
+  ready: boolean;
+  runtime_ready: boolean;
   download_bytes: number | null;
-  confirmation: string | null;
-  detail?: string | null;
+  additional_runtime_download: boolean;
+  needs_confirmation: boolean;
+  confirmation_hash: string | null;
+  license: string | null;
+  source_url: string | null;
+  available: boolean;
 }
 
 export interface PdfImportCommitResult {
@@ -114,7 +120,7 @@ export interface PdfImportSnapshot {
   can_review_text: boolean;
   choices: PdfImportChoices;
   match: PdfImportMatch;
-  semantic_setup?: PdfImportSemanticSetup | null;
+  semantic_setup: PdfImportSemanticSetup;
   batch_ocr?: PdfImportBatchOcr | null;
   preview_jobs?: PdfImportPreviewJob[];
   commit?: {
@@ -197,6 +203,24 @@ export interface PdfImportSamples {
   next_cursor: string | null;
 }
 
+export interface PdfImportReselectFile {
+  logical_path: string;
+  filename: string;
+  size: number;
+}
+
+export interface PdfImportReselectResult extends PdfImportReselectFile {
+  matched: boolean;
+  occurrence_id: string | null;
+  upload_needed: boolean;
+}
+
+export interface PdfImportReselectResponse {
+  schema_version: string;
+  draft_id: string;
+  items: PdfImportReselectResult[];
+}
+
 export interface PdfImportBatchOcrEstimate {
   state: 'idle' | 'ready' | 'error';
   engine: string | null;
@@ -216,10 +240,12 @@ export interface PdfImportsApi {
   list(projectId: string, options?: PdfImportRequestOptions): Promise<PdfImportSnapshot[]>;
   get(projectId: string, importId: string, options?: PdfImportRequestOptions): Promise<PdfImportSnapshot>;
   samples(projectId: string, importId: string, category: PdfImportCategory, cursor?: string, options?: PdfImportRequestOptions): Promise<PdfImportSamples>;
+  reconcileReselection(projectId: string, importId: string, files: PdfImportReselectFile[], options?: PdfImportRequestOptions): Promise<PdfImportReselectResponse>;
   upload(projectId: string, importId: string, files: PdfImportUpload[], batchId: string, options?: PdfImportRequestOptions): Promise<PdfImportSnapshot>;
   pause(projectId: string, importId: string, options?: PdfImportRequestOptions): Promise<PdfImportSnapshot>;
   resume(projectId: string, importId: string, options?: PdfImportRequestOptions): Promise<PdfImportSnapshot>;
   updateChoices(projectId: string, importId: string, choices: PdfImportChoices & { expected_revision: number }, options?: PdfImportRequestOptions): Promise<PdfImportSnapshot>;
+  refreshSemanticSetup(projectId: string, importId: string, options?: PdfImportRequestOptions): Promise<PdfImportSnapshot>;
   estimateBatchOcr(projectId: string, importId: string, engine: string, ocrPolicy: PdfImportOcrPolicy, expectedRevision: number, options?: PdfImportRequestOptions): Promise<PdfImportBatchOcrEstimate>;
   match(projectId: string, importId: string, options?: PdfImportRequestOptions): Promise<PdfImportSnapshot>;
   getPage(projectId: string, importId: string, fileId: string, page: number, options?: PdfImportRequestOptions): Promise<PdfImportPage>;
@@ -332,6 +358,9 @@ export function createPdfImportsApi(): PdfImportsApi {
         method: 'GET', signal: options.signal,
       }, options.fetch);
     },
+    reconcileReselection(projectId, importId, files, options = {}) {
+      return jsonRequest(`${root(projectId)}/${encodeURIComponent(importId)}/reselect`, 'POST', { files }, options);
+    },
     upload(projectId, importId, files, batchId, options = {}) {
       const body = new FormData();
       for (const item of files) body.append('files', item.file);
@@ -354,6 +383,11 @@ export function createPdfImportsApi(): PdfImportsApi {
     },
     updateChoices(projectId, importId, choices, options = {}) {
       return jsonRequest(`${root(projectId)}/${encodeURIComponent(importId)}/choices`, 'PATCH', choices, options);
+    },
+    refreshSemanticSetup(projectId, importId, options = {}) {
+      return request(`${root(projectId)}/${encodeURIComponent(importId)}/semantic-setup/refresh`, {
+        method: 'POST', signal: options.signal,
+      }, options.fetch);
     },
     estimateBatchOcr(projectId, importId, engine, ocrPolicy, expectedRevision, options = {}) {
       return jsonRequest(`${root(projectId)}/${encodeURIComponent(importId)}/ocr-estimate`, 'POST', {
