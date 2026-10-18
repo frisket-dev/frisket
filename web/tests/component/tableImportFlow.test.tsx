@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 
 import '@testing-library/jest-dom/vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { TableImportDraft, TableImportMappingRequest, TableImportsApi } from '../../src/api/tableImports';
 import { TableImportFlow } from '../../src/components/importWorkspace/tableImport';
+import { ImportTableStep } from '../../src/components/importWorkspace/tableImport/TableImportSteps';
 import { importSessionSnapshot } from '../../src/components/importProgressSession';
 
 afterEach(() => { document.body.innerHTML = ''; });
@@ -104,10 +105,8 @@ describe('TableImportFlow', () => {
     const progressVersion = importSessionSnapshot();
     const { onImported } = renderFlow(api);
 
-    expect(screen.getByRole('button', { name: 'Check rows →' })).toBeEnabled();
-    expect(api.createFromFile).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Check rows →' }));
     expect(await screen.findByLabelText('Check rows')).toBeVisible();
+    expect(api.createFromFile).toHaveBeenCalledTimes(1);
     expect(screen.getByText('00418823')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Columns →' }));
 
@@ -146,17 +145,15 @@ describe('TableImportFlow', () => {
     await waitFor(() => expect(onUsePdfSplit).toHaveBeenCalledWith(file));
   });
 
-  it('sends an extensionless file to server content inspection only after Check rows', async () => {
+  it('sends an extensionless file to server content inspection as soon as it is chosen', async () => {
     const api = mockApi();
     renderFlow(api, { initialFile: null });
     const file = new File(['name\nAda\n'], 'uploaded-table', { type: 'application/octet-stream' });
     const input = screen.getByRole('button', { name: 'Choose file' }).closest('.table-import-dropzone')!.querySelector('input')!;
 
     fireEvent.change(input, { target: { files: [file] } });
-    expect(api.createFromFile).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Check rows →' }));
-
     await waitFor(() => expect(api.createFromFile).toHaveBeenCalledWith('project-1', file, expect.anything()));
+    expect(await screen.findByLabelText('Check rows')).toBeVisible();
   });
 
   it('uses record ordinals when a displayed physical line follows a multiline record', async () => {
@@ -171,7 +168,6 @@ describe('TableImportFlow', () => {
     });
     const api = mockApi(initial);
     renderFlow(api);
-    fireEvent.click(screen.getByRole('button', { name: 'Check rows →' }));
     fireEvent.click(await screen.findByRole('button', { name: '3' }));
 
     await waitFor(() => expect(api.updateSettings).toHaveBeenCalledWith(
@@ -219,7 +215,6 @@ describe('TableImportFlow', () => {
     });
     const api = mockApi(initial);
     renderFlow(api);
-    fireEvent.click(screen.getByRole('button', { name: 'Check rows →' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Columns →' }));
 
     expect(await screen.findByRole('combobox', { name: 'Date order for contributor_id' })).toHaveValue('day_first');
@@ -228,7 +223,6 @@ describe('TableImportFlow', () => {
   it('lets an existing-sheet column match be changed to a new column', async () => {
     const api = mockApi();
     renderFlow(api, { destinationSheets: [{ id: 9, name: 'People', rowCount: 4, columns: [{ id: 77, name: 'contributor_id' }] }] });
-    fireEvent.click(screen.getByRole('button', { name: 'Check rows →' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Columns →' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Continue →' }));
     fireEvent.click(await screen.findByRole('radio', { name: /Add to an existing sheet/ }));
@@ -242,5 +236,72 @@ describe('TableImportFlow', () => {
       [expect.objectContaining({ source_index: 0, target: { kind: 'new', name: 'contributor_id' } })],
       expect.anything(),
     ));
+  });
+
+  it('selects the shown range between a checked column and a shift-clicked column', async () => {
+    const baseColumn = draft().columns[0];
+    const columns = ['first', 'second', 'third'].map((name, source_index) => ({ ...baseColumn, source_index, name, original_name: name }));
+    const api = mockApi(draft({ columns }));
+    renderFlow(api);
+    fireEvent.click(await screen.findByRole('button', { name: 'Columns →' }));
+
+    fireEvent.mouseDown(screen.getByRole('checkbox', { name: 'Select first' }));
+    const third = screen.getByRole('checkbox', { name: 'Select third' });
+    fireEvent.keyDown(third, { key: 'Shift' });
+    fireEvent.mouseDown(third);
+    fireEvent.keyUp(third, { key: 'Shift' });
+
+    expect(screen.getByText('3 columns selected')).toBeVisible();
+  });
+
+  it('shows generated column names when the first row is data', async () => {
+    const initial = draft({
+      settings: { ...draft().settings!, requested: { ...draft().settings!.requested, first_row_is_header: false } },
+      preview: {
+        ...draft().preview!,
+        columns: [
+          { index: 0, name: 'column 1', original_name: null, name_status: 'missing' },
+          { index: 1, name: 'column 2', original_name: null, name_status: 'missing' },
+        ],
+        head: [{ role: 'data', record_ordinal: 1, physical_line_start: 1, physical_line_end: 1, cells: ['Ada', '42'], hidden_cell_count: 0, issues: [] }],
+      },
+    });
+    renderFlow(mockApi(initial));
+
+    const names = await screen.findByRole('row', { name: 'Generated column names' });
+    expect(names).toHaveTextContent('column 1');
+    expect(names).toHaveTextContent('column 2');
+    expect(within(names).queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('offers dedup keys only for mappings into existing columns', () => {
+    const base = draft();
+    const columns = [
+      { ...base.columns[0], source_index: 0, name: 'matched', original_name: 'matched' },
+      { ...base.columns[0], source_index: 1, name: 'new_value', original_name: 'new_value' },
+    ];
+    const current = draft({
+      columns,
+      destination: {
+        configuration: { kind: 'existing', sheet_id: 9 },
+        mappings: [
+          { source_index: 0, source_name: 'matched', source_type: 'text', target: { kind: 'existing', column_id: 77 }, match: 'matched', detail: null },
+          { source_index: 1, source_name: 'new_value', source_type: 'text', target: { kind: 'new', name: 'new_value' }, match: 'new', detail: null },
+        ],
+        dedup: { enabled: false, key_source_index: null },
+        comparison: { state: 'ready', matched_columns: 1, new_columns: 1, type_clashes: 0, duplicate_rows: null, import_rows: 2, complete: true, error: null },
+      },
+    });
+    const onDestination = vi.fn();
+    render(<ImportTableStep draft={current} destination={{ kind: 'existing', sheet_id: 9 }} destinationSheets={[{ id: 9, name: 'People', rowCount: 4, columns: [{ id: 77, name: 'matched' }] }]} busy={false} onBack={vi.fn()} onCommit={vi.fn()} onDestination={onDestination} />);
+
+    const keySelect = screen.getByRole('combobox', { name: 'Duplicate key' });
+    expect(within(keySelect).getByRole('option', { name: 'matched' })).toBeVisible();
+    expect(within(keySelect).queryByRole('option', { name: 'new_value' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('checkbox', { name: /Skip rows already/ }));
+    expect(onDestination).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ dedup: { enabled: true, key_source_index: 0 } }));
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Map matched' }), { target: { value: 'new' } });
+    expect(onDestination).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ dedup: { enabled: false, key_source_index: null } }));
   });
 });

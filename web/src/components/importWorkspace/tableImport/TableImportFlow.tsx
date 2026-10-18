@@ -119,6 +119,7 @@ export function TableImportFlow({
   const destinationSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const callbacks = useRef({ onDiscarded, onError, onImported });
   const rerunSource = useRef<string | null>(null);
+  const initialFileStarted = useRef<File | null>(null);
 
   useEffect(() => { callbacks.current = { onDiscarded, onError, onImported }; }, [onDiscarded, onError, onImported]);
 
@@ -193,7 +194,14 @@ export function TableImportFlow({
     const file = files[0];
     setSelectedFile(file ?? null);
     setSourceIssue(null);
-  }, [followTheMoneyEnabled]);
+    if (file) void createFromFile(file);
+  }, [createFromFile, followTheMoneyEnabled]);
+
+  useEffect(() => {
+    if (!initialFile || initialFileStarted.current === initialFile) return;
+    initialFileStarted.current = initialFile;
+    chooseFiles([initialFile]);
+  }, [chooseFiles, initialFile]);
 
   const createFromPaste = useCallback(async (confirmed: boolean) => {
     if (!pasteText.trim()) return;

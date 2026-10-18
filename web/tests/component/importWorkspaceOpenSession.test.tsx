@@ -21,6 +21,7 @@ const listPdfImportDrafts = vi.hoisted(() => vi.fn());
 const createPdfImport = vi.hoisted(() => vi.fn());
 const getPdfImport = vi.hoisted(() => vi.fn());
 const discardPdfImport = vi.hoisted(() => vi.fn());
+const createTableImportFromFile = vi.hoisted(() => vi.fn());
 const projectApi = vi.hoisted(() => ({ getSheetData: vi.fn(), listSheets: vi.fn() }));
 
 vi.mock('../../src/api/open', async (importOriginal) => {
@@ -73,6 +74,17 @@ vi.mock('../../src/api/pdfImports', async (importOriginal) => {
   };
 });
 
+vi.mock('../../src/api/tableImports', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/api/tableImports')>();
+  return {
+    ...actual,
+    tableImportsApi: {
+      ...actual.tableImportsApi,
+      createFromFile: createTableImportFromFile,
+    },
+  };
+});
+
 import { ImportDropzone, ImportWorkspaceDialog } from '../../src/components/ImportCsv';
 
 const plan = {
@@ -113,6 +125,8 @@ beforeEach(() => {
   getPdfImport.mockImplementation(() => new Promise(() => undefined));
   discardPdfImport.mockReset();
   discardPdfImport.mockResolvedValue({ draft_id: 'zip-pdf-draft', state: 'cancelled' });
+  createTableImportFromFile.mockReset();
+  createTableImportFromFile.mockImplementation(() => new Promise(() => undefined));
   getSearchPreparationTextSamples.mockReset();
   getSearchPreparationTextSamples.mockResolvedValue({ batch_id: 'prep', samples: [] });
   createSearchPreparation.mockReset();
@@ -769,14 +783,19 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     view.unmount();
   });
 
-  it('does not offer FollowTheMoney when the catalog gate is absent and leaves content inspection to Check rows', () => {
+  it('does not offer FollowTheMoney when the catalog gate is absent and starts server content inspection', async () => {
     render(
       <ImportWorkspaceDialog open onClose={vi.fn()} onImported={vi.fn()} onError={vi.fn()} onLaunchDownload={vi.fn()} />,
     );
     const input = screen.getByRole('button', { name: 'Choose file' }).closest('.table-import-dropzone')?.querySelector('input');
     fireEvent.change(input!, { target: { files: [new File(['{"id":"x"}\n'], 'entities.jsonl', { type: 'application/json' })] } });
     expect(screen.queryByRole('button', { name: 'Use FollowTheMoney import' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Check rows →' })).toBeEnabled();
+    await waitFor(() => expect(createTableImportFromFile).toHaveBeenCalledWith(
+      'open-session-project',
+      expect.objectContaining({ name: 'entities.jsonl' }),
+      expect.anything(),
+    ));
+    expect(screen.getAllByRole('button', { name: 'Checking…' })).not.toHaveLength(0);
   });
 
   it('routes a gated JSON/JSONL drop through FtM and refreshes its first sheet', async () => {
