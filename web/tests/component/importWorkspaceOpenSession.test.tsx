@@ -941,6 +941,23 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     expect(previewCsv).not.toHaveBeenCalled();
   });
 
+  it('opens the empty-project workspace without passing the click event as an import mode', () => {
+    const onOpenWorkspace = vi.fn();
+    render(
+      <ImportDropzone
+        onOpenWorkspace={onOpenWorkspace}
+        onOpenTable={vi.fn()}
+        onOpenBulk={vi.fn()}
+        onImported={vi.fn()}
+        onError={vi.fn()}
+        onLaunchDownload={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open import' }));
+    expect(onOpenWorkspace).toHaveBeenCalledWith();
+  });
+
   it('does not dispatch a pending drop after the dropzone unmounts', async () => {
     const onOpenBulk = vi.fn();
     const view = render(

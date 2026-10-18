@@ -45,6 +45,7 @@ export interface TableImportFlowProps {
   followTheMoneyEnabled?: boolean;
   initialFile?: File | null;
   initialRerunDraftId?: string | null;
+  preferredDestinationSheetId?: number | null;
   onContextChange(context: TableImportShellContext | null): void;
   onDiscarded(): void;
   onError(message: string): void;
@@ -93,6 +94,7 @@ export function TableImportFlow({
   onUseFollowTheMoney,
   onUseMultipleFiles,
   onUsePdfSplit,
+  preferredDestinationSheetId = null,
   projectId,
   registerCloseGuard,
 }: TableImportFlowProps) {
@@ -343,7 +345,7 @@ export function TableImportFlow({
   const saveDestination = useCallback((nextDestination: TableImportDestinationConfig, edited?: TableImportDestinationSnapshot | null) => {
     setDestination(nextDestination);
     return enqueueMutation((source) => {
-      const mappings = edited?.mappings ?? mappingsFor(source, nextDestination, destinationSheets);
+      const mappings = edited?.mappings.map(({ source_index, target }) => ({ source_index, target })) ?? mappingsFor(source, nextDestination, destinationSheets);
       const dedup = edited?.dedup ?? { enabled: false, key_source_index: null };
       return api.updateDestination(projectId, source.draft_id, source.revision, nextDestination, mappings, dedup);
     });
@@ -489,7 +491,7 @@ export function TableImportFlow({
     />}
     {stage === 'rows' && snapshot && <CheckRowsStep draft={snapshot} busy={working} onBack={() => setStage('add')} onContinue={() => setStage('columns')} onSettings={updateSettings} />}
     {stage === 'columns' && snapshot && <ColumnsStep draft={snapshot} busy={working} onBack={() => setStage('rows')} onColumns={updateColumns} onContinue={() => void openImportStep()} />}
-    {stage === 'import' && snapshot && <ImportTableStep draft={snapshot} destination={destination} destinationSheets={destinationSheets} busy={working} onBack={() => setStage('columns')} onCommit={() => void commit()} onDestination={scheduleDestination} />}
+    {stage === 'import' && snapshot && <ImportTableStep draft={snapshot} destination={destination} destinationSheets={destinationSheets} preferredDestinationSheetId={preferredDestinationSheetId} busy={working} onBack={() => setStage('columns')} onCommit={() => void commit()} onDestination={scheduleDestination} />}
     {discardPrompt && <DiscardImportConfirm title="Cancel this import?" message="Files won’t be added to the project." confirmLabel="Discard import" busy={discarding} testId="table-import-discard-dialog" onKeep={() => setDiscardPrompt(false)} onConfirm={() => void discard()} />}
   </div>;
 }

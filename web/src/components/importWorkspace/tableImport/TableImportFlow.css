@@ -146,10 +146,12 @@
   background: #fffaf0;
 }
 .table-import-message > svg { color: #9a5b06; }
+.table-import-message > div > small { display: block; margin-bottom: 5px; color: #756c66; font-size: 10px; font-weight: 700; letter-spacing: .05em; }
 .table-import-message h3 { margin: 0 0 5px; font-size: 16px; }
 .table-import-message p { margin: 0; color: #4a433e; line-height: 1.5; }
 .table-import-message > label { grid-column: 2; display: grid; gap: 5px; max-width: 360px; font-size: 12px; font-weight: 600; }
 .table-import-message > .btn { grid-column: 2; justify-self: start; }
+.table-import-message .btn-primary:disabled { background: #c9cbf5; color: #fff; }
 .table-import-message-actions { grid-column: 2; display: flex; gap: 8px; flex-wrap: wrap; }
 
 .table-import-reader-controls {
@@ -168,6 +170,8 @@
 .table-import-number-format select { width: 100%; min-width: 145px; }
 .table-import-reader-controls .table-import-header-check { display: flex; flex-direction: row; align-items: center; min-width: 172px; min-height: 32px; gap: 7px; }
 .table-import-sheet-control { flex: 1 1 auto; }
+.table-import-sheet-control .panel-select-shell { width: min(100%, 360px); }
+.table-import-sheet-control select { width: 100%; max-width: none; }
 
 .table-import-number-stepper > span:last-child { height: 32px; display: grid; grid-template-columns: 30px 38px 30px; overflow: hidden; border: 1px solid #ddd5cd; border-radius: 6px; background: #fff; }
 .table-import-number-stepper button { border: 0; background: #fff; color: #4a433e; font-size: 16px; }
@@ -190,7 +194,7 @@
 .table-import-preview tbody th small { display: inline-block; margin-left: 5px; padding: 2px 4px; border-radius: 3px; color: #756c66; font-size: 9px; font-weight: 700; text-transform: uppercase; vertical-align: middle; }
 .table-import-preview tr[data-role='header'] { background: #f4f4fe; font-weight: 700; }
 .table-import-preview tr[data-role='skipped_start'], .table-import-preview tr[data-role='skipped_end'], .table-import-preview tr[data-role='blank'] { color: #8a817a; background: #fbf9f7; }
-.table-import-preview tr[data-issue] th small, .table-import-preview td[data-extra] { background: #fcefd9; color: #9a5b06; }
+.table-import-preview tr[data-role='data'][data-issue] th small, .table-import-preview td[data-extra] { background: #fcefd9; color: #9a5b06; }
 .table-import-preview-gap th { padding: 5px; background: #f7f4f1; color: #8a817a; text-align: center; }
 .table-import-preview-loading { min-height: 280px; display: grid; place-items: center; border: 1px solid #ddd5cd; border-radius: 8px; color: #756c66; }
 .table-import-preview-notice { display: flex; align-items: center; gap: 7px; margin-top: 8px; padding: 8px 10px; border-radius: 6px; background: #f6f4f2; color: #756c66; font-size: 12px; }
@@ -205,7 +209,7 @@
 .table-import-filter-chips button { padding: 4px 8px; border: 1px solid #ddd5cd; border-radius: 6px; background: #fff; color: #4a433e; font: inherit; }
 .table-import-filter-chips button.active { border-color: #c9cbf5; background: #eef0fd; color: #3436b8; font-weight: 700; }
 .table-import-column-list { overflow: auto; }
-.table-import-column-heading, .table-import-column-row { min-width: 960px; min-height: 42px; display: grid; grid-template-columns: 34px minmax(150px, 190px) minmax(135px, 150px) minmax(420px, 1.7fr) minmax(150px, 0.8fr); align-items: center; gap: 10px; padding: 6px 10px; border-bottom: 1px solid #efeae5; font-size: 11px; }
+.table-import-column-heading, .table-import-column-row { min-width: 1060px; min-height: 42px; display: grid; grid-template-columns: 34px minmax(150px, 190px) minmax(135px, 150px) minmax(420px, 1.7fr) minmax(225px, 0.9fr); align-items: center; gap: 10px; padding: 6px 10px; border-bottom: 1px solid #efeae5; font-size: 11px; }
 .table-import-column-heading { position: sticky; top: 0; z-index: 1; background: #f7f4f1; color: #756c66; text-transform: uppercase; letter-spacing: .04em; }
 .table-import-column-row:last-child { border-bottom: 0; }
 .table-import-column-row[data-omitted] { opacity: .4; }
@@ -218,9 +222,12 @@
 .table-import-column-samples i[data-outcome='changed'] { background: #fcefd9; color: #9a5b06; }
 .table-import-column-samples i[data-outcome='invalid'] { background: #fbeae6; color: #b3412e; }
 .table-import-column-samples i[data-outcome='changed'], .table-import-column-samples i[data-outcome='invalid'] { width: auto; min-width: 76px; max-width: 140px; }
+.table-import-column-samples[data-type='datetime'] i { width: auto; min-width: 116px; max-width: 150px; }
 .table-import-column-samples i[data-outcome='blank'] { color: #8a817a; font-style: italic; }
 .table-import-column-note { color: #756c66; }
+.table-import-column-note .panel-select-shell { width: 225px; max-width: 100%; }
 .table-import-column-note select { width: 100%; }
+.table-import-column-note[data-tone='warning'] select { border-color: #dfb66f; background: #fff7e9; color: #8a5208; }
 .table-import-column-note[data-tone='success'] { color: #1f7a5a; }
 .table-import-column-note[data-tone='warning'] { color: #9a5b06; }
 
@@ -236,6 +243,8 @@
 .table-import-mappings b[data-match='matched'] { color: #1f7a5a; }
 .table-import-mappings b[data-match='similar'] { color: #3436b8; }
 .table-import-mappings b[data-match='type_clash'] { color: #9a5b06; }
+.table-import-mapping-status { display: grid; justify-items: start; gap: 3px; }
+.table-import-mapping-status .text-btn { padding: 0; color: #8a5208; font-size: 11px; font-weight: 700; text-align: left; }
 .table-import-dedup { display: flex; align-items: center; gap: 7px; font-size: 12px; }
 .table-import-dedup select { max-width: 190px; }
 .table-import-dedup > span { color: #756c66; }
@@ -245,7 +254,6 @@
 .table-import-summary span { color: #756c66; font-size: 12px; }
 .table-import-summary strong { font-size: 12px; text-align: right; }
 .table-import-summary small { color: #8a817a; font-size: 11px; }
-.table-import-clash-warning { display: flex; align-items: center; gap: 7px; max-width: 920px; padding: 9px 10px; border-radius: 6px; background: #fff7e9; color: #8a5208; font-size: 12px; }
 
 .table-import-ftm-handoff {
   width: min(560px, 100%);

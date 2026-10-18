@@ -950,7 +950,7 @@ function OpenImportWorkspaceSession({
     tableImportCloseGuardRef.current = guard;
   }, []);
   const [pdfBatchFiles, setPdfBatchFiles] = useState<File[] | null>(null);
-  const [pdfBatchInitialSheetId] = useState(() => {
+  const [initialDestinationSheetId] = useState(() => {
     const id = Number(route.store.get().sheetId);
     return Number.isSafeInteger(id) && id > 0 ? id : null;
   });
@@ -1697,6 +1697,7 @@ function OpenImportWorkspaceSession({
                   projectId={projectId}
                   initialFile={initialTableFile}
                   initialRerunDraftId={initialTableRerunDraftId}
+                  preferredDestinationSheetId={initialDestinationSheetId}
                   followTheMoneyEnabled={ftmImportEnabled}
                   destinationSheets={appendDestinationSheets.map((sheet) => ({
                     id: Number(sheet.id),
@@ -1729,7 +1730,7 @@ function OpenImportWorkspaceSession({
                   projectId={projectId}
                   files={pdfBatchFiles ?? undefined}
                   resumeDraftId={pdfBatchResumeId}
-                  initialDestinationSheetId={destinationSheets.some((sheet) => sheet.parent === undefined && Number(sheet.id) === pdfBatchInitialSheetId) ? pdfBatchInitialSheetId : null}
+                  initialDestinationSheetId={destinationSheets.some((sheet) => sheet.parent === undefined && Number(sheet.id) === initialDestinationSheetId) ? initialDestinationSheetId : null}
                   destinationSheets={destinationSheets.filter((sheet) => sheet.parent === undefined).map((sheet) => ({ id: Number(sheet.id), name: sheet.name }))}
                   onContextChange={setPdfBatchContext}
                   registerCloseGuard={registerPdfBatchCloseGuard}
@@ -2638,7 +2639,7 @@ export function ImportDropzone(props: ImportHandlers & {
         className="btn btn-primary import-primary dropzone-import-open"
         data-testid="import-workspace-open"
         disabled={rich.busy}
-        onClick={onOpenWorkspace}
+        onClick={() => onOpenWorkspace()}
       >
         <Upload size={13} /> Open import
       </button>

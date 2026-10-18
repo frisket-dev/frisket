@@ -168,6 +168,20 @@ describe('TableImportFlow', () => {
     await waitFor(() => expect(onUsePdfSplit).toHaveBeenCalledWith(file));
   });
 
+  it('keeps a locked workbook selected and disables both forward actions until a password is entered', async () => {
+    const locked = draft({ state: 'password_required', preview: null, columns: [], can_commit: false, commit_blocked_reason: 'password_required' });
+    const api = mockApi(locked);
+    renderFlow(api);
+
+    expect(await screen.findByRole('heading', { name: 'This workbook is password-protected' })).toBeVisible();
+    expect(screen.getByText('Enter the password to open contributions.csv. It isn’t saved.')).toBeVisible();
+    expect(screen.getByText('contributions.csv is selected. Enter its password to continue.')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Open' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Check rows →' })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'secret' } });
+    expect(screen.getByRole('button', { name: 'Open' })).toBeEnabled();
+  });
+
   it('sends an extensionless file to server content inspection as soon as it is chosen', async () => {
     const api = mockApi();
     renderFlow(api, { initialFile: null });
@@ -294,18 +308,26 @@ describe('TableImportFlow', () => {
 
   it('lets an existing-sheet column match be changed to a new column', async () => {
     const api = mockApi();
-    renderFlow(api, { destinationSheets: [{ id: 9, name: 'People', rowCount: 4, columns: [{ id: 77, name: 'contributor_id' }] }] });
+    renderFlow(api, {
+      destinationSheets: [
+        { id: 8, name: 'Seed', rowCount: 2, columns: [{ id: 66, name: 'seed' }] },
+        { id: 9, name: 'People', rowCount: 4, columns: [{ id: 77, name: 'contributor_id' }] },
+      ],
+      preferredDestinationSheetId: 9,
+    });
     fireEvent.click(await screen.findByRole('button', { name: 'Columns →' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Continue →' }));
     fireEvent.click(await screen.findByRole('radio', { name: /Add to an existing sheet/ }));
 
+    expect(screen.getByRole('combobox', { name: 'Sheet' })).toHaveValue('9');
     const mapping = await screen.findByRole('combobox', { name: 'Map contributor_id' });
     expect(mapping).toHaveValue('existing:77');
+    expect(within(mapping).getByRole('option', { name: '+ New column' })).toBeVisible();
     fireEvent.change(mapping, { target: { value: 'new' } });
     await waitFor(() => expect(api.updateDestination).toHaveBeenLastCalledWith(
       'project-1', expect.any(String), expect.any(Number),
       expect.objectContaining({ kind: 'existing', sheet_id: 9 }),
-      [expect.objectContaining({ source_index: 0, target: { kind: 'new', name: 'contributor_id' } })],
+      [{ source_index: 0, target: { kind: 'new', name: 'contributor_id' } }],
       expect.anything(),
     ));
   });
@@ -374,6 +396,9 @@ describe('TableImportFlow', () => {
     expect(screen.getByText('−2 values')).toBeVisible();
     expect(screen.getByText('unexpected')).toHaveAttribute('data-extra', 'true');
     expect(screen.getByText('also unexpected')).toHaveAttribute('data-extra', 'true');
+    expect(screen.getAllByText('extra values')).toHaveLength(1);
+    const missingRow = screen.getByRole('button', { name: '3' }).closest('tr')!;
+    expect(missingRow.querySelectorAll('td[data-extra="true"]')).toHaveLength(0);
     expect(screen.getByText('2 lines don’t have 3 values. They will be imported and listed in Errors.')).toBeVisible();
     expect(screen.getAllByText('Windows-1252').length).toBeGreaterThan(0);
     expect(screen.queryByText(/Málaga →/)).not.toBeInTheDocument();
@@ -476,6 +501,31 @@ describe('TableImportFlow', () => {
 
     fireEvent.change(screen.getByRole('combobox', { name: 'Map matched' }), { target: { value: 'new' } });
     expect(onDestination).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ dedup: { enabled: false, key_source_index: null } }));
+  });
+
+  it('offers an explicit new-column action for a type clash and counts new columns in the summary', () => {
+    const current = draft({
+      destination: {
+        configuration: { kind: 'existing', sheet_id: 9 },
+        mappings: [{
+          source_index: 0, source_name: 'contributor_id', source_type: 'text',
+          target: { kind: 'existing', column_id: 77 }, match: 'type_clash', detail: 'Sheet column is Integer.',
+        }],
+        dedup: { enabled: false, key_source_index: null },
+        comparison: { state: 'ready', matched_columns: 0, new_columns: 0, type_clashes: 1, duplicate_rows: null, import_rows: 2, complete: true, error: null },
+      },
+    });
+    const onDestination = vi.fn();
+    const view = render(<ImportTableStep draft={current} destination={{ kind: 'existing', sheet_id: 9 }} destinationSheets={[{ id: 9, name: 'People', rowCount: 4, columns: [{ id: 77, name: 'contributor_id' }] }]} busy={false} onBack={vi.fn()} onCommit={vi.fn()} onDestination={onDestination} />);
+
+    expect(screen.getByText('Sheet column is Integer.')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Add as new Text column' }));
+    expect(onDestination).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      mappings: [expect.objectContaining({ source_index: 0, target: { kind: 'new', name: 'contributor_id' } })],
+    }));
+
+    view.rerender(<ImportTableStep draft={{ ...current, destination: { ...current.destination!, mappings: [{ ...current.destination!.mappings[0], target: { kind: 'new', name: 'contributor_id' }, match: 'new' }], comparison: { ...current.destination!.comparison, new_columns: 1, type_clashes: 0 } } }} destination={{ kind: 'existing', sheet_id: 9 }} destinationSheets={[{ id: 9, name: 'People', rowCount: 4, columns: [{ id: 77, name: 'contributor_id' }] }]} busy={false} onBack={vi.fn()} onCommit={vi.fn()} onDestination={onDestination} />);
+    expect(screen.getByText('1 new column added')).toBeVisible();
   });
 
   it('names columns whose original values will be listed in Errors', () => {
