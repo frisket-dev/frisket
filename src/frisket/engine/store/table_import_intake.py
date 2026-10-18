@@ -680,6 +680,29 @@ def _dedup_revision(directory: Path) -> int:
     return int(row[0])
 
 
+def table_dedup_key(value: object) -> str | None:
+    """Encode one typed destination/source value for exact snapshot matching."""
+
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool):
+        kind = "boolean"
+    elif isinstance(value, int):
+        kind = "integer"
+    elif isinstance(value, float):
+        kind = "number"
+    elif isinstance(value, str):
+        kind = "text"
+    else:
+        raise ValueError("table dedup values must be scalar project values")
+    return json.dumps(
+        [kind, value],
+        ensure_ascii=False,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+
+
 def append_table_dedup_keys(directory: Path, values: Sequence[str]) -> int:
     clean = [value for value in values if isinstance(value, str) and value != ""]
     with _open_table_db(directory) as db:
@@ -884,6 +907,7 @@ __all__ = [
     "replace_table_dedup_keys",
     "replace_table_settings",
     "table_import_status",
+    "table_dedup_key",
     "table_issue_groups",
     "table_key_exists",
     "table_problem_count",

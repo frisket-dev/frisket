@@ -28,6 +28,7 @@ from frisket.engine.store.table_import_intake import (
     replace_table_dedup_keys,
     replace_table_settings,
     table_import_status,
+    table_dedup_key,
     table_issue_groups,
     table_key_exists,
     write_table_scan,
@@ -192,6 +193,10 @@ def test_dedup_snapshot_is_exact_text_blank_exempt_and_issues_are_bounded(
     assert group["count"] == 1
     assert group["examples"][0]["source_ordinal"] == 2
     assert len(group["examples"][0]["original"]) == 4096
+    assert table_dedup_key(None) is None
+    assert table_dedup_key("") is None
+    assert table_dedup_key(True) != table_dedup_key(1)
+    assert table_dedup_key(1) != table_dedup_key("1")
 
 
 def test_final_dedup_snapshot_replaces_stale_preview_keys(tmp_path: Path) -> None:
