@@ -391,6 +391,70 @@ def test_stale_unpublished_adoption_is_reclaimed(tmp_path: Path) -> None:
     assert not hidden.exists()
 
 
+def test_overlapping_staged_analysis_runs_each_occurrence_once(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _workspace, project_id, service = _service(tmp_path, monkeypatch)
+    staging, entries = _staged_selection(
+        tmp_path,
+        [
+            ("one.pdf", PDF, "application/pdf"),
+            ("two.pdf", PDF + b"-two", "application/pdf"),
+        ],
+    )
+    adopted = service.adopt_staged(project_id, staging, entries)
+    started = threading.Event()
+    second_lock_attempt = threading.Event()
+    release = threading.Event()
+    calls = 0
+    lock_calls = 0
+    count_lock = threading.Lock()
+    original_files_lock = service._files_lock
+
+    def tracked_files_lock(directory):
+        nonlocal lock_calls
+        with count_lock:
+            lock_calls += 1
+            if lock_calls == 2:
+                second_lock_attempt.set()
+        return original_files_lock(directory)
+
+    def analyze(_path):
+        nonlocal calls
+        calls += 1
+        started.set()
+        assert release.wait(5)
+        return {
+            "analysis_state": "done",
+            "page_count": 1,
+            "category": "text",
+            "sample_pages": [1],
+            "error": None,
+        }
+
+    monkeypatch.setattr(service, "_analyze", analyze)
+    monkeypatch.setattr(service, "_files_lock", tracked_files_lock)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(
+            service.analyze_staged,
+            project_id,
+            adopted["draft_id"],
+            limit=1,
+        )
+        assert started.wait(5)
+        second = executor.submit(
+            service.analyze_staged,
+            project_id,
+            adopted["draft_id"],
+            limit=1,
+        )
+        assert second_lock_attempt.wait(5)
+        release.set()
+        assert first.result(timeout=5)["analysis"]["files_done"] == 1
+        assert second.result(timeout=5)["analysis"]["files_done"] == 1
+    assert calls == 1
+
+
 def test_mixed_files_keep_mime_preview_and_missing_ocr_scope(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -612,7 +676,7 @@ def test_slow_analysis_does_not_block_status_or_cancel(
         }
 
     monkeypatch.setattr(service, "_analyze", analyze)
-    with ThreadPoolExecutor(max_workers=1) as executor:
+    with ThreadPoolExecutor(max_workers=2) as executor:
         future = executor.submit(
             service.upload,
             project_id,
@@ -626,9 +690,12 @@ def test_slow_analysis_does_not_block_status_or_cancel(
         pending = service.status(project_id, draft_id)
         assert pending["upload"]["files_done"] == 1
         assert pending["analysis"]["files_done"] == 0
-        assert service.discard(project_id, draft_id)["state"] == "cancelled"
+        discarded = executor.submit(service.discard, project_id, draft_id)
+        assert not discarded.done()
         release.set()
-        assert future.result(timeout=5)["state"] == "cancelled"
+        assert discarded.result(timeout=5)["state"] == "cancelled"
+        assert future.result(timeout=5)["state"] in {"open", "cancelled"}
+        assert service.status(project_id, draft_id)["state"] == "cancelled"
 
 
 def test_status_reconciles_preview_registry_terminal_state(

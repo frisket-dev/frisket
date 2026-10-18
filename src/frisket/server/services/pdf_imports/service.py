@@ -603,39 +603,48 @@ class PdfImportService:
         # Analysis can be slow or encounter a hostile PDF. Each result is
         # independently fenced and published after work finishes.
         for occurrence_id in occurrence_ids:
-            with PdfDraftInventory(directory / "inventory.db") as inventory:
-                item = inventory.selected(occurrence_id)
-            if item is None or item["analysis_state"] != "pending":
-                continue
-            _, current_header = self._open(project_id, draft_id)
-            if current_header["state"] not in {"open", "committing"}:
-                break
-            if current_header["paused"]:
-                break
-            analysis = self._analyze_file(
-                self._files_root(directory, current_header) / str(item["sha256"]),
-                media_kind=str(item["media_kind"]),
-            )
-            with (
-                self._lock(directory),
-                PdfDraftInventory(directory / "inventory.db") as inventory,
-            ):
-                header = self._header(project_id, directory)
-                if header["state"] not in {"open", "committing"}:
-                    break
-                if header["paused"]:
-                    break
-                if not inventory.complete_analysis(occurrence_id, analysis):
-                    continue
-                self._update_matched_category(header, item, analysis)
-                if header["state"] == "committing" and self._advance_commit_inventory(
-                    directory, inventory, header
+            published = False
+            with self._files_lock(directory):
+                with (
+                    self._lock(directory),
+                    PdfDraftInventory(directory / "inventory.db") as inventory,
                 ):
-                    header["commit"]["ready_notification"] = {
-                        "revision": int(header["revision"]) + 1
-                    }
-                self._save(directory, header)
-            self._drain_commit_ready(project_id, draft_id, directory)
+                    header = self._header(project_id, directory)
+                    if header["state"] not in {"open", "committing"}:
+                        return
+                    if header["paused"]:
+                        return
+                    item = inventory.selected(occurrence_id)
+                    if item is None or item["analysis_state"] != "pending":
+                        continue
+                    source = self._files_root(directory, header) / str(item["sha256"])
+                    media_kind = str(item["media_kind"])
+
+                analysis = self._analyze_file(source, media_kind=media_kind)
+                with (
+                    self._lock(directory),
+                    PdfDraftInventory(directory / "inventory.db") as inventory,
+                ):
+                    header = self._header(project_id, directory)
+                    if header["state"] not in {"open", "committing"}:
+                        return
+                    if header["paused"]:
+                        return
+                    if not inventory.complete_analysis(occurrence_id, analysis):
+                        continue
+                    self._update_matched_category(header, item, analysis)
+                    if header[
+                        "state"
+                    ] == "committing" and self._advance_commit_inventory(
+                        directory, inventory, header
+                    ):
+                        header["commit"]["ready_notification"] = {
+                            "revision": int(header["revision"]) + 1
+                        }
+                    self._save(directory, header)
+                    published = True
+            if published:
+                self._drain_commit_ready(project_id, draft_id, directory)
 
     def status(self, project_id: str, draft_id: str) -> dict[str, Any]:
         directory, _ = self._open(project_id, draft_id)
@@ -1470,7 +1479,7 @@ class PdfImportService:
 
     def discard(self, project_id: str, draft_id: str) -> dict[str, Any]:
         directory, _ = self._open(project_id, draft_id)
-        with self._lock(directory):
+        with self._files_lock(directory), self._lock(directory):
             header = self._header(project_id, directory)
             if header["state"] == "committing":
                 raise PdfImportDraftError(
