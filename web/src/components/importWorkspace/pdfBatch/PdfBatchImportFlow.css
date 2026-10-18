@@ -455,7 +455,8 @@
 .pdf-batch-preview > header .segmented-toolbar button { color: #625a54; font-weight: 550; }
 .pdf-batch-preview > header .segmented-toolbar button.active { background: #fff; color: #25201c; font-weight: 700; box-shadow: 0 1px 3px rgba(40, 30, 20, 0.16); }
 .pdf-batch-preview .pdf-packet-page-and-text { flex: 1 1 auto; min-height: 0; }
-.pdf-batch-preview .pdf-packet-page-and-text > img { max-height: none; }
+.pdf-batch-preview[data-category='image'] .pdf-packet-page-and-text { overflow: hidden; }
+.pdf-batch-preview[data-category='image'] .pdf-packet-page-and-text > img { height: 100%; max-height: 100%; object-fit: contain; }
 .pdf-batch-preview .pdf-packet-text-card pre { font-family: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
 .pdf-batch-preview .pdf-packet-text-card > p { color: #8a817a; font-family: inherit; font-style: italic; line-height: 1.5; }
 .pdf-batch-garbled {

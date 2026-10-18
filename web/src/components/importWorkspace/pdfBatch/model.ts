@@ -13,8 +13,24 @@ function isPdf(file: File): boolean {
   return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
 }
 
+export function isJunkImportPath(path: string): boolean {
+  const parts = path.replaceAll('\\', '/').split('/').filter(Boolean);
+  if (parts.some((part) => part.toLowerCase() === '__macosx')) return true;
+  const basename = (parts.at(-1) ?? '').toLowerCase();
+  return basename === '.ds_store'
+    || basename === 'thumbs.db'
+    || basename === 'desktop.ini'
+    || basename.startsWith('._')
+    || basename.startsWith('~$')
+    || (basename.startsWith('.~lock.') && basename.endsWith('#'));
+}
+
+export function filterPdfBatchFiles(files: readonly File[]): File[] {
+  return files.filter((file) => !isJunkImportPath(file.webkitRelativePath || file.name));
+}
+
 export function canHandlePdfBatch(files: readonly File[]): boolean {
-  return files.filter(isPdf).length >= 2;
+  return filterPdfBatchFiles(files).filter(isPdf).length >= 2;
 }
 
 export const PDF_BATCH_STAGES: ReadonlyArray<{ id: PdfBatchStage; label: string; testId: string }> = [

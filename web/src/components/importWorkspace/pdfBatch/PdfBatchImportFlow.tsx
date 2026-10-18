@@ -37,6 +37,7 @@ import {
   canHandlePdfBatch,
   count,
   destinationIsReady,
+  filterPdfBatchFiles,
   newerSnapshot,
   ocrPolicyCount,
   visibleCategories,
@@ -94,9 +95,10 @@ function selectorChoice(response: HttpSelectorChoicesResponse | null): SelectorC
 }
 
 function subtitle(snapshot: PdfImportSnapshot | null, files: readonly File[]): string {
-  const total = snapshot?.upload.files_total ?? files.length;
+  const selectedFiles = filterPdfBatchFiles(files);
+  const total = snapshot?.upload.files_total ?? selectedFiles.length;
   const totalBytes = snapshot?.upload.bytes_total
-    ?? files.reduce((sum, file) => sum + file.size, 0);
+    ?? selectedFiles.reduce((sum, file) => sum + file.size, 0);
   return `${count(total, 'file')} · ${bytesLabel(totalBytes)}`;
 }
 
@@ -264,7 +266,7 @@ export function PdfBatchImportFlow({
     lifecycleController.current?.abort();
     lifecycleController.current = controller;
     currentDraft.current = null;
-    const selectedFiles = filesProp.current;
+    const selectedFiles = filterPdfBatchFiles(filesProp.current);
     const sourceFolder = selectedFolderName(selectedFiles);
     const intakeSelection = configureIntake(selectedFiles);
     batchEstimateInFlight.current = null;
@@ -507,16 +509,17 @@ export function PdfBatchImportFlow({
     if (!source || reselecting) return;
     const epoch = generation.current;
     const isCurrent = () => generation.current === epoch && currentDraft.current === source.draft_id;
-    if (selected.length === 0) {
+    const eligibleFiles = filterPdfBatchFiles(selected);
+    if (eligibleFiles.length === 0) {
       reportError(new Error('Select the original files or folder.'));
       return;
     }
-    recoveryFiles.current = [...selected];
+    recoveryFiles.current = eligibleFiles;
     setHasRecoveryFiles(true);
     setReselecting(true);
     setError(null);
     try {
-      await runReselection(source, selected, {
+      await runReselection(source, eligibleFiles, {
         shouldPublish: isCurrent,
         refresh: refreshStatus,
       });

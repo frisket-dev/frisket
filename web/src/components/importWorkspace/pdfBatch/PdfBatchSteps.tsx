@@ -227,7 +227,7 @@ export function CheckTextStep({
         </>}
       </aside>
       <div className="pdf-batch-check-main">
-        <section className="pdf-batch-preview">
+        <section className="pdf-batch-preview" data-category={selectedCategory} data-testid={selectedCategory === 'image' ? 'pdf-batch-image-preview' : undefined}>
           {nonViewer
             ? <FileIssueList
               category={selectedCategory}
@@ -240,10 +240,12 @@ export function CheckTextStep({
             ? <div className="pdf-batch-empty-preview" role="status"><LoaderCircle className="spin" size={16} /> Loading sample…</div>
             : chosenFile ? <>
             <header><div><strong>{chosenFile.filename}</strong><span>{selectedCategory === 'image' ? 'Image' : chosenFile.page_count == null ? 'Reading pages…' : count(chosenFile.page_count, 'page')}</span></div>
-            <SegmentedToggle ariaLabel="Text preview" className="segmented-toolbar" fullWidth={false} value={textSource} onValueChange={(value) => {
-              if (value === 'ocr' && !ocrReady) onPreview();
-              else onTextSource(value as 'native' | 'ocr');
-            }} options={[{ value: 'native', label: 'Text layer' }, { value: 'ocr', label: 'OCR preview' }]} />
+            {selectedCategory === 'image'
+              ? <button type="button" className="btn" onClick={() => { if (ocrReady) onTextSource('ocr'); else onPreview(); }}>OCR preview</button>
+              : <SegmentedToggle ariaLabel="Text preview" className="segmented-toolbar" fullWidth={false} value={textSource} onValueChange={(value) => {
+                if (value === 'ocr' && !ocrReady) onPreview();
+                else onTextSource(value as 'native' | 'ocr');
+              }} options={[{ value: 'native', label: 'Text layer' }, { value: 'ocr', label: 'OCR preview' }]} />}
             </header>
             {selectedCategory === 'suspicious' && textSource === 'native' && <div className="pdf-batch-garbled"><AlertTriangle size={14} /> This text may be garbled. Try OCR preview to compare.</div>}
             <PdfTextPagePreview
@@ -338,7 +340,7 @@ function FileIssueList({ category, files, extensionCounts, unlistedExtensionCoun
       : files.length > 0
         ? files.map((file) => <div key={file.occurrence_id}>
           <strong>{file.filename}</strong>
-          <span>Couldn’t read this PDF. It will be imported without text.</span>
+          <span>Couldn’t read this file. It will be imported without text.</span>
         </div>)
         : <p>No file details are available. These files will be imported without text.</p>}
   </div>;
@@ -400,10 +402,11 @@ export function DestinationStep({ projectId, snapshot, destination, sheets, busy
 }
 
 function TextSourceBadge({ category, policy }: { category: PdfImportCategory; policy: PdfImportChoices['ocr_policy'] }) {
-  const useOcr = policy === 'all'
+  const canUseOcr = category === 'text' || category === 'suspicious' || category === 'missing' || category === 'image';
+  const useOcr = canUseOcr && (policy === 'all'
     || ((policy === 'missing' || policy === 'missing_or_suspicious')
       && (category === 'missing' || category === 'image'))
-    || (policy === 'missing_or_suspicious' && category === 'suspicious');
+    || (policy === 'missing_or_suspicious' && category === 'suspicious'));
   if (useOcr) return <span role="cell"><i className="pdf-batch-text-badge ocr">OCR</i></span>;
   if (category === 'text' || category === 'suspicious') return <span role="cell"><i className="pdf-batch-text-badge native">Text layer</i></span>;
   if (category === 'missing' || category === 'image') return <span role="cell"><i className="pdf-batch-text-badge neutral">No text</i></span>;

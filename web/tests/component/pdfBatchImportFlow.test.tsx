@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { useEffect, useRef } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -268,6 +268,26 @@ function mixedFiles() {
   ];
 }
 
+function withRelativePath(file: File, logicalPath: string): File {
+  Object.defineProperty(file, 'webkitRelativePath', { configurable: true, value: logicalPath });
+  return file;
+}
+
+function junkFiles() {
+  return [
+    new File(['junk'], '.DS_Store'),
+    new File(['junk'], 'Thumbs.db'),
+    new File(['junk'], 'desktop.ini'),
+    new File(['junk'], '._shadow.pdf', { type: 'application/pdf' }),
+    new File(['junk'], '~$draft.pdf', { type: 'application/pdf' }),
+    new File(['junk'], '.~lock.notes#'),
+    withRelativePath(
+      new File(['junk'], 'ghost.pdf', { type: 'application/pdf' }),
+      'Folder/__MACOSX/ghost.pdf',
+    ),
+  ];
+}
+
 function deferred<Value>() {
   let resolve!: (value: Value) => void;
   let reject!: (reason?: unknown) => void;
@@ -308,6 +328,7 @@ describe('PDF batch import flow', () => {
     expect(canHandlePdfBatch(files())).toBe(true);
     expect(canHandlePdfBatch(files().slice(0, 1))).toBe(false);
     expect(canHandlePdfBatch(mixedFiles())).toBe(true);
+    expect(canHandlePdfBatch([files()[0], ...junkFiles()])).toBe(false);
     expect(canHandlePdfBatch([
       files()[0],
       new File(['img'], 'scan.png', { type: 'image/png' }),
@@ -322,7 +343,7 @@ describe('PDF batch import flow', () => {
       manifest: { files_done: 0, files_total: 4, bytes_done: 0, bytes_total: 12, sealed: false },
     }));
     render(<PdfBatchImportFlow
-      projectId="project-1" files={mixedFiles()} destinationSheets={[]} api={api}
+      projectId="project-1" files={[...mixedFiles(), ...junkFiles()]} destinationSheets={[]} api={api}
       onContextChange={vi.fn()} registerCloseGuard={vi.fn()} onImported={vi.fn()}
       onDiscarded={vi.fn()} onError={vi.fn()}
     />);
@@ -499,9 +520,9 @@ describe('PDF batch import flow', () => {
       upload: { files_done: 4, files_total: 4, bytes_done: 12, bytes_total: 12, sealed: true },
       analysis: { files_done: 4, files_total: 4, sealed: true },
       category_counts: {
-        text: 2, suspicious: 0, missing: 0, image: 1, other: 1, unreadable: 0, unchecked: 0,
+        text: 1, suspicious: 0, missing: 0, image: 1, other: 1, unreadable: 1, unchecked: 0,
       },
-      sample_ready_counts: { text: 1, image: 1, other: 1 },
+      sample_ready_counts: { text: 1, image: 1, other: 1, unreadable: 1 },
       choices: {
         ...snapshot().choices,
         semantic_search: false,
@@ -551,13 +572,20 @@ describe('PDF batch import flow', () => {
     ));
     expect(screen.getByRole('radio', { name: /Missing text.*1 file/ })).toBeInTheDocument();
     expect(screen.getByRole('radio', { name: /Missing or suspicious text.*1 file/ })).toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: /All PDFs and images.*3 files/ })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /All PDFs and images.*2 files/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Text layer' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'OCR preview' })).toBeInTheDocument();
+    expect(screen.getByTestId('pdf-batch-image-preview')).toBeInTheDocument();
     expect(screen.getByRole('group', { name: 'Apply OCR to' }).compareDocumentPosition(
       screen.getByText('OCR engine'),
     ) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(screen.getByRole('radio', { name: /Missing text.*1 file/ }));
     await waitFor(() => expect(vi.mocked(api.updateChoices).mock.calls.some((call) => (
       call[2].ocr_policy === 'missing'
+    ))).toBe(true));
+    fireEvent.click(screen.getByRole('radio', { name: /All PDFs and images.*2 files/ }));
+    await waitFor(() => expect(vi.mocked(api.updateChoices).mock.calls.some((call) => (
+      call[2].ocr_policy === 'all'
     ))).toBe(true));
     fireEvent.click(screen.getByRole('button', { name: 'OCR preview' }));
     await waitFor(() => expect(api.estimateOcrPreview).toHaveBeenCalledWith(
@@ -579,7 +607,11 @@ describe('PDF batch import flow', () => {
     const review = screen.getByRole('table', { name: 'File import review' });
     expect(review).toHaveTextContent('Images');
     expect(review).toHaveTextContent('Other files');
-    expect(review).toHaveTextContent('OCR');
+    expect(within(screen.getByRole('row', { name: /Images/ })).getByText('OCR')).toBeInTheDocument();
+    expect(within(screen.getByRole('row', { name: /Other files/ })).queryByText('OCR')).toBeNull();
+    expect(screen.getByRole('row', { name: /Other files/ })).toHaveTextContent('—');
+    expect(within(screen.getByRole('row', { name: /Couldn't read/ })).queryByText('OCR')).toBeNull();
+    expect(screen.getByRole('row', { name: /Couldn't read/ })).toHaveTextContent('—');
   });
 
   it('resolves an unreadable category to file details and excludes it from OCR counts', async () => {
@@ -623,7 +655,7 @@ describe('PDF batch import flow', () => {
     });
 
     expect(await screen.findByText('damaged.pdf')).toBeInTheDocument();
-    expect(screen.getByText('Couldn’t read this PDF. It will be imported without text.')).toBeInTheDocument();
+    expect(screen.getByText('Couldn’t read this file. It will be imported without text.')).toBeInTheDocument();
     expect(screen.queryByText('Could not read PDF.')).not.toBeInTheDocument();
     expect(screen.getByText("OCR will apply to 1 file · 1 couldn't be read.")).toBeInTheDocument();
     expect(api.getPage).not.toHaveBeenCalledWith(
@@ -1014,6 +1046,7 @@ describe('PDF batch import flow', () => {
     fireEvent.change(input!, { target: { files: [
       new File(['img'], 'scan.png', { type: 'image/png' }),
       new File(['txt'], 'notes.txt', { type: 'text/plain' }),
+      ...junkFiles(),
     ] } });
 
     await waitFor(() => expect(api.reconcileReselection).toHaveBeenCalledWith(
