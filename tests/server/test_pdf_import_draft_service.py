@@ -21,6 +21,7 @@ from frisket.actions.document_extraction_types import (
     PositionedToken,
 )
 from frisket.engine.pdf_text import PdfTextBatch, PdfTextError, PdfTextSample
+from frisket.server.services.pdf_import_commit import PdfImportCommitService
 from frisket.server.services.import_uploads import AdmittedUpload
 from frisket.server.services.pdf_imports import PdfImportDraftError, PdfImportService
 from frisket.server.services.pdf_imports.analysis import analyze_pdf
@@ -1100,6 +1101,76 @@ def test_service_startup_purges_expired_terminal_draft(
     service._store.write_header(directory, header)
     PdfImportService(workspace)
     assert not directory.exists()
+
+
+def test_service_startup_purges_expired_interrupted_cancellation(
+    tmp_path: Path, monkeypatch
+) -> None:
+    workspace, project_id, service = _service(tmp_path, monkeypatch)
+    draft_id, _ = _declared(service, project_id)
+    directory = workspace.root / ".pdf_import_drafts" / draft_id
+    manifest = directory / "manifest.json"
+    header = json.loads(manifest.read_text("utf-8"))
+    header["state"] = "cancelling"
+    header["expires_at"] = "2000-01-01T00:00:00Z"
+    service._store.write_header(directory, header)
+
+    PdfImportService(workspace)
+
+    assert not directory.exists()
+
+
+def test_transient_promotion_failure_preserves_commit_for_retry(
+    tmp_path: Path, monkeypatch
+) -> None:
+    workspace, project_id, service = _service(tmp_path, monkeypatch)
+    draft_id, _ = _declared(service, project_id)
+    status = service.upload(
+        project_id,
+        draft_id,
+        [_upload(), _upload("two.pdf")],
+        file_ids=["one", "two"],
+        logical_paths=["north/one.pdf", "south/two.pdf"],
+        batch_id="transient-promotion-upload",
+    )
+    status = service.update_choices(
+        project_id,
+        draft_id,
+        expected_revision=status["revision"],
+        ocr_policy="none",
+        ocr_selection={"kind": "engine", "engine": "rapidocr"},
+        semantic_search=False,
+        semantic_setup_confirmation=None,
+        destination={"kind": "new", "sheet_name": "PDFs"},
+    )
+    commit = PdfImportCommitService(workspace, intake=service)
+    promote = service.promote_commit_inventory
+
+    def analysis_running(*_args, **_kwargs):
+        raise PdfImportDraftError(409, "PDF text analysis is still running")
+
+    monkeypatch.setattr(service, "promote_commit_inventory", analysis_running)
+    with pytest.raises(PdfImportDraftError, match="analysis is still running"):
+        commit.commit(
+            project_id,
+            draft_id,
+            idempotency_key="transient-promotion",
+            expected_revision=status["revision"],
+        )
+
+    retry_status = service.status(project_id, draft_id)
+    assert retry_status["state"] == "committing"
+    assert retry_status["commit"] is not None
+
+    monkeypatch.setattr(service, "promote_commit_inventory", promote)
+    result = commit.commit(
+        project_id,
+        draft_id,
+        idempotency_key="transient-promotion",
+        expected_revision=retry_status["revision"],
+    )
+    assert result.committed_rows == 2
+    assert service.status(project_id, draft_id)["state"] == "committed"
 
 
 def test_failed_promotion_intent_rolls_back_before_reopening(

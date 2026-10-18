@@ -36,6 +36,7 @@ from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.streaming_import import StreamingSheetWriter
 from frisket.server.services.import_sessions import import_page_dedupe_key
 from frisket.server.services.import_uploads import upload_sheet_name
+from frisket.server.services.pdf_imports.storage import PdfImportPromotionRejected
 
 
 _PAGE_SIZE = 256
@@ -181,7 +182,7 @@ class PdfImportCommitService:
         ref, directory, header = self._ensure_intake(project_id, frozen)
         try:
             self._promote(project_id, draft_id, idempotency_key, directory)
-        except BaseException:
+        except PdfImportPromotionRejected:
             self._rollback_unpromoted(
                 project_id,
                 draft_id,

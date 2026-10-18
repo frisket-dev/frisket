@@ -39,6 +39,21 @@ _PAGES_PER_CLAIM = 4
 LOG = logging.getLogger(__name__)
 
 
+def _ensure_staged_blob(project: Project, directory: Path, digest: str) -> None:
+    """Promote staged bytes or verify a prior content-addressed promotion."""
+
+    staged = directory / "staged" / digest
+    if staged.is_file():
+        observed = project.blob_store.put_path(staged, expected_digest=digest)
+        if observed != digest:
+            raise ValueError("promoted import staging digest changed")
+        return
+    # Bootstrap may already have consumed this digest for an earlier duplicate
+    # occurrence or a prior attempt of the same page.
+    with project.blob_store.materialize(digest):
+        pass
+
+
 def register_import_files_handler(
     registry: HandlerRegistry,
     *,
@@ -255,14 +270,7 @@ def register_import_files_handler(
                                 byte_budget=64 * 1024 * 1024,
                             ):
                                 digest = str(item["sha256"])
-                                observed = project.blob_store.put_path(
-                                    directory / "staged" / digest,
-                                    expected_digest=digest,
-                                )
-                                if observed != digest:
-                                    raise ValueError(
-                                        "promoted import staging digest changed"
-                                    )
+                                _ensure_staged_blob(project, directory, digest)
                         session = run_inventory_table_page(
                             project,
                             project_id,

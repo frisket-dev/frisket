@@ -36,7 +36,13 @@ from .previews import (
     read_native_page,
     thumbnail as render_thumbnail,
 )
-from .storage import PdfDraftStore, PdfImportDraftError, SCHEMA_VERSION, now
+from .storage import (
+    PdfDraftStore,
+    PdfImportDraftError,
+    PdfImportPromotionRejected,
+    SCHEMA_VERSION,
+    now,
+)
 from frisket.server.services.pdf_import_ocr_approval import (
     PDF_IMPORT_OCR_APPROVAL_SCHEMA,
     PdfImportOcrApprovalError,
@@ -1214,7 +1220,9 @@ class PdfImportService:
             if not (source_inventory.exists() or target.exists()) or not (
                 source_files.exists() or staged_target.exists()
             ):
-                raise PdfImportDraftError(409, "commit promotion source is missing")
+                raise PdfImportPromotionRejected(
+                    409, "commit promotion source is missing"
+                )
             inventory_location = (
                 source_inventory if source_inventory.exists() else target
             )
@@ -1223,7 +1231,7 @@ class PdfImportService:
                 inventory_location.stat().st_dev != target.parent.stat().st_dev
                 or files_location.stat().st_dev != target.parent.stat().st_dev
             ):
-                raise PdfImportDraftError(
+                raise PdfImportPromotionRejected(
                     409,
                     "PDF import staging and the project must be on the same filesystem",
                 )

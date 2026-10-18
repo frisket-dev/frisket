@@ -27,6 +27,10 @@ class PdfImportDraftError(RouteError):
     pass
 
 
+class PdfImportPromotionRejected(PdfImportDraftError):
+    """The frozen draft cannot transfer ownership into project storage."""
+
+
 def now() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
@@ -100,7 +104,7 @@ class PdfDraftStore:
 
     def purge_expired(self) -> None:
         current_time = datetime.now(UTC)
-        terminal = {"open", "committed", "cancelled", "error"}
+        terminal = {"open", "committed", "cancelling", "cancelled", "error"}
         for path in self.root.glob("pdf-*/manifest.json"):
             directory = path.parent
             try:
@@ -124,4 +128,10 @@ class PdfDraftStore:
                 continue
 
 
-__all__ = ["PdfDraftStore", "PdfImportDraftError", "SCHEMA_VERSION", "now"]
+__all__ = [
+    "PdfDraftStore",
+    "PdfImportDraftError",
+    "PdfImportPromotionRejected",
+    "SCHEMA_VERSION",
+    "now",
+]
