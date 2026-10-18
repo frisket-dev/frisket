@@ -15,6 +15,7 @@ import pytest
 from frisket.ai.llm import ModelRouter
 from frisket.server.services.pdf_import_commit import PdfImportCommitService
 from frisket.server.services.pdf_imports import PdfImportService
+from frisket.server.services.pdf_imports.service import PdfImportPromotionRejected
 from frisket.server.services.import_uploads import AdmittedUpload
 from frisket.server.services.import_sessions import ImportSessionService
 from frisket.server.services.action_runs import ActionRunResponse, ActionRunService
@@ -219,7 +220,7 @@ class _FailingTextPreparation(_TextPreparation):
 class _FailedPromotionIntake(_Intake):
     def promote_commit_inventory(self, *_args, target_path, **_kwargs):
         target_path.parent.mkdir(parents=True, exist_ok=True)
-        raise OSError("promotion failed before ownership transfer")
+        raise PdfImportPromotionRejected("promotion failed before ownership transfer")
 
 
 def _staged(root: Path, ordinal: int, name: str, *, category: str) -> _Occurrence:
@@ -1734,7 +1735,7 @@ def test_prepromotion_failure_restores_draft_and_releases_reservation(
     intake = _FailedPromotionIntake(frozen)
     preparation = _TextPreparation()
 
-    with pytest.raises(OSError, match="ownership transfer"):
+    with pytest.raises(PdfImportPromotionRejected, match="ownership transfer"):
         PdfImportCommitService(
             workspace, intake=intake, text_preparation=preparation
         ).commit(
