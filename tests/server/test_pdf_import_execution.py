@@ -1307,7 +1307,15 @@ def test_paid_parent_grant_admits_exact_ordinary_child_once(
     sheet_id = project.add_sheet("Documents")
     media_id = project.add_column(sheet_id, "media", type="file")
     payload = b"%PDF-paid-child"
-    digest = project.add_blob(payload, filename="scan.pdf", mime="application/pdf")
+    digest = project.add_blob(
+        payload, filename="prior-upload.bin", mime="application/octet-stream"
+    )
+    assert (
+        project.add_blob(payload, filename="scan.pdf", mime="application/pdf") == digest
+    )
+    assert (
+        MediaBlobStore(project).blob_row(digest)["mime"] == "application/octet-stream"
+    )
     MediaBlobStore(project).replace_probe_metadata(digest, {"kind": "pdf", "pages": 2})
     image_payload = (
         Path(__file__).parents[1] / "fixtures/face_detection/astronaut.png"
@@ -2125,6 +2133,36 @@ def test_partial_preparation_children_are_terminal_for_bounded_activity(
 
     assert summary.children[0]["child_key"] == "queued-last"
     assert summary.children[0]["status"] == "queued"
+
+
+def test_unreadable_image_is_not_counted_as_a_pdf_text_layer_problem(
+    tmp_path: Path,
+) -> None:
+    workspace, project_id = _workspace(tmp_path)
+    inventory_path = tmp_path / "unreadable-image.db"
+    with ImportInventory(inventory_path) as inventory:
+        inventory._db.execute(
+            "CREATE TABLE pdf_commit_occurrences ("
+            "ordinal INTEGER PRIMARY KEY,occurrence_id TEXT NOT NULL,"
+            "selected_ordinal INTEGER NOT NULL,category TEXT NOT NULL,"
+            "mime TEXT NOT NULL,error TEXT,sha256 TEXT,page_count INTEGER,"
+            "ocr_selected INTEGER NOT NULL)"
+        )
+        inventory._db.execute(
+            "INSERT INTO pdf_commit_occurrences VALUES"
+            "(1,'broken-image',1,'unreadable','image/png',"
+            "'Image could not be read',NULL,NULL,0)"
+        )
+        inventory._db.commit()
+
+    with PdfImportPreparationStore(inventory_path) as store:
+        summary = store.summary(
+            workspace.get(project_id), import_ref="import-unreadable-image"
+        )
+
+    assert summary.unreadable_total == 0
+    assert summary.row_error_summary is not None
+    assert summary.row_error_summary["total_failed_rows"] == 1
 
 
 @pytest.mark.parametrize("status", ["failed", "cancelled"])

@@ -103,8 +103,7 @@ class PdfImportPreparationStore:
                 "SUM(CASE WHEN ocr_selected=1 AND category!='unreadable' "
                 "AND (mime='application/pdf' OR mime LIKE 'image/%') "
                 "THEN 1 ELSE 0 END) AS ocr_total,"
-                "SUM(CASE WHEN (mime='application/pdf' OR mime LIKE 'image/%') "
-                "AND category='unreadable' "
+                "SUM(CASE WHEN mime='application/pdf' AND category='unreadable' "
                 "THEN 1 ELSE 0 END) "
                 "AS unreadable_total FROM pdf_commit_occurrences"
             ).fetchone()
@@ -131,8 +130,7 @@ class PdfImportPreparationStore:
             "(NEW.mime='application/pdf' OR NEW.mime LIKE 'image/%') "
             "THEN 1 ELSE 0 END,"
             "unreadable_total=unreadable_total + CASE "
-            "WHEN (NEW.mime='application/pdf' OR NEW.mime LIKE 'image/%') "
-            "AND NEW.category='unreadable' "
+            "WHEN NEW.mime='application/pdf' AND NEW.category='unreadable' "
             "THEN 1 ELSE 0 END WHERE singleton=1; "
             "END"
         )
@@ -813,8 +811,6 @@ class PdfImportPreparationCoordinator:
                 "sha256:"
             ):
                 raise ValueError("paid PDF OCR source bytes changed after approval")
-            if source.mime_type != mime:
-                raise ValueError("paid PDF OCR source MIME changed after approval")
             if (
                 mime == "application/pdf"
                 and blobs.probe_metadata(source.blob_hash).get("pages") != page_count
