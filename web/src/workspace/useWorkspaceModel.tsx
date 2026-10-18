@@ -57,6 +57,7 @@ import { gridReadColumnIds } from '../components/fieldValueDependencies';
 import { computeRowCacheKey, resolveRowCacheScope } from '../grid/rowCacheStore';
 import { PanelLoading } from '../components/PanelPrimitives';
 import { documentMediaColumns } from '../workbench/documentMedia';
+import { promoteDocumentPriority } from '../api/documentPriority';
 import { selectWorkViewAvailability } from '../core/selectors/workView';
 import { WORK_VIEW_KINDS, WORK_VIEW_TITLES } from '../core/selectors/views/registry';
 import { createStore } from '../core/store/createStore';
@@ -1236,6 +1237,15 @@ export function useWorkspaceModel({
   const openRowInDocumentView = useCallback(
     (rowId: string, columnId: string) => {
       if (!sheet) return;
+      const numericRowId = Number(rowId);
+      const numericColumnId = Number(columnId);
+      if (Number.isSafeInteger(numericRowId) && Number.isSafeInteger(numericColumnId)) {
+        void promoteDocumentPriority(project.id, {
+          sheetId: Number(sheet.id),
+          rowId: numericRowId,
+          columnId: numericColumnId,
+        }).catch(() => undefined);
+      }
       setOpenSplit(null);
       const base =
         documentView && documentView.sheetId === sheet.id
@@ -1258,7 +1268,7 @@ export function useWorkspaceModel({
       });
       selection.clearRowSelection(sheet.id);
     },
-    [sheet, documentView, selection, setDocumentView, setOpenSplit],
+    [project.id, sheet, documentView, selection, setDocumentView, setOpenSplit],
   );
 
   const openRowRef = useCallback(
