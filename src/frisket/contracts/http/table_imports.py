@@ -248,7 +248,6 @@ class TableImportDestinationComparison(WireModel):
 
 class TableImportDestination(WireModel):
     configuration: TableImportDestinationConfig
-    occupied_column_names: list[str]
     mappings: list[TableImportMapping]
     dedup: TableImportDedup
     comparison: TableImportDestinationComparison

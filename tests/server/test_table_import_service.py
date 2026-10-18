@@ -661,51 +661,82 @@ def test_full_scan_finishes_the_current_reviewed_dedup_comparison(
     assert completed.destination.comparison.duplicate_rows == 1
 
 
-def test_destination_rejects_duplicate_and_reserved_output_names(
+def test_destination_canonicalizes_duplicate_output_name_hints(
     tmp_path: Path,
 ) -> None:
-    _workspace, project_id, service = _service(tmp_path)
-    created = service.create(project_id, _upload(CSV), input_kind="file")
+    workspace, project_id, service = _service(tmp_path)
+    created = service.create(
+        project_id, _upload(b"first,second\n1,2\n"), input_kind="file"
+    )
     scanned = service.scan(project_id, created.draft_id, settings_revision=0)
     included = [column for column in scanned.columns if column.included]
 
-    with pytest.raises(TableImportDraftError) as duplicate:
+    duplicate = service.update_destination(
+        project_id,
+        created.draft_id,
+        expected_revision=scanned.revision,
+        destination={"kind": "new", "sheet_name": "People"},
+        mappings=[
+            {
+                "source_index": column.source_index,
+                "target": {"kind": "new", "name": "duplicate"},
+            }
+            for column in included
+        ],
+        dedup={"enabled": False, "key_source_index": None},
+    )
+    assert duplicate.destination is not None
+    assert [mapping.target.name for mapping in duplicate.destination.mappings] == [
+        "duplicate",
+        "duplicate 2",
+    ]
+
+    spaced_duplicate = service.update_destination(
+        project_id,
+        created.draft_id,
+        expected_revision=duplicate.revision,
+        destination={"kind": "new", "sheet_name": "People"},
+        mappings=[
+            {
+                "source_index": column.source_index,
+                "target": {
+                    "kind": "new",
+                    "name": "same" if index == 0 else " same ",
+                },
+            }
+            for index, column in enumerate(included)
+        ],
+        dedup={"enabled": False, "key_source_index": None},
+    )
+    assert spaced_duplicate.destination is not None
+    assert [
+        mapping.target.name for mapping in spaced_duplicate.destination.mappings
+    ] == ["same", "same 2"]
+
+    sheet_id = workspace.get(project_id).add_sheet("Existing")
+    shared_column_id = workspace.get(project_id).add_column(
+        sheet_id, "shared", type="text"
+    )
+    with pytest.raises(TableImportDraftError) as duplicate_existing:
         service.update_destination(
             project_id,
             created.draft_id,
-            expected_revision=scanned.revision,
-            destination={"kind": "new", "sheet_name": "People"},
+            expected_revision=spaced_duplicate.revision,
+            destination={"kind": "existing", "sheet_id": sheet_id},
             mappings=[
                 {
                     "source_index": column.source_index,
-                    "target": {"kind": "new", "name": "duplicate"},
+                    "target": {
+                        "kind": "existing",
+                        "column_id": shared_column_id,
+                    },
                 }
                 for column in included
             ],
             dedup={"enabled": False, "key_source_index": None},
         )
-    assert duplicate.value.status_code == 422
-    assert duplicate.value.detail["code"] == "invalid_destination"
-
-    with pytest.raises(TableImportDraftError) as spaced_duplicate:
-        service.update_destination(
-            project_id,
-            created.draft_id,
-            expected_revision=scanned.revision,
-            destination={"kind": "new", "sheet_name": "People"},
-            mappings=[
-                {
-                    "source_index": column.source_index,
-                    "target": {
-                        "kind": "new",
-                        "name": "same" if index == 0 else " same ",
-                    },
-                }
-                for index, column in enumerate(included)
-            ],
-            dedup={"enabled": False, "key_source_index": None},
-        )
-    assert spaced_duplicate.value.detail["code"] == "invalid_destination"
+    assert duplicate_existing.value.status_code == 422
+    assert duplicate_existing.value.detail["code"] == "invalid_destination"
 
     reserved = service.create(
         project_id,
@@ -749,7 +780,7 @@ def test_existing_destination_rejects_reserved_overflow_column(tmp_path: Path) -
     assert rejected.value.detail["code"] == "destination_changed"
 
 
-def test_existing_destination_reserves_hidden_active_column_names(
+def test_existing_destination_canonicalizes_hidden_active_column_name(
     tmp_path: Path,
 ) -> None:
     workspace, project_id, service = _service(tmp_path)
@@ -757,7 +788,7 @@ def test_existing_destination_reserves_hidden_active_column_names(
     sheet_id = project.add_sheet("People")
     project.add_column(sheet_id, "amount", type="number", hidden=True)
     created = service.create(
-        project_id, _upload(b"score\n1\n", "scores.csv"), input_kind="file"
+        project_id, _upload(b"amount\n1\n", "amounts.csv"), input_kind="file"
     )
     included = [column for column in created.columns if column.included]
     compared = service.update_destination(
@@ -768,31 +799,22 @@ def test_existing_destination_reserves_hidden_active_column_names(
         mappings=[
             {
                 "source_index": included[0].source_index,
-                "target": {"kind": "new", "name": "score"},
+                "target": {"kind": "new", "name": included[0].name},
             }
         ],
         dedup={"enabled": False, "key_source_index": None},
     )
 
     assert compared.destination is not None
-    assert compared.destination.occupied_column_names == ["amount"]
-    with pytest.raises(TableImportDraftError) as rejected:
-        service.update_destination(
-            project_id,
-            created.draft_id,
-            expected_revision=compared.revision,
-            destination={"kind": "existing", "sheet_id": sheet_id},
-            mappings=[
-                {
-                    "source_index": included[0].source_index,
-                    "target": {"kind": "new", "name": "amount"},
-                }
-            ],
-            dedup={"enabled": False, "key_source_index": None},
-        )
-
-    assert rejected.value.status_code == 422
-    assert rejected.value.detail["code"] == "invalid_destination"
+    assert compared.destination.mappings[0].target.name == "amount 2"
+    frozen = service.freeze_for_commit(
+        project_id,
+        created.draft_id,
+        expected_revision=compared.revision,
+        idempotency_key="hidden-name-canonicalized",
+    )
+    assert isinstance(frozen, FrozenTableImport)
+    assert frozen.plan.columns[0].target_name == "amount 2"
 
 
 @pytest.mark.parametrize("hidden", [False, True])

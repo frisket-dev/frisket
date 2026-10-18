@@ -12552,7 +12552,6 @@ type HttpTableImportDraft_TableImportDestination = ({
   "configuration": (((HttpTableImportDraft_TableImportNewDestination)) | ((HttpTableImportDraft_TableImportExistingDestination)));
   "dedup": (HttpTableImportDraft_TableImportDedup);
   "mappings": (Array<(HttpTableImportDraft_TableImportMapping)>);
-  "occupied_column_names": (Array<(string)>);
 });
 
 type HttpTableImportDraft_TableImportDestinationComparison = ({

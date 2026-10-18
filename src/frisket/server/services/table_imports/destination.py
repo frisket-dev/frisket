@@ -88,17 +88,10 @@ def compare_destination(
             target_name = str(target.get("name") or "").strip()
             if not target_name:
                 raise _error(422, "invalid_destination", "New columns require names.")
-            if (
-                (reserve_extra_values and target_name == "extra values")
-                or target_name in new_target_names
-                or target_name in occupied_target_names
-            ):
-                raise _error(
-                    422,
-                    "invalid_destination",
-                    "Destination column names must be unique; "
-                    "'extra values' is reserved for overflow values.",
-                )
+            unavailable_names = occupied_target_names | new_target_names
+            if reserve_extra_values:
+                unavailable_names.add("extra values")
+            target_name = _unique_new_column_name(target_name, unavailable_names)
             new_target_names.add(target_name)
             target["name"] = target_name
             new += 1
@@ -279,10 +272,8 @@ def public_destination(
     mappings = []
     project = workspace.get(header["project_id"])
     target_rows: dict[int, Any] = {}
-    occupied_names: list[str] = []
     if request["destination"]["kind"] == "existing":
         sheet_id = int(request["destination"]["sheet_id"])
-        occupied_names = sorted(occupied_column_names(project, sheet_id))
         target_rows = {
             int(row["id"]): row
             for row in project.db.execute(
@@ -321,7 +312,6 @@ def public_destination(
         )
     return {
         "configuration": request["destination"],
-        "occupied_column_names": occupied_names,
         "mappings": mappings,
         "dedup": request["dedup"],
         "comparison": request["comparison"],
@@ -387,6 +377,15 @@ def occupied_column_names(project: Any, sheet_id: int) -> set[str]:
             "SELECT name FROM columns WHERE sheet_id=? AND active=1", (sheet_id,)
         )
     }
+
+
+def _unique_new_column_name(requested: str, unavailable: set[str]) -> str:
+    candidate = requested
+    suffix = 2
+    while candidate in unavailable:
+        candidate = f"{requested} {suffix}"
+        suffix += 1
+    return candidate
 
 
 def _error(status_code: int, code: str, message: str) -> TableImportDraftError:
