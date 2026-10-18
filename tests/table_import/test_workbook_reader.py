@@ -27,7 +27,9 @@ def _workbook(path: Path) -> None:
     hidden.sheet_state = "hidden"
     hidden.append(["only"])
     chart = BarChart()
-    chart.add_data(Reference(sheet, min_col=2, min_row=1, max_row=3), titles_from_data=True)
+    chart.add_data(
+        Reference(sheet, min_col=2, min_row=1, max_row=3), titles_from_data=True
+    )
     chart_sheet = workbook.create_chartsheet("Chart only")
     chart_sheet.add_chart(chart)
     workbook.save(path)
