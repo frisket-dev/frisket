@@ -584,16 +584,20 @@ class ImportSessionService:
             str(row["id"]): str(row["state"])
             for row in project.db.execute("SELECT id,state FROM import_sessions")
         }
-        terminal_by_recency = [
-            str(row["id"])
-            for row in project.db.execute(
-                "SELECT id FROM import_sessions "
-                "WHERE state IN ('completed','kept') "
-                "ORDER BY updated_at DESC LIMIT 10"
-            )
-        ]
-        recent_terminal = set(terminal_by_recency)
-        terminal_rank = {ref: rank for rank, ref in enumerate(terminal_by_recency)}
+
+        def recent_terminal_refs() -> list[str]:
+            return [
+                str(row["id"])
+                for row in project.db.execute(
+                    "SELECT id FROM import_sessions "
+                    "WHERE state IN ('completed','kept') "
+                    "ORDER BY updated_at DESC LIMIT 10"
+                )
+            ]
+
+        # Bound projection work using the initial snapshot. A live writer may
+        # still complete while its status is being projected below.
+        recent_terminal = set(recent_terminal_refs())
         if root.is_dir():
             for directory in sorted(root.iterdir()):
                 if not directory.is_dir():
@@ -621,6 +625,18 @@ class ImportSessionService:
                             )
                 except (KeyError, OSError, ValueError):
                     continue
+        # Publish completion order from a fresh snapshot after status
+        # projection. Otherwise a session that completed during this call has
+        # no rank and directory ordering can put an older completion first.
+        terminal_by_recency = recent_terminal_refs()
+        recent_terminal = set(terminal_by_recency)
+        sessions = [
+            status
+            for status in sessions
+            if status.state not in {"completed", "kept"}
+            or status.import_ref in recent_terminal
+        ]
+        terminal_rank = {ref: rank for rank, ref in enumerate(terminal_by_recency)}
         sessions.sort(
             key=lambda status: (
                 status.state in {"completed", "kept"},

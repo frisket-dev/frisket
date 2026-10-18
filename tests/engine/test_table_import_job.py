@@ -286,7 +286,7 @@ def test_commit_table_binds_bootstraps_and_enqueues_exact_frozen_plan(
 
 
 def test_table_import_list_keeps_live_first_and_completed_by_recency(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     project_path = tmp_path / f"{PROJECT_ID}.frisket"
     data = b"id\none\n"
@@ -334,14 +334,16 @@ def test_table_import_list_keeps_live_first_and_completed_by_recency(
 
         older = "import-" + "1" * 32
         newer = "import-" + "2" * 32
-        live = "import-" + "9" * 32
-        for ref in (older, newer, live):
+        live = "import-" + "8" * 32
+        racing = "import-" + "9" * 32
+        for ref in (older, newer, live, racing):
             commit(ref)
-        live_session = ImportSessionStore(project).get(live)
-        assert live_session is not None
-        StreamingSheetWriter._from_session(project, live_session).pause(
-            expected_cursor=0
-        )
+        for ref in (live, racing):
+            session = ImportSessionStore(project).get(ref)
+            assert session is not None
+            StreamingSheetWriter._from_session(project, session).pause(
+                expected_cursor=0
+            )
         project.db.execute(
             "UPDATE import_sessions SET state='completed',updated_at=? WHERE id=?",
             ("2026-01-01 00:00:00", older),
@@ -352,11 +354,30 @@ def test_table_import_list_keeps_live_first_and_completed_by_recency(
         )
         project.db.commit()
 
+        original_status = service._status
+
+        def finish_during_projection(*args, **kwargs):
+            if args[1] == racing:
+                project.db.execute(
+                    "UPDATE import_sessions "
+                    "SET state='completed',updated_at=datetime('now') WHERE id=?",
+                    (racing,),
+                )
+                project.db.commit()
+            return original_status(*args, **kwargs)
+
+        monkeypatch.setattr(service, "_status", finish_during_projection)
         listed = service.list(PROJECT_ID).sessions
 
-        assert [status.import_ref for status in listed] == [live, newer, older]
+        assert [status.import_ref for status in listed] == [
+            live,
+            racing,
+            newer,
+            older,
+        ]
         assert [status.state for status in listed] == [
             "paused",
+            "completed",
             "completed",
             "completed",
         ]
