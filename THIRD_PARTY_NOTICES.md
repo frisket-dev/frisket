@@ -1,6 +1,6 @@
 # Third-party notices
 
-This notice covers software copied into Frisket's first-party container image.
+This notice covers third-party software and data included in Frisket distributions.
 It does not change the Apache-2.0 license for Frisket's own source code.
 
 ## PP-OCRv5 Chinese mobile recognizer
@@ -77,3 +77,41 @@ The Python wheel does not contain FFmpeg or ffprobe. Native/custom operators
 may put `ffprobe` on `PATH` or set `FRISKET_FFPROBE_PATH` to an absolute
 executable path. Full metadata coverage requires a build whose input protocols
 include seekable `fd`; incompatible older builds degrade honestly.
+
+## PDF text-quality hint assets
+
+`english_lexicon.bloom` and `latin_trigrams.json.gz` in
+`src/frisket/documents/text_quality/` are derived from the CMU Pronouncing
+Dictionary. They are included in the Python package and use the following
+BSD 2-Clause notice, also shipped beside the assets:
+
+CMU Pronouncing Dictionary asset provenance
+
+Source used: /usr/share/pocketsphinx/model/en-us/cmudict-en-us.dict
+Upstream: CMU Sphinx / PocketSphinx, http://cmusphinx.sourceforge.net/
+Copyright: 1995-2014 Carnegie Mellon University. All rights reserved.
+Copyright: 2014-2015 Alpha Cephei Inc.
+License: BSD 2-Clause
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice,
+   this list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY CARNEGIE MELLON UNIVERSITY "AS IS" AND ANY
+EXPRESSED OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL CARNEGIE MELLON UNIVERSITY NOR ITS EMPLOYEES BE
+LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE
+GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
+OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+The generated assets contain a Bloom filter over spelling entries and aggregate
+character-trigram counts; they do not contain pronunciations.
