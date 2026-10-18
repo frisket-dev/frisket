@@ -6,6 +6,7 @@ import { handleFirstLaunchPrompts } from './onboarding.mjs';
 import {
   aliveProcesses, assertInstalledPlatform, descendants, installedExecutable, installedResources, listeningPorts, runningExecutable,
 } from './installed-platform.mjs';
+import { importTable } from './table-import.mjs';
 import { serveUpdateFeed } from './update-feed.mjs';
 
 const require = createRequire(import.meta.url);
@@ -146,21 +147,11 @@ async function savedProject(page) {
   await page.getByTestId('create-project').click();
   await page.waitForURL(/\/p\//);
   const projectId = new URL(page.url()).pathname.split('/')[2];
-  if (!await page.getByTestId('import-csv-input').count()) {
-    await page.getByTestId('ribbon-tab-data').click();
-    await page.getByTestId('ribbon-command-import').click();
-  }
-  const uploaded = page.waitForResponse((response) => response.request().method() === 'POST' && new URL(response.url()).pathname.endsWith('/import/csv'));
-  await page.getByTestId('import-csv-input').setInputFiles({
+  const sheetId = await importTable(page, projectId, {
     name: 'update-proof.csv', mimeType: 'text/csv',
     buffer: Buffer.from('note\n"saved contract worth $4,200"\n'),
   });
-  await expect(page.getByTestId('import-csv-preview')).toBeVisible();
-  await page.getByTestId('import-csv-confirm').click();
-  const response = await uploaded;
-  expect(response.ok()).toBeTruthy();
-  const { sheet_id: sheetId } = await response.json();
-  expect(sheetId).toBeTruthy();
+  await expect.poll(async () => (await sheet(page, projectId, sheetId)).total, { timeout: 60_000 }).toBe(1);
   const ribbon = page.getByTestId('act-ribbon');
   const tile = page.getByTestId('ribbon-action-map.regex_extract');
   await expect(ribbon).toBeVisible();
