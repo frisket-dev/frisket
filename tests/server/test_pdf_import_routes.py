@@ -604,7 +604,7 @@ def test_real_http_mixed_upload_exposes_image_and_other_review(
     selected = [
         ("one", "one.pdf", pdf, "application/octet-stream"),
         ("two", "two.pdf", pdf, "application/pdf"),
-        ("photo", "photo.png", png, "application/octet-stream"),
+        ("photo", "photo.pdf", png, "application/pdf"),
         ("notes", "notes.txt", note, "text/plain"),
     ]
     base = f"/api/projects/{project_id}/import/pdf-imports"
@@ -618,6 +618,27 @@ def test_real_http_mixed_upload_exposes_image_and_other_review(
     )
     assert created.status_code == 201, created.text
     draft_id = created.json()["draft_id"]
+    junk_manifest = client.post(
+        f"{base}/{draft_id}/manifest",
+        json={
+            "batch_id": "mixed-manifest",
+            "files": [
+                {
+                    "client_file_id": occurrence_id,
+                    "logical_path": (
+                        "__MACOSX/._one.pdf" if occurrence_id == "one" else filename
+                    ),
+                    "filename": filename,
+                    "size": len(payload),
+                }
+                for occurrence_id, filename, payload, _mime in selected
+            ],
+        },
+    )
+    assert junk_manifest.status_code == 422, junk_manifest.text
+    assert junk_manifest.json()["detail"] == (
+        "PDF import selection contains an ignored system file"
+    )
     manifest = client.post(
         f"{base}/{draft_id}/manifest",
         json={

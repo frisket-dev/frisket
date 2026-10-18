@@ -25,7 +25,7 @@ from frisket.contracts.http.pdf_imports import (
 )
 from frisket.engine.store.disk_capacity import DISK_HEADROOM_BYTES
 from frisket.engine.store.import_inventory import ImportInventory
-from frisket.server.services.import_bulk_sources import fsync_directory
+from frisket.server.services.import_bulk_sources import fsync_directory, is_junk_path
 from frisket.server.services.import_uploads import AdmittedUpload
 
 from .analysis import analyze_image, analyze_other, analyze_pdf
@@ -262,6 +262,10 @@ class PdfImportService:
         for raw in files:
             occurrence_id = self._occurrence_id(raw.get("client_file_id"))
             logical = _logical_path(str(raw.get("logical_path") or ""))
+            if is_junk_path(logical):
+                raise PdfImportDraftError(
+                    422, "PDF import selection contains an ignored system file"
+                )
             filename = str(raw.get("filename") or PurePosixPath(logical).name)
             size = raw.get("size")
             if type(size) is not int or size < 0:
@@ -1502,7 +1506,7 @@ class PdfImportService:
             except Exception:
                 pass
 
-        if prefix == b"%PDF-" or suffix == ".pdf" or claimed == "application/pdf":
+        if prefix == b"%PDF-":
             return "pdf", "application/pdf"
 
         image_mimes = {
@@ -1512,18 +1516,36 @@ class PdfImportService:
             "PNG": "image/png",
             "TIFF": "image/tiff",
             "WEBP": "image/webp",
+            "MPO": "image/jpeg",
         }
-        if image_format:
-            return "image", image_mimes.get(
-                image_format,
+        if image_format in image_mimes:
+            return "image", image_mimes[image_format]
+        if image_format is not None:
+            return "other", (
                 detected_image_mime
-                or (guessed if guessed.startswith("image/") else None)
-                or (claimed if claimed.startswith("image/") else None)
-                or f"image/{image_format.casefold()}",
+                or (
+                    claimed
+                    if claimed and claimed != "application/octet-stream"
+                    else None
+                )
+                or guessed
+                or "application/octet-stream"
             )
-        if claimed.startswith("image/") or guessed.startswith("image/"):
-            mime = claimed if claimed.startswith("image/") else guessed
-            return "image", mime
+        if suffix == ".pdf" or claimed == "application/pdf":
+            return "pdf", "application/pdf"
+        supported_image_mimes = {
+            "image/bmp": "image/bmp",
+            "image/gif": "image/gif",
+            "image/jpeg": "image/jpeg",
+            "image/jpg": "image/jpeg",
+            "image/png": "image/png",
+            "image/tiff": "image/tiff",
+            "image/webp": "image/webp",
+        }
+        if claimed in supported_image_mimes:
+            return "image", supported_image_mimes[claimed]
+        if guessed in supported_image_mimes:
+            return "image", supported_image_mimes[guessed]
         if claimed and claimed != "application/octet-stream" and "/" in claimed:
             return "other", claimed
         return "other", guessed or "application/octet-stream"

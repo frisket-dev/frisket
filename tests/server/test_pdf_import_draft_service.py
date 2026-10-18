@@ -293,6 +293,10 @@ def test_mixed_files_keep_mime_preview_and_missing_ocr_scope(
     note = b"supporting attachment"
     broken = b"not a real png"
     fake_pdf = b"this is not a PDF"
+    eps = (
+        b"%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 0 0 10 10\n"
+        b"newpath 0 0 moveto 10 10 lineto stroke\nshowpage\n"
+    )
     monkeypatch.setattr(
         service,
         "_analyze",
@@ -311,8 +315,9 @@ def test_mixed_files_keep_mime_preview_and_missing_ocr_scope(
     declared = [
         ("pdf", "evidence/report.pdf", PDF),
         ("fake-pdf", "evidence/not-really.pdf", fake_pdf),
-        ("image", "evidence/photo.png", png),
+        ("image", "evidence/photo.pdf", png),
         ("other", "evidence/notes.txt", note),
+        ("unsupported-image", "evidence/vector.eps", eps),
         ("broken", "evidence/broken.png", broken),
     ]
     created = service.create(
@@ -340,8 +345,9 @@ def test_mixed_files_keep_mime_preview_and_missing_ocr_scope(
     uploads = [
         _upload("report.pdf", PDF, "application/octet-stream"),
         _upload("not-really.pdf", fake_pdf, "text/plain"),
-        _upload("photo.png", png, "application/octet-stream"),
+        _upload("photo.pdf", png, "application/pdf"),
         _upload("notes.txt", note, "text/plain"),
+        _upload("vector.eps", eps, "application/postscript"),
         _upload("broken.png", broken, "image/png"),
     ]
     status = service.upload(
@@ -357,7 +363,7 @@ def test_mixed_files_keep_mime_preview_and_missing_ocr_scope(
         "suspicious": 0,
         "missing": 1,
         "image": 1,
-        "other": 1,
+        "other": 2,
         "unreadable": 2,
         "unchecked": 0,
     }
@@ -368,8 +374,9 @@ def test_mixed_files_keep_mime_preview_and_missing_ocr_scope(
         [
             _upload("report.pdf", PDF, "application/octet-stream"),
             _upload("not-really.pdf", fake_pdf, "text/plain"),
-            _upload("photo.png", png, "application/octet-stream"),
+            _upload("photo.pdf", png, "application/pdf"),
             _upload("notes.txt", note, "text/plain"),
+            _upload("vector.eps", eps, "application/postscript"),
             _upload("broken.png", broken, "image/png"),
         ],
         file_ids=[item[0] for item in declared],
@@ -390,7 +397,10 @@ def test_mixed_files_keep_mime_preview_and_missing_ocr_scope(
         service.page(project_id, draft_id, "other", 1)
 
     other = service.samples(project_id, draft_id, category="other")
-    assert other["extension_counts"] == [{"extension": ".txt", "count": 1}]
+    assert other["extension_counts"] == [
+        {"extension": ".eps", "count": 1},
+        {"extension": ".txt", "count": 1},
+    ]
     assert other["unlisted_extension_count"] == 0
 
     choices = service.update_choices(
@@ -415,6 +425,7 @@ def test_mixed_files_keep_mime_preview_and_missing_ocr_scope(
         ("application/pdf", "unreadable", False),
         ("image/png", "image", True),
         ("text/plain", "other", False),
+        ("application/postscript", "other", False),
         ("image/png", "unreadable", False),
     ]
     with sqlite3.connect(frozen.commit_inventory_path) as db:
@@ -425,6 +436,7 @@ def test_mixed_files_keep_mime_preview_and_missing_ocr_scope(
             ("application/pdf", 0),
             ("image/png", 1),
             ("text/plain", 0),
+            ("application/postscript", 0),
             ("image/png", 0),
         ]
         assert db.execute(
@@ -434,6 +446,7 @@ def test_mixed_files_keep_mime_preview_and_missing_ocr_scope(
             ("application/pdf",),
             ("image/png",),
             ("text/plain",),
+            ("application/postscript",),
             ("image/png",),
         ]
     assert workspace.get(project_id).sheets() == []
@@ -1236,6 +1249,62 @@ def test_manifest_scope_and_preflight_are_enforced(tmp_path: Path, monkeypatch) 
         )
     with pytest.raises(PdfImportDraftError, match="incomplete"):
         service.seal_manifest(project_id, created["draft_id"])
+
+
+def test_junk_manifest_is_rejected_atomically_without_consuming_ordinals(
+    tmp_path: Path, monkeypatch
+) -> None:
+    workspace, project_id, service = _service(tmp_path, monkeypatch)
+    created = service.create(
+        project_id,
+        expected_files=2,
+        expected_bytes=2 * len(PDF),
+        source_label="Folder",
+    )
+    draft_id = created["draft_id"]
+    with pytest.raises(PdfImportDraftError, match="ignored system file"):
+        service.append_manifest(
+            project_id,
+            draft_id,
+            batch_id="manifest-folder",
+            files=[
+                {
+                    "client_file_id": "junk",
+                    "logical_path": "folder/._one.pdf",
+                    "filename": "._one.pdf",
+                    "size": len(PDF),
+                },
+                {
+                    "client_file_id": "two",
+                    "logical_path": "folder/two.pdf",
+                    "filename": "two.pdf",
+                    "size": len(PDF),
+                },
+            ],
+        )
+    assert service.status(project_id, draft_id)["manifest"]["files_done"] == 0
+
+    admitted = service.append_manifest(
+        project_id,
+        draft_id,
+        batch_id="manifest-folder",
+        files=[
+            {
+                "client_file_id": occurrence_id,
+                "logical_path": f"folder/{occurrence_id}.pdf",
+                "filename": f"{occurrence_id}.pdf",
+                "size": len(PDF),
+            }
+            for occurrence_id in ("one", "two")
+        ],
+    )
+    assert admitted["manifest"]["files_done"] == 2
+    directory = workspace.root / ".pdf_import_drafts" / draft_id
+    with PdfDraftInventory(directory / "inventory.db") as inventory:
+        assert [
+            (row["ordinal"], row["occurrence_id"])
+            for row in inventory.staged_page(after=0, limit=10)
+        ] == [(1, "one"), (2, "two")]
 
 
 def test_upload_rejects_non_route_safe_occurrence_id(
