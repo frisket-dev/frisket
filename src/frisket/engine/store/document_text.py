@@ -258,6 +258,32 @@ def document_text_role_for_text_column(
     return None if row is None else _role_from_row(row)
 
 
+def document_text_column_ids_by_sheet(
+    db_or_project: Any,
+) -> dict[int, list[int]]:
+    """Return visible active role-backed Text columns, grouped by sheet."""
+
+    db = _db(db_or_project)
+    if not _role_table_exists(db):
+        return {}
+    rows = db.execute(
+        "SELECT text.sheet_id,role.text_column_id "
+        "FROM document_text_column_roles role "
+        "JOIN columns source ON source.id=role.source_column_id "
+        "JOIN columns text ON text.id=role.text_column_id "
+        "JOIN sheets sheet ON sheet.id=text.sheet_id "
+        "WHERE source.sheet_id=text.sheet_id "
+        "AND source.active=1 AND source.hidden=0 "
+        "AND text.active=1 AND text.hidden=0 "
+        "AND sheet.hidden=0 "
+        "ORDER BY text.sheet_id,role.text_column_id"
+    ).fetchall()
+    result: dict[int, list[int]] = {}
+    for row in rows:
+        result.setdefault(int(row[0]), []).append(int(row[1]))
+    return result
+
+
 def document_text_related_column_ids(
     db_or_project: Any, *, column_id: int
 ) -> tuple[int, ...]:
@@ -700,6 +726,7 @@ __all__ = [
     "DocumentTextPublicationRefused",
     "DocumentTextSelection",
     "DocumentTextUnavailable",
+    "document_text_column_ids_by_sheet",
     "document_text_related_column_ids",
     "document_text_generation_authority",
     "document_text_result_eligibility_sql",

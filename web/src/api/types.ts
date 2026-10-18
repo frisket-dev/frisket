@@ -616,6 +616,8 @@ export interface SheetMeta {
    * silently disappearing.
    */
   annotatedTextColumnIds: string[];
+  /** Visible active Text columns designated by document-text roles. */
+  documentTextColumnIds: string[];
   /** Visible materialized sheets that consume this sheet. Deletion is blocked
    *  until these dependents are removed first. */
   dependentSheetIds?: string[];

@@ -39,6 +39,7 @@ const sheetListWire = [{
   title_column_id: null,
   cited_column_ids: [],
   annotated_text_column_ids: [],
+  document_text_column_ids: [9],
   dependent_sheet_ids: [],
   refreshable: false,
   syncState: 'stale',
@@ -591,6 +592,7 @@ describe('sheet and grid HTTP contracts', () => {
 
     const [sheet] = await pending;
     expect(sheet).toEqual(expect.objectContaining({ id: '7', refreshable: false }));
+    expect(sheet.documentTextColumnIds).toEqual(['9']);
     expect(sheet).not.toHaveProperty('syncState');
     expect(requests).toEqual([
       '/api/projects/project-a/sheets',

@@ -106,6 +106,7 @@ interface ColumnGroupModel {
   confidenceColumns: string[];
   justificationColumns: string[];
   fallbackLabel: string;
+  authoritativeLabel?: string;
 }
 
 interface NativeColumnGroupsState {
@@ -184,7 +185,7 @@ function resolveColumnGroupLayout(
 ): Required<ColumnGroupLayoutState> {
   const layout = layouts[group.runId];
   return {
-    label: layout?.label || group.fallbackLabel,
+    label: group.authoritativeLabel ?? layout?.label ?? group.fallbackLabel,
     showConfidence: layout?.showConfidence ?? true,
     showJustification: layout?.showJustification ?? true,
   };
@@ -206,12 +207,16 @@ function buildColumnGroupSpecs(
   });
 }
 
-function buildColumnGroups(columns: ColumnDef[]): ColumnGroupModel[] {
+function buildColumnGroups(
+  columns: ColumnDef[],
+  documentTextColumnIds: readonly string[],
+): ColumnGroupModel[] {
+  const documentText = new Set(documentTextColumnIds);
   const byRun = new Map<string, ColumnGroupModel>();
   for (const col of columns) {
     if (!col.ai || !col.latestRunId) continue;
     const runId = String(col.latestRunId);
-    const group = byRun.get(runId) ?? {
+    const group: ColumnGroupModel = byRun.get(runId) ?? {
       runId,
       groupKey: columnGroupKey(runId),
       columns: [],
@@ -220,6 +225,7 @@ function buildColumnGroups(columns: ColumnDef[]): ColumnGroupModel[] {
       justificationColumns: [],
       fallbackLabel: col.ai.actionName || 'AI run',
     };
+    if (documentText.has(col.id)) group.authoritativeLabel = 'Document text';
     group.columns.push(col.name);
     if (isConfidenceColumn(col.name)) {
       group.confidenceColumns.push(col.name);
@@ -630,7 +636,10 @@ function useNativeColumnGroups(
   changeSink: ColumnGroupChangeSink,
   api: ProjectApiPort,
 ): NativeColumnGroupsState {
-  const groups = useMemo(() => buildColumnGroups(sheet.columns), [sheet.columns]);
+  const groups = useMemo(
+    () => buildColumnGroups(sheet.columns, sheet.documentTextColumnIds),
+    [sheet.columns, sheet.documentTextColumnIds],
+  );
   const groupByRunId = useMemo(
     () => new Map(groups.map((group) => [group.runId, group] as const)),
     [groups],
@@ -769,6 +778,7 @@ function useNativeColumnGroups(
     };
 
     for (const group of groups) {
+      if (group.authoritativeLabel) continue;
       const layout = layoutsRef.current[group.runId];
       if (layout?.label && layout.label !== group.fallbackLabel) continue;
       if (state.fetched.has(group.runId) || state.inflight.has(group.runId)) continue;
@@ -1033,7 +1043,9 @@ function useGridHeaderHandlers(
           resolveColumnGroupLayout(candidate, columnGroups.layouts).label === groupName ||
           candidate.groupKey === groupName,
       );
-      if (group) columnGroups.setGroupLayout(group.runId, { label: next });
+      if (group && !group.authoritativeLabel) {
+        columnGroups.setGroupLayout(group.runId, { label: next });
+      }
     },
     [columnGroups],
   );

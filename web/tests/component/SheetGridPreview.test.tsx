@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { act, cleanup } from '@testing-library/react';
+import { act, cleanup, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CompactSelection, GridCellKind, type DataEditorProps } from '@glideapps/glide-data-grid';
 import { SheetGrid } from '../../src/grid/SheetGrid';
 import { createProjectApi } from '../../src/api/real';
-import type { PreviewOverlayCell, PreviewOverlayColumn, RunProgress, SheetMeta } from '../../src/api/types';
-import { columnDef, row } from '../support/domainFixtures';
+import type { ColumnRun, PreviewOverlayCell, PreviewOverlayColumn, RunProgress, SheetMeta } from '../../src/api/types';
+import { aiMeta, columnDef, row } from '../support/domainFixtures';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
 
 const editor = vi.hoisted(() => ({ props: null as DataEditorProps | null }));
@@ -33,8 +33,14 @@ vi.mock('../../src/grid/useRowCache', () => ({
     onVisibleRowsChanged: visibleRowsChanged,
   }),
 }));
-const { render } = createWorkspaceTestHarness({ projectId: 'preview-grid', api: { projectApi: createProjectApi('preview-grid') } });
-afterEach(() => { cleanup(); vi.restoreAllMocks(); visibleRowsChanged.mockClear(); });
+const projectApi = createProjectApi('preview-grid');
+const { render } = createWorkspaceTestHarness({ projectId: 'preview-grid', api: { projectApi } });
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+  visibleRowsChanged.mockClear();
+  localStorage.clear();
+});
 const sheet: SheetMeta = { id: '1', name: 'Videos', rowCount: 2, columns: [columnDef({ id: 'old', name: 'Cuts', type: 'text' })] };
 const column: PreviewOverlayColumn = { name: 'Cuts', columnType: 'timeline_points', format: null, hidden: false, overwritesColumnId: 'old' };
 const temporal: PreviewOverlayCell = { value: {
@@ -171,6 +177,80 @@ describe('preview grid interactions', () => {
     expect(editor.props!.getCellContent([0, 1])).toMatchObject({
       kind: GridCellKind.Custom,
       data: { label: 'Waiting for OCR' },
+    });
+  });
+
+  it('labels only the authoritative document text group neutrally', async () => {
+    const ordinaryRun: ColumnRun = {
+      runId: '43',
+      actionKind: 'map.summarize',
+      actionName: 'Summarize',
+      model: 'local',
+      status: 'completed',
+      spec: {},
+      totalRows: 2,
+      completedRows: 2,
+      failedRows: 0,
+      cost: 0,
+      startedAt: null,
+      finishedAt: null,
+      durationMs: null,
+      tokensIn: null,
+      tokensOut: null,
+      current: true,
+      humanScore: { passed: 0, graded: 0 },
+      judgeScores: [],
+    };
+    const getColumnRuns = vi.spyOn(projectApi, 'getColumnRuns').mockResolvedValue({
+      columnName: 'Summary',
+      offset: 0,
+      limit: 20,
+      totalRuns: 1,
+      hasMore: false,
+      nextOffset: null,
+      currentRun: ordinaryRun,
+      currentRunLoaded: true,
+      latestRun: ordinaryRun,
+      latestRunLoaded: true,
+      mixedOrigins: false,
+      runs: [ordinaryRun],
+    });
+    localStorage.setItem('frisket:column-groups:preview-grid:1', JSON.stringify({
+      42: {
+        label: 'media.read_pdf_text',
+        showConfidence: true,
+        showJustification: true,
+      },
+    }));
+    const groupedSheet: SheetMeta = {
+      ...sheet,
+      documentTextColumnIds: ['text'],
+      columns: [
+        columnDef({ id: 'text', name: 'Text', ai: aiMeta(), latestRunId: '42' }),
+        columnDef({ id: 'blocks', name: 'Search positions', ai: aiMeta(), latestRunId: '42' }),
+        columnDef({ id: 'summary', name: 'Summary', ai: aiMeta(), latestRunId: '43' }),
+        columnDef({ id: 'summary-confidence', name: 'summary_confidence', ai: aiMeta(), latestRunId: '43' }),
+      ],
+    };
+    await act(async () => {
+      render(<SheetGrid sheet={groupedSheet} dataVersion={0} liveRun={null}
+        rowHeight={32} wrapText={false} columnGroupsStorageScope="preview-grid"
+        onRowOpen={vi.fn()} onColumnOpen={vi.fn()} onCellEdit={vi.fn()}
+      />);
+    });
+
+    const documentGroup = editor.props!.columns[0].group!;
+    const ordinaryGroup = editor.props!.columns[2].group!;
+    expect(editor.props!.getGroupDetails?.(documentGroup)).toMatchObject({
+      name: 'Document text',
+    });
+    await waitFor(() => expect(getColumnRuns).toHaveBeenCalledTimes(1));
+    expect(getColumnRuns).toHaveBeenCalledWith('summary');
+    await waitFor(() => expect(editor.props!.getGroupDetails?.(ordinaryGroup)).toMatchObject({
+      name: 'map.summarize',
+    }));
+    expect(editor.props!.getGroupDetails?.(documentGroup)).toMatchObject({
+      name: 'Document text',
     });
   });
 });

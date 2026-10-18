@@ -214,6 +214,7 @@ export function sheetMeta(
     columns,
     citedColumnIds: [],
     annotatedTextColumnIds: [],
+    documentTextColumnIds: [],
     ...overrides,
   };
 }
