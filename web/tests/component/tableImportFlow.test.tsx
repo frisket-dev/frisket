@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import '@testing-library/jest-dom/vitest';
+import userEvent from '@testing-library/user-event';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { StrictMode, type ComponentProps } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -407,11 +408,12 @@ describe('TableImportFlow', () => {
     renderFlow(api);
     fireEvent.click(await screen.findByRole('button', { name: 'Columns →' }));
 
-    fireEvent.mouseDown(screen.getByRole('checkbox', { name: 'Select first' }));
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('checkbox', { name: 'Select first' }));
     const third = screen.getByRole('checkbox', { name: 'Select third' });
-    fireEvent.keyDown(third, { key: 'Shift' });
-    fireEvent.mouseDown(third);
-    fireEvent.keyUp(third, { key: 'Shift' });
+    await user.keyboard('{Shift>}');
+    await user.click(third);
+    await user.keyboard('{/Shift}');
 
     expect(screen.getByText('3 columns selected')).toBeVisible();
   });
@@ -538,6 +540,27 @@ describe('TableImportFlow', () => {
     const dateRow = screen.getByText('date').closest('[role="row"]')!;
     expect(within(dateRow).getByText('Mar 4, 2024')).toBeVisible();
     expect(within(dateRow).getByRole('combobox', { name: 'Date order for date' }).closest('[role="cell"]')).toHaveClass('table-import-column-note');
+  });
+
+  it('keeps five samples and conversion outcomes, with an accessible disclosure for long values', () => {
+    const base = draft().columns[0];
+    const longOriginal = 'An imported description '.repeat(30).trim();
+    const samples = ['15153728226', '155661450046', '54.863', 'Line one\nLine two', longOriginal].map((original) => ({ original, value: null, display: '', outcome: 'invalid' as const }));
+    render(<ColumnsStep draft={draft({ columns: [{ ...base, name: 'amount', target_type: 'integer', samples }] })} busy={false} onBack={vi.fn()} onContinue={vi.fn()} onColumns={vi.fn()} />);
+
+    expect(screen.getByText('15153728226 → blank')).toBeVisible();
+    expect(screen.getByText('155661450046 → blank')).toBeVisible();
+    expect(screen.getByText('54.863 → blank')).toBeVisible();
+    expect(screen.getByText('Line one ↵ Line two → blank')).toBeVisible();
+    const toggle = screen.getByRole('button', { name: 'Show full values for amount' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText(`${longOriginal} → blank`)).not.toBeInTheDocument();
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText(`${longOriginal} → blank`)).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Show less for amount' }));
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText(`${longOriginal} → blank`)).not.toBeInTheDocument();
   });
 
   it('offers dedup keys only for mappings into existing columns', () => {

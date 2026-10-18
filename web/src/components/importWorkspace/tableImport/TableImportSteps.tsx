@@ -403,23 +403,42 @@ function ColumnRow({ column, selected, busy, onSelected, onChange }: { column: T
   const note = omitted ? 'Not imported' : column.conversion_counts.leading_zero_loss > 0 ? `${count(column.conversion_counts.leading_zero_loss, 'value')} ${column.conversion_counts.leading_zero_loss === 1 ? 'loses' : 'lose'} leading zeros` : column.conversion_counts.invalid > 0 ? `${count(column.conversion_counts.invalid, 'value')} won’t convert` : column.conversion_counts.time_dropped > 0 ? 'Times are dropped' : column.stats_complete ? 'All fit' : 'Checking values…';
   const noteTone = omitted || !column.stats_complete ? 'neutral' : dateOrderNeeded || column.conversion_counts.leading_zero_loss > 0 || column.conversion_counts.invalid > 0 || column.conversion_counts.time_dropped > 0 ? 'warning' : 'success';
   return <div role="row" className="table-import-column-row" data-omitted={omitted || undefined}>
-    <span role="cell"><input type="checkbox" aria-label={`Select ${column.name}`} checked={selected} onMouseDown={(event) => { event.preventDefault(); onSelected(!selected, event.shiftKey); }} onChange={(event) => onSelected(event.currentTarget.checked, false)} /></span>
+    <span role="cell"><input type="checkbox" aria-label={`Select ${column.name}`} checked={selected} onChange={(event) => onSelected(event.currentTarget.checked, 'shiftKey' in event.nativeEvent && event.nativeEvent.shiftKey === true)} /></span>
     <span role="cell"><strong>{column.name}</strong>{column.name_status === 'duplicate' && <small>In the file: {column.original_name}</small>}{column.name_status === 'missing' && <small>No name in the file</small>}</span>
     <span role="cell"><PanelSelect aria-label={`Type for ${column.name}`} value={omitted ? 'omit' : column.target_type} disabled={busy} onChange={(event) => { const next = event.currentTarget.value as TableImportTargetType; onChange({ target_type: next, included: next !== 'omit' }); }}>{TARGET_TYPES.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</PanelSelect></span>
-    <span role="cell" className="table-import-column-samples" data-type={column.target_type}>{column.samples.slice(0, 5).map((sample, index) => <i key={`${index}:${sample.original}`} data-outcome={sample.outcome}>{sampleDisplay(column, sample)}</i>)}</span>
+    <ColumnSamples column={column} />
     <span role="cell" className="table-import-column-note" data-tone={noteTone}>{dateOrderNeeded ? <PanelSelect aria-label={`Date order for ${column.name}`} value={column.date_order ?? column.inferred_date_order ?? 'month_first'} disabled={busy} onChange={(event) => onChange({ date_order: event.currentTarget.value as 'month_first' | 'day_first' })}><option value="month_first">Month first (03/04 = Mar 4)</option><option value="day_first">Day first (03/04 = Apr 3)</option></PanelSelect> : note}</span>
   </div>;
 }
 
-function sampleDisplay(column: TableImportColumn, sample: TableImportColumn['samples'][number]): string {
+const SAMPLE_PREVIEW_LENGTH = 100;
+
+function ColumnSamples({ column }: { column: TableImportColumn }) {
+  const [expanded, setExpanded] = useState(false);
+  const samples = column.samples.slice(0, 5);
+  const canExpand = samples.some((sample) => sampleDisplay(column, sample) !== sampleDisplay(column, sample, true));
+  return <span role="cell" className="table-import-column-values">
+    <span className="table-import-column-samples" data-expanded={expanded || undefined}>
+      {samples.map((sample, index) => <i key={index} data-outcome={sample.outcome}>{sampleDisplay(column, sample, !expanded)}</i>)}
+    </span>
+    {canExpand && <button type="button" className="text-btn" aria-expanded={expanded} aria-label={`${expanded ? 'Show less' : 'Show full values'} for ${column.name}`} onClick={() => setExpanded((value) => !value)}>{expanded ? 'Show less' : 'Show full values'}</button>}
+  </span>;
+}
+
+function sampleDisplay(column: TableImportColumn, sample: TableImportColumn['samples'][number], compact = false): string {
+  const display = (text: string) => {
+    if (!compact) return text;
+    const preview = text.length > SAMPLE_PREVIEW_LENGTH ? `${text.slice(0, SAMPLE_PREVIEW_LENGTH)}…` : text;
+    return preview.replace(/\r\n|\r|\n/g, ' ↵ ');
+  };
   if (sample.outcome === 'blank') return 'blank';
-  if (sample.outcome === 'invalid') return `${sample.original || 'blank'} → blank`;
+  if (sample.outcome === 'invalid') return `${display(sample.original || 'blank')} → blank`;
   let imported = sample.display || String(sample.value ?? sample.original);
   if (column.target_type === 'date' && /^\d{4}-\d{2}-\d{2}$/.test(imported)) {
     const [year, month, day] = imported.split('-').map(Number);
     imported = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', timeZone: 'UTC', year: 'numeric' }).format(new Date(Date.UTC(year, month - 1, day)));
   }
-  return sample.outcome === 'changed' ? `${sample.original} → ${imported}` : imported;
+  return sample.outcome === 'changed' ? `${display(sample.original)} → ${display(imported)}` : display(imported);
 }
 
 export function ImportTableStep({ draft, destination, destinationSheets, preferredDestinationSheetId = null, busy, onBack, onCommit, onDestination }: {
