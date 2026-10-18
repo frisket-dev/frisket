@@ -274,14 +274,14 @@ function NumberStepper({ label, value, disabled, onChange }: { label: string; va
   return <label className="table-import-number-stepper"><span>{label}</span><span><button type="button" disabled={disabled || value <= 0} aria-label={`Decrease ${label}`} onClick={() => onChange(Math.max(0, value - 1))}>−</button><b>{value}</b><button type="button" disabled={disabled} aria-label={`Increase ${label}`} onClick={() => onChange(value + 1)}>+</button></span></label>;
 }
 
-function lineLabel(row: TableImportPreview['head'][number]): string {
+function lineLabel(row: TableImportPreview['head'][number], expectedValues: number): string {
   if (row.role === 'header') return 'Names';
   if (row.role === 'skipped_start' || row.role === 'skipped_end') return 'Skipped';
   if (row.role === 'blank') return 'Blank';
   const extra = row.issues.find((issue) => issue.code === 'extra_values');
-  if (extra) return `+${extra.count || extra.original_values.length} values`;
+  if (extra) return `+${Math.max(extra.original_values.length, row.cells.length - expectedValues, extra.count)} values`;
   const missing = row.issues.find((issue) => issue.code === 'missing_values');
-  if (missing) return `−${missing.count || missing.original_values.length || 1} values`;
+  if (missing) return `−${Math.max(expectedValues - row.cells.length, missing.count, 1)} values`;
   return '';
 }
 
@@ -297,7 +297,7 @@ function TablePreview({ preview, firstRowIsHeader, onRecordClick }: { preview: T
       {rows.map((row, index) => <Fragment key={`${row.role}:${row.record_ordinal}`}>
         {index === preview.head.length && preview.tail.length > 0 && <tr className="table-import-preview-gap" key="gap"><th colSpan={visibleCellCount + 1}>⋯ {preview.omitted_rows == null ? 'more rows' : count(preview.omitted_rows, 'more row')}</th></tr>}
         <tr data-role={row.role} data-issue={row.issues.length > 0 || undefined}>
-          <th><button type="button" disabled={row.physical_line_start == null} onClick={() => onRecordClick(row.record_ordinal)}>{row.physical_line_start ?? row.record_ordinal}</button>{lineLabel(row) && <small>{lineLabel(row)}</small>}</th>
+          <th><button type="button" disabled={row.physical_line_start == null} onClick={() => onRecordClick(row.record_ordinal)}>{row.physical_line_start ?? row.record_ordinal}</button>{lineLabel(row, preview.expected_values) && <small>{lineLabel(row, preview.expected_values)}</small>}</th>
           {visibleCellIndexes.map((columnIndex) => <td key={visibleColumns[columnIndex]?.index ?? `extra:${columnIndex}`} data-extra={columnIndex >= preview.expected_values || undefined}>{row.cells[columnIndex] ?? (row.role === 'header' && columnIndex >= preview.expected_values ? 'extra values' : '')}</td>)}
         </tr>
       </Fragment>) }

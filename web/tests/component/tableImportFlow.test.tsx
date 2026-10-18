@@ -354,22 +354,29 @@ describe('TableImportFlow', () => {
       },
       preview: {
         ...draft().preview!,
-        columns: [{ index: 0, name: 'name', original_name: 'name', name_status: 'original' }],
-        expected_values: 1,
-        head: [
-          { role: 'header', record_ordinal: 1, physical_line_start: 1, physical_line_end: 1, cells: ['name'], hidden_cell_count: 0, issues: [] },
-          { role: 'data', record_ordinal: 2, physical_line_start: 2, physical_line_end: 2, cells: ['Málaga;1.234', '50;19/10/2026'], hidden_cell_count: 0, issues: [{ code: 'extra_values', message: 'extra', original_values: ['50;19/10/2026'], count: 1 }] },
+        columns: [
+          { index: 0, name: 'name', original_name: 'name', name_status: 'original' },
+          { index: 1, name: 'amount', original_name: 'amount', name_status: 'original' },
+          { index: 2, name: 'date', original_name: 'date', name_status: 'original' },
         ],
-        notice: { kind: 'some_wrong_width', count: 1, common_values: 1, expected_values: 1, encoding: null },
+        expected_values: 3,
+        head: [
+          { role: 'header', record_ordinal: 1, physical_line_start: 1, physical_line_end: 1, cells: ['name', 'amount', 'date'], hidden_cell_count: 0, issues: [] },
+          { role: 'data', record_ordinal: 2, physical_line_start: 2, physical_line_end: 2, cells: ['Málaga', '1.234', '19/10/2026', 'unexpected', 'also unexpected'], hidden_cell_count: 0, issues: [{ code: 'extra_values', message: 'extra', original_values: ['unexpected', 'also unexpected'], count: 1 }] },
+          { role: 'data', record_ordinal: 3, physical_line_start: 3, physical_line_end: 3, cells: ['Madrid'], hidden_cell_count: 0, issues: [{ code: 'missing_values', message: 'missing', original_values: [], count: 1 }] },
+        ],
+        notice: { kind: 'some_wrong_width', count: 2, common_values: 3, expected_values: 3, encoding: null },
       },
     });
     render(<CheckRowsStep draft={current} busy={false} onBack={vi.fn()} onContinue={vi.fn()} onSettings={vi.fn()} />);
 
-    expect(screen.getByText('+1 values')).toBeVisible();
-    expect(screen.getByText('50;19/10/2026')).toHaveAttribute('data-extra', 'true');
-    expect(screen.getByText('Line 2 doesn’t have 1 values. It will be imported and listed in Errors.')).toBeVisible();
+    expect(screen.getByText('+2 values')).toBeVisible();
+    expect(screen.getByText('−2 values')).toBeVisible();
+    expect(screen.getByText('unexpected')).toHaveAttribute('data-extra', 'true');
+    expect(screen.getByText('also unexpected')).toHaveAttribute('data-extra', 'true');
+    expect(screen.getByText('2 lines don’t have 3 values. They will be imported and listed in Errors.')).toBeVisible();
     expect(screen.getAllByText('Windows-1252').length).toBeGreaterThan(0);
-    expect(screen.queryByText(/Málaga;1\.234 →/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Málaga →/)).not.toBeInTheDocument();
   });
 
   it('shows lossy and invalid samples with their originals and keeps date order in the note cell', () => {
