@@ -408,6 +408,7 @@ const timelineCellRenderer: CustomRenderer<TimelineCell> = {
 export interface PendingCellData {
   kind: 'frisket-pending';
   palette: GridCellPaletteValue['pending'];
+  label?: string;
 }
 
 export type PendingCell = CustomCell<PendingCellData>;
@@ -442,6 +443,23 @@ const pendingCellRenderer: CustomRenderer<PendingCell> = {
   draw: (args, cell) => {
     const { ctx, rect, theme, frameTime, requestAnimationFrame } = args;
     const { background, highlight } = cell.data.palette;
+    if (cell.data.label) {
+      const padX = theme.cellHorizontalPadding;
+      const label = cell.data.label;
+      const height = Math.min(22, rect.height - 8);
+      ctx.save();
+      ctx.font = `11px ${theme.fontFamily}`;
+      const width = Math.min(rect.width - padX * 2, ctx.measureText(label).width + 16);
+      ctx.beginPath();
+      ctx.roundRect(rect.x + padX, rect.y + (rect.height - height) / 2, width, height, height / 2);
+      ctx.fillStyle = background;
+      ctx.fill();
+      ctx.fillStyle = highlight;
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, rect.x + padX + 8, rect.y + rect.height / 2, Math.max(0, width - 16));
+      ctx.restore();
+      return;
+    }
     const padX = theme.cellHorizontalPadding;
     const h = Math.min(10, rect.height - 10);
     const y = rect.y + (rect.height - h) / 2;
@@ -659,6 +677,8 @@ export interface BuildCellOptions {
   wrap?: boolean;
   /** Run is streaming into this column and the cell is still empty. */
   pending?: boolean;
+  /** UI-only copy for a pending value; never becomes cell or clipboard data. */
+  pendingLabel?: string;
   /** Theme snapshot supplied by SheetGrid's CSS-token observer. */
   gridCellPalette?: GridCellPaletteValue;
   /** This column is eligible for in-place (spreadsheet-style) editing —
@@ -1176,7 +1196,7 @@ export function buildCell(col: ColumnDef, row: Row | undefined, opts: BuildCellO
   if (opts.pending && (v === null || v === '')) {
     return {
       kind: GridCellKind.Custom,
-      data: { kind: 'frisket-pending', palette: palette.pending },
+      data: { kind: 'frisket-pending', palette: palette.pending, label: opts.pendingLabel },
       copyData: '',
       allowOverlay: false,
     } satisfies PendingCell;

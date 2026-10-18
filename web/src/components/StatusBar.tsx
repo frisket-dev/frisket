@@ -6,6 +6,10 @@ import { formatUsd } from '../actions/model';
 import { isActiveRunStatus, runCompletedWithErrors, runStatusLabel } from '../runStatusModel';
 import { RunFailureTriage } from './RunFailureTriage';
 import { SearchPreparationNotice } from './SearchPreparationNotice';
+import {
+  composeImportSearchActivity,
+  type ImportProgressController,
+} from './useImportProgress';
 import { useNativePopover } from '../hooks/useNativePopover';
 import { useAnchoredPosition } from '../hooks/useAnchoredPosition';
 import type { WorkbenchProjectionStatus } from '../workbench/WorkbenchBottomDock';
@@ -87,11 +91,23 @@ function formatProjectionPointCount(count: number): string {
   return `${count.toLocaleString()} valid ${count === 1 ? 'point' : 'points'}`;
 }
 
+const IDLE_IMPORT_PROGRESS: ImportProgressController = {
+  activities: [],
+  message: null,
+  busyRef: null,
+  preparingRef: null,
+  resume() {},
+  async stop() {},
+  keep() {},
+};
+
 export interface StatusBarProps {
   run: RunProgress | null;
   history: HistoryState | null;
   reviewCount: number;
   projectionStatus: WorkbenchProjectionStatus | null;
+  importProgress?: ImportProgressController;
+  importPriority?: { sheetId: string; rowId: string; label: string } | null;
   onUndo(): void;
   onRedo(): void;
   onOpenReview(): void;
@@ -104,15 +120,20 @@ export interface StatusBarProps {
 }
 
 export function StatusBar({
-  run, history, reviewCount, projectionStatus, onUndo, onRedo, onOpenReview, onCancelRun,
+  run, history, reviewCount, projectionStatus,
+  importProgress = IDLE_IMPORT_PROGRESS, importPriority = null,
+  onUndo, onRedo, onOpenReview, onCancelRun,
   onShowFailedRows, onRetryFailedRows,
 }: StatusBarProps) {
   const { actSurface, chromePreferences: { projectId } } = useWorkspaceStores();
   const { descriptor } = useEditionModule();
-  const searchPreparationNotice = useSearchPreparationNotice(
+  const baseSearchPreparationNotice = useSearchPreparationNotice(
     projectId,
     descriptor.capabilities.team,
   );
+  const importActivity = importProgress.activities[0] ?? null;
+  const combinedActivity = composeImportSearchActivity(importActivity, baseSearchPreparationNotice);
+  const searchPreparationNotice = combinedActivity?.notice ?? baseSearchPreparationNotice;
   const canUndo = history !== null && history.undoTarget !== null;
   const canRedo = history !== null && history.redoTarget !== null;
   // The op the buttons would act on, surfaced as hover tooltips.
@@ -222,7 +243,23 @@ export function StatusBar({
           <SearchPreparationNotice
             notice={searchPreparationNotice}
             onReviewPreparation={actSurface.openImportPreparation}
-            onStopPreparation={searchPreparationNotice.onStopPreparation}
+            onStopPreparation={importActivity?.canStop
+              ? () => importProgress.stop(importActivity)
+              : importActivity ? undefined : searchPreparationNotice.onStopPreparation}
+            progressLines={combinedActivity?.lines}
+            now={importActivity && importPriority?.sheetId === String(importActivity.session.sheet_id)
+              ? importPriority.label
+              : null}
+            stopLabel={importActivity ? 'Stop remaining' : undefined}
+            onResumeImport={importActivity?.needsRecovery && importActivity.session.state !== 'cancelled'
+              ? () => importProgress.resume(importActivity)
+              : undefined}
+            onKeepImport={importActivity?.needsRecovery
+              ? () => importProgress.keep(importActivity)
+              : undefined}
+            importActionBusy={importProgress.busyRef === importActivity?.importRef
+              || importProgress.preparingRef === importActivity?.importRef}
+            importMessage={importActivity ? importProgress.message : null}
             onDismiss={() => setSearchNoticeOpen(false)}
           />
         )}

@@ -2,16 +2,38 @@ import { useState } from 'react';
 import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, X } from 'lucide-react';
 import type { SearchPreparationNotice as Notice } from './useSearchPreparationNotice';
 
+export interface ActivityProgressLine {
+  key: string;
+  label: string;
+  completed: number | null;
+  total: number | null;
+  detail?: string;
+}
+
 export function SearchPreparationNotice({
   notice,
   onReviewPreparation,
   onDismiss,
   onStopPreparation,
+  progressLines,
+  now,
+  stopLabel = 'Stop remaining preparation',
+  onResumeImport,
+  onKeepImport,
+  importActionBusy = false,
+  importMessage,
 }: {
   notice: Notice;
   onReviewPreparation?: (batchId: string) => void;
   onDismiss?(): void;
   onStopPreparation?(): Promise<void>;
+  progressLines?: ActivityProgressLine[];
+  now?: string | null;
+  stopLabel?: string;
+  onResumeImport?(): void;
+  onKeepImport?(): void;
+  importActionBusy?: boolean;
+  importMessage?: string | null;
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [stopState, setStopState] = useState<{ batchId: string; busy: boolean; error: string | null } | null>(null);
@@ -69,6 +91,46 @@ export function SearchPreparationNotice({
           <span>{notice.detail}</span>
         </div>
       </div>
+
+      {!!progressLines?.length && (
+        <div className="run-file-progress-list" role="group" aria-label="Import preparation progress">
+          {progressLines.map((line) => {
+            const boundedTotal = line.total !== null && line.total > 0 ? line.total : null;
+            const completed = boundedTotal === null || line.completed === null
+              ? null
+              : Math.max(0, Math.min(line.completed, boundedTotal));
+            return (
+              <div className="run-file-progress" key={line.key}>
+                <div className="run-file-progress-copy">
+                  <span className="run-file-progress-name">{line.label}</span>
+                  <span className="run-file-progress-count">
+                    {line.detail ?? (completed !== null && boundedTotal !== null
+                      ? `${completed.toLocaleString()} / ${boundedTotal.toLocaleString()}`
+                      : 'Waiting')}
+                  </span>
+                </div>
+                {boundedTotal !== null && completed !== null ? (
+                  <progress
+                    className="run-file-progress-bar"
+                    aria-label={`${line.label} progress`}
+                    max={boundedTotal}
+                    value={completed}
+                  />
+                ) : (
+                  <span
+                    className="model-pull-progress-bar indeterminate"
+                    role="progressbar"
+                    aria-label={`${line.label} progress`}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                  ><span className="model-pull-progress-fill" /></span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {now && <p className="search-preparation-details" data-testid="import-activity-now">Now · {now} · opened by you</p>}
 
       {((active && (notice.stage === 'download' || notice.stage === 'index' || notice.progress !== null))
         || (notice.tone === 'error' && notice.progress !== null)) && (
@@ -135,9 +197,24 @@ export function SearchPreparationNotice({
         <div className="search-preparation-actions">
           <button type="button" className="btn btn-compact" disabled={currentStop?.busy}
             onClick={() => void stop()}>
-            {currentStop?.busy ? 'Stopping…' : 'Stop remaining preparation'}
+            {currentStop?.busy ? 'Stopping…' : stopLabel}
           </button>
           {currentStop?.error && <span role="alert">{currentStop.error}</span>}
+        </div>
+      )}
+      {(onResumeImport || onKeepImport || importMessage) && (
+        <div className="search-preparation-actions">
+          {onResumeImport && (
+            <button type="button" className="btn btn-compact" disabled={importActionBusy} onClick={onResumeImport}>
+              Resume
+            </button>
+          )}
+          {onKeepImport && (
+            <button type="button" className="btn btn-compact" disabled={importActionBusy} onClick={onKeepImport}>
+              Keep what's added
+            </button>
+          )}
+          {importMessage && <span role="alert">{importMessage}</span>}
         </div>
       )}
       {notice.reviewBatchId && onReviewPreparation && (notice.stage === 'approval' || notice.stage === 'failed') && (

@@ -68,6 +68,9 @@ interface DocumentViewProps {
   /** Replay the stored `map.ner` action behind a stale layer, from its output
    *  column. Absent when the host cannot launch runs. */
   onReplayAnnotationLayer?: ((outputColumnId: string) => void) | null;
+  /** Transient state set only after the explicit-open priority endpoint accepts the row. */
+  priorityReadingRowId?: string | null;
+  onPriorityLabel?(rowId: string, label: string): void;
 }
 
 export function DocumentView({
@@ -88,6 +91,8 @@ export function DocumentView({
   disabledToggleKeys,
   onSetDisabledToggleKeys,
   onReplayAnnotationLayer,
+  priorityReadingRowId = null,
+  onPriorityLabel,
 }: DocumentViewProps) {
   // The docked mention-detail panel (O3): opening a document from it keeps it
   // open, so a reader can walk the results without losing the list.
@@ -181,6 +186,11 @@ export function DocumentView({
       videoClassName: activeMediaKind === 'video' ? `document-video-${state.videoFit}` : undefined,
     };
   }, [activeItem?.title, activeMedia, activeMediaKind, activeRow, sheet, state.videoFit]);
+  const readingPriority = priorityReadingRowId !== null && activeRowId === priorityReadingRowId;
+  useEffect(() => {
+    if (!readingPriority || !activeItem?.title) return;
+    onPriorityLabel?.(activeRowId!, activeItem.title);
+  }, [activeItem?.title, activeRowId, onPriorityLabel, readingPriority]);
 
   if (list.loading && list.pages.length === 0) {
     return (
@@ -340,6 +350,11 @@ export function DocumentView({
         <div className="document-list-count muted mono">
           {items.length.toLocaleString()} loaded
         </div>
+        {readingPriority && (
+          <div className="document-list-message" data-testid="document-reading-priority" role="status">
+            Reading text now
+          </div>
+        )}
         <div
           className="document-list-body drawer-body"
           data-testid="document-list-body"

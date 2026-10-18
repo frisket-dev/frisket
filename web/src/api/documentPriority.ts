@@ -10,8 +10,8 @@ export interface DocumentPriorityTarget {
 export async function promoteDocumentPriority(
   projectId: string,
   target: DocumentPriorityTarget,
-): Promise<void> {
-  await httpContract('tenant.promote_document_priority.post', {
+): Promise<{ promoted: boolean }> {
+  return httpContract('tenant.promote_document_priority.post', {
     pathParams: { pid: projectId },
     query: {},
     body: {

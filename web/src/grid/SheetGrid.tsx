@@ -281,6 +281,9 @@ export interface SheetGridProps {
   dataVersion: number;
   /** Progress of a run touching this sheet, for soft refresh while it streams. */
   liveRun: RunProgress | null;
+  /** An ordinary server-started preparation run that shares live refresh. */
+  backgroundLiveRun?: RunProgress | null;
+  priorityReadingRowId?: string | null;
   /** Global row height (Google-Sheets select-all style: every row alike). */
   rowHeight: number;
   /** Wrap long text in text cells (pairs with taller rows). */
@@ -807,13 +810,10 @@ function useNativeColumnGroups(
   return { groups, groupByRunId, groupByKey, layouts, setGroupLayout };
 }
 
-function useLiveRunRefresh(sheet: SheetMeta, liveRun: RunProgress | null, cache: RowCache): boolean {
-  const runActive = liveRun?.sheetId === sheet.id && isActiveRunStatus(liveRun.status);
-
+function useLiveRunRefresh(runActive: boolean, liveActive: boolean, cache: RowCache): void {
   // While a run streams results into this sheet, re-pull visible pages via the
   // shared poll loop (which also pauses in hidden tabs). The effect below covers
   // the final refresh when the run — or streaming — stops.
-  const liveActive = isStreamingRunStatus(liveRun?.status) && liveRun?.sheetId === sheet.id;
   usePoll(() => cache.refresh(), { intervalMs: 400, active: runActive && liveActive });
   useEffect(() => {
     if (!runActive) return undefined;
@@ -827,7 +827,6 @@ function useLiveRunRefresh(sheet: SheetMeta, liveRun: RunProgress | null, cache:
   // real scroll container with prefers-reduced-motion respected, none of
   // which live here.
 
-  return runActive;
 }
 
 /** The run's freshly-created output columns, wrapped in the reusable
@@ -1139,7 +1138,8 @@ interface SheetGridController {
 }
 
 function useSheetGridController({
-  sheet, dataVersion, liveRun, rowHeight, wrapText, childSheet, parentRowFilter,
+  sheet, dataVersion, liveRun, backgroundLiveRun = null, priorityReadingRowId = null,
+  rowHeight, wrapText, childSheet, parentRowFilter,
   activeFilter, activeSort, columnOrder, lensRowIds, lensScores, scopeRowIds, citationColumnId,
   previewColumns, previewCells,
   rowDrawerOpen = false, frozenColumnCount = 1, columnGroupsStorageScope, columnGroupsVersion,
@@ -1255,7 +1255,12 @@ function useSheetGridController({
       previewNewColumns,
       activeSort,
     );
-  const runActive = useLiveRunRefresh(sheet, liveRun, cache);
+  const runActive = liveRun?.sheetId === sheet.id && isActiveRunStatus(liveRun.status);
+  const backgroundRunActive = backgroundLiveRun?.sheetId === sheet.id
+    && isActiveRunStatus(backgroundLiveRun.status);
+  const liveActive = (runActive && isStreamingRunStatus(liveRun?.status))
+    || (backgroundRunActive && isStreamingRunStatus(backgroundLiveRun?.status));
+  useLiveRunRefresh(runActive || backgroundRunActive, liveActive, cache);
   const hasNativeColumnGroups = columnGroups.groups.length > 0;
   const gridReady = rowCount === 0 || cache.getRow(0) !== undefined;
   const headerHandlers = useGridHeaderHandlers(
@@ -1323,6 +1328,14 @@ function useSheetGridController({
     }
     return ids;
   }, [runActive, liveRun, sheet.columns]);
+
+  const backgroundPendingColIds = useMemo<Set<string>>(() => {
+    if (!backgroundRunActive || !backgroundLiveRun || backgroundLiveRun.actionKind !== 'media.ocr') {
+      return new Set();
+    }
+    const exact = sheet.columns.filter((column) => column.latestRunId === backgroundLiveRun.runId);
+    return new Set((exact.length > 0 ? exact.map((column) => column.id) : sheet.annotatedTextColumnIds));
+  }, [backgroundRunActive, backgroundLiveRun, sheet.annotatedTextColumnIds, sheet.columns]);
 
   const pendingRowIds = useMemo<Set<string> | null>(() => {
     if (!runActive || !liveRun) return null;
@@ -1425,9 +1438,11 @@ function useSheetGridController({
         );
       }
       const row = cache.getRow(rowIdx);
-      const pending =
+      const runPending =
         pendingColIds.has(def.id) &&
         (pendingRowIds === null || (row !== undefined && pendingRowIds.has(row.id)));
+      const backgroundPending = backgroundPendingColIds.has(def.id);
+      const pending = runPending || backgroundPending;
       const entityMentionCellKey = row ? JSON.stringify([row.id, def.id]) : null;
       let cell = withWrapSafeDisplayData(
         withOneClickFacetCursor(
@@ -1435,6 +1450,9 @@ function useSheetGridController({
             projectId,
             wrap: wrapText,
             pending,
+            pendingLabel: backgroundPending
+              ? row?.id === priorityReadingRowId ? 'Reading text now' : 'Waiting for OCR'
+              : undefined,
             editable: cellEditability(def),
             gridCellPalette,
             expandEntityMentions: Boolean(
@@ -1466,6 +1484,8 @@ function useSheetGridController({
       wrapText,
       pendingColIds,
       pendingRowIds,
+      backgroundPendingColIds,
+      priorityReadingRowId,
       childSheet,
       lensActive,
       lensScores,
