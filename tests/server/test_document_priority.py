@@ -85,6 +85,7 @@ def test_service_promotes_only_the_marked_run_that_admits_the_exact_target(
             may_run_actions=True,
         )
         assert promoted.promoted
+        assert promoted.run_id == run_id
         assert queue.calls == [(correct_job, project_id, None, row_ids[1])]
 
         missing = service.promote(
@@ -95,6 +96,7 @@ def test_service_promotes_only_the_marked_run_that_admits_the_exact_target(
             may_run_actions=True,
         )
         assert not missing.promoted
+        assert missing.run_id is None
         assert len(queue.calls) == 1
 
         try:
@@ -128,7 +130,7 @@ def test_route_forwards_only_its_scoped_target_and_run_capability() -> None:
             may_run_actions: bool,
         ) -> DocumentPriorityResponse:
             calls.append((project_id, sheet_id, row_id, column_id, may_run_actions))
-            return DocumentPriorityResponse(promoted=True)
+            return DocumentPriorityResponse(promoted=True, run_id=17)
 
     app = FastAPI()
     register_route_error_handler(app)
@@ -148,5 +150,6 @@ def test_route_forwards_only_its_scoped_target_and_run_capability() -> None:
     assert response.json() == {
         "schemaVersion": "frisket.document_priority.v1",
         "promoted": True,
+        "run_id": 17,
     }
     assert calls == [("project-a", 7, 11, 13, True)]

@@ -6,12 +6,17 @@ export interface DocumentPriorityTarget {
   columnId: number;
 }
 
+export interface DocumentPriorityResult {
+  promoted: boolean;
+  runId: string | null;
+}
+
 /** Best-effort hint emitted only by the explicit document-open command. */
 export async function promoteDocumentPriority(
   projectId: string,
   target: DocumentPriorityTarget,
-): Promise<{ promoted: boolean }> {
-  return httpContract('tenant.promote_document_priority.post', {
+): Promise<DocumentPriorityResult> {
+  const response = await httpContract('tenant.promote_document_priority.post', {
     pathParams: { pid: projectId },
     query: {},
     body: {
@@ -20,4 +25,8 @@ export async function promoteDocumentPriority(
       column_id: target.columnId,
     },
   });
+  return {
+    promoted: response.promoted,
+    runId: response.run_id == null ? null : String(response.run_id),
+  };
 }

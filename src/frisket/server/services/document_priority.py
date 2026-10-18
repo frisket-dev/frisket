@@ -70,9 +70,9 @@ class DocumentPriorityService:
                 preferred_row_id=row_id,
             )
             if promoted:
-                return DocumentPriorityResponse(promoted=True)
+                return DocumentPriorityResponse(promoted=True, run_id=run_id)
 
-        return DocumentPriorityResponse(promoted=False)
+        return DocumentPriorityResponse(promoted=False, run_id=None)
 
     @staticmethod
     def _payload(raw: str) -> Mapping[str, Any] | None:

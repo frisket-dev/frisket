@@ -1292,17 +1292,17 @@ export function useWorkspaceModel({
         rowId: numericRowId,
         columnId: numericColumnId,
       }).then((result) => {
-        if (request !== documentPriorityRequest.current || !result.promoted) return;
+        if (request !== documentPriorityRequest.current || !result.promoted || result.runId === null) return;
         setDocumentPriority({
           sheetId: sheet.id,
           rowId,
           columnId,
           label: `File row ${rowId}`,
-          runId: importLiveRun?.runId ?? '',
+          runId: result.runId,
         });
       }).catch(() => undefined);
     },
-    [importLiveRun?.runId, project.id, sheet],
+    [project.id, sheet],
   );
 
   const openRowInDocumentView = useCallback(

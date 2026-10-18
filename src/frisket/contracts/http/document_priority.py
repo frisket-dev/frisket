@@ -20,6 +20,7 @@ class DocumentPriorityResponse(WireModel):
         default="frisket.document_priority.v1", alias="schemaVersion"
     )
     promoted: bool
+    run_id: int | None = Field(gt=0)
 
 
 __all__ = ["DocumentPriorityRequest", "DocumentPriorityResponse"]
