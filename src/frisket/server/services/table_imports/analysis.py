@@ -118,12 +118,10 @@ def _estimate_delimited_rows(
     sample_size = min(size, ESTIMATE_SAMPLE_BYTES)
     with source_path.open("rb") as source:
         sample = source.read(sample_size)
-    lines = sample.splitlines(keepends=True)
-    if sample_size < size and lines and not lines[-1].endswith((b"\n", b"\r")):
-        lines.pop()
-    if len(lines) < physical_line_end:
+    line_ends = _physical_line_ends(sample, complete=sample_size == size)
+    if len(line_ends) < physical_line_end:
         return None
-    consumed_bytes = sum(len(line) for line in lines[:physical_line_end])
+    consumed_bytes = line_ends[physical_line_end - 1]
     if consumed_bytes <= 0:
         return None
     estimated_records = max(
@@ -131,6 +129,27 @@ def _estimate_delimited_rows(
     )
     estimated_data = round(data_rows * estimated_records / observed_records)
     return max(data_rows, estimated_data - settings.skip_rows_end)
+
+
+def _physical_line_ends(sample: bytes, *, complete: bool) -> list[int]:
+    """Return CR/LF/CRLF boundaries matching text newline handling."""
+
+    result: list[int] = []
+    index = 0
+    while index < len(sample):
+        byte = sample[index]
+        if byte == 10:
+            result.append(index + 1)
+        elif byte == 13:
+            if index + 1 < len(sample) and sample[index + 1] == 10:
+                index += 1
+                result.append(index + 1)
+            elif index + 1 < len(sample) or complete:
+                result.append(index + 1)
+        index += 1
+    if complete and sample and (not result or result[-1] < len(sample)):
+        result.append(len(sample))
+    return result
 
 
 def public_columns(

@@ -555,7 +555,7 @@ class TableImportService:
         ):
             raise ValueError("max_rows must be a non-negative integer or None")
         directory, _ = self._store.open(project_id, draft_id)
-        prepared: tuple[TableImportPlan, int | None] | None = None
+        precommit_state: str | None = None
         with self._store.lock(directory):
             header = self._store.open(project_id, draft_id)[1]
             if header.get("commit") is not None:
@@ -601,14 +601,13 @@ class TableImportService:
                         self._problem(code, "The table import is not ready to commit."),
                     )
                 scan = self._require_current_scan(directory, header)
-                prepared = self._build_frozen_plan(
+                self._build_frozen_plan(
                     project_id, scan, header, dedup_snapshot_revision=0
                 )
+                precommit_state = str(header["state"])
                 header["state"] = "committing"
                 header["commit_key"] = idempotency_key
                 self._store.save_header(directory, header)
-            captured = copy.deepcopy(header)
-
         with self._store.commit_lock(directory):
             phase = table_import_status(directory).phase
             if phase != "draft":
@@ -622,11 +621,34 @@ class TableImportService:
                             "The table import commit state is unavailable.",
                         ),
                     ) from exc
-            if prepared is None:
-                scan = self._require_current_scan(directory, captured)
-                prepared = self._build_frozen_plan(
-                    project_id, scan, captured, dedup_snapshot_revision=0
-                )
+            with self._store.lock(directory):
+                current = self._store.open(project_id, draft_id)[1]
+                if (
+                    current.get("state") != "committing"
+                    or current.get("commit_key") != idempotency_key
+                ):
+                    raise TableImportDraftError(
+                        409,
+                        self._problem(
+                            "commit_state_changed",
+                            "The table import commit state changed. Retry from the draft.",
+                        ),
+                    )
+                try:
+                    scan = self._require_current_scan(directory, current)
+                    prepared = self._build_frozen_plan(
+                        project_id, scan, current, dedup_snapshot_revision=0
+                    )
+                except TableImportDraftError:
+                    if (
+                        current.get("state") == "committing"
+                        and current.get("commit_key") == idempotency_key
+                        and current.get("commit") is None
+                    ):
+                        current["state"] = precommit_state or "ready"
+                        current["commit_key"] = None
+                        self._store.save_header(directory, current)
+                    raise
             plan, dedup_target_column = prepared
             if dedup_target_column is not None:
                 current_revision = table_dedup_revision(directory)
@@ -698,6 +720,28 @@ class TableImportService:
             int(item["source_index"]): item["target"]
             for item in destination_request["mappings"]
         }
+        if destination_sheet_id is not None:
+            current_names = {
+                str(row["name"])
+                for row in project.db.execute(
+                    "SELECT name FROM columns WHERE sheet_id=? "
+                    "AND active=1 AND hidden=0",
+                    (destination_sheet_id,),
+                )
+            }
+            planned_new_names = {
+                str(target["name"])
+                for target in mappings.values()
+                if target["kind"] == "new"
+            }
+            if current_names & (planned_new_names | {"extra values"}):
+                raise TableImportDraftError(
+                    409,
+                    self._problem(
+                        "destination_changed",
+                        "A planned destination column name is no longer available.",
+                    ),
+                )
         frozen_columns = []
         for choice in header["column_choices"]:
             if not choice.get("included") or choice["target_type"] == "omit":

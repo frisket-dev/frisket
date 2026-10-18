@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import io
 from pathlib import Path
-from threading import Event
+from threading import Event, Lock
 
 import pytest
 
@@ -553,6 +553,150 @@ def test_destination_rejects_duplicate_and_reserved_output_names(
     assert reserved.destination.comparison.state == "error"
     assert reserved.can_commit is False
     assert reserved.commit_blocked_reason == "destination"
+
+
+def test_existing_destination_rejects_reserved_overflow_column(tmp_path: Path) -> None:
+    workspace, project_id, service = _service(tmp_path)
+    project = workspace.get(project_id)
+    sheet_id = project.add_sheet("People")
+    project.add_column(sheet_id, "extra values", type="text")
+    created = service.create(project_id, _upload(CSV), input_kind="file")
+
+    with pytest.raises(TableImportDraftError) as rejected:
+        service.update_destination(
+            project_id,
+            created.draft_id,
+            expected_revision=created.revision,
+            destination={"kind": "existing", "sheet_id": sheet_id},
+            mappings=[
+                {
+                    "source_index": column.source_index,
+                    "target": {"kind": "new", "name": column.name},
+                }
+                for column in created.columns
+                if column.included
+            ],
+            dedup={"enabled": False, "key_source_index": None},
+        )
+
+    assert rejected.value.status_code == 409
+    assert rejected.value.detail["code"] == "destination_changed"
+
+
+def test_freeze_rechecks_new_column_names_against_current_destination(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace, project_id, service = _service(tmp_path)
+    project = workspace.get(project_id)
+    sheet_id = project.add_sheet("People")
+    created = service.create(project_id, _upload(CSV), input_kind="file")
+    compared = service.update_destination(
+        project_id,
+        created.draft_id,
+        expected_revision=created.revision,
+        destination={"kind": "existing", "sheet_id": sheet_id},
+        mappings=[
+            {
+                "source_index": column.source_index,
+                "target": {"kind": "new", "name": column.name},
+            }
+            for column in created.columns
+            if column.included
+        ],
+        dedup={"enabled": False, "key_source_index": None},
+    )
+    original = service._build_frozen_plan
+    calls = 0
+
+    def add_collision_after_review(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        result = original(*args, **kwargs)
+        if calls == 1:
+            project.add_column(sheet_id, "score", type="text")
+        return result
+
+    monkeypatch.setattr(service, "_build_frozen_plan", add_collision_after_review)
+
+    with pytest.raises(TableImportDraftError) as rejected:
+        service.freeze_for_commit(
+            project_id,
+            created.draft_id,
+            expected_revision=compared.revision,
+            idempotency_key="destination-name-changed",
+        )
+
+    assert rejected.value.status_code == 409
+    assert rejected.value.detail["code"] == "destination_changed"
+    assert calls == 2
+    assert service.status(project_id, created.draft_id).state == compared.state
+
+
+def test_waiting_same_key_freeze_refuses_a_reset_commit_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace, project_id, service = _service(tmp_path)
+    created = service.create(project_id, _upload(CSV), input_kind="file")
+    directory = Path(workspace.get(project_id).path) / ".imports" / created.draft_id
+    original_commit_lock = service._store.commit_lock
+    blocker = original_commit_lock(directory)
+    attempts_lock = Lock()
+    first_attempt = Event()
+    both_attempts = Event()
+    attempts = 0
+
+    class SignallingLock:
+        def __init__(self):
+            self._delegate = original_commit_lock(directory)
+
+        def __enter__(self):
+            nonlocal attempts
+            with attempts_lock:
+                attempts += 1
+                first_attempt.set()
+                if attempts == 2:
+                    both_attempts.set()
+            return self._delegate.__enter__()
+
+        def __exit__(self, *args):
+            return self._delegate.__exit__(*args)
+
+    monkeypatch.setattr(
+        service._store, "commit_lock", lambda _directory: SignallingLock()
+    )
+    pool = ThreadPoolExecutor(max_workers=2)
+    blocker.acquire()
+    try:
+        first = pool.submit(
+            service.freeze_for_commit,
+            project_id,
+            created.draft_id,
+            expected_revision=created.revision,
+            idempotency_key="same-key",
+        )
+        assert first_attempt.wait(timeout=5)
+        second = pool.submit(
+            service.freeze_for_commit,
+            project_id,
+            created.draft_id,
+            expected_revision=created.revision,
+            idempotency_key="same-key",
+        )
+        assert both_attempts.wait(timeout=5)
+        with service._store.lock(directory):
+            current = service._store.open(project_id, created.draft_id)[1]
+            assert current["state"] == "committing"
+            current["state"] = created.state
+            current["commit_key"] = None
+            service._store.save_header(directory, current)
+    finally:
+        blocker.release()
+
+    for future in (first, second):
+        with pytest.raises(TableImportDraftError) as rejected:
+            future.result(timeout=5)
+        assert rejected.value.detail["code"] == "commit_state_changed"
+    pool.shutdown(wait=True)
 
 
 def test_late_encoding_damage_requires_an_explicit_encoding_choice(

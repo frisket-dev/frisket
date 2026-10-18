@@ -65,6 +65,12 @@ def compare_destination(
     seen_targets: set[int] = set()
     new_target_names: set[str] = set()
     existing_target_names = {str(row["name"]) for row in targets.values()}
+    if "extra values" in existing_target_names:
+        raise _error(
+            409,
+            "destination_changed",
+            "The destination already contains the reserved 'extra values' column.",
+        )
     matched = new = clashes = 0
     for mapping in mappings:
         source_index = mapping.get("source_index")
