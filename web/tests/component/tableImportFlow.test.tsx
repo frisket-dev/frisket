@@ -57,7 +57,6 @@ function mockApi(initial = draft()) {
     revision: 4,
     destination: {
       configuration: destination as never,
-      occupied_column_names: destination.kind === 'existing' ? ['contributor_id'] : [],
       mappings: [{ source_index: 0, source_name: 'contributor_id', source_type: 'text', target: (mappings?.[0]?.target ?? (destination.kind === 'existing' ? { kind: 'existing', column_id: 77 } : { kind: 'new', name: 'contributor_id' })) as never, match: destination.kind === 'existing' ? 'matched' : 'new', detail: null }],
       dedup: { enabled: false, key_source_index: null },
       comparison: { state: 'ready', matched_columns: 0, new_columns: 1, type_clashes: 0, duplicate_rows: 0, import_rows: 2, complete: true, error: null },
@@ -140,11 +139,79 @@ describe('TableImportFlow', () => {
     await waitFor(() => expect(api.updateDestination).toHaveBeenCalledTimes(1));
 
     vi.mocked(api.updateDestination).mockRejectedValueOnce(new Error('Could not save destination'));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Sheet name' }), { target: { value: 'Unsaved name' } });
     fireEvent.click(screen.getByRole('button', { name: 'Import 2 rows' }));
 
     expect(await screen.findByText('Could not save destination')).toBeVisible();
     expect(api.commit).not.toHaveBeenCalled();
     expect(screen.getByLabelText('Import')).toBeVisible();
+  });
+
+  it('commits the saved mapping and dedup choices without rebuilding destination defaults', async () => {
+    const base = draft();
+    const columns = [
+      { ...base.columns[0], source_index: 0, name: 'amount', original_name: 'amount' },
+      { ...base.columns[0], source_index: 1, name: 'contributor_id', original_name: 'contributor_id' },
+    ];
+    const initial = draft({ columns });
+    const api = mockApi(initial);
+    let revision = initial.revision;
+    vi.mocked(api.updateDestination).mockImplementation(async (_project, _draftId, _expectedRevision, nextDestination, mappings, dedup) => {
+      revision += 1;
+      const responseMappings = mappings.map(({ source_index, target }) => {
+        const column = columns.find((candidate) => candidate.source_index === source_index)!;
+        const canonicalTarget = target.kind === 'new' && target.name === 'amount'
+          ? { kind: 'new' as const, name: 'amount 2' }
+          : target;
+        return {
+          source_index,
+          source_name: column.name,
+          source_type: column.target_type,
+          target: canonicalTarget,
+          match: canonicalTarget.kind === 'new' ? 'new' as const : source_index === 0 ? 'type_clash' as const : 'matched' as const,
+          detail: canonicalTarget.kind === 'existing' && source_index === 0 ? 'Sheet column is Integer.' : null,
+        };
+      });
+      return draft({
+        ...initial,
+        revision,
+        destination: {
+          configuration: nextDestination,
+          mappings: responseMappings,
+          dedup,
+          comparison: {
+            state: 'ready', matched_columns: responseMappings.filter((mapping) => mapping.target.kind === 'existing').length,
+            new_columns: responseMappings.filter((mapping) => mapping.target.kind === 'new').length,
+            type_clashes: responseMappings.filter((mapping) => mapping.match === 'type_clash').length,
+            duplicate_rows: dedup.enabled ? 1 : 0, import_rows: dedup.enabled ? 1 : 2, complete: true, error: null,
+          },
+        },
+        can_commit: true,
+        commit_blocked_reason: null,
+      });
+    });
+    renderFlow(api, {
+      destinationSheets: [{ id: 9, name: 'People', rowCount: 4, columns: [{ id: 77, name: 'amount' }, { id: 78, name: 'contributor_id' }] }],
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'Columns →' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue →' }));
+    fireEvent.click(await screen.findByRole('radio', { name: /Add to an existing sheet/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Add as new Text column' }));
+    await screen.findByText('1 new column added');
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /Skip rows already/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Import 2 rows' }));
+
+    await waitFor(() => expect(api.commit).toHaveBeenCalledWith('project-1', initial.draft_id, revision, expect.any(String)));
+    expect(api.updateDestination).toHaveBeenLastCalledWith(
+      'project-1', initial.draft_id, expect.any(Number),
+      { kind: 'existing', sheet_id: 9 },
+      [
+        { source_index: 0, target: { kind: 'new', name: 'amount 2' } },
+        { source_index: 1, target: { kind: 'existing', column_id: 78 } },
+      ],
+      { enabled: true, key_source_index: 1 },
+    );
   });
 
   it('keeps several selected files intact when handing off to Multiple files', async () => {
@@ -328,7 +395,7 @@ describe('TableImportFlow', () => {
     await waitFor(() => expect(api.updateDestination).toHaveBeenLastCalledWith(
       'project-1', expect.any(String), expect.any(Number),
       expect.objectContaining({ kind: 'existing', sheet_id: 9 }),
-      [{ source_index: 0, target: { kind: 'new', name: 'contributor_id 2' } }],
+      [{ source_index: 0, target: { kind: 'new', name: 'contributor_id' } }],
       expect.anything(),
     ));
   });
@@ -483,7 +550,6 @@ describe('TableImportFlow', () => {
       columns,
       destination: {
         configuration: { kind: 'existing', sheet_id: 9 },
-        occupied_column_names: ['matched'],
         mappings: [
           { source_index: 0, source_name: 'matched', source_type: 'text', target: { kind: 'existing', column_id: 77 }, match: 'matched', detail: null },
           { source_index: 1, source_name: 'new_value', source_type: 'text', target: { kind: 'new', name: 'new_value' }, match: 'new', detail: null },
@@ -509,7 +575,6 @@ describe('TableImportFlow', () => {
     const current = draft({
       destination: {
         configuration: { kind: 'existing', sheet_id: 9 },
-        occupied_column_names: ['amount'],
         mappings: [{
           source_index: 0, source_name: 'amount', source_type: 'text',
           target: { kind: 'existing', column_id: 77 }, match: 'type_clash', detail: 'Sheet column is Integer.',
@@ -524,7 +589,7 @@ describe('TableImportFlow', () => {
     expect(screen.getByText('Sheet column is Integer.')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Add as new Text column' }));
     expect(onDestination).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
-      mappings: [expect.objectContaining({ source_index: 0, target: { kind: 'new', name: 'amount 2' } })],
+      mappings: [expect.objectContaining({ source_index: 0, target: { kind: 'new', name: 'amount' } })],
     }));
 
     view.rerender(<ImportTableStep draft={{ ...current, destination: { ...current.destination!, mappings: [{ ...current.destination!.mappings[0], target: { kind: 'new', name: 'amount 2' }, match: 'new' }], comparison: { ...current.destination!.comparison, new_columns: 1, type_clashes: 0 } } }} destination={{ kind: 'existing', sheet_id: 9 }} destinationSheets={[{ id: 9, name: 'People', rowCount: 4, columns: [{ id: 77, name: 'amount' }] }]} busy={false} onBack={vi.fn()} onCommit={vi.fn()} onDestination={onDestination} />);

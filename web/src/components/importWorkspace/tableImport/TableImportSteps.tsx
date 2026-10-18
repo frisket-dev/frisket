@@ -477,33 +477,16 @@ function ExistingDestination({ draft, destination, sheet, busy, onDestination }:
     const keyStillMatches = mappings.some((candidate) => candidate.source_index === snapshot.dedup.key_source_index && candidate.target.kind === 'existing');
     onDestination(destination, { ...snapshot, mappings, dedup: keyStillMatches ? snapshot.dedup : { enabled: false, key_source_index: null } });
   };
-  const newColumnTarget = (sourceIndex: number, sourceName: string) => ({
-    kind: 'new' as const,
-    name: uniqueNewColumnName(sourceName, sourceIndex, snapshot, !draft.analysis.complete || (draft.analysis.issue_counts.extra_values ?? 0) > 0),
-  });
   return <div className="table-import-existing">
     <header><strong>Columns</strong><span>Matched by name. Change any match with its menu.</span></header>
     <div className="table-import-mappings">{snapshot.mappings.map((mapping) => <div key={mapping.source_index}><strong>{mapping.source_name}</strong><span>→</span><PanelSelect aria-label={`Map ${mapping.source_name}`} value={mapping.target.kind === 'new' ? 'new' : `existing:${mapping.target.column_id}`} disabled={busy} onChange={(event) => {
       const target = event.currentTarget.value === 'new'
-        ? newColumnTarget(mapping.source_index, mapping.source_name)
+        ? { kind: 'new' as const, name: mapping.source_name }
         : { kind: 'existing' as const, column_id: Number(event.currentTarget.value.slice('existing:'.length)) };
       changeMapping(mapping.source_index, target);
-    }}><option value="new">+ New column</option>{sheet?.columns.map((column) => <option key={column.id} value={`existing:${column.id}`}>{column.name}</option>)}</PanelSelect><span className="table-import-mapping-status"><b data-match={mapping.match}>{mapping.match === 'matched' ? 'Matched' : mapping.match === 'similar' ? 'Similar name' : mapping.match === 'type_clash' ? mapping.detail ?? 'Type clash' : 'Not in the sheet yet'}</b>{mapping.match === 'type_clash' && <button type="button" className="text-btn" disabled={busy} onClick={() => changeMapping(mapping.source_index, newColumnTarget(mapping.source_index, mapping.source_name))}>Add as new {targetTypeLabel(mapping.source_type)} column</button>}</span></div>)}</div>
+    }}><option value="new">+ New column</option>{sheet?.columns.map((column) => <option key={column.id} value={`existing:${column.id}`}>{column.name}</option>)}</PanelSelect><span className="table-import-mapping-status"><b data-match={mapping.match}>{mapping.match === 'matched' ? 'Matched' : mapping.match === 'similar' ? 'Similar name' : mapping.match === 'type_clash' ? mapping.detail ?? 'Type clash' : 'Not in the sheet yet'}</b>{mapping.match === 'type_clash' && <button type="button" className="text-btn" disabled={busy} onClick={() => changeMapping(mapping.source_index, { kind: 'new', name: mapping.source_name })}>Add as new {targetTypeLabel(mapping.source_type)} column</button>}</span></div>)}</div>
     <label className="table-import-dedup"><input type="checkbox" checked={eligibleKeys.length > 0 && snapshot.dedup.enabled} disabled={busy || eligibleKeys.length === 0} onChange={(event) => onDestination(destination, { ...snapshot, dedup: { enabled: event.currentTarget.checked, key_source_index: event.currentTarget.checked ? snapshot.dedup.key_source_index ?? eligibleKeys[0]?.source_index ?? null : null } })} /> Skip rows already in {sheet?.name ?? 'this sheet'}, matched on <PanelSelect aria-label="Duplicate key" value={snapshot.dedup.key_source_index ?? ''} disabled={busy || !snapshot.dedup.enabled || eligibleKeys.length === 0} onChange={(event) => onDestination(destination, { ...snapshot, dedup: { enabled: true, key_source_index: Number(event.currentTarget.value) } })}><option value="">Choose a matched column</option>{eligibleKeys.map((column) => <option key={column.source_index} value={column.source_index}>{column.name}</option>)}</PanelSelect>{eligibleKeys.length === 0 ? <span>Match a column to use this</span> : snapshot.comparison.duplicate_rows != null && <span>{count(snapshot.comparison.duplicate_rows, 'row')} found</span>}</label>
   </div>;
-}
-
-function uniqueNewColumnName(baseName: string, sourceIndex: number, snapshot: TableImportDestinationSnapshot, reserveExtraValues: boolean): string {
-  const base = baseName.trim() || 'column';
-  const occupied = new Set(snapshot.occupied_column_names);
-  for (const mapping of snapshot.mappings) {
-    if (mapping.source_index !== sourceIndex && mapping.target.kind === 'new') occupied.add(mapping.target.name);
-  }
-  if (reserveExtraValues) occupied.add('extra values');
-  if (!occupied.has(base)) return base;
-  let suffix = 2;
-  while (occupied.has(`${base} ${suffix}`)) suffix += 1;
-  return `${base} ${suffix}`;
 }
 
 function targetTypeLabel(type: string): string {

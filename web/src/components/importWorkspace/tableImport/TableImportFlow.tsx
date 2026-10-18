@@ -57,6 +57,11 @@ export interface TableImportFlowProps {
   registerCloseGuard(guard: (() => boolean) | null): void;
 }
 
+interface PendingDestinationSave {
+  destination: TableImportDestinationConfig;
+  edited?: TableImportDestinationSnapshot | null;
+}
+
 function sameDraft(current: TableImportDraft | null, next: TableImportDraft): boolean {
   return current === null || current.draft_id === next.draft_id;
 }
@@ -119,6 +124,7 @@ export function TableImportFlow({
   const mutationTail = useRef<Promise<void>>(Promise.resolve());
   const commitKey = useRef(crypto.randomUUID());
   const destinationSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingDestinationSave = useRef<PendingDestinationSave | null>(null);
   const callbacks = useRef({ onDiscarded, onError, onImported });
 
   useEffect(() => { callbacks.current = { onDiscarded, onError, onImported }; }, [onDiscarded, onError, onImported]);
@@ -143,6 +149,9 @@ export function TableImportFlow({
   const resetDraft = useCallback(() => {
     generation.current += 1;
     requestController.current?.abort();
+    if (destinationSaveTimer.current !== null) clearTimeout(destinationSaveTimer.current);
+    destinationSaveTimer.current = null;
+    pendingDestinationSave.current = null;
     requestController.current = null;
     currentDraft.current = null;
     latestSnapshot.current = null;
@@ -354,9 +363,14 @@ export function TableImportFlow({
   const scheduleDestination = useCallback((nextDestination: TableImportDestinationConfig, edited?: TableImportDestinationSnapshot | null) => {
     setDestination(nextDestination);
     if (destinationSaveTimer.current !== null) clearTimeout(destinationSaveTimer.current);
+    pendingDestinationSave.current = { destination: nextDestination, edited };
     destinationSaveTimer.current = setTimeout(() => {
       destinationSaveTimer.current = null;
-      void saveDestination(nextDestination, edited);
+      const pending = pendingDestinationSave.current;
+      pendingDestinationSave.current = null;
+      if (pending) void saveDestination(pending.destination, pending.edited).then((saved) => {
+        if (!saved && pendingDestinationSave.current === null) pendingDestinationSave.current = pending;
+      });
     }, edited ? 0 : 250);
   }, [saveDestination]);
 
@@ -364,6 +378,7 @@ export function TableImportFlow({
     generation.current += 1;
     requestController.current?.abort();
     if (destinationSaveTimer.current !== null) clearTimeout(destinationSaveTimer.current);
+    pendingDestinationSave.current = null;
   }, []);
 
   const openImportStep = useCallback(async () => {
@@ -432,11 +447,18 @@ export function TableImportFlow({
   const commit = async () => {
     if (busy) return;
     if (destinationSaveTimer.current !== null) { clearTimeout(destinationSaveTimer.current); destinationSaveTimer.current = null; }
+    const pending = pendingDestinationSave.current;
+    pendingDestinationSave.current = null;
     setBusy(true);
     try {
       await mutationTail.current;
-      const saved = await saveDestination(destination);
-      if (!saved) return;
+      const saved = pending
+        ? await saveDestination(pending.destination, pending.edited)
+        : latestSnapshot.current;
+      if (!saved) {
+        if (pending) pendingDestinationSave.current = pending;
+        return;
+      }
       const source = saved;
       try {
         const result = await api.commit(projectId, source.draft_id, source.revision, commitKey.current);
