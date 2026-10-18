@@ -2,6 +2,7 @@
 
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { useEffect, useRef } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type {
@@ -12,8 +13,28 @@ import type {
 import { PdfBatchImportFlow } from '../../src/components/importWorkspace/pdfBatch/PdfBatchImportFlow';
 import { canHandlePdfBatch } from '../../src/components/importWorkspace/pdfBatch/model';
 
+const selectorState = vi.hoisted(() => ({ canRun: true, blocker: null as string | null }));
+
 vi.mock('../../src/engine-selector/SelectorField', () => ({
-  SelectorField: () => <button type="button">RapidOCR</button>,
+  SelectorField: ({ query, onCurrentChoiceChange }: {
+    query: { subject: { params: { engine: string; model?: string | null } } };
+    onCurrentChoiceChange?(choice: unknown): void;
+  }) => {
+    const { engine, model } = query.subject.params;
+    const hasModel = Object.hasOwn(query.subject.params, 'model');
+    const report = useRef(onCurrentChoiceChange);
+    report.current = onCurrentChoiceChange;
+    useEffect(() => {
+      report.current?.({
+        authored_selection: hasModel
+          ? { kind: 'engine_model', engine, model: model ?? null }
+          : { kind: 'engine', engine },
+        can_run: selectorState.canRun,
+        blocker: selectorState.blocker ? { message: selectorState.blocker } : null,
+      });
+    }, [engine, hasModel, model]);
+    return <button type="button">{engine}</button>;
+  },
 }));
 
 const categories: Partial<Record<PdfImportCategory, number>> = {
@@ -180,6 +201,8 @@ function deferred<Value>() {
 }
 
 beforeEach(() => {
+    selectorState.canRun = true;
+    selectorState.blocker = null;
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
   if (!globalThis.crypto?.randomUUID) {
     let id = 0;
@@ -586,21 +609,23 @@ describe('PDF batch import flow', () => {
     const initial = snapshot(7, { choices: { ...snapshot().choices, ocr_selection: selection } });
     const { api } = createApi(initial);
     let started = false;
-    const running = snapshot(8, {
+    const completed = snapshot(8, {
       choices: initial.choices,
       preview_jobs: [{
         occurrence_id: 'suspicious-1', page: 1, ocr_action_params: { engine: 'remote-ocr', model: 'vision-ocr-v2' },
-        job_id: 'preview-model', status: 'running', receipt_id: null,
+        job_id: 'preview-model', status: 'done', receipt_id: null,
       }],
     });
-    vi.mocked(api.get).mockImplementation(async () => (started ? running : initial));
-    vi.mocked(api.getPage).mockImplementation(async () => ({
-      schema_version: 'frisket.pdf_import.v1', draft_id: 'draft-1', occurrence_id: 'suspicious-1', page: 1,
-      native_text: 'Broken native text',
-      ocr_text: started ? 'Model OCR output' : null,
-      ocr_action_params: started ? { engine: 'remote-ocr', model: 'vision-ocr-v2' } : null,
-      thumbnail_url: '/thumbnail',
-    }));
+    vi.mocked(api.get).mockImplementation(async () => (started ? completed : initial));
+    let resolveCompletedPage: ((value: Awaited<ReturnType<PdfImportsApi['getPage']>>) => void) | undefined;
+    vi.mocked(api.getPage).mockImplementation(async () => {
+      if (!started) return {
+        schema_version: 'frisket.pdf_import.v1', draft_id: 'draft-1', occurrence_id: 'suspicious-1', page: 1,
+        native_text: 'Broken native text', ocr_text: null, ocr_action_params: null,
+        thumbnail_url: '/thumbnail',
+      };
+      return new Promise((resolve) => { resolveCompletedPage = resolve; });
+    });
     vi.mocked(api.estimateOcrPreview).mockResolvedValue({
       ocr_action_params: { engine: 'remote-ocr', model: 'vision-ocr-v2' }, cached: false, estimate: null,
     });
@@ -622,6 +647,12 @@ describe('PDF batch import flow', () => {
     await screen.findByText('Broken native text');
     fireEvent.click(screen.getByRole('button', { name: 'OCR preview' }));
 
+    await waitFor(() => expect(api.getPage).toHaveBeenCalledTimes(2));
+    resolveCompletedPage?.({
+      schema_version: 'frisket.pdf_import.v1', draft_id: 'draft-1', occurrence_id: 'suspicious-1', page: 1,
+      native_text: 'Broken native text', ocr_text: 'Model OCR output',
+      ocr_action_params: { engine: 'remote-ocr', model: 'vision-ocr-v2' }, thumbnail_url: '/thumbnail',
+    });
     expect(await screen.findByText('Model OCR output')).toBeInTheDocument();
     expect(api.estimateOcrPreview).toHaveBeenCalledWith(
       'project-1', 'draft-1', 'suspicious-1', 1, selection,
@@ -736,5 +767,26 @@ describe('PDF batch import flow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
     await waitFor(() => expect(api.estimateBatchOcr).toHaveBeenCalledTimes(2));
     expect(await screen.findByText('Estimate ready')).toBeInTheDocument();
+  });
+
+  it('blocks import when the selected OCR engine still needs its standard setup', async () => {
+    selectorState.canRun = false;
+    selectorState.blocker = 'Download RapidOCR before running it.';
+    const { api } = createApi();
+    render(<PdfBatchImportFlow
+      projectId="project-1" resumeDraftId="draft-1" destinationSheets={[]} api={api}
+      onContextChange={vi.fn()} registerCloseGuard={vi.fn()} onImported={vi.fn()}
+      onDiscarded={vi.fn()} onError={vi.fn()}
+    />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Check text →' }));
+    await screen.findByText('Broken native text');
+    fireEvent.click(screen.getByRole('button', { name: 'Continue →' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Search setup →' }));
+
+    expect(await screen.findByText('Setup required')).toHaveAttribute(
+      'title', 'Download RapidOCR before running it.',
+    );
+    expect(screen.getByRole('button', { name: 'Import 2 PDFs' })).toBeDisabled();
   });
 });

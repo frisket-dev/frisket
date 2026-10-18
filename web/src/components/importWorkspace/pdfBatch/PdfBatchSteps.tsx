@@ -163,7 +163,7 @@ function CategoryTable({ snapshot, showUnchecked = false }: { snapshot: PdfImpor
 export function CheckTextStep({
   projectId, snapshot, categories, selectedCategory, samples, selectedFileId, chosenFile,
   samplesLoading, page, pageLoading, textSource, previewRunning, checkRunning, onCategory, onSample,
-  onResample, onTextSource, onPreview, onOcrSelection, onPolicy, onBack, onContinue,
+  onResample, onTextSource, onPreview, onOcrChoice, onOcrSelection, onPolicy, onBack, onContinue,
 }: {
   projectId: string;
   snapshot: PdfImportSnapshot;
@@ -183,6 +183,7 @@ export function CheckTextStep({
   onResample(): void;
   onTextSource(source: 'native' | 'ocr'): void;
   onPreview(): void;
+  onOcrChoice(choice: SelectorChoice | null): void;
   onOcrSelection(selection: PdfImportOcrSelection): void;
   onPolicy(policy: PdfImportChoices['ocr_policy']): void;
   onBack(): void;
@@ -240,7 +241,7 @@ export function CheckTextStep({
               page={1}
               thumbnailUrl={page?.thumbnail_url ?? chosenFile.thumbnail_url}
               thumbnailAlt={`Page 1 of ${chosenFile.filename}`}
-              heading={textSource === 'ocr' ? `Text read with ${currentOcr.engine}` : 'Text layer in this PDF'}
+              heading={textSource === 'ocr' ? 'Extracted text' : 'Text layer in this PDF'}
               text={shownText}
               loading={pageLoading || (textSource === 'ocr' && previewRunning)}
               loadingCopy={textSource === 'ocr' ? 'Applying OCR to this page…' : 'Loading preview…'}
@@ -260,7 +261,11 @@ export function CheckTextStep({
               recentNamespace="pdf-batch-ocr"
               testId="pdf-batch-ocr-engine"
               onSelect={(choice) => { const selection = ocrSelectionOf(choice); if (selection) onOcrSelection(selection); }}
-              onCurrentChoiceChange={(choice) => { const selection = choice ? ocrSelectionOf(choice) : null; if (selection && !sameOcrSelection(selection, currentOcr)) onOcrSelection(selection); }}
+              onCurrentChoiceChange={(choice) => {
+                onOcrChoice(choice);
+                const selection = choice ? ocrSelectionOf(choice) : null;
+                if (selection && !sameOcrSelection(selection, currentOcr)) onOcrSelection(selection);
+              }}
               allowChoice={(choice) => ocrSelectionOf(choice) !== null}
             />
           </div></div>
@@ -357,7 +362,7 @@ function TextSourceBadge({ category, policy }: { category: PdfImportCategory; po
   return <span role="cell">—</span>;
 }
 
-export function SearchSetupStep({ snapshot, semanticEnabled, consent, busy, importLabel, canImport, batchEstimateBusy, batchEstimateWaiting, batchEstimateError, onEstimateOcr, onSemantic, onConsent, onBack, onImport }: {
+export function SearchSetupStep({ snapshot, semanticEnabled, consent, busy, importLabel, canImport, batchEstimateBusy, batchEstimateWaiting, batchEstimateError, ocrAvailable, ocrProblem, onEstimateOcr, onSemantic, onConsent, onBack, onImport }: {
   snapshot: PdfImportSnapshot;
   semanticEnabled: boolean;
   consent: boolean;
@@ -367,6 +372,8 @@ export function SearchSetupStep({ snapshot, semanticEnabled, consent, busy, impo
   batchEstimateBusy: boolean;
   batchEstimateWaiting: boolean;
   batchEstimateError: string | null;
+  ocrAvailable: boolean;
+  ocrProblem: string | null;
   onEstimateOcr(): void;
   onSemantic(enabled: boolean): void;
   onConsent(value: boolean): void;
@@ -384,9 +391,11 @@ export function SearchSetupStep({ snapshot, semanticEnabled, consent, busy, impo
         {setup.needs_confirmation && <label><input type="checkbox" checked={consent} onChange={(event) => onConsent(event.currentTarget.checked)} /> Download this model when the import starts</label>}
         {!setup.available && <p role="alert">Model setup is unavailable.</p>}
       </div>}
-      {ocrPolicyCount(snapshot, snapshot.choices.ocr_policy) > 0 && <div className="pdf-batch-ocr-review" data-state={snapshot.batch_ocr?.state ?? 'idle'}>
+      {ocrPolicyCount(snapshot, snapshot.choices.ocr_policy) > 0 && <div className="pdf-batch-ocr-review" data-state={!ocrAvailable ? 'setup' : snapshot.batch_ocr?.state ?? 'idle'}>
         <div><strong>OCR</strong><span>{count(ocrPolicyCount(snapshot, snapshot.choices.ocr_policy), 'file')} · {snapshot.choices.ocr_selection.engine}</span></div>
-        {snapshot.choices.ocr_selection.engine === 'rapidocr'
+        {!ocrAvailable
+          ? <span title={ocrProblem ?? undefined}>Setup required</span>
+          : snapshot.choices.ocr_selection.engine === 'rapidocr'
           ? <b>Ready</b>
           : batchEstimateWaiting
             ? <span>Waiting for files…</span>

@@ -13,13 +13,11 @@ import {
   type PdfImportChoices,
   type PdfImportDestination,
   type PdfImportFileSummary,
-  type PdfImportPage,
   type PdfImportOcrSelection,
-  type PdfImportPreviewEstimate,
   type PdfImportSnapshot,
-  type PdfImportUpload,
   type PdfImportsApi,
 } from '../../../api/pdfImports';
+import type { SelectorChoice } from '../../../api/selectorChoices';
 import { usePoll } from '../../../hooks/usePoll';
 import { CostGateModal } from '../../CostGateModal';
 import {
@@ -34,6 +32,8 @@ import {
   type PdfBatchStage,
 } from './model';
 import { AddFilesStep, CheckTextStep, DestinationStep, SearchSetupStep } from './PdfBatchSteps';
+import { usePdfBatchIntake } from './usePdfBatchIntake';
+import { usePdfBatchPreview } from './usePdfBatchPreview';
 import './PdfBatchImportFlow.css';
 
 export interface PdfBatchDestinationSheet {
@@ -63,12 +63,6 @@ export interface PdfBatchImportFlowProps {
   onError(message: string): void;
 }
 
-interface PendingPreviewConsent {
-  estimate: PdfImportPreviewEstimate;
-  fileId: string;
-  page: number;
-}
-
 const CHECK_CATEGORY_ORDER: readonly PdfImportCategory[] = [
   'suspicious', 'missing', 'text', 'image', 'other', 'unreadable',
 ];
@@ -79,24 +73,6 @@ function errorMessage(error: unknown): string {
 
 function ocrEngine(selection: PdfImportOcrSelection): string {
   return selection.engine;
-}
-
-function ocrSelectionKey(selection: PdfImportOcrSelection): string {
-  return selection.kind === 'engine'
-    ? `engine:${selection.engine}`
-    : `engine_model:${selection.engine}:${selection.model ?? ''}`;
-}
-
-function ocrActionParamsKey(params: Record<string, unknown> | null | undefined): string | null {
-  if (!params || typeof params.engine !== 'string') return null;
-  return Object.hasOwn(params, 'model')
-    ? `engine_model:${params.engine}:${typeof params.model === 'string' ? params.model : ''}`
-    : `engine:${params.engine}`;
-}
-
-function pageMatchesSelection(page: PdfImportPage | null, selection: PdfImportOcrSelection): boolean {
-  if (!page || page.ocr_text === null) return false;
-  return ocrActionParamsKey(page.ocr_action_params) === ocrSelectionKey(selection);
 }
 
 function subtitle(snapshot: PdfImportSnapshot | null, files: readonly File[]): string {
@@ -132,17 +108,12 @@ export function PdfBatchImportFlow({
   const [sampleFiles, setSampleFiles] = useState<PdfImportFileSummary[]>([]);
   const [samplesLoading, setSamplesLoading] = useState(false);
   const [sampleCursor, setSampleCursor] = useState<string | null>(null);
-  const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
-  const [page, setPage] = useState<PdfImportPage | null>(null);
-  const [pageLoading, setPageLoading] = useState(false);
-  const [textSource, setTextSource] = useState<'native' | 'ocr'>('native');
-  const [previewStarting, setPreviewStarting] = useState(false);
-  const [previewConsent, setPreviewConsent] = useState<PendingPreviewConsent | null>(null);
   const [batchEstimateBusy, setBatchEstimateBusy] = useState(false);
   const [batchEstimateError, setBatchEstimateError] = useState<string | null>(null);
   const [discardPrompt, setDiscardPrompt] = useState(false);
   const [discarding, setDiscarding] = useState(false);
   const [reselecting, setReselecting] = useState(false);
+  const [hasRecoveryFiles, setHasRecoveryFiles] = useState(false);
   const [mutationBusy, setMutationBusy] = useState(false);
   const [destination, setDestination] = useState<PdfImportDestination>(() => (
     initialDestinationSheetId == null
@@ -150,9 +121,8 @@ export function PdfBatchImportFlow({
       : { kind: 'existing', sheet_id: initialDestinationSheetId }
   ));
   const [semanticEnabled, setSemanticEnabled] = useState<boolean | null>(null);
-  const uploadController = useRef<AbortController | null>(null);
-  const intakeRun = useRef<Promise<void> | null>(null);
-  const liveController = useRef<AbortController | null>(null);
+  const [ocrChoice, setOcrChoice] = useState<SelectorChoice | null>(null);
+  const lifecycleController = useRef<AbortController | null>(null);
   const refreshController = useRef<AbortController | null>(null);
   const batchEstimateInFlight = useRef<symbol | null>(null);
   const discardPause = useRef<Promise<void> | null>(null);
@@ -160,31 +130,22 @@ export function PdfBatchImportFlow({
   const currentDraft = useRef<string | null>(null);
   const generation = useRef(0);
   const sampleRequestEpoch = useRef(0);
-  const pageRequestEpoch = useRef(0);
-  const selectedFileRef = useRef<string | null>(null);
-  const ocrSelectionRef = useRef<string | null>(null);
   const importedSheet = useRef<number | null>(null);
   const filesProp = useRef(files);
-  filesProp.current = files;
-  const initialFiles = useRef<readonly File[]>([]);
   const recoveryFiles = useRef<File[]>([]);
-  const fileInventory = useRef<Array<{
-    file: File;
-    fileId: string;
-    logicalPath: string;
-    batchId: string;
-  }>>([]);
-  const manifestBatchIds = useRef<string[]>([]);
   const committed = useRef(false);
   const onErrorRef = useRef(onError);
   const onImportedRef = useRef(onImported);
   const onDiscardedRef = useRef(onDiscarded);
   const initialDestinationRef = useRef(initialDestinationSheetId);
-  onErrorRef.current = onError;
-  onImportedRef.current = onImported;
-  onDiscardedRef.current = onDiscarded;
-  initialDestinationRef.current = initialDestinationSheetId;
-  ocrSelectionRef.current = snapshot ? ocrSelectionKey(snapshot.choices.ocr_selection) : null;
+
+  useEffect(() => {
+    filesProp.current = files;
+    onErrorRef.current = onError;
+    onImportedRef.current = onImported;
+    onDiscardedRef.current = onDiscarded;
+    initialDestinationRef.current = initialDestinationSheetId;
+  }, [files, initialDestinationSheetId, onDiscarded, onError, onImported]);
 
   const publish = useCallback((next: PdfImportSnapshot) => {
     if (currentDraft.current && next.draft_id !== currentDraft.current) return;
@@ -197,92 +158,52 @@ export function PdfBatchImportFlow({
     setError(message);
     onErrorRef.current(message);
   }, []);
-
-  const runIntake = useCallback(async (
-    task: (controller: AbortController) => Promise<void>,
-  ) => {
-    const prior = intakeRun.current;
-    if (prior) {
-      uploadController.current?.abort();
-      await prior.catch(() => undefined);
-    }
-    const controller = new AbortController();
-    uploadController.current = controller;
-    const running = task(controller);
-    intakeRun.current = running;
-    try {
-      await running;
-    } finally {
-      if (intakeRun.current === running) intakeRun.current = null;
-      if (uploadController.current === controller) uploadController.current = null;
-    }
-  }, []);
-
-  const stopIntake = useCallback(async () => {
-    uploadController.current?.abort();
-    const running = intakeRun.current;
-    if (running) await running.catch(() => undefined);
-  }, []);
-
-  const runFreshIntake = useCallback(async (source: PdfImportSnapshot, epoch: number) => {
-    await runIntake(async (controller) => {
-      let latest = source;
-      if (!latest.manifest.sealed) {
-        for (let start = 0, index = 0; start < fileInventory.current.length; start += 256, index += 1) {
-          const manifest = fileInventory.current.slice(start, start + 256).map((item) => ({
-            client_file_id: item.fileId,
-            logical_path: item.logicalPath,
-            filename: item.file.name,
-            size: item.file.size,
-          }));
-          latest = await api.addManifest(
-            projectId,
-            source.draft_id,
-            manifest,
-            manifestBatchIds.current[index],
-            { signal: controller.signal },
-          );
-          if (generation.current === epoch) publish(latest);
-        }
-        latest = await api.sealManifest(projectId, source.draft_id, { signal: controller.signal });
-        if (generation.current === epoch) publish(latest);
-      }
-      for (const item of fileInventory.current) {
-        const uploaded = await api.upload(
-          projectId,
-          source.draft_id,
-          [{ fileId: item.fileId, file: item.file, logicalPath: item.logicalPath }],
-          item.batchId,
-          { signal: controller.signal },
-        );
-        if (generation.current === epoch) publish(uploaded);
-      }
-    });
-  }, [api, projectId, publish, runIntake]);
+  const getCurrentDraft = useCallback(() => currentDraft.current, []);
+  const preview = usePdfBatchPreview({
+    api,
+    projectId,
+    snapshot,
+    sampleFiles,
+    currentDraft: getCurrentDraft,
+    reportError,
+  });
+  const intake = usePdfBatchIntake({ api, projectId, publish });
+  const {
+    abort: abortIntake,
+    configure: configureIntake,
+    files: intakeFiles,
+    runFresh: runFreshIntake,
+    runReselection,
+    stop: stopIntake,
+  } = intake;
+  const {
+    cached: previewCached,
+    chosenFile,
+    clear: clearPreview,
+    consent: previewConsent,
+    page: previewPage,
+    pageLoading,
+    previewJob,
+    running: previewRunning,
+    select: selectPreview,
+    selectedFileId,
+    setConsent: setPreviewConsent,
+    setTextSource,
+    start: startPreview,
+    textSource,
+  } = preview;
 
   useEffect(() => {
     const epoch = ++generation.current;
     const controller = new AbortController();
-    liveController.current?.abort();
-    liveController.current = controller;
+    lifecycleController.current?.abort();
+    lifecycleController.current = controller;
     currentDraft.current = null;
     const selectedFiles = filesProp.current;
     const sourceFolder = selectedFolderName(selectedFiles);
-    initialFiles.current = selectedFiles;
-    fileInventory.current = selectedFiles.map((file) => ({
-      file,
-      fileId: crypto.randomUUID(),
-      logicalPath: file.webkitRelativePath || file.name,
-      batchId: crypto.randomUUID(),
-    }));
-    manifestBatchIds.current = Array.from(
-      { length: Math.ceil(selectedFiles.length / 256) },
-      () => crypto.randomUUID(),
-    );
-    selectedFileRef.current = null;
+    const intakeSelection = configureIntake(selectedFiles);
     batchEstimateInFlight.current = null;
     sampleRequestEpoch.current += 1;
-    pageRequestEpoch.current += 1;
     recoveryFiles.current = [];
     commitKey.current = crypto.randomUUID();
     importedSheet.current = null;
@@ -297,42 +218,37 @@ export function PdfBatchImportFlow({
       setSampleFiles([]);
       setSamplesLoading(false);
       setSampleCursor(null);
-      setSelectedFileId(null);
-      setPage(null);
-      setPageLoading(false);
-      setTextSource('native');
-      setPreviewStarting(false);
-      setPreviewConsent(null);
+      clearPreview();
       setBatchEstimateBusy(false);
       setBatchEstimateError(null);
       setDiscardPrompt(false);
       setDiscarding(false);
       setReselecting(false);
+      setHasRecoveryFiles(false);
       setMutationBusy(false);
       setDestination(initialDestinationRef.current == null
         ? { kind: 'new', sheet_name: sourceFolder ?? 'Imported PDFs' }
         : { kind: 'existing', sheet_id: initialDestinationRef.current });
       setSemanticEnabled(null);
+      setOcrChoice(null);
       if (!resumeDraftId) {
-        const invalid = !canHandlePdfBatch(initialFiles.current);
+        const invalid = !canHandlePdfBatch(intakeSelection.files);
         if (invalid) throw new Error('Choose at least two PDFs for this import.');
       }
       const created = resumeDraftId
         ? await api.get(projectId, resumeDraftId, { signal: controller.signal })
         : await api.create(
           projectId,
-          fileInventory.current.length,
-          fileInventory.current.reduce((sum, item) => sum + item.file.size, 0),
-          sourceFolder
-            ? sourceFolder
-            : `${fileInventory.current.length} PDFs`,
+          intakeSelection.files.length,
+          intakeSelection.expectedBytes,
+          intakeSelection.sourceLabel,
           { signal: controller.signal },
         );
       if (controller.signal.aborted || generation.current !== epoch) return;
       if (resumeDraftId) setDestination(created.choices.destination);
       publish(created);
       if (!resumeDraftId) {
-        await runFreshIntake(created, epoch);
+        await runFreshIntake(created, () => generation.current === epoch);
       }
     };
     void start().catch((problem) => {
@@ -344,9 +260,9 @@ export function PdfBatchImportFlow({
       controller.abort();
       refreshController.current?.abort();
       if (generation.current === epoch) generation.current += 1;
-      if (!committed.current) uploadController.current?.abort();
+      if (!committed.current) abortIntake();
     };
-  }, [api, projectId, publish, reportError, resumeDraftId, runFreshIntake]);
+  }, [abortIntake, api, clearPreview, configureIntake, projectId, publish, reportError, resumeDraftId, runFreshIntake]);
 
   const refresh = useCallback(async () => {
     const draftId = currentDraft.current;
@@ -379,62 +295,10 @@ export function PdfBatchImportFlow({
       || snapshot.state === 'cancelling'
       || (!snapshot.paused && snapshot.state === 'open'
         && (!snapshot.upload.sealed || snapshot.analysis.files_done < (snapshot.analysis.files_total ?? Infinity)))
-      || snapshot.preview_jobs?.some((job) => (
-        job.occurrence_id === selectedFileId
-        && job.page === 1
-        && ocrActionParamsKey(job.ocr_action_params) === ocrSelectionKey(snapshot.choices.ocr_selection)
-        && (job.status === 'queued' || job.status === 'running')
-        && !pageMatchesSelection(page, snapshot.choices.ocr_selection)
-      ))
+      || (previewJob?.status === 'running' && !previewCached)
     )),
     intervalMs: 1_200,
     guardOverlap: true,
-  });
-
-  const chosenFile = sampleFiles.find((file) => file.occurrence_id === selectedFileId) ?? null;
-  const previewJob = snapshot?.preview_jobs?.find((job) => (
-    job.occurrence_id === selectedFileId
-    && job.page === 1
-    && ocrActionParamsKey(job.ocr_action_params) === ocrSelectionKey(snapshot.choices.ocr_selection)
-  ));
-  const previewCached = Boolean(snapshot && pageMatchesSelection(page, snapshot.choices.ocr_selection));
-
-  const loadPage = useCallback(async (file: PdfImportFileSummary) => {
-    if (!snapshot) return;
-    const requestEpoch = ++pageRequestEpoch.current;
-    const controller = new AbortController();
-    liveController.current?.abort();
-    liveController.current = controller;
-    setPageLoading(true);
-    try {
-      const result = await api.getPage(projectId, snapshot.draft_id, file.occurrence_id, 1, { signal: controller.signal });
-      if (!controller.signal.aborted
-        && requestEpoch === pageRequestEpoch.current
-        && selectedFileRef.current === result.occurrence_id
-        && currentDraft.current === (result.draft_id || result.import_id)) setPage(result);
-    } catch (problem) {
-      if (!controller.signal.aborted) reportError(problem);
-    } finally {
-      if (!controller.signal.aborted && requestEpoch === pageRequestEpoch.current) setPageLoading(false);
-    }
-  }, [api, projectId, reportError, snapshot]);
-
-  usePoll(async () => {
-    if (!snapshot || !chosenFile) return 'stop';
-    const result = await api.getPage(projectId, snapshot.draft_id, chosenFile.occurrence_id, 1);
-    if (currentDraft.current !== result.draft_id
-      || selectedFileRef.current !== result.occurrence_id
-      || result.occurrence_id !== chosenFile.occurrence_id
-      || ocrSelectionRef.current !== ocrSelectionKey(snapshot.choices.ocr_selection)) return 'stop';
-    setPage(result);
-    return pageMatchesSelection(result, snapshot.choices.ocr_selection) ? 'stop' : undefined;
-  }, {
-    active: Boolean(previewJob && (previewJob.status === 'queued' || previewJob.status === 'running')
-      && !previewCached),
-    intervalMs: 700,
-    guardOverlap: true,
-    immediate: true,
-    mode: 'settle-relative',
   });
 
   useEffect(() => {
@@ -443,10 +307,10 @@ export function PdfBatchImportFlow({
       active: true,
       stage,
       stages: PDF_BATCH_STAGES,
-      subtitle: subtitle(snapshot, initialFiles.current),
+      subtitle: subtitle(snapshot, intakeFiles()),
       busy: mutationBusy || snapshot.state === 'committing' || snapshot.state === 'cancelling',
     });
-  }, [mutationBusy, onContextChange, snapshot, stage]);
+  }, [intakeFiles, mutationBusy, onContextChange, snapshot, stage]);
 
   const pauseForDiscard = useCallback(() => {
     if (!snapshot || snapshot.state !== 'open' || discardPrompt) return;
@@ -513,35 +377,23 @@ export function PdfBatchImportFlow({
       if (requestEpoch !== sampleRequestEpoch.current || currentDraft.current !== snapshot.draft_id) return;
       setSampleFiles(result.items);
       setSampleCursor(result.next_cursor);
-      const first = result.items[0] ?? null;
-      selectedFileRef.current = first?.occurrence_id ?? null;
-      setSelectedFileId(first?.occurrence_id ?? null);
-      setTextSource('native');
-      setPage(null);
-      if (first && first.category !== 'other' && first.category !== 'unreadable') await loadPage(first);
+      await selectPreview(result.items[0] ?? null);
     } catch (problem) {
       if (requestEpoch === sampleRequestEpoch.current) reportError(problem);
     } finally {
       if (requestEpoch === sampleRequestEpoch.current) setSamplesLoading(false);
     }
-  }, [api, loadPage, projectId, reportError, snapshot]);
+  }, [api, projectId, reportError, selectPreview, snapshot]);
 
   const chooseCategory = (category: PdfImportCategory) => {
     setSelectedCategory(category);
     setSampleFiles([]);
-    selectedFileRef.current = null;
-    setSelectedFileId(null);
-    pageRequestEpoch.current += 1;
-    liveController.current?.abort();
+    clearPreview();
     void loadSamples(category);
   };
 
   const selectSample = (file: PdfImportFileSummary) => {
-    selectedFileRef.current = file.occurrence_id;
-    setSelectedFileId(file.occurrence_id);
-    setTextSource('native');
-    setPage(null);
-    if (file.category !== 'other' && file.category !== 'unreadable') void loadPage(file);
+    void selectPreview(file);
   };
 
   const reconcileFiles = async (selected: readonly File[], source = snapshot) => {
@@ -554,42 +406,13 @@ export function PdfBatchImportFlow({
       return;
     }
     recoveryFiles.current = pdfs;
+    setHasRecoveryFiles(true);
     setReselecting(true);
     setError(null);
     try {
-      await runIntake(async (controller) => {
-        if (source.paused) {
-          const resumed = await api.resume(projectId, source.draft_id, { signal: controller.signal });
-          if (isCurrent()) publish(resumed);
-        }
-        const pending: PdfImportUpload[] = [];
-        for (let start = 0; start < pdfs.length; start += 256) {
-          const batch = pdfs.slice(start, start + 256);
-          const facts = batch.map((file) => ({
-            logical_path: file.webkitRelativePath || file.name,
-            filename: file.name,
-            size: file.size,
-          }));
-          const matched = await api.reconcileReselection(
-            projectId, source.draft_id, facts, { signal: controller.signal },
-          );
-          matched.items.forEach((item, index) => {
-            if (item.matched && item.upload_needed && item.occurrence_id) {
-              pending.push({ fileId: item.occurrence_id, file: batch[index], logicalPath: item.logical_path });
-            }
-          });
-        }
-        for (const item of pending) {
-          const uploaded = await api.upload(
-            projectId,
-            source.draft_id,
-            [item],
-            crypto.randomUUID(),
-            { signal: controller.signal },
-          );
-          if (isCurrent()) publish(uploaded);
-        }
-        if (isCurrent()) await refresh();
+      await runReselection(source, pdfs, {
+        shouldPublish: isCurrent,
+        refresh,
       });
     } catch (problem) {
       if (!(problem instanceof DOMException && problem.name === 'AbortError') && isCurrent()) reportError(problem);
@@ -610,12 +433,15 @@ export function PdfBatchImportFlow({
 
   const resumeCopying = async () => {
     if (!snapshot) return;
-    const retained = resumeDraftId ? recoveryFiles.current : initialFiles.current;
+    const retained = resumeDraftId ? recoveryFiles.current : intakeFiles();
     try {
       await stopIntake();
       const resumed = await api.resume(projectId, snapshot.draft_id);
       publish(resumed);
-      if (!resumeDraftId) await runFreshIntake(resumed, generation.current);
+      if (!resumeDraftId) {
+        const epoch = generation.current;
+        await runFreshIntake(resumed, () => generation.current === epoch);
+      }
       else if (retained.length > 0) await reconcileFiles(retained, resumed);
     } catch (problem) {
       reportError(problem);
@@ -630,48 +456,14 @@ export function PdfBatchImportFlow({
       if (resumeDraftId) {
         publish(await api.sealManifest(projectId, snapshot.draft_id));
       } else {
-        await runFreshIntake(snapshot, generation.current);
+        const epoch = generation.current;
+        await runFreshIntake(snapshot, () => generation.current === epoch);
       }
     } catch (problem) {
       reportError(problem);
       await refresh();
     } finally {
       setMutationBusy(false);
-    }
-  };
-
-  const startPreview = async (fileId: string, selectedPage = 1, confirmation?: string) => {
-    if (!snapshot || previewStarting) return;
-    setPreviewStarting(true);
-    setError(null);
-    try {
-      if (!confirmation) {
-        const estimate = await api.estimateOcrPreview(
-          projectId, snapshot.draft_id, fileId, selectedPage, snapshot.choices.ocr_selection,
-        );
-        const token = estimate.estimate?.promise_set_hash;
-        if (estimate.estimate?.requires_confirmation) {
-          if (!token) throw new Error('The OCR estimate did not include an authorization token.');
-          setPreviewConsent({ estimate, fileId, page: selectedPage });
-          return;
-        }
-        if (estimate.cached) {
-          const file = sampleFiles.find((item) => item.occurrence_id === fileId);
-          if (file) await loadPage(file);
-          setTextSource('ocr');
-          return;
-        }
-      }
-      await api.startOcrPreview(
-        projectId, snapshot.draft_id, fileId, selectedPage,
-        snapshot.choices.ocr_selection, confirmation,
-      );
-      setTextSource('ocr');
-      await refresh();
-    } catch (problem) {
-      reportError(problem);
-    } finally {
-      setPreviewStarting(false);
     }
   };
 
@@ -766,7 +558,7 @@ export function PdfBatchImportFlow({
     if (!snapshot || discarding) return;
     setDiscardPrompt(false);
     setDiscarding(true);
-    uploadController.current?.abort();
+    abortIntake();
     setError(null);
     try {
       await discardPause.current;
@@ -855,9 +647,11 @@ export function PdfBatchImportFlow({
     && !matching && semanticAuthorized
     && snapshot.analysis.files_done >= snapshot.upload.files_done
     && (ocrPolicyCount(snapshot, snapshot.choices.ocr_policy) === 0
-      || ocrEngine(snapshot.choices.ocr_selection) === 'rapidocr'
-      || (snapshot.batch_ocr?.state === 'ready'
+      || (Boolean(ocrChoice?.can_run) && (
+        ocrEngine(snapshot.choices.ocr_selection) === 'rapidocr'
+        || (snapshot.batch_ocr?.state === 'ready'
         && snapshot.batch_ocr.advisory !== false))
+      ))
     && snapshot.state === 'open' && !mutationBusy;
 
   return (
@@ -867,7 +661,7 @@ export function PdfBatchImportFlow({
           <AddFilesStep
             snapshot={snapshot}
             totalFiles={totalFiles}
-            needsReselection={Boolean(resumeDraftId && recoveryFiles.current.length === 0 && snapshot.upload.files_done < snapshot.upload.files_total)}
+            needsReselection={Boolean(resumeDraftId && !hasRecoveryFiles && snapshot.upload.files_done < snapshot.upload.files_total)}
             reselecting={reselecting}
             retryingPreflight={mutationBusy}
             onReselect={(selected) => void reconcileFiles(selected)}
@@ -891,10 +685,10 @@ export function PdfBatchImportFlow({
             samplesLoading={samplesLoading}
             selectedFileId={selectedFileId}
             chosenFile={chosenFile}
-            page={page}
+            page={previewPage}
             pageLoading={pageLoading}
             textSource={textSource}
-            previewRunning={!previewCached && (previewStarting || previewJob?.status === 'queued' || previewJob?.status === 'running')}
+            previewRunning={previewRunning}
             checkRunning={checkRunning}
             onCategory={chooseCategory}
             onSample={selectSample}
@@ -902,8 +696,12 @@ export function PdfBatchImportFlow({
               void loadSamples(selectedCategory, sampleCursor ?? undefined);
             }}
             onTextSource={setTextSource}
-            onPreview={() => chosenFile && void startPreview(chosenFile.occurrence_id)}
-            onOcrSelection={(ocrSelection) => void mutateChoices({ ocr_selection: ocrSelection })}
+            onPreview={() => chosenFile && void startPreview(chosenFile.occurrence_id, 1, undefined, refresh)}
+            onOcrChoice={setOcrChoice}
+            onOcrSelection={(ocrSelection) => {
+              setOcrChoice(null);
+              void mutateChoices({ ocr_selection: ocrSelection });
+            }}
             onPolicy={(ocrPolicy) => {
               setBatchEstimateError(null);
               void mutateChoices({ ocr_policy: ocrPolicy });
@@ -945,6 +743,8 @@ export function PdfBatchImportFlow({
             batchEstimateBusy={batchEstimateBusy}
             batchEstimateWaiting={!batchEstimateInputsReady}
             batchEstimateError={batchEstimateError}
+            ocrAvailable={ocrPolicyCount(snapshot, snapshot.choices.ocr_policy) === 0 || Boolean(ocrChoice?.can_run)}
+            ocrProblem={ocrChoice?.blocker?.message ?? null}
             onEstimateOcr={() => {
               void estimateBatchOcr(snapshot);
             }}
@@ -990,7 +790,7 @@ export function PdfBatchImportFlow({
           onConfirm={() => {
             const pending = previewConsent;
             setPreviewConsent(null);
-            void startPreview(pending.fileId, pending.page, pending.estimate.estimate?.promise_set_hash);
+            void startPreview(pending.fileId, pending.page, pending.estimate.estimate?.promise_set_hash, refresh);
           }}
         />
       )}
