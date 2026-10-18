@@ -40,6 +40,7 @@ from frisket.engine.store.document_text_adoption import adopt_document_text_role
 from frisket.execution.provider import ExactExecutionMatch
 from frisket.execution.targets import CAPABILITY_OCR, CAPABILITY_TRANSCRIBE
 from frisket.engine.store.import_sessions import ImportSessionStore
+from frisket.engine.store.import_intake import import_intake_dir, read_import_header
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.project_settings import read_project_settings
 from frisket.retrieval.source_adapter import resolve_cell_blob_source
@@ -47,6 +48,9 @@ from frisket.retrieval.preparation import DEFAULT_TEXT_SPACE, PDF_PAGE_RECIPE_ID
 from frisket.retrieval.query import read_pdf_indexing_progress
 from frisket.server.route_errors import RouteError
 from frisket.server.services.action_runs import ActionRunRouteError, ActionRunService
+from frisket.server.services.pdf_import_preparation import (
+    PdfImportPreparationCoordinator,
+)
 from frisket.server.services.search_preparation_planning import (
     build_plan,
     capture_sources,
@@ -377,6 +381,56 @@ class SearchPreparationService:
             may_setup_models=may_setup_models,
             may_run_actions=may_run_actions,
         )
+
+    def _pdf_imports(self) -> PdfImportPreparationCoordinator:
+        return PdfImportPreparationCoordinator(
+            self.workspace,
+            action_runs=self.action_runs,
+            pending_store=self.store,
+            document_text_target=_document_text_target,
+            ensure_semantic_setup=self._ensure_pdf_semantic_setup,
+        )
+
+    def create_from_pdf_import(self, project_id: str, **kwargs: Any) -> Any:
+        return self._pdf_imports().create(project_id, **kwargs)
+
+    def reserve_pdf_import(
+        self, project_id: str, *, receipt_id: str, import_ref: str
+    ) -> None:
+        self._pdf_imports().reserve(
+            project_id, receipt_id=receipt_id, import_ref=import_ref
+        )
+
+    def _ensure_pdf_semantic_setup(
+        self,
+        project_id: str,
+        *,
+        import_receipt_id: str,
+        enabled: bool,
+        confirmation: str | None,
+    ) -> None:
+        if not enabled or self.workspace.edition == "cloud":
+            return
+        requirement = self._setup_snapshot().requirements_by_ref.get(_SEMANTIC_REF)
+        if requirement is None:
+            raise RouteError(409, "semantic search setup is unavailable")
+        if requirement.runtime_ready and requirement.weights_ready:
+            return
+        if not confirmation:
+            raise RouteError(409, "semantic search setup consent is missing")
+        self.setup_start(_SEMANTIC_REF, f"pdf-import:{import_receipt_id}")
+
+    def progress_pdf_import(self, project_id: str, import_ref: str) -> int:
+        coordinator = self._pdf_imports()
+        prior = 0
+        while True:
+            through = coordinator.progress(project_id, import_ref)
+            if through <= prior:
+                return through
+            prior = through
+
+    def pdf_import_summary(self, project_id: str, import_ref: str) -> Any:
+        return self._pdf_imports().summary(project_id, import_ref)
 
     def create_after_import(
         self,
@@ -1030,6 +1084,7 @@ class SearchPreparationService:
         """Resume durable decided intents at process startup without new consent."""
 
         if self.workspace.edition == "cloud":
+            self._recover_cloud_pdf_imports()
             return
 
         after_created_at = None
@@ -1070,6 +1125,37 @@ class SearchPreparationService:
                     )
             if len(rows) < 100:
                 break
+            after_created_at = rows[-1].created_at
+            after_id = rows[-1].id
+
+    def _recover_cloud_pdf_imports(self) -> None:
+        """Cloud skips local automatic setup but still resumes reviewed PDF OCR."""
+
+        after_created_at = None
+        after_id = None
+        while True:
+            rows = self.store.list_active_page(
+                storage_org_id=self.workspace.queue_storage_org_id,
+                limit=100,
+                after_created_at=after_created_at,
+                after_id=after_id,
+            )
+            for row in rows:
+                if row.plan is not None or row.import_ref is None:
+                    continue
+                try:
+                    project = self.workspace.get(row.project_id)
+                    header = read_import_header(
+                        import_intake_dir(project.path, row.import_ref)
+                    )
+                    if header.pdf_preparation is not None:
+                        self._recover_pending_import(row)
+                except Exception:
+                    LOG.warning(
+                        "PDF import preparation recovery failed", exc_info=True
+                    )
+            if len(rows) < 100:
+                return
             after_created_at = rows[-1].created_at
             after_id = rows[-1].id
 
@@ -1120,6 +1206,23 @@ class SearchPreparationService:
         if session is None:
             receipt = ReceiptStore(project).find_by_id(row.trigger_receipt_id)
             if receipt is None or receipt.status in {"cancelled", "failed"}:
+                self.store.mark_settled(
+                    row.id,
+                    project_id=row.project_id,
+                    storage_org_id=row.storage_org_id,
+                )
+            return
+        directory = import_intake_dir(project.path, row.import_ref)
+        try:
+            pdf_preparation = read_import_header(directory).pdf_preparation
+        except (OSError, ValueError):
+            pdf_preparation = None
+        if pdf_preparation is not None:
+            scheduled = self.progress_pdf_import(row.project_id, row.import_ref)
+            if (
+                session.state not in {"active", "paused", "cancelled"}
+                and scheduled >= session.cursor
+            ):
                 self.store.mark_settled(
                     row.id,
                     project_id=row.project_id,

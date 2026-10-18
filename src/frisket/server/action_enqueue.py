@@ -7,7 +7,7 @@ import logging
 from collections.abc import Callable, Mapping, MutableMapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import ValidationError
 
@@ -27,7 +27,12 @@ from frisket.engine.executor.queued_actions import (
     queued_v1_action_request,
     queued_v1_job_payload,
 )
-from frisket.engine.jobs.queue import ACTION_RUN_KIND, JobQueue
+from frisket.engine.jobs.queue import (
+    ACTION_RUN_KIND,
+    BACKGROUND_PRIORITY_PAYLOAD_KEY,
+    JobQueue,
+    PDF_IMPORT_OCR_BACKGROUND,
+)
 from frisket.engine.jobs.runs import RUN_PROJECT_KIND, build_attempt_authority
 from frisket.ai.llm import ModelRouter
 from frisket.ai.llm.remediation import missing_provider_key_message
@@ -714,7 +719,10 @@ def queue_v1_action_run(
     *,
     ctx: QueuedV1ActionRunContext,
     execution_context: ExecutionCompositionContext,
+    background_priority: Literal["pdf_import_ocr"] | None = None,
 ) -> ActionResult | None:
+    if background_priority not in {None, PDF_IMPORT_OCR_BACKGROUND}:
+        raise ValueError("unknown background action priority")
     from frisket.engine.executor.action_dispatch import placement_for_kind
     from frisket.engine.executor.action_specs import PlacementPolicy, execution_spec_for
 
@@ -825,6 +833,11 @@ def queue_v1_action_run(
             max_attempts=max_attempts,
             payload_extra={
                 "workspace_root": str(ctx.workspace_root),
+                **(
+                    {BACKGROUND_PRIORITY_PAYLOAD_KEY: background_priority}
+                    if background_priority is not None
+                    else {}
+                ),
                 **correlation_log_payload(),
                 **ctx.queue_payload_extra,
             },
@@ -920,4 +933,9 @@ def queue_v1_action_run(
         ctx=ctx,
         execution_context=execution_context,
         request=request,
+        payload_extra=(
+            {BACKGROUND_PRIORITY_PAYLOAD_KEY: PDF_IMPORT_OCR_BACKGROUND}
+            if background_priority == PDF_IMPORT_OCR_BACKGROUND
+            else None
+        ),
     )

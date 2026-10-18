@@ -248,6 +248,21 @@ def register_import_files_handler(
                                 "status": "running",
                                 "completed_rows": session.committed_rows,
                             }
+                        if header.staged_files:
+                            for item in inventory.page(
+                                after=cursor,
+                                limit=max(1, min(256, through - cursor)),
+                                byte_budget=64 * 1024 * 1024,
+                            ):
+                                digest = str(item["sha256"])
+                                observed = project.blob_store.put_path(
+                                    directory / "staged" / digest,
+                                    expected_digest=digest,
+                                )
+                                if observed != digest:
+                                    raise ValueError(
+                                        "promoted import staging digest changed"
+                                    )
                         session = run_inventory_table_page(
                             project,
                             project_id,
@@ -263,6 +278,7 @@ def register_import_files_handler(
                             writer_authority=context.handler_authority_id,
                             reserved_action_id=envelope.action_id,
                             reserved_receipt_id=envelope.receipt_id,
+                            destination_sheet_id=header.destination_sheet_id,
                         )
                         pages += 1
                         if session.state == "completed":

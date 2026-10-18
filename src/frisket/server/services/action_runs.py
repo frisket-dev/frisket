@@ -7,7 +7,7 @@ import logging
 import os
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Literal, Mapping
 
 from frisket.authoring.action_metadata import (
     action_available_in_edition,
@@ -302,6 +302,7 @@ class ActionRunService:
         request_context: Any = None,
         admitted_sources: Mapping[str, BoundLocalFile] | None = None,
         required_execution_target: ExactExecutionMatch | None = None,
+        background_priority: Literal["pdf_import_ocr"] | None = None,
     ) -> ActionRunResponse:
         # Payload-only gates FIRST, before the project is resolved. These two
         # read nothing but the action envelope and this process's environment,
@@ -432,6 +433,7 @@ class ActionRunService:
                 request_executor_deps=request_executor_deps,
             ),
             execution_context=execution_context,
+            background_priority=background_priority,
         )
         if queued_result is not None:
             self._reserve_queued_media_search_preparation(

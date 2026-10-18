@@ -929,6 +929,7 @@ def run_inventory_table_page(
     writer_authority: str,
     reserved_action_id: str,
     reserved_receipt_id: str,
+    destination_sheet_id: int | None = None,
     deps: ExecutorDeps | None = None,
 ) -> ImportSession:
     """Publish one admitted inventory page through the ordinary typed table host.
@@ -958,6 +959,12 @@ def run_inventory_table_page(
     session = sessions.get(session_id)
     if session is not None and session.receipt_id != reserved_receipt_id:
         raise ImportSessionConflict("import session belongs to another receipt")
+    if (
+        session is not None
+        and destination_sheet_id is not None
+        and session.sheet_id != int(destination_sheet_id)
+    ):
+        raise ImportSessionConflict("import session belongs to another destination")
     if session is not None and session.state in {"completed", "kept", "removed"}:
         return session
     if stored.status != "running":
@@ -972,7 +979,7 @@ def run_inventory_table_page(
         with source.prepare(
             blob_stager=stager,
             inventory_admission=admission,
-            check_sheet_name=session is None,
+            check_sheet_name=session is None and destination_sheet_id is None,
         ) as prepared:
             if prepared.parent_sheet_id is not None:
                 raise ValueError("inventory import cannot produce a parented table")
@@ -989,23 +996,39 @@ def run_inventory_table_page(
             if not reader.used:
                 raise ValueError("inventory action did not consume its admitted page")
             if writer is None:
-                writer = StreamingSheetWriter.start_session(
-                    project,
-                    session_id=session_id,
-                    writer_authority=writer_authority,
-                    sheet_name=prepared.table.sheet_name,
-                    columns=[
-                        column.model_dump(mode="json")
-                        for column in prepared.table.columns
-                    ],
-                    project_id=project_id,
-                    action_kind=source.envelope.kind,
-                    idempotency_key=source.envelope.idempotency_key,
-                    params_hash=source.params_hash,
-                    action_id=reserved_action_id,
-                    receipt_id=reserved_receipt_id,
-                    source_ref={"kind": "import_inventory", "ref": admission.ref},
-                )
+                common = {
+                    "project": project,
+                    "session_id": session_id,
+                    "writer_authority": writer_authority,
+                    "project_id": project_id,
+                    "action_kind": source.envelope.kind,
+                    "idempotency_key": source.envelope.idempotency_key,
+                    "params_hash": source.params_hash,
+                    "action_id": reserved_action_id,
+                    "receipt_id": reserved_receipt_id,
+                    "source_ref": {
+                        "kind": "import_inventory",
+                        "ref": admission.ref,
+                    },
+                }
+                if destination_sheet_id is None:
+                    writer = StreamingSheetWriter.start_session(
+                        sheet_name=prepared.table.sheet_name,
+                        columns=[
+                            column.model_dump(mode="json")
+                            for column in prepared.table.columns
+                        ],
+                        **common,
+                    )
+                else:
+                    writer = StreamingSheetWriter.start_append_session(
+                        sheet_id=int(destination_sheet_id),
+                        columns=[
+                            column.model_dump(mode="json")
+                            for column in prepared.table.columns
+                        ],
+                        **common,
+                    )
         stager.finish_reads()
         if batch:
             blob_plan = prepare_import_blobs(

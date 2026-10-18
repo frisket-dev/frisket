@@ -233,6 +233,27 @@ class ImportSessionService:
         with import_admit_lock(directory):
             header = self._validated_header(project, project_id, directory)
             header = request_import_cancel(directory)
+        if (
+            header.pdf_preparation is not None
+            and self._search_preparation is not None
+            and hasattr(self._search_preparation, "pdf_import_summary")
+        ):
+            from frisket.server.services.action_run_cancel import (
+                ActionRunCancelRouteError,
+                ActionRunCancelService,
+            )
+
+            summary = self._search_preparation.pdf_import_summary(project_id, ref)
+            cancellation = ActionRunCancelService(self._workspace)
+            for child in summary.children:
+                run_id = child.get("run_id")
+                if not isinstance(run_id, int) or child.get("status") != "running":
+                    continue
+                try:
+                    cancellation.cancel_run(project_id, run_id)
+                except ActionRunCancelRouteError as exc:
+                    if exc.status_code not in {404, 409}:
+                        raise
         try:
             with import_worker_lock(directory, timeout=0):
                 session = ImportSessionStore(project).get(ref)
@@ -518,6 +539,15 @@ class ImportSessionService:
                 "paused" if job is not None and job.status == "failed" else "admitting"
             )
         receipt_id = str(header.envelope["receipt_id"])
+        pdf_summary = None
+        if (
+            header.pdf_preparation is not None
+            and self._search_preparation is not None
+            and hasattr(self._search_preparation, "pdf_import_summary")
+        ):
+            pdf_summary = self._search_preparation.pdf_import_summary(
+                header.project_id, ref
+            )
         preparation_status, preparation_batch_id = (
             self._search_preparation.handoff_for_receipt(header.project_id, receipt_id)
             if self._search_preparation is not None
@@ -591,6 +621,37 @@ class ImportSessionService:
             ),
             search_preparation_status=preparation_status,
             search_preparation_batch_id=preparation_batch_id,
+            selected_total=(
+                int(header.pdf_preparation["selected_total"])
+                if header.pdf_preparation is not None
+                else None
+            ),
+            preparation_completed=(
+                0
+                if pdf_summary is None
+                else pdf_summary.native_completed + pdf_summary.ocr_completed
+            ),
+            preparation_total=(
+                0
+                if pdf_summary is None
+                else pdf_summary.native_total + pdf_summary.ocr_total
+            ),
+            ocr_completed=0 if pdf_summary is None else pdf_summary.ocr_completed,
+            ocr_total=0 if pdf_summary is None else pdf_summary.ocr_total,
+            unreadable_total=(
+                0 if pdf_summary is None else pdf_summary.unreadable_total
+            ),
+            preparation_pending_confirmation=(
+                None if pdf_summary is None else pdf_summary.pending_confirmation
+            ),
+            preparation_children=(
+                []
+                if pdf_summary is None
+                else [
+                    {key: value for key, value in child.items() if key != "child_key"}
+                    for child in pdf_summary.children
+                ]
+            ),
         )
 
     def _latest_page_job(self, project_id: str, ref: str, through: int, sealed: bool):

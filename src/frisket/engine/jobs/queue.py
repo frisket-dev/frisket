@@ -56,6 +56,10 @@ MODEL_PULL_KIND = "model.pull"
 BLOB_METADATA_KIND = "blob.metadata.backfill"
 SEARCH_INDEX_KIND = "search.index"
 IMPORT_FILES_PAGE_KIND = "import.files.page"
+BACKGROUND_PRIORITY_PAYLOAD_KEY = "background_priority"
+PDF_IMPORT_OCR_BACKGROUND = "pdf_import_ocr"
+FOREGROUND_PRIORITY_CLASS = 0
+BACKGROUND_PRIORITY_CLASS = 10
 CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY = "__frisket_claimed_project_storage_key"
 # Server-owned jobs require an explicit marker; missing tenant identity fails closed.
 SERVER_SCOPED_JOB_PAYLOAD_KEY = "server_scoped"
@@ -381,6 +385,8 @@ class Job:
     trace_id: str | None = None
     workspace_root: str | None = None
     dedupe_key: str | None = None
+    priority_class: int = FOREGROUND_PRIORITY_CLASS
+    preferred_row_id: int | None = None
     # Version fields are diagnostic/legacy metadata only; never gate claims.
     code_version: str | None = None
     claimed_code_version: str | None = None
@@ -460,6 +466,21 @@ class JobQueue(ABC):
         delay_seconds: float = 0.0,
     ) -> int:
         """Add a job; returns its id. delay_seconds defers availability."""
+
+    @abstractmethod
+    def promote_project_run(
+        self,
+        job_id: int,
+        *,
+        project_id: str,
+        storage_org_id: int | None,
+        preferred_row_id: int,
+    ) -> bool:
+        """Promote one scoped active project run and set its next-row hint."""
+
+    @abstractmethod
+    def take_preferred_row_id(self, job_id: int, *, authority_id: str) -> int | None:
+        """Atomically take a row hint using the current handler authority."""
 
     @abstractmethod
     def claim(
@@ -838,6 +859,14 @@ jobs_table = sa.Table(
     sa.Column("trace_id", sa.String),
     sa.Column("workspace_root", sa.String),
     sa.Column("dedupe_key", sa.String),
+    sa.Column(
+        "priority_class",
+        sa.Integer,
+        nullable=False,
+        default=FOREGROUND_PRIORITY_CLASS,
+        server_default=sa.text(str(FOREGROUND_PRIORITY_CLASS)),
+    ),
+    sa.Column("preferred_row_id", sa.Integer),
     sa.Column("code_version", sa.String),
     sa.Column("claimed_code_version", sa.String),
     sa.Column(
@@ -1041,6 +1070,8 @@ class SqlAlchemyJobQueue(JobQueue):
             trace_id=row.trace_id,
             workspace_root=row.workspace_root,
             dedupe_key=row.dedupe_key,
+            priority_class=row.priority_class,
+            preferred_row_id=row.preferred_row_id,
             code_version=row.code_version,
             claimed_code_version=row.claimed_code_version,
             version_mismatch_requeues=row.version_mismatch_requeues or 0,
@@ -1077,6 +1108,13 @@ class SqlAlchemyJobQueue(JobQueue):
                         trace_id=refs["trace_id"],
                         workspace_root=refs["workspace_root"],
                         dedupe_key=refs["dedupe_key"],
+                        priority_class=(
+                            BACKGROUND_PRIORITY_CLASS
+                            if kind == PROJECT_RUN_KIND
+                            and body.get(BACKGROUND_PRIORITY_PAYLOAD_KEY)
+                            == PDF_IMPORT_OCR_BACKGROUND
+                            else FOREGROUND_PRIORITY_CLASS
+                        ),
                         code_version=code_version(),
                         status="queued",
                         attempts=0,
@@ -1123,6 +1161,7 @@ class SqlAlchemyJobQueue(JobQueue):
             # Watch continuations depend on index progress, so keep their FIFO
             # together. Sustained foreground work may postpone this class.
             .order_by(
+                c.priority_class,
                 sa.case(
                     (c.kind.in_((SEARCH_INDEX_KIND, "watch.evaluate")), 1), else_=0
                 ),
@@ -1170,6 +1209,78 @@ class SqlAlchemyJobQueue(JobQueue):
         job = self._job(row)
         job.handler_authority_id = authority_id
         return job
+
+    def promote_project_run(
+        self,
+        job_id: int,
+        *,
+        project_id: str,
+        storage_org_id: int | None,
+        preferred_row_id: int,
+    ) -> bool:
+        if type(preferred_row_id) is not int or preferred_row_id < 1:
+            raise ValueError("preferred row id must be a positive integer")
+        c = jobs_table.c
+        org_scope = (
+            c.storage_org_id.is_(None)
+            if storage_org_id is None
+            else c.storage_org_id == storage_org_id
+        )
+        with self._write_transaction() as cx:
+            result = cx.execute(
+                jobs_table.update()
+                .where(
+                    c.id == job_id,
+                    c.kind == PROJECT_RUN_KIND,
+                    c.action_kind == "media.ocr",
+                    c.project_id == project_id,
+                    org_scope,
+                    c.status.in_(("queued", "running")),
+                )
+                .values(
+                    priority_class=FOREGROUND_PRIORITY_CLASS,
+                    preferred_row_id=preferred_row_id,
+                )
+            )
+        return result.rowcount > 0
+
+    def take_preferred_row_id(self, job_id: int, *, authority_id: str) -> int | None:
+        if not authority_id:
+            raise ValueError("handler authority id is required")
+        c = jobs_table.c
+        a = job_handler_authorities_table.c
+        with self._write_transaction() as cx:
+            authority = cx.execute(
+                sa.select(a.worker_id).where(
+                    a.authority_id == authority_id,
+                    a.job_id == job_id,
+                )
+            ).first()
+            row = cx.execute(
+                sa.select(c.status, c.locked_by, c.preferred_row_id)
+                .where(c.id == job_id)
+                .with_for_update()
+            ).first()
+            if (
+                authority is None
+                or row is None
+                or row.status != "running"
+                or row.locked_by != authority.worker_id
+                or row.preferred_row_id is None
+            ):
+                return None
+            preferred = int(row.preferred_row_id)
+            result = cx.execute(
+                jobs_table.update()
+                .where(
+                    c.id == job_id,
+                    c.status == "running",
+                    c.locked_by == authority.worker_id,
+                    c.preferred_row_id == preferred,
+                )
+                .values(preferred_row_id=None)
+            )
+            return preferred if result.rowcount > 0 else None
 
     def acknowledge_handler_exit(
         self,

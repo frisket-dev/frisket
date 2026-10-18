@@ -7,6 +7,7 @@ visible; failures remove the staging sheet and its cascading row/cell state.
 
 from __future__ import annotations
 
+import json
 import uuid
 from dataclasses import dataclass
 from types import TracebackType
@@ -358,6 +359,197 @@ class StreamingSheetWriter:
         )
 
     @classmethod
+    def start_append_session(
+        cls,
+        project: Any,
+        *,
+        session_id: str,
+        writer_authority: str,
+        sheet_id: int,
+        columns: Iterable[Mapping[str, Any]],
+        project_id: str,
+        action_kind: str,
+        idempotency_key: str | None,
+        params_hash: str,
+        action_id: str,
+        receipt_id: str,
+        source_ref: Mapping[str, Any],
+    ) -> Self:
+        """Start one resumable import that appends into an existing sheet.
+
+        The operation owns only the row ids checkpointed by ``append_page``.
+        That keeps ordinary undo and cancelled-import removal from touching rows
+        that existed before this import.
+        """
+
+        if not session_id or not writer_authority:
+            raise ValueError("session id and writer authority must be non-empty")
+        if not params_hash or not action_id or not receipt_id:
+            raise ValueError("reserved action identity must be complete")
+        column_specs = [dict(column) for column in columns]
+        names = [str(column.get("name") or "").strip() for column in column_specs]
+        if (
+            not names
+            or any(not name for name in names)
+            or len(names) != len(set(names))
+        ):
+            raise ValueError("append column names must be non-empty and unique")
+
+        db = project.db
+        try:
+            db.execute("BEGIN IMMEDIATE")
+            sheet = db.execute(
+                "SELECT name FROM sheets WHERE id=? AND hidden=0", (int(sheet_id),)
+            ).fetchone()
+            if sheet is None:
+                raise ValueError("append destination sheet is unavailable")
+            column_ids = {
+                str(row["name"]): int(row["id"])
+                for row in db.execute(
+                    "SELECT id,name FROM columns WHERE sheet_id=? AND active=1 "
+                    "ORDER BY position,id",
+                    (int(sheet_id),),
+                ).fetchall()
+            }
+            next_position = int(
+                db.execute(
+                    "SELECT COALESCE(MAX(position),0) FROM columns WHERE sheet_id=?",
+                    (int(sheet_id),),
+                ).fetchone()[0]
+            )
+            for name, column in zip(names, column_specs, strict=True):
+                if name in column_ids:
+                    continue
+                next_position += 1
+                cursor = db.execute(
+                    "INSERT INTO columns "
+                    "(sheet_id,name,type,position,ai_generated,hidden,default_hidden,format,semantic_type) "
+                    "VALUES (?,?,?,?,0,?,?,?,?)",
+                    (
+                        int(sheet_id),
+                        name,
+                        str(column.get("type", "text")),
+                        next_position,
+                        int(bool(column.get("hidden", False))),
+                        int(bool(column.get("default_hidden", False))),
+                        column.get("format"),
+                        column.get("semantic_type"),
+                    ),
+                )
+                column_ids[name] = int(cursor.lastrowid)
+
+            receipt_store = ReceiptStore(project)
+            stored_receipt = receipt_store.find_by_id(receipt_id)
+            reserved_receipt: Receipt | None = None
+            if stored_receipt is not None:
+                reserved_receipt = stored_receipt.parsed()
+                if (
+                    stored_receipt.status != "running"
+                    or stored_receipt.action_kind != action_kind
+                    or stored_receipt.action_id != action_id
+                    or stored_receipt.idempotency_key != idempotency_key
+                    or stored_receipt.params_hash != params_hash
+                    or reserved_receipt.op_ids
+                ):
+                    raise ImportSessionConflict(
+                        "reserved import receipt identity does not match"
+                    )
+            else:
+                duplicate = receipt_store.find_by_idempotency_key(idempotency_key)
+                if duplicate is not None:
+                    raise DuplicateStreamingPublication(
+                        existing_receipt_id=duplicate.id,
+                        idempotency_key=idempotency_key,
+                        params_hash=duplicate.params_hash,
+                    )
+
+            requested_name = str(sheet["name"])
+            op_id = op_log.append_op(
+                project,
+                action_kind,
+                spec={
+                    "schema_version": "frisket.action.v2",
+                    "kind": action_kind,
+                    "params": {
+                        "sheet_id": int(sheet_id),
+                        "source": dict(source_ref),
+                    },
+                },
+                label=f"import into {requested_name}",
+                barrier=True,
+                undo_info={"created_rows": []},
+                commit=False,
+            )
+            producer_id = create_base_cell_producer(
+                db, stage_id=f"import-session:{session_id}", op_id=op_id
+            )
+            if reserved_receipt is None:
+                receipt = Receipt(
+                    receipt_id=receipt_id,
+                    project_id=project_id,
+                    action_id=action_id,
+                    action_kind=action_kind,
+                    op_ids=[op_id],
+                    idempotency_key=idempotency_key,
+                    params_hash=params_hash,
+                    status="running",
+                    inputs=[ReceiptIO(name="source", ref=dict(source_ref))],
+                )
+                receipt_store.insert_running(receipt, commit=False)
+            else:
+                if reserved_receipt.project_id != project_id:
+                    raise ImportSessionConflict(
+                        "reserved import receipt belongs to another project"
+                    )
+                receipt = reserved_receipt.model_copy(
+                    update={
+                        "op_ids": [op_id],
+                        "inputs": [
+                            *reserved_receipt.inputs,
+                            ReceiptIO(name="source", ref=dict(source_ref)),
+                        ],
+                    }
+                )
+                if not receipt_store.update_body_status(
+                    receipt, require_status="running", commit=False
+                ):
+                    raise ImportSessionConflict("reserved import receipt changed")
+            db.execute(
+                "INSERT INTO import_sessions "
+                "(id,sheet_id,producer_id,op_id,receipt_id,writer_authority,state) "
+                "VALUES (?,?,?,?,?,?,'active')",
+                (
+                    session_id,
+                    int(sheet_id),
+                    producer_id,
+                    op_id,
+                    receipt_id,
+                    writer_authority,
+                ),
+            )
+            db.commit()
+        except BaseException:
+            db.rollback()
+            raise
+        return cls(
+            project,
+            sheet_id=int(sheet_id),
+            sheet_name=requested_name,
+            column_ids=column_ids,
+            project_id=project_id,
+            action_kind=action_kind,
+            idempotency_key=idempotency_key,
+            params_hash=params_hash,
+            action_id=action_id,
+            receipt_id=receipt_id,
+            source_ref=dict(source_ref),
+            producer_id=producer_id,
+            session_id=session_id,
+            writer_authority=writer_authority,
+            op_id=op_id,
+        )
+
+    @classmethod
     def resume_session(
         cls,
         project: Any,
@@ -478,6 +670,15 @@ class StreamingSheetWriter:
                 producer_id=self._producer_id,
                 commit=False,
             )
+            operation = db.execute(
+                "SELECT undo_info FROM ops WHERE id=?", (self._op_id,)
+            ).fetchone()
+            if operation is None:
+                raise ImportSessionConflict("import operation is unavailable")
+            undo_info = json.loads(operation["undo_info"] or "{}")
+            if "created_rows" in undo_info:
+                undo_info["created_rows"].extend(row_ids)
+                op_log.set_undo_info(self.project, self._op_id, undo_info, commit=False)
             if blob_plan is not None:
                 publish_import_blobs(
                     self.project,
@@ -593,12 +794,7 @@ class StreamingSheetWriter:
         return publication
 
     def remove_session(self, *, expected_cursor: int) -> None:
-        """Clear this session's newly created sheet, retaining the empty sheet.
-
-        Sessions never append into a pre-existing sheet; mutation guards exclude
-        other writers until Keep/Remove. The sheet is therefore the deletion
-        scope, not an arbitrary producer-scoped subset of an existing sheet.
-        """
+        """Remove a newly-created import sheet; appended rows use normal Undo."""
 
         self._require_session()
         db = self.project.db
@@ -610,28 +806,37 @@ class StreamingSheetWriter:
                 expected_cursor,
                 states=("cancelled",),
             )
-            db.execute(
-                "DELETE FROM evidence_links WHERE sheet_id=? OR op_id=?",
-                (session.sheet_id, session.op_id),
-            )
-            db.execute(
-                "DELETE FROM artifact_timeline_segments WHERE "
-                "derived_artifact_id IN (SELECT id FROM source_artifacts "
-                "WHERE source_sheet_id=?) OR source_artifact_id IN "
-                "(SELECT id FROM source_artifacts WHERE source_sheet_id=?)",
-                (session.sheet_id, session.sheet_id),
-            )
-            db.execute(
-                "DELETE FROM source_artifacts WHERE source_sheet_id=?",
-                (session.sheet_id,),
-            )
-            delete_sheet_rows(
-                db,
-                sheet_id=session.sheet_id,
-                producer_id=session.producer_id,
-                import_writer_authority=self._writer_authority,
-                import_expected_cursor=expected_cursor,
-            )
+            operation = db.execute(
+                "SELECT undo_info FROM ops WHERE id=?", (session.op_id,)
+            ).fetchone()
+            undo_info = json.loads(operation["undo_info"] or "{}")
+            if "created_sheets" in undo_info:
+                db.execute(
+                    "DELETE FROM evidence_links WHERE sheet_id=? OR op_id=?",
+                    (session.sheet_id, session.op_id),
+                )
+                db.execute(
+                    "DELETE FROM artifact_timeline_segments WHERE "
+                    "derived_artifact_id IN (SELECT id FROM source_artifacts "
+                    "WHERE source_sheet_id=?) OR source_artifact_id IN "
+                    "(SELECT id FROM source_artifacts WHERE source_sheet_id=?)",
+                    (session.sheet_id, session.sheet_id),
+                )
+                db.execute(
+                    "DELETE FROM source_artifacts WHERE source_sheet_id=?",
+                    (session.sheet_id,),
+                )
+                delete_sheet_rows(
+                    db,
+                    sheet_id=session.sheet_id,
+                    producer_id=session.producer_id,
+                    import_writer_authority=self._writer_authority,
+                    import_expected_cursor=expected_cursor,
+                )
+            else:
+                raise ImportSessionConflict(
+                    "an existing-sheet import must be kept and removed with Undo"
+                )
             stored = ReceiptStore(self.project).find_by_id(self._receipt_id)
             if stored is None or stored.status != "running":
                 raise ImportSessionConflict("import receipt is no longer running")
