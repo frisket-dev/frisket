@@ -84,7 +84,7 @@ def test_append_session_resumes_once_and_undo_owns_only_imported_rows(
     try:
         sheet_id, columns = _existing_sheet(project)
         writer = _start_append(project, sheet_id)
-        first_ids = writer.append_page(
+        writer.append_page(
             [{"filename": "one.pdf", "size": 11, "text": "one"}],
             expected_cursor=0,
             next_cursor=1,
@@ -103,7 +103,7 @@ def test_append_session_resumes_once_and_undo_owns_only_imported_rows(
                 expected_cursor=0,
                 next_cursor=1,
             )
-        second_ids = resumed.append_page(
+        resumed.append_page(
             [{"filename": "two.pdf", "size": 12, "text": "two"}],
             expected_cursor=1,
             next_cursor=2,
@@ -120,11 +120,18 @@ def test_append_session_resumes_once_and_undo_owns_only_imported_rows(
             "SELECT undo_info FROM ops WHERE id=?", (publication.op_id,)
         ).fetchone()
         assert json.loads(op["undo_info"]) == {
-            "created_rows": [*first_ids, *second_ids],
+            "created_rows": [],
+            "created_rows_import_session_id": "pdf-commit:one",
             "created_columns": [],
         }
         assert project.undo() == publication.op_id
         assert _visible_names(project, sheet_id, columns["filename"]) == ["before.pdf"]
+        assert project.redo() == publication.op_id
+        assert _visible_names(project, sheet_id, columns["filename"]) == [
+            "before.pdf",
+            "one.pdf",
+            "two.pdf",
+        ]
     finally:
         project.close()
 
@@ -328,6 +335,72 @@ def test_unrelated_write_during_append_keeps_normal_history_order(
             ).fetchone()["hidden"]
             == 1
         )
+        assert project.redo() == publication.op_id
+        assert _visible_names(project, sheet_id, columns["filename"]) == [
+            "before.pdf",
+            "imported.pdf",
+        ]
+        assert project.redo() == unrelated_op
+        assert _visible_names(project, sheet_id, columns["filename"]) == [
+            "before.pdf",
+            "imported.pdf",
+            "user-added.pdf",
+        ]
+    finally:
+        project.close()
+
+
+def test_large_append_keeps_undo_metadata_bounded(tmp_path: Path) -> None:
+    project = Project.create(tmp_path / "bounded-undo.frisket", name="append")
+    try:
+        sheet_id, columns = _existing_sheet(project)
+        writer = _start_append(project, sheet_id)
+        cursor = 0
+        metadata_sizes: list[int] = []
+        for page in range(10):
+            records = [
+                {"filename": f"file-{ordinal}.pdf", "size": ordinal}
+                for ordinal in range(page * 1_000, (page + 1) * 1_000)
+            ]
+            writer.append_page(
+                records,
+                expected_cursor=cursor,
+                next_cursor=cursor + len(records),
+            )
+            cursor += len(records)
+            metadata_sizes.append(
+                len(
+                    project.db.execute(
+                        "SELECT undo_info FROM ops WHERE id=?", (writer._op_id,)
+                    ).fetchone()["undo_info"]
+                )
+            )
+        publication = writer.finalize_session(expected_cursor=cursor)
+
+        undo_info = project.db.execute(
+            "SELECT undo_info FROM ops WHERE id=?", (publication.op_id,)
+        ).fetchone()["undo_info"]
+        assert json.loads(undo_info) == {
+            "created_rows": [],
+            "created_rows_import_session_id": "pdf-commit:one",
+            "created_columns": [],
+        }
+        assert set(metadata_sizes) == {len(undo_info)}
+        assert len(undo_info) < 160
+        assert project.db.execute(
+            "SELECT COUNT(*) FROM import_session_rows WHERE session_id=?",
+            ("pdf-commit:one",),
+        ).fetchone()[0] == 10_000
+
+        assert project.undo() == publication.op_id
+        assert project.db.execute(
+            "SELECT COUNT(*) FROM rows WHERE sheet_id=? AND hidden=1", (sheet_id,)
+        ).fetchone()[0] == 10_000
+        assert project.redo() == publication.op_id
+        assert project.db.execute(
+            "SELECT COUNT(*) FROM rows WHERE sheet_id=? AND hidden=0", (sheet_id,)
+        ).fetchone()[0] == 10_001
+        assert _visible_names(project, sheet_id, columns["filename"])[0] == "before.pdf"
     finally:
         project.close()
 
