@@ -9,7 +9,7 @@ from pathlib import Path
 import re
 from typing import Iterator
 
-from .models import RawCell, RawRow
+from .models import RawCell, RawRow, RowIssue
 from .reader import TableReadError
 
 _SAMPLE_BYTES = 64 * 1024
@@ -21,7 +21,7 @@ class DelimitedRows:
         self._binary = path.open("rb")
         codec = "utf-8-sig" if encoding == "utf-8" else encoding
         self._text = io.TextIOWrapper(
-            self._binary, encoding=codec, errors="strict", newline=""
+            self._binary, encoding=codec, errors="surrogateescape", newline=""
         )
         self._reader = csv.reader(self._text, delimiter=delimiter, strict=True)
         self._ordinal = 0
@@ -42,11 +42,23 @@ class DelimitedRows:
             ) from exc
         self._ordinal += 1
         line_end = self._reader.line_num
+        decoded = tuple(_replace_undecodable(value) for value in values)
+        issues = tuple(
+            RowIssue(
+                "unreadable_cell",
+                f"value {index + 1} contains undecodable bytes",
+                (clean,),
+                count,
+            )
+            for index, (clean, count) in enumerate(decoded)
+            if count
+        )
         row = RawRow(
             record_ordinal=self._ordinal,
             physical_line_start=self._previous_line + 1,
             physical_line_end=line_end,
-            cells=tuple(RawCell(value) for value in values),
+            cells=tuple(RawCell(value) for value, _count in decoded),
+            issues=issues,
         )
         self._previous_line = line_end
         return row
@@ -55,6 +67,17 @@ class DelimitedRows:
         if not self._closed:
             self._closed = True
             self._text.close()
+
+
+def _replace_undecodable(value: str) -> tuple[str, int]:
+    count = sum(0xDC80 <= ord(character) <= 0xDCFF for character in value)
+    if not count:
+        return value, 0
+    clean = "".join(
+        "\ufffd" if 0xDC80 <= ord(character) <= 0xDCFF else character
+        for character in value
+    )
+    return clean, count
 
 
 def inspect_delimited(path: Path) -> tuple[str, str, str, str | None]:

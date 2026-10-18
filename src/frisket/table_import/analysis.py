@@ -9,18 +9,17 @@ from datetime import datetime
 import re
 
 from .models import (
-    CellConversion,
     ColumnStats,
     ColumnStatsSnapshot,
     ConversionCounts,
+    DateOrder,
     PreviewRow,
     PreviewSnapshot,
-    RawCell,
     SourceColumn,
     TableRow,
     TargetType,
 )
-from .conversion import convert_cell
+from .conversion import _conversion_outcomes
 
 
 class PreviewAccumulator:
@@ -114,17 +113,25 @@ class ColumnStatsAccumulator:
             {target: _MutableCounts() for target in _ANALYZED_TYPES}
             for _ in self._columns
         ]
-        self._inference = [
-            {target: _MutableCounts() for target in _ANALYZED_TYPES}
+        self._inference: list[dict[TargetType, _MutableCounts]] | None = None
+        self._temporal_full = [
+            {
+                order: {target: _MutableCounts() for target in ("date", "datetime")}
+                for order in ("month_first", "day_first")
+            }
             for _ in self._columns
         ]
+        self._temporal_inference: (
+            list[dict[DateOrder, dict[TargetType, _MutableCounts]]] | None
+        ) = None
         self._leading_zero = [False for _ in self._columns]
         self._long_integer = [False for _ in self._columns]
         self._saw_time = [False for _ in self._columns]
         self._saw_naive_datetime = [False for _ in self._columns]
         self._saw_aware_datetime = [False for _ in self._columns]
         self._ambiguous_date = [False for _ in self._columns]
-        self._clear_date = [False for _ in self._columns]
+        self._month_first_date = [False for _ in self._columns]
+        self._day_first_date = [False for _ in self._columns]
 
     def accept(self, row: TableRow) -> None:
         if row.role != "data":
@@ -135,13 +142,15 @@ class ColumnStatsAccumulator:
         in_inference = self._rows_checked <= self._inference_limit
         for position, cell in enumerate(row.cells):
             text = cell.text
+            leading_zero = _has_leading_zero_integer(text)
+            has_time = cell.kind == "datetime" or _has_time(text)
             if text and len(self._samples[position]) < self._preview_values:
                 self._samples[position].append(text)
-            if in_inference and _has_leading_zero_integer(text):
+            if in_inference and leading_zero:
                 self._leading_zero[position] = True
             if in_inference and _is_long_integer(text):
                 self._long_integer[position] = True
-            if in_inference and (cell.kind == "datetime" or _has_time(text)):
+            if in_inference and has_time:
                 self._saw_time[position] = True
                 awareness = _datetime_awareness(text)
                 self._saw_naive_datetime[position] |= awareness is False
@@ -149,37 +158,94 @@ class ColumnStatsAccumulator:
             if in_inference:
                 date_shape = _numeric_date_shape(text)
                 self._ambiguous_date[position] |= date_shape == "ambiguous"
-                self._clear_date[position] |= date_shape == "clear"
-            for target in _ANALYZED_TYPES:
-                converted = convert_cell(
-                    cell,
-                    target,
-                    decimal_separator=self._decimal_separator,
-                    thousands_separator=self._thousands_separator,
-                )
+                self._month_first_date[position] |= date_shape == "month_first"
+                self._day_first_date[position] |= date_shape == "day_first"
+            outcomes = _conversion_outcomes(
+                cell,
+                decimal_separator=self._decimal_separator,
+                thousands_separator=self._thousands_separator,
+            )
+            for target, outcome in (
+                ("text", outcomes.text),
+                ("integer", outcomes.integer),
+                ("number", outcomes.number),
+                ("boolean", outcomes.boolean),
+            ):
                 _record(
                     self._full[position][target],
-                    converted,
-                    cell,
+                    outcome,
+                    leading_zero=leading_zero,
+                    has_time=has_time,
                     target=target,
                 )
-                if in_inference:
+            for order, date_outcome, datetime_outcome in (
+                (
+                    "month_first",
+                    outcomes.month_first_date,
+                    outcomes.month_first_datetime,
+                ),
+                (
+                    "day_first",
+                    outcomes.day_first_date,
+                    outcomes.day_first_datetime,
+                ),
+            ):
+                for target, outcome in (
+                    ("date", date_outcome),
+                    ("datetime", datetime_outcome),
+                ):
                     _record(
-                        self._inference[position][target],
-                        converted,
-                        cell,
+                        self._temporal_full[position][order][target],
+                        outcome,
+                        leading_zero=leading_zero,
+                        has_time=has_time,
                         target=target,
                     )
+        if self._rows_checked == self._inference_limit:
+            self._inference = [
+                {
+                    target: _MutableCounts(**vars(counts))
+                    for target, counts in by_target.items()
+                }
+                for by_target in self._full
+            ]
+            self._temporal_inference = [
+                {
+                    order: {
+                        target: _MutableCounts(**vars(counts))
+                        for target, counts in by_target.items()
+                    }
+                    for order, by_target in by_order.items()
+                }
+                for by_order in self._temporal_full
+            ]
 
     def snapshot(self, *, complete: bool) -> ColumnStatsSnapshot:
         columns: list[ColumnStats] = []
+        inference = self._inference or self._full
+        temporal_inference = self._temporal_inference or self._temporal_full
         for position, column in enumerate(self._columns):
+            suggested_date_order: DateOrder = (
+                "day_first"
+                if self._day_first_date[position]
+                and not self._month_first_date[position]
+                else "month_first"
+            )
+            inference_counts = dict(inference[position])
+            full_counts = dict(self._full[position])
+            for target in ("date", "datetime"):
+                inference_counts[target] = temporal_inference[position][
+                    suggested_date_order
+                ][target]
+                full_counts[target] = self._temporal_full[position][
+                    suggested_date_order
+                ][target]
             mixed_datetime_awareness = (
                 self._saw_naive_datetime[position]
                 and self._saw_aware_datetime[position]
             )
             suggested = _suggest_type(
-                self._inference[position],
+                inference_counts,
                 leading_zero=self._leading_zero[position],
                 long_integer=self._long_integer[position],
                 saw_time=self._saw_time[position],
@@ -192,7 +258,7 @@ class ColumnStatsAccumulator:
                 needs_review.append("long_integer")
             if mixed_datetime_awareness:
                 needs_review.append("mixed_datetime_awareness")
-            suggested_counts = self._full[position].get(suggested)
+            suggested_counts = full_counts.get(suggested)
             if suggested_counts is not None and suggested_counts.invalid:
                 needs_review.append("invalid_values")
             columns.append(
@@ -200,14 +266,33 @@ class ColumnStatsAccumulator:
                     column=column,
                     sample_values=tuple(self._samples[position]),
                     suggested_type=suggested,
+                    suggested_date_order=(
+                        suggested_date_order
+                        if suggested in {"date", "datetime"}
+                        else None
+                    ),
                     needs_review=tuple(needs_review),
                     ambiguous_date_order=(
                         self._ambiguous_date[position]
-                        and not self._clear_date[position]
+                        and not (
+                            self._month_first_date[position]
+                            or self._day_first_date[position]
+                        )
+                    )
+                    or (
+                        self._month_first_date[position]
+                        and self._day_first_date[position]
                     ),
                     counts_by_type={
                         target: counts.freeze()
-                        for target, counts in self._full[position].items()
+                        for target, counts in full_counts.items()
+                    },
+                    counts_by_date_order={
+                        order: {
+                            target: counts.freeze()
+                            for target, counts in by_target.items()
+                        }
+                        for order, by_target in self._temporal_full[position].items()
                     },
                 )
             )
@@ -221,13 +306,13 @@ class ColumnStatsAccumulator:
 
 def _record(
     counts: _MutableCounts,
-    converted: CellConversion,
-    cell: RawCell,
+    outcome: str,
     *,
+    leading_zero: bool,
+    has_time: bool,
     target: TargetType,
 ) -> None:
     counts.rows_checked += 1
-    outcome = converted.outcome
     if outcome == "blank":
         counts.blank += 1
     elif outcome == "invalid":
@@ -236,13 +321,9 @@ def _record(
         counts.valid += 1
         if outcome == "changed":
             counts.changed += 1
-    if outcome == "changed" and _has_leading_zero_integer(cell.text):
+    if outcome == "changed" and leading_zero:
         counts.leading_zero_loss += 1
-    if (
-        target == "date"
-        and outcome != "invalid"
-        and (cell.kind == "datetime" or _has_time(cell.text))
-    ):
+    if target == "date" and outcome != "invalid" and has_time:
         counts.time_dropped += 1
 
 
@@ -311,5 +392,11 @@ def _numeric_date_shape(text: str) -> str | None:
         return None
     first, second = int(parts[0]), int(parts[1])
     if len(parts[0]) == 4:
-        return "clear"
-    return "ambiguous" if first <= 12 and second <= 12 else "clear"
+        return None
+    if first <= 12 and second <= 12:
+        return "ambiguous"
+    if first > 12 >= second:
+        return "day_first"
+    if second > 12 >= first:
+        return "month_first"
+    return None

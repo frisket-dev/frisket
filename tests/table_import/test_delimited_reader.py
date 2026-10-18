@@ -113,3 +113,73 @@ def test_logical_record_count_is_exact_beyond_inference_limit(tmp_path: Path) ->
             output.write(f"{value}\n")
 
     assert count_records(source, _settings()) == 100_006
+
+
+def test_wrong_utf8_keeps_rows_and_counts_each_replacement(tmp_path: Path) -> None:
+    source = tmp_path / "wrong-encoding.csv"
+    source.write_bytes(b"name,value\nAda,Jos\xe9\xff\n")
+    settings = _settings(encoding="utf-8")
+
+    assert count_records(source, settings) == 2
+    with open_table(source, settings, total_record_count=2) as reader:
+        rows = list(reader)
+
+    assert rows[1].cells[1].text == "Jos\ufffd\ufffd"
+    assert len(rows[1].issues) == 1
+    assert rows[1].issues[0].code == "unreadable_cell"
+    assert rows[1].issues[0].count == 2
+
+
+def test_literal_replacement_character_is_not_reported_as_decode_damage(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "literal-replacement.csv"
+    source.write_text("name\nJos\ufffd\n", encoding="utf-8")
+
+    with open_table(source, _settings(), total_record_count=2) as reader:
+        rows = list(reader)
+
+    assert rows[1].cells[0].text == "Jos\ufffd"
+    assert rows[1].issues == ()
+
+
+def test_auto_utf8_reports_invalid_bytes_beyond_inspection_prefix(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "late-invalid.csv"
+    source.write_bytes(b"name\n" + (b"ASCII\n" * 12_000) + b"Jos\xe9\n")
+
+    info = inspect_source(source)
+    assert info.detected_encoding == "utf-8"
+    settings = _settings(encoding=info.detected_encoding)
+    with open_table(
+        source,
+        settings,
+        total_record_count=count_records(source, settings),
+    ) as reader:
+        issue_counts = [
+            issue.count
+            for row in reader
+            for issue in row.issues
+            if issue.code == "unreadable_cell"
+        ]
+
+    assert issue_counts == [1]
+
+
+def test_large_skip_retains_only_bounded_boundary_rows(tmp_path: Path) -> None:
+    source = tmp_path / "large-skip.csv"
+    with source.open("w", encoding="utf-8", newline="") as output:
+        for value in range(100_000):
+            output.write(f"ignored,{value}\n")
+        output.write("name,value\nAda,1\n")
+    settings = _settings(skip_rows_start=100_000)
+
+    with open_table(source, settings, total_record_count=100_002) as reader:
+        rows = list(reader)
+
+    assert len(rows) == 18
+    assert rows[0].role == "skipped_start"
+    assert rows[0].source.record_ordinal == 99_985
+    assert rows[-2].role == "header"
+    assert rows[-1].cells[0].text == "Ada"

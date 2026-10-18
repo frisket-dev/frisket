@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections import deque
 from pathlib import Path
 from types import TracebackType
 from typing import Any, Iterator, Self
@@ -28,6 +29,9 @@ class TableReadError(ValueError):
 
 class TableRecordCountRequired(TableReadError):
     """A footer cannot be excluded safely until the logical count is known."""
+
+
+_RETAINED_SKIPPED_ROWS = 16
 
 
 class TableReader(ABC):
@@ -161,11 +165,13 @@ class _ConfiguredTableReader(TableReader):
         return self._columns
 
     def _read_columns(self) -> tuple[SourceColumn, ...]:
+        skipped: deque[RawRow] = deque(maxlen=_RETAINED_SKIPPED_ROWS)
         for _ in range(self._settings.skip_rows_start):
             row = next(self._iterator, None)
             if row is None:
                 raise TableReadError("skipped rows leave no table data")
-            self._buffer.append(row)
+            skipped.append(row)
+        self._buffer.extend(skipped)
         if self._settings.first_row_is_header:
             header = next(self._iterator, None)
             if header is None or not header.cells:
@@ -174,16 +180,19 @@ class _ConfiguredTableReader(TableReader):
             self._header_ordinal = header.record_ordinal
             return _normalized_columns(header.cells)
 
+        leading_blank: deque[RawRow] = deque(maxlen=_RETAINED_SKIPPED_ROWS)
         while True:
             row = next(self._iterator, None)
             if row is None:
                 raise TableReadError("table has no cells")
-            self._buffer.append(row)
             if row.cells and any(cell.text != "" for cell in row.cells):
+                self._buffer.extend(leading_blank)
+                self._buffer.append(row)
                 return tuple(
                     SourceColumn(index, f"column {index + 1}", None, "missing")
                     for index in range(len(row.cells))
                 )
+            leading_blank.append(row)
 
     def __iter__(self) -> Iterator[TableRow]:
         if self._started:

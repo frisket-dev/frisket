@@ -85,6 +85,7 @@ class RowIssue:
     ]
     message: str
     original_values: tuple[str, ...] = ()
+    count: int = 1
 
 
 @dataclass(frozen=True)
@@ -149,9 +150,11 @@ class ColumnStats:
     column: SourceColumn
     sample_values: tuple[str, ...]
     suggested_type: TargetType
+    suggested_date_order: DateOrder | None
     needs_review: tuple[str, ...]
     ambiguous_date_order: bool
     counts_by_type: dict[TargetType, ConversionCounts]
+    counts_by_date_order: dict[DateOrder, dict[TargetType, ConversionCounts]]
 
 
 @dataclass(frozen=True)

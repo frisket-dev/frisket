@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from datetime import date, datetime
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 import math
 import re
+from typing import NamedTuple
 
 from .models import (
     CellConversion,
     ConversionIssue,
+    ConversionOutcome,
     DateOrder,
     RawCell,
     RowIssue,
@@ -36,39 +38,19 @@ def convert_cell(
         return CellConversion(original, original, original, "unchanged")
 
     try:
-        if target_type == "integer":
+        if target_type in {"integer", "number"}:
             decimal = _parse_decimal(
                 original,
                 decimal_separator=decimal_separator,
                 thousands_separator=thousands_separator,
             )
-            if decimal != decimal.to_integral_value():
-                raise ValueError("not a whole number")
-            value = int(decimal)
-            if not -(2**63) <= value <= 2**63 - 1:
-                raise ValueError("integer is outside the supported range")
-            display = str(value)
-        elif target_type == "number":
-            decimal = _parse_decimal(
-                original,
-                decimal_separator=decimal_separator,
-                thousands_separator=thousands_separator,
-            )
-            value = float(decimal)
-            if not math.isfinite(value):
-                raise ValueError("number is outside the supported range")
-            display = _display_decimal(decimal)
+            value, display = _numeric_value(decimal, target_type)
         elif target_type == "boolean":
             value = _parse_boolean(original)
             display = "Yes" if value else "No"
-        elif target_type == "date":
+        elif target_type in {"date", "datetime"}:
             parsed = _parse_datetime(original, date_order=date_order)
-            value = parsed.date().isoformat()
-            display = value
-        elif target_type == "datetime":
-            parsed = _parse_datetime(original, date_order=date_order)
-            value = parsed.isoformat()
-            display = value.replace("T", " ")
+            value, display = _temporal_value(parsed, target_type)
         else:  # pragma: no cover - TargetType keeps this closed for typed callers.
             raise ValueError(f"unsupported target type: {target_type}")
     except (InvalidOperation, OverflowError, ValueError):
@@ -81,6 +63,106 @@ def convert_cell(
 
     outcome = "unchanged" if display == original else "changed"
     return CellConversion(original, value, display, outcome)
+
+
+class _ConversionOutcomes(NamedTuple):
+    text: ConversionOutcome
+    integer: ConversionOutcome
+    number: ConversionOutcome
+    boolean: ConversionOutcome
+    month_first_date: ConversionOutcome
+    month_first_datetime: ConversionOutcome
+    day_first_date: ConversionOutcome
+    day_first_datetime: ConversionOutcome
+
+
+def _conversion_outcomes(
+    cell: RawCell,
+    *,
+    decimal_separator: str,
+    thousands_separator: str | None,
+) -> _ConversionOutcomes:
+    """Classify all inference targets without allocating converted values."""
+
+    original = cell.text
+    if original == "" or cell.kind == "blank":
+        return _ConversionOutcomes(*("blank" for _ in range(8)))
+
+    try:
+        boolean = _parse_boolean(original)
+    except ValueError:
+        boolean_outcome: ConversionOutcome = "invalid"
+    else:
+        boolean_outcome = _changed_outcome(original, "Yes" if boolean else "No")
+
+    try:
+        decimal = _parse_decimal(
+            original,
+            decimal_separator=decimal_separator,
+            thousands_separator=thousands_separator,
+        )
+    except (InvalidOperation, OverflowError, ValueError):
+        integer_outcome: ConversionOutcome = "invalid"
+        number_outcome: ConversionOutcome = "invalid"
+    else:
+        integer_outcome = _numeric_outcome(original, decimal, "integer")
+        number_outcome = _numeric_outcome(original, decimal, "number")
+
+    parsed_by_order = _parse_datetime_orders(original)
+    temporal_outcomes: list[ConversionOutcome] = []
+    for order in ("month_first", "day_first"):
+        parsed = parsed_by_order.get(order)
+        if parsed is None:
+            temporal_outcomes.extend(("invalid", "invalid"))
+        else:
+            for target in ("date", "datetime"):
+                _value, display = _temporal_value(parsed, target)
+                temporal_outcomes.append(_changed_outcome(original, display))
+    return _ConversionOutcomes(
+        "unchanged",
+        integer_outcome,
+        number_outcome,
+        boolean_outcome,
+        *temporal_outcomes,
+    )
+
+
+def _numeric_outcome(
+    original: str, decimal: Decimal, target_type: TargetType
+) -> ConversionOutcome:
+    try:
+        _value, display = _numeric_value(decimal, target_type)
+    except (OverflowError, ValueError):
+        return "invalid"
+    return _changed_outcome(original, display)
+
+
+def _changed_outcome(original: str, display: str) -> ConversionOutcome:
+    return "unchanged" if display == original else "changed"
+
+
+def _numeric_value(
+    decimal: Decimal, target_type: TargetType
+) -> tuple[int | float, str]:
+    if target_type == "integer":
+        if decimal != decimal.to_integral_value():
+            raise ValueError("not a whole number")
+        value = int(decimal)
+        if not -(2**63) <= value <= 2**63 - 1:
+            raise ValueError("integer is outside the supported range")
+        return value, str(value)
+    value = float(decimal)
+    if not math.isfinite(value):
+        raise ValueError("number is outside the supported range")
+    return value, _display_decimal(decimal)
+
+
+def _temporal_value(parsed: datetime, target_type: TargetType) -> tuple[str, str]:
+    if target_type == "date":
+        value = parsed.date().isoformat()
+        return value, value
+    value = parsed.isoformat()
+    return value, value.replace("T", " ")
 
 
 def convert_row(
@@ -208,20 +290,52 @@ def _parse_datetime(raw: str, *, date_order: DateOrder) -> datetime:
     try:
         return datetime.fromisoformat(text.replace("Z", "+00:00"))
     except ValueError:
-        pass
+        return _parse_ordered_datetime(text, date_order=date_order)
+
+
+def _parse_datetime_orders(raw: str) -> dict[DateOrder, datetime]:
+    text = raw.strip()
     try:
-        parsed_date = date.fromisoformat(text)
-        return datetime.combine(parsed_date, datetime.min.time())
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
     except ValueError:
-        pass
-    formats = (
+        parsed = None
+    if parsed is not None:
+        return {"month_first": parsed, "day_first": parsed}
+    result: dict[DateOrder, datetime] = {}
+    for order in ("month_first", "day_first"):
+        try:
+            result[order] = _parse_ordered_datetime(text, date_order=order)
+        except ValueError:
+            continue
+    return result
+
+
+_TIME_SUFFIX = r"(?:\s+\d{1,2}:\d{2}(?::\d{2}(?:\.\d{1,6})?)?)?"
+_SLASH_DATE = re.compile(rf"^\d{{1,4}}/\d{{1,2}}/\d{{1,4}}{_TIME_SUFFIX}$")
+_DAY_MONTH_NAME = re.compile(rf"^\d{{1,2}}-[A-Za-z]{{3,9}}-\d{{2,4}}{_TIME_SUFFIX}$")
+_MONTH_NAME_DATE = re.compile(
+    rf"^[A-Za-z]{{3,9}}\s+\d{{1,2}},\s*\d{{2,4}}{_TIME_SUFFIX}$"
+)
+
+
+def _parse_ordered_datetime(text: str, *, date_order: DateOrder) -> datetime:
+    date_formats = (
         ("%m/%d/%Y", "%m/%d/%y")
         if date_order == "month_first"
         else ("%d/%m/%Y", "%d/%m/%y")
     )
-    for date_format in (*formats, "%Y/%m/%d", "%d-%b-%Y", "%b %d, %Y"):
-        try:
-            return datetime.strptime(text, date_format)
-        except ValueError:
-            continue
+    if _SLASH_DATE.fullmatch(text):
+        formats = (*date_formats, "%Y/%m/%d")
+    elif _DAY_MONTH_NAME.fullmatch(text):
+        formats = ("%d-%b-%Y",)
+    elif _MONTH_NAME_DATE.fullmatch(text):
+        formats = ("%b %d, %Y",)
+    else:
+        raise ValueError("invalid date")
+    for date_format in formats:
+        for time_format in ("", " %H:%M", " %H:%M:%S", " %H:%M:%S.%f"):
+            try:
+                return datetime.strptime(text, date_format + time_format)
+            except ValueError:
+                continue
     raise ValueError("invalid date")

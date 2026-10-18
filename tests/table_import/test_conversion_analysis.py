@@ -142,3 +142,37 @@ def test_date_only_values_infer_date_instead_of_datetime() -> None:
 
     column = stats.snapshot(complete=True).columns[0]
     assert column.suggested_type == "date"
+
+
+def test_clear_day_first_values_infer_order_and_use_its_counts() -> None:
+    columns = (SourceColumn(0, "when", "when", "original"),)
+    stats = ColumnStatsAccumulator(columns)
+    stats.accept(_row(1, "18/10/2026"))
+    stats.accept(_row(2, "19/10/2026"))
+
+    column = stats.snapshot(complete=True).columns[0]
+    assert column.suggested_type == "date"
+    assert column.suggested_date_order == "day_first"
+    assert column.ambiguous_date_order is False
+    assert column.counts_by_type["date"].invalid == 0
+    assert column.counts_by_date_order["month_first"]["date"].invalid == 2
+    assert column.counts_by_date_order["day_first"]["date"].valid == 2
+
+
+def test_ambiguous_slash_datetime_parses_under_both_orders() -> None:
+    columns = (SourceColumn(0, "when", "when", "original"),)
+    stats = ColumnStatsAccumulator(columns)
+    stats.accept(_row(1, "03/04/2026 12:30:45.123456"))
+
+    column = stats.snapshot(complete=True).columns[0]
+    assert column.suggested_type == "datetime"
+    assert column.suggested_date_order == "month_first"
+    assert column.ambiguous_date_order is True
+    assert column.counts_by_date_order["month_first"]["datetime"].valid == 1
+    assert column.counts_by_date_order["day_first"]["datetime"].valid == 1
+    converted = convert_cell(
+        RawCell("18/10/2026 12:30:45.123456"),
+        "datetime",
+        date_order="day_first",
+    )
+    assert converted.value == "2026-10-18T12:30:45.123456"
