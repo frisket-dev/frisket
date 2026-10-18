@@ -16,9 +16,11 @@ def test_missing_staged_digest_reuses_verified_canonical_blob(tmp_path: Path) ->
     staged = staged_root / digest
     staged.write_bytes(payload)
     store = FilesystemProjectBlobStore(root=tmp_path / "blobs")
-    assert store.put_path(staged, expected_digest=digest) == digest
-    staged.unlink()
     project = SimpleNamespace(blob_store=store)
+    _ensure_staged_blob(project, tmp_path / "intake", digest)
+    assert not staged.exists()
+    with store.materialize(digest) as canonical:
+        assert canonical.read_bytes() == payload
 
     # A later occurrence with the same digest and a retry of that page both
     # succeed after bootstrap has consumed the one content-addressed staged file.

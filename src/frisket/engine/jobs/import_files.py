@@ -47,6 +47,7 @@ def _ensure_staged_blob(project: Project, directory: Path, digest: str) -> None:
         observed = project.blob_store.put_path(staged, expected_digest=digest)
         if observed != digest:
             raise ValueError("promoted import staging digest changed")
+        staged.unlink(missing_ok=True)
         return
     # Bootstrap may already have consumed this digest for an earlier duplicate
     # occurrence or a prior attempt of the same page.

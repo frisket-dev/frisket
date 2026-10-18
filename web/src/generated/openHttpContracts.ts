@@ -4782,6 +4782,7 @@ export type HttpDocumentPriorityRequest = ({
 
 export type HttpDocumentPriorityResponse = ({
   "promoted": (boolean);
+  "run_id": (((number)) | ((null)));
   "schemaVersion"?: ("frisket.document_priority.v1") & (string);
 });
 
