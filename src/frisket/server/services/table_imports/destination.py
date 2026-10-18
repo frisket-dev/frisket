@@ -65,7 +65,8 @@ def compare_destination(
     seen_targets: set[int] = set()
     new_target_names: set[str] = set()
     existing_target_names = {str(row["name"]) for row in targets.values()}
-    if "extra values" in existing_target_names:
+    reserve_extra_values = needs_extra_values(scan)
+    if reserve_extra_values and "extra values" in existing_target_names:
         raise _error(
             409,
             "destination_changed",
@@ -87,7 +88,7 @@ def compare_destination(
             if not target_name:
                 raise _error(422, "invalid_destination", "New columns require names.")
             if (
-                target_name == "extra values"
+                (reserve_extra_values and target_name == "extra values")
                 or target_name in new_target_names
                 or target_name in existing_target_names
             ):
@@ -334,7 +335,9 @@ def new_destination(scan: Mapping[str, Any], sheet_name: str) -> dict[str, Any]:
     ]
     complete = bool(scan.get("complete"))
     names = [str(item["target"]["name"]) for item in mappings]
-    valid_names = len(names) == len(set(names)) and "extra values" not in names
+    valid_names = len(names) == len(set(names)) and not (
+        needs_extra_values(scan) and "extra values" in names
+    )
     return {
         "destination": {"kind": "new", "sheet_name": sheet_name},
         "mappings": mappings,
@@ -363,6 +366,14 @@ def _normalized_name(value: str) -> str:
     )
 
 
+def needs_extra_values(scan: Mapping[str, Any] | None) -> bool:
+    return bool(
+        scan is None
+        or not scan.get("complete")
+        or int(scan.get("issue_counts", {}).get("extra_values", 0)) > 0
+    )
+
+
 def _error(status_code: int, code: str, message: str) -> TableImportDraftError:
     return TableImportDraftError(status_code, {"code": code, "message": message})
 
@@ -371,5 +382,6 @@ __all__ = [
     "compare_destination",
     "iter_existing_dedup_keys",
     "new_destination",
+    "needs_extra_values",
     "public_destination",
 ]

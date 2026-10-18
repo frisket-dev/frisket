@@ -125,10 +125,11 @@ def read_prefix(
         reader = _ConfiguredTableReader(
             rows, settings=settings, total_record_count=None
         )
+        sampled = tuple(islice(reader, record_limit + 1))
         return PrefixRead(
             columns=reader.columns,
-            rows=tuple(islice(reader, record_limit)),
-            tail_pending=True,
+            rows=sampled[:record_limit],
+            tail_pending=len(sampled) > record_limit,
         )
     finally:
         rows.close()
@@ -331,4 +332,5 @@ def _source_kind(path: Path) -> SourceKind:
             raise TableReadError(
                 f"table archive could not be inspected: {exc}"
             ) from exc
+        raise TableReadError("unsupported table archive")
     return "delimited"

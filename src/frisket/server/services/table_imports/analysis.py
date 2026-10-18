@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -38,23 +39,32 @@ def build_prefix_scan(
     )
     issues = zero_issue_counts()
     data_rows = 0
+    widths: Counter[int] = Counter()
     for row in prefix.rows:
         preview.accept(row)
         stats.accept(row)
-        data_rows += int(row.role == "data")
-        count_issues(issues, row.issues)
+        if row.role == "data":
+            data_rows += 1
+            widths[len(row.source.cells)] += 1
+            count_issues(issues, row.issues)
+    complete = not prefix.tail_pending and not settings.skip_rows_end
     payload = _scan_payload(
         settings_revision=settings_revision,
-        record_count=len(prefix.rows),
+        record_count=max(
+            (int(row.source.record_ordinal) for row in prefix.rows), default=0
+        ),
         data_rows=data_rows,
         columns=prefix.columns,
-        preview=preview.snapshot(complete=False),
-        stats=stats.snapshot(complete=False),
+        preview=preview.snapshot(complete=complete),
+        stats=stats.snapshot(complete=complete),
         issues=issues,
         encoding=settings.encoding,
+        data_widths=widths,
     )
-    payload["estimated_rows"] = _estimate_delimited_rows(
-        source_path, settings, prefix.rows, data_rows
+    payload["estimated_rows"] = (
+        None
+        if complete
+        else _estimate_delimited_rows(source_path, settings, prefix.rows, data_rows)
     )
     return payload
 
@@ -74,12 +84,15 @@ def build_complete_scan(
             thousands_separator=settings.thousands_separator,
         )
         record_count = data_rows = 0
+        widths: Counter[int] = Counter()
         for row in reader:
             record_count = row.source.record_ordinal
             preview.accept(row)
             stats.accept(row)
-            data_rows += int(row.role == "data")
-            count_issues(issues, row.issues)
+            if row.role == "data":
+                data_rows += 1
+                widths[len(row.source.cells)] += 1
+                count_issues(issues, row.issues)
         return _scan_payload(
             settings_revision=settings_revision,
             record_count=record_count,
@@ -89,6 +102,7 @@ def build_complete_scan(
             stats=stats.snapshot(complete=True),
             issues=issues,
             encoding=settings.encoding,
+            data_widths=widths,
         )
 
 
@@ -279,12 +293,15 @@ def _scan_payload(
     stats: Any,
     issues: Mapping[str, int],
     encoding: str | None,
+    data_widths: Mapping[int, int],
 ) -> dict[str, Any]:
     return {
         "settings_revision": settings_revision,
         "record_count": record_count,
         "data_rows": data_rows,
-        "preview": _preview_json(columns, preview, issues, encoding),
+        "preview": _preview_json(
+            columns, preview, issues, encoding, data_widths=data_widths
+        ),
         "stats": {
             "columns": [asdict(item) for item in stats.columns],
             "rows_checked": stats.rows_checked,
@@ -302,31 +319,46 @@ def _preview_json(
     preview: Any,
     issues: Mapping[str, int],
     encoding: str | None,
+    *,
+    data_widths: Mapping[int, int],
 ) -> dict[str, Any]:
     payload = asdict(preview)
     payload["columns"] = [asdict(item) for item in columns]
     payload["expected_values"] = len(columns)
-    payload["notice"] = _notice(len(columns), issues, encoding)
+    payload["notice"] = _notice(len(columns), issues, encoding, data_widths=data_widths)
     return payload
 
 
 def _notice(
-    width: int, issues: Mapping[str, int], encoding: str | None
+    width: int,
+    issues: Mapping[str, int],
+    encoding: str | None,
+    *,
+    data_widths: Mapping[int, int],
 ) -> dict[str, Any]:
-    if issues["extra_values"]:
-        kind, count = "extra_values", issues["extra_values"]
-    elif issues["unreadable_cells"]:
+    wrong_width_rows = sum(
+        count for values, count in data_widths.items() if values != width
+    )
+    data_rows = sum(data_widths.values())
+    common_values = (
+        max(data_widths.items(), key=lambda item: (item[1], item[0]))[0]
+        if data_widths
+        else None
+    )
+    if issues["unreadable_cells"]:
         kind, count = "unreadable_characters", issues["unreadable_cells"]
     elif width <= 1:
         kind, count = "one_column", None
-    elif issues["missing_values"]:
-        kind, count = "some_wrong_width", issues["missing_values"]
+    elif wrong_width_rows > data_rows / 2:
+        kind, count = "mostly_wrong_width", wrong_width_rows
+    elif wrong_width_rows:
+        kind, count = "some_wrong_width", wrong_width_rows
     else:
         kind, count = "consistent", None
     return {
         "kind": kind,
         "count": count,
-        "common_values": None,
+        "common_values": common_values,
         "expected_values": width,
         "encoding": encoding,
     }

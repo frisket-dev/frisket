@@ -51,6 +51,7 @@ from .analysis import (
 from .destination import (
     compare_destination,
     iter_existing_dedup_keys,
+    needs_extra_values,
     new_destination,
     public_destination,
 )
@@ -720,6 +721,7 @@ class TableImportService:
             int(item["source_index"]): item["target"]
             for item in destination_request["mappings"]
         }
+        extra_values_target_name = "extra values" if needs_extra_values(scan) else None
         if destination_sheet_id is not None:
             current_names = {
                 str(row["name"])
@@ -734,7 +736,12 @@ class TableImportService:
                 for target in mappings.values()
                 if target["kind"] == "new"
             }
-            if current_names & (planned_new_names | {"extra values"}):
+            reserved_names = (
+                {extra_values_target_name}
+                if extra_values_target_name is not None
+                else set()
+            )
+            if current_names & (planned_new_names | reserved_names):
                 raise TableImportDraftError(
                     409,
                     self._problem(
@@ -813,7 +820,7 @@ class TableImportService:
                 sheet_name=sheet_name,
                 destination_sheet_id=destination_sheet_id,
                 columns=tuple(frozen_columns),
-                extra_values_target_name="extra values",
+                extra_values_target_name=extra_values_target_name,
                 dedup=dedup,
             ),
             dedup_target_column,
@@ -976,8 +983,16 @@ class TableImportService:
         try:
             info = inspect_source(self._source_path(directory))
         except TableReadError as exc:
-            code = "empty_source" if "empty" in str(exc).casefold() else "invalid_table"
-            raise TableImportDraftError(422, self._problem(code, str(exc))) from exc
+            message = str(exc)
+            folded = message.casefold()
+            code = (
+                "empty_source"
+                if "empty" in folded
+                else (
+                    "unsupported_source" if "unsupported" in folded else "invalid_table"
+                )
+            )
+            raise TableImportDraftError(422, self._problem(code, message)) from exc
         header["source"].update(
             {
                 "format": info.kind,
@@ -1013,7 +1028,6 @@ class TableImportService:
                 settings=self._table_settings(header),
             )
         self._prime_prefix(directory, header)
-        header["state"] = "analyzing"
 
     def _prime_prefix(self, directory: Path, header: dict[str, Any]) -> None:
         self._publish_prefix(directory, header, self._build_prefix(directory, header))
@@ -1036,6 +1050,7 @@ class TableImportService:
         self, directory: Path, header: dict[str, Any], scan: Mapping[str, Any]
     ) -> None:
         revision, settings_hash, _ = read_table_settings(directory)
+        complete = bool(scan.get("complete"))
         write_table_scan(
             directory,
             TableImportScan(
@@ -1047,8 +1062,8 @@ class TableImportService:
                     if scan.get("estimated_rows") is None
                     else int(scan["estimated_rows"])
                 ),
-                exact_rows=None,
-                complete=False,
+                exact_rows=int(scan["data_rows"]) if complete else None,
+                complete=complete,
                 problem_count=sum(scan["issue_counts"].values()),
             ),
             expected_settings_revision=revision,
@@ -1063,6 +1078,7 @@ class TableImportService:
         )
         header["destination_request"] = new_destination(scan, name[:80])
         header["destination_reviewed"] = False
+        header["state"] = "ready" if complete else "analyzing"
 
     def _snapshot(self, directory: Path, header: Mapping[str, Any]) -> TableImportDraft:
         scan = self._store.scan(directory)
@@ -1256,6 +1272,9 @@ class TableImportService:
         self, project_id: str, directory: Path, header: dict[str, Any]
     ) -> dict[str, Any]:
         if self._enqueue_analysis is None:
+            return header
+        scan = self._store.scan(directory)
+        if scan is not None and scan.get("complete"):
             return header
         settings_revision = int(header["settings"]["revision"])
         job_id = self._enqueue_analysis(

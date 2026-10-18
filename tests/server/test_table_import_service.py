@@ -5,6 +5,7 @@ import hashlib
 import io
 from pathlib import Path
 from threading import Event, Lock
+import zipfile
 
 import pytest
 
@@ -49,12 +50,12 @@ def test_table_draft_stages_privately_and_freezes_reviewed_plan(tmp_path: Path) 
 
     project = workspace.get(project_id)
     directory = Path(project.path) / ".imports" / created.draft_id
-    assert created.state == "analyzing"
+    assert created.state == "ready"
     assert created.settings is not None and created.settings.revision == 0
-    assert created.preview is not None and created.preview.tail_pending is True
+    assert created.preview is not None and created.preview.tail_pending is False
     assert created.preview.notice.kind == "consistent"
-    assert created.analysis.exact_rows is None
-    assert created.analysis.estimated_rows == 2
+    assert created.analysis.exact_rows == 2
+    assert created.analysis.estimated_rows is None
     assert created.can_commit is True
     assert directory.joinpath("source").read_bytes() == CSV
     assert project.sheets() == []
@@ -78,6 +79,7 @@ def test_table_draft_stages_privately_and_freezes_reviewed_plan(tmp_path: Path) 
     assert isinstance(frozen, FrozenTableImport)
     assert frozen.import_ref == created.draft_id
     assert frozen.exact_rows == 2
+    assert frozen.plan.extra_values_target_name is None
     assert [column.output_type for column in frozen.plan.columns] == [
         "text",
         "datetime",
@@ -94,24 +96,90 @@ def test_table_draft_stages_privately_and_freezes_reviewed_plan(tmp_path: Path) 
     assert project.sheets() == []
 
 
+def test_unknown_zip_container_is_rejected_as_an_unsupported_source(
+    tmp_path: Path,
+) -> None:
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as output:
+        output.writestr("Index/Document.iwa", b"numbers-document")
+        output.writestr("Metadata/Properties.plist", b"<plist/>")
+    _workspace, project_id, service = _service(tmp_path)
+
+    with pytest.raises(TableImportDraftError) as rejected:
+        service.create(
+            project_id,
+            _upload(archive.getvalue(), "report.numbers"),
+            input_kind="file",
+        )
+
+    assert rejected.value.status_code == 422
+    assert rejected.value.detail["code"] == "unsupported_source"
+
+
+def test_extra_values_column_is_reserved_for_provisional_or_observed_overflow(
+    tmp_path: Path,
+) -> None:
+    _workspace, project_id, service = _service(tmp_path)
+    provisional_payload = b"name,value\n" + b"".join(
+        f"person-{index},{index}\n".encode() for index in range(80)
+    )
+    provisional = service.create(
+        project_id, _upload(provisional_payload), input_kind="file"
+    )
+    provisional_plan = service.freeze_for_commit(
+        project_id,
+        provisional.draft_id,
+        expected_revision=provisional.revision,
+        idempotency_key="provisional-extra-values",
+    )
+    assert isinstance(provisional_plan, FrozenTableImport)
+    assert provisional_plan.exact_rows is None
+    assert provisional_plan.plan.extra_values_target_name == "extra values"
+
+    overflow = service.create(
+        project_id,
+        _upload(b"name\nAlice,overflow\n", "overflow.csv"),
+        input_kind="file",
+    )
+    overflow_plan = service.freeze_for_commit(
+        project_id,
+        overflow.draft_id,
+        expected_revision=overflow.revision,
+        idempotency_key="observed-extra-values",
+    )
+    assert isinstance(overflow_plan, FrozenTableImport)
+    assert overflow_plan.exact_rows == 1
+    assert overflow_plan.plan.extra_values_target_name == "extra values"
+
+
 def test_immediate_analysis_callback_cannot_overwrite_completed_state(
     tmp_path: Path,
 ) -> None:
     workspace = Workspace(tmp_path / "workspace", enable_local_model_pull=False)
     project_id = str(workspace.create("Table intake", project_id="table-intake")["id"])
     service: TableImportService
+    enqueued: list[str] = []
 
     def enqueue(pid: str, draft_id: str, settings_revision: int) -> int:
+        enqueued.append(draft_id)
         completed = service.scan(pid, draft_id, settings_revision=settings_revision)
         assert completed.state == "ready"
         return 41
 
     service = TableImportService(workspace, enqueue_analysis=enqueue)
-    created = service.create(project_id, _upload(CSV), input_kind="file")
+    tiny = service.create(project_id, _upload(CSV, "tiny.csv"), input_kind="file")
+    assert tiny.analysis.complete is True
+    assert enqueued == []
+
+    payload = b"name,value\n" + b"".join(
+        f"person-{index},{index}\n".encode() for index in range(80)
+    )
+    created = service.create(project_id, _upload(payload), input_kind="file")
 
     assert created.state == "ready"
     assert created.analysis.complete is True
     assert created.analysis.job_id == 41
+    assert enqueued == [created.draft_id]
     assert service.status(project_id, created.draft_id).state == "ready"
 
 
@@ -147,6 +215,36 @@ def test_table_settings_revision_rejects_stale_preview_and_footer_waits(
     assert scanned.can_commit is True
 
 
+def test_skipped_preamble_and_footer_do_not_contribute_row_issues(
+    tmp_path: Path,
+) -> None:
+    _workspace, project_id, service = _service(tmp_path)
+    payload = b"preamble,has,extra\nname,value\nAlice,1\nfooter,has,extra\n"
+    created = service.create(project_id, _upload(payload), input_kind="file")
+    assert created.settings is not None
+    requested = created.settings.requested.model_copy(
+        update={"skip_rows_start": 1, "skip_rows_end": 1}
+    )
+    changed = service.update_settings(
+        project_id,
+        created.draft_id,
+        expected_revision=created.revision,
+        settings=requested.model_dump(mode="json"),
+    )
+    assert changed.settings is not None
+
+    scanned = service.scan(
+        project_id,
+        created.draft_id,
+        settings_revision=changed.settings.revision,
+    )
+
+    assert scanned.analysis.issue_counts.extra_values == 0
+    assert scanned.analysis.issue_counts.missing_values == 0
+    assert scanned.preview is not None
+    assert scanned.preview.notice.kind == "consistent"
+
+
 def test_exact_scan_blocks_the_deployment_row_limit_before_freeze(
     tmp_path: Path,
 ) -> None:
@@ -154,7 +252,7 @@ def test_exact_scan_blocks_the_deployment_row_limit_before_freeze(
     created = service.create(project_id, _upload(CSV), input_kind="file", max_rows=1)
     directory = Path(workspace.get(project_id).path) / ".imports" / created.draft_id
     assert read_import_header(directory).max_rows == 1
-    assert created.analysis.exact_rows is None
+    assert created.analysis.exact_rows == 2
     assert created.can_commit is False
     assert created.commit_blocked_reason == "limit"
 
@@ -187,9 +285,9 @@ def test_configured_row_limit_waits_for_exact_under_limit_count(tmp_path: Path) 
     _workspace, project_id, service = _service(tmp_path)
     created = service.create(project_id, _upload(CSV), input_kind="file", max_rows=2)
 
-    assert created.analysis.exact_rows is None
-    assert created.can_commit is False
-    assert created.commit_blocked_reason == "analyzing"
+    assert created.analysis.exact_rows == 2
+    assert created.can_commit is True
+    assert created.commit_blocked_reason is None
 
     scanned = service.scan(project_id, created.draft_id, settings_revision=0)
 
@@ -201,7 +299,10 @@ def test_current_row_limit_is_checked_before_commit_state_changes(
     tmp_path: Path,
 ) -> None:
     _workspace, project_id, service = _service(tmp_path)
-    created = service.create(project_id, _upload(CSV), input_kind="file")
+    payload = CSV + b"".join(
+        f"person-{index},2025-01-02T03:04:05,{index}\n".encode() for index in range(80)
+    )
+    created = service.create(project_id, _upload(payload), input_kind="file")
     scanned = service.scan(project_id, created.draft_id, settings_revision=0)
 
     with pytest.raises(TableImportDraftError) as rejected:
@@ -397,7 +498,10 @@ def test_footer_skip_dedup_uses_the_completed_record_count(tmp_path: Path) -> No
     sheet_id = project.add_sheet("People")
     name_column = project.add_column(sheet_id, "name", type="text")
     project.add_rows(sheet_id, [{"name": "Alice"}], {"name": name_column})
-    created = service.create(project_id, _upload(CSV), input_kind="file")
+    payload = CSV + b"".join(
+        f"person-{index},2025-01-02T03:04:05,{index}\n".encode() for index in range(80)
+    )
+    created = service.create(project_id, _upload(payload), input_kind="file")
     assert created.settings is not None
     settings = created.settings.requested.model_copy(update={"skip_rows_end": 1})
     changed = service.update_settings(
@@ -446,7 +550,10 @@ def test_full_scan_finishes_the_current_reviewed_dedup_comparison(
     sheet_id = project.add_sheet("People")
     name_column = project.add_column(sheet_id, "name", type="text")
     project.add_rows(sheet_id, [{"name": "Alice"}], {"name": name_column})
-    created = service.create(project_id, _upload(CSV), input_kind="file")
+    payload = CSV + b"".join(
+        f"person-{index},2025-01-02T03:04:05,{index}\n".encode() for index in range(80)
+    )
+    created = service.create(project_id, _upload(payload), input_kind="file")
     entered = Event()
     release = Event()
     from frisket.server.services.table_imports import service as service_module
@@ -550,9 +657,8 @@ def test_destination_rejects_duplicate_and_reserved_output_names(
         input_kind="file",
     )
     assert reserved.destination is not None
-    assert reserved.destination.comparison.state == "error"
-    assert reserved.can_commit is False
-    assert reserved.commit_blocked_reason == "destination"
+    assert reserved.destination.comparison.state == "ready"
+    assert reserved.can_commit is True
 
 
 def test_existing_destination_rejects_reserved_overflow_column(tmp_path: Path) -> None:
@@ -560,7 +666,11 @@ def test_existing_destination_rejects_reserved_overflow_column(tmp_path: Path) -
     project = workspace.get(project_id)
     sheet_id = project.add_sheet("People")
     project.add_column(sheet_id, "extra values", type="text")
-    created = service.create(project_id, _upload(CSV), input_kind="file")
+    created = service.create(
+        project_id,
+        _upload(b"name\nAlice,overflow\n", "overflow.csv"),
+        input_kind="file",
+    )
 
     with pytest.raises(TableImportDraftError) as rejected:
         service.update_destination(
@@ -733,6 +843,51 @@ def test_late_encoding_damage_requires_an_explicit_encoding_choice(
     assert rescanned.can_commit is True
 
 
+def test_unreadable_notice_precedes_width_mismatch(tmp_path: Path) -> None:
+    _workspace, project_id, service = _service(tmp_path)
+    payload = b"name,value\nAlice,\x80,extra\nBob,2\n"
+    created = service.create(project_id, _upload(payload), input_kind="file")
+    assert created.settings is not None
+    explicit = created.settings.requested.model_copy(update={"encoding": "utf-8"})
+
+    changed = service.update_settings(
+        project_id,
+        created.draft_id,
+        expected_revision=created.revision,
+        settings=explicit.model_dump(mode="json"),
+    )
+
+    assert changed.preview is not None
+    assert changed.preview.notice.kind == "unreadable_characters"
+    assert changed.preview.notice.count == 1
+    assert changed.analysis.issue_counts.extra_values == 1
+
+
+@pytest.mark.parametrize(
+    ("rows", "expected_kind", "expected_count", "common_values"),
+    [
+        (["A,1,extra", "B,2,extra", "C,3"], "mostly_wrong_width", 2, 3),
+        (["A,1,extra", "B,2", "C,3"], "some_wrong_width", 1, 2),
+    ],
+)
+def test_width_notice_distinguishes_majority_from_some_rows(
+    tmp_path: Path,
+    rows: list[str],
+    expected_kind: str,
+    expected_count: int,
+    common_values: int,
+) -> None:
+    _workspace, project_id, service = _service(tmp_path)
+    payload = ("name,value\n" + "\n".join(rows) + "\n").encode()
+
+    created = service.create(project_id, _upload(payload), input_kind="file")
+
+    assert created.preview is not None
+    assert created.preview.notice.kind == expected_kind
+    assert created.preview.notice.count == expected_count
+    assert created.preview.notice.common_values == common_values
+
+
 @pytest.mark.parametrize("scan_fails", [False, True])
 def test_scan_publication_never_reopens_a_committed_draft(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scan_fails: bool
@@ -826,7 +981,7 @@ def test_encrypted_workbook_password_is_transient_and_decrypted_source_is_readab
     assert invalid.value.detail["code"] == "invalid_password"
 
     opened = service.unlock(project_id, created.draft_id, password="correct horse")
-    assert opened.state == "analyzing"
+    assert opened.state == "ready"
     assert opened.source.format == "xlsx"
     assert opened.preview is not None
     draft_text = (
