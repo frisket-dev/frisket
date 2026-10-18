@@ -20,11 +20,16 @@ def inspect_workbook(path: Path, *, kind: SourceKind) -> tuple[SheetInfo, ...]:
                 return tuple(
                     SheetInfo(
                         index=index,
-                        name=sheet.title,
-                        hidden=sheet.sheet_state != "visible",
-                        empty=_xlsx_sheet_empty(sheet),
+                        name=name,
+                        hidden=getattr(sheet, "sheet_state", "visible") != "visible",
+                        empty=(
+                            True
+                            if not callable(getattr(sheet, "iter_rows", None))
+                            else _xlsx_sheet_empty(sheet)
+                        ),
                     )
-                    for index, sheet in enumerate(workbook.worksheets)
+                    for index, name in enumerate(workbook.sheetnames)
+                    for sheet in (workbook[name],)
                 )
             finally:
                 workbook.close()
@@ -65,6 +70,9 @@ class WorkbookRows:
             if sheet is None:
                 self.close()
                 raise TableReadError("workbook has no worksheet")
+            if not callable(getattr(sheet, "iter_rows", None)):
+                self.close()
+                raise TableReadError(f"worksheet has no rows: {sheet.title}")
             self._rows = iter(sheet.iter_rows())
         else:
             self._workbook = _open_calamine(path)

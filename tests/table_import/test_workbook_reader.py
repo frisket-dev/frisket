@@ -5,6 +5,7 @@ from pathlib import Path
 import shutil
 
 from openpyxl import Workbook
+from openpyxl.chart import BarChart, Reference
 
 from frisket.table_import import (
     TableReadSettings,
@@ -25,7 +26,10 @@ def _workbook(path: Path) -> None:
     hidden = workbook.create_sheet("Hidden")
     hidden.sheet_state = "hidden"
     hidden.append(["only"])
-    workbook.create_sheet("Chart only")
+    chart = BarChart()
+    chart.add_data(Reference(sheet, min_col=2, min_row=1, max_row=3), titles_from_data=True)
+    chart_sheet = workbook.create_chartsheet("Chart only")
+    chart_sheet.add_chart(chart)
     workbook.save(path)
 
 
@@ -35,10 +39,12 @@ def test_xlsx_inspection_and_iteration_keep_typed_semantics(tmp_path: Path) -> N
 
     info = inspect_source(source)
     assert info.kind == "xlsx"
-    assert [(sheet.name, sheet.hidden, sheet.empty) for sheet in info.sheets] == [
-        ("Visible", False, False),
-        ("Hidden", True, False),
-        ("Chart only", False, True),
+    assert [
+        (sheet.index, sheet.name, sheet.hidden, sheet.empty) for sheet in info.sheets
+    ] == [
+        (0, "Visible", False, False),
+        (1, "Hidden", True, False),
+        (2, "Chart only", False, True),
     ]
     settings = TableReadSettings(kind="xlsx", worksheet="Visible")
     assert count_records(source, settings) == 3
