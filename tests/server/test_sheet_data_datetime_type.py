@@ -10,7 +10,9 @@ def test_sheet_data_preserves_logical_datetime_metadata_and_exact_value(
     tmp_path,
 ) -> None:
     client = TestClient(
-        create_app(tmp_path / "workspace", router=ModelRouter(cache=None, cache_mode="off"))
+        create_app(
+            tmp_path / "workspace", router=ModelRouter(cache=None, cache_mode="off")
+        )
     )
     project_id = client.post("/api/projects", json={"name": "Dates"}).json()["id"]
     project = client.app.state.workspace.get(project_id)
