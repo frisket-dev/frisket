@@ -517,6 +517,17 @@
 .pdf-batch-ocr-review span { color: #756c66; font-size: 11px; }
 .pdf-batch-model-setup > b,
 .pdf-batch-ocr-review > b { color: #1f7a5a; font-size: 12px; }
+
+.pdf-batch-ocr-review .link-btn {
+  appearance: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #4143c4;
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+}
 .pdf-batch-model-setup[data-state='setup'] > b { color: #756c66; }
 .pdf-batch-model-setup > label { grid-column: 1 / -1; display: flex; gap: 8px; padding-top: 10px; border-top: 1px solid #e7e1db; font-size: 12px; }
 .pdf-batch-model-setup > p { grid-column: 1 / -1; margin: 0; color: #b3412e; font-size: 12px; }

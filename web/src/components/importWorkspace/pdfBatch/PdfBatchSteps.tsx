@@ -363,7 +363,7 @@ function TextSourceBadge({ category, policy }: { category: PdfImportCategory; po
   return <span role="cell">—</span>;
 }
 
-export function SearchSetupStep({ snapshot, semanticEnabled, consent, busy, importLabel, canImport, batchEstimateBusy, batchEstimateWaiting, batchEstimateError, ocrAvailable, ocrProblem, onEstimateOcr, onSemantic, onConsent, onBack, onImport }: {
+export function SearchSetupStep({ snapshot, semanticEnabled, consent, busy, importLabel, canImport, batchEstimateBusy, batchEstimateWaiting, batchEstimateError, ocrAvailabilityChecking, ocrAvailable, ocrProblem, onEstimateOcr, onSemantic, onConsent, onBack, onReviewOcr, onImport }: {
   snapshot: PdfImportSnapshot;
   semanticEnabled: boolean;
   consent: boolean;
@@ -373,12 +373,14 @@ export function SearchSetupStep({ snapshot, semanticEnabled, consent, busy, impo
   batchEstimateBusy: boolean;
   batchEstimateWaiting: boolean;
   batchEstimateError: string | null;
+  ocrAvailabilityChecking: boolean;
   ocrAvailable: boolean;
   ocrProblem: string | null;
   onEstimateOcr(): void;
   onSemantic(enabled: boolean): void;
   onConsent(value: boolean): void;
   onBack(): void;
+  onReviewOcr(): void;
   onImport(): void;
 }) {
   const setup = snapshot.semantic_setup;
@@ -394,8 +396,10 @@ export function SearchSetupStep({ snapshot, semanticEnabled, consent, busy, impo
       </div>}
       {ocrPolicyCount(snapshot, snapshot.choices.ocr_policy) > 0 && <div className="pdf-batch-ocr-review" data-state={!ocrAvailable ? 'setup' : snapshot.batch_ocr?.state ?? 'idle'}>
         <div><strong>OCR</strong><span>{count(ocrPolicyCount(snapshot, snapshot.choices.ocr_policy), 'file')} · {snapshot.choices.ocr_selection.engine}</span></div>
-        {!ocrAvailable
-          ? <span title={ocrProblem ?? undefined}>Setup required</span>
+        {ocrAvailabilityChecking
+          ? <span className="pdf-batch-inline-progress"><LoaderCircle className="spin" size={13} /> Checking availability…</span>
+          : !ocrAvailable
+          ? <span title={ocrProblem ?? undefined}>Setup required · <button type="button" className="link-btn" onClick={onReviewOcr}>Back to OCR engine</button></span>
           : snapshot.choices.ocr_selection.engine === 'rapidocr'
           ? <b>Ready</b>
           : batchEstimateWaiting

@@ -2,6 +2,7 @@ import { AlertTriangle, LoaderCircle } from 'lucide-react';
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -17,7 +18,8 @@ import {
   type PdfImportSnapshot,
   type PdfImportsApi,
 } from '../../../api/pdfImports';
-import type { SelectorChoice } from '../../../api/selectorChoices';
+import type { HttpSelectorChoicesQuery, HttpSelectorChoicesResponse, SelectorChoice } from '../../../api/selectorChoices';
+import { useSelectorChoices } from '../../../engine-selector/useSelectorChoices';
 import { usePoll } from '../../../hooks/usePoll';
 import { CostGateModal } from '../../CostGateModal';
 import {
@@ -80,6 +82,17 @@ function ocrEngine(selection: PdfImportOcrSelection): string {
   return selection.engine;
 }
 
+function selectorChoice(response: HttpSelectorChoicesResponse | null): SelectorChoice | null {
+  if (!response) return null;
+  const choiceId = response.current_choice_id ?? response.default_choice_id;
+  if (!choiceId) return null;
+  for (const group of response.groups) {
+    const choice = group.choices.find((candidate) => candidate.choice_id === choiceId);
+    if (choice) return choice;
+  }
+  return response.orphaned_current?.choice_id === choiceId ? response.orphaned_current : null;
+}
+
 function subtitle(snapshot: PdfImportSnapshot | null, files: readonly File[]): string {
   const total = snapshot?.upload.files_total ?? files.length;
   const totalBytes = snapshot?.upload.bytes_total
@@ -126,7 +139,7 @@ export function PdfBatchImportFlow({
       : { kind: 'existing', sheet_id: initialDestinationSheetId }
   ));
   const [semanticEnabled, setSemanticEnabled] = useState<boolean | null>(null);
-  const [ocrChoice, setOcrChoice] = useState<SelectorChoice | null>(null);
+  const [reportedOcrChoice, setReportedOcrChoice] = useState<SelectorChoice | null>(null);
   const lifecycleController = useRef<AbortController | null>(null);
   const refreshController = useRef<AbortController | null>(null);
   const batchEstimateInFlight = useRef<symbol | null>(null);
@@ -200,6 +213,34 @@ export function PdfBatchImportFlow({
     textSource,
   } = preview;
 
+  const selectedOcr = snapshot?.choices.ocr_selection
+    ?? ({ kind: 'engine', engine: 'rapidocr' } as const);
+  const selectedOcrModel = selectedOcr.kind === 'engine_model' ? selectedOcr.model : null;
+  const ocrSelectorQuery = useMemo<HttpSelectorChoicesQuery>(() => ({
+    schema_version: 'frisket.selector_choices_query.v1',
+    subject: {
+      kind: 'action',
+      action_id: 'media.ocr',
+      field: 'engine',
+      params: {
+        engine: selectedOcr.engine,
+        ...(selectedOcr.kind === 'engine_model' ? { model: selectedOcrModel } : {}),
+      },
+    },
+  }), [selectedOcr.engine, selectedOcr.kind, selectedOcrModel]);
+  const ocrAvailability = useSelectorChoices({
+    projectId,
+    query: ocrSelectorQuery,
+    queryKey: JSON.stringify(ocrSelectorQuery.subject),
+    enabled: Boolean(snapshot),
+  });
+  const loadedOcrChoice = ocrAvailability.stale || ocrAvailability.error
+    ? null
+    : selectorChoice(ocrAvailability.response);
+  const ocrChoice = reportedOcrChoice ?? loadedOcrChoice;
+  const ocrAvailabilityChecking = !ocrChoice && !ocrAvailability.error
+    && (ocrAvailability.loading || ocrAvailability.refreshing || !ocrAvailability.response);
+
   useEffect(() => {
     const epoch = ++generation.current;
     const controller = new AbortController();
@@ -238,7 +279,7 @@ export function PdfBatchImportFlow({
         ? { kind: 'new', sheet_name: sourceFolder ?? 'Imported PDFs' }
         : { kind: 'existing', sheet_id: initialDestinationRef.current });
       setSemanticEnabled(null);
-      setOcrChoice(null);
+      setReportedOcrChoice(null);
       if (!resumeDraftId) {
         const invalid = !canHandlePdfBatch(intakeSelection.files);
         if (invalid) throw new Error('Choose at least two PDFs for this import.');
@@ -723,9 +764,11 @@ export function PdfBatchImportFlow({
             }}
             onTextSource={setTextSource}
             onPreview={() => chosenFile && void startPreview(chosenFile.occurrence_id, 1, undefined, refresh)}
-            onOcrChoice={setOcrChoice}
+            onOcrChoice={(choice) => {
+              if (choice) setReportedOcrChoice(choice);
+            }}
             onOcrSelection={(ocrSelection) => {
-              setOcrChoice(null);
+              setReportedOcrChoice(null);
               void mutateChoices({ ocr_selection: ocrSelection });
             }}
             onPolicy={(ocrPolicy) => {
@@ -769,8 +812,9 @@ export function PdfBatchImportFlow({
             batchEstimateBusy={batchEstimateBusy}
             batchEstimateWaiting={!batchEstimateInputsReady}
             batchEstimateError={batchEstimateError}
+            ocrAvailabilityChecking={ocrAvailabilityChecking}
             ocrAvailable={ocrPolicyCount(snapshot, snapshot.choices.ocr_policy) === 0 || Boolean(ocrChoice?.can_run)}
-            ocrProblem={ocrChoice?.blocker?.message ?? null}
+            ocrProblem={ocrChoice?.blocker?.message ?? ocrAvailability.error?.message ?? null}
             onEstimateOcr={() => {
               void estimateBatchOcr(snapshot);
             }}
@@ -791,6 +835,7 @@ export function PdfBatchImportFlow({
               }
             }}
             onBack={() => setStage('destination')}
+            onReviewOcr={() => setStage('check')}
             onImport={() => void commit()}
           />
         )}

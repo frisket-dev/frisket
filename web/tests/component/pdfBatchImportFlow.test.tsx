@@ -13,7 +13,12 @@ import type {
 import { PdfBatchImportFlow } from '../../src/components/importWorkspace/pdfBatch/PdfBatchImportFlow';
 import { bytesLabel, canHandlePdfBatch } from '../../src/components/importWorkspace/pdfBatch/model';
 
-const selectorState = vi.hoisted(() => ({ canRun: true, blocker: null as string | null }));
+const selectorState = vi.hoisted(() => ({
+  canRun: true,
+  blocker: null as string | null,
+  loading: false,
+  reportChoice: true,
+}));
 const sessionUpload = vi.hoisted(() => ({
   abort: null as (() => void) | null,
   importRef: null as string | null,
@@ -42,6 +47,7 @@ vi.mock('../../src/engine-selector/SelectorField', () => ({
     const report = useRef(onCurrentChoiceChange);
     report.current = onCurrentChoiceChange;
     useEffect(() => {
+      if (!selectorState.reportChoice) return;
       report.current?.({
         authored_selection: hasModel
           ? { kind: 'engine_model', engine, model: model ?? null }
@@ -51,6 +57,35 @@ vi.mock('../../src/engine-selector/SelectorField', () => ({
       });
     }, [engine, hasModel, model]);
     return <button type="button">{engine}</button>;
+  },
+}));
+
+vi.mock('../../src/engine-selector/useSelectorChoices', () => ({
+  useSelectorChoices: ({ query }: {
+    query: { subject: { params: { engine: string; model?: string | null } } };
+  }) => {
+    const { engine, model } = query.subject.params;
+    const hasModel = Object.hasOwn(query.subject.params, 'model');
+    const choice = {
+      choice_id: 'current-ocr',
+      authored_selection: hasModel
+        ? { kind: 'engine_model', engine, model: model ?? null }
+        : { kind: 'engine', engine },
+      can_run: selectorState.canRun,
+      blocker: selectorState.blocker ? { message: selectorState.blocker } : null,
+    };
+    return {
+      response: selectorState.loading ? null : {
+        current_choice_id: choice.choice_id,
+        default_choice_id: choice.choice_id,
+        groups: [{ choices: [choice] }],
+        orphaned_current: null,
+      },
+      loading: selectorState.loading,
+      refreshing: false,
+      stale: false,
+      error: null,
+    };
   },
 }));
 
@@ -220,6 +255,8 @@ function deferred<Value>() {
 beforeEach(() => {
   selectorState.canRun = true;
   selectorState.blocker = null;
+  selectorState.loading = false;
+  selectorState.reportChoice = true;
   sessionUpload.abort = null;
   sessionUpload.importRef = null;
   sessionUpload.remember.mockReset();
@@ -851,6 +888,7 @@ describe('PDF batch import flow', () => {
   it('blocks import when the selected OCR engine still needs its standard setup', async () => {
     selectorState.canRun = false;
     selectorState.blocker = 'Download RapidOCR before running it.';
+    selectorState.reportChoice = false;
     const { api } = createApi();
     render(<PdfBatchImportFlow
       projectId="project-1" resumeDraftId="draft-1" destinationSheets={[]} api={api}
@@ -863,9 +901,48 @@ describe('PDF batch import flow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue →' }));
     fireEvent.click(screen.getByRole('button', { name: 'Search setup →' }));
 
-    expect(await screen.findByText('Setup required')).toHaveAttribute(
+    expect(await screen.findByText('Setup required', { exact: false })).toHaveAttribute(
       'title', 'Download RapidOCR before running it.',
     );
+    expect(screen.getByRole('button', { name: 'Import 2 PDFs' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Back to OCR engine' }));
+    expect(await screen.findByRole('heading', { name: 'Text from your files' })).toBeInTheDocument();
+  });
+
+  it('checks OCR availability outside the model picker during quick navigation', async () => {
+    selectorState.reportChoice = false;
+    const { api } = createApi();
+    render(<PdfBatchImportFlow
+      projectId="project-1" resumeDraftId="draft-1" destinationSheets={[]} api={api}
+      onContextChange={vi.fn()} registerCloseGuard={vi.fn()} onImported={vi.fn()}
+      onDiscarded={vi.fn()} onError={vi.fn()}
+    />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Check text →' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue →' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Search setup →' }));
+
+    expect(await screen.findByText('Ready')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('checkbox', { name: /Search by meaning/ }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Import 2 PDFs' })).toBeEnabled());
+  });
+
+  it('distinguishes an OCR availability check from required setup', async () => {
+    selectorState.loading = true;
+    selectorState.reportChoice = false;
+    const { api } = createApi();
+    render(<PdfBatchImportFlow
+      projectId="project-1" resumeDraftId="draft-1" destinationSheets={[]} api={api}
+      onContextChange={vi.fn()} registerCloseGuard={vi.fn()} onImported={vi.fn()}
+      onDiscarded={vi.fn()} onError={vi.fn()}
+    />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Check text →' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue →' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Search setup →' }));
+
+    expect(await screen.findByText('Checking availability…')).toBeInTheDocument();
+    expect(screen.queryByText('Setup required', { exact: false })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Import 2 PDFs' })).toBeDisabled();
   });
 });
