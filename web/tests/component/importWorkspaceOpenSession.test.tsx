@@ -20,6 +20,7 @@ const replanSearchPreparation = vi.hoisted(() => vi.fn());
 const listPdfImportDrafts = vi.hoisted(() => vi.fn());
 const createPdfImport = vi.hoisted(() => vi.fn());
 const getPdfImport = vi.hoisted(() => vi.fn());
+const discardPdfImport = vi.hoisted(() => vi.fn());
 const projectApi = vi.hoisted(() => ({ getSheetData: vi.fn(), listSheets: vi.fn() }));
 
 vi.mock('../../src/api/open', async (importOriginal) => {
@@ -67,6 +68,7 @@ vi.mock('../../src/api/pdfImports', async (importOriginal) => {
       list: listPdfImportDrafts,
       create: createPdfImport,
       get: getPdfImport,
+      discard: discardPdfImport,
     },
   };
 });
@@ -108,6 +110,8 @@ beforeEach(() => {
   createPdfImport.mockImplementation(() => new Promise(() => undefined));
   getPdfImport.mockReset();
   getPdfImport.mockImplementation(() => new Promise(() => undefined));
+  discardPdfImport.mockReset();
+  discardPdfImport.mockResolvedValue({ draft_id: 'zip-pdf-draft', state: 'cancelled' });
   getSearchPreparationTextSamples.mockReset();
   getSearchPreparationTextSamples.mockResolvedValue({ batch_id: 'prep', samples: [] });
   createSearchPreparation.mockReset();
@@ -271,6 +275,47 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     ));
     expect(createPdfImport).not.toHaveBeenCalled();
     expect(screen.getByText('Preparing file import…')).toBeInTheDocument();
+  });
+
+  it('confirms before cancelling archive preparation and discards a draft that finishes behind the prompt', async () => {
+    let resolvePreparation!: (value: { kind: 'pdf_import'; draft: { draft_id: string } }) => void;
+    const pendingPreparation = new Promise<{ kind: 'pdf_import'; draft: { draft_id: string } }>((resolve) => {
+      resolvePreparation = resolve;
+    });
+    let preparationSignal: AbortSignal | undefined;
+    prepareImportFiles.mockImplementation((...args: unknown[]) => {
+      preparationSignal = (args[4] as { signal?: AbortSignal }).signal;
+      return pendingPreparation;
+    });
+    const onClose = vi.fn();
+    renderDialog(true, vi.fn(), onClose);
+    fireEvent.click(screen.getByTestId('import-mode-files'));
+    fireEvent.change(screen.getByTestId('import-file-input'), {
+      target: { files: [new File(['zip'], 'records.zip', { type: 'application/zip' })] },
+    });
+
+    await waitFor(() => expect(prepareImportFiles).toHaveBeenCalledOnce());
+    const close = screen.getByTestId('import-workspace-close');
+    expect(close).toBeEnabled();
+    fireEvent.click(close);
+    expect(screen.getByTestId('bulk-prepare-discard-dialog')).toBeVisible();
+    expect(preparationSignal?.aborted).toBe(false);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Keep working' }));
+    expect(screen.queryByTestId('bulk-prepare-discard-dialog')).not.toBeInTheDocument();
+    expect(preparationSignal?.aborted).toBe(false);
+
+    fireEvent.click(close);
+    await act(async () => resolvePreparation({
+      kind: 'pdf_import', draft: { draft_id: 'zip-pdf-draft' },
+    }));
+    expect(getPdfImport).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel import' }));
+
+    await waitFor(() => expect(discardPdfImport).toHaveBeenCalledWith(
+      'open-session-project', 'zip-pdf-draft',
+    ));
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
   });
 
   it('sends every archive selected in the ZIP picker through one preparation request', async () => {

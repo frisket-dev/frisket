@@ -38,12 +38,14 @@ import {
   type ImportUpdatePreview,
   type BulkImportFailedOutput,
   type BulkImportPlan,
+  type PreparedImportFiles,
   type SourceInfo,
   type ActionTemplate,
   type SourceInput,
   type SourceInterval,
   type SheetMeta,
 } from '../api/open';
+import { pdfImportsApi } from '../api/pdfImports';
 import {
   notifyImportSessionChanged,
   rememberImportSessionFiles,
@@ -63,7 +65,13 @@ import {
   type PdfPacketShellContext,
 } from './importWorkspace/pdfPacket/PdfPacketImportFlow';
 import { PDF_PACKET_STAGES } from './importWorkspace/pdfPacket/model';
-import { PdfBatchImportFlow, PdfBatchDrafts, canHandlePdfBatch, type PdfBatchShellContext } from './importWorkspace/pdfBatch';
+import {
+  DiscardImportConfirm,
+  PdfBatchImportFlow,
+  PdfBatchDrafts,
+  canHandlePdfBatch,
+  type PdfBatchShellContext,
+} from './importWorkspace/pdfBatch';
 import { SearchPreparationReceipt } from './SearchPreparationReceipt';
 import {
   IMPORT_MODES,
@@ -1121,6 +1129,11 @@ function OpenImportWorkspaceSession({
   const [bulkPlan, setBulkPlan] = useState<BulkImportPlan | null>(null);
   const [bulkDecisions, setBulkDecisions] = useState<Record<string, string>>({});
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkPreparing, setBulkPreparing] = useState(false);
+  const [bulkPrepareDiscardPrompt, setBulkPrepareDiscardPrompt] = useState(false);
+  const [bulkPrepareDiscarding, setBulkPrepareDiscarding] = useState(false);
+  const bulkPrepareDiscardPromptRef = useRef(false);
+  const heldPreparedImport = useRef<PreparedImportFiles | null>(null);
   const [bulkError, setBulkError] = useState<string | null>(null);
   const [bulkSuccessMessage, setBulkSuccessMessage] = useState<string | null>(null);
   const [bulkWarnings, setBulkWarnings] = useState<string[]>([]);
@@ -1236,9 +1249,14 @@ function OpenImportWorkspaceSession({
 
   const resetBulkPlan = useCallback(() => {
     invalidateBulkRequests();
+    bulkPrepareDiscardPromptRef.current = false;
+    heldPreparedImport.current = null;
     setBulkPlan(null);
     setBulkDecisions({});
     setBulkBusy(false);
+    setBulkPreparing(false);
+    setBulkPrepareDiscardPrompt(false);
+    setBulkPrepareDiscarding(false);
     setBulkError(null);
     setBulkSuccessMessage(null);
     setBulkWarnings([]);
@@ -1310,15 +1328,23 @@ function OpenImportWorkspaceSession({
     onClose();
   }, [onClose, resetBulkPlan, resetCsvPreview, resetDraft]);
   const closeWorkspaceFromUser = useCallback(() => {
+    if (bulkPrepareDiscardPromptRef.current) return;
     if (pdfBatchActive) {
       if (pdfBatchCloseGuardRef.current && !pdfBatchCloseGuardRef.current()) return;
       closeWorkspace();
       return;
     }
+    if (bulkPreparing) {
+      if (!bulkPrepareDiscardPromptRef.current) {
+        bulkPrepareDiscardPromptRef.current = true;
+        setBulkPrepareDiscardPrompt(true);
+      }
+      return;
+    }
     if (selectionPreparing || (busy && !sessionBusy) || bulkBusy || draftBusy || pdfPacketContext.busy) return;
     if (mode === 'pdf_split' && pdfPacketCloseGuardRef.current && !pdfPacketCloseGuardRef.current()) return;
     closeWorkspace();
-  }, [bulkBusy, busy, closeWorkspace, draftBusy, mode, pdfBatchActive, pdfPacketContext.busy, selectionPreparing, sessionBusy]);
+  }, [bulkBusy, bulkPreparing, busy, closeWorkspace, draftBusy, mode, pdfBatchActive, pdfPacketContext.busy, selectionPreparing, sessionBusy]);
 
   // The ONE shared success
   // handler replacing the three independent close-on-success calls
@@ -1581,6 +1607,7 @@ function OpenImportWorkspaceSession({
     decisions: Record<string, string>,
   ) => {
     invalidateBulkRequests();
+    setBulkPreparing(false);
     const generation = bulkGenerationRef.current;
     const controller = new AbortController();
     bulkExecuteControllerRef.current = controller;
@@ -1660,6 +1687,30 @@ function OpenImportWorkspaceSession({
     });
   }, [closeWorkspace, invalidateBulkRequests, onImported, projectId]);
 
+  const acceptPreparedImport = useCallback((prepared: PreparedImportFiles) => {
+    if (prepared.kind === 'pdf_import') {
+      setPdfBatchFiles(null);
+      setPdfBatchResumeId(prepared.draft.draft_id);
+      return;
+    }
+    const nextPlan = prepared.plan;
+    const validationError = bulkPlanValidationError(nextPlan);
+    if (validationError) {
+      setBulkPlan(nextPlan);
+      setBulkError(validationError);
+      return;
+    }
+    const decisions = Object.fromEntries(
+      nextPlan.questions.map((question) => [question.id, question.default]),
+    );
+    if (nextPlan.proposed_outputs.length > 0 && nextPlan.questions.length === 0) {
+      executeBulkPlan(nextPlan, decisions);
+      return;
+    }
+    setBulkPlan(nextPlan);
+    setBulkDecisions(decisions);
+  }, [executeBulkPlan]);
+
   const startBulkPlan = useCallback((files: File[], expandArchive: boolean) => {
     if (busy || !files.length) return;
     const expandsArchives = expandArchive || selectionExpandsArchives(files);
@@ -1683,6 +1734,7 @@ function OpenImportWorkspaceSession({
     setBulkFailures([]);
     setBulkFailuresOmitted(0);
     setBulkBusy(true);
+    setBulkPreparing(true);
     void prepareImportFiles(
       projectId,
       files,
@@ -1691,37 +1743,49 @@ function OpenImportWorkspaceSession({
       { signal: controller.signal },
     ).then((prepared) => {
       if (controller.signal.aborted || bulkGenerationRef.current !== generation) return;
-      if (prepared.kind === 'pdf_import') {
-        setPdfBatchFiles(null);
-        setPdfBatchResumeId(prepared.draft.draft_id);
+      if (bulkPrepareDiscardPromptRef.current) {
+        heldPreparedImport.current = prepared;
         return;
       }
-      const nextPlan = prepared.plan;
-      const validationError = bulkPlanValidationError(nextPlan);
-      if (validationError) {
-        setBulkPlan(nextPlan);
-        setBulkError(validationError);
-        return;
-      }
-      const decisions = Object.fromEntries(
-        nextPlan.questions.map((question) => [question.id, question.default]),
-      );
-      if (nextPlan.proposed_outputs.length > 0 && nextPlan.questions.length === 0) {
-        executeBulkPlan(nextPlan, decisions);
-        return;
-      }
-      setBulkPlan(nextPlan);
-      setBulkDecisions(decisions);
+      acceptPreparedImport(prepared);
     }).catch((error: unknown) => {
       if (controller.signal.aborted || bulkGenerationRef.current !== generation) return;
       setBulkError(`Import planning failed: ${error instanceof Error ? error.message : String(error)}`);
     }).finally(() => {
       if (bulkPlanControllerRef.current === controller && bulkGenerationRef.current === generation) {
         bulkPlanControllerRef.current = null;
+        setBulkPreparing(false);
         setBulkBusy(false);
       }
     });
-  }, [busy, executeBulkPlan, invalidateBulkRequests, projectId]);
+  }, [acceptPreparedImport, busy, invalidateBulkRequests, projectId]);
+
+  const keepPreparingImport = () => {
+    bulkPrepareDiscardPromptRef.current = false;
+    setBulkPrepareDiscardPrompt(false);
+    const prepared = heldPreparedImport.current;
+    heldPreparedImport.current = null;
+    if (prepared) acceptPreparedImport(prepared);
+  };
+
+  const discardPreparingImport = async () => {
+    if (bulkPrepareDiscarding) return;
+    const prepared = heldPreparedImport.current;
+    if (!prepared || prepared.kind === 'bulk') {
+      closeWorkspace();
+      return;
+    }
+    setBulkPrepareDiscarding(true);
+    try {
+      await pdfImportsApi.discard(projectId, prepared.draft.draft_id);
+      closeWorkspace();
+    } catch (problem) {
+      const message = problem instanceof Error ? problem.message : String(problem);
+      setBulkError(message);
+      onError(message);
+      setBulkPrepareDiscarding(false);
+    }
+  };
 
   const handlePickedFiles = useCallback((files: File[]) => {
     if (!files.length) return;
@@ -1945,7 +2009,13 @@ function OpenImportWorkspaceSession({
             className="icon-btn"
             aria-label="Close import"
             data-testid="import-workspace-close"
-            disabled={!pdfBatchActive && (selectionPreparing || (busy && !sessionBusy) || bulkBusy || draftBusy || pdfPacketContext.busy)}
+            disabled={!pdfBatchActive && (
+              selectionPreparing
+              || (busy && !sessionBusy)
+              || (bulkBusy && !bulkPreparing)
+              || draftBusy
+              || pdfPacketContext.busy
+            )}
             onClick={closeWorkspaceFromUser}
           >
             <X size={16} />
@@ -2462,6 +2532,17 @@ function OpenImportWorkspaceSession({
           </main>
         </div>
       </section>
+      {bulkPrepareDiscardPrompt && (
+        <DiscardImportConfirm
+          title="Cancel this import?"
+          message="Files won’t be added to the project."
+          confirmLabel="Cancel import"
+          busy={bulkPrepareDiscarding}
+          testId="bulk-prepare-discard-dialog"
+          onKeep={keepPreparingImport}
+          onConfirm={() => void discardPreparingImport()}
+        />
+      )}
     </dialog>
   );
 }
