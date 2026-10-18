@@ -11658,6 +11658,7 @@ type HttpSearchPreparationBatchList_SearchPreparationIndexing = ({
   "job_id"?: (((number)) | ((null)));
   "pdf_files"?: (Array<(HttpSearchPreparationBatchList_SearchPreparationPdfFile)>);
   "pdf_files_truncated"?: (boolean);
+  "sheet_names"?: (Array<(string)>);
   "status": ("idle" | "pending" | "queued" | "running" | "failed") & (string);
 });
 
