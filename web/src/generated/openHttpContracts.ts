@@ -8800,7 +8800,7 @@ type HttpPdfImportBatchOcrEstimateRequest_EngineSelection = ({
 
 export type HttpPdfImportBatchOcrEstimateRequest = ({
   "expected_revision": (number);
-  "ocr_policy": ("missing_or_suspicious" | "all" | "none") & (string);
+  "ocr_policy": ("missing" | "missing_or_suspicious" | "all" | "none") & (string);
   "ocr_selection": (((HttpPdfImportBatchOcrEstimateRequest_EngineSelection)) | ((HttpPdfImportBatchOcrEstimateRequest_EngineModelSelection)));
 });
 
@@ -8844,7 +8844,7 @@ export type HttpPdfImportBatchOcrState = ({
   "ocr_action_params"?: ((({
   [key: string]: JsonValue;
 })) | ((null)));
-  "ocr_policy": ((("missing_or_suspicious" | "all" | "none") & (string)) | ((null)));
+  "ocr_policy": ((("missing" | "missing_or_suspicious" | "all" | "none") & (string)) | ((null)));
   "options"?: ((({
   [key: string]: JsonValue;
 })) | ((null)));
@@ -8880,7 +8880,7 @@ type HttpPdfImportChoicesRequest_PdfImportNewDestination = ({
 export type HttpPdfImportChoicesRequest = ({
   "destination": (((HttpPdfImportChoicesRequest_PdfImportNewDestination)) | ((HttpPdfImportChoicesRequest_PdfImportExistingDestination)));
   "expected_revision": (number);
-  "ocr_policy": ("missing_or_suspicious" | "all" | "none") & (string);
+  "ocr_policy": ("missing" | "missing_or_suspicious" | "all" | "none") & (string);
   "ocr_selection": (((HttpPdfImportChoicesRequest_EngineSelection)) | ((HttpPdfImportChoicesRequest_EngineModelSelection)));
   "semantic_search": (boolean);
   "semantic_setup_confirmation": (((string)) | ((null)));
@@ -8968,7 +8968,7 @@ type HttpPdfImportListResponse_PdfImportBatchOcrState = ({
   "ocr_action_params"?: ((({
   [key: string]: JsonValue;
 })) | ((null)));
-  "ocr_policy": ((("missing_or_suspicious" | "all" | "none") & (string)) | ((null)));
+  "ocr_policy": ((("missing" | "missing_or_suspicious" | "all" | "none") & (string)) | ((null)));
   "options"?: ((({
   [key: string]: JsonValue;
 })) | ((null)));
@@ -8992,7 +8992,7 @@ type HttpPdfImportListResponse_PdfImportCategoryCounts = ({
 
 type HttpPdfImportListResponse_PdfImportChoices = ({
   "destination": (((HttpPdfImportListResponse_PdfImportNewDestination)) | ((HttpPdfImportListResponse_PdfImportExistingDestination)));
-  "ocr_policy": ("missing_or_suspicious" | "all" | "none") & (string);
+  "ocr_policy": ("missing" | "missing_or_suspicious" | "all" | "none") & (string);
   "ocr_selection": (((HttpPdfImportListResponse_EngineSelection)) | ((HttpPdfImportListResponse_EngineModelSelection)));
   "semantic_search": (boolean);
   "semantic_setup_confirmation": (((string)) | ((null)));
@@ -9241,6 +9241,11 @@ export type HttpPdfImportReselectResponse = ({
   "schema_version": ("frisket.pdf_import.v1") & (string);
 });
 
+type HttpPdfImportSamplesResponse_PdfImportExtensionCount = ({
+  "count": (number);
+  "extension": (string);
+});
+
 type HttpPdfImportSamplesResponse_PdfImportSample = ({
   "analysis_state": ("pending" | "done" | "error") & (string);
   "category": ("text" | "suspicious" | "missing" | "image" | "other" | "unreadable" | "unchecked") & (string);
@@ -9257,9 +9262,11 @@ type HttpPdfImportSamplesResponse_PdfImportSample = ({
 export type HttpPdfImportSamplesResponse = ({
   "category": ("text" | "suspicious" | "missing" | "image" | "other" | "unreadable" | "unchecked") & (string);
   "draft_id": (string);
+  "extension_counts": (Array<(HttpPdfImportSamplesResponse_PdfImportExtensionCount)>);
   "items": (Array<(HttpPdfImportSamplesResponse_PdfImportSample)>);
   "next_cursor": (((string)) | ((null)));
   "schema_version": ("frisket.pdf_import.v1") & (string);
+  "unlisted_extension_count": (number);
 });
 
 type HttpPdfImportStatus_ActionEstimate = ({
@@ -9318,7 +9325,7 @@ type HttpPdfImportStatus_PdfImportBatchOcrState = ({
   "ocr_action_params"?: ((({
   [key: string]: JsonValue;
 })) | ((null)));
-  "ocr_policy": ((("missing_or_suspicious" | "all" | "none") & (string)) | ((null)));
+  "ocr_policy": ((("missing" | "missing_or_suspicious" | "all" | "none") & (string)) | ((null)));
   "options"?: ((({
   [key: string]: JsonValue;
 })) | ((null)));
@@ -9342,7 +9349,7 @@ type HttpPdfImportStatus_PdfImportCategoryCounts = ({
 
 type HttpPdfImportStatus_PdfImportChoices = ({
   "destination": (((HttpPdfImportStatus_PdfImportNewDestination)) | ((HttpPdfImportStatus_PdfImportExistingDestination)));
-  "ocr_policy": ("missing_or_suspicious" | "all" | "none") & (string);
+  "ocr_policy": ("missing" | "missing_or_suspicious" | "all" | "none") & (string);
   "ocr_selection": (((HttpPdfImportStatus_EngineSelection)) | ((HttpPdfImportStatus_EngineModelSelection)));
   "semantic_search": (boolean);
   "semantic_setup_confirmation": (((string)) | ((null)));
