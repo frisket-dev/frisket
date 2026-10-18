@@ -5100,16 +5100,11 @@ li.panel-empty { list-style: none; }
   min-width: 340px;
   width: min(520px, calc(100vw - var(--sidebar-width) - 24px));
 }
-.pending-ai-cells {
-  color: var(--ai);
-  font-size: 11px;
-  font-weight: 650;
-}
 .active-run-banner .activity-progress-card-body {
   padding: 10px 16px 2px;
 }
 .active-run-banner .activity-progress-card-footer {
-  justify-content: space-between;
+  justify-content: flex-end;
 }
 .search-preparation-body {
   display: grid;

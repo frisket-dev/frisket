@@ -55,21 +55,6 @@ function activeStatusCopy(run: RunProgress): string {
   }
 }
 
-function pendingRunCopy(run: RunProgress): string {
-  switch (run.status) {
-    case 'queued':
-      return 'pending in worker queue';
-    case 'stalled':
-      return 'waiting for worker progress';
-    case 'orphaned':
-      return 'waiting on run recovery';
-    case 'running':
-      return 'filling pending AI cells';
-    default:
-      return 'run status updated';
-  }
-}
-
 function compactStatusCopy(run: RunProgress): string {
   if (run.cancelRequested && isActiveRunStatus(run.status)) return `Stopping… · ${rowsProgress(run)}`;
   if (isActiveRunStatus(run.status)) return `${run.status} · ${rowsProgress(run)}`;
@@ -116,20 +101,15 @@ export function ActionProgressNotice({
       testId="active-run-banner"
       className={`active-run-banner run-status-${run.status}`}
       footer={(
-        <>
-          {!run.cancelRequested && <span className="pending-ai-cells" data-testid="pending-ai-cells">
-            {pendingRunCopy(run)}
-          </span>}
-          <button
-            type="button"
-            className="mini-btn run-cancel"
-            data-testid="active-run-cancel"
-            disabled={run.cancelRequested}
-            onClick={() => onCancel(run.runId)}
-          >
-            <Square size={11} /> {run.cancelRequested ? 'Stopping…' : 'Cancel run'}
-          </button>
-        </>
+        <button
+          type="button"
+          className="mini-btn run-cancel"
+          data-testid="active-run-cancel"
+          disabled={run.cancelRequested}
+          onClick={() => onCancel(run.runId)}
+        >
+          <Square size={11} /> {run.cancelRequested ? 'Stopping…' : 'Cancel run'}
+        </button>
       )}
     >
       <ActiveRunWatcher run={run} />

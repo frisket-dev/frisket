@@ -159,12 +159,21 @@ export function ModelPullProgress({
         : 'warning';
   const canCancel = active && !readOnly;
   const canUninstall = pull.status === 'done' && !readOnly && pull.capabilities.remove;
+  const cardDetail = pull.status === 'failed'
+    ? 'Download failed'
+    : pull.status === 'cancelled'
+      ? 'Download cancelled'
+      : pull.status === 'done'
+        ? 'Download complete'
+        : pull.status === 'uninstalled'
+          ? 'Model uninstalled'
+          : pull.phase || undefined;
 
   return (
     <ActivityProgressCard
       state={presentationState}
       title={pull.display_name}
-      detail={pull.phase || undefined}
+      detail={cardDetail}
       className="model-pull-progress"
       testId="model-pull-progress"
       dataStatus={pull.status}
@@ -221,8 +230,13 @@ export function ModelPullProgress({
         </p>
       )}
       {pull.status === 'failed' && pull.error && (
-        <p className="model-pull-progress-error" data-testid="model-pull-error">
-          {pull.error.code}: {pull.error.message}
+        <p
+          className="model-pull-progress-error"
+          data-testid="model-pull-error"
+          data-error-code={pull.error.code ?? undefined}
+          title={pull.error.code ?? undefined}
+        >
+          {pull.error.message}
         </p>
       )}
       {pull.status === 'done' && (

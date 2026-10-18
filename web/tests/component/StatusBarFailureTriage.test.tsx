@@ -182,6 +182,7 @@ describe('StatusBar queued-run feedback', () => {
     renderBar(finishedRun({ status: 'running', failedRows: 0, rowErrors: undefined }), { onCancelRun });
     const toastCancel = within(screen.getByTestId('active-run-banner')).getByRole('button', { name: 'Cancel run' });
     expect(toastCancel).toBeEnabled();
+    expect(screen.getByTestId('active-run-banner')).not.toHaveTextContent('filling pending AI cells');
     fireEvent.click(toastCancel);
     fireEvent.click(screen.getByTestId('run-cancel-button'));
     expect(onCancelRun.mock.calls).toEqual([['run-9'], ['run-9']]);
@@ -204,7 +205,6 @@ describe('StatusBar queued-run feedback', () => {
     }), { onCancelRun });
     const banner = screen.getByTestId('active-run-banner');
     expect(banner).toHaveTextContent('Stopping…');
-    expect(within(banner).queryByTestId('pending-ai-cells')).not.toBeInTheDocument();
     expect(screen.getByTestId('run-watcher-toggle')).toHaveTextContent('Stopping…');
     const toastCancel = within(banner).getByRole('button', { name: 'Stopping…' });
     const footerCancel = screen.getByTestId('run-cancel-button');
