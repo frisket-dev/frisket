@@ -96,12 +96,16 @@ class PdfImportPreparationStore:
         if state is None:
             counts = self.db.execute(
                 "SELECT "
-                "SUM(CASE WHEN category='unreadable' OR (ocr_selected=0 "
-                "AND category NOT IN ('missing','unchecked')) "
+                "SUM(CASE WHEN mime='application/pdf' AND "
+                "(category='unreadable' OR (ocr_selected=0 "
+                "AND category NOT IN ('missing','unchecked'))) "
                 "THEN 1 ELSE 0 END) AS native_total,"
                 "SUM(CASE WHEN ocr_selected=1 AND category!='unreadable' "
+                "AND (mime='application/pdf' OR mime LIKE 'image/%') "
                 "THEN 1 ELSE 0 END) AS ocr_total,"
-                "SUM(CASE WHEN category='unreadable' THEN 1 ELSE 0 END) "
+                "SUM(CASE WHEN (mime='application/pdf' OR mime LIKE 'image/%') "
+                "AND category='unreadable' "
+                "THEN 1 ELSE 0 END) "
                 "AS unreadable_total FROM pdf_commit_occurrences"
             ).fetchone()
             self.db.execute(
@@ -118,13 +122,18 @@ class PdfImportPreparationStore:
             "CREATE TRIGGER IF NOT EXISTS pdf_commit_preparation_occurrence_insert "
             "AFTER INSERT ON pdf_commit_occurrences BEGIN "
             "UPDATE pdf_commit_preparation SET "
-            "native_total=native_total + CASE WHEN NEW.category='unreadable' "
-            "OR (NEW.ocr_selected=0 AND NEW.category NOT IN "
-            "('missing','unchecked')) THEN 1 ELSE 0 END,"
+            "native_total=native_total + CASE WHEN NEW.mime='application/pdf' "
+            "AND (NEW.category='unreadable' OR (NEW.ocr_selected=0 "
+            "AND NEW.category NOT IN ('missing','unchecked'))) "
+            "THEN 1 ELSE 0 END,"
             "ocr_total=ocr_total + CASE WHEN NEW.ocr_selected=1 "
-            "AND NEW.category!='unreadable' THEN 1 ELSE 0 END,"
+            "AND NEW.category!='unreadable' AND "
+            "(NEW.mime='application/pdf' OR NEW.mime LIKE 'image/%') "
+            "THEN 1 ELSE 0 END,"
             "unreadable_total=unreadable_total + CASE "
-            "WHEN NEW.category='unreadable' THEN 1 ELSE 0 END WHERE singleton=1; "
+            "WHEN (NEW.mime='application/pdf' OR NEW.mime LIKE 'image/%') "
+            "AND NEW.category='unreadable' "
+            "THEN 1 ELSE 0 END WHERE singleton=1; "
             "END"
         )
         self.db.execute(
@@ -178,7 +187,7 @@ class PdfImportPreparationStore:
             else json.loads(str(state["pending_confirmation_json"]))
         )
         metadata = self.db.execute(
-            "SELECT ordinal,occurrence_id,selected_ordinal,category,error,"
+            "SELECT ordinal,occurrence_id,selected_ordinal,category,mime,error,"
             "sha256,page_count,ocr_selected "
             "FROM pdf_commit_occurrences WHERE ordinal>? AND ordinal<=? "
             "ORDER BY ordinal LIMIT ?",
@@ -204,6 +213,7 @@ class PdfImportPreparationStore:
                 "occurrence_id": str(item["occurrence_id"]),
                 "selected_ordinal": int(item["selected_ordinal"]),
                 "category": str(item["category"]),
+                "mime": str(item["mime"]),
                 "error": str(item["error"]) if item["error"] else None,
                 "sha256": str(item["sha256"]) if item["sha256"] else None,
                 "page_count": (
@@ -270,14 +280,18 @@ class PdfImportPreparationStore:
     ) -> Mapping[str, Any] | None:
         total = self.db.execute(
             "SELECT COUNT(*) AS count FROM pdf_commit_occurrences "
-            "WHERE category='unreadable' AND error IS NOT NULL AND error<>''"
+            "WHERE (mime='application/pdf' OR mime LIKE 'image/%') "
+            "AND category='unreadable' "
+            "AND error IS NOT NULL AND error<>''"
         ).fetchone()
         if total is None or int(total["count"]) == 0:
             return None
         groups = []
         for group in self.db.execute(
             "SELECT error,COUNT(*) AS count FROM pdf_commit_occurrences "
-            "WHERE category='unreadable' AND error IS NOT NULL AND error<>'' "
+            "WHERE (mime='application/pdf' OR mime LIKE 'image/%') "
+            "AND category='unreadable' "
+            "AND error IS NOT NULL AND error<>'' "
             "GROUP BY error ORDER BY count DESC,error LIMIT 10"
         ).fetchall():
             rows = self.db.execute(
@@ -552,7 +566,7 @@ class PdfImportPreparationCoordinator:
         ocr_action_params: Mapping[str, Any],
         on_started: Callable[[str, str, int, Mapping[str, Any]], None] | None = None,
     ) -> tuple[dict[str, Any], ...]:
-        if ocr_policy not in {"missing_or_suspicious", "all", "none"}:
+        if ocr_policy not in {"missing", "missing_or_suspicious", "all", "none"}:
             raise ValueError("invalid reviewed PDF OCR policy")
         if not import_receipt_id:
             raise ValueError("reviewed PDF text authority is incomplete")
@@ -579,16 +593,23 @@ class PdfImportPreparationCoordinator:
         native_rows = sorted(
             int(item["row_id"])
             for item in rows
-            if str(item.get("category")) == "unreadable"
-            or (
-                not bool(item.get("ocr_selected"))
-                and str(item.get("category")) not in {"missing", "unchecked"}
+            if str(item.get("mime")) == "application/pdf"
+            and (
+                str(item.get("category")) == "unreadable"
+                or (
+                    not bool(item.get("ocr_selected"))
+                    and str(item.get("category")) not in {"missing", "unchecked"}
+                )
             )
         )
         ocr_rows = sorted(
             int(item["row_id"])
             for item in rows
-            if bool(item.get("ocr_selected"))
+            if (
+                str(item.get("mime")) == "application/pdf"
+                or str(item.get("mime")).startswith("image/")
+            )
+            and bool(item.get("ocr_selected"))
             and pdf_ocr_selected(ocr_policy, str(item.get("category")))
         )
         responses: list[dict[str, Any]] = []
@@ -731,7 +752,11 @@ class PdfImportPreparationCoordinator:
         ocr_rows = tuple(
             row
             for row in rows
-            if bool(row.get("ocr_selected"))
+            if (
+                str(row.get("mime")) == "application/pdf"
+                or str(row.get("mime")).startswith("image/")
+            )
+            and bool(row.get("ocr_selected"))
             and pdf_ocr_selected(ocr_policy, str(row.get("category")))
         )
         if not ocr_rows:
@@ -769,6 +794,7 @@ class PdfImportPreparationCoordinator:
                 row_id = int(row["row_id"])
                 sha256 = str(row["sha256"])
                 page_count = int(row["page_count"])
+                mime = str(row["mime"])
             except (KeyError, TypeError, ValueError) as exc:
                 raise ValueError(
                     "paid PDF OCR occurrence facts are incomplete"
@@ -787,9 +813,15 @@ class PdfImportPreparationCoordinator:
                 "sha256:"
             ):
                 raise ValueError("paid PDF OCR source bytes changed after approval")
-            probe = blobs.probe_metadata(source.blob_hash)
-            if probe.get("pages") != page_count:
+            if source.mime_type != mime:
+                raise ValueError("paid PDF OCR source MIME changed after approval")
+            if (
+                mime == "application/pdf"
+                and blobs.probe_metadata(source.blob_hash).get("pages") != page_count
+            ):
                 raise ValueError("paid PDF OCR page count changed after approval")
+            if mime.startswith("image/") and page_count != 1:
+                raise ValueError("paid PDF OCR image quantity changed after approval")
             fact = {
                 "commit_ordinal": ordinal,
                 "selected_ordinal": selected_ordinal,
@@ -797,6 +829,7 @@ class PdfImportPreparationCoordinator:
                 "sha256": sha256,
                 "page_count": page_count,
                 "category": str(row["category"]),
+                "mime": mime,
             }
             digest.update(
                 json.dumps(fact, sort_keys=True, separators=(",", ":")).encode()

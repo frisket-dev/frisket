@@ -54,6 +54,7 @@ class _Occurrence:
     path: Path | None
     page_count: int | None
     category: str
+    mime: str = "application/pdf"
     error: str | None = None
     matched: bool = False
     ocr_selected: bool = False
@@ -113,7 +114,7 @@ class _Intake:
                 ready.append(
                     {
                         "logical_path": item.logical_path,
-                        "mime": "application/pdf",
+                        "mime": item.mime,
                         "sha256": item.sha256,
                         "size": item.size,
                         "kind": "files",
@@ -149,7 +150,7 @@ class _Intake:
                 "CREATE TABLE IF NOT EXISTS pdf_commit_occurrences ("
                 "ordinal INTEGER PRIMARY KEY,occurrence_id TEXT NOT NULL,"
                 "selected_ordinal INTEGER NOT NULL,category TEXT NOT NULL,"
-                "error TEXT,sha256 TEXT,page_count INTEGER,"
+                "mime TEXT NOT NULL,error TEXT,sha256 TEXT,page_count INTEGER,"
                 "ocr_selected INTEGER NOT NULL)"
             )
             after = inventory.through
@@ -162,7 +163,7 @@ class _Intake:
                 ready.append(
                     {
                         "logical_path": item.logical_path,
-                        "mime": "application/pdf",
+                        "mime": item.mime,
                         "sha256": item.sha256,
                         "size": item.size,
                         "kind": "files",
@@ -173,14 +174,15 @@ class _Intake:
                 first, _last = inventory.append(ready)
                 inventory._db.executemany(
                     "INSERT OR IGNORE INTO pdf_commit_occurrences "
-                    "(ordinal,occurrence_id,selected_ordinal,category,error,sha256,"
-                    "page_count,ocr_selected) VALUES (?,?,?,?,?,?,?,?)",
+                    "(ordinal,occurrence_id,selected_ordinal,category,mime,error,"
+                    "sha256,page_count,ocr_selected) VALUES (?,?,?,?,?,?,?,?,?)",
                     [
                         (
                             first + offset,
                             item.occurrence_id,
                             item.ordinal,
                             item.category,
+                            item.mime,
                             item.error,
                             item.sha256,
                             item.page_count,
@@ -225,10 +227,18 @@ class _FailedPromotionIntake(_Intake):
         )
 
 
-def _staged(root: Path, ordinal: int, name: str, *, category: str) -> _Occurrence:
-    payload = f"PDF {ordinal}".encode()
+def _staged(
+    root: Path,
+    ordinal: int,
+    name: str,
+    *,
+    category: str,
+    mime: str = "application/pdf",
+    page_count: int | None = 1,
+) -> _Occurrence:
+    payload = f"file {ordinal}".encode()
     digest = hashlib.sha256(payload).hexdigest()
-    path = root / f"{ordinal}.pdf"
+    path = root / f"{ordinal}-{Path(name).name}"
     path.write_bytes(payload)
     return _Occurrence(
         ordinal=ordinal,
@@ -238,8 +248,9 @@ def _staged(root: Path, ordinal: int, name: str, *, category: str) -> _Occurrenc
         size=len(payload),
         sha256=digest,
         path=path,
-        page_count=1,
+        page_count=page_count,
         category=category,
+        mime=mime,
     )
 
 
@@ -554,6 +565,24 @@ class _BusyThenReadyActions(_ActionRuns):
         )
 
 
+class _CompletedActions(_ActionRuns):
+    def run_action(
+        self,
+        _project_id: str,
+        body: dict[str, Any],
+        *,
+        background_priority: str | None = None,
+        trusted_consent_principal: str | None = None,
+    ):
+        self.bodies.append(body)
+        self.priorities.append(background_priority)
+        assert trusted_consent_principal is None
+        return ActionRunResponse(
+            status_code=200,
+            payload={"status": "completed", "receipt_id": f"done-{len(self.bodies)}"},
+        )
+
+
 class _PaidActions:
     def __init__(self, *, refuse: bool = False) -> None:
         self.refuse = refuse
@@ -609,6 +638,7 @@ def _paid_grant(frozen: _Frozen, occurrences: list[_Occurrence]) -> PdfImportOcr
                     "sha256": occurrence.sha256,
                     "page_count": occurrence.page_count,
                     "category": occurrence.category,
+                    "mime": occurrence.mime,
                 },
                 sort_keys=True,
                 separators=(",", ":"),
@@ -700,6 +730,8 @@ def test_reviewed_text_handoff_uses_one_designated_column_and_action_authority(
             {"filename": "native.pdf"},
             {"filename": "scan.pdf"},
             {"filename": "broken.pdf"},
+            {"filename": "photo.png"},
+            {"filename": "notes.txt"},
         ],
         {str(c["name"]): int(c["id"]) for c in project.columns(sheet_id)},
     )
@@ -715,20 +747,37 @@ def test_reviewed_text_handoff_uses_one_designated_column_and_action_authority(
                 "row_id": rows[0],
                 "occurrence_id": "native",
                 "category": "text",
+                "mime": "application/pdf",
                 "ocr_selected": False,
             },
             {
                 "row_id": rows[1],
                 "occurrence_id": "scan",
                 "category": "missing",
+                "mime": "application/pdf",
                 "ocr_selected": True,
             },
             {
                 "row_id": rows[2],
                 "occurrence_id": "broken",
                 "category": "unreadable",
+                "mime": "application/pdf",
                 "error": "PDF xref could not be read",
                 "ocr_selected": True,
+            },
+            {
+                "row_id": rows[3],
+                "occurrence_id": "photo",
+                "category": "image",
+                "mime": "image/png",
+                "ocr_selected": True,
+            },
+            {
+                "row_id": rows[4],
+                "occurrence_id": "notes",
+                "category": "other",
+                "mime": "text/plain",
+                "ocr_selected": False,
             },
         ],
         ocr_policy="missing_or_suspicious",
@@ -741,7 +790,7 @@ def test_reviewed_text_handoff_uses_one_designated_column_and_action_authority(
         "media.ocr",
     ]
     assert actions.bodies[0]["scope"]["row_ids"] == [rows[0], rows[2]]
-    assert actions.bodies[1]["scope"]["row_ids"] == [rows[1]]
+    assert actions.bodies[1]["scope"]["row_ids"] == [rows[1], rows[3]]
     assert actions.bodies[1]["params"]["engine"] == "rapidocr"
     assert actions.bodies[1]["params"]["model"] == "document-v2"
     assert actions.priorities == [None, "pdf_import_ocr"]
@@ -798,6 +847,7 @@ def test_reviewed_native_text_child_keeps_queued_identity_through_real_worker(
                 "ordinal": 1,
                 "occurrence_id": "native",
                 "category": "text",
+                "mime": "application/pdf",
                 "ocr_selected": False,
             }
         ],
@@ -979,6 +1029,134 @@ def test_mixed_native_and_ocr_page_serializes_on_shared_text_claim(
     ]
 
 
+def test_mixed_pdf_image_and_other_files_finish_through_import_worker(
+    tmp_path: Path,
+) -> None:
+    workspace, project_id = _workspace(tmp_path)
+    project = workspace.get(project_id)
+    draft = tmp_path / "draft-mixed-files"
+    draft.mkdir()
+    native = replace(
+        _staged(draft, 1, "native.pdf", category="text"),
+        size=40 * 1024 * 1024,
+    )
+    scan = replace(
+        _staged(draft, 2, "scan.pdf", category="missing"),
+        size=40 * 1024 * 1024,
+        ocr_selected=True,
+    )
+    image = replace(
+        _staged(
+            draft,
+            3,
+            "photo.png",
+            category="image",
+            mime="image/png",
+        ),
+        ocr_selected=True,
+    )
+    notes = _staged(
+        draft,
+        4,
+        "notes.txt",
+        category="other",
+        mime="text/plain",
+        page_count=None,
+    )
+    frozen = _Frozen(
+        commit_id="pdf-commit-mixed-files",
+        draft_id="draft-mixed-files",
+        project_id=project_id,
+        storage_identity=project.storage_identity,
+        idempotency_key="commit-mixed-files",
+        selected_through=4,
+        selected_total=4,
+        staged_through=4,
+        manifest_hash="sha256:frozen-mixed-files",
+        destination={"kind": "new", "sheet_name": "Mixed files"},
+        ocr_policy="missing",
+        ocr_engine="rapidocr",
+        ocr_action_params={"engine": "rapidocr"},
+        ocr_authorization=None,
+        semantic_search=False,
+        semantic_setup_confirmation=None,
+        directory=draft,
+        commit_inventory_path=draft / "commit-inventory.db",
+        committed_total=4,
+        available_through=0,
+        uploads_complete=False,
+        sealed=False,
+        occurrences=[native, scan, image, notes],
+    )
+    queued: list[tuple[Any, ...]] = []
+    actions = _CompletedActions()
+    preparation = SearchPreparationService(workspace, action_runs=actions)
+    result = PdfImportCommitService(
+        workspace,
+        intake=_Intake(frozen),
+        text_preparation=preparation,
+        enqueue=lambda *args: queued.append(args),
+    ).commit(
+        project_id,
+        frozen.draft_id,
+        idempotency_key=frozen.idempotency_key,
+        expected_revision=1,
+    )
+
+    assert result.committed_rows == 1
+    registry = HandlerRegistry()
+    register_import_files_handler(
+        registry,
+        workspace_root=workspace.root,
+        queue=workspace.queue,
+    )
+    workspace.queue.enqueue(
+        IMPORT_FILES_PAGE_KIND,
+        {
+            "project_id": project_id,
+            "workspace_root": str(workspace.root),
+            "import_ref": result.import_ref,
+            "through": queued[0][2],
+            "sealed": queued[0][3],
+            "dedupe_key": f"test:{result.import_ref}",
+        },
+    )
+    assert Worker(workspace.queue, registry, worker_id="mixed-import-worker").run_once()
+    preparation.recover()
+
+    row_ids = project.visible_row_ids(result.sheet_id)
+    media_column = next(
+        column
+        for column in project.columns(result.sheet_id)
+        if str(column["name"]) == "media"
+    )
+    media = project.get_values(result.sheet_id, int(media_column["id"]), row_ids)
+    assert [media[row_id]["mime"] for row_id in row_ids] == [
+        "application/pdf",
+        "application/pdf",
+        "image/png",
+        "text/plain",
+    ]
+    assert [media[row_id]["blob"] for row_id in row_ids] == [
+        occurrence.sha256 for occurrence in (native, scan, image, notes)
+    ]
+    assert [project.read_blob(media[row_id]["blob"]) for row_id in row_ids] == [
+        occurrence.path.read_bytes()
+        for occurrence in (native, scan, image, notes)
+        if occurrence.path is not None
+    ]
+    assert [body["action_id"] for body in actions.bodies] == [
+        "media.read_pdf_text",
+        "media.ocr",
+    ]
+    assert actions.bodies[0]["scope"]["row_ids"] == [row_ids[0]]
+    assert actions.bodies[1]["scope"]["row_ids"] == [row_ids[1], row_ids[2]]
+    summary = preparation.pdf_import_summary(project_id, result.import_ref)
+    assert summary.native_total == summary.native_completed == 1
+    assert summary.ocr_total == summary.ocr_completed == 2
+    assert summary.row_error_summary is None
+
+
 def test_stop_completed_import_keeps_rows_and_terminates_pending_preparation(
     tmp_path: Path,
 ) -> None:
@@ -1131,7 +1309,16 @@ def test_paid_parent_grant_admits_exact_ordinary_child_once(
     payload = b"%PDF-paid-child"
     digest = project.add_blob(payload, filename="scan.pdf", mime="application/pdf")
     MediaBlobStore(project).replace_probe_metadata(digest, {"kind": "pdf", "pages": 2})
-    row_id = project.add_rows(
+    image_payload = (
+        Path(__file__).parents[1] / "fixtures/face_detection/astronaut.png"
+    ).read_bytes()
+    image_digest = project.add_blob(
+        image_payload, filename="photo.png", mime="image/png"
+    )
+    notes_digest = project.add_blob(
+        b"keep this attachment", filename="notes.txt", mime="text/plain"
+    )
+    row_id, image_row_id, notes_row_id = project.add_rows(
         sheet_id,
         [
             {
@@ -1140,38 +1327,67 @@ def test_paid_parent_grant_admits_exact_ordinary_child_once(
                     "filename": "scan.pdf",
                     "mime": "application/pdf",
                 }
-            }
+            },
+            {
+                "media": {
+                    "blob": image_digest,
+                    "filename": "photo.png",
+                    "mime": "image/png",
+                }
+            },
+            {
+                "media": {
+                    "blob": notes_digest,
+                    "filename": "notes.txt",
+                    "mime": "text/plain",
+                }
+            },
         ],
         {"media": media_id},
-    )[0]
-    occurrence = {
-        "commit_ordinal": 1,
-        "selected_ordinal": 1,
-        "occurrence_id": "paid-scan",
-        "sha256": digest,
-        "page_count": 2,
-        "category": "missing",
-    }
+    )
+    occurrences = [
+        {
+            "commit_ordinal": 1,
+            "selected_ordinal": 1,
+            "occurrence_id": "paid-scan",
+            "sha256": digest,
+            "page_count": 2,
+            "category": "missing",
+            "mime": "application/pdf",
+        },
+        {
+            "commit_ordinal": 2,
+            "selected_ordinal": 2,
+            "occurrence_id": "paid-image",
+            "sha256": image_digest,
+            "page_count": 1,
+            "category": "image",
+            "mime": "image/png",
+        },
+    ]
     roster = hashlib.sha256(
-        (json.dumps(occurrence, sort_keys=True, separators=(",", ":")) + "\n").encode()
+        "".join(
+            json.dumps(occurrence, sort_keys=True, separators=(",", ":")) + "\n"
+            for occurrence in occurrences
+        ).encode()
     ).hexdigest()
     partitions = [
         {
-            "child_key": "commit-ordinals:1-1",
+            "child_key": "commit-ordinals:1-3",
             "commit_ordinal_start": 1,
-            "commit_ordinal_end": 1,
-            "source_count": 1,
-            "page_count": 2,
+            "commit_ordinal_end": 3,
+            "source_count": 2,
+            "page_count": 3,
             "roster_digest": roster,
-            "row_pages": {"1": 2},
+            "row_pages": {"1": 2, "2": 1},
         }
     ]
     action_params = {"engine": "anthropic/claude-haiku-4-5"}
     grant = PdfImportOcrApprovalQuoter(workspace).quote(
         project_id,
         {
-            "selected_count": 1,
-            "known_pages": 2,
+            "selected_count": 2,
+            "known_pages": 3,
             "ocr_action_params": action_params,
             "manifest_hash": "a" * 64,
             "storage_identity": project.storage_identity,
@@ -1193,10 +1409,33 @@ def test_paid_parent_grant_admits_exact_ordinary_child_once(
             "row_id": row_id,
             "occurrence_id": "paid-scan",
             "category": "missing",
+            "mime": "application/pdf",
             "sha256": digest,
             "page_count": 2,
             "ocr_selected": True,
-        }
+        },
+        {
+            "ordinal": 2,
+            "selected_ordinal": 2,
+            "row_id": image_row_id,
+            "occurrence_id": "paid-image",
+            "category": "image",
+            "mime": "image/png",
+            "sha256": image_digest,
+            "page_count": 1,
+            "ocr_selected": True,
+        },
+        {
+            "ordinal": 3,
+            "selected_ordinal": 3,
+            "row_id": notes_row_id,
+            "occurrence_id": "paid-notes",
+            "category": "other",
+            "mime": "text/plain",
+            "sha256": notes_digest,
+            "page_count": None,
+            "ocr_selected": False,
+        },
     ]
     public_attempt = ActionRunService(workspace).run_action(
         project_id,
@@ -1258,12 +1497,16 @@ def test_paid_parent_grant_admits_exact_ordinary_child_once(
             (int(started[0]["run_id"]),),
         ).fetchone()["params"]
     )
+    assert RunResultStore(project).run_row_scope(int(started[0]["run_id"])) == [
+        row_id,
+        image_row_id,
+    ]
     assert "group_label" not in prepared_spec
     assert (
         len(workspace.queue.list_project_jobs(project_id, kind=PROJECT_RUN_KIND)) == 1
     )
 
-    changed = [{**rows[0], "sha256": "0" * 64}]
+    changed = [{**rows[0], "sha256": "0" * 64}, *rows[1:]]
     try:
         preparation.create_from_pdf_import(
             project_id,
@@ -1847,7 +2090,7 @@ def test_partial_preparation_children_are_terminal_for_bounded_activity(
             "CREATE TABLE pdf_commit_occurrences ("
             "ordinal INTEGER PRIMARY KEY,occurrence_id TEXT NOT NULL,"
             "selected_ordinal INTEGER NOT NULL,category TEXT NOT NULL,"
-            "error TEXT,sha256 TEXT,page_count INTEGER,"
+            "mime TEXT NOT NULL,error TEXT,sha256 TEXT,page_count INTEGER,"
             "ocr_selected INTEGER NOT NULL)"
         )
         inventory._db.execute(
@@ -1896,11 +2139,12 @@ def test_terminal_preparation_failure_settles_progress_without_claiming_success(
             "CREATE TABLE pdf_commit_occurrences ("
             "ordinal INTEGER PRIMARY KEY,occurrence_id TEXT NOT NULL,"
             "selected_ordinal INTEGER NOT NULL,category TEXT NOT NULL,"
-            "error TEXT,sha256 TEXT,page_count INTEGER,"
+            "mime TEXT NOT NULL,error TEXT,sha256 TEXT,page_count INTEGER,"
             "ocr_selected INTEGER NOT NULL)"
         )
         inventory._db.execute(
-            "INSERT INTO pdf_commit_occurrences VALUES(1,'one',1,'text',NULL,NULL,1,0)"
+            "INSERT INTO pdf_commit_occurrences "
+            "VALUES(1,'one',1,'text','application/pdf',NULL,NULL,1,0)"
         )
         inventory._db.commit()
     with PdfImportPreparationStore(inventory_path) as store:
