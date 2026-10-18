@@ -347,7 +347,7 @@ def _notice(
     )
     if issues["unreadable_cells"]:
         kind, count = "unreadable_characters", issues["unreadable_cells"]
-    elif width <= 1:
+    elif common_values == 1:
         kind, count = "one_column", None
     elif wrong_width_rows > data_rows / 2:
         kind, count = "mostly_wrong_width", wrong_width_rows

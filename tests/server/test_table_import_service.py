@@ -266,6 +266,41 @@ def test_skipped_preamble_and_footer_do_not_contribute_row_issues(
     assert scanned.preview.notice.kind == "consistent"
 
 
+def test_completed_footer_scan_marks_the_footer_and_reports_exact_data_rows(
+    tmp_path: Path,
+) -> None:
+    _workspace, project_id, service = _service(tmp_path)
+    payload = b"name,value\nAlice,1\nBob,2\nTotal,3\n"
+    created = service.create(project_id, _upload(payload), input_kind="file")
+    assert created.settings is not None
+    requested = created.settings.requested.model_copy(update={"skip_rows_end": 1})
+    changed = service.update_settings(
+        project_id,
+        created.draft_id,
+        expected_revision=created.revision,
+        settings=requested.model_dump(mode="json"),
+    )
+    assert changed.settings is not None
+    assert changed.analysis.complete is False
+
+    scanned = service.scan(
+        project_id,
+        created.draft_id,
+        settings_revision=changed.settings.revision,
+    )
+
+    assert scanned.analysis.complete is True
+    assert scanned.analysis.exact_rows == 2
+    assert scanned.preview is not None
+    assert scanned.preview.complete is True
+    assert [row.role for row in scanned.preview.head] == [
+        "header",
+        "data",
+        "data",
+        "skipped_end",
+    ]
+
+
 def test_exact_scan_blocks_the_deployment_row_limit_before_freeze(
     tmp_path: Path,
 ) -> None:
@@ -907,6 +942,23 @@ def test_width_notice_distinguishes_majority_from_some_rows(
     assert created.preview.notice.kind == expected_kind
     assert created.preview.notice.count == expected_count
     assert created.preview.notice.common_values == common_values
+
+
+def test_one_name_cell_with_mostly_two_value_rows_is_a_majority_mismatch(
+    tmp_path: Path,
+) -> None:
+    _workspace, project_id, service = _service(tmp_path)
+    created = service.create(
+        project_id,
+        _upload(b"title\nAlice,1\nBob,2\nCara,3\n", "title.csv"),
+        input_kind="file",
+    )
+
+    assert created.preview is not None
+    assert created.preview.expected_values == 1
+    assert created.preview.notice.kind == "mostly_wrong_width"
+    assert created.preview.notice.count == 3
+    assert created.preview.notice.common_values == 2
 
 
 @pytest.mark.parametrize("scan_fails", [False, True])
