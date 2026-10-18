@@ -57,6 +57,7 @@ def test_import_session_routes_admit_status_and_enqueue_bounded_pages(tmp_path):
         "skipped_duplicates": 0,
         "problem_count": 0,
         "source_label": None,
+        "can_rerun_workbook": False,
         "source_error_groups": [],
         "preparation_completed": 0,
         "preparation_total": 0,

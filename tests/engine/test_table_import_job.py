@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
@@ -8,16 +9,27 @@ from types import SimpleNamespace
 
 import pytest
 
+import frisket.engine.jobs.import_table as table_job
 from frisket.actions.system import typed_action_for_request
 from frisket.engine.executor.action_jobs import (
     ActionJobEnvelope,
     reserve_typed_action_job,
 )
 from frisket.engine.jobs import HandlerRegistry, SqliteJobQueue, Worker
-from frisket.engine.jobs.import_table import register_import_table_handler
-from frisket.engine.jobs.queue import IMPORT_TABLE_STREAM_KIND
+from frisket.engine.jobs.import_table import (
+    register_import_table_analysis_handler,
+    register_import_table_handler,
+)
+from frisket.engine.jobs.queue import (
+    IMPORT_TABLE_ANALYSIS_KIND,
+    IMPORT_TABLE_STREAM_KIND,
+)
 from frisket.engine.store import Project
-from frisket.engine.store.import_intake import ImportIntakeHeader, import_intake_dir
+from frisket.engine.store.import_intake import (
+    ImportIntakeHeader,
+    import_intake_dir,
+    read_import_header,
+)
 from frisket.engine.store.import_sessions import ImportSessionStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.streaming_import import StreamingSheetWriter
@@ -28,6 +40,7 @@ from frisket.engine.store.table_import_intake import (
     TableImportScan,
     TableImportSource,
     freeze_table_plan,
+    frozen_table_import,
     initialize_table_intake,
     mark_table_committed,
     read_table_settings,
@@ -69,6 +82,7 @@ def _bound(*, rows: list[dict[str, object]]):
                         "source_name": "note",
                         "type": "text",
                     },
+                    {"name": "extra values", "type": "json"},
                 ],
                 "rows": rows,
                 "source": {
@@ -108,15 +122,130 @@ def test_empty_import_rows_can_reserve_for_streaming_but_inline_rows_cannot(
             reserve_typed_action_job(
                 project,
                 PROJECT_ID,
-                _bound(rows=[{"id": "one", "amount": 1, "note": "inline"}]),
+                _bound(
+                    rows=[
+                        {
+                            "id": "one",
+                            "amount": 1,
+                            "note": "inline",
+                            "extra values": None,
+                        }
+                    ]
+                ),
             )
+
+
+def test_table_analysis_runs_on_the_shared_worker_queue(tmp_path: Path) -> None:
+    calls: list[tuple[str, str, int]] = []
+    Project.create(tmp_path / f"{PROJECT_ID}.frisket").close()
+    with closing(SqliteJobQueue(tmp_path / "queue.db")) as queue:
+        registry = HandlerRegistry()
+        register_import_table_analysis_handler(
+            registry,
+            workspace_root=tmp_path,
+            run_analysis=lambda _project, project_id, draft_id, revision: calls.append(
+                (project_id, draft_id, revision)
+            ),
+        )
+        job_id = queue.enqueue(
+            IMPORT_TABLE_ANALYSIS_KIND,
+            {
+                "project_id": PROJECT_ID,
+                "draft_id": IMPORT_REF,
+                "settings_revision": 3,
+            },
+        )
+
+        assert Worker(queue, registry, worker_id="analysis-worker").run_once()
+        job = queue.get(job_id)
+        assert job is not None
+        assert job.status == "done"
+        assert job.result == {
+            "draft_id": IMPORT_REF,
+            "settings_revision": 3,
+        }
+    assert calls == [(PROJECT_ID, IMPORT_REF, 3)]
+
+
+def test_commit_table_binds_bootstraps_and_enqueues_exact_frozen_plan(
+    tmp_path: Path,
+) -> None:
+    project_path = tmp_path / f"{PROJECT_ID}.frisket"
+    data = b"id\none\n"
+    queued: list[tuple[str, str, str]] = []
+    with closing(Project.create(project_path)) as project:
+        directory = import_intake_dir(project.path, IMPORT_REF)
+        directory.mkdir(parents=True)
+        (directory / "source").write_bytes(data)
+        settings = TableReadSettings(kind="delimited", delimiter=",", encoding="utf-8")
+        initialize_table_intake(
+            directory,
+            ImportIntakeHeader(PROJECT_ID, project.storage_identity, {}, max_rows=4),
+            source=TableImportSource(
+                filename="rows.csv",
+                size=len(data),
+                sha256=hashlib.sha256(data).hexdigest(),
+                kind="delimited",
+            ),
+            settings=settings,
+        )
+        frozen = freeze_table_plan(
+            directory,
+            TableImportPlan(
+                settings_revision=0,
+                settings=settings,
+                sheet_name="Imported rows",
+                destination_sheet_id=None,
+                columns=(TableImportColumn(0, "id", "id", "text"),),
+                extra_values_target_name="extra values",
+            ),
+        )
+        settings_hash = read_table_settings(directory)[1]
+        write_table_scan(
+            directory,
+            TableImportScan(0, settings_hash, 1, 1, 1, True),
+            expected_settings_revision=0,
+        )
+        frozen = frozen_table_import(directory)
+        workspace = SimpleNamespace(get=lambda _project_id: project)
+        service = ImportSessionService(
+            workspace,
+            enqueue_table=lambda project_id, ref, plan_hash: queued.append(
+                (project_id, ref, plan_hash)
+            ),
+        )
+
+        with pytest.raises(ValueError, match="row limit"):
+            asyncio.run(service.commit_table(PROJECT_ID, frozen, max_rows=0))
+        assert ImportSessionStore(project).get(IMPORT_REF) is None
+
+        status = asyncio.run(service.commit_table(PROJECT_ID, frozen, max_rows=5))
+
+        assert status.state == "running"
+        assert queued == [(PROJECT_ID, IMPORT_REF, frozen.plan_hash)]
+        header = read_import_header(directory)
+        envelope = ActionJobEnvelope.from_json(header.envelope)
+        assert envelope.action["params"]["columns"][-1] == {
+            "name": "extra values",
+            "type": "json",
+        }
+        assert header.max_rows == 4
+        session = ImportSessionStore(project).get(IMPORT_REF)
+        assert session is not None
+        assert session.receipt_id == envelope.receipt_id
+        source_input = next(
+            item
+            for item in ReceiptStore(project).parsed_by_id(envelope.receipt_id).inputs
+            if item.name == "source"
+        )
+        assert source_input.ref["reviewed_plan"]["columns"][0]["target_name"] == "id"
 
 
 def test_table_worker_streams_real_source_and_publishes_durable_errors(
     tmp_path: Path,
 ) -> None:
     project_path = tmp_path / f"{PROJECT_ID}.frisket"
-    data = b'id,amount,note\na,1,first\nb,N/A,"line one\nline two"\nb,2,last\n'
+    data = b'id,amount,note\na,1,first\nb,N/A,"line one\nline two",overflow\nb,2,last\n'
     with closing(Project.create(project_path)) as project:
         directory = import_intake_dir(project.path, IMPORT_REF)
         directory.mkdir(parents=True)
@@ -151,6 +280,7 @@ def test_table_worker_streams_real_source_and_publishes_durable_errors(
                     TableImportColumn(1, "amount", "amount", "number"),
                     TableImportColumn(2, "note", "note", "text"),
                 ),
+                extra_values_target_name="extra values",
             ),
         )
         envelope = reserve_typed_action_job(project, PROJECT_ID, _bound(rows=[]))
@@ -175,6 +305,7 @@ def test_table_worker_streams_real_source_and_publishes_durable_errors(
                 {"name": "id", "type": "text"},
                 {"name": "amount", "type": "number"},
                 {"name": "note", "type": "text"},
+                {"name": "extra values", "type": "json"},
             ],
             project_id=PROJECT_ID,
             action_kind="import.rows",
@@ -216,8 +347,11 @@ def test_table_worker_streams_real_source_and_publishes_durable_errors(
                 "kind": "import",
                 "import_ref": IMPORT_REF,
             }
-            assert listed["result_summary"]["problems"] == 1
-            assert listed["import_errors"][0]["code"] == "conversion_failed"
+            assert listed["result_summary"]["problems"] == 2
+            assert {item["code"] for item in listed["import_errors"]} == {
+                "conversion_failed",
+                "extra_values",
+            }
 
     with closing(Project(project_path)) as project:
         session = ImportSessionStore(project).get(IMPORT_REF)
@@ -235,6 +369,7 @@ def test_table_worker_streams_real_source_and_publishes_durable_errors(
             "line one\nline two",
             "last",
         ]
+        assert list(values["extra values"].values()) == [None, ["overflow"], None]
         assert (
             ReceiptStore(project).parsed_by_id(envelope.receipt_id).status
             == "completed"
@@ -244,9 +379,13 @@ def test_table_worker_streams_real_source_and_publishes_durable_errors(
     assert (status.phase, status.source_cursor, status.problem_count) == (
         "terminal",
         3,
-        1,
+        2,
     )
-    [group] = table_issue_groups(directory, through=status.source_cursor)
+    group = next(
+        item
+        for item in table_issue_groups(directory, through=status.source_cursor)
+        if item["code"] == "conversion_failed"
+    )
     assert (group["code"], group["count"]) == ("conversion_failed", 1)
     assert group["examples"][0]["original"] == "N/A"
     assert not (directory / "source").exists()
@@ -377,6 +516,68 @@ def test_existing_sheet_dedup_skips_only_snapshot_and_one_undo_keeps_old_rows(
         assert project.visible_row_ids(sheet_id) == [old_row]
 
 
+def test_full_duplicate_page_advances_processed_cursor(tmp_path: Path) -> None:
+    project_path = tmp_path / f"{PROJECT_ID}.frisket"
+    data = b"id\n" + b"existing\n" * 256
+    with closing(Project.create(project_path)) as project:
+        sheet_id = project.add_sheet("Existing")
+        column_id = project.add_column(sheet_id, "id", "text")
+        project.add_rows(sheet_id, [{"id": "existing"}], {"id": column_id})
+        directory = import_intake_dir(project.path, IMPORT_REF)
+        directory.mkdir(parents=True)
+        (directory / "source").write_bytes(data)
+        settings = TableReadSettings(kind="delimited", delimiter=",", encoding="utf-8")
+        initialize_table_intake(
+            directory,
+            ImportIntakeHeader(PROJECT_ID, project.storage_identity, {}),
+            source=TableImportSource(
+                filename="duplicates.csv",
+                size=len(data),
+                sha256=hashlib.sha256(data).hexdigest(),
+                kind="delimited",
+            ),
+            settings=settings,
+        )
+        key = table_dedup_key("existing")
+        assert key is not None
+        dedup_revision = replace_table_dedup_keys(directory, [key], expected_revision=0)
+        frozen = freeze_table_plan(
+            directory,
+            TableImportPlan(
+                settings_revision=0,
+                settings=settings,
+                sheet_name="Existing",
+                destination_sheet_id=sheet_id,
+                columns=(TableImportColumn(0, "id", "id", "text", column_id),),
+                dedup=TableImportDedup(0, column_id, dedup_revision),
+            ),
+        )
+        workspace = SimpleNamespace(get=lambda _project_id: project)
+        asyncio.run(ImportSessionService(workspace).commit_table(PROJECT_ID, frozen))
+
+    with closing(SqliteJobQueue(tmp_path / "queue.db")) as queue:
+        registry = HandlerRegistry()
+        register_import_table_handler(registry, workspace_root=tmp_path, queue=queue)
+        job_id = queue.enqueue(
+            IMPORT_TABLE_STREAM_KIND,
+            {
+                "project_id": PROJECT_ID,
+                "import_ref": IMPORT_REF,
+                "plan_hash": frozen.plan_hash,
+            },
+        )
+        assert Worker(queue, registry, worker_id="duplicate-worker").run_once()
+        assert queue.get(job_id).status == "done"
+
+    with closing(Project(project_path)) as project:
+        status = ImportSessionService(
+            SimpleNamespace(get=lambda _project_id: project)
+        ).status(PROJECT_ID, IMPORT_REF)
+        assert status.processed_rows == 256
+        assert status.committed_rows == 0
+        assert status.skipped_duplicates == 256
+
+
 def test_worker_reopens_source_at_durable_cursor_after_process_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -492,6 +693,88 @@ def test_worker_reopens_source_at_durable_cursor_after_process_failure(
             ).values()
         )
         assert ids == [f"row-{index}" for index in range(300)]
+
+
+def test_terminal_replay_finishes_intake_after_publication_crash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project_path = tmp_path / f"{PROJECT_ID}.frisket"
+    data = b"id\none\n"
+    with closing(Project.create(project_path)) as project:
+        directory = import_intake_dir(project.path, IMPORT_REF)
+        directory.mkdir(parents=True)
+        (directory / "source").write_bytes(data)
+        settings = TableReadSettings(kind="delimited", delimiter=",", encoding="utf-8")
+        initialize_table_intake(
+            directory,
+            ImportIntakeHeader(PROJECT_ID, project.storage_identity, {}),
+            source=TableImportSource(
+                filename="rows.csv",
+                size=len(data),
+                sha256=hashlib.sha256(data).hexdigest(),
+                kind="delimited",
+            ),
+            settings=settings,
+        )
+        frozen = freeze_table_plan(
+            directory,
+            TableImportPlan(
+                settings_revision=0,
+                settings=settings,
+                sheet_name="Imported rows",
+                destination_sheet_id=None,
+                columns=(TableImportColumn(0, "id", "id", "text"),),
+            ),
+        )
+        asyncio.run(
+            ImportSessionService(
+                SimpleNamespace(get=lambda _project_id: project)
+            ).commit_table(PROJECT_ID, frozen)
+        )
+
+    real_finish = table_job.finish_table_intake
+    failed_once = False
+
+    def fail_after_publication(*args, **kwargs):
+        nonlocal failed_once
+        if not failed_once:
+            failed_once = True
+            raise RuntimeError("simulated crash after sheet publication")
+        return real_finish(*args, **kwargs)
+
+    now = [datetime(2026, 1, 1, tzinfo=UTC)]
+    with closing(SqliteJobQueue(tmp_path / "queue.db", clock=lambda: now[0])) as queue:
+        registry = HandlerRegistry()
+        register_import_table_handler(registry, workspace_root=tmp_path, queue=queue)
+        job_id = queue.enqueue(
+            IMPORT_TABLE_STREAM_KIND,
+            {
+                "project_id": PROJECT_ID,
+                "import_ref": IMPORT_REF,
+                "plan_hash": frozen.plan_hash,
+            },
+        )
+        monkeypatch.setattr(table_job, "finish_table_intake", fail_after_publication)
+        assert Worker(queue, registry, worker_id="first-worker").run_once()
+        assert queue.get(job_id).status == "queued"
+        with closing(Project(project_path)) as project:
+            session = ImportSessionStore(project).get(IMPORT_REF)
+            assert session is not None and session.state == "completed"
+            visible = ImportSessionService(
+                SimpleNamespace(queue=queue, get=lambda _project_id: project)
+            ).status(PROJECT_ID, IMPORT_REF)
+            assert visible.error is not None
+            assert visible.error.startswith("table_import_failed:")
+        assert table_import_status(directory).phase == "committed"
+        assert (directory / "source").is_file()
+
+        monkeypatch.setattr(table_job, "finish_table_intake", real_finish)
+        now[0] += timedelta(minutes=1)
+        assert Worker(queue, registry, worker_id="recovery-worker").run_once()
+        assert queue.get(job_id).status == "done"
+
+    assert table_import_status(directory).phase == "terminal"
+    assert not (directory / "source").exists()
 
 
 def test_stop_keeps_committed_table_rows_and_finishes_intake(tmp_path: Path) -> None:

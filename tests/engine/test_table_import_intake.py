@@ -187,11 +187,12 @@ def test_dedup_snapshot_is_exact_text_blank_exempt_and_issues_are_bounded(
         code="invalid_number",
         message="Value was left blank",
         original="N/A" * 2000,
+        count=2,
     )
     assert record_table_issues(directory, [issue, issue]) == 1
     assert table_import_status(directory).problem_count == 0
     [group] = table_issue_groups(directory, through=2)
-    assert group["count"] == 1
+    assert group["count"] == 2
     assert group["examples"][0]["source_ordinal"] == 2
     assert len(group["examples"][0]["original"]) == 4096
     assert table_dedup_key(None) is None

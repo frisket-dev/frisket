@@ -555,6 +555,7 @@ def mark_table_committed(
     expected_plan_hash: str,
     envelope: Mapping[str, Any],
     destination_sheet_id: int | None,
+    max_rows: int | None = None,
 ) -> FrozenTableImport:
     frozen = frozen_table_import(directory)
     state = _TableState.from_json(_read_json(_state_path(directory)))
@@ -568,6 +569,11 @@ def mark_table_committed(
         raise ValueError("table intake cannot be committed")
     if frozen.plan.destination_sheet_id != destination_sheet_id:
         raise ValueError("table commit destination changed")
+    if max_rows is not None and (
+        isinstance(max_rows, bool) or not isinstance(max_rows, int) or max_rows < 0
+    ):
+        raise ValueError("table import max_rows must be non-negative")
+    final_max_rows = header.max_rows if max_rows is None else max_rows
     if header.envelope and header.envelope != final_envelope:
         raise ValueError("table commit action changed")
     if (
@@ -584,12 +590,14 @@ def mark_table_committed(
                 header,
                 envelope=final_envelope,
                 destination_sheet_id=destination_sheet_id,
+                max_rows=final_max_rows,
             ),
         )
         _write_json(_state_path(directory), replace(state, phase="committed").to_json())
     elif (
         header.envelope != final_envelope
         or header.destination_sheet_id != destination_sheet_id
+        or header.max_rows != final_max_rows
     ):
         raise ValueError("table commit replay changed")
     return frozen
@@ -615,8 +623,18 @@ def advance_table_progress(
             source_cursor=source_cursor,
             source_byte_offset=source_byte_offset,
             exact_rows=exact_rows if exact_rows is not None else state.exact_rows,
+            error=None,
         ).to_json(),
     )
+
+
+def record_table_execution_error(directory: Path, error: str) -> None:
+    """Publish one safe retryable execution error without discarding its source."""
+
+    state = _TableState.from_json(_read_json(_state_path(directory)))
+    if state.phase != "committed":
+        return
+    _write_json(_state_path(directory), replace(state, error=error).to_json())
 
 
 def finish_table_intake(
@@ -670,11 +688,16 @@ def _open_table_db(directory: Path) -> sqlite3.Connection:
         "CREATE TABLE IF NOT EXISTS issues ("
         "source_ordinal INTEGER NOT NULL,line_start INTEGER,line_end INTEGER,"
         "column_name TEXT NOT NULL DEFAULT '',code TEXT NOT NULL,message TEXT NOT NULL,"
-        "original TEXT NOT NULL DEFAULT '',"
+        "original TEXT NOT NULL DEFAULT '',count INTEGER NOT NULL DEFAULT 1,"
         "PRIMARY KEY(source_ordinal,column_name,code,original));"
         "CREATE INDEX IF NOT EXISTS ix_table_issues_group "
         "ON issues(message,source_ordinal);"
     )
+    issue_columns = {
+        str(row[1]) for row in db.execute("PRAGMA table_info(issues)").fetchall()
+    }
+    if "count" not in issue_columns:
+        db.execute("ALTER TABLE issues ADD COLUMN count INTEGER NOT NULL DEFAULT 1")
     return db
 
 
@@ -811,6 +834,11 @@ class TableImportIssue:
     code: str
     message: str
     original: str
+    count: int = 1
+
+    def __post_init__(self) -> None:
+        if isinstance(self.count, bool) or self.count < 1:
+            raise ValueError("table issue count must be positive")
 
 
 def record_table_issues(directory: Path, issues: Sequence[TableImportIssue]) -> int:
@@ -820,8 +848,8 @@ def record_table_issues(directory: Path, issues: Sequence[TableImportIssue]) -> 
         before = db.total_changes
         db.executemany(
             "INSERT OR IGNORE INTO issues "
-            "(source_ordinal,line_start,line_end,column_name,code,message,original) "
-            "VALUES(?,?,?,?,?,?,?)",
+            "(source_ordinal,line_start,line_end,column_name,code,message,original,count) "
+            "VALUES(?,?,?,?,?,?,?,?)",
             (
                 (
                     issue.source_ordinal,
@@ -831,6 +859,7 @@ def record_table_issues(directory: Path, issues: Sequence[TableImportIssue]) -> 
                     issue.code,
                     issue.message,
                     issue.original[:4096],
+                    issue.count,
                 )
                 for issue in issues
             ),
@@ -841,10 +870,11 @@ def record_table_issues(directory: Path, issues: Sequence[TableImportIssue]) -> 
 def table_problem_count(directory: Path, *, through: int | None = None) -> int:
     with _open_table_db(directory) as db:
         if through is None:
-            row = db.execute("SELECT COUNT(*) FROM issues").fetchone()
+            row = db.execute("SELECT COALESCE(SUM(count),0) FROM issues").fetchone()
         else:
             row = db.execute(
-                "SELECT COUNT(*) FROM issues WHERE source_ordinal<=?", (through,)
+                "SELECT COALESCE(SUM(count),0) FROM issues WHERE source_ordinal<=?",
+                (through,),
             ).fetchone()
         return int(row[0])
 
@@ -854,7 +884,7 @@ def table_issue_groups(
 ) -> list[dict[str, Any]]:
     with _open_table_db(directory) as db:
         groups = db.execute(
-            "SELECT message,code,COUNT(*) AS count FROM issues "
+            "SELECT message,code,SUM(count) AS count FROM issues "
             "WHERE source_ordinal<=? GROUP BY message,code "
             "ORDER BY count DESC,message LIMIT ?",
             (through, max_groups),
@@ -907,6 +937,7 @@ __all__ = [
     "read_table_scan",
     "read_table_settings",
     "read_table_source",
+    "record_table_execution_error",
     "record_table_issues",
     "replace_table_dedup_keys",
     "replace_table_settings",

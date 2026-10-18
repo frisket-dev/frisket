@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -29,17 +29,20 @@ from frisket.engine.store.table_import_intake import (
     compact_table_intake,
     finish_table_intake,
     frozen_table_import,
+    record_table_execution_error,
     record_table_issues,
     table_dedup_key,
     table_import_status,
 )
 from frisket.project_identity import ProjectStorageKey
+from frisket.redaction import redact_stored_error
 from frisket.table_import import RawCell, TableRow, convert_cell, open_table
 
 from .ports import JobHandlerContext
 from .project_opener import ProjectOpener, open_claimed_project
 from .queue import (
     CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY,
+    IMPORT_TABLE_ANALYSIS_KIND,
     IMPORT_TABLE_STREAM_KIND,
     JobQueue,
     claimed_project_location,
@@ -50,6 +53,8 @@ from .worker import HandlerRegistration, HandlerRegistry
 LOG = logging.getLogger(__name__)
 _PAGE_ROWS = 256
 _PAGE_BYTES = 4 * 1024 * 1024
+
+TableAnalysisRunner = Callable[[Any, str, str, int], object]
 
 
 @dataclass(frozen=True)
@@ -64,6 +69,12 @@ def table_import_dedupe_key(project_id: str, import_ref: str, plan_hash: str) ->
     return f"import-table:{project_id}:{import_ref}:{plan_hash}"
 
 
+def table_analysis_dedupe_key(
+    project_id: str, draft_id: str, settings_revision: int
+) -> str:
+    return f"table-analysis:{project_id}:{draft_id}:{settings_revision}"
+
+
 def _issue(
     row: TableRow,
     *,
@@ -72,6 +83,7 @@ def _issue(
     code: str,
     message: str,
     original: str,
+    count: int = 1,
 ) -> TableImportIssue:
     return TableImportIssue(
         source_ordinal=source_cursor,
@@ -81,6 +93,7 @@ def _issue(
         code=code,
         message=message,
         original=original,
+        count=count,
     )
 
 
@@ -119,6 +132,7 @@ def _prepared_rows(
                         code=item.code,
                         message=item.message,
                         original=" | ".join(item.original_values),
+                        count=int(getattr(item, "count", 1)),
                     )
                     for item in (*row.source.issues, *row.issues)
                 ]
@@ -152,9 +166,7 @@ def _prepared_rows(
                         )
                 if plan.extra_values_target_name is not None:
                     extra = [cell.text for cell in row.extra_values]
-                    values[plan.extra_values_target_name] = (
-                        None if not extra else " | ".join(extra)
-                    )
+                    values[plan.extra_values_target_name] = None if not extra else extra
                     source_bytes += sum(len(value.encode("utf-8")) for value in extra)
                 if plan.dedup is not None:
                     key_column = next(
@@ -212,7 +224,7 @@ def _validate_reserved_action(bound: Any, frozen: FrozenTableImport) -> None:
     ]
     if frozen.plan.extra_values_target_name is not None:
         expected_columns.append(
-            (frozen.plan.extra_values_target_name, None, "text", None)
+            (frozen.plan.extra_values_target_name, None, "json", None)
         )
     if actual_columns != expected_columns:
         raise ValueError("table intake columns changed after review")
@@ -298,6 +310,17 @@ def register_import_table_handler(
                 if session is None:
                     raise ValueError("table import session has not been started")
                 state = table_import_status(directory)
+                if session.state in {"completed", "kept"}:
+                    if state.phase != "terminal":
+                        finish_table_intake(
+                            directory,
+                            exact_rows=max(state.source_cursor, session.cursor),
+                        )
+                    if session.state == "kept" and header.resolution is None:
+                        with import_admit_lock(directory):
+                            set_import_resolution(directory, "kept")
+                    compact_table_intake(directory)
+                    state = table_import_status(directory)
                 if state.phase == "terminal" or session.state in {
                     "completed",
                     "kept",
@@ -344,8 +367,10 @@ def register_import_table_handler(
                         expected_cursor=state.source_cursor,
                         source_cursor=session.cursor,
                     )
-                iterator = _prepared_rows(frozen, start_cursor=session.cursor)
-                exact_rows = session.cursor
+                iterator = _prepared_rows(
+                    frozen, start_cursor=max(session.cursor, state.source_cursor)
+                )
+                exact_rows = max(session.cursor, state.source_cursor)
                 while True:
                     header = read_import_header(directory)
                     session = sessions.get(import_ref)
@@ -427,6 +452,13 @@ def register_import_table_handler(
                     records = [item.values for item in page if item.values is not None]
                     next_cursor = page[-1].source_cursor
                     if records:
+                        if (
+                            header.max_rows is not None
+                            and session.committed_rows + len(records) > header.max_rows
+                        ):
+                            raise ValueError(
+                                "table import exceeds the configured row limit"
+                            )
                         writer = StreamingSheetWriter._from_session(project, session)
                         writer.append_page(
                             records,
@@ -441,10 +473,10 @@ def register_import_table_handler(
                             ).source_cursor,
                             source_cursor=next_cursor,
                         )
-                    elif exhausted:
-                        # A duplicate-only tail owns no project rows. Its exact
-                        # source count is still terminal status, while the writer
-                        # cursor remains the last atomic row publication.
+                    else:
+                        # Duplicate-only pages own no project rows. Their source
+                        # cursor remains durable progress even when the full page
+                        # has not observed EOF yet.
                         advance_table_progress(
                             directory,
                             expected_cursor=table_import_status(
@@ -463,7 +495,7 @@ def register_import_table_handler(
                         # The next iteration finalizes through the ordinary empty
                         # EOF path without reopening the source.
                         continue
-        except Exception:
+        except Exception as exc:
             session = sessions.get(import_ref)
             if (
                 session is not None
@@ -473,6 +505,18 @@ def register_import_table_handler(
                 StreamingSheetWriter._from_session(project, session).pause(
                     expected_cursor=session.cursor
                 )
+            safe_error = redact_stored_error(
+                exc,
+                fallback_code="table_import_failed",
+            )
+            if safe_error is not None:
+                try:
+                    record_table_execution_error(directory, safe_error)
+                except (OSError, ValueError):
+                    LOG.warning(
+                        "table import error state could not be published",
+                        exc_info=True,
+                    )
             raise
         finally:
             project.close()
@@ -484,4 +528,70 @@ def register_import_table_handler(
     )
 
 
-__all__ = ["register_import_table_handler", "table_import_dedupe_key"]
+def register_import_table_analysis_handler(
+    registry: HandlerRegistry,
+    *,
+    run_analysis: TableAnalysisRunner | None,
+    workspace_root: str | Path,
+    require_storage_identity: bool = False,
+    workspace_root_storage_org_id: int | None = None,
+    project_opener: ProjectOpener | None = None,
+) -> HandlerRegistration:
+    """Run the server-composed table scanner on the ordinary worker queue.
+
+    The engine owns queue admission and replay while the server service owns
+    draft storage, source inspection, and preview publication.  Keeping that
+    boundary as a typed callback lets standalone and hosted workers compose
+    the same handler without an engine-to-server import.
+    """
+
+    def handle(payload: dict, context: JobHandlerContext) -> dict[str, object]:
+        if context.job_id is None or context.job_attempt is None:
+            raise ValueError("table analysis requires a row-backed queue claim")
+        if run_analysis is None:
+            raise RuntimeError("table analysis runtime is not configured")
+        draft_id = payload.get("draft_id")
+        settings_revision = payload.get("settings_revision")
+        if not isinstance(draft_id, str) or not draft_id:
+            raise ValueError("table analysis draft_id is required")
+        if (
+            isinstance(settings_revision, bool)
+            or not isinstance(settings_revision, int)
+            or settings_revision < 0
+        ):
+            raise ValueError("table analysis settings_revision must be non-negative")
+        project_id, _project_root, path = claimed_project_location(
+            payload,
+            workspace_root=workspace_root,
+            workspace_root_storage_org_id=workspace_root_storage_org_id,
+            require_storage_identity=require_storage_identity
+            or project_opener is not None,
+        )
+        project = (
+            Project(path)
+            if project_opener is None
+            else open_claimed_project(payload, path, project_opener)
+        )
+        try:
+            run_analysis(project, project_id, draft_id, settings_revision)
+        finally:
+            project.close()
+        return {
+            "draft_id": draft_id,
+            "settings_revision": settings_revision,
+        }
+
+    return registry.add(
+        IMPORT_TABLE_ANALYSIS_KIND,
+        handle,
+        origin="frisket.production.import_table_analysis",
+    )
+
+
+__all__ = [
+    "TableAnalysisRunner",
+    "register_import_table_analysis_handler",
+    "register_import_table_handler",
+    "table_analysis_dedupe_key",
+    "table_import_dedupe_key",
+]

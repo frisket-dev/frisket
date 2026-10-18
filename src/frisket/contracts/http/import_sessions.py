@@ -52,6 +52,7 @@ class ImportSessionStatus(WireModel):
     skipped_duplicates: int = 0
     problem_count: int = 0
     source_label: str | None = None
+    can_rerun_workbook: bool = False
     source_error_groups: list[ImportSourceErrorGroup] = Field(default_factory=list)
     preparation_completed: int = 0
     preparation_total: int = 0
