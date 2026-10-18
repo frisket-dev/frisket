@@ -199,6 +199,50 @@ def test_paid_ocr_image_plan_binds_source_and_returns_ephemeral_rows(
         assert tuple(project.db.iterdump()) == before
 
 
+def test_paid_ocr_borrowed_image_preserves_inline_scope_and_quote(
+    tmp_path: Path,
+) -> None:
+    source_bytes = _png()
+    source = tmp_path / "letter.png"
+    source.write_bytes(source_bytes)
+    payload = {
+        "engine": "openai/gpt-4.1-mini",
+        "filename": "letter.png",
+        "mime": "image/png",
+        "pages": [1],
+    }
+    with closing(Project.create(tmp_path / "ocr-borrowed-image.frisket")) as project:
+        _router, composition = _composition(project)
+        inline, _inline_summary = paid_ocr_scratch_plan(
+            project,
+            media_bytes=source_bytes,
+            payload=payload,
+            composition=composition,
+        )
+        borrowed, summary = paid_ocr_scratch_plan(
+            project,
+            media_path=source,
+            media_digest=hashlib.sha256(source_bytes).hexdigest(),
+            media_size=len(source_bytes),
+            payload=payload,
+            composition=composition,
+        )
+
+        assert summary == {
+            "filename": "letter.png",
+            "mime": "image/png",
+            "size": len(source_bytes),
+            "kind": "image",
+            "pages": [1],
+        }
+        assert borrowed.work_scope == inline.work_scope
+        assert borrowed.source_identity == inline.source_identity
+        assert borrowed.estimate == inline.estimate
+        assert consented_set_hash(
+            borrowed.resolved_execution.promise_set
+        ) == consented_set_hash(inline.resolved_execution.promise_set)
+
+
 def test_paid_ocr_pdf_searchable_output_is_an_ephemeral_artifact(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -6,21 +6,23 @@ import hashlib
 import json
 import sqlite3
 from collections.abc import Iterable, Mapping
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from frisket.engine.store.import_inventory import ImportInventory
 
 
 def pdf_ocr_selected(policy: str, category: str) -> bool:
-    """Whether an analyzed PDF is eligible for OCR under the authored policy."""
+    """Whether an analyzed file is eligible for OCR under the authored policy."""
 
-    if category == "unreadable" or policy == "none":
+    if category in {"other", "unreadable", "unchecked"} or policy == "none":
         return False
+    if policy == "missing":
+        return category in {"missing", "image"}
     if policy == "all":
-        return True
+        return category in {"text", "suspicious", "missing", "image"}
     if policy == "missing_or_suspicious":
-        return category in {"missing", "suspicious"}
+        return category in {"missing", "suspicious", "image"}
     raise ValueError("invalid PDF OCR policy")
 
 
@@ -38,6 +40,7 @@ class PdfDraftInventory:
               logical_path TEXT NOT NULL,
               filename TEXT NOT NULL,
               size INTEGER NOT NULL CHECK(size >= 0),
+              extension TEXT NOT NULL DEFAULT '',
               sample_key TEXT NOT NULL UNIQUE
             );
             CREATE TABLE IF NOT EXISTS pdf_selected_state (
@@ -46,6 +49,8 @@ class PdfDraftInventory:
               analysis_state TEXT NOT NULL DEFAULT 'pending',
               staged_ordinal INTEGER UNIQUE,
               sha256 TEXT,
+              mime TEXT NOT NULL DEFAULT 'application/pdf',
+              media_kind TEXT NOT NULL DEFAULT 'pdf',
               page_count INTEGER,
               category TEXT NOT NULL DEFAULT 'unchecked',
               sample_pages TEXT NOT NULL DEFAULT '[]',
@@ -72,6 +77,8 @@ class PdfDraftInventory:
               text_count INTEGER NOT NULL DEFAULT 0,
               suspicious_count INTEGER NOT NULL DEFAULT 0,
               missing_count INTEGER NOT NULL DEFAULT 0,
+              image_count INTEGER NOT NULL DEFAULT 0,
+              other_count INTEGER NOT NULL DEFAULT 0,
               unreadable_count INTEGER NOT NULL DEFAULT 0,
               manifest_sealed INTEGER NOT NULL DEFAULT 0 CHECK(manifest_sealed IN (0,1))
             );
@@ -97,6 +104,36 @@ class PdfDraftInventory:
               ON pdf_selected(filename,size);
             """
         )
+        selected_columns = {
+            str(row["name"])
+            for row in self.db.execute("PRAGMA table_info(pdf_selected)")
+        }
+        if "extension" not in selected_columns:
+            self.db.execute(
+                "ALTER TABLE pdf_selected ADD COLUMN extension TEXT NOT NULL DEFAULT ''"
+            )
+        state_columns = {
+            str(row["name"])
+            for row in self.db.execute("PRAGMA table_info(pdf_selected_state)")
+        }
+        if "mime" not in state_columns:
+            self.db.execute(
+                "ALTER TABLE pdf_selected_state ADD COLUMN mime TEXT NOT NULL "
+                "DEFAULT 'application/pdf'"
+            )
+        if "media_kind" not in state_columns:
+            self.db.execute(
+                "ALTER TABLE pdf_selected_state ADD COLUMN media_kind TEXT NOT NULL "
+                "DEFAULT 'pdf'"
+            )
+        stats_columns = {
+            str(row["name"]) for row in self.db.execute("PRAGMA table_info(pdf_stats)")
+        }
+        for column in ("image_count", "other_count"):
+            if column not in stats_columns:
+                self.db.execute(
+                    f"ALTER TABLE pdf_stats ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0"
+                )
         self.db.commit()
 
     def close(self) -> None:
@@ -155,13 +192,22 @@ class PdfDraftInventory:
                 logical_path = str(raw["logical_path"])
                 filename = str(raw["filename"])
                 size = int(raw["size"])
+                extension = PurePosixPath(filename).suffix.casefold()[:64]
                 sample_key = hashlib.sha256(
                     f"{logical_path.rpartition('/')[0]}\0{occurrence_id}".encode()
                 ).hexdigest()
                 cursor = self.db.execute(
-                    "INSERT INTO pdf_selected(occurrence_id,logical_path,filename,size,sample_key) "
-                    "VALUES(?,?,?,?,?)",
-                    (occurrence_id, logical_path, filename, size, sample_key),
+                    "INSERT INTO pdf_selected"
+                    "(occurrence_id,logical_path,filename,size,extension,sample_key) "
+                    "VALUES(?,?,?,?,?,?)",
+                    (
+                        occurrence_id,
+                        logical_path,
+                        filename,
+                        size,
+                        extension,
+                        sample_key,
+                    ),
                 )
                 through = int(cursor.lastrowid)
                 self.db.execute(
@@ -205,7 +251,8 @@ class PdfDraftInventory:
     def selected(self, occurrence_id: str) -> dict[str, Any] | None:
         row = self.db.execute(
             "SELECT s.*,st.upload_state,st.analysis_state,st.staged_ordinal,st.sha256,"
-            "st.page_count,st.category,st.sample_pages,st.error,st.matched "
+            "st.mime,st.media_kind,st.page_count,st.category,st.sample_pages,"
+            "st.error,st.matched "
             "FROM pdf_selected s JOIN pdf_selected_state st USING(occurrence_id) "
             "WHERE s.occurrence_id=?",
             (occurrence_id,),
@@ -290,7 +337,7 @@ class PdfDraftInventory:
                 values = ImportInventory._validated(
                     {
                         "logical_path": fact["logical_path"],
-                        "mime": "application/pdf",
+                        "mime": fact["mime"],
                         "sha256": fact["sha256"],
                         "size": fact["size"],
                         "kind": "files",
@@ -304,11 +351,13 @@ class PdfDraftInventory:
                 through = int(cursor.lastrowid)
                 self.db.execute(
                     "UPDATE pdf_selected_state SET upload_state='staged',"
-                    "staged_ordinal=?,sha256=? "
+                    "staged_ordinal=?,sha256=?,mime=?,media_kind=? "
                     "WHERE occurrence_id=?",
                     (
                         through,
                         fact["sha256"],
+                        fact["mime"],
+                        fact["media_kind"],
                         occurrence_id,
                     ),
                 )
@@ -341,6 +390,8 @@ class PdfDraftInventory:
             "text": "text_count",
             "suspicious": "suspicious_count",
             "missing": "missing_count",
+            "image": "image_count",
+            "other": "other_count",
             "unreadable": "unreadable_count",
         }.get(category)
         if category_column is None:
@@ -399,7 +450,8 @@ class PdfDraftInventory:
     ) -> tuple[list[dict[str, Any]], str | None]:
         rows = list(
             self.db.execute(
-                "SELECT s.*,st.analysis_state,st.page_count,st.category,st.sample_pages,st.error "
+                "SELECT s.*,st.analysis_state,st.mime,st.media_kind,st.page_count,"
+                "st.category,st.sample_pages,st.error "
                 "FROM pdf_selected s JOIN pdf_selected_state st USING(occurrence_id) "
                 "WHERE st.category=? AND s.sample_key>? ORDER BY s.sample_key LIMIT ?",
                 (category, after, limit + 1),
@@ -411,10 +463,33 @@ class PdfDraftInventory:
             str(rows[-1]["sample_key"]) if more else None
         )
 
+    def extension_counts(
+        self, category: str, *, limit: int = 32
+    ) -> tuple[list[dict[str, Any]], int]:
+        rows = list(
+            self.db.execute(
+                "SELECT s.extension,COUNT(*) value FROM pdf_selected s "
+                "JOIN pdf_selected_state st USING(occurrence_id) "
+                "WHERE st.category=? GROUP BY s.extension "
+                "ORDER BY value DESC,s.extension LIMIT ?",
+                (category, limit),
+            )
+        )
+        counts = [
+            {"extension": str(row["extension"]), "count": int(row["value"])}
+            for row in rows
+        ]
+        total = self.db.execute(
+            "SELECT COUNT(*) value FROM pdf_selected_state WHERE category=?",
+            (category,),
+        ).fetchone()
+        return counts, max(0, int(total["value"]) - sum(row["count"] for row in counts))
+
     def staged_page(self, *, after: int, limit: int) -> list[dict[str, Any]]:
         rows = self.db.execute(
             "SELECT s.*,st.upload_state,st.analysis_state,st.staged_ordinal,st.sha256,"
-            "st.page_count,st.category,st.sample_pages,st.error,st.matched "
+            "st.mime,st.media_kind,st.page_count,st.category,st.sample_pages,"
+            "st.error,st.matched "
             "FROM pdf_selected s JOIN pdf_selected_state st USING(occurrence_id) "
             "WHERE s.ordinal>? ORDER BY s.ordinal LIMIT ?",
             (after, limit),
@@ -459,8 +534,9 @@ class PdfDraftInventory:
     def projection_page(self, *, after: int, limit: int) -> list[dict[str, Any]]:
         rows = self.db.execute(
             "SELECT p.commit_ordinal,p.selected_ordinal,s.*,st.upload_state,"
-            "st.analysis_state,st.staged_ordinal,st.sha256,st.page_count,st.category,"
-            "st.sample_pages,st.error,st.matched FROM pdf_commit_projection p "
+            "st.analysis_state,st.staged_ordinal,st.sha256,st.mime,st.media_kind,"
+            "st.page_count,st.category,st.sample_pages,st.error,st.matched "
+            "FROM pdf_commit_projection p "
             "JOIN pdf_selected s ON s.ordinal=p.selected_ordinal "
             "JOIN pdf_selected_state st USING(occurrence_id) "
             "WHERE p.commit_ordinal>? ORDER BY p.commit_ordinal LIMIT ?",
@@ -546,7 +622,7 @@ class PdfDraftInventory:
         child_row_pages: dict[int, int] = {}
         children: list[dict[str, Any]] = []
         cursor = self.db.execute(
-            "SELECT s.ordinal,s.occurrence_id,st.sha256,st.page_count,st.category "
+            "SELECT s.ordinal,s.occurrence_id,st.sha256,st.mime,st.page_count,st.category "
             "FROM pdf_selected s JOIN pdf_selected_state st USING(occurrence_id) "
             "WHERE st.matched=0 ORDER BY s.ordinal"
         )
@@ -561,6 +637,7 @@ class PdfDraftInventory:
                     "selected_ordinal": int(row["ordinal"]),
                     "occurrence_id": str(row["occurrence_id"]),
                     "sha256": str(row["sha256"]),
+                    "mime": str(row["mime"]),
                     "page_count": int(row["page_count"] or 0),
                     "category": str(row["category"]),
                 }

@@ -411,7 +411,7 @@ export function DocumentView({
                   style={{ position: 'absolute', top: `${index * LIST_ITEM_HEIGHT}px`, height: `${LIST_ITEM_HEIGHT}px` }}
                   onClick={() => {
                     selectDocument(rowId);
-                    if (item.sourceKind === 'pdf' && sourceColumn) {
+                    if ((item.sourceKind === 'pdf' || item.sourceKind === 'image') && sourceColumn) {
                       onRequestDocumentPriority?.(rowId, String(sourceColumn.id));
                     }
                   }}

@@ -32,10 +32,12 @@ import {
 } from '../../importProgressSession';
 import {
   PDF_BATCH_STAGES,
+  PDF_CHECK_CATEGORY_ORDER,
   bytesLabel,
   canHandlePdfBatch,
   count,
   destinationIsReady,
+  filterPdfBatchFiles,
   newerSnapshot,
   ocrPolicyCount,
   visibleCategories,
@@ -73,10 +75,6 @@ export interface PdfBatchImportFlowProps {
   onError(message: string): void;
 }
 
-const CHECK_CATEGORY_ORDER: readonly PdfImportCategory[] = [
-  'suspicious', 'missing', 'text', 'unreadable',
-];
-
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -97,10 +95,11 @@ function selectorChoice(response: HttpSelectorChoicesResponse | null): SelectorC
 }
 
 function subtitle(snapshot: PdfImportSnapshot | null, files: readonly File[]): string {
-  const total = snapshot?.upload.files_total ?? files.length;
+  const selectedFiles = filterPdfBatchFiles(files);
+  const total = snapshot?.upload.files_total ?? selectedFiles.length;
   const totalBytes = snapshot?.upload.bytes_total
-    ?? files.reduce((sum, file) => sum + file.size, 0);
-  return `${count(total, 'PDF')} · ${bytesLabel(totalBytes)}`;
+    ?? selectedFiles.reduce((sum, file) => sum + file.size, 0);
+  return `${count(total, 'file')} · ${bytesLabel(totalBytes)}`;
 }
 
 function selectedFolderName(files: readonly File[]): string | null {
@@ -122,7 +121,6 @@ export function PdfBatchImportFlow({
   files = [],
   resumeDraftId = null,
   destinationSheets,
-  initialDestinationSheetId = null,
   api = pdfImportsApi,
   onContextChange,
   registerCloseGuard,
@@ -135,6 +133,8 @@ export function PdfBatchImportFlow({
   const [error, setError] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<PdfImportCategory>('suspicious');
   const [sampleFiles, setSampleFiles] = useState<PdfImportFileSummary[]>([]);
+  const [sampleExtensions, setSampleExtensions] = useState<Array<{ extension: string; count: number }>>([]);
+  const [unlistedExtensionCount, setUnlistedExtensionCount] = useState(0);
   const [samplesLoading, setSamplesLoading] = useState(false);
   const [sampleCursor, setSampleCursor] = useState<string | null>(null);
   const [batchEstimateBusy, setBatchEstimateBusy] = useState(false);
@@ -145,11 +145,9 @@ export function PdfBatchImportFlow({
   const [reselecting, setReselecting] = useState(false);
   const [hasRecoveryFiles, setHasRecoveryFiles] = useState(false);
   const [mutationBusy, setMutationBusy] = useState(false);
-  const [destination, setDestination] = useState<PdfImportDestination>(() => (
-    initialDestinationSheetId == null
-      ? { kind: 'new', sheet_name: selectedFolderName(files) ?? 'Imported PDFs' }
-      : { kind: 'existing', sheet_id: initialDestinationSheetId }
-  ));
+  const [destination, setDestination] = useState<PdfImportDestination>(() => ({
+    kind: 'new', sheet_name: selectedFolderName(files) ?? 'Imported files',
+  }));
   const [semanticEnabled, setSemanticEnabled] = useState<boolean | null>(null);
   const [reportedOcrChoice, setReportedOcrChoice] = useState<SelectorChoice | null>(null);
   const lifecycleController = useRef<AbortController | null>(null);
@@ -172,15 +170,13 @@ export function PdfBatchImportFlow({
   const onErrorRef = useRef(onError);
   const onImportedRef = useRef(onImported);
   const onDiscardedRef = useRef(onDiscarded);
-  const initialDestinationRef = useRef(initialDestinationSheetId);
 
   useEffect(() => {
     filesProp.current = files;
     onErrorRef.current = onError;
     onImportedRef.current = onImported;
     onDiscardedRef.current = onDiscarded;
-    initialDestinationRef.current = initialDestinationSheetId;
-  }, [files, initialDestinationSheetId, onDiscarded, onError, onImported]);
+  }, [files, onDiscarded, onError, onImported]);
 
   const publish = useCallback((next: PdfImportSnapshot) => {
     if (currentDraft.current && next.draft_id !== currentDraft.current) return;
@@ -270,7 +266,7 @@ export function PdfBatchImportFlow({
     lifecycleController.current?.abort();
     lifecycleController.current = controller;
     currentDraft.current = null;
-    const selectedFiles = filesProp.current;
+    const selectedFiles = filterPdfBatchFiles(filesProp.current);
     const sourceFolder = selectedFolderName(selectedFiles);
     const intakeSelection = configureIntake(selectedFiles);
     batchEstimateInFlight.current = null;
@@ -288,6 +284,8 @@ export function PdfBatchImportFlow({
       setError(null);
       setSelectedCategory('suspicious');
       setSampleFiles([]);
+      setSampleExtensions([]);
+      setUnlistedExtensionCount(0);
       setSamplesLoading(false);
       setSampleCursor(null);
       clearPreview();
@@ -299,9 +297,7 @@ export function PdfBatchImportFlow({
       setReselecting(false);
       setHasRecoveryFiles(false);
       setMutationBusy(false);
-      setDestination(initialDestinationRef.current == null
-        ? { kind: 'new', sheet_name: sourceFolder ?? 'Imported PDFs' }
-        : { kind: 'existing', sheet_id: initialDestinationRef.current });
+      setDestination({ kind: 'new', sheet_name: sourceFolder ?? 'Imported files' });
       setSemanticEnabled(null);
       setReportedOcrChoice(null);
       if (!resumeDraftId) {
@@ -443,7 +439,7 @@ export function PdfBatchImportFlow({
     patch: Partial<PdfImportChoices>,
     nextDestination = destination,
   ): Promise<PdfImportSnapshot> => {
-    if (!snapshot) throw new Error('The PDF import is not ready.');
+    if (!snapshot) throw new Error('The file import is not ready.');
     try {
       return await api.updateChoices(projectId, snapshot.draft_id, {
         ...snapshot.choices,
@@ -485,6 +481,8 @@ export function PdfBatchImportFlow({
       const result = await api.samples(projectId, snapshot.draft_id, category, cursor);
       if (requestEpoch !== sampleRequestEpoch.current || currentDraft.current !== snapshot.draft_id) return;
       setSampleFiles(result.items);
+      setSampleExtensions(result.extension_counts ?? []);
+      setUnlistedExtensionCount(result.unlisted_extension_count ?? 0);
       setSampleCursor(result.next_cursor);
       await selectPreview(result.items[0] ?? null);
     } catch (problem) {
@@ -497,6 +495,8 @@ export function PdfBatchImportFlow({
   const chooseCategory = (category: PdfImportCategory) => {
     setSelectedCategory(category);
     setSampleFiles([]);
+    setSampleExtensions([]);
+    setUnlistedExtensionCount(0);
     clearPreview();
     void loadSamples(category);
   };
@@ -509,17 +509,17 @@ export function PdfBatchImportFlow({
     if (!source || reselecting) return;
     const epoch = generation.current;
     const isCurrent = () => generation.current === epoch && currentDraft.current === source.draft_id;
-    const pdfs = selected.filter((file) => file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'));
-    if (pdfs.length === 0) {
-      reportError(new Error('Select the original PDF files or folder.'));
+    const eligibleFiles = filterPdfBatchFiles(selected);
+    if (eligibleFiles.length === 0) {
+      reportError(new Error('Select the original files or folder.'));
       return;
     }
-    recoveryFiles.current = pdfs;
+    recoveryFiles.current = eligibleFiles;
     setHasRecoveryFiles(true);
     setReselecting(true);
     setError(null);
     try {
-      await runReselection(source, pdfs, {
+      await runReselection(source, eligibleFiles, {
         shouldPublish: isCurrent,
         refresh: refreshStatus,
       });
@@ -759,7 +759,7 @@ export function PdfBatchImportFlow({
   };
 
   if (!snapshot) {
-    return <div className="pdf-batch-loading" role="status"><LoaderCircle className="spin" size={18} /> Preparing PDF import…</div>;
+    return <div className="pdf-batch-loading" role="status"><LoaderCircle className="spin" size={18} /> Preparing file import…</div>;
   }
 
   if (snapshot.state === 'cancelling' || snapshot.state === 'cancelled') {
@@ -821,7 +821,7 @@ export function PdfBatchImportFlow({
             onRetryPreflight={() => void retryPreflight()}
             onCancel={pauseForDiscard}
             onContinue={() => {
-              const category = CHECK_CATEGORY_ORDER.find((item) => (snapshot.category_counts[item] ?? 0) > 0);
+              const category = PDF_CHECK_CATEGORY_ORDER.find((item) => (snapshot.category_counts[item] ?? 0) > 0);
               if (category) chooseCategory(category);
               setStage('check');
             }}
@@ -834,6 +834,8 @@ export function PdfBatchImportFlow({
             categories={categories}
             selectedCategory={selectedCategory}
             samples={samples}
+            extensionCounts={sampleExtensions}
+            unlistedExtensionCount={unlistedExtensionCount}
             samplesLoading={samplesLoading}
             selectedFileId={selectedFileId}
             chosenFile={chosenFile}
@@ -893,7 +895,7 @@ export function PdfBatchImportFlow({
             importLabel={nothingNew ? 'Nothing new to import' : matching ? 'Comparing…' : `Import ${count(
               destination.kind === 'existing' && snapshot.match.state === 'ready'
                 ? snapshot.match.new_count : totalFiles,
-              'PDF', 'PDFs',
+              'file', 'files',
             )}`}
             canImport={canCommit}
             batchEstimateBusy={batchEstimateBusy}

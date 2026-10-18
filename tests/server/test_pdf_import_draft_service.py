@@ -185,14 +185,26 @@ def test_actual_dense_pdf_is_readable_with_bounded_fallback(tmp_path: Path) -> N
     assert truncated is True
 
 
-def _upload(name: str = "one.pdf", payload: bytes = PDF) -> AdmittedUpload:
+def _upload(
+    name: str = "one.pdf",
+    payload: bytes = PDF,
+    mime: str = "application/pdf",
+) -> AdmittedUpload:
     return AdmittedUpload(
         filename=name,
-        mime="application/pdf",
+        mime=mime,
         source=io.BytesIO(payload),
         sha256=hashlib.sha256(payload).hexdigest(),
         size=len(payload),
     )
+
+
+def _png_payload() -> bytes:
+    from PIL import Image
+
+    output = io.BytesIO()
+    Image.new("RGB", (12, 8), (24, 80, 160)).save(output, format="PNG")
+    return output.getvalue()
 
 
 def _service(tmp_path: Path, monkeypatch, **kwargs):
@@ -271,6 +283,173 @@ def test_pdf_draft_stages_outside_project_and_recovers_bounded_status(
     samples = service.samples(project_id, draft_id, category="missing", limit=1)
     assert len(samples["items"]) == 1
     assert samples["next_cursor"] is not None
+
+
+def test_mixed_files_keep_mime_preview_and_missing_ocr_scope(
+    tmp_path: Path, monkeypatch
+) -> None:
+    workspace, project_id, service = _service(tmp_path, monkeypatch)
+    png = _png_payload()
+    note = b"supporting attachment"
+    broken = b"not a real png"
+    fake_pdf = b"this is not a PDF"
+    eps = (
+        b"%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 0 0 10 10\n"
+        b"newpath 0 0 moveto 10 10 lineto stroke\nshowpage\n"
+    )
+    monkeypatch.setattr(
+        service,
+        "_analyze",
+        lambda path: (
+            {
+                "analysis_state": "done",
+                "page_count": 4,
+                "category": "missing",
+                "sample_pages": [1, 2, 3, 4],
+                "error": None,
+            }
+            if path.read_bytes() == PDF
+            else analyze_pdf(path, quality_assessor=lambda *_args, **_kwargs: ())
+        ),
+    )
+    declared = [
+        ("pdf", "evidence/report.pdf", PDF),
+        ("fake-pdf", "evidence/not-really.pdf", fake_pdf),
+        ("image", "evidence/photo.pdf", png),
+        ("other", "evidence/notes.txt", note),
+        ("unsupported-image", "evidence/vector.eps", eps),
+        ("broken", "evidence/broken.png", broken),
+    ]
+    created = service.create(
+        project_id,
+        expected_files=len(declared),
+        expected_bytes=sum(len(payload) for _, _, payload in declared),
+        source_label="Mixed evidence",
+    )
+    draft_id = created["draft_id"]
+    service.append_manifest(
+        project_id,
+        draft_id,
+        batch_id="mixed-manifest",
+        files=[
+            {
+                "client_file_id": occurrence_id,
+                "logical_path": path,
+                "filename": Path(path).name,
+                "size": len(payload),
+            }
+            for occurrence_id, path, payload in declared
+        ],
+    )
+    service.seal_manifest(project_id, draft_id)
+    uploads = [
+        _upload("report.pdf", PDF, "application/octet-stream"),
+        _upload("not-really.pdf", fake_pdf, "text/plain"),
+        _upload("photo.pdf", png, "application/pdf"),
+        _upload("notes.txt", note, "text/plain"),
+        _upload("vector.eps", eps, "application/postscript"),
+        _upload("broken.png", broken, "image/png"),
+    ]
+    status = service.upload(
+        project_id,
+        draft_id,
+        uploads,
+        file_ids=[item[0] for item in declared],
+        logical_paths=[item[1] for item in declared],
+        batch_id="mixed-upload",
+    )
+    assert status["category_counts"] == {
+        "text": 0,
+        "suspicious": 0,
+        "missing": 1,
+        "image": 1,
+        "other": 2,
+        "unreadable": 2,
+        "unchecked": 0,
+    }
+
+    replay = service.upload(
+        project_id,
+        draft_id,
+        [
+            _upload("report.pdf", PDF, "application/octet-stream"),
+            _upload("not-really.pdf", fake_pdf, "text/plain"),
+            _upload("photo.pdf", png, "application/pdf"),
+            _upload("notes.txt", note, "text/plain"),
+            _upload("vector.eps", eps, "application/postscript"),
+            _upload("broken.png", broken, "image/png"),
+        ],
+        file_ids=[item[0] for item in declared],
+        logical_paths=[item[1] for item in declared],
+        batch_id="mixed-upload",
+    )
+    assert replay["revision"] == status["revision"]
+
+    image_page = service.page(project_id, draft_id, "image", 1)
+    assert image_page["native_text"] == ""
+    assert image_page["native_text_truncated"] is False
+    lease = service.thumbnail(project_id, draft_id, "image", 1)
+    try:
+        assert lease.path.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+    finally:
+        lease.close()
+    with pytest.raises(PdfImportDraftError, match="no reviewable page"):
+        service.page(project_id, draft_id, "other", 1)
+
+    other = service.samples(project_id, draft_id, category="other")
+    assert other["extension_counts"] == [
+        {"extension": ".eps", "count": 1},
+        {"extension": ".txt", "count": 1},
+    ]
+    assert other["unlisted_extension_count"] == 0
+
+    choices = service.update_choices(
+        project_id,
+        draft_id,
+        expected_revision=status["revision"],
+        ocr_policy="missing",
+        ocr_selection={"kind": "engine", "engine": "rapidocr"},
+        semantic_search=False,
+        semantic_setup_confirmation=None,
+        destination={"kind": "new", "sheet_name": "Mixed evidence"},
+    )
+    frozen = service.freeze_for_commit(
+        project_id,
+        draft_id,
+        idempotency_key="mixed-commit",
+        expected_revision=choices["revision"],
+    )
+    occurrences = frozen.page_occurrences()
+    assert [(row.mime, row.category, row.ocr_selected) for row in occurrences] == [
+        ("application/pdf", "missing", True),
+        ("application/pdf", "unreadable", False),
+        ("image/png", "image", True),
+        ("text/plain", "other", False),
+        ("application/postscript", "other", False),
+        ("image/png", "unreadable", False),
+    ]
+    with sqlite3.connect(frozen.commit_inventory_path) as db:
+        assert db.execute(
+            "SELECT mime,ocr_selected FROM pdf_commit_occurrences ORDER BY ordinal"
+        ).fetchall() == [
+            ("application/pdf", 1),
+            ("application/pdf", 0),
+            ("image/png", 1),
+            ("text/plain", 0),
+            ("application/postscript", 0),
+            ("image/png", 0),
+        ]
+        assert db.execute(
+            "SELECT mime FROM inventory_items ORDER BY ordinal"
+        ).fetchall() == [
+            ("application/pdf",),
+            ("application/pdf",),
+            ("image/png",),
+            ("text/plain",),
+            ("application/postscript",),
+            ("image/png",),
+        ]
+    assert workspace.get(project_id).sheets() == []
 
 
 def test_upload_replay_discard_and_late_upload_fence(
@@ -1054,7 +1233,7 @@ def test_manifest_scope_and_preflight_are_enforced(tmp_path: Path, monkeypatch) 
     created = service.create(
         project_id, expected_files=2, expected_bytes=2, source_label=None
     )
-    with pytest.raises(PdfImportDraftError, match="PDF paths"):
+    with pytest.raises(PdfImportDraftError, match="safe relative paths"):
         service.append_manifest(
             project_id,
             created["draft_id"],
@@ -1062,7 +1241,7 @@ def test_manifest_scope_and_preflight_are_enforced(tmp_path: Path, monkeypatch) 
             files=[
                 {
                     "client_file_id": "bad",
-                    "logical_path": "bad.txt",
+                    "logical_path": "../bad.txt",
                     "filename": "bad.txt",
                     "size": 2,
                 }
@@ -1070,6 +1249,62 @@ def test_manifest_scope_and_preflight_are_enforced(tmp_path: Path, monkeypatch) 
         )
     with pytest.raises(PdfImportDraftError, match="incomplete"):
         service.seal_manifest(project_id, created["draft_id"])
+
+
+def test_junk_manifest_is_rejected_atomically_without_consuming_ordinals(
+    tmp_path: Path, monkeypatch
+) -> None:
+    workspace, project_id, service = _service(tmp_path, monkeypatch)
+    created = service.create(
+        project_id,
+        expected_files=2,
+        expected_bytes=2 * len(PDF),
+        source_label="Folder",
+    )
+    draft_id = created["draft_id"]
+    with pytest.raises(PdfImportDraftError, match="ignored system file"):
+        service.append_manifest(
+            project_id,
+            draft_id,
+            batch_id="manifest-folder",
+            files=[
+                {
+                    "client_file_id": "junk",
+                    "logical_path": "folder/._one.pdf",
+                    "filename": "._one.pdf",
+                    "size": len(PDF),
+                },
+                {
+                    "client_file_id": "two",
+                    "logical_path": "folder/two.pdf",
+                    "filename": "two.pdf",
+                    "size": len(PDF),
+                },
+            ],
+        )
+    assert service.status(project_id, draft_id)["manifest"]["files_done"] == 0
+
+    admitted = service.append_manifest(
+        project_id,
+        draft_id,
+        batch_id="manifest-folder",
+        files=[
+            {
+                "client_file_id": occurrence_id,
+                "logical_path": f"folder/{occurrence_id}.pdf",
+                "filename": f"{occurrence_id}.pdf",
+                "size": len(PDF),
+            }
+            for occurrence_id in ("one", "two")
+        ],
+    )
+    assert admitted["manifest"]["files_done"] == 2
+    directory = workspace.root / ".pdf_import_drafts" / draft_id
+    with PdfDraftInventory(directory / "inventory.db") as inventory:
+        assert [
+            (row["ordinal"], row["occurrence_id"])
+            for row in inventory.staged_page(after=0, limit=10)
+        ] == [(1, "one"), (2, "two")]
 
 
 def test_upload_rejects_non_route_safe_occurrence_id(

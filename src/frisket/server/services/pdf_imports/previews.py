@@ -77,6 +77,7 @@ def thumbnail(
     source: Path,
     occurrence_id: str,
     page: int,
+    mime: str = "application/pdf",
 ) -> ThumbnailLease:
     cache_key = hashlib.sha256(occurrence_id.encode()).hexdigest()
     cache = directory / "cache"
@@ -85,17 +86,33 @@ def thumbnail(
     if not cached.is_file():
         with tempfile.TemporaryDirectory(prefix=".thumbnail-", dir=cache) as raw:
             scratch = Path(raw)
-            rendered = asyncio.run(
-                render_pdf_pages(
-                    source,
-                    scratch,
-                    pages=[page],
-                    dpi=96,
-                    max_edge=1200,
-                    timeout_seconds=30,
+            if mime.startswith("image/"):
+                if page != 1:
+                    raise ValueError("image preview has only one page")
+                from PIL import Image, ImageOps
+
+                rendered_path = scratch / "page-1.png"
+                with Image.open(source) as image:
+                    if image.width * image.height > 40_000_000:
+                        raise ValueError("image dimensions exceed preview limit")
+                    image = ImageOps.exif_transpose(image)
+                    image.thumbnail((1200, 1200))
+                    if image.mode not in {"RGB", "RGBA"}:
+                        image = image.convert("RGB")
+                    image.save(rendered_path, format="PNG")
+            else:
+                rendered = asyncio.run(
+                    render_pdf_pages(
+                        source,
+                        scratch,
+                        pages=[page],
+                        dpi=96,
+                        max_edge=1200,
+                        timeout_seconds=30,
+                    )
                 )
-            )
-            os.replace(rendered.pages[0][1], cached)
+                rendered_path = rendered.pages[0][1]
+            os.replace(rendered_path, cached)
     descriptor, raw = tempfile.mkstemp(
         prefix="frisket-pdf-import-thumb-", suffix=".png"
     )
@@ -128,7 +145,7 @@ def prepare_ocr(
                 **settings,
                 "pages": [page],
                 "filename": item["filename"],
-                "mime": "application/pdf",
+                "mime": item["mime"],
             },
             on_page=on_page,
             max_pages=1,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -124,6 +125,14 @@ def _capabilities(_request, _project_id):
     )
 
 
+def _png_payload() -> bytes:
+    from PIL import Image
+
+    output = io.BytesIO()
+    Image.new("RGB", (10, 6), (80, 120, 180)).save(output, format="PNG")
+    return output.getvalue()
+
+
 class _PreviewRuns:
     def __init__(self) -> None:
         self.on_page = None
@@ -219,6 +228,8 @@ class _Service:
             "category": kwargs["category"],
             "items": [],
             "next_cursor": None,
+            "extension_counts": [],
+            "unlisted_extension_count": 0,
         }
 
     def page(self, pid, draft_id, occurrence_id, page):
@@ -563,6 +574,155 @@ def test_real_pdf_import_http_create_upload_sample_page_and_discard(
     discarded = client.delete(f"{base}/{draft_id}")
     assert discarded.status_code == 202, discarded.text
     assert discarded.json()["state"] == "cancelled"
+
+
+def test_real_http_mixed_upload_exposes_image_and_other_review(
+    tmp_path: Path, monkeypatch
+) -> None:
+    workspace = Workspace(tmp_path / "workspace", enable_local_model_pull=False)
+    project_id = str(workspace.create("Mixed HTTP", project_id="mixed-http")["id"])
+    preview_runs = _PreviewRuns()
+    service = PdfImportService(workspace, preview_runs=preview_runs)
+    monkeypatch.setattr(
+        service,
+        "_analyze",
+        lambda _path: {
+            "analysis_state": "done",
+            "page_count": 1,
+            "category": "missing",
+            "sample_pages": [1],
+            "error": None,
+        },
+    )
+    app = FastAPI()
+    register_route_error_handler(app)
+    register_pdf_import_routes(app, service=service, capabilities_for=_capabilities)
+    client = TestClient(app)
+    pdf = b"%PDF-mixed"
+    png = _png_payload()
+    note = b"notes"
+    selected = [
+        ("one", "one.pdf", pdf, "application/octet-stream"),
+        ("two", "two.pdf", pdf, "application/pdf"),
+        ("photo", "photo.pdf", png, "application/pdf"),
+        ("notes", "notes.txt", note, "text/plain"),
+    ]
+    base = f"/api/projects/{project_id}/import/pdf-imports"
+    created = client.post(
+        base,
+        json={
+            "expected_files": len(selected),
+            "expected_bytes": sum(len(value[2]) for value in selected),
+            "source_label": "Mixed evidence",
+        },
+    )
+    assert created.status_code == 201, created.text
+    draft_id = created.json()["draft_id"]
+    junk_manifest = client.post(
+        f"{base}/{draft_id}/manifest",
+        json={
+            "batch_id": "mixed-manifest",
+            "files": [
+                {
+                    "client_file_id": occurrence_id,
+                    "logical_path": (
+                        "__MACOSX/._one.pdf" if occurrence_id == "one" else filename
+                    ),
+                    "filename": filename,
+                    "size": len(payload),
+                }
+                for occurrence_id, filename, payload, _mime in selected
+            ],
+        },
+    )
+    assert junk_manifest.status_code == 422, junk_manifest.text
+    assert junk_manifest.json()["detail"] == (
+        "PDF import selection contains an ignored system file"
+    )
+    manifest = client.post(
+        f"{base}/{draft_id}/manifest",
+        json={
+            "batch_id": "mixed-manifest",
+            "files": [
+                {
+                    "client_file_id": occurrence_id,
+                    "logical_path": filename,
+                    "filename": filename,
+                    "size": len(payload),
+                }
+                for occurrence_id, filename, payload, _mime in selected
+            ],
+        },
+    )
+    assert manifest.status_code == 200, manifest.text
+    assert client.post(f"{base}/{draft_id}/manifest/seal").status_code == 200
+    uploaded = client.post(
+        f"{base}/{draft_id}/uploads",
+        files=[
+            *(
+                ("files", (filename, payload, mime))
+                for _occurrence_id, filename, payload, mime in selected
+            ),
+            *(("file_ids", (None, value[0])) for value in selected),
+            *(("logical_paths", (None, value[1])) for value in selected),
+            ("batch_id", (None, "mixed-upload")),
+        ],
+    )
+    assert uploaded.status_code == 200, uploaded.text
+    assert uploaded.json()["category_counts"] == {
+        "text": 0,
+        "suspicious": 0,
+        "missing": 2,
+        "image": 1,
+        "other": 1,
+        "unreadable": 0,
+        "unchecked": 0,
+    }
+    image_samples = client.get(
+        f"{base}/{draft_id}/samples", params={"category": "image"}
+    )
+    assert image_samples.status_code == 200, image_samples.text
+    image = image_samples.json()["items"][0]
+    page = client.get(f"{base}/{draft_id}/files/{image['occurrence_id']}/pages/1")
+    assert page.status_code == 200, page.text
+    assert page.json()["native_text"] == ""
+    thumbnail = client.get(page.json()["thumbnail_url"])
+    assert thumbnail.status_code == 200
+    assert thumbnail.content.startswith(b"\x89PNG\r\n\x1a\n")
+    preview_url = (
+        f"{base}/{draft_id}/files/{image['occurrence_id']}/pages/1/ocr-preview"
+    )
+    preview_selection = {"kind": "engine", "engine": "rapidocr"}
+    estimate = client.post(
+        f"{preview_url}/estimate", json={"ocr_selection": preview_selection}
+    )
+    assert estimate.status_code == 200, estimate.text
+    assert preview_runs.payload["mime"] == "image/png"
+    started = client.post(
+        preview_url,
+        json={"ocr_selection": preview_selection, "confirmation": None},
+    )
+    assert started.status_code == 202, started.text
+    previewed = client.get(f"{base}/{draft_id}/files/{image['occurrence_id']}/pages/1")
+    assert previewed.json()["ocr_text"] == "preview text"
+    other = client.get(f"{base}/{draft_id}/samples", params={"category": "other"})
+    assert other.status_code == 200, other.text
+    assert other.json()["extension_counts"] == [{"extension": ".txt", "count": 1}]
+    current = client.get(f"{base}/{draft_id}")
+    assert current.status_code == 200, current.text
+    choices = client.patch(
+        f"{base}/{draft_id}/choices",
+        json={
+            "expected_revision": current.json()["revision"],
+            "ocr_policy": "missing",
+            "ocr_selection": {"kind": "engine", "engine": "rapidocr"},
+            "semantic_search": False,
+            "semantic_setup_confirmation": None,
+            "destination": {"kind": "new", "sheet_name": "Mixed evidence"},
+        },
+    )
+    assert choices.status_code == 200, choices.text
+    assert choices.json()["choices"]["ocr_policy"] == "missing"
 
 
 def test_preview_and_commit_require_action_capability(tmp_path: Path) -> None:

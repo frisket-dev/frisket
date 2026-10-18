@@ -6,6 +6,7 @@ import contextlib
 import errno
 import hashlib
 import json
+import mimetypes
 import os
 import re
 import secrets
@@ -24,10 +25,10 @@ from frisket.contracts.http.pdf_imports import (
 )
 from frisket.engine.store.disk_capacity import DISK_HEADROOM_BYTES
 from frisket.engine.store.import_inventory import ImportInventory
-from frisket.server.services.import_bulk_sources import fsync_directory
+from frisket.server.services.import_bulk_sources import fsync_directory, is_junk_path
 from frisket.server.services.import_uploads import AdmittedUpload
 
-from .analysis import analyze_pdf
+from .analysis import analyze_image, analyze_other, analyze_pdf
 from .inventory import PdfDraftInventory, pdf_ocr_selected
 from .previews import (
     ThumbnailLease,
@@ -65,6 +66,7 @@ class FrozenPdfOccurrence:
     occurrence_id: str
     logical_path: str
     filename: str
+    mime: str
     size: int
     sha256: str | None
     path: Path | None
@@ -119,6 +121,7 @@ class FrozenPdfImport:
                 occurrence_id=str(row["occurrence_id"]),
                 logical_path=str(row["logical_path"]),
                 filename=str(row["filename"]),
+                mime=str(row["mime"]),
                 size=int(row["size"]),
                 sha256=str(row["sha256"]) if row.get("sha256") else None,
                 path=(
@@ -143,9 +146,10 @@ def _logical_path(value: str) -> str:
         not normalized
         or normalized.startswith("/")
         or any(part in {"", ".", ".."} for part in path.parts)
-        or path.suffix.lower() != ".pdf"
     ):
-        raise PdfImportDraftError(422, "multi-PDF import accepts safe PDF paths only")
+        raise PdfImportDraftError(
+            422, "multi-file import accepts safe relative paths only"
+        )
     return str(path)
 
 
@@ -258,6 +262,10 @@ class PdfImportService:
         for raw in files:
             occurrence_id = self._occurrence_id(raw.get("client_file_id"))
             logical = _logical_path(str(raw.get("logical_path") or ""))
+            if is_junk_path(logical):
+                raise PdfImportDraftError(
+                    422, "PDF import selection contains an ignored system file"
+                )
             filename = str(raw.get("filename") or PurePosixPath(logical).name)
             size = raw.get("size")
             if type(size) is not int or size < 0:
@@ -338,17 +346,22 @@ class PdfImportService:
             raise PdfImportDraftError(
                 422, "upload fields must align in batches of 1..64"
             )
-        facts = [
-            {
-                "occurrence_id": self._occurrence_id(file_id),
-                "logical_path": _logical_path(path),
-                "sha256": upload.sha256,
-                "size": upload.size,
-            }
-            for upload, file_id, path in zip(
-                uploads, file_ids, logical_paths, strict=True
+        facts = []
+        for upload, file_id, path in zip(uploads, file_ids, logical_paths, strict=True):
+            logical_path = _logical_path(path)
+            media_kind, mime = self._classify_upload(
+                upload, filename=PurePosixPath(logical_path).name
             )
-        ]
+            facts.append(
+                {
+                    "occurrence_id": self._occurrence_id(file_id),
+                    "logical_path": logical_path,
+                    "sha256": upload.sha256,
+                    "size": upload.size,
+                    "mime": mime,
+                    "media_kind": media_kind,
+                }
+            )
         directory, _ = self._open(project_id, draft_id)
 
         # First admit immutable occurrence facts. Byte copying and PDFium work
@@ -437,8 +450,9 @@ class PdfImportService:
             if item is None or item["analysis_state"] != "pending":
                 continue
             _, current_header = self._open(project_id, draft_id)
-            analysis = self._analyze(
-                self._files_root(directory, current_header) / str(item["sha256"])
+            analysis = self._analyze_file(
+                self._files_root(directory, current_header) / str(item["sha256"]),
+                media_kind=str(item["media_kind"]),
             )
             with (
                 self._lock(directory),
@@ -498,13 +512,23 @@ class PdfImportService:
         cursor: str = "",
         limit: int = 6,
     ) -> dict[str, Any]:
-        if category not in {"text", "suspicious", "missing", "unreadable"}:
+        if category not in {
+            "text",
+            "suspicious",
+            "missing",
+            "image",
+            "other",
+            "unreadable",
+        }:
             raise PdfImportDraftError(422, "invalid PDF text category")
         if not 1 <= limit <= 6:
             raise PdfImportDraftError(422, "PDF sample limit must be 1..6")
         directory, _ = self._open(project_id, draft_id)
         with PdfDraftInventory(directory / "inventory.db") as inventory:
             items, next_cursor = inventory.samples(category, after=cursor, limit=limit)
+            extension_counts, unlisted_extension_count = (
+                inventory.extension_counts(category) if category == "other" else ([], 0)
+            )
         payload = {
             "schema_version": SCHEMA_VERSION,
             "draft_id": draft_id,
@@ -513,6 +537,8 @@ class PdfImportService:
                 self._sample_public(project_id, draft_id, item) for item in items
             ],
             "next_cursor": next_cursor,
+            "extension_counts": extension_counts,
+            "unlisted_extension_count": unlisted_extension_count,
         }
         return payload
 
@@ -561,11 +587,17 @@ class PdfImportService:
                 str(action_params["engine"]),
                 settings_hash,
             )
+        mime = str(item["mime"])
+        if mime != "application/pdf" and not mime.startswith("image/"):
+            raise PdfImportDraftError(404, "file has no reviewable page")
         if page < 1 or page > int(item["page_count"] or 0):
-            raise PdfImportDraftError(404, "PDF page not found")
-        native_text, native_text_truncated = read_native_page(
-            self._files_root(directory, header) / str(item["sha256"]), page=page
-        )
+            raise PdfImportDraftError(404, "file page not found")
+        if mime.startswith("image/"):
+            native_text, native_text_truncated = "", False
+        else:
+            native_text, native_text_truncated = read_native_page(
+                self._files_root(directory, header) / str(item["sha256"]), page=page
+            )
         return {
             "schema_version": SCHEMA_VERSION,
             "draft_id": draft_id,
@@ -594,6 +626,7 @@ class PdfImportService:
             source=self._files_root(directory, header) / str(item["sha256"]),
             occurrence_id=occurrence_id,
             page=page,
+            mime=str(item["mime"]),
         )
 
     def set_paused(
@@ -620,7 +653,7 @@ class PdfImportService:
         semantic_setup_confirmation: str | None,
         destination: Mapping[str, Any],
     ) -> dict[str, Any]:
-        if ocr_policy not in {"missing_or_suspicious", "all", "none"}:
+        if ocr_policy not in {"missing", "missing_or_suspicious", "all", "none"}:
             raise PdfImportDraftError(422, "invalid PDF OCR policy")
         normalized_selection = self._ocr_selection(ocr_selection)
         normalized_destination = self._destination(destination)
@@ -1326,6 +1359,11 @@ class PdfImportService:
         engine = str(action_params["engine"])
         with PdfDraftInventory(directory / "inventory.db") as inventory:
             item = self._staged(inventory, occurrence_id)
+            mime = str(item["mime"])
+            if mime != "application/pdf" and not mime.startswith("image/"):
+                raise PdfImportDraftError(404, "file has no OCR preview")
+            if page < 1 or page > int(item["page_count"] or 0):
+                raise PdfImportDraftError(404, "file page not found")
             _settings, settings_hash = preview_settings(action_params)
             cached = inventory.cached_ocr(
                 str(item["sha256"]), page, engine, settings_hash
@@ -1438,17 +1476,84 @@ class PdfImportService:
     def _analyze(self, path: Path) -> dict[str, Any]:
         return analyze_pdf(path, quality_assessor=self._quality_assessor)
 
+    def _analyze_file(self, path: Path, *, media_kind: str) -> dict[str, Any]:
+        if media_kind == "pdf":
+            return self._analyze(path)
+        if media_kind == "image":
+            return analyze_image(path)
+        if media_kind == "other":
+            return analyze_other(path)
+        raise ValueError("invalid staged media kind")
+
+    @staticmethod
+    def _classify_upload(upload: AdmittedUpload, *, filename: str) -> tuple[str, str]:
+        """Classify bounded upload bytes while retaining useful MIME information."""
+
+        claimed = upload.mime.partition(";")[0].strip().casefold()[:255]
+        guessed = (mimetypes.guess_type(filename)[0] or "").casefold()
+        suffix = PurePosixPath(filename).suffix.casefold()
+        with PdfImportService._source(upload) as source:
+            prefix = source.read(5)
+            source.seek(0)
+            image_format = None
+            detected_image_mime = None
+            try:
+                from PIL import Image
+
+                with Image.open(source) as image:
+                    image_format = str(image.format or "").upper()
+                    detected_image_mime = Image.MIME.get(image_format)
+            except Exception:
+                pass
+
+        if prefix == b"%PDF-":
+            return "pdf", "application/pdf"
+
+        image_mimes = {
+            "BMP": "image/bmp",
+            "GIF": "image/gif",
+            "JPEG": "image/jpeg",
+            "PNG": "image/png",
+            "TIFF": "image/tiff",
+            "WEBP": "image/webp",
+            "MPO": "image/jpeg",
+        }
+        if image_format in image_mimes:
+            return "image", image_mimes[image_format]
+        if image_format is not None:
+            return "other", (
+                detected_image_mime
+                or (
+                    claimed
+                    if claimed and claimed != "application/octet-stream"
+                    else None
+                )
+                or guessed
+                or "application/octet-stream"
+            )
+        if suffix == ".pdf" or claimed == "application/pdf":
+            return "pdf", "application/pdf"
+        supported_image_mimes = {
+            "image/bmp": "image/bmp",
+            "image/gif": "image/gif",
+            "image/jpeg": "image/jpeg",
+            "image/jpg": "image/jpeg",
+            "image/png": "image/png",
+            "image/tiff": "image/tiff",
+            "image/webp": "image/webp",
+        }
+        if claimed in supported_image_mimes:
+            return "image", supported_image_mimes[claimed]
+        if guessed in supported_image_mimes:
+            return "image", supported_image_mimes[guessed]
+        if claimed and claimed != "application/octet-stream" and "/" in claimed:
+            return "other", claimed
+        return "other", guessed or "application/octet-stream"
+
     @staticmethod
     def _validate_upload(upload: AdmittedUpload, selected: Mapping[str, Any]) -> None:
-        if upload.mime not in {"application/pdf", "application/octet-stream"}:
-            raise PdfImportDraftError(422, "multi-PDF import accepts PDF files only")
         if upload.size != selected["size"]:
-            raise PdfImportDraftError(409, "uploaded PDF changed after selection")
-        with PdfImportService._source(upload) as source:
-            if source.read(5) != b"%PDF-":
-                raise PdfImportDraftError(
-                    422, "multi-PDF import accepts PDF files only"
-                )
+            raise PdfImportDraftError(409, "uploaded file changed after selection")
 
     @staticmethod
     @contextlib.contextmanager
@@ -1866,8 +1971,8 @@ class PdfImportService:
             "text": stats["text_count"],
             "suspicious": stats["suspicious_count"],
             "missing": stats["missing_count"],
-            "image": 0,
-            "other": 0,
+            "image": stats["image_count"],
+            "other": stats["other_count"],
             "unreadable": stats["unreadable_count"],
             "unchecked": stats["selected_count"] - stats["analyzed_count"],
         }
@@ -2048,7 +2153,7 @@ class PdfImportService:
                     ready.append(
                         {
                             "logical_path": row["logical_path"],
-                            "mime": "application/pdf",
+                            "mime": row["mime"],
                             "sha256": row["sha256"],
                             "size": row["size"],
                             "kind": "files",
@@ -2084,6 +2189,7 @@ class PdfImportService:
             "occurrence_id TEXT NOT NULL UNIQUE,"
             "selected_ordinal INTEGER NOT NULL UNIQUE,"
             "category TEXT NOT NULL,"
+            "mime TEXT NOT NULL DEFAULT 'application/pdf',"
             "error TEXT,"
             "sha256 TEXT,"
             "page_count INTEGER,"
@@ -2098,6 +2204,11 @@ class PdfImportService:
         if "error" not in columns:
             commit_inventory._db.execute(
                 "ALTER TABLE pdf_commit_occurrences ADD COLUMN error TEXT"
+            )
+        if "mime" not in columns:
+            commit_inventory._db.execute(
+                "ALTER TABLE pdf_commit_occurrences ADD COLUMN mime TEXT NOT NULL "
+                "DEFAULT 'application/pdf'"
             )
         if "sha256" not in columns:
             commit_inventory._db.execute(
@@ -2138,13 +2249,14 @@ class PdfImportService:
                 ocr_selected = pdf_ocr_selected(ocr_policy, category)
                 db.execute(
                     "INSERT INTO pdf_commit_occurrences"
-                    "(ordinal,occurrence_id,selected_ordinal,category,error,sha256,"
-                    "page_count,ocr_selected) VALUES(?,?,?,?,?,?,?,?)",
+                    "(ordinal,occurrence_id,selected_ordinal,category,mime,error,sha256,"
+                    "page_count,ocr_selected) VALUES(?,?,?,?,?,?,?,?,?)",
                     (
                         ordinal,
                         str(row["occurrence_id"]),
                         int(row["selected_ordinal"]),
                         category,
+                        str(row["mime"]),
                         str(row["error"]) if row.get("error") else None,
                         str(row["sha256"]),
                         int(row["page_count"] or 0),

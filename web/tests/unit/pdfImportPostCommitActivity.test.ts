@@ -53,12 +53,16 @@ function session(overrides: Partial<ImportSessionStatus> = {}): ImportSessionSta
 }
 
 describe('PDF import post-commit activity', () => {
-  it('derives adding/OCR counters and reuses the ordinary live run identity', () => {
+  it('derives adding/native/OCR counters and reuses the ordinary live run identity', () => {
     const activity = importActivity(session());
 
     expect(activity?.lines).toEqual([
       { key: 'adding', label: 'Adding rows', completed: 12, total: 12 },
-      { key: 'ocr', label: 'OCR', completed: 3, total: 8 },
+      {
+        key: 'native', label: 'Text layer', completed: 4, total: 4,
+        complete: false, detail: '4 of 4 · needs attention',
+      },
+      { key: 'ocr', label: 'OCR', completed: 3, total: 8, complete: false },
     ]);
     expect(activity?.liveRun).toMatchObject({
       runId: '42',
@@ -91,6 +95,10 @@ describe('PDF import post-commit activity', () => {
       totalRows: 8,
       failedRows: 5,
     });
+    expect(activity?.lines.find((line) => line.key === 'native')).toMatchObject({
+      complete: false,
+      detail: '4 of 4 · needs attention',
+    });
   });
 
   it('keeps a completed import refusal visible with its durable reason', () => {
@@ -119,7 +127,7 @@ describe('PDF import post-commit activity', () => {
     });
   });
 
-  it('combines import and existing index progress into one three-line entry', () => {
+  it('combines import and existing index progress into one four-line entry', () => {
     const search = {
       activityKey: 'index:9',
       reviewBatchId: null,
@@ -133,18 +141,34 @@ describe('PDF import post-commit activity', () => {
         { source_id: 'a', filename: 'a.pdf', completed: 2, total: 5 },
         { source_id: 'b', filename: 'b.pdf', completed: 3, total: 7 },
       ],
+      pdfFilesTruncated: true,
     } satisfies SearchPreparationNotice;
 
     const combined = composeImportSearchActivity(importActivity(session()), search);
 
     expect(combined?.notice.activityKey).toBe('import:import-00000000000000000000000000000000');
     expect(combined?.notice.title).toBe('Preparing search');
+    expect(combined?.notice.pdfFiles).toEqual(search.pdfFiles);
+    expect(combined?.notice.pdfFilesTruncated).toBe(true);
     expect(combined?.lines.map((line) => line.label)).toEqual([
       'Adding rows',
+      'Text layer',
       'OCR',
       'Search index',
     ]);
-    expect(combined?.lines[2]).toMatchObject({ completed: 5, total: 12 });
+    expect(combined?.lines[3]).toMatchObject({ completed: 5, total: 12 });
+  });
+
+  it('keeps unknown search progress indeterminate instead of inventing a completed count', () => {
+    const combined = composeImportSearchActivity(importActivity(session()), null);
+
+    expect(combined?.lines[3]).toMatchObject({
+      key: 'search-index',
+      completed: null,
+      total: null,
+      complete: false,
+      detail: 'Waiting for search activity',
+    });
   });
 
   it('renders the OCR wait as UI-only pending data', () => {

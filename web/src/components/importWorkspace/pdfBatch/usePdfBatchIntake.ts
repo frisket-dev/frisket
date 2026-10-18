@@ -6,7 +6,7 @@ import type {
   PdfImportsApi,
 } from '../../../api/pdfImports';
 
-interface SelectedPdf {
+interface SelectedFile {
   file: File;
   fileId: string;
   logicalPath: string;
@@ -41,7 +41,7 @@ export function usePdfBatchIntake({
 }) {
   const controller = useRef<AbortController | null>(null);
   const running = useRef<Promise<void> | null>(null);
-  const selected = useRef<SelectedPdf[]>([]);
+  const selected = useRef<SelectedFile[]>([]);
   const manifestBatchIds = useRef<string[]>([]);
   const uploadedFileIds = useRef<Set<string>>(new Set());
 
@@ -61,7 +61,7 @@ export function usePdfBatchIntake({
     return {
       files,
       expectedBytes: files.reduce((sum, file) => sum + file.size, 0),
-      sourceLabel: folder ?? `${files.length} PDFs`,
+      sourceLabel: folder ?? `${files.length} files`,
     };
   }, []);
 

@@ -5169,19 +5169,188 @@ li.panel-empty { list-style: none; }
   background: #effaf1;
 }
 .search-preparation-complete-icon { color: var(--green); }
+.search-preparation-banner {
+  gap: 0;
+  width: min(520px, calc(100vw - var(--sidebar-width) - 24px));
+  max-height: min(680px, calc(100vh - 92px));
+  padding: 0;
+  overflow: auto;
+  border-color: #c9cbf5;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 10px 30px rgba(40, 30, 20, 0.16);
+}
+.status-notice-stack > .search-preparation-banner {
+  width: min(520px, 100%);
+}
+.search-preparation-header {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  min-width: 0;
+  padding: 12px 42px 11px 16px;
+  background: #f4f4fe;
+}
+.search-preparation-banner.status-warning .search-preparation-header { background: #fff8df; }
+.search-preparation-banner.status-error .search-preparation-header { background: #fff1f0; }
+.search-preparation-banner.status-complete .search-preparation-header { background: #effaf1; }
+.search-preparation-header .status-notice-dismiss {
+  top: 7px;
+  right: 8px;
+}
+.search-preparation-header .active-run-main { align-items: flex-start; }
+.search-preparation-header .active-run-copy strong {
+  font-size: 14px;
+  font-weight: 650;
+  color: #3436b8;
+}
+.search-preparation-banner.status-warning .active-run-copy strong { color: var(--amber); }
+.search-preparation-banner.status-error .active-run-copy strong { color: var(--red); }
+.search-preparation-banner.status-complete .active-run-copy strong { color: var(--green); }
+.search-preparation-header .active-run-copy span {
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: #4a433e;
+}
+.search-preparation-body {
+  display: grid;
+  min-width: 0;
+  background: #fff;
+}
+.activity-progress-list { display: grid; }
+.activity-progress-row {
+  display: grid;
+  grid-template-columns: minmax(118px, 1fr) 120px minmax(92px, auto);
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 9px 16px;
+  border-top: 1px solid #efeae5;
+}
+.activity-progress-label {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.activity-progress-label strong {
+  overflow: hidden;
+  font-size: 12.5px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.activity-progress-label span {
+  color: #756c66;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.activity-progress-count {
+  color: #4a433e;
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+.activity-progress-row.is-complete .activity-progress-count { color: var(--green); }
+.search-preparation-banner .run-file-progress-bar {
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 4px;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-999);
+  background: #eae4de;
+}
+.search-preparation-banner .run-file-progress-bar::-webkit-progress-bar {
+  border-radius: var(--radius-999);
+  background: #eae4de;
+}
+.search-preparation-banner .run-file-progress-bar::-webkit-progress-value {
+  border-radius: var(--radius-999);
+  background: var(--accent);
+}
+.search-preparation-banner .run-file-progress-bar::-moz-progress-bar {
+  border-radius: var(--radius-999);
+  background: var(--accent);
+}
+.search-preparation-banner .activity-progress-row.is-complete .run-file-progress-bar::-webkit-progress-value {
+  background: var(--green);
+}
+.search-preparation-banner .activity-progress-row.is-complete .run-file-progress-bar::-moz-progress-bar {
+  background: var(--green);
+}
+.activity-progress-row .model-pull-progress-bar {
+  height: 4px;
+  background: #eae4de;
+}
+.activity-progress-row .model-pull-progress-bar.complete .model-pull-progress-fill {
+  width: 100%;
+  background: var(--green);
+}
+.import-activity-now {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 9px 16px;
+  border-top: 1px solid #efeae5;
+  color: #4a433e;
+  font-size: 12.5px;
+}
+.import-activity-now strong { color: #3436b8; }
+.import-activity-now span:nth-child(2) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.import-activity-now span:last-child { color: #756c66; }
 .search-preparation-progress {
   display: flex;
   align-items: center;
   gap: 8px;
+  padding: 11px 16px;
+  border-top: 1px solid #efeae5;
   color: var(--text-mid);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 .search-preparation-progress .model-pull-progress-bar { flex: 1; }
-.search-preparation-banner .run-file-progress-copy { flex-wrap: wrap; }
+.pdf-index-progress-list {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 11px 16px;
+  border-top: 1px solid #efeae5;
+}
+.pdf-index-progress { display: grid; gap: 6px; min-width: 0; }
+.pdf-index-progress .run-file-progress-copy {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  min-width: 0;
+}
+.pdf-index-progress .run-file-progress-name {
+  overflow: hidden;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pdf-index-progress .run-file-progress-count {
+  color: #4a433e;
+  font-size: 11.5px;
+}
 .search-preparation-details {
   display: grid;
   gap: 4px;
+  margin: 0;
+  padding: 9px 16px;
+  border-top: 1px solid #efeae5;
   color: var(--text-mid);
   font-size: 11px;
 }
@@ -5199,7 +5368,49 @@ li.panel-empty { list-style: none; }
   margin: 0;
   padding-left: 18px;
 }
+.search-preparation-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  min-width: 0;
+  padding: 10px 16px;
+  border-top: 1px solid #efeae5;
+  background: #fff;
+  color: #756c66;
+  font-size: 12px;
+}
+.search-preparation-footer-copy { flex: 1 1 220px; }
+.search-preparation-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+.search-preparation-action {
+  color: #3b46c4;
+  font: inherit;
+  font-weight: 600;
+}
+.search-preparation-action:hover:not(:disabled) { text-decoration: underline; }
+.search-preparation-action:disabled { opacity: 0.55; }
+.search-preparation-footer-error {
+  flex-basis: 100%;
+  color: var(--red);
+}
 .search-preparation-review { justify-self: start; }
+
+@media (max-width: 700px) {
+  .activity-progress-row {
+    grid-template-columns: minmax(0, 1fr) minmax(80px, 1fr);
+  }
+  .activity-progress-row .activity-progress-count {
+    grid-column: 1 / -1;
+    text-align: left;
+  }
+  .pdf-index-progress .run-file-progress-copy { grid-template-columns: minmax(0, 1fr); }
+  .pdf-index-progress .run-file-progress-count { white-space: normal; }
+}
 
 .status-right { display: flex; align-items: center; gap: 2px; }
 .status-btn {

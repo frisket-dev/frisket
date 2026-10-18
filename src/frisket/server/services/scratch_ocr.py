@@ -82,15 +82,9 @@ def paid_ocr_scratch_plan(
         raise ValueError("scratch OCR requires exactly one byte or path source")
     if media_path is not None:
         media_path = media_path.resolve()
-        with media_path.open("rb") as source:
-            header = source.read(5)
-        if header != b"%PDF-":
-            raise OcrComparePreviewError(
-                "invalid_input_ref",
-                "Borrowed OCR sources must be PDF documents.",
-                field="file",
-            )
-        source_kind, source_suffix, source_mime = "pdf", ".pdf", "application/pdf"
+        source_kind, source_suffix, source_mime = _ocr_path_source_type(
+            media_path, filename=filename, mime=mime
+        )
         if not isinstance(media_digest, str) or len(media_digest) != 64:
             raise ValueError("borrowed OCR source requires its admitted SHA-256")
         if type(media_size) is not int or media_size < 0:
@@ -473,6 +467,32 @@ def _ocr_source_type(
             field="file",
             details={"filename": filename, "mime": mime},
         ) from exc
+    return _image_source_type(image_format)
+
+
+def _ocr_path_source_type(
+    media_path: Path, *, filename: str | None, mime: str | None
+) -> tuple[str, str, str]:
+    try:
+        with media_path.open("rb") as source:
+            if source.read(5) == b"%PDF-":
+                return "pdf", ".pdf", "application/pdf"
+        from PIL import Image
+
+        with Image.open(media_path) as image:
+            image.verify()
+            image_format = str(image.format or "").upper()
+    except Exception as exc:
+        raise OcrComparePreviewError(
+            "invalid_input_ref",
+            "OCR compare requires a readable image or PDF source.",
+            field="file",
+            details={"filename": filename, "mime": mime},
+        ) from exc
+    return _image_source_type(image_format)
+
+
+def _image_source_type(image_format: str) -> tuple[str, str, str]:
     formats = {
         "BMP": (".bmp", "image/bmp"),
         "GIF": (".gif", "image/gif"),

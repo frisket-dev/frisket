@@ -51,18 +51,18 @@ export function PdfBatchDrafts({ projectId, onResume, api = pdfImportsApi }: Pdf
     }
   };
 
-  if (loadedProjectId !== projectId) return <div className="pdf-batch-drafts-loading" role="status"><LoaderCircle className="spin" size={14} /> Checking unfinished PDF imports…</div>;
+  if (loadedProjectId !== projectId) return <div className="pdf-batch-drafts-loading" role="status"><LoaderCircle className="spin" size={14} /> Checking unfinished file imports…</div>;
   if (drafts.length === 0 && !error) return null;
 
-  return <section className="pdf-batch-drafts" aria-label="Unfinished PDF imports">
-    <header><strong>Unfinished PDF imports</strong><span>Continue without starting over.</span></header>
+  return <section className="pdf-batch-drafts" aria-label="Unfinished file imports">
+    <header><strong>Unfinished file imports</strong><span>Continue without starting over.</span></header>
     {drafts.map((draft) => {
       const total = draft.upload.files_total;
       const copied = draft.upload.files_done;
       const confirming = discardId === draft.draft_id;
       return <article key={draft.draft_id}>
         <FileText size={17} aria-hidden />
-        <div><strong>{draft.source_label || count(total, 'PDF')}</strong><span>{draft.state === 'cancelling'
+        <div><strong>{draft.source_label || count(total, 'file')}</strong><span>{draft.state === 'cancelling'
           ? `Removing ${bytesLabel(draft.cleanup.bytes_done)} of ${bytesLabel(draft.cleanup.bytes_total ?? 0)}`
           : `${copied.toLocaleString()} of ${total.toLocaleString()} copied${draft.paused ? ' · Paused' : ''}`}</span></div>
         {draft.state === 'cancelling' ? <LoaderCircle className="spin" size={15} aria-label="Removing import" /> : confirming ? <div className="pdf-batch-draft-confirm">
@@ -71,7 +71,7 @@ export function PdfBatchDrafts({ projectId, onResume, api = pdfImportsApi }: Pdf
           <button type="button" className="btn btn-danger" disabled={busyId === draft.draft_id} onClick={() => void discard(draft)}>Discard draft</button>
         </div> : <div className="pdf-batch-draft-actions">
           <button type="button" className="btn" onClick={() => onResume(draft.draft_id)}>Resume</button>
-          <button type="button" className="icon-btn" aria-label={`Discard ${draft.source_label || 'PDF import'}`} onClick={() => setDiscardId(draft.draft_id)}><Trash2 size={14} /></button>
+          <button type="button" className="icon-btn" aria-label={`Discard ${draft.source_label || 'file import'}`} onClick={() => setDiscardId(draft.draft_id)}><Trash2 size={14} /></button>
         </div>}
       </article>;
     })}

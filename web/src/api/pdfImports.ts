@@ -33,7 +33,10 @@ export type PdfImportPreviewEstimate = Omit<HttpPdfImportOcrPreviewEstimate, 'es
 };
 export type PdfImportPreviewStart = HttpPdfImportOcrPreviewStart;
 export type PdfImportCreateFile = HttpPdfImportManifestBatchRequest['files'][number];
-export type PdfImportSamples = Pick<HttpPdfImportSamplesResponse, 'items' | 'next_cursor'>;
+export type PdfImportSamples = Pick<
+  HttpPdfImportSamplesResponse,
+  'items' | 'next_cursor' | 'extension_counts' | 'unlisted_extension_count'
+>;
 export type PdfImportReselectFile = HttpPdfImportReselectRequest['files'][number];
 export type PdfImportReselectResult = HttpPdfImportReselectResponse['items'][number];
 export type PdfImportReselectResponse = HttpPdfImportReselectResponse;
@@ -149,7 +152,12 @@ export function createPdfImportsApi(): PdfImportsApi {
       return httpContract('tenant.list_pdf_import_samples.get', {
         pathParams: { pid: projectId, draft_id: importId },
         query: { category, cursor, limit: 6 }, ...requestOptions(options),
-      }, (wire) => ({ items: wire.items, next_cursor: wire.next_cursor }));
+      }, (wire) => ({
+        items: wire.items,
+        next_cursor: wire.next_cursor,
+        extension_counts: wire.extension_counts,
+        unlisted_extension_count: wire.unlisted_extension_count,
+      }));
     },
     reconcileReselection(projectId, importId, files, options = {}) {
       return httpContract('tenant.reconcile_pdf_import_reselection.post', {
@@ -192,7 +200,11 @@ export function createPdfImportsApi(): PdfImportsApi {
     estimateBatchOcr(projectId, importId, selection, ocrPolicy, expectedRevision, options = {}) {
       return httpContract('tenant.estimate_pdf_import_batch_ocr.post', {
         pathParams: { pid: projectId, draft_id: importId }, query: {},
-        body: { ocr_selection: selection, ocr_policy: ocrPolicy, expected_revision: expectedRevision },
+        body: {
+          ocr_selection: selection,
+          ocr_policy: ocrPolicy,
+          expected_revision: expectedRevision,
+        },
         ...requestOptions(options),
       }, (wire) => wire as PdfImportBatchOcrEstimate);
     },

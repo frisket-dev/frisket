@@ -47,10 +47,12 @@ function childRunStatus(status: string): RunProgress['status'] {
 }
 
 export interface ImportActivityLine {
-  key: 'adding' | 'ocr';
+  key: 'adding' | 'native' | 'ocr';
   label: string;
   completed: number;
   total: number;
+  detail?: string;
+  complete?: boolean;
 }
 
 export interface ImportActivity {
@@ -100,12 +102,42 @@ export function importActivity(session: ImportSessionStatus): ImportActivity | n
     completed: Math.min(session.committed_rows, selectedTotal),
     total: selectedTotal,
   }];
-  if (session.ocr_total > 0) lines.push({
-    key: 'ocr',
-    label: 'OCR',
-    completed: Math.min(session.ocr_completed, session.ocr_total),
-    total: session.ocr_total,
+  const nativeTotal = Math.max(session.preparation_total - session.ocr_total, 0);
+  const nativeCompleted = Math.max(Math.min(
+    session.preparation_completed - session.ocr_completed,
+    nativeTotal,
+  ), 0);
+  const unsuccessful = new Set(['failed', 'partial', 'cancelled']);
+  const nativeNeedsAttention = session.unreadable_total > 0
+    || session.preparation_children.some((child) => (
+      child.action_id === 'media.read_pdf_text' && unsuccessful.has(child.status)
+    ));
+  if (nativeTotal > 0) lines.push({
+    key: 'native',
+    label: 'Text layer',
+    completed: nativeCompleted,
+    total: nativeTotal,
+    complete: nativeCompleted >= nativeTotal && !nativeNeedsAttention,
+    ...(nativeNeedsAttention ? {
+      detail: `${nativeCompleted.toLocaleString()} of ${nativeTotal.toLocaleString()} · needs attention`,
+    } : {}),
   });
+  if (session.ocr_total > 0) {
+    const ocrCompleted = Math.min(session.ocr_completed, session.ocr_total);
+    const ocrNeedsAttention = session.preparation_children.some((child) => (
+      child.action_id === 'media.ocr' && unsuccessful.has(child.status)
+    ));
+    lines.push({
+      key: 'ocr',
+      label: 'OCR',
+      completed: ocrCompleted,
+      total: session.ocr_total,
+      complete: ocrCompleted >= session.ocr_total && !ocrNeedsAttention,
+      ...(ocrNeedsAttention ? {
+        detail: `${ocrCompleted.toLocaleString()} of ${session.ocr_total.toLocaleString()} · needs attention`,
+      } : {}),
+    });
+  }
 
   const child = activeChild(session);
   const liveRun: RunProgress | null = child && session.sheet_id !== null ? {
@@ -339,6 +371,7 @@ export interface ImportSearchActivityLine {
   completed: number | null;
   total: number | null;
   detail?: string;
+  complete?: boolean;
 }
 
 export function composeImportSearchActivity(
@@ -357,16 +390,20 @@ export function composeImportSearchActivity(
   const indexedPages = pdfIndexFiles.reduce((total, file) => total + file.completed, 0);
   const indexPages = pdfIndexFiles.reduce((total, file) => total + file.total, 0);
   const indexActive = search?.tone === 'active';
+  const indexComplete = search?.tone === 'complete';
+  const ocrLine = activity.lines.find((line) => line.key === 'ocr') ?? null;
+  const readingOcr = ocrLine !== null && ocrLine.completed < ocrLine.total;
   const lines: ImportSearchActivityLine[] = [
     ...activity.lines.map((line) => ({ ...line })),
     {
       key: 'search-index',
       label: 'Search index',
-      completed: indexPages > 0 ? indexedPages : indexActive ? null : 1,
-      total: indexPages > 0 ? indexPages : indexActive ? null : 1,
+      completed: indexPages > 0 ? indexedPages : null,
+      total: indexPages > 0 ? indexPages : null,
+      complete: indexComplete,
       detail: indexPages > 0
         ? `${indexedPages.toLocaleString()} / ${indexPages.toLocaleString()} pages`
-        : indexActive ? 'Indexing ready files' : 'Ready files are searchable',
+        : indexComplete ? 'Ready' : indexActive ? 'Indexing ready files' : 'Waiting for search activity',
     },
   ];
   const failed = Boolean(session.error) || search?.tone === 'error';
@@ -383,9 +420,13 @@ export function composeImportSearchActivity(
         : recovering ? 'Import interrupted' : 'Preparing search',
       detail: session.error ?? (recovering
         ? `${session.committed_rows.toLocaleString()} rows added`
-        : `${readyFiles.toLocaleString()} of ${selectedTotal.toLocaleString()} files ready`),
+        : readingOcr && ocrLine
+          ? `Reading text with OCR · ${ocrLine.completed.toLocaleString()} of ${ocrLine.total.toLocaleString()} files`
+          : `${readyFiles.toLocaleString()} of ${selectedTotal.toLocaleString()} files ready`),
       progress: null,
       details: search?.details ?? [],
+      pdfFiles: search?.pdfFiles,
+      pdfFilesTruncated: search?.pdfFilesTruncated,
     },
     lines,
   };

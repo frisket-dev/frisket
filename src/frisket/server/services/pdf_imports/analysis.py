@@ -118,6 +118,45 @@ def analyze_pdf(
         }
 
 
+def analyze_image(path: Path) -> dict[str, Any]:
+    """Validate one staged image without loading its pixels into memory."""
+
+    try:
+        from PIL import Image
+
+        with Image.open(path) as image:
+            if image.width * image.height > 40_000_000:
+                raise ValueError("image dimensions exceed preview limit")
+            image.verify()
+        return {
+            "analysis_state": "done",
+            "page_count": 1,
+            "category": "image",
+            "sample_pages": [1],
+            "error": None,
+        }
+    except Exception as exc:  # Pillow exposes decoder-specific error types
+        return {
+            "analysis_state": "error",
+            "page_count": None,
+            "category": "unreadable",
+            "sample_pages": [],
+            "error": (str(exc) or "Image could not be read")[:MAX_ERROR_CHARS],
+        }
+
+
+def analyze_other(_path: Path) -> dict[str, Any]:
+    """Mark a retained attachment that has no review-time text analysis."""
+
+    return {
+        "analysis_state": "done",
+        "page_count": None,
+        "category": "other",
+        "sample_pages": [],
+        "error": None,
+    }
+
+
 def _quality_flags(
     path: Path,
     text: str,
@@ -179,6 +218,8 @@ def _quality_flags(
 __all__ = [
     "MAX_PAGE_POSITIONED_WORDS",
     "MAX_SAMPLE_CHARS",
+    "analyze_image",
+    "analyze_other",
     "analyze_pdf",
     "representative_pages",
 ]
