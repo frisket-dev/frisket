@@ -658,7 +658,11 @@ class ImportSessionService:
             search_preparation_status=preparation_status,
             search_preparation_batch_id=preparation_batch_id,
             selected_total=(
-                int(header.pdf_preparation["selected_total"])
+                int(
+                    header.max_rows
+                    if header.max_rows is not None
+                    else header.pdf_preparation["selected_total"]
+                )
                 if header.pdf_preparation is not None
                 else None
             ),

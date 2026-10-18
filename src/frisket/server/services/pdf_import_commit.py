@@ -568,7 +568,7 @@ class PdfImportCommitService:
             sheet_id=session.sheet_id,
             state=state,
             committed_rows=session.committed_rows,
-            selected_total=int(frozen.selected_total),
+            selected_total=int(frozen.committed_total),
             available_files=through,
             uploads_complete=bool(frozen.uploads_complete),
         )
