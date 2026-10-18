@@ -28,6 +28,7 @@ from frisket.execution.resolve_for_action import promise_rows, target_snapshot
 from frisket.retrieval.source_adapter import resolve_cell_blob_source
 from frisket.server.route_errors import RouteError
 from frisket.server.services.pdf_import_ocr_approval import PdfImportOcrGrant
+from frisket.server.services.pdf_imports.inventory import pdf_ocr_selected
 
 _CHILD_STATUS_PAGE = 100
 _TERMINAL_CHILD_STATUSES = ("completed", "failed", "cancelled", "partial")
@@ -551,7 +552,7 @@ class PdfImportPreparationCoordinator:
             int(item["row_id"])
             for item in rows
             if bool(item.get("ocr_selected"))
-            and str(item.get("category")) != "unreadable"
+            and pdf_ocr_selected(ocr_policy, str(item.get("category")))
         )
         responses: list[dict[str, Any]] = []
 
@@ -606,6 +607,7 @@ class PdfImportPreparationCoordinator:
                     sheet_id=sheet_id,
                     source_column_id=int(source["id"]),
                     rows=rows,
+                    ocr_policy=ocr_policy,
                     reviewed_ocr_params=reviewed_ocr_params,
                     grant=grant,
                 )
@@ -672,6 +674,7 @@ class PdfImportPreparationCoordinator:
         sheet_id: int,
         source_column_id: int,
         rows: Sequence[Mapping[str, Any]],
+        ocr_policy: str,
         reviewed_ocr_params: Mapping[str, Any],
         grant: PdfImportOcrGrant,
     ) -> Callable[[TrustedConsentContext], Any]:
@@ -679,7 +682,7 @@ class PdfImportPreparationCoordinator:
             row
             for row in rows
             if bool(row.get("ocr_selected"))
-            and str(row.get("category")) != "unreadable"
+            and pdf_ocr_selected(ocr_policy, str(row.get("category")))
         )
         if not ocr_rows:
             raise ValueError("paid PDF OCR grant has no rows in this child")
