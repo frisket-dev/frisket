@@ -68,7 +68,8 @@ describe('ModelPullProgress', () => {
     expect(screen.getByText('Qwen 3')).toBeInTheDocument();
     expect(screen.getByText('downloading')).toBeInTheDocument();
     const bar = screen.getByRole('progressbar');
-    expect(bar).toHaveAttribute('aria-valuenow', '25');
+    expect(bar).toHaveAttribute('value', '250');
+    expect(bar).toHaveAttribute('max', '1000');
     expect(screen.getByText(/^25% ·/)).toBeInTheDocument();
   });
 
@@ -131,7 +132,10 @@ describe('ModelPullProgress', () => {
       />,
     );
     const err = screen.getByTestId('model-pull-error');
-    expect(err.textContent).toMatch(/pull_failed/);
+    expect(screen.getByTestId('model-pull-progress')).toHaveTextContent('Download failed');
+    expect(err).toHaveAttribute('data-error-code', 'pull_failed');
+    expect(err).toHaveAttribute('title', 'pull_failed');
+    expect(err.textContent).not.toMatch(/pull_failed/);
     expect(err.textContent).toMatch(/connection reset/);
     expect(screen.queryByTestId('model-pull-cancel')).not.toBeInTheDocument();
   });
@@ -177,6 +181,7 @@ describe('ModelPullProgress', () => {
       await vi.advanceTimersByTimeAsync(3000);
     });
     expect(getModelPull).not.toHaveBeenCalled();
+    expect(screen.getByTestId('model-pull-progress')).toHaveTextContent('Download cancelled');
   });
 
   it('does not latch in "Cancelling…"/spinner once a poll reports the backend-confirmed cancellation, even for a pull cancelled while still queued', async () => {
@@ -218,7 +223,7 @@ describe('ModelPullProgress', () => {
     expect(getModelPull).toHaveBeenCalledTimes(1);
   });
 
-  it('renders a canonical backend error code (endpoint_changed) verbatim', () => {
+  it('preserves a canonical backend error code as metadata without exposing it as copy', () => {
     render(
       <ModelPullProgress
         pull={pull({
@@ -231,7 +236,9 @@ describe('ModelPullProgress', () => {
       />,
     );
     const err = screen.getByTestId('model-pull-error');
-    expect(err.textContent).toMatch(/endpoint_changed/);
+    expect(err).toHaveAttribute('data-error-code', 'endpoint_changed');
+    expect(err).toHaveAttribute('title', 'endpoint_changed');
+    expect(err.textContent).not.toMatch(/endpoint_changed/);
     expect(err.textContent).toMatch(
       /The local endpoint changed mid-pull \(correlation id corr-abc123\); please retry\./,
     );

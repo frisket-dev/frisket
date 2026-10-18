@@ -100,16 +100,17 @@ test('semantic setup keeps progress in activity and setup errors in search', asy
   await expect(notice).toBeHidden();
   await activity.click();
   await expect(notice).toContainText('EmbeddingGemma 2');
-  await expect(notice.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '25');
+  await expect(notice.getByRole('progressbar')).toHaveAttribute('value', '25');
+  await expect(notice.getByRole('progressbar')).toHaveAttribute('max', '100');
   await page.screenshot({ path: testInfo.outputPath('download-progress@2x.png'), animations: 'disabled' });
   const reopened = await openPalette(page);
   await reopened.getByTestId('command-palette-input').fill('harbor');
   await expect(reopened.getByTestId('search-setup-status')).toContainText('setup is running.');
   await expect(reopened.getByRole('progressbar')).toHaveCount(0);
-  await expect(notice.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '25');
+  await expect(notice.getByRole('progressbar')).toHaveAttribute('value', '25');
   await page.getByRole('button', { name: 'Close command palette' }).click();
   await expect(notice).toContainText('EmbeddingGemma 2');
-  await expect(notice.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '25');
+  await expect(notice.getByRole('progressbar')).toHaveAttribute('value', '25');
   const failurePalette = await openPalette(page);
   await failurePalette.getByTestId('command-palette-input').fill('harbor');
   pull = {
@@ -142,7 +143,7 @@ test('semantic setup keeps progress in activity and setup errors in search', asy
   await expect(activity).toContainText('Downloading EmbeddingGemma 2');
   await expect(notice).toBeHidden();
   await activity.click();
-  await expect(notice.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '50');
+  await expect(notice.getByRole('progressbar')).toHaveAttribute('value', '50');
 
   // Download bytes are simulated, so control only the resulting index lifecycle too.
   // The preceding test proves real PDF preparation and search indexing end to end.

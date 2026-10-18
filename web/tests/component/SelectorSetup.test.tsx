@@ -384,7 +384,8 @@ describe('SelectorSetup', () => {
     screen.getByRole('button', { name: 'Recheck' }).focus();
     view.rerender(<SelectorSetup {...props} choice={choice({ ...setup,
       blocked_by_operation: pull({ completed_bytes: 600, total_bytes: 1000 }) })} />);
-    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '60');
+    expect(screen.getByRole('progressbar')).toHaveAttribute('value', '600');
+    expect(screen.getByRole('progressbar')).toHaveAttribute('max', '1000');
     expect(screen.getByRole('button', { name: 'Recheck' })).toHaveFocus();
     expect(request).not.toHaveBeenCalled();
   });
@@ -415,16 +416,17 @@ describe('SelectorSetup', () => {
     const changed = vi.fn();
     render(<SelectorSetup projectId="a" choice={choice({ kind: 'engine_setup', scope: 'organization', setup_ref: initial.model, can_mutate: true, can_start: false, blocked_by_operation: initial })} onChanged={changed} onEditingChange={vi.fn()} />);
     await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
-    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '60');
+    expect(screen.getByRole('progressbar')).toHaveAttribute('value', '600');
+    expect(screen.getByRole('progressbar')).toHaveAttribute('max', '1000');
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Cancel' })); });
     expect(screen.getByRole('button', { name: 'Cancelling…' })).toBeDisabled();
     await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
-    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '60');
+    expect(screen.getByRole('progressbar')).toHaveAttribute('value', '600');
     expect(screen.getByRole('button', { name: 'Cancelling…' })).toBeDisabled();
     expect(screen.getByRole('alert')).toHaveTextContent('Could not refresh setup progress');
     expect(changed).not.toHaveBeenCalled();
     await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
-    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '80');
+    expect(screen.getByRole('progressbar')).toHaveAttribute('value', '800');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(request).toHaveBeenCalledWith('outer.cancel_org_model_pull.post', expect.objectContaining({ pathParams: { pull_id: initial.id } }));
   });

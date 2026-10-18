@@ -14,6 +14,7 @@ import { cancelModelPull, getModelPull, uninstallArtifact } from '../api/open';
 import type { ModelPullDto } from '../api/types';
 import { usePoll } from '../hooks/usePoll';
 import { formatNumberDisplay } from '../format';
+import { ActivityProgressCard, ProgressBar, type ActivityProgressState } from './ActivityProgress';
 
 const ACTIVE_STATUSES: ModelPullDto['status'][] = ['pending', 'running'];
 
@@ -149,33 +150,36 @@ export function ModelPullProgress({
         ? humanBytes(completed)
         : null;
 
+  const presentationState: ActivityProgressState = active
+    ? 'active'
+    : pull.status === 'failed'
+      ? 'error'
+      : pull.status === 'done' || pull.status === 'uninstalled'
+        ? 'complete'
+        : 'warning';
+  const canCancel = active && !readOnly;
+  const canUninstall = pull.status === 'done' && !readOnly && pull.capabilities.remove;
+  const cardDetail = pull.status === 'failed'
+    ? 'Download failed'
+    : pull.status === 'cancelled'
+      ? 'Download cancelled'
+      : pull.status === 'done'
+        ? 'Download complete'
+        : pull.status === 'uninstalled'
+          ? 'Model uninstalled'
+          : pull.phase || undefined;
+
   return (
-    <div
+    <ActivityProgressCard
+      state={presentationState}
+      title={pull.display_name}
+      detail={cardDetail}
       className="model-pull-progress"
-      data-testid="model-pull-progress"
-      data-status={pull.status}
-    >
-      <div className="model-pull-progress-header">
-        <span className="model-pull-progress-name">{pull.display_name}</span>
-        {pull.phase && <span className="model-pull-progress-phase">{pull.phase}</span>}
-      </div>
-      {active && (
+      testId="model-pull-progress"
+      dataStatus={pull.status}
+      footer={canCancel || canUninstall ? (
         <>
-          <span
-            className={`model-pull-progress-bar${percent === null ? ' indeterminate' : ''}`}
-            role="progressbar"
-            aria-label={`Downloading ${pull.display_name}`}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            {...(percent !== null ? { 'aria-valuenow': percent } : {})}
-          >
-            <span
-              className="model-pull-progress-fill"
-              style={percent !== null ? { width: `${percent}%` } : undefined}
-            />
-          </span>
-          {sizeLabel && <span className="model-pull-progress-size">{sizeLabel}</span>}
-          {!readOnly && (
+          {canCancel && (
             <button
               type="button"
               className="btn btn-compact"
@@ -186,6 +190,30 @@ export function ModelPullProgress({
               {pull.cancel_requested ? 'Cancelling…' : 'Cancel'}
             </button>
           )}
+          {canUninstall && (
+            <button
+              type="button"
+              className="btn btn-compact"
+              data-testid="model-pull-uninstall"
+              disabled={uninstalling}
+              onClick={() => void doUninstall()}
+            >
+              {uninstalling ? 'Uninstalling…' : 'Uninstall'}
+            </button>
+          )}
+        </>
+      ) : undefined}
+    >
+      {active && (
+        <>
+          <ProgressBar
+            label={`Downloading ${pull.display_name}`}
+            completed={completed}
+            total={total}
+            state="active"
+            className="model-pull-progress-bar"
+          />
+          {sizeLabel && <span className="model-pull-progress-size">{sizeLabel}</span>}
           {cancelError && (
             <p
               className="settings-inline-status settings-validation-message is-error"
@@ -202,25 +230,19 @@ export function ModelPullProgress({
         </p>
       )}
       {pull.status === 'failed' && pull.error && (
-        <p className="model-pull-progress-error" data-testid="model-pull-error">
-          {pull.error.code}: {pull.error.message}
+        <p
+          className="model-pull-progress-error"
+          data-testid="model-pull-error"
+          data-error-code={pull.error.code ?? undefined}
+          title={pull.error.code ?? undefined}
+        >
+          {pull.error.message}
         </p>
       )}
       {pull.status === 'done' && (
         <p className="model-pull-progress-done" data-testid="model-pull-done">
           {pull.display_name} installed
           {pull.resolved_size != null ? ` (${humanBytes(pull.resolved_size)})` : ''}
-          {!readOnly && pull.capabilities.remove && (
-            <button
-              type="button"
-              className="btn btn-compact"
-              data-testid="model-pull-uninstall"
-              disabled={uninstalling}
-              onClick={() => void doUninstall()}
-            >
-              {uninstalling ? 'Uninstalling…' : 'Uninstall'}
-            </button>
-          )}
         </p>
       )}
       {uninstallError && (
@@ -244,6 +266,6 @@ export function ModelPullProgress({
           {pull.model} uninstalled.
         </p>
       )}
-    </div>
+    </ActivityProgressCard>
   );
 }

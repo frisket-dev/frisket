@@ -57,7 +57,7 @@ describe('PDF import post-commit activity', () => {
     const activity = importActivity(session());
 
     expect(activity?.lines).toEqual([
-      { key: 'adding', label: 'Adding rows', completed: 12, total: 12 },
+      { key: 'adding', label: 'Adding rows', completed: 12, total: 12, complete: true },
       {
         key: 'native', label: 'Text layer', completed: 4, total: 4,
         complete: false, detail: '4 of 4 · needs attention',
@@ -72,6 +72,14 @@ describe('PDF import post-commit activity', () => {
       totalRows: 8,
       status: 'running',
     });
+  });
+
+  it('waits for authoritative admission completion before marking added rows done', () => {
+    expect(importActivity(session({ state: 'running' }))?.lines[0].complete).toBe(false);
+    expect(importActivity(session({
+      state: 'kept',
+      committed_rows: 7,
+    }))?.lines[0].complete).toBe(false);
   });
 
   it('presents a terminal partial preparation child as failed instead of queued', () => {
