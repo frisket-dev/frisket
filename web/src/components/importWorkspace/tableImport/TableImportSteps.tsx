@@ -275,13 +275,14 @@ function NumberStepper({ label, value, disabled, onChange }: { label: string; va
 }
 
 function lineLabel(row: TableImportPreview['head'][number], expectedValues: number): string {
+  const actualValues = row.cells.length + row.hidden_cell_count;
   if (row.role === 'header') return 'Names';
   if (row.role === 'skipped_start' || row.role === 'skipped_end') return 'Skipped';
   if (row.role === 'blank') return 'Blank';
   const extra = row.issues.find((issue) => issue.code === 'extra_values');
-  if (extra) return `+${Math.max(extra.original_values.length, row.cells.length - expectedValues, extra.count)} values`;
+  if (extra) return `+${Math.max(extra.original_values.length, actualValues - expectedValues, extra.count)} values`;
   const missing = row.issues.find((issue) => issue.code === 'missing_values');
-  if (missing) return `−${Math.max(expectedValues - row.cells.length, missing.count, 1)} values`;
+  if (missing) return `−${Math.max(expectedValues - actualValues, missing.count, 1)} values`;
   return '';
 }
 
@@ -319,7 +320,9 @@ function PreviewNotice({ preview, firstRowIsHeader }: { preview: TableImportPrev
     ? `Most lines have ${notice.common_values ?? expected} values, but the column names on line ${namesLine} have ${expected}. If the file starts with a title or notes, skip those rows. Otherwise, try another separator.`
     : `Most lines don’t have ${expected} values. Try another separator.`;
   else if (notice.kind === 'some_wrong_width' || notice.kind === 'extra_values') text = mismatchCount === 1
-    ? `Line ${firstMismatch?.physical_line_start ?? firstMismatch?.record_ordinal ?? ''} doesn’t have ${expected} values. It will be imported and listed in Errors.`
+    ? firstMismatch
+      ? `Line ${firstMismatch.physical_line_start ?? firstMismatch.record_ordinal} doesn’t have ${expected} values. It will be imported and listed in Errors.`
+      : `1 line doesn’t have ${expected} values. It will be imported and listed in Errors.`
     : `${mismatchCount.toLocaleString()} lines don’t have ${expected} values. They will be imported and listed in Errors.`;
   else if (notice.kind === 'counting') text = 'Checking the rest of the file…';
   else text = `Every line shown has ${notice.common_values ?? preview.expected_values} values.`;

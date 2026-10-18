@@ -379,6 +379,40 @@ describe('TableImportFlow', () => {
     expect(screen.queryByText(/Málaga →/)).not.toBeInTheDocument();
   });
 
+  it('includes hidden source cells when labeling a wide missing row', () => {
+    const base = draft();
+    const columns = Array.from({ length: 8 }, (_, index) => ({ index, name: `column ${index + 1}`, original_name: `column ${index + 1}`, name_status: 'original' as const }));
+    const current = draft({
+      preview: {
+        ...base.preview!,
+        columns,
+        expected_values: 10,
+        head: [{
+          role: 'data', record_ordinal: 2, physical_line_start: 2, physical_line_end: 2,
+          cells: Array.from({ length: 8 }, (_, index) => `value ${index + 1}`),
+          hidden_cell_count: 1,
+          issues: [{ code: 'missing_values', message: 'missing', original_values: [], count: 1 }],
+        }],
+      },
+    });
+    render(<CheckRowsStep draft={current} busy={false} onBack={vi.fn()} onContinue={vi.fn()} onSettings={vi.fn()} />);
+
+    expect(screen.getByText('−1 values')).toBeVisible();
+  });
+
+  it('uses count copy when the only mismatched line is outside the bounded preview', () => {
+    const base = draft();
+    const current = draft({
+      preview: {
+        ...base.preview!,
+        notice: { kind: 'some_wrong_width', count: 1, common_values: 1, expected_values: 1, encoding: null },
+      },
+    });
+    render(<CheckRowsStep draft={current} busy={false} onBack={vi.fn()} onContinue={vi.fn()} onSettings={vi.fn()} />);
+
+    expect(screen.getByText('1 line doesn’t have 1 values. It will be imported and listed in Errors.')).toBeVisible();
+  });
+
   it('shows lossy and invalid samples with their originals and keeps date order in the note cell', () => {
     const base = draft().columns[0];
     const columns = [
