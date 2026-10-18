@@ -16,7 +16,10 @@
 import fs from 'node:fs/promises';
 import { expect, test, type Page } from '@playwright/test';
 import {
+  commitTableImport,
   createProject,
+  previewTableFile,
+  reviewTableColumns,
   listSheets,
   openAction,
   openAdvancedSortPanel,
@@ -58,12 +61,13 @@ test('tariff country search: CSV → web search → summarize → score → sort
   await expect(page.getByTestId('import-dropzone')).toBeVisible({ timeout: 15_000 });
   await page.getByTestId('import-workspace-open').click();
   await expect(page.getByTestId('import-workspace')).toBeVisible();
-  await page.getByTestId('import-mode-csv').click();
-  await page.getByTestId('import-csv-input').setInputFiles({
+  await previewTableFile(page, {
     name: 'countries.csv',
     mimeType: 'text/csv',
     buffer: Buffer.from(COUNTRIES_CSV),
   });
+  await reviewTableColumns(page);
+  await commitTableImport(page, pid);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId('sheet-stats')).toHaveText(`${COUNTRIES.length} rows · 1 column`);
   const sheetId = (await listSheets(page.request, pid))[0].id;

@@ -2,7 +2,7 @@
 // same import/source choices as the normal toolbar import surface.
 
 import { expect, test, type Page } from '@playwright/test';
-import { createProject, listSheets, openDiscoverTab, sheetData, uniqueName } from './helpers';
+import { commitTableImport, createProject, listSheets, reviewTableColumns, openDiscoverTab, sheetData, uniqueName } from './helpers';
 
 function minimalPdf(text: string): Buffer {
   const content = `BT /F1 24 Tf 72 700 Td (${text}) Tj ET`;
@@ -56,7 +56,7 @@ async function dropFiles(
   await target.dispatchEvent('drop', { dataTransfer });
 }
 
-test('empty project start surface exposes all import modes, not only CSV', async ({ page }) => {
+test('empty project start surface offers table sources and a path to other import modes', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-empty-import-surface'));
   await page.goto(`/p/${pid}`);
 
@@ -65,6 +65,9 @@ test('empty project start surface exposes all import modes, not only CSV', async
   await page.getByTestId('import-workspace-open').click();
   await expect(page.getByTestId('import-workspace')).toBeVisible();
 
+  await expect(page.getByRole('region', { name: 'Add data', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Paste rows', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Multiple files', exact: true }).click();
   for (const mode of ['csv', 'files', 'feed']) {
     await expect(
       page.getByTestId(`import-mode-${mode}`),
@@ -80,7 +83,8 @@ test('empty project CSV drop opens preview and waits for confirmation', async ({
     const url = new URL(request.url());
     if (
       request.method() === 'POST'
-      && url.pathname.endsWith(`/api/projects/${pid}/import/csv`)
+      && url.pathname.startsWith(`/api/projects/${pid}/import/table-imports/`)
+      && url.pathname.endsWith('/commit')
     ) {
       csvImports += 1;
     }
@@ -97,11 +101,12 @@ test('empty project CSV drop opens preview and waits for confirmation', async ({
   ]);
 
   await expect(page.getByTestId('import-workspace')).toBeVisible();
-  await expect(page.getByTestId('import-csv-preview')).toBeVisible();
-  await expect(page.getByTestId('import-csv-preview')).toContainText('dropped.csv');
+  await expect(page.getByRole('region', { name: 'Check rows', exact: true })).toBeVisible();
+  await expect(page.getByTestId('import-workspace')).toContainText('dropped.csv');
   expect(csvImports).toBe(0);
 
-  await page.getByTestId('import-csv-confirm').click();
+  await reviewTableColumns(page);
+  await commitTableImport(page, pid);
   await expect.poll(() => csvImports).toBe(1);
   await expect
     .poll(async () => (await listSheets(page.request, pid)).some((sheet) => sheet.name === 'dropped'))
@@ -171,6 +176,7 @@ test('Feed source creation is discoverable from the primary import/start surface
 
   await expect(page.getByTestId('import-dropzone')).toBeVisible({ timeout: 15_000 });
   await page.getByTestId('import-workspace-open').click();
+  await page.getByRole('button', { name: 'Multiple files', exact: true }).click();
   await page.getByTestId('import-mode-feed').click();
 
   await expect(page.getByTestId('source-form')).toBeVisible();

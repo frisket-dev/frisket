@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
   createProject, importCsv, openFriendlyFilterSidebar, openImportWorkspace,
-  setColumnType, sheetColumns,
+  previewTableFile, reviewTableColumns, setColumnType, sheetColumns,
 } from './helpers';
 
 test('source type and cadence selects fill their flex rows', async ({ page }) => {
@@ -34,28 +34,30 @@ test('source type and cadence selects fill their flex rows', async ({ page }) =>
   ))).toBeLessThan(2);
 });
 
-test('import encoding focus is not clipped and mapping selects retain spacing', async ({ page }) => {
+test('import encoding focus is not clipped and mapping controls stay within their shells', async ({ page }) => {
   const pid = await createProject(page.request, 'Select import layout');
   const sheet = await importCsv(page.request, pid, 'people.csv', 'id,name\na,Ada\n');
   await page.goto(`/p/${pid}/s/${sheet}`);
   await openImportWorkspace(page);
-  await page.getByTestId('import-csv-input').setInputFiles({
+  await previewTableFile(page, {
     name: 'updates.csv', mimeType: 'text/csv', buffer: Buffer.from('id,name\na,Augusta\n'),
   });
-  const encoding = page.getByTestId('import-csv-encoding');
+  const encoding = page.getByLabel('Character encoding');
   await expect(encoding).toBeVisible();
   await encoding.focus();
   await expect(encoding).toBeFocused();
   await expect(encoding).toHaveCSS('outline-width', '2px');
   await expect(encoding.locator('..')).toHaveCSS('overflow', 'visible');
-  await page.locator('#import-csv-destination').selectOption(String(sheet));
-  await page.locator('#import-file-destination-mode').selectOption('update');
-  const policy = page.getByLabel('id update action');
-  await expect(policy).toBeVisible();
-  expect(await policy.evaluate(select => {
+  await reviewTableColumns(page);
+  await page.getByRole('radio', { name: 'Add to an existing sheet' }).check();
+  await page.getByLabel('Sheet', { exact: true }).selectOption(String(sheet));
+  const mapping = page.getByLabel('Map id');
+  await expect(mapping).toBeVisible();
+  await expect(mapping).toHaveValue(/^existing:/);
+  expect(await mapping.evaluate(select => {
     const shell = select.parentElement!;
-    return shell.getBoundingClientRect().top - shell.previousElementSibling!.getBoundingClientRect().bottom;
-  })).toBeCloseTo(6, 0);
+    return Math.abs(shell.getBoundingClientRect().width - select.getBoundingClientRect().width);
+  })).toBeLessThan(2);
 });
 
 test('relative-date select shell is not styled as its caption', async ({ page }) => {
