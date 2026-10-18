@@ -17,6 +17,8 @@ const selectorState = vi.hoisted(() => ({ canRun: true, blocker: null as string 
 const sessionUpload = vi.hoisted(() => ({
   abort: null as (() => void) | null,
   importRef: null as string | null,
+  remember: vi.fn(async () => undefined),
+  setUploading: vi.fn(),
   unregister: vi.fn(),
 }));
 
@@ -26,6 +28,8 @@ vi.mock('../../src/components/importProgressSession', () => ({
     sessionUpload.abort = abort;
     return sessionUpload.unregister;
   },
+  rememberImportSessionFiles: sessionUpload.remember,
+  setImportSessionBrowserUploading: sessionUpload.setUploading,
 }));
 
 vi.mock('../../src/engine-selector/SelectorField', () => ({
@@ -218,6 +222,9 @@ beforeEach(() => {
   selectorState.blocker = null;
   sessionUpload.abort = null;
   sessionUpload.importRef = null;
+  sessionUpload.remember.mockReset();
+  sessionUpload.remember.mockResolvedValue(undefined);
+  sessionUpload.setUploading.mockReset();
   sessionUpload.unregister.mockReset();
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
   if (!globalThis.crypto?.randomUUID) {
@@ -448,12 +455,18 @@ describe('PDF batch import flow', () => {
 
     await waitFor(() => expect(imported).toHaveBeenCalledWith(42));
     expect(sessionUpload.importRef).toBe('import-session-1');
+    expect(sessionUpload.remember).toHaveBeenCalledWith('import-session-1', expect.arrayContaining([
+      expect.objectContaining({ name: 'one.pdf' }),
+      expect.objectContaining({ name: 'two.pdf' }),
+    ]));
+    expect(sessionUpload.setUploading).toHaveBeenCalledWith('import-session-1', true);
     view.unmount();
     expect(uploadSignal?.aborted).toBe(false);
 
     firstUpload.resolve(initial);
     await waitFor(() => expect(api.upload).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(sessionUpload.unregister).toHaveBeenCalledTimes(1));
+    expect(sessionUpload.setUploading).toHaveBeenLastCalledWith('import-session-1', false);
   });
 
   it('pauses for close confirmation and aborts the browser upload before discard', async () => {
