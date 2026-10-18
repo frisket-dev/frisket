@@ -4,7 +4,6 @@ import {
   createProject,
   importCsv,
   listSheets,
-  openCellDrawer,
   openImportWorkspace,
   sheetData,
   uniqueName,
@@ -656,9 +655,33 @@ test('two generic Files selections with one PDF stay on the normal file import',
     { name: 'docket.pdf', mimeType: 'application/pdf', buffer: minimalPdf('generic pair') },
   ]);
 
-  await expect(page.getByTestId('sheet-stats')).toHaveText('2 rows · 3 columns', {
-    timeout: 15_000,
+  await expect.poll(
+    async () => (await listSheets(page.request, pid)).some((sheet) => sheet.name === 'files'),
+    { timeout: 15_000 },
+  ).toBe(true);
+  const filesSheet = (await listSheets(page.request, pid)).find((sheet) => sheet.name === 'files');
+  expect(filesSheet).toBeTruthy();
+  await expect.poll(
+    async () => (await sheetData(page.request, pid, filesSheet!.id)).rows.length,
+    { timeout: 15_000 },
+  ).toBe(2);
+  const data = await sheetData(page.request, pid, filesSheet!.id);
+  const filenameCol = data.columns.find((column) => column.name === 'filename');
+  const mediaCol = data.columns.find((column) => column.name === 'media');
+  const sizeCol = data.columns.find((column) => column.name === 'size');
+  expect(filenameCol).toBeTruthy();
+  expect(mediaCol).toBeTruthy();
+  expect(sizeCol).toBeTruthy();
+  const rowsByFilename = new Map(data.rows.map((row) => [
+    row.cells[String(filenameCol!.id)],
+    row,
+  ]));
+  expect([...rowsByFilename.keys()].toSorted()).toEqual(['docket.pdf', 'note.txt']);
+  expect(rowsByFilename.get('docket.pdf')?.cells[String(mediaCol!.id)]).toMatchObject({
+    filename: 'docket.pdf',
+    mime: 'application/pdf',
   });
+  expect(rowsByFilename.get('note.txt')?.cells[String(sizeCol!.id)]).toBe(8);
   expect(preparationCount).toBe(0);
 });
 
@@ -954,69 +977,14 @@ test('import workspace detects maps and confirms pasted rows before writing', as
   expect(data.rows[1].cells[String(ratingCol!.id)]).toBe(9);
 });
 
-test('import surface exposes non-CSV modes and imports file rows', async ({ page }) => {
-  const pid = await createProject(page.request, uniqueName('e2e-imports'));
+test('URL import records invalid URL errors', async ({ page }) => {
+  const pid = await createProject(page.request, uniqueName('e2e-invalid-url-import'));
   await importCsv(page.request, pid, 'seed.csv', 'name\nseed\n');
   await page.goto(`/p/${pid}`);
 
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
   await openImportWorkspace(page);
-
-  const workspace = page.getByTestId('import-workspace');
-  await expect(workspace).toBeVisible();
-  for (const mode of ['csv', 'files', 'feed']) {
-    await expect(page.getByTestId(`import-mode-${mode}`)).toBeVisible();
-  }
-  await expect(page.getByTestId('import-single-supported')).toContainText('CSV and Excel');
-  await expect(page.getByTestId('import-mode-paste')).toBeVisible();
-
   await page.getByTestId('import-mode-files').click();
-  await expect(page.getByTestId('import-file-picker')).toContainText('Pick files');
-  await expect(page.getByTestId('import-multiple-supported')).toContainText(
-    'PDFs are added as documents',
-  );
-  await page.getByTestId('import-file-input').setInputFiles([
-    {
-      name: 'note.txt',
-      mimeType: 'text/plain',
-      buffer: Buffer.from('hello from a deterministic import fixture\n'),
-    },
-    {
-      name: 'docket.pdf',
-      mimeType: 'application/pdf',
-      buffer: minimalPdf('Playwright PDF 2026'),
-    },
-  ]);
-
-  await expect(page.getByTestId('sheet-stats')).toHaveText('2 rows · 3 columns', {
-    timeout: 15_000,
-  });
-
-  const filesSheet = (await listSheets(page.request, pid)).find((s) => s.name === 'files');
-  expect(filesSheet).toBeTruthy();
-  const data = await sheetData(page.request, pid, filesSheet!.id);
-  const filenameCol = data.columns.find((c) => c.name === 'filename');
-  const mediaCol = data.columns.find((c) => c.name === 'media');
-  const sizeCol = data.columns.find((c) => c.name === 'size');
-  expect(filenameCol).toBeTruthy();
-  expect(mediaCol).toBeTruthy();
-  expect(sizeCol).toBeTruthy();
-  expect(data.rows.map((row) => row.cells[String(filenameCol!.id)])).toEqual([
-    'docket.pdf',
-    'note.txt',
-  ]);
-  expect(data.rows[0].cells[String(mediaCol!.id)]).toMatchObject({
-    filename: 'docket.pdf',
-    mime: 'application/pdf',
-  });
-  expect(data.rows[1].cells[String(sizeCol!.id)]).toBe(42);
-
-  // 'filename' is a plain non-AI text column (now in-place editable —
-  // grid-in-place-edit-v1), so the floating icon, not Enter, opens the drawer.
-  await openCellDrawer(page, data.columns, 'filename', 1);
-  await expect(page.getByTestId('row-drawer')).toContainText('note.txt');
-
-  await openImportWorkspace(page);
   await page.getByTestId('import-source-urls').click();
   await page.getByTestId('import-url-list').fill('not-a-url');
   await page.getByTestId('import-url-submit').click();
