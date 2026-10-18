@@ -226,6 +226,7 @@ class _Service:
             "page": page,
             "thumbnail_url": "/thumb",
             "native_text": "native",
+            "native_text_truncated": False,
             "ocr_text": None,
             "ocr_blocks": [],
             "ocr_action_params": None,
@@ -425,6 +426,21 @@ def test_real_pdf_import_http_create_upload_sample_page_and_discard(
     )
     assert created.status_code == 201, created.text
     draft_id = created.json()["draft_id"]
+    unsafe_manifest = client.post(
+        f"{base}/{draft_id}/manifest",
+        json={
+            "batch_id": "unsafe-manifest",
+            "files": [
+                {
+                    "client_file_id": "folder/one",
+                    "logical_path": "one.pdf",
+                    "filename": "one.pdf",
+                    "size": len(payload),
+                }
+            ],
+        },
+    )
+    assert unsafe_manifest.status_code == 422, unsafe_manifest.text
     manifest = client.post(
         f"{base}/{draft_id}/manifest",
         json={
@@ -463,6 +479,7 @@ def test_real_pdf_import_http_create_upload_sample_page_and_discard(
     page = client.get(f"{base}/{draft_id}/files/{sample['occurrence_id']}/pages/1")
     assert page.status_code == 200, page.text
     assert page.json()["native_text"]
+    assert page.json()["native_text_truncated"] is False
     preview_selection = {
         "kind": "engine_model",
         "engine": "llm",

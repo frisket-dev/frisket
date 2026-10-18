@@ -8,7 +8,12 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
-from frisket.engine.pdf_text import extract_pdf_text_batch, positioned_tokens_text
+from frisket.engine.pdf_text import (
+    PdfTextError,
+    extract_pdf_text_batch,
+    positioned_tokens_text,
+    sample_pdf_text,
+)
 from frisket.engine.pdf_render import render_pdf_pages
 
 
@@ -33,40 +38,66 @@ def analyze_pdf(
     quality_assessor: Callable[..., Sequence[Any]] | None = None,
 ) -> dict[str, Any]:
     try:
-        first = asyncio.run(
-            extract_pdf_text_batch(
-                path,
-                start_page=1,
-                max_pages=1,
-                max_chars=MAX_SAMPLE_CHARS,
-                timeout_seconds=30,
-            )
-        )
-        page_count = first.page_count
-        sample_pages = representative_pages(page_count)
-        pages = {1: first.pages[0]}
-        remaining = max(
-            0,
-            MAX_SAMPLE_CHARS
-            - sum(len(token.text) for token in first.pages[0].tokens),
-        )
-        for page_number in sample_pages:
-            if page_number == 1 or remaining <= 0:
-                continue
-            batch = asyncio.run(
+        pages: dict[int, Any] = {}
+        page_text: dict[int, str] = {}
+        try:
+            first = asyncio.run(
                 extract_pdf_text_batch(
                     path,
-                    start_page=page_number,
+                    start_page=1,
                     max_pages=1,
-                    max_chars=remaining,
+                    max_chars=MAX_SAMPLE_CHARS,
                     timeout_seconds=30,
                 )
             )
-            pages[page_number] = batch.pages[0]
-            remaining -= sum(len(token.text) for token in batch.pages[0].tokens)
+            page_count = first.page_count
+            pages[1] = first.pages[0]
+            page_text[1] = positioned_tokens_text(first.pages[0].tokens)
+        except PdfTextError:
+            first_sample = asyncio.run(
+                sample_pdf_text(
+                    path,
+                    page=1,
+                    max_chars=MAX_SAMPLE_CHARS,
+                    timeout_seconds=30,
+                )
+            )
+            page_count = first_sample.page_count
+            page_text[1] = first_sample.text
+        sample_pages = representative_pages(page_count)
+        remaining = max(0, MAX_SAMPLE_CHARS - len(page_text[1]))
+        for page_number in sample_pages:
+            if page_number == 1 or remaining <= 0:
+                continue
+            try:
+                batch = asyncio.run(
+                    extract_pdf_text_batch(
+                        path,
+                        start_page=page_number,
+                        max_pages=1,
+                        max_chars=remaining,
+                        timeout_seconds=30,
+                    )
+                )
+                pages[page_number] = batch.pages[0]
+                page_text[page_number] = positioned_tokens_text(
+                    batch.pages[0].tokens
+                )
+            except PdfTextError:
+                sample = asyncio.run(
+                    sample_pdf_text(
+                        path,
+                        page=page_number,
+                        max_chars=remaining,
+                        timeout_seconds=30,
+                    )
+                )
+                page_text[page_number] = sample.text
+            remaining -= len(page_text[page_number])
         loaded_pages = [page for page in sample_pages if page in pages]
-        tokens = [token for page in loaded_pages for token in pages[page].tokens]
-        text = positioned_tokens_text(tokens)[:MAX_SAMPLE_CHARS]
+        text = "\n".join(
+            page_text[page] for page in sample_pages if page in page_text
+        )[:MAX_SAMPLE_CHARS]
         category = "missing" if not text.strip() else "text"
         if text.strip() and _quality_flags(
             path, text, loaded_pages, pages, quality_assessor

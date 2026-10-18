@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import hashlib
 import io
 import json
@@ -10,12 +11,15 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from pypdf import PdfWriter
+from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
 from frisket.actions.document_extraction_types import Box, PositionedPage, PositionedToken
-from frisket.engine.pdf_text import PdfTextBatch
+from frisket.engine.pdf_text import PdfTextBatch, PdfTextError, PdfTextSample
 from frisket.server.services.import_uploads import AdmittedUpload
 from frisket.server.services.pdf_imports import PdfImportDraftError, PdfImportService
 from frisket.server.services.pdf_imports.analysis import analyze_pdf
+from frisket.server.services.pdf_imports.previews import read_native_page
 from frisket.server.workspace import Workspace
 
 
@@ -58,6 +62,73 @@ def test_dense_first_page_keeps_representative_navigation_without_false_unreadab
     assert result["page_count"] == 8
     assert len(result["sample_pages"]) == 6
     assert calls == [(1, 1, 12_000, 30)]
+
+
+def test_dense_positioned_page_falls_back_to_bounded_text_sample(
+    tmp_path: Path, monkeypatch
+) -> None:
+    async def positioned(*_args, **_kwargs):
+        raise PdfTextError("PDF page exceeds the positioned-text character limit")
+
+    sample_calls = []
+
+    async def sample(_path, *, page, max_chars, timeout_seconds):
+        sample_calls.append((page, max_chars, timeout_seconds))
+        return PdfTextSample("readable " * 1_500, page, 9, True)
+
+    monkeypatch.setattr(
+        "frisket.server.services.pdf_imports.analysis.extract_pdf_text_batch",
+        positioned,
+    )
+    monkeypatch.setattr(
+        "frisket.server.services.pdf_imports.analysis.sample_pdf_text", sample
+    )
+    result = analyze_pdf(
+        tmp_path / "dense.pdf", quality_assessor=lambda *_args, **_kwargs: ()
+    )
+    assert result["analysis_state"] == "done"
+    assert result["category"] == "text"
+    assert result["page_count"] == 9
+    assert len(result["sample_pages"]) == 6
+    assert sample_calls == [(1, 12_000, 30)]
+
+
+def test_actual_dense_pdf_is_readable_with_bounded_fallback(tmp_path: Path) -> None:
+    source = tmp_path / "dense.pdf"
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=612, height=792)
+    font = DictionaryObject(
+        {
+            NameObject("/Type"): NameObject("/Font"),
+            NameObject("/Subtype"): NameObject("/Type1"),
+            NameObject("/BaseFont"): NameObject("/Helvetica"),
+        }
+    )
+    page[NameObject("/Resources")] = DictionaryObject(
+        {
+            NameObject("/Font"): DictionaryObject(
+                {NameObject("/F1"): writer._add_object(font)}
+            )
+        }
+    )
+    stream = DecodedStreamObject()
+    stream.set_data(
+        f"BT /F1 8 Tf 20 700 Td ({' '.join(['DENSE'] * 3_000)}) Tj ET".encode()
+    )
+    page[NameObject("/Contents")] = writer._add_object(stream)
+    with source.open("wb") as handle:
+        writer.write(handle)
+    result = analyze_pdf(source, quality_assessor=lambda *_args, **_kwargs: ())
+    assert result == {
+        "analysis_state": "done",
+        "page_count": 1,
+        "category": "text",
+        "sample_pages": [1],
+        "error": None,
+    }
+    text, truncated = read_native_page(source, page=1)
+    assert len(text) == 12_000
+    assert truncated is True
 
 
 def _upload(name: str = "one.pdf", payload: bytes = PDF) -> AdmittedUpload:
@@ -403,6 +474,14 @@ def test_freeze_projects_unmatched_inventory_and_late_bytes_advance_it(
         "sheet_id": 11,
         "session_ref": "import-1",
     }
+    with pytest.raises(PdfImportDraftError, match="result changed"):
+        service.reconcile_commit(
+            project_id,
+            draft_id,
+            idempotency_key="commit-1",
+            committed=True,
+            result={"sheet_id": 12, "session_ref": "import-2"},
+        )
 
 
 def test_destination_match_uses_bounded_current_value_projection(
@@ -511,6 +590,95 @@ def test_manifest_scope_and_preflight_are_enforced(tmp_path: Path, monkeypatch) 
         )
     with pytest.raises(PdfImportDraftError, match="incomplete"):
         service.seal_manifest(project_id, created["draft_id"])
+
+
+def test_upload_rejects_non_route_safe_occurrence_id(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _workspace, project_id, service = _service(tmp_path, monkeypatch)
+    draft_id, _ = _declared(service, project_id)
+    with pytest.raises(PdfImportDraftError, match="URL-safe"):
+        service.upload(
+            project_id,
+            draft_id,
+            [_upload()],
+            file_ids=["folder/one"],
+            logical_paths=["north/one.pdf"],
+            batch_id="unsafe-id",
+        )
+
+
+def test_service_startup_purges_expired_terminal_draft(
+    tmp_path: Path, monkeypatch
+) -> None:
+    workspace, project_id, service = _service(tmp_path, monkeypatch)
+    draft_id, _ = _declared(service, project_id)
+    service.discard(project_id, draft_id)
+    directory = workspace.root / ".pdf_import_drafts" / draft_id
+    manifest = directory / "manifest.json"
+    header = json.loads(manifest.read_text("utf-8"))
+    header["expires_at"] = "2000-01-01T00:00:00Z"
+    service._store.write_header(directory, header)
+    PdfImportService(workspace)
+    assert not directory.exists()
+
+
+def test_cross_filesystem_commit_promotion_is_explicitly_refused(
+    tmp_path: Path, monkeypatch
+) -> None:
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+    source.mkdir()
+    (source / "staged").write_bytes(b"staged")
+
+    def cross_device(_source, _target):
+        raise OSError(errno.EXDEV, "cross-device link")
+
+    monkeypatch.setattr(
+        "frisket.server.services.pdf_imports.service.os.replace", cross_device
+    )
+    with pytest.raises(PdfImportDraftError, match="same filesystem"):
+        PdfImportService._promote_path(source, target)
+    assert (source / "staged").read_bytes() == b"staged"
+    assert not target.exists()
+
+
+def test_failed_first_freeze_removes_unpublished_projection(
+    tmp_path: Path, monkeypatch
+) -> None:
+    workspace, project_id, service = _service(tmp_path, monkeypatch)
+    draft_id, status = _declared(service, project_id)
+    status = service.update_choices(
+        project_id,
+        draft_id,
+        expected_revision=status["revision"],
+        ocr_policy="none",
+        ocr_selection={"kind": "engine", "engine": "rapidocr"},
+        semantic_search=True,
+        semantic_setup_confirmation=status["semantic_setup"]["confirmation_hash"],
+        destination={"kind": "new", "sheet_name": "PDFs"},
+    )
+    original_advance = service._advance_commit_inventory
+
+    def fail_after_artifact(*args, **kwargs):
+        original_advance(*args, **kwargs)
+        raise RuntimeError("freeze interrupted")
+
+    monkeypatch.setattr(service, "_advance_commit_inventory", fail_after_artifact)
+    with pytest.raises(RuntimeError, match="freeze interrupted"):
+        service.freeze_for_commit(
+            project_id,
+            draft_id,
+            idempotency_key="freeze-failure",
+            expected_revision=status["revision"],
+        )
+    directory = workspace.root / ".pdf_import_drafts" / draft_id
+    assert service.status(project_id, draft_id)["state"] == "open"
+    assert not (directory / "commit-inventory.db").exists()
+    with sqlite3.connect(directory / "inventory.db") as db:
+        assert db.execute("SELECT COUNT(*) FROM pdf_commit_projection").fetchone() == (
+            0,
+        )
 
 
 def test_reselection_preserves_duplicate_occurrences(

@@ -17,6 +17,7 @@ from frisket.engine.pdf_text import (
     PdfTextError,
     extract_pdf_text_batch,
     positioned_tokens_text,
+    sample_pdf_text,
 )
 
 from .analysis import MAX_SAMPLE_CHARS
@@ -43,7 +44,7 @@ def preview_settings(action_params: Mapping[str, Any]) -> tuple[dict[str, Any], 
     return settings, digest
 
 
-def read_native_page(path: Path, *, page: int) -> str:
+def read_native_page(path: Path, *, page: int) -> tuple[str, bool]:
     try:
         batch = asyncio.run(
             extract_pdf_text_batch(
@@ -54,9 +55,20 @@ def read_native_page(path: Path, *, page: int) -> str:
                 timeout_seconds=30,
             )
         )
-        return positioned_tokens_text(batch.pages[0].tokens)
+        return positioned_tokens_text(batch.pages[0].tokens), False
     except PdfTextError:
-        return ""
+        try:
+            sample = asyncio.run(
+                sample_pdf_text(
+                    path,
+                    page=page,
+                    max_chars=MAX_SAMPLE_CHARS,
+                    timeout_seconds=30,
+                )
+            )
+            return sample.text, sample.truncated
+        except PdfTextError:
+            return "", False
 
 
 def thumbnail(

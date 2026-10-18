@@ -15,6 +15,7 @@ from frisket.contracts.http.selector_choices import (
 
 
 PDF_IMPORT_SCHEMA_VERSION = "frisket.pdf_import.v1"
+PDF_IMPORT_OCCURRENCE_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$"
 PdfImportState = Literal[
     "open", "committing", "committed", "cancelling", "cancelled", "error"
 ]
@@ -44,7 +45,7 @@ class PdfImportCreateRequest(WireModel):
 
 
 class PdfImportManifestFile(WireModel):
-    client_file_id: str = Field(min_length=1, max_length=128)
+    client_file_id: str = Field(pattern=PDF_IMPORT_OCCURRENCE_ID_PATTERN)
     logical_path: str = Field(min_length=1, max_length=4096)
     filename: str = Field(min_length=1, max_length=512)
     size: int = Field(ge=0)
@@ -240,6 +241,7 @@ class PdfImportPageResponse(WireModel):
     page: int = Field(ge=1)
     thumbnail_url: str
     native_text: str
+    native_text_truncated: bool
     ocr_text: str | None
     ocr_blocks: list[dict]
     ocr_action_params: dict | None

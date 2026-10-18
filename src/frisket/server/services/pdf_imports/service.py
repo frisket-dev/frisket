@@ -7,37 +7,126 @@ import errno
 import hashlib
 import json
 import os
+import re
 import secrets
 import shutil
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 from filelock import FileLock
 
-from frisket.contracts.http.pdf_imports import PdfImportStatus
+from frisket.contracts.http.pdf_imports import (
+    PDF_IMPORT_OCCURRENCE_ID_PATTERN,
+    PdfImportStatus,
+)
 from frisket.engine.store.disk_capacity import DISK_HEADROOM_BYTES
 from frisket.engine.store.import_inventory import ImportInventory
 from frisket.server.services.import_bulk_sources import fsync_directory
 from frisket.server.services.import_uploads import AdmittedUpload
 
 from .analysis import analyze_pdf
-from .commit_workflow import (
-    FrozenPdfImport,
-    FrozenPdfOccurrence,
-    PdfImportCommitWorkflow,
-)
 from .inventory import PdfDraftInventory
-from .preview_workflow import estimate as estimate_preview
-from .preview_workflow import refresh as refresh_previews
-from .preview_workflow import start as start_preview
-from .previews import ThumbnailLease, read_native_page, thumbnail as render_thumbnail
+from .previews import (
+    ThumbnailLease,
+    prepare_ocr,
+    preview_settings,
+    read_native_page,
+    thumbnail as render_thumbnail,
+)
 from .storage import PdfDraftStore, PdfImportDraftError, SCHEMA_VERSION, now
 
 
 MAX_MANIFEST_BATCH = 256
 MAX_UPLOAD_BATCH = 64
 COPY_CHUNK = 1024 * 1024
+OCCURRENCE_ID_RE = re.compile(PDF_IMPORT_OCCURRENCE_ID_PATTERN)
+
+
+@dataclass(frozen=True)
+class FrozenPdfOccurrence:
+    ordinal: int
+    selected_ordinal: int
+    inventory_ordinal: int
+    occurrence_id: str
+    logical_path: str
+    filename: str
+    size: int
+    sha256: str | None
+    path: Path | None
+    page_count: int | None
+    category: str
+    error: str | None
+    matched: bool
+    ocr_selected: bool
+
+
+@dataclass(frozen=True)
+class FrozenPdfImport:
+    commit_id: str
+    draft_id: str
+    project_id: str
+    storage_identity: str
+    idempotency_key: str
+    selected_through: int
+    selected_total: int
+    staged_through: int
+    manifest_hash: str
+    destination: Mapping[str, Any]
+    ocr_policy: str
+    ocr_action_params: Mapping[str, Any]
+    ocr_authorization: Mapping[str, Any] | None
+    semantic_search: bool
+    semantic_setup_confirmation: str | None
+    directory: Path
+    source_files_root: Path
+    commit_inventory_path: Path
+    committed_total: int
+    available_through: int
+    uploads_complete: bool
+    sealed: bool
+    commit_result: Mapping[str, Any] | None
+
+    def page_occurrences(
+        self, *, after: int = 0, limit: int = 256
+    ) -> list[FrozenPdfOccurrence]:
+        if limit < 1 or limit > 256:
+            raise ValueError("occurrence page limit must be 1..256")
+        with PdfDraftInventory(self.directory / "inventory.db") as inventory:
+            rows = inventory.projection_page(after=after, limit=limit)
+        rows = [
+            row for row in rows if int(row["commit_ordinal"]) <= self.available_through
+        ]
+        return [
+            FrozenPdfOccurrence(
+                ordinal=int(row["commit_ordinal"]),
+                selected_ordinal=int(row["selected_ordinal"]),
+                inventory_ordinal=int(row["staged_ordinal"]),
+                occurrence_id=str(row["occurrence_id"]),
+                logical_path=str(row["logical_path"]),
+                filename=str(row["filename"]),
+                size=int(row["size"]),
+                sha256=str(row["sha256"]) if row.get("sha256") else None,
+                path=(
+                    self.source_files_root / str(row["sha256"])
+                    if row.get("sha256")
+                    else None
+                ),
+                page_count=row.get("page_count"),
+                category=str(row["category"]),
+                error=str(row["error"]) if row.get("error") else None,
+                matched=bool(row.get("matched")),
+                ocr_selected=(
+                    self.ocr_policy == "all"
+                    or (
+                        self.ocr_policy == "missing_or_suspicious"
+                        and str(row["category"]) in {"missing", "suspicious"}
+                    )
+                ),
+            )
+            for row in rows
+        ]
 
 
 def _logical_path(value: str) -> str:
@@ -78,7 +167,7 @@ class PdfImportService:
         self._batch_ocr_estimator = batch_ocr_estimator
         self._semantic_setup_resolver = semantic_setup_resolver
         self._on_commit_ready = on_commit_ready
-        self._commits = PdfImportCommitWorkflow(self)
+        self._store.purge_expired()
 
     def create(
         self,
@@ -159,12 +248,10 @@ class PdfImportService:
             )
         items = []
         for raw in files:
-            occurrence_id = str(raw.get("client_file_id") or "").strip()
+            occurrence_id = self._occurrence_id(raw.get("client_file_id"))
             logical = _logical_path(str(raw.get("logical_path") or ""))
             filename = str(raw.get("filename") or PurePosixPath(logical).name)
             size = raw.get("size")
-            if not occurrence_id or len(occurrence_id) > 128:
-                raise PdfImportDraftError(422, "PDF client file id is invalid")
             if type(size) is not int or size < 0:
                 raise PdfImportDraftError(422, "PDF file size is invalid")
             items.append(
@@ -245,7 +332,7 @@ class PdfImportService:
             )
         facts = [
             {
-                "occurrence_id": str(file_id),
+                "occurrence_id": self._occurrence_id(file_id),
                 "logical_path": _logical_path(path),
                 "sha256": upload.sha256,
                 "size": upload.size,
@@ -355,7 +442,7 @@ class PdfImportService:
                 if not inventory.complete_analysis(occurrence_id, analysis):
                     continue
                 self._update_matched_category(header, item, analysis)
-                if header["state"] == "committing" and self._commits.advance_commit_inventory(
+                if header["state"] == "committing" and self._advance_commit_inventory(
                     directory, inventory, header
                 ):
                     header["commit"]["ready_notification"] = {
@@ -370,7 +457,7 @@ class PdfImportService:
         directory, _ = self._open(project_id, draft_id)
         with self._lock(directory):
             header = self._header(project_id, directory)
-            if refresh_previews(self, project_id, header):
+            if self._refresh_preview_jobs(project_id, header):
                 self._save(directory, header)
             return self._snapshot(header, self._stats(directory))
 
@@ -461,7 +548,7 @@ class PdfImportService:
             cached = inventory.cached_ocr(str(item["sha256"]), page)
         if page < 1 or page > int(item["page_count"] or 0):
             raise PdfImportDraftError(404, "PDF page not found")
-        native_text = read_native_page(
+        native_text, native_text_truncated = read_native_page(
             self._files_root(directory, header) / str(item["sha256"]), page=page
         )
         return {
@@ -473,6 +560,7 @@ class PdfImportService:
                 project_id, draft_id, occurrence_id, page
             ),
             "native_text": native_text,
+            "native_text_truncated": native_text_truncated,
             "ocr_text": cached.get("text") if cached else None,
             "ocr_blocks": list(cached.get("blocks") or []) if cached else [],
             "ocr_action_params": cached.get("ocr_action_params") if cached else None,
@@ -758,15 +846,28 @@ class PdfImportService:
         ocr_selection: Mapping[str, Any],
         request_context: Any = None,
     ) -> dict[str, Any]:
-        return estimate_preview(
-            self,
+        action_params = self._ocr_action_params(self._ocr_selection(ocr_selection))
+        prepared = self._prepare_preview(
             project_id,
             draft_id,
             occurrence_id,
             page,
-            ocr_selection=ocr_selection,
+            action_params,
             request_context=request_context,
         )
+        if prepared["cached"]:
+            estimate = None
+        else:
+            estimate = self._preview_runs.scratch_estimate(project_id, prepared["plan"])
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "draft_id": draft_id,
+            "occurrence_id": occurrence_id,
+            "page": page,
+            "ocr_action_params": action_params,
+            "cached": prepared["cached"] is not None,
+            "estimate": estimate,
+        }
 
     def start_ocr_preview(
         self,
@@ -779,16 +880,94 @@ class PdfImportService:
         confirmation: str | None,
         request_context: Any = None,
     ) -> dict[str, Any]:
-        return start_preview(
-            self,
+        action_params = self._ocr_action_params(self._ocr_selection(ocr_selection))
+        prepared = self._prepare_preview(
             project_id,
             draft_id,
             occurrence_id,
             page,
-            ocr_selection=ocr_selection,
-            confirmation=confirmation,
+            action_params,
             request_context=request_context,
         )
+        if prepared["cached"]:
+            return {
+                "schema_version": SCHEMA_VERSION,
+                "draft_id": draft_id,
+                "occurrence_id": occurrence_id,
+                "page": page,
+                "ocr_action_params": action_params,
+                "job_id": None,
+                "status": "done",
+                "receipt_id": prepared["cached"].get("receipt_id"),
+                "estimate": None,
+                "needs_confirmation": False,
+            }
+        plan = prepared["plan"]
+        estimate = self._preview_runs.scratch_estimate(project_id, plan)
+        started = self._preview_runs.start_scratch_preview(
+            project_id,
+            plan,
+            confirmation=confirmation,
+            router=prepared["router"],
+            composition=prepared["composition"],
+            execution_context=prepared["execution_context"],
+            replacement_key=(
+                f"pdf-import:{draft_id}:{occurrence_id}:{page}:"
+                f"{prepared['settings_hash']}"
+            ),
+            total=1,
+        )
+        if started.status_code != 202:
+            raise PdfImportDraftError(
+                started.status_code, started.payload, bare_json=True
+            )
+        payload = dict(started.payload)
+        directory, _ = self._open(project_id, draft_id)
+        with self._lock(directory):
+            header = self._header(project_id, directory)
+            if header["state"] != "open":
+                lost_state = str(header["state"])
+            else:
+                lost_state = None
+            if lost_state is None:
+                header["preview_jobs"] = [
+                    value
+                    for value in header["preview_jobs"]
+                    if not (
+                        value["occurrence_id"] == occurrence_id
+                        and value["page"] == page
+                        and value["ocr_action_params"] == action_params
+                    )
+                ][-31:]
+                header["preview_jobs"].append(
+                    {
+                        "job_id": str(payload["preview_id"]),
+                        "occurrence_id": occurrence_id,
+                        "page": page,
+                        "ocr_action_params": action_params,
+                        "status": "running",
+                        "receipt_id": payload.get("receipt_id"),
+                        "error": None,
+                    }
+                )
+                self._save(directory, header)
+        if lost_state is not None:
+            self._preview_runs.cancel_preview(
+                project_id, str(payload["preview_id"])
+            )
+            raise PdfImportDraftError(409, f"PDF import is {lost_state}")
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "draft_id": draft_id,
+            "occurrence_id": occurrence_id,
+            "page": page,
+            "ocr_action_params": action_params,
+            "job_id": str(payload["preview_id"]),
+            "status": "running",
+            "receipt_id": payload.get("receipt_id"),
+            "estimate": estimate,
+            "needs_confirmation": False,
+        }
 
     def freeze_for_commit(
         self,
@@ -799,13 +978,117 @@ class PdfImportService:
         expected_revision: int,
         request_context: Any = None,
     ) -> FrozenPdfImport:
-        return self._commits.freeze_for_commit(
-            project_id,
-            draft_id,
-            idempotency_key=idempotency_key,
-            expected_revision=expected_revision,
-            request_context=request_context,
-        )
+        directory, _ = self._open(project_id, draft_id)
+        with (
+            self._lock(directory),
+            PdfDraftInventory(directory / "inventory.db") as inventory,
+        ):
+            header = self._header(project_id, directory)
+            if header["state"] in {"committing", "committed"}:
+                if (header["commit"] or {}).get("idempotency_key") != idempotency_key:
+                    raise PdfImportDraftError(409, "PDF import commit key changed")
+                return self._frozen(directory, header, inventory)
+            self._require_state(header, "open")
+            self._revision(header, expected_revision)
+            stats = inventory.stats()
+            if not stats["manifest_sealed"]:
+                raise PdfImportDraftError(409, "PDF selection manifest is not sealed")
+            if stats["analyzed_count"] != stats["staged_count"]:
+                raise PdfImportDraftError(409, "PDF text analysis is still running")
+            destination = header["choices"]["destination"]
+            if (
+                destination["kind"] == "existing"
+                and header["match"]["state"] != "ready"
+            ):
+                raise PdfImportDraftError(409, "existing sheet comparison is not ready")
+            batch_ocr = header["batch_ocr"]
+            if (
+                header["choices"]["ocr_policy"] != "none"
+                and not self._is_rapidocr(
+                    self._ocr_action_params(header["choices"]["ocr_selection"])
+                )
+                and batch_ocr["state"] != "ready"
+            ):
+                raise PdfImportDraftError(
+                    409, "paid or remote OCR requires an exact frozen estimate"
+                )
+            if batch_ocr["state"] == "ready":
+                scope_hash, exact_count, known_pages = inventory.ocr_scope_hash(
+                    header["choices"]["ocr_policy"]
+                )
+                if (
+                    batch_ocr.get("ocr_action_params")
+                    != self._ocr_action_params(header["choices"]["ocr_selection"])
+                    or batch_ocr["ocr_policy"] != header["choices"]["ocr_policy"]
+                    or batch_ocr.get("work_scope_hash") != scope_hash
+                    or batch_ocr["selected_count"] != exact_count
+                    or batch_ocr.get("known_pages") != known_pages
+                ):
+                    raise PdfImportDraftError(
+                        409, "batch OCR estimate no longer matches the selected PDFs"
+                    )
+            current_semantic = self._resolve_semantic_setup(project_id, request_context)
+            if header["semantic_setup"] != current_semantic:
+                header["semantic_setup"] = current_semantic
+                header["choices"]["semantic_setup_confirmation"] = None
+                self._save(directory, header)
+                raise PdfImportDraftError(
+                    409, "semantic search setup facts changed; review them again"
+                )
+            if (
+                header["choices"]["semantic_search"]
+                and current_semantic["needs_confirmation"]
+                and header["choices"].get("semantic_setup_confirmation")
+                != current_semantic["confirmation_hash"]
+            ):
+                raise PdfImportDraftError(
+                    409, "semantic search setup requires exact download consent"
+                )
+            commit_id = f"pdf-commit-{secrets.token_urlsafe(18)}"
+            binding = {
+                "commit_id": commit_id,
+                "draft_id": draft_id,
+                "project_id": project_id,
+                "selected_through": inventory.selected_through(),
+                "selected_total": stats["selected_count"],
+                "choices": header["choices"],
+                "match": header["match"],
+                "batch_ocr": batch_ocr,
+            }
+            header["state"] = "committing"
+            header["commit"] = {
+                "commit_id": commit_id,
+                "idempotency_key": idempotency_key,
+                "requested_at": now(),
+                "manifest_hash": hashlib.sha256(
+                    json.dumps(binding, sort_keys=True, separators=(",", ":")).encode()
+                ).hexdigest(),
+                "selected_through": binding["selected_through"],
+                "selected_total": binding["selected_total"],
+                "result": None,
+                # Precommit estimates are advisory only. Paid/remote OCR must
+                # obtain ordinary exact action confirmation after rows exist.
+                "ocr_authorization": None,
+                "ready_notification": None,
+                "commit_inventory_path": str(directory / "commit-inventory.db"),
+                "source_files_root": str(directory / "files"),
+                "promotion_target": None,
+            }
+            try:
+                committed_total = inventory.initialize_commit_projection()
+                header["commit"]["committed_total"] = committed_total
+                self._advance_commit_inventory(directory, inventory, header)
+                self._save(directory, header)
+            except BaseException:
+                with contextlib.suppress(Exception):
+                    persisted = self._header(project_id, directory)
+                    if persisted["state"] == "open":
+                        self._remove_commit_inventory(
+                            directory / "commit-inventory.db"
+                        )
+                        inventory.reset_commit_projection()
+                raise
+            return self._frozen(directory, header, inventory)
 
     def reconcile_commit(
         self,
@@ -816,13 +1099,51 @@ class PdfImportService:
         committed: bool,
         result: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
-        return self._commits.reconcile_commit(
-            project_id,
-            draft_id,
-            idempotency_key=idempotency_key,
-            committed=committed,
-            result=result,
-        )
+        directory, _ = self._open(project_id, draft_id)
+        with (
+            self._files_lock(directory),
+            self._lock(directory),
+            PdfDraftInventory(directory / "inventory.db") as inventory,
+        ):
+            header = self._header(project_id, directory)
+            commit = header.get("commit") or {}
+            if commit.get("idempotency_key") != idempotency_key:
+                raise PdfImportDraftError(409, "PDF import commit identity changed")
+            if committed:
+                frozen = self._frozen(directory, header, inventory)
+                if (
+                    not commit.get("promoted")
+                    or not frozen.uploads_complete
+                    or not frozen.sealed
+                ):
+                    raise PdfImportDraftError(
+                        409, "PDF import commit is not fully admitted"
+                    )
+                value = (
+                    dict(result)
+                    if result is not None
+                    else dict(commit.get("result") or {})
+                )
+                if commit.get("result") is not None and commit["result"] != value:
+                    raise PdfImportDraftError(
+                        409, "PDF import commit result changed"
+                    )
+                header["state"] = "committed"
+                header["commit"]["result"] = value
+            else:
+                if commit.get("promoted") or commit.get("promotion_target"):
+                    raise PdfImportDraftError(
+                        409, "promoted PDF import cannot return to draft state"
+                    )
+                commit_inventory_path = commit.get("commit_inventory_path")
+                if isinstance(commit_inventory_path, str):
+                    self._remove_commit_inventory(Path(commit_inventory_path))
+                inventory.reset_commit_projection()
+                header["state"] = "open"
+                header["commit"] = None
+                header["batch_ocr"] = self._empty_batch_ocr()
+            self._save(directory, header)
+            return self._snapshot(header, inventory.stats())
 
     def promote_commit_inventory(
         self,
@@ -832,12 +1153,64 @@ class PdfImportService:
         idempotency_key: str,
         target_path: Path,
     ) -> FrozenPdfImport:
-        return self._commits.promote_commit_inventory(
-            project_id,
-            draft_id,
-            idempotency_key=idempotency_key,
-            target_path=target_path,
-        )
+        """Transfer frozen inventory and staged-byte ownership to `.imports`."""
+
+        project = self._workspace.get(project_id)
+        imports_root = (project.path / ".imports").resolve()
+        target = Path(target_path).resolve()
+        if target.name != "inventory.db" or imports_root not in target.parents:
+            raise PdfImportDraftError(422, "commit inventory target is invalid")
+        staged_target = target.parent / "staged"
+        if not target.parent.is_dir():
+            raise PdfImportDraftError(409, "commit intake directory is not ready")
+
+        directory, _ = self._open(project_id, draft_id)
+        with self._files_lock(directory), self._lock(directory):
+            header = self._header(project_id, directory)
+            if header["state"] not in {"committing", "committed"}:
+                raise PdfImportDraftError(409, "PDF import is not committing")
+            commit = header.get("commit") or {}
+            if commit.get("idempotency_key") != idempotency_key:
+                raise PdfImportDraftError(409, "PDF import commit identity changed")
+            stats = self._stats(directory)
+            if stats["analyzed_count"] != stats["staged_count"]:
+                raise PdfImportDraftError(409, "PDF text analysis is still running")
+            source_inventory = Path(commit["commit_inventory_path"])
+            source_files = Path(commit["source_files_root"])
+            if not (source_inventory.exists() or target.exists()) or not (
+                source_files.exists() or staged_target.exists()
+            ):
+                raise PdfImportDraftError(409, "commit promotion source is missing")
+            inventory_location = (
+                source_inventory if source_inventory.exists() else target
+            )
+            files_location = source_files if source_files.exists() else staged_target
+            if (
+                inventory_location.stat().st_dev != target.parent.stat().st_dev
+                or files_location.stat().st_dev != target.parent.stat().st_dev
+            ):
+                raise PdfImportDraftError(
+                    409,
+                    "PDF import staging and the project must be on the same filesystem",
+                )
+            intended = {
+                "inventory_path": str(target),
+                "source_files_root": str(staged_target),
+            }
+            existing = commit.get("promotion_target")
+            if existing is not None and existing != intended:
+                raise PdfImportDraftError(409, "PDF import promotion target changed")
+            if existing is None:
+                commit["promotion_target"] = intended
+                self._save(directory, header)
+
+            self._promote_path(source_inventory, target)
+            self._promote_path(source_files, staged_target)
+            if not commit.get("promoted"):
+                commit["promoted"] = True
+                self._save(directory, header)
+            with PdfDraftInventory(directory / "inventory.db") as inventory:
+                return self._frozen(directory, header, inventory)
 
     def record_commit_handoff(
         self,
@@ -847,12 +1220,22 @@ class PdfImportService:
         idempotency_key: str,
         result: Mapping[str, Any],
     ) -> dict[str, Any]:
-        return self._commits.record_commit_handoff(
-            project_id,
-            draft_id,
-            idempotency_key=idempotency_key,
-            result=result,
-        )
+        """Persist the sheet/session handoff while late uploads remain admitted."""
+
+        directory, _ = self._open(project_id, draft_id)
+        with self._lock(directory):
+            header = self._header(project_id, directory)
+            self._require_state(header, "committing")
+            commit = header.get("commit") or {}
+            if commit.get("idempotency_key") != idempotency_key:
+                raise PdfImportDraftError(409, "PDF import commit identity changed")
+            value = dict(result)
+            if commit.get("result") is not None and commit["result"] != value:
+                raise PdfImportDraftError(409, "PDF import handoff result changed")
+            if commit.get("result") is None:
+                commit["result"] = value
+                self._save(directory, header)
+            return self._snapshot(header, self._stats(directory))
 
     def discard(self, project_id: str, draft_id: str) -> dict[str, Any]:
         directory, _ = self._open(project_id, draft_id)
@@ -887,6 +1270,134 @@ class PdfImportService:
             header["cleanup"]["bytes_done"] = stats["staged_bytes"]
             self._save(directory, header)
             return self._snapshot(header, stats)
+
+    def _prepare_preview(
+        self,
+        project_id,
+        draft_id,
+        occurrence_id,
+        page,
+        action_params,
+        *,
+        request_context,
+    ):
+        if self._preview_runs is None:
+            raise PdfImportDraftError(503, "OCR preview is unavailable")
+        directory, header = self._open(project_id, draft_id)
+        with self._lock(directory):
+            header = self._header(project_id, directory)
+            self._require_state(header, "open")
+        engine = str(action_params["engine"])
+        with PdfDraftInventory(directory / "inventory.db") as inventory:
+            item = self._staged(inventory, occurrence_id)
+            _settings, settings_hash = preview_settings(action_params)
+            cached = inventory.cached_ocr(
+                str(item["sha256"]), page, engine, settings_hash
+            )
+        if cached is not None:
+            return {"cached": cached, "settings_hash": settings_hash}
+        prepared = prepare_ocr(
+            self._preview_runs,
+            project_id=project_id,
+            source=self._files_root(directory, header) / str(item["sha256"]),
+            item=item,
+            occurrence_id=occurrence_id,
+            page=page,
+            action_params=action_params,
+            request_context=request_context,
+            on_page=lambda value: self._cache_preview(
+                project_id,
+                draft_id,
+                str(item["sha256"]),
+                engine,
+                settings_hash,
+                action_params,
+                value,
+            ),
+        )
+        return {"cached": None, **prepared}
+
+    def _cache_preview(
+        self,
+        project_id,
+        draft_id,
+        sha256,
+        engine,
+        settings_hash,
+        action_params,
+        page,
+    ):
+        number = page.get("page")
+        if type(number) is not int:
+            return
+        directory, _ = self._open(project_id, draft_id)
+        with (
+            self._lock(directory),
+            PdfDraftInventory(directory / "inventory.db") as inventory,
+        ):
+            header = self._header(project_id, directory)
+            if header["state"] in {"cancelling", "cancelled"}:
+                return
+            inventory.cache_ocr(
+                sha256,
+                number,
+                engine,
+                settings_hash,
+                {
+                    "engine": engine,
+                    "ocr_action_params": dict(action_params),
+                    "text": str(page.get("text") or ""),
+                    "blocks": list(page.get("blocks") or []),
+                    "width": page.get("width"),
+                    "height": page.get("height"),
+                    "receipt_id": page.get("receipt_id"),
+                },
+            )
+
+    def _refresh_preview_jobs(self, project_id: str, header: dict[str, Any]) -> bool:
+        if self._preview_runs is None:
+            return False
+        changed = False
+        for job in header["preview_jobs"]:
+            if job["status"] != "running":
+                continue
+            response = self._preview_runs.get_preview(project_id, str(job["job_id"]))
+            payload: Mapping[str, Any]
+            if response.status_code == 404:
+                payload = {}
+                status = "failed"
+                error = "OCR preview expired before its result was collected"
+            elif response.status_code == 200:
+                payload = response.payload
+                raw_status = payload.get("status")
+                status = "failed" if raw_status == "error" else str(raw_status)
+                if status not in {"running", "done", "failed", "cancelled"}:
+                    continue
+                raw_error = payload.get("error")
+                error = (
+                    str(raw_error.get("message") or raw_error)[:500]
+                    if isinstance(raw_error, Mapping)
+                    else (str(raw_error)[:500] if raw_error else None)
+                )
+            else:
+                continue
+            accounting = payload.get("accounting")
+            receipt_id = (
+                accounting.get("receipt_id")
+                if isinstance(accounting, Mapping)
+                else None
+            )
+            if (
+                job["status"] != status
+                or job.get("error") != error
+                or (receipt_id is not None and job.get("receipt_id") != receipt_id)
+            ):
+                job["status"] = status
+                job["error"] = error
+                if receipt_id is not None:
+                    job["receipt_id"] = str(receipt_id)
+                changed = True
+        return changed
 
     def _analyze(self, path: Path) -> dict[str, Any]:
         return analyze_pdf(path, quality_assessor=self._quality_assessor)
@@ -978,6 +1489,12 @@ class PdfImportService:
         return local
 
     @staticmethod
+    def _remove_commit_inventory(path: Path) -> None:
+        path.unlink(missing_ok=True)
+        Path(f"{path}-wal").unlink(missing_ok=True)
+        Path(f"{path}-shm").unlink(missing_ok=True)
+
+    @staticmethod
     def _promote_path(source: Path, target: Path) -> None:
         if source == target:
             return
@@ -993,23 +1510,12 @@ class PdfImportService:
         try:
             os.replace(source, target)
         except OSError as exc:
-            if exc.errno != errno.EXDEV:
-                raise
-            temporary = target.with_name(f".{target.name}.{secrets.token_hex(6)}")
-            try:
-                if source.is_dir():
-                    shutil.copytree(source, temporary)
-                    os.replace(temporary, target)
-                    shutil.rmtree(source)
-                else:
-                    shutil.copy2(source, temporary)
-                    os.replace(temporary, target)
-                    source.unlink()
-            finally:
-                if temporary.is_dir():
-                    shutil.rmtree(temporary, ignore_errors=True)
-                else:
-                    temporary.unlink(missing_ok=True)
+            if exc.errno == errno.EXDEV:
+                raise PdfImportDraftError(
+                    409,
+                    "PDF import staging and the project must be on the same filesystem",
+                ) from exc
+            raise
         fsync_directory(target.parent)
 
     @staticmethod
@@ -1076,6 +1582,16 @@ class PdfImportService:
         ):
             return {"kind": "existing", "sheet_id": value["sheet_id"]}
         raise PdfImportDraftError(422, "PDF import destination is invalid")
+
+    @staticmethod
+    def _occurrence_id(value: Any) -> str:
+        occurrence_id = str(value or "").strip()
+        if OCCURRENCE_ID_RE.fullmatch(occurrence_id) is None:
+            raise PdfImportDraftError(
+                422,
+                "PDF client file id must use URL-safe letters, numbers, '.', '_', '~', or '-'",
+            )
+        return occurrence_id
 
     @staticmethod
     def _ocr_selection(value: Mapping[str, Any]) -> dict[str, Any]:
@@ -1286,6 +1802,52 @@ class PdfImportService:
             if key in value
         }
 
+    def _frozen(
+        self, directory: Path, header: Mapping[str, Any], inventory: PdfDraftInventory
+    ) -> FrozenPdfImport:
+        commit = header["commit"]
+        commit_inventory_path = self._commit_inventory_path(directory, header)
+        source_files_root = self._files_root(directory, header)
+        if commit_inventory_path.exists():
+            with ImportInventory(commit_inventory_path) as commit_inventory:
+                available_through = commit_inventory.through
+                sealed = commit_inventory.sealed
+        else:
+            available_through = 0
+            sealed = False
+        stats = inventory.stats()
+        return FrozenPdfImport(
+            commit_id=str(commit["commit_id"]),
+            draft_id=str(header["draft_id"]),
+            project_id=str(header["project_id"]),
+            storage_identity=str(header["storage_identity"]),
+            idempotency_key=str(commit["idempotency_key"]),
+            selected_through=int(commit["selected_through"]),
+            selected_total=int(commit["selected_total"]),
+            staged_through=inventory.base.through,
+            manifest_hash=str(commit["manifest_hash"]),
+            destination=dict(header["choices"]["destination"]),
+            ocr_policy=str(header["choices"]["ocr_policy"]),
+            ocr_action_params=self._ocr_action_params(
+                header["choices"]["ocr_selection"]
+            ),
+            ocr_authorization=None,
+            semantic_search=bool(header["choices"]["semantic_search"]),
+            semantic_setup_confirmation=header["choices"].get(
+                "semantic_setup_confirmation"
+            ),
+            directory=directory,
+            source_files_root=source_files_root,
+            commit_inventory_path=commit_inventory_path,
+            committed_total=int(commit.get("committed_total") or 0),
+            available_through=available_through,
+            uploads_complete=stats["staged_count"] == stats["selected_count"],
+            sealed=sealed,
+            commit_result=(
+                dict(commit["result"]) if commit.get("result") is not None else None
+            ),
+        )
+
     def _resolve_semantic_setup(
         self, project_id: str, request_context: Any
     ) -> dict[str, Any]:
@@ -1366,6 +1928,140 @@ class PdfImportService:
             ),
         }
 
+    @staticmethod
+    def _advance_commit_inventory(
+        directory: Path,
+        inventory: PdfDraftInventory,
+        header: Mapping[str, Any],
+    ) -> bool:
+        """Append the longest newly available contiguous projection prefix."""
+
+        target = PdfImportService._commit_inventory_path(directory, header)
+        with ImportInventory(target) as commit_inventory:
+            PdfImportService._ensure_commit_metadata(commit_inventory)
+            initial_through = commit_inventory.through
+            initially_sealed = commit_inventory.sealed
+            after = commit_inventory.through
+            while True:
+                rows = inventory.projection_page(after=after, limit=256)
+                if not rows:
+                    break
+                ready = []
+                for row in rows:
+                    if (
+                        row["upload_state"] != "staged"
+                        or row["analysis_state"] == "pending"
+                    ):
+                        break
+                    ready.append(
+                        {
+                            "logical_path": row["logical_path"],
+                            "mime": "application/pdf",
+                            "sha256": row["sha256"],
+                            "size": row["size"],
+                            "kind": "files",
+                        }
+                    )
+                if ready:
+                    PdfImportService._append_commit_page(
+                        commit_inventory,
+                        ready,
+                        rows[: len(ready)],
+                        ocr_policy=str(header["choices"]["ocr_policy"]),
+                    )
+                    after = commit_inventory.through
+                if len(ready) != len(rows):
+                    break
+            stats = inventory.stats()
+            if (
+                stats["staged_count"] == stats["selected_count"]
+                and stats["analyzed_count"] == stats["selected_count"]
+                and not commit_inventory.sealed
+            ):
+                commit_inventory.seal()
+            return (
+                commit_inventory.through != initial_through
+                or commit_inventory.sealed != initially_sealed
+            )
+
+    @staticmethod
+    def _ensure_commit_metadata(commit_inventory: ImportInventory) -> None:
+        commit_inventory._db.execute(
+            "CREATE TABLE IF NOT EXISTS pdf_commit_occurrences ("
+            "ordinal INTEGER PRIMARY KEY,"
+            "occurrence_id TEXT NOT NULL UNIQUE,"
+            "selected_ordinal INTEGER NOT NULL UNIQUE,"
+            "category TEXT NOT NULL,"
+            "error TEXT,"
+            "ocr_selected INTEGER NOT NULL CHECK(ocr_selected IN (0,1)))"
+        )
+        columns = {
+            str(row["name"])
+            for row in commit_inventory._db.execute(
+                "PRAGMA table_info(pdf_commit_occurrences)"
+            )
+        }
+        if "error" not in columns:
+            commit_inventory._db.execute(
+                "ALTER TABLE pdf_commit_occurrences ADD COLUMN error TEXT"
+            )
+        commit_inventory._db.commit()
+
+    @staticmethod
+    def _append_commit_page(
+        commit_inventory: ImportInventory,
+        items: Sequence[Mapping[str, Any]],
+        rows: Sequence[Mapping[str, Any]],
+        *,
+        ocr_policy: str,
+    ) -> None:
+        db = commit_inventory._db
+        db.execute("BEGIN IMMEDIATE")
+        count = total_bytes = last = 0
+        try:
+            if commit_inventory.sealed:
+                raise RuntimeError("import inventory is sealed")
+            for item, row in zip(items, rows, strict=True):
+                values = ImportInventory._validated(item)
+                cursor = db.execute(
+                    "INSERT INTO inventory_items"
+                    "(logical_path,mime,sha256,size,kind,email_format) "
+                    "VALUES(?,?,?,?,?,?)",
+                    values,
+                )
+                ordinal = int(cursor.lastrowid)
+                if ordinal != int(row["commit_ordinal"]):
+                    raise RuntimeError("commit inventory ordinal changed")
+                category = str(row["category"])
+                ocr_selected = ocr_policy == "all" or (
+                    ocr_policy == "missing_or_suspicious"
+                    and category in {"missing", "suspicious"}
+                )
+                db.execute(
+                    "INSERT INTO pdf_commit_occurrences"
+                    "(ordinal,occurrence_id,selected_ordinal,category,error,ocr_selected) "
+                    "VALUES(?,?,?,?,?,?)",
+                    (
+                        ordinal,
+                        str(row["occurrence_id"]),
+                        int(row["selected_ordinal"]),
+                        category,
+                        str(row["error"]) if row.get("error") else None,
+                        int(ocr_selected),
+                    ),
+                )
+                count += 1
+                total_bytes += int(values[3])
+                last = ordinal
+            db.execute(
+                "UPDATE inventory_meta SET item_count=item_count+?,"
+                "total_bytes=total_bytes+?,through_ordinal=? WHERE singleton=1",
+                (count, total_bytes, last),
+            )
+            db.commit()
+        except BaseException:
+            db.rollback()
+            raise
 
 
 __all__ = [
