@@ -75,6 +75,7 @@ def test_reduce_group_summary_advertises_required_many_input_columns() -> None:
             "boolean",
             "category",
             "date",
+            "datetime",
             "geo_point",
             "geo_shape",
             "image",

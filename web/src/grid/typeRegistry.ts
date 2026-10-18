@@ -38,6 +38,7 @@ export type TypeFacetBehavior = {
 const DEFAULT_PRESENTATIONS: Array<[string, TypePresentation]> = [
   ['text', { renderer: 'text', facet: { kind: 'categorical', operator: 'eq' } }],
   ['date', { renderer: 'text', facet: { kind: 'range', valueKind: 'date' } }],
+  ['datetime', { renderer: 'text' }],
   ['number', { renderer: 'number', align: 'right', facet: { kind: 'range', valueKind: 'number' } }],
   ['integer', { renderer: 'integer', align: 'right', facet: { kind: 'range', valueKind: 'integer' } }],
   ['boolean', { renderer: 'boolean', facet: { kind: 'categorical', operator: 'eq' } }],

@@ -21,6 +21,7 @@ from math import isfinite
 from typing import Any, Callable, Iterator
 
 from frisket.calendar_dates import is_valid_calendar_date
+from frisket.iso_datetimes import is_valid_iso_datetime
 from frisket.features.temporal_values import (
     is_valid_temporal_value,
     normalize_temporal_value,
@@ -384,6 +385,10 @@ def _is_date(v: Any) -> bool:
     return is_valid_calendar_date(v)
 
 
+def _is_datetime(v: Any) -> bool:
+    return is_valid_iso_datetime(v)
+
+
 def _temporal_validator(type_name: str) -> Callable[[Any], bool]:
     return lambda value: is_valid_temporal_value(type_name, value)
 
@@ -477,7 +482,16 @@ register_column_type(
         "renderer": "text",
         "facet": {"kind": "range", "valueKind": "date"},
     },
-    description="ISO-8601 date or datetime string.",
+    description="ISO-8601 calendar date; aware timestamps compare by UTC date.",
+    core=True,
+)
+register_column_type(
+    "datetime",
+    validate=_is_datetime,
+    presentation={"renderer": "text"},
+    description=(
+        "ISO-8601 local or offset-aware date and time; no timezone is inferred."
+    ),
     core=True,
 )
 register_column_type(
