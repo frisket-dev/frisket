@@ -5,6 +5,7 @@ import io
 import json
 import shutil
 from dataclasses import dataclass, replace
+from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -28,6 +29,8 @@ from frisket.engine.store.import_inventory import ImportInventory
 from frisket.engine.store.execution_routes import RouteStore
 from frisket.engine.store.media_blobs import MediaBlobStore
 from frisket.engine.store.receipts import ReceiptStore
+from frisket.engine.executor import ExecutorDeps
+from frisket.execution.consent_coverage import ConsentCoverage
 from frisket.server.services.pdf_import_preparation import PdfImportPreparationStore
 from frisket.server.services.pdf_import_ocr_approval import (
     PdfImportOcrApprovalQuoter,
@@ -496,10 +499,12 @@ class _ActionRuns:
         *,
         background_priority: str | None = None,
         output_group_label: str | None = None,
+        trusted_consent_principal: str | None = None,
     ):
         self.bodies.append(body)
         self.priorities.append(background_priority)
         self.group_labels.append(output_group_label)
+        assert trusted_consent_principal is None
         return ActionRunResponse(
             status_code=202,
             payload={"status": "queued", "receipt_id": f"text-{len(self.bodies)}"},
@@ -518,10 +523,12 @@ class _BusyThenReadyActions(_ActionRuns):
         *,
         background_priority: str | None = None,
         output_group_label: str | None = None,
+        trusted_consent_principal: str | None = None,
     ):
         self.bodies.append(body)
         self.priorities.append(background_priority)
         self.group_labels.append(output_group_label)
+        assert trusted_consent_principal is None
         if body["action_id"] == "media.ocr" and self.ocr_busy:
             return ActionRunResponse(
                 status_code=409,
@@ -895,11 +902,23 @@ def test_paid_parent_grant_admits_exact_ordinary_child_once(
     tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
+    authenticated_actor = "installation:user:42"
+
+    def executor_deps(_project_id, request_context):
+        return ExecutorDeps(
+            consent_coverage=(
+                ConsentCoverage(authenticated_actor, Decimal("0"))
+                if request_context == "authenticated-request"
+                else None
+            )
+        )
+
     workspace = Workspace(
         tmp_path / "workspace-paid",
         router=ModelRouter(
             keys={"anthropic": "test-key"}, cache=None, cache_mode="off"
         ),
+        executor_deps_factory=executor_deps,
         enable_local_model_pull=False,
     )
     project_id = str(workspace.create("Paid PDF", project_id="paid-pdf")["id"])
@@ -960,7 +979,9 @@ def test_paid_parent_grant_admits_exact_ordinary_child_once(
             ).hexdigest(),
             "child_partitions": partitions,
         },
+        request_context="authenticated-request",
     )["authorization"]
+    assert grant["actor"] == authenticated_actor
     preparation = SearchPreparationService(workspace)
     rows = [
         {
@@ -990,6 +1011,7 @@ def test_paid_parent_grant_admits_exact_ordinary_child_once(
             },
             "idempotency_key": "public-cannot-author-derived-consent",
             "trusted_consent_authorizer": {"grant_basis": "pdf_import_grant_derived"},
+            "trusted_consent_principal": authenticated_actor,
         },
     )
     assert public_attempt.payload["status"] in {"failed", "needs_confirmation"}
@@ -1023,6 +1045,14 @@ def test_paid_parent_grant_admits_exact_ordinary_child_once(
     consents = RouteStore.for_run(project, int(started[0]["run_id"])).consents()
     assert len(consents) == 1
     assert consents[0].grant_basis == "pdf_import_grant_derived"
+    assert consents[0].actor == authenticated_actor
+    assert (
+        project.db.execute(
+            "SELECT consent_principal FROM runs WHERE id=?",
+            (int(started[0]["run_id"]),),
+        ).fetchone()["consent_principal"]
+        == authenticated_actor
+    )
     prepared_spec = json.loads(
         project.db.execute(
             "SELECT runs.params FROM runs WHERE runs.id=?",

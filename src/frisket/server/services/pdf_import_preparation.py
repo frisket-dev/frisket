@@ -609,6 +609,7 @@ class PdfImportPreparationCoordinator:
                     reviewed_ocr_params=reviewed_ocr_params,
                     grant=grant,
                 )
+                run_kwargs["trusted_consent_principal"] = grant.actor
             response = self.action_runs.run_action(project_id, body, **run_kwargs)
             status = str(response.payload.get("status") or "")
             errors = response.payload.get("errors")

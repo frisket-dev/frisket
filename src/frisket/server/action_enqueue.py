@@ -6,6 +6,7 @@ import json
 import logging
 from collections.abc import Callable, Mapping, MutableMapping
 from dataclasses import dataclass, replace
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Literal
 
@@ -51,6 +52,7 @@ from frisket.engine.runner.validation import (
     TrustedConsentAuthorizer,
     TrustedConsentRefused,
 )
+from frisket.execution.consent_coverage import ConsentCoverage
 from frisket.server.provider_config import KEY_PROVIDERS
 from frisket.engine.store import Project
 from frisket.engine.store.output_claims import OutputColumnClaimStore
@@ -266,6 +268,7 @@ class QueuedV1ActionRunContext:
     logger: logging.Logger
     request_executor_deps: Callable[[], ExecutorDeps] = ExecutorDeps
     trusted_consent_authorizer: TrustedConsentAuthorizer | None = None
+    trusted_consent_principal: str | None = None
 
 
 def attach_run_edition_run_context(
@@ -357,6 +360,18 @@ def _queue_v1_project_run_request(
         project, router, execution_context
     )
     consent_coverage = ctx.request_executor_deps().consent_coverage
+    if ctx.trusted_consent_principal is not None:
+        if (
+            consent_coverage is not None
+            and consent_coverage.principal != ctx.trusted_consent_principal
+        ):
+            raise ValueError("trusted consent principal changed during admission")
+        consent_coverage = ConsentCoverage(
+            ctx.trusted_consent_principal,
+            consent_coverage.threshold_usd
+            if consent_coverage is not None
+            else Decimal("0"),
+        )
     atomic_publication = request.entry.requires_atomic_publication(
         request.params, program=request.program
     )
@@ -445,6 +460,7 @@ def _queue_v1_project_run_request(
                 build_attempt_authority(
                     project,
                     composition=execution_composition,
+                    consent_coverage=consent_coverage,
                 )
                 if atomic_publication
                 else UnroutedOnlyAuthority(project)

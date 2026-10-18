@@ -306,7 +306,16 @@ class ActionRunService:
         background_priority: Literal["pdf_import_ocr"] | None = None,
         output_group_label: str | None = None,
         trusted_consent_authorizer: TrustedConsentAuthorizer | None = None,
+        trusted_consent_principal: str | None = None,
     ) -> ActionRunResponse:
+        if (trusted_consent_authorizer is None) != (
+            trusted_consent_principal is None
+        ):
+            raise ValueError(
+                "trusted consent authority and principal must be supplied together"
+            )
+        if trusted_consent_principal is not None and not trusted_consent_principal.strip():
+            raise ValueError("trusted consent principal must be non-empty")
         # Payload-only gates FIRST, before the project is resolved. These two
         # read nothing but the action envelope and this process's environment,
         # so a refusal they own is already final: opening the workspace to
@@ -435,6 +444,7 @@ class ActionRunService:
                 logger=LOG,
                 request_executor_deps=request_executor_deps,
                 trusted_consent_authorizer=trusted_consent_authorizer,
+                trusted_consent_principal=trusted_consent_principal,
             ),
             execution_context=execution_context,
             background_priority=background_priority,
