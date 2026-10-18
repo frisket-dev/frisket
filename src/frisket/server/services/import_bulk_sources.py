@@ -15,6 +15,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO
 
 from frisket.engine.store.disk_capacity import require_disk_headroom
+from frisket.server.thread_worker import await_thread_worker
 from frisket.server.services.import_bulk_types import (
     BulkImportLimits,
     BulkUpload,
@@ -274,7 +275,8 @@ async def stage_uploads(
             if is_junk_path(logical):
                 continue
             if expand and source_suffix(logical) == ".zip":
-                staged += stage_zip(
+                staged += await await_thread_worker(
+                    stage_zip,
                     temp,
                     draft / "files",
                     limits,

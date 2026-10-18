@@ -311,3 +311,62 @@ def test_prepare_offloads_pdf_adoption_and_drains_it_before_cancel_cleanup(
 
     assert not observed["staging_dir"].exists()
     assert _private_directories(client, project_id) == []
+
+
+def test_prepare_offloads_zip_expansion_and_drains_it_before_cancel_cleanup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = create_app(tmp_path / "workspace")
+    client = TestClient(app)
+    project_id = _project(client)
+    started = threading.Event()
+    release = threading.Event()
+    observed: dict[str, Any] = {}
+
+    def blocking_expansion(
+        path: Path,
+        _files: Path,
+        _limits: BulkImportLimits,
+        *,
+        budget: Any,
+    ) -> list[dict[str, Any]]:
+        observed.update(path=path, budget=budget, thread_id=threading.get_ident())
+        started.set()
+        assert release.wait(timeout=5)
+        assert path.is_file(), "caller must retain the ZIP until worker exits"
+        return []
+
+    monkeypatch.setattr(import_bulk_sources, "stage_zip", blocking_expansion)
+    service = ImportBulkService(app.state.workspace)
+    upload = BulkUpload(
+        filename="bundle.zip",
+        logical_path="bundle.zip",
+        mime="application/zip",
+        file=UploadFile(io.BytesIO(b"archive"), filename="bundle.zip"),
+    )
+
+    async def exercise() -> None:
+        loop_thread = threading.get_ident()
+        task = asyncio.create_task(
+            service.prepare(project_id, uploads=[upload], expand_archive=True)
+        )
+        for _ in range(100):
+            if started.is_set():
+                break
+            await asyncio.sleep(0.01)
+        assert started.is_set(), "archive worker did not start"
+        assert observed["thread_id"] != loop_thread
+
+        task.cancel()
+        await asyncio.sleep(0.05)
+        assert not task.done(), "cancellation must drain the ZIP-reading worker"
+        assert observed["path"].is_file()
+
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(exercise())
+
+    assert not observed["path"].exists()
+    assert _private_directories(client, project_id) == []
