@@ -219,6 +219,40 @@ def test_existing_destination_preview_counts_only_frozen_sheet_duplicates(
     assert compared.destination.comparison.import_rows == 1
 
 
+def test_late_encoding_damage_requires_an_explicit_encoding_choice(
+    tmp_path: Path,
+) -> None:
+    _workspace, project_id, service = _service(tmp_path)
+    payload = b"value\n" + (b"ok\n" * 22_000) + b"\x80\x81\n"
+    created = service.create(project_id, _upload(payload), input_kind="file")
+    assert created.can_commit is True
+
+    scanned = service.scan(project_id, created.draft_id, settings_revision=0)
+
+    assert scanned.analysis.issue_counts.unreadable_cells == 2
+    assert scanned.can_commit is False
+    assert scanned.commit_blocked_reason == "encoding"
+    assert scanned.preview is not None
+    assert scanned.preview.notice.kind == "unreadable_characters"
+    assert scanned.preview.notice.count == 2
+
+    assert scanned.settings is not None
+    explicit = scanned.settings.requested.model_copy(update={"encoding": "utf-8"})
+    changed = service.update_settings(
+        project_id,
+        created.draft_id,
+        expected_revision=scanned.revision,
+        settings=explicit.model_dump(mode="json"),
+    )
+    rescanned = service.scan(
+        project_id,
+        created.draft_id,
+        settings_revision=changed.settings.revision if changed.settings else -1,
+    )
+    assert rescanned.analysis.issue_counts.unreadable_cells == 2
+    assert rescanned.can_commit is True
+
+
 def test_encrypted_workbook_password_is_transient_and_decrypted_source_is_readable(
     tmp_path: Path,
 ) -> None:
