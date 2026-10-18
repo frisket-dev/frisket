@@ -6048,9 +6048,48 @@ export type HttpImportSessionCreateBody = ({
   "sheet_name": (string);
 });
 
-type HttpImportSessionList_ImportSessionStatus = ({
-  [key: string]: JsonValue;
+type HttpImportSessionList_ImportPreparationChild = ({
+  "action_id": ("media.read_pdf_text" | "media.ocr") & (string);
+  "completed_rows": (number);
+  "job_id"?: (((number)) | ((null)));
+  "receipt_id"?: (((string)) | ((null)));
+  "row_count": (number);
+  "run_id"?: (((number)) | ((null)));
+  "status": (string);
 });
+
+type HttpImportSessionList_ImportSessionStatus = ({
+  "admitted_bytes": (number);
+  "admitted_files": (number);
+  "cancel_requested": (boolean);
+  "committed_bytes"?: (number);
+  "committed_rows"?: (number);
+  "error"?: (((string)) | ((null)));
+  "import_ref": (string);
+  "ocr_completed"?: (number);
+  "ocr_total"?: (number);
+  "preparation_children"?: (Array<(HttpImportSessionList_ImportPreparationChild)>);
+  "preparation_completed"?: (number);
+  "preparation_pending_confirmation"?: ((({
+  [key: string]: (HttpImportSessionList_JsonValue);
+})) | ((null)));
+  "preparation_stopped"?: (boolean);
+  "preparation_total"?: (number);
+  "row_error_summary"?: ((({
+  [key: string]: (HttpImportSessionList_JsonValue);
+})) | ((null)));
+  "sealed": (boolean);
+  "search_preparation_batch_id"?: (((string)) | ((null)));
+  "search_preparation_status": ("pending" | "available" | "none") & (string);
+  "selected_total"?: (((number)) | ((null)));
+  "sheet_id"?: (((number)) | ((null)));
+  "sheet_name": (string);
+  "state": ("admitting" | "running" | "paused" | "cancelling" | "cancelled" | "completed" | "kept" | "removed") & (string);
+  "through": (number);
+  "unreadable_total"?: (number);
+});
+
+type HttpImportSessionList_JsonValue = JsonValue;
 
 export type HttpImportSessionList = ({
   "sessions": (Array<(HttpImportSessionList_ImportSessionStatus)>);
@@ -6060,8 +6099,47 @@ export type HttpImportSessionResolveBody = ({
   "decision": ("keep" | "remove") & (string);
 });
 
+type HttpImportSessionStatus_ImportPreparationChild = ({
+  "action_id": ("media.read_pdf_text" | "media.ocr") & (string);
+  "completed_rows": (number);
+  "job_id"?: (((number)) | ((null)));
+  "receipt_id"?: (((string)) | ((null)));
+  "row_count": (number);
+  "run_id"?: (((number)) | ((null)));
+  "status": (string);
+});
+
+type HttpImportSessionStatus_JsonValue = JsonValue;
+
 export type HttpImportSessionStatus = ({
-  [key: string]: JsonValue;
+  "admitted_bytes": (number);
+  "admitted_files": (number);
+  "cancel_requested": (boolean);
+  "committed_bytes"?: (number);
+  "committed_rows"?: (number);
+  "error"?: (((string)) | ((null)));
+  "import_ref": (string);
+  "ocr_completed"?: (number);
+  "ocr_total"?: (number);
+  "preparation_children"?: (Array<(HttpImportSessionStatus_ImportPreparationChild)>);
+  "preparation_completed"?: (number);
+  "preparation_pending_confirmation"?: ((({
+  [key: string]: (HttpImportSessionStatus_JsonValue);
+})) | ((null)));
+  "preparation_stopped"?: (boolean);
+  "preparation_total"?: (number);
+  "row_error_summary"?: ((({
+  [key: string]: (HttpImportSessionStatus_JsonValue);
+})) | ((null)));
+  "sealed": (boolean);
+  "search_preparation_batch_id"?: (((string)) | ((null)));
+  "search_preparation_status": ("pending" | "available" | "none") & (string);
+  "selected_total"?: (((number)) | ((null)));
+  "sheet_id"?: (((number)) | ((null)));
+  "sheet_name": (string);
+  "state": ("admitting" | "running" | "paused" | "cancelling" | "cancelled" | "completed" | "kept" | "removed") & (string);
+  "through": (number);
+  "unreadable_total"?: (number);
 });
 
 type HttpImportUpdatePreviewBody_ImportUpdatePreviewColumn = ({
