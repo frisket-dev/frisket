@@ -371,6 +371,7 @@ jobs:
           explain-cell.spec.ts
           extraction-text-citations.spec.ts
           golden-extract-people-search.spec.ts
+          import-csv-upload.spec.ts
           project-ask.spec.ts
           review-rendering.spec.ts
           search-preparation-progress.spec.ts

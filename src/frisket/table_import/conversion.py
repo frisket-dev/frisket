@@ -274,7 +274,9 @@ def _parse_decimal_details(
     unsigned_mantissa = text.lower().partition("e")[0].lstrip("+-")
     integer_digits, decimal_mark, _fraction = unsigned_mantissa.partition(".")
     leading_zero = len(integer_digits) > 1 and integer_digits.startswith("0")
-    long_integer = not decimal_mark and integer_digits.isdigit() and len(integer_digits) > 15
+    long_integer = (
+        not decimal_mark and integer_digits.isdigit() and len(integer_digits) > 15
+    )
     value = Decimal(text)
     if not value.is_finite():
         raise ValueError("non-finite number")
