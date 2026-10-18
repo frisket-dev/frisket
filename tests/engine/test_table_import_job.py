@@ -40,7 +40,6 @@ from frisket.engine.store.table_import_intake import (
     TableImportScan,
     TableImportSource,
     freeze_table_plan,
-    frozen_table_import,
     initialize_table_intake,
     mark_table_committed,
     read_table_settings,
@@ -206,7 +205,6 @@ def test_commit_table_binds_bootstraps_and_enqueues_exact_frozen_plan(
             TableImportScan(0, settings_hash, 1, 1, 1, True),
             expected_settings_revision=0,
         )
-        frozen = frozen_table_import(directory)
         workspace = SimpleNamespace(get=lambda _project_id: project)
         service = ImportSessionService(
             workspace,

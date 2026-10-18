@@ -251,6 +251,12 @@ class ImportSessionService:
             current = frozen_table_import(directory)
             if current.plan_hash != frozen.plan_hash:
                 raise ValueError("frozen table plan changed")
+            if (
+                effective_max_rows is not None
+                and current.exact_rows is not None
+                and current.exact_rows > effective_max_rows
+            ):
+                raise ValueError("table import exceeds the configured row limit")
             reserved = reserve_typed_action_job(project, project_id, bound)
             if isinstance(reserved, ActionResult):
                 raise ValueError("table import reservation is already terminal")
