@@ -71,6 +71,35 @@ describe('PDF imports API', () => {
     });
   });
 
+  it('sends the missing-text OCR policy and preserves bounded extension counts', async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ draft_id: 'draft-1' }))
+      .mockResolvedValueOnce(jsonResponse({
+        category: 'other',
+        items: [],
+        next_cursor: null,
+        extension_counts: [{ extension: '.zip', count: 3 }],
+        unlisted_extension_count: 2,
+      }));
+    const api = createPdfImportsApi();
+
+    await api.updateChoices('project-1', 'draft-1', {
+      expected_revision: 7,
+      destination: { kind: 'new', sheet_name: 'Imported files' },
+      ocr_policy: 'missing',
+      ocr_selection: { kind: 'engine', engine: 'rapidocr' },
+      semantic_search: false,
+      semantic_setup_confirmation: null,
+    }, { fetch });
+    const samples = await api.samples('project-1', 'draft-1', 'other', undefined, { fetch });
+
+    expect(JSON.parse(String(fetch.mock.calls[0][1]?.body))).toEqual(expect.objectContaining({
+      ocr_policy: 'missing',
+    }));
+    expect(samples.extension_counts).toEqual([{ extension: '.zip', count: 3 }]);
+    expect(samples.unlisted_extension_count).toBe(2);
+  });
+
   it('preserves the PDF workflow response error used for revision retries', async () => {
     const fetch = vi.fn(async () => jsonResponse({ detail: 'revision changed' }, 409));
     const api = createPdfImportsApi();

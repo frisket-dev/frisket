@@ -18,6 +18,7 @@ const getSearchPreparationTextSamples = vi.hoisted(() => vi.fn());
 const createSearchPreparation = vi.hoisted(() => vi.fn());
 const replanSearchPreparation = vi.hoisted(() => vi.fn());
 const listPdfImportDrafts = vi.hoisted(() => vi.fn());
+const createPdfImport = vi.hoisted(() => vi.fn());
 const projectApi = vi.hoisted(() => ({ getSheetData: vi.fn(), listSheets: vi.fn() }));
 
 vi.mock('../../src/api/open', async (importOriginal) => {
@@ -60,7 +61,11 @@ vi.mock('../../src/api/pdfImports', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/api/pdfImports')>();
   return {
     ...actual,
-    pdfImportsApi: { ...actual.pdfImportsApi, list: listPdfImportDrafts },
+    pdfImportsApi: {
+      ...actual.pdfImportsApi,
+      list: listPdfImportDrafts,
+      create: createPdfImport,
+    },
   };
 });
 
@@ -97,6 +102,8 @@ function renderDialog(open: boolean, onImported = vi.fn(), onClose = vi.fn()) {
 beforeEach(() => {
   listPdfImportDrafts.mockReset();
   listPdfImportDrafts.mockResolvedValue([]);
+  createPdfImport.mockReset();
+  createPdfImport.mockImplementation(() => new Promise(() => undefined));
   getSearchPreparationTextSamples.mockReset();
   getSearchPreparationTextSamples.mockResolvedValue({ batch_id: 'prep', samples: [] });
   createSearchPreparation.mockReset();
@@ -208,6 +215,47 @@ describe('ImportWorkspaceDialog controlled open session', () => {
       'open-session-project',
       [dropped],
     ));
+  });
+
+  it('routes two PDFs with companion files into one staged batch without dropping companions', async () => {
+    renderDialog(true);
+    fireEvent.click(screen.getByTestId('import-mode-files'));
+    const selected = [
+      new File(['one'], 'one.pdf', { type: 'application/pdf' }),
+      new File(['two'], 'two.pdf', { type: 'application/pdf' }),
+      new File(['img'], 'scan.png', { type: 'image/png' }),
+      new File(['txt'], 'notes.txt', { type: 'text/plain' }),
+    ];
+
+    fireEvent.change(screen.getByTestId('import-file-input'), { target: { files: selected } });
+
+    await waitFor(() => expect(createPdfImport).toHaveBeenCalledWith(
+      'open-session-project', 4, 12, '4 files', expect.anything(),
+    ));
+    expect(await screen.findByText('Preparing file import…')).toBeInTheDocument();
+    expect(createImportSession).not.toHaveBeenCalled();
+    expect(planBulkImport).not.toHaveBeenCalled();
+  });
+
+  it('keeps mixed selections with fewer than two PDFs on the existing file-import path', async () => {
+    renderDialog(true);
+    fireEvent.click(screen.getByTestId('import-mode-files'));
+    const selected = [
+      new File(['one'], 'one.pdf', { type: 'application/pdf' }),
+      new File(['img'], 'scan.png', { type: 'image/png' }),
+      new File(['txt'], 'notes.txt', { type: 'text/plain' }),
+    ];
+
+    fireEvent.change(screen.getByTestId('import-file-input'), { target: { files: selected } });
+
+    await waitFor(() => expect(createImportSession).toHaveBeenCalledWith(
+      'open-session-project', { sheetName: 'files' },
+    ));
+    await waitFor(() => expect(uploadFilesToImportSession).toHaveBeenCalledWith(
+      'open-session-project', expect.objectContaining({ import_ref: 'large-selection' }), selected,
+      expect.objectContaining({ onStatus: expect.any(Function) }),
+    ));
+    expect(createPdfImport).not.toHaveBeenCalled();
   });
 
   it('keeps filenames and finishing progress in the upload window until Next opens review', async () => {

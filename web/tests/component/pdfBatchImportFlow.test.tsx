@@ -121,7 +121,7 @@ function snapshot(revision = 1, patch: Partial<PdfImportSnapshot> = {}): PdfImpo
     state: 'open',
     paused: false,
     created_at: '2026-10-18T00:00:00Z',
-    source_label: '2 PDFs',
+    source_label: '2 files',
     preflight: { state: 'ready', free_bytes: 1_000_000 },
     manifest: { files_done: 2, files_total: 2, bytes_done: 6, bytes_total: 6, sealed: true },
     upload: { files_done: 2, files_total: 2, bytes_done: 6, bytes_total: 6, sealed: true },
@@ -260,6 +260,14 @@ function files() {
   ];
 }
 
+function mixedFiles() {
+  return [
+    ...files(),
+    new File(['img'], 'scan.png', { type: 'image/png' }),
+    new File(['txt'], 'notes.txt', { type: 'text/plain' }),
+  ];
+}
+
 function deferred<Value>() {
   let resolve!: (value: Value) => void;
   let reject!: (reason?: unknown) => void;
@@ -299,27 +307,34 @@ describe('PDF batch import flow', () => {
   it('only intercepts selections containing two or more PDFs', () => {
     expect(canHandlePdfBatch(files())).toBe(true);
     expect(canHandlePdfBatch(files().slice(0, 1))).toBe(false);
-    expect(canHandlePdfBatch([...files(), new File(['csv'], 'rows.csv', { type: 'text/csv' })])).toBe(false);
+    expect(canHandlePdfBatch(mixedFiles())).toBe(true);
+    expect(canHandlePdfBatch([
+      files()[0],
+      new File(['img'], 'scan.png', { type: 'image/png' }),
+      new File(['txt'], 'notes.txt', { type: 'text/plain' }),
+    ])).toBe(false);
+    expect(canHandlePdfBatch(mixedFiles().slice(2))).toBe(false);
     expect(bytesLabel(0)).toBe('0 B');
   });
 
-  it('declares and seals the bounded manifest before uploading occurrences', async () => {
+  it('declares every mixed-file occurrence and seals the manifest before uploading', async () => {
     const { api } = createApi(snapshot(1, {
-      manifest: { files_done: 0, files_total: 2, bytes_done: 0, bytes_total: 6, sealed: false },
+      manifest: { files_done: 0, files_total: 4, bytes_done: 0, bytes_total: 12, sealed: false },
     }));
     render(<PdfBatchImportFlow
-      projectId="project-1" files={files()} destinationSheets={[]} api={api}
+      projectId="project-1" files={mixedFiles()} destinationSheets={[]} api={api}
       onContextChange={vi.fn()} registerCloseGuard={vi.fn()} onImported={vi.fn()}
       onDiscarded={vi.fn()} onError={vi.fn()}
     />);
 
     await screen.findByRole('heading', { name: 'Add files' });
-    await waitFor(() => expect(api.upload).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(api.upload).toHaveBeenCalledTimes(4));
     expect(api.create).toHaveBeenCalledWith(
-      'project-1', 2, 6, '2 PDFs', expect.anything(),
+      'project-1', 4, 12, '4 files', expect.anything(),
     );
     expect(api.addManifest).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(api.addManifest).mock.calls[0][2]).toHaveLength(2);
+    expect(vi.mocked(api.addManifest).mock.calls[0][2].map((entry) => entry.filename))
+      .toEqual(['one.pdf', 'two.pdf', 'scan.png', 'notes.txt']);
     expect(vi.mocked(api.sealManifest).mock.invocationCallOrder[0])
       .toBeLessThan(vi.mocked(api.upload).mock.invocationCallOrder[0]);
   });
@@ -370,7 +385,7 @@ describe('PDF batch import flow', () => {
       onDiscarded={vi.fn()} onError={vi.fn()}
     />);
     await waitFor(() => expect(api.create).toHaveBeenCalledWith(
-      'project-old', 2, 6, '2 PDFs', expect.anything(),
+      'project-old', 2, 6, '2 files', expect.anything(),
     ));
 
     view.rerender(<PdfBatchImportFlow
@@ -427,7 +442,7 @@ describe('PDF batch import flow', () => {
 
     expect(await screen.findByText('Not enough disk space')).toBeInTheDocument();
     expect(api.create).toHaveBeenLastCalledWith(
-      'project-new', 2, 8, '2 PDFs', expect.anything(),
+      'project-new', 2, 8, '2 files', expect.anything(),
     );
     expect(vi.mocked(api.upload).mock.calls.filter((call) => call[1] === 'draft-new').map(
       (call) => call[2][0].file.name,
@@ -455,7 +470,7 @@ describe('PDF batch import flow', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Continue →' }));
     fireEvent.click(screen.getByRole('button', { name: 'Search setup →' }));
-    const importButton = await screen.findByRole('button', { name: 'Import 2 PDFs' });
+    const importButton = await screen.findByRole('button', { name: 'Import 2 files' });
     expect(importButton).toBeDisabled();
     fireEvent.click(screen.getByRole('checkbox', { name: /Download this model/ }));
     await waitFor(() => expect(importButton).toBeEnabled());
@@ -477,31 +492,94 @@ describe('PDF batch import flow', () => {
     unsubscribe();
   });
 
-  it('uses PDF-only review copy and explains what is blocking semantic search setup', async () => {
-    const { api } = createApi();
+  it('reviews images and attached files, applies mixed OCR scopes, and defaults to a new sheet', async () => {
+    const initial = snapshot(2, {
+      source_label: '4 files',
+      manifest: { files_done: 4, files_total: 4, bytes_done: 12, bytes_total: 12, sealed: true },
+      upload: { files_done: 4, files_total: 4, bytes_done: 12, bytes_total: 12, sealed: true },
+      analysis: { files_done: 4, files_total: 4, sealed: true },
+      category_counts: {
+        text: 2, suspicious: 0, missing: 0, image: 1, other: 1, unreadable: 0, unchecked: 0,
+      },
+      sample_ready_counts: { text: 1, image: 1, other: 1 },
+      choices: {
+        ...snapshot().choices,
+        semantic_search: false,
+      },
+    });
+    const { api } = createApi(initial);
+    vi.mocked(api.samples).mockImplementation(async (_projectId, _draftId, category) => {
+      if (category === 'image') return {
+        items: [{
+          occurrence_id: 'image-1', logical_path: 'folder/scan.png', filename: 'scan.png',
+          size: 3, page_count: 1, category: 'image', analysis_state: 'done', sample_pages: [1],
+          thumbnail_url: '/image-thumbnail', error: null,
+        }],
+        next_cursor: null,
+      };
+      if (category === 'other') return {
+        items: [{
+          occurrence_id: 'other-1', logical_path: 'folder/notes.txt', filename: 'notes.txt',
+          size: 3, page_count: null, category: 'other', analysis_state: 'done', sample_pages: [],
+          thumbnail_url: null, error: null,
+        }],
+        next_cursor: null,
+        extension_counts: [{ extension: '.txt', count: 1 }],
+        unlisted_extension_count: 0,
+      };
+      return { items: [], next_cursor: null };
+    });
+    vi.mocked(api.getPage).mockImplementation(async (_projectId, _draftId, occurrenceId) => ({
+      schema_version: 'frisket.pdf_import.v1', draft_id: 'draft-1', occurrence_id: occurrenceId, page: 1,
+      native_text: '', ocr_text: null, ocr_action_params: null, thumbnail_url: '/image-thumbnail',
+    }));
     render(<PdfBatchImportFlow
-      projectId="project-1" files={files()} destinationSheets={[]} api={api}
+      projectId="project-1" files={mixedFiles()} initialDestinationSheetId={9}
+      destinationSheets={[{ id: 9, name: 'Current sheet' }]} api={api}
       onContextChange={vi.fn()} registerCloseGuard={vi.fn()} onImported={vi.fn()}
       onDiscarded={vi.fn()} onError={vi.fn()}
     />);
 
     await screen.findByRole('heading', { name: 'Add files' });
-    expect(screen.queryByText('Images')).not.toBeInTheDocument();
-    expect(screen.queryByText('Other files')).not.toBeInTheDocument();
+    expect(screen.getByText('Images')).toBeInTheDocument();
+    expect(screen.getByText('Other files')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Check text →' }));
-    await screen.findByText('Broken native text');
-    expect(screen.getByRole('radio', { name: /All PDFs.*2 files/ })).toBeInTheDocument();
-    expect(screen.queryByText(/PDFs and images|Scans, images/)).not.toBeInTheDocument();
+    expect(await screen.findAllByText('scan.png')).toHaveLength(2);
+    await waitFor(() => expect(api.getPage).toHaveBeenCalledWith(
+      'project-1', 'draft-1', 'image-1', 1, expect.anything(),
+    ));
+    expect(screen.getByRole('radio', { name: /Missing text.*1 file/ })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /Missing or suspicious text.*1 file/ })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /All PDFs and images.*3 files/ })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Apply OCR to' }).compareDocumentPosition(
+      screen.getByText('OCR engine'),
+    ) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(screen.getByRole('radio', { name: /Missing text.*1 file/ }));
+    await waitFor(() => expect(vi.mocked(api.updateChoices).mock.calls.some((call) => (
+      call[2].ocr_policy === 'missing'
+    ))).toBe(true));
+    fireEvent.click(screen.getByRole('button', { name: 'OCR preview' }));
+    await waitFor(() => expect(api.estimateOcrPreview).toHaveBeenCalledWith(
+      'project-1', 'draft-1', 'image-1', 1, expect.anything(),
+    ));
+    await waitFor(() => expect(api.startOcrPreview).toHaveBeenCalledWith(
+      'project-1', 'draft-1', 'image-1', 1, expect.anything(), undefined,
+    ));
+
+    fireEvent.click(screen.getByRole('button', { name: /Other files1/ }));
+    expect(await screen.findByText('.txt')).toBeInTheDocument();
+    expect(screen.getByText(/Imported as files/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'OCR preview' })).not.toBeInTheDocument();
+    expect(vi.mocked(api.getPage).mock.calls.some((call) => call[2] === 'other-1')).toBe(false);
 
     fireEvent.click(screen.getByRole('button', { name: 'Continue →' }));
-    const sheetName = await screen.findByLabelText('Sheet name');
-    expect(sheetName.closest('.pdf-batch-destination-card')).not.toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Search setup →' }));
-
-    expect(await screen.findByText('1 file · RapidOCR')).toBeInTheDocument();
-    expect(screen.getByText(/Allow the .* download, or turn off search by meaning\./)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Import 2 PDFs' })).toBeDisabled();
+    expect(await screen.findByRole('radio', { name: /New sheet/ })).toBeChecked();
+    expect(screen.getByLabelText('Sheet name')).toHaveValue('Imported files');
+    const review = screen.getByRole('table', { name: 'File import review' });
+    expect(review).toHaveTextContent('Images');
+    expect(review).toHaveTextContent('Other files');
+    expect(review).toHaveTextContent('OCR');
   });
 
   it('resolves an unreadable category to file details and excludes it from OCR counts', async () => {
@@ -581,7 +659,7 @@ describe('PDF batch import flow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Search setup →' }));
 
     expect(await screen.findByText('Copying is paused. Go back to Add files to resume before importing.')).toBeInTheDocument();
-    const importButton = screen.getByRole('button', { name: 'Import 2 PDFs' });
+    const importButton = screen.getByRole('button', { name: 'Import 2 files' });
     expect(importButton).toBeDisabled();
     fireEvent.click(importButton);
     expect(api.commit).not.toHaveBeenCalled();
@@ -604,7 +682,7 @@ describe('PDF batch import flow', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Check text →' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Continue →' }));
     fireEvent.click(screen.getByRole('button', { name: 'Search setup →' }));
-    const importButton = await screen.findByRole('button', { name: 'Import 2 PDFs' });
+    const importButton = await screen.findByRole('button', { name: 'Import 2 files' });
     expect(importButton).toBeDisabled();
 
     const save = deferred<PdfImportSnapshot>();
@@ -678,7 +756,7 @@ describe('PDF batch import flow', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Check text →' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Continue →' }));
     fireEvent.click(screen.getByRole('button', { name: 'Search setup →' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Import 2 PDFs' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Import 2 files' }));
 
     expect(api.commit).not.toHaveBeenCalled();
     expect(await screen.findByTestId('cost-gate-estimate')).toHaveTextContent('$1.25');
@@ -736,13 +814,13 @@ describe('PDF batch import flow', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Check text →' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Continue →' }));
     fireEvent.click(screen.getByRole('button', { name: 'Search setup →' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Import 2 PDFs' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Import 2 files' }));
     fireEvent.click(await screen.findByTestId('cost-gate-confirm'));
 
     expect(await screen.findByText('The import details changed. Review the current OCR estimate and confirm again.')).toBeInTheDocument();
     expect(api.estimateBatchOcr).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId('cost-gate-modal')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Import 2 PDFs' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Import 2 files' }));
     expect(await screen.findByTestId('cost-gate-modal')).toBeInTheDocument();
     expect(api.commit).toHaveBeenCalledTimes(1);
   });
@@ -781,7 +859,7 @@ describe('PDF batch import flow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Search setup →' }));
     await screen.findByRole('heading', { name: 'Search setup' });
     fireEvent.click(screen.getByRole('checkbox', { name: /Search by meaning/ }));
-    const importButton = await screen.findByRole('button', { name: 'Import 2 PDFs' });
+    const importButton = await screen.findByRole('button', { name: 'Import 2 files' });
     await waitFor(() => expect(importButton).toBeEnabled());
     fireEvent.click(importButton);
 
@@ -845,7 +923,7 @@ describe('PDF batch import flow', () => {
     fireEvent.click(searchSetup);
     await screen.findByRole('heading', { name: 'Search setup' });
     fireEvent.click(screen.getByRole('checkbox', { name: /Search by meaning/ }));
-    const importButton = await screen.findByRole('button', { name: 'Import 2 PDFs' });
+    const importButton = await screen.findByRole('button', { name: 'Import 2 files' });
     await waitFor(() => expect(importButton).toBeEnabled());
     fireEvent.click(importButton);
 
@@ -905,20 +983,22 @@ describe('PDF batch import flow', () => {
     expect(onError).not.toHaveBeenCalled();
   });
 
-  it('reconciles a resumed selection and uploads only matched pending occurrences', async () => {
+  it('reconciles pending image and attachment occurrences from a resumed selection', async () => {
     const initial = snapshot(3, {
       paused: true,
-      upload: { files_done: 1, files_total: 2, bytes_done: 3, bytes_total: 6, sealed: false },
-      analysis: { files_done: 1, files_total: 2 },
+      upload: { files_done: 1, files_total: 3, bytes_done: 3, bytes_total: 9, sealed: false },
+      analysis: { files_done: 1, files_total: 3 },
     });
     const { api } = createApi(initial);
     vi.mocked(api.reconcileReselection).mockResolvedValue({
       schema_version: 'frisket.pdf_import.v1',
       draft_id: 'draft-1',
-      items: [{
-        logical_path: 'two.pdf', filename: 'two.pdf', size: 3,
-        matched: true, occurrence_id: 'pending-two', upload_needed: true,
-      }],
+      items: [
+        { logical_path: 'scan.png', filename: 'scan.png', size: 3,
+          matched: true, occurrence_id: 'pending-image', upload_needed: true },
+        { logical_path: 'notes.txt', filename: 'notes.txt', size: 3,
+          matched: true, occurrence_id: 'pending-notes', upload_needed: true },
+      ],
     });
     render(<PdfBatchImportFlow
       projectId="project-1" resumeDraftId="draft-1" destinationSheets={[]} api={api}
@@ -929,15 +1009,23 @@ describe('PDF batch import flow', () => {
     await screen.findByText('Some files still need to be copied');
     const input = document.querySelector<HTMLInputElement>('input[type="file"]');
     expect(input).not.toBeNull();
+    expect(input).not.toHaveAttribute('accept');
     expect(screen.getByText('Select folder again')).toBeInTheDocument();
-    fireEvent.change(input!, { target: { files: [new File(['two'], 'two.pdf', { type: 'application/pdf' })] } });
+    fireEvent.change(input!, { target: { files: [
+      new File(['img'], 'scan.png', { type: 'image/png' }),
+      new File(['txt'], 'notes.txt', { type: 'text/plain' }),
+    ] } });
 
     await waitFor(() => expect(api.reconcileReselection).toHaveBeenCalledWith(
-      'project-1', 'draft-1', [{ logical_path: 'two.pdf', filename: 'two.pdf', size: 3 }], expect.anything(),
+      'project-1', 'draft-1', [
+        { logical_path: 'scan.png', filename: 'scan.png', size: 3 },
+        { logical_path: 'notes.txt', filename: 'notes.txt', size: 3 },
+      ], expect.anything(),
     ));
-    await waitFor(() => expect(api.upload).toHaveBeenCalled());
-    expect(vi.mocked(api.upload).mock.calls[0][2]).toEqual([
-      expect.objectContaining({ fileId: 'pending-two', logicalPath: 'two.pdf' }),
+    await waitFor(() => expect(api.upload).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(api.upload).mock.calls.map((call) => call[2][0])).toEqual([
+      expect.objectContaining({ fileId: 'pending-image', logicalPath: 'scan.png' }),
+      expect.objectContaining({ fileId: 'pending-notes', logicalPath: 'notes.txt' }),
     ]);
   });
 
@@ -1279,7 +1367,7 @@ describe('PDF batch import flow', () => {
     expect(await screen.findByText('Setup required', { exact: false })).toHaveAttribute(
       'title', 'Download RapidOCR before running it.',
     );
-    expect(screen.getByRole('button', { name: 'Import 2 PDFs' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Import 2 files' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Back to OCR engine' }));
     expect(await screen.findByRole('heading', { name: 'Text from your files' })).toBeInTheDocument();
   });
@@ -1299,7 +1387,7 @@ describe('PDF batch import flow', () => {
 
     expect(await screen.findByText('Ready')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('checkbox', { name: /Search by meaning/ }));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Import 2 PDFs' })).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Import 2 files' })).toBeEnabled());
   });
 
   it('distinguishes an OCR availability check from required setup', async () => {
@@ -1318,6 +1406,6 @@ describe('PDF batch import flow', () => {
 
     expect(await screen.findByText('Checking availability…')).toBeInTheDocument();
     expect(screen.queryByText('Setup required', { exact: false })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Import 2 PDFs' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Import 2 files' })).toBeDisabled();
   });
 });

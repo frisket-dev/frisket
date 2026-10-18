@@ -9,10 +9,12 @@ import { formatNumberDisplay } from '../../../format';
 
 export type PdfBatchStage = 'add' | 'check' | 'destination' | 'search';
 
+function isPdf(file: File): boolean {
+  return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+}
+
 export function canHandlePdfBatch(files: readonly File[]): boolean {
-  return files.length >= 2 && files.every((file) => (
-    file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
-  ));
+  return files.filter(isPdf).length >= 2;
 }
 
 export const PDF_BATCH_STAGES: ReadonlyArray<{ id: PdfBatchStage; label: string; testId: string }> = [
@@ -24,6 +26,10 @@ export const PDF_BATCH_STAGES: ReadonlyArray<{ id: PdfBatchStage; label: string;
 
 export const PDF_CATEGORY_ORDER: readonly PdfImportCategory[] = [
   'text', 'suspicious', 'missing', 'image', 'other', 'unreadable', 'unchecked',
+];
+
+export const PDF_CHECK_CATEGORY_ORDER: readonly PdfImportCategory[] = [
+  'suspicious', 'missing', 'image', 'text', 'other', 'unreadable',
 ];
 
 export const PDF_CATEGORY_LABEL: Record<PdfImportCategory, string> = {
@@ -47,9 +53,7 @@ export const PDF_CATEGORY_TONE: Record<PdfImportCategory, string> = {
 };
 
 export function visibleCategories(snapshot: PdfImportSnapshot): PdfImportCategory[] {
-  return PDF_CATEGORY_ORDER.filter((category) => category !== 'image'
-    && category !== 'other'
-    && (snapshot.category_counts[category] ?? 0) > 0);
+  return PDF_CATEGORY_ORDER.filter((category) => (snapshot.category_counts[category] ?? 0) > 0);
 }
 
 export function representativeFiles(
@@ -89,9 +93,10 @@ export function ocrPolicyCount(snapshot: PdfImportSnapshot, policy: PdfImportOcr
     return (counts.text ?? 0)
       + (counts.suspicious ?? 0)
       + (counts.missing ?? 0)
-      + (counts.unchecked ?? 0);
+      + (counts.image ?? 0);
   }
-  return (counts.suspicious ?? 0) + (counts.missing ?? 0);
+  if (policy === 'missing') return (counts.missing ?? 0) + (counts.image ?? 0);
+  return (counts.suspicious ?? 0) + (counts.missing ?? 0) + (counts.image ?? 0);
 }
 
 export function canOpenCheckText(snapshot: PdfImportSnapshot): boolean {
