@@ -51,6 +51,7 @@ from frisket.server.services.action_runs import ActionRunRouteError, ActionRunSe
 from frisket.server.services.pdf_import_preparation import (
     PdfImportPreparationCoordinator,
 )
+from frisket.server.services.pdf_imports.semantic_setup import semantic_setup_facts
 from frisket.server.services.search_preparation_planning import (
     build_plan,
     capture_sources,
@@ -431,32 +432,10 @@ class SearchPreparationService:
         requirement = self._setup_snapshot().requirements_by_ref.get(_SEMANTIC_REF)
         if requirement is None:
             raise RouteError(409, "semantic search setup is unavailable")
-        if requirement.runtime_ready and requirement.weights_ready:
+        facts = semantic_setup_facts(requirement)
+        if facts["ready"]:
             return
-        ready = bool(requirement.runtime_ready and requirement.weights_ready)
-        available = bool(
-            ready or requirement.runtime_ready or requirement.runtime_installable
-        )
-        binding = {
-            "setup_ref": str(requirement.setup_ref),
-            "display_name": str(requirement.display_name),
-            "runtime_ready": bool(requirement.runtime_ready),
-            "download_bytes": (
-                None
-                if requirement.weights_ready
-                else int(requirement.download_bytes_if_missing)
-            ),
-            "additional_runtime_download": bool(
-                requirement.runtime_installable and not requirement.runtime_ready
-            ),
-            "license": str(requirement.license),
-            "source_url": str(requirement.source_url),
-            "available": available,
-        }
-        current_confirmation = hashlib.sha256(
-            json.dumps(binding, sort_keys=True, separators=(",", ":")).encode()
-        ).hexdigest()
-        if not available or confirmation != current_confirmation:
+        if not facts["available"] or confirmation != facts["confirmation_hash"]:
             raise RouteError(
                 409, "semantic search setup facts changed; review them again"
             )

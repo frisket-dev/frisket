@@ -515,8 +515,6 @@ class PdfImportPreparationCoordinator:
         rows: Sequence[Mapping[str, Any]],
         ocr_policy: str,
         ocr_authorization: Mapping[str, Any] | None,
-        semantic_search: bool,
-        semantic_setup_confirmation: str | None,
         ocr_action_params: Mapping[str, Any],
         on_started: Callable[[str, str, int, Mapping[str, Any]], None] | None = None,
     ) -> tuple[dict[str, Any], ...]:
@@ -649,7 +647,6 @@ class PdfImportPreparationCoordinator:
 
         start("media.read_pdf_text", native_rows, ocr=False)
         start("media.ocr", ocr_rows, ocr=True)
-        _ = semantic_search, semantic_setup_confirmation
         return tuple(responses)
 
     @staticmethod
@@ -1008,10 +1005,6 @@ class PdfImportPreparationCoordinator:
                         rows=page.rows,
                         ocr_policy=str(facts["ocr_policy"]),
                         ocr_authorization=facts.get("ocr_authorization"),
-                        semantic_search=bool(facts.get("semantic_search")),
-                        semantic_setup_confirmation=facts.get(
-                            "semantic_setup_confirmation"
-                        ),
                         ocr_action_params=facts["ocr_action_params"],
                         on_started=lambda action_id, child_key, row_count, response: (
                             preparation.record_child(

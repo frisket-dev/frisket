@@ -36,6 +36,7 @@ from .previews import (
     read_native_page,
     thumbnail as render_thumbnail,
 )
+from .semantic_setup import bind_semantic_setup_consent, semantic_setup_facts
 from .storage import (
     PdfDraftStore,
     PdfImportDraftError,
@@ -1829,16 +1830,6 @@ class PdfImportService:
         }
 
     @staticmethod
-    def _ocr_count(stats: Mapping[str, int], policy: str) -> int:
-        if policy == "none":
-            return 0
-        if policy == "all":
-            return stats["selected_count"]
-        if policy == "missing_or_suspicious":
-            return stats["missing_count"] + stats["suspicious_count"]
-        raise PdfImportDraftError(422, "invalid PDF OCR policy")
-
-    @staticmethod
     def _thumbnail_url(
         project_id: str, draft_id: str, occurrence_id: str, page: int
     ) -> str:
@@ -2026,55 +2017,8 @@ class PdfImportService:
                     "source_url": None,
                     "available": False,
                 }
-            ready = bool(requirement.runtime_ready and requirement.weights_ready)
-            value = {
-                "setup_ref": str(requirement.setup_ref),
-                "display_name": str(requirement.display_name),
-                "ready": ready,
-                "runtime_ready": bool(requirement.runtime_ready),
-                "download_bytes": (
-                    None
-                    if requirement.weights_ready
-                    else int(requirement.download_bytes_if_missing)
-                ),
-                "additional_runtime_download": bool(
-                    requirement.runtime_installable and not requirement.runtime_ready
-                ),
-                "license": str(requirement.license),
-                "source_url": str(requirement.source_url),
-                "available": bool(
-                    ready
-                    or requirement.runtime_ready
-                    or requirement.runtime_installable
-                ),
-            }
-        binding = {
-            key: value.get(key)
-            for key in (
-                "setup_ref",
-                "display_name",
-                "runtime_ready",
-                "download_bytes",
-                "additional_runtime_download",
-                "license",
-                "source_url",
-                "available",
-            )
-        }
-        needs_confirmation = bool(
-            value.get("available", True) and not value.get("ready")
-        )
-        return {
-            **value,
-            "needs_confirmation": needs_confirmation,
-            "confirmation_hash": (
-                hashlib.sha256(
-                    json.dumps(binding, sort_keys=True, separators=(",", ":")).encode()
-                ).hexdigest()
-                if needs_confirmation
-                else None
-            ),
-        }
+            return semantic_setup_facts(requirement)
+        return bind_semantic_setup_consent(value)
 
     @staticmethod
     def _advance_commit_inventory(

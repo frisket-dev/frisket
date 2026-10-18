@@ -734,8 +734,6 @@ def test_reviewed_text_handoff_uses_one_designated_column_and_action_authority(
         ocr_policy="missing_or_suspicious",
         ocr_action_params={"engine": "rapidocr", "model": "document-v2"},
         ocr_authorization=None,
-        semantic_search=False,
-        semantic_setup_confirmation=None,
     )
 
     assert [body["action_id"] for body in actions.bodies] == [
@@ -806,8 +804,6 @@ def test_reviewed_native_text_child_keeps_queued_identity_through_real_worker(
         ocr_policy="none",
         ocr_action_params={"engine": "rapidocr"},
         ocr_authorization=None,
-        semantic_search=False,
-        semantic_setup_confirmation=None,
     )
     registry = HandlerRegistry()
     register_project_run_handler(
@@ -837,6 +833,7 @@ def test_reviewed_semantic_choice_starts_existing_setup_with_frozen_consent(
     )
     requirement = SimpleNamespace(
         setup_ref="engine-setup:embeddinggemma-2.local@1",
+        capability="semantic_search",
         display_name="Search by meaning",
         runtime_ready=False,
         weights_ready=False,
@@ -852,6 +849,12 @@ def test_reviewed_semantic_choice_starts_existing_setup_with_frozen_consent(
             requirements_by_ref={requirement.setup_ref: requirement}
         ),
     )
+    from frisket.engine.jobs import engine_setup
+
+    monkeypatch.setattr(
+        engine_setup, "local_search_setup_requirements", lambda: [requirement]
+    )
+    review = PdfImportService(workspace)._resolve_semantic_setup(project_id, None)
     binding = {
         "setup_ref": requirement.setup_ref,
         "display_name": requirement.display_name,
@@ -865,6 +868,12 @@ def test_reviewed_semantic_choice_starts_existing_setup_with_frozen_consent(
     confirmation = hashlib.sha256(
         json.dumps(binding, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
+    assert review == {
+        **binding,
+        "ready": False,
+        "needs_confirmation": True,
+        "confirmation_hash": confirmation,
+    }
 
     try:
         preparation._ensure_pdf_semantic_setup(
@@ -1084,8 +1093,6 @@ def test_reviewed_text_handoff_refuses_to_reinterpret_paid_draft_consent(
                 "confirmation": "draft-bound-token",
                 "admission": {"attempt_id": "draft-attempt"},
             },
-            semantic_search=False,
-            semantic_setup_confirmation=None,
             ocr_action_params={"engine": "remote-ocr"},
         )
     except ValueError as exc:
@@ -1220,8 +1227,6 @@ def test_paid_parent_grant_admits_exact_ordinary_child_once(
         rows=rows,
         ocr_policy="all",
         ocr_authorization=grant,
-        semantic_search=False,
-        semantic_setup_confirmation=None,
         ocr_action_params=action_params,
     )
     replay = preparation.create_from_pdf_import(
@@ -1231,8 +1236,6 @@ def test_paid_parent_grant_admits_exact_ordinary_child_once(
         rows=rows,
         ocr_policy="all",
         ocr_authorization=grant,
-        semantic_search=False,
-        semantic_setup_confirmation=None,
         ocr_action_params=action_params,
     )
 
@@ -1269,8 +1272,6 @@ def test_paid_parent_grant_admits_exact_ordinary_child_once(
             rows=changed,
             ocr_policy="all",
             ocr_authorization=grant,
-            semantic_search=False,
-            semantic_setup_confirmation=None,
             ocr_action_params=action_params,
         )
     except ValueError as exc:
