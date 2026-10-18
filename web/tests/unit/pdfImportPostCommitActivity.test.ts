@@ -70,6 +70,29 @@ describe('PDF import post-commit activity', () => {
     });
   });
 
+  it('presents a terminal partial preparation child as failed instead of queued', () => {
+    const activity = importActivity(session({
+      state: 'running',
+      preparation_children: [{
+        action_id: 'media.read_pdf_text',
+        row_count: 8,
+        completed_rows: 3,
+        status: 'partial',
+        receipt_id: 'partial-receipt',
+        run_id: 51,
+        job_id: 52,
+      }],
+    }));
+
+    expect(activity?.liveRun).toMatchObject({
+      runId: '51',
+      status: 'failed',
+      completedRows: 3,
+      totalRows: 8,
+      failedRows: 5,
+    });
+  });
+
   it('combines import and existing index progress into one three-line entry', () => {
     const search = {
       activityKey: 'index:9',

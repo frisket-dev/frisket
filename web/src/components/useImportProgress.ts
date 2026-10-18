@@ -40,7 +40,7 @@ function isPolling(session: ImportSessionStatus): boolean {
 
 function childRunStatus(status: string): RunProgress['status'] {
   if (status === 'done' || status === 'complete' || status === 'completed') return 'complete';
-  if (status === 'failed') return 'failed';
+  if (status === 'failed' || status === 'partial') return 'failed';
   if (status === 'cancelled') return 'cancelled';
   if (status === 'running' || status === 'stalled' || status === 'orphaned') return status;
   return 'queued';
@@ -79,9 +79,10 @@ export function preferredImportActivity(activities: ImportActivity[]): ImportAct
 }
 
 function activeChild(session: ImportSessionStatus): ImportPreparationChild | null {
-  return [...session.preparation_children]
-    .reverse()
-    .find((child) => child.run_id !== null && ACTIVE_CHILD_STATES.has(child.status)) ?? null;
+  const children = [...session.preparation_children].reverse();
+  return children.find((child) => child.run_id !== null && ACTIVE_CHILD_STATES.has(child.status))
+    ?? children.find((child) => child.run_id !== null && child.status === 'partial')
+    ?? null;
 }
 
 export function importActivity(session: ImportSessionStatus): ImportActivity | null {
@@ -116,7 +117,9 @@ export function importActivity(session: ImportSessionStatus): ImportActivity | n
     status: childRunStatus(child.status),
     completedRows: child.completed_rows,
     totalRows: child.row_count,
-    failedRows: 0,
+    failedRows: child.status === 'partial'
+      ? Math.max(child.row_count - child.completed_rows, 0)
+      : 0,
     costSoFar: 0,
   } : null;
 

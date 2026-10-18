@@ -24,6 +24,8 @@ const selectorState = vi.hoisted(() => ({
 const sessionUpload = vi.hoisted(() => ({
   abort: null as (() => void) | null,
   importRef: null as string | null,
+  registrations: new Map<string, () => void>(),
+  forget: vi.fn(),
   remember: vi.fn(async () => undefined),
   setUploading: vi.fn(),
   unregister: vi.fn(),
@@ -33,8 +35,14 @@ vi.mock('../../src/components/importProgressSession', () => ({
   registerImportSessionUploadAbort: (importRef: string, abort: () => void) => {
     sessionUpload.importRef = importRef;
     sessionUpload.abort = abort;
-    return sessionUpload.unregister;
+    sessionUpload.registrations.set(importRef, abort);
+    return () => {
+      if (sessionUpload.registrations.get(importRef) !== abort) return;
+      sessionUpload.registrations.delete(importRef);
+      sessionUpload.unregister(importRef);
+    };
   },
+  forgetImportSelection: sessionUpload.forget,
   rememberImportSessionFiles: sessionUpload.remember,
   setImportSessionBrowserUploading: sessionUpload.setUploading,
 }));
@@ -267,6 +275,8 @@ beforeEach(() => {
   selectorState.reportChoice = true;
   sessionUpload.abort = null;
   sessionUpload.importRef = null;
+  sessionUpload.registrations.clear();
+  sessionUpload.forget.mockReset();
   sessionUpload.remember.mockReset();
   sessionUpload.remember.mockResolvedValue(undefined);
   sessionUpload.setUploading.mockReset();
@@ -528,7 +538,8 @@ describe('PDF batch import flow', () => {
     });
 
     expect(await screen.findByText('damaged.pdf')).toBeInTheDocument();
-    expect(screen.getByText('Could not read PDF. It will be imported without text.')).toBeInTheDocument();
+    expect(screen.getByText('Couldn’t read this PDF. It will be imported without text.')).toBeInTheDocument();
+    expect(screen.queryByText('Could not read PDF.')).not.toBeInTheDocument();
     expect(screen.getByText("OCR will apply to 1 file · 1 couldn't be read.")).toBeInTheDocument();
     expect(api.getPage).not.toHaveBeenCalledWith(
       'project-1', 'draft-1', 'damaged-1', 1, expect.anything(),
@@ -729,6 +740,53 @@ describe('PDF batch import flow', () => {
     expect(api.commit).toHaveBeenCalledTimes(1);
   });
 
+  it('makes the provisional post-commit Stop registration abort the active upload', async () => {
+    const initial = snapshot(2, {
+      upload: { files_done: 0, files_total: 2, bytes_done: 0, bytes_total: 6, sealed: true },
+      analysis: { files_done: 0, files_total: 2 },
+    });
+    const { api } = createApi(initial);
+    let uploadSignal: AbortSignal | undefined;
+    vi.mocked(api.upload).mockImplementationOnce(async (...args) => {
+      uploadSignal = args[4]?.signal;
+      return new Promise<PdfImportSnapshot>((_resolve, reject) => {
+        uploadSignal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+      });
+    });
+    vi.mocked(api.commit).mockResolvedValue({
+      schema_version: 'frisket.pdf_import.v1', draft_id: 'draft-1', commit_id: 'commit-1',
+      status: 'accepted', manifest_hash: 'manifest-1', selected_total: 2, available_through: 0,
+      uploads_complete: false, job: { sheet_id: 42 },
+    });
+    vi.mocked(api.get).mockImplementation(async () => new Promise<PdfImportSnapshot>(() => undefined));
+    render(<PdfBatchImportFlow
+      projectId="project-1" files={files()} destinationSheets={[]} api={api}
+      onContextChange={vi.fn()} registerCloseGuard={vi.fn()} onImported={vi.fn()}
+      onDiscarded={vi.fn()} onError={vi.fn()}
+    />);
+
+    await waitFor(() => expect(uploadSignal).toBeDefined());
+    fireEvent.click(screen.getByRole('button', { name: 'Check text →' }));
+    await screen.findByText('Broken native text');
+    fireEvent.click(screen.getByRole('radio', { name: /None/ }));
+    await waitFor(() => expect(api.updateChoices).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: 'Continue →' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Search setup →' }));
+    await screen.findByRole('heading', { name: 'Search setup' });
+    fireEvent.click(screen.getByRole('checkbox', { name: /Search by meaning/ }));
+    const importButton = await screen.findByRole('button', { name: 'Import 2 PDFs' });
+    await waitFor(() => expect(importButton).toBeEnabled());
+    fireEvent.click(importButton);
+
+    const provisionalStop = await waitFor(() => {
+      const registered = sessionUpload.registrations.get('draft-1');
+      expect(registered).toBeDefined();
+      return registered!;
+    });
+    provisionalStop();
+    expect(uploadSignal?.aborted).toBe(true);
+  });
+
   it('keeps late browser uploads alive after commit closes the flow', async () => {
     const initial = snapshot(2, {
       upload: { files_done: 0, files_total: 2, bytes_done: 0, bytes_total: 6, sealed: true },
@@ -748,7 +806,10 @@ describe('PDF batch import flow', () => {
       analysis: initial.analysis,
       commit: { result: { sheet_id: 42, import_ref: 'import-session-1' } },
     });
-    vi.mocked(api.get).mockImplementation(async () => commitAccepted ? committedStatus : initial);
+    const committedRefresh = deferred<PdfImportSnapshot>();
+    vi.mocked(api.get).mockImplementation(async () => (
+      commitAccepted ? committedRefresh.promise : initial
+    ));
     vi.mocked(api.commit).mockImplementation(async () => {
       commitAccepted = true;
       return {
@@ -779,14 +840,21 @@ describe('PDF batch import flow', () => {
     await waitFor(() => expect(importButton).toBeEnabled());
     fireEvent.click(importButton);
 
+    await waitFor(() => expect(sessionUpload.registrations.has('draft-1')).toBe(true));
+    expect(sessionUpload.remember).not.toHaveBeenCalledWith('draft-1', expect.anything());
+    committedRefresh.resolve(committedStatus);
     await waitFor(() => expect(imported).toHaveBeenCalledWith(42));
     expect(sessionUpload.importRef).toBe('import-session-1');
+    expect(sessionUpload.registrations.has('draft-1')).toBe(false);
+    expect(sessionUpload.registrations.has('import-session-1')).toBe(true);
     expect(sessionUpload.remember).toHaveBeenCalledWith('import-session-1', expect.arrayContaining([
       expect.objectContaining({ name: 'one.pdf' }),
       expect.objectContaining({ name: 'two.pdf' }),
     ]));
+    expect(sessionUpload.forget).not.toHaveBeenCalledWith('draft-1');
     expect(sessionUpload.setUploading).toHaveBeenCalledWith('import-session-1', true);
     expect(sessionUpload.setUploading).toHaveBeenCalledWith('draft-1', true);
+    expect(sessionUpload.setUploading).toHaveBeenCalledWith('draft-1', false);
     view.unmount();
     expect(uploadSignal?.aborted).toBe(false);
 

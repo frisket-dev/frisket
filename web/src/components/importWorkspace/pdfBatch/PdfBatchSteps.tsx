@@ -307,7 +307,7 @@ function FileIssueList({ files, loading }: { files: PdfImportFileSummary[]; load
       : files.length > 0
         ? files.map((file) => <div key={file.occurrence_id}>
           <strong>{file.filename}</strong>
-          <span>{file.error || "This file couldn't be opened."} It will be imported without text.</span>
+          <span>Couldn’t read this PDF. It will be imported without text.</span>
         </div>)
         : <p>No file details are available. These PDFs will be imported without text.</p>}
   </div>;

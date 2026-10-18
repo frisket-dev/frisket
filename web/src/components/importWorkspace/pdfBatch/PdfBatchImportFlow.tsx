@@ -24,6 +24,7 @@ import { useSelectorChoices } from '../../../engine-selector/useSelectorChoices'
 import { usePoll } from '../../../hooks/usePoll';
 import { CostGateModal } from '../../CostGateModal';
 import {
+  forgetImportSelection,
   registerImportSessionUploadAbort,
   rememberImportSessionFiles,
   setImportSessionBrowserUploading,
@@ -159,7 +160,11 @@ export function PdfBatchImportFlow({
   const generation = useRef(0);
   const sampleRequestEpoch = useRef(0);
   const importedSheet = useRef<number | null>(null);
-  const registeredUpload = useRef<string | null>(null);
+  const registeredUpload = useRef<{
+    importRef: string;
+    remembered: boolean;
+    unregister(): void;
+  } | null>(null);
   const filesProp = useRef(files);
   const recoveryFiles = useRef<File[]>([]);
   const committed = useRef(false);
@@ -324,20 +329,38 @@ export function PdfBatchImportFlow({
     };
   }, [abortIntake, api, clearPreview, configureIntake, projectId, publish, reportError, resumeDraftId, runFreshIntake]);
 
-  const registerCommittedUpload = useCallback(async (importRef: string | null | undefined) => {
-    if (!importRef || registeredUpload.current === importRef) return;
+  const registerCommittedUpload = useCallback(async (
+    importRef: string | null | undefined,
+    rememberSelection = true,
+  ) => {
+    if (!importRef) return;
+    const current = registeredUpload.current;
+    if (current?.importRef === importRef) {
+      if (rememberSelection && !current.remembered) {
+        current.remembered = true;
+        await rememberImportSessionFiles(importRef, intakeFiles());
+      }
+      return;
+    }
     const running = activeIntake();
     if (!running) return;
-    registeredUpload.current = importRef;
+    const previous = registeredUpload.current;
+    if (previous) {
+      previous.unregister();
+      setImportSessionBrowserUploading(previous.importRef, false);
+      if (previous.remembered) forgetImportSelection(previous.importRef);
+    }
     setImportSessionBrowserUploading(importRef, true);
     const unregister = registerImportSessionUploadAbort(importRef, running.abort);
+    const registration = { importRef, remembered: rememberSelection, unregister };
+    registeredUpload.current = registration;
     const release = () => {
       unregister();
       setImportSessionBrowserUploading(importRef, false);
-      if (registeredUpload.current === importRef) registeredUpload.current = null;
+      if (registeredUpload.current === registration) registeredUpload.current = null;
     };
     void running.done.then(release, release);
-    await rememberImportSessionFiles(importRef, intakeFiles());
+    if (rememberSelection) await rememberImportSessionFiles(importRef, intakeFiles());
   }, [activeIntake, intakeFiles]);
 
   const refresh = useCallback(async () => {
@@ -706,7 +729,11 @@ export function PdfBatchImportFlow({
         ...(ocrConfirmation ? { ocr_confirmation: ocrConfirmation } : {}),
       });
       committed.current = true;
-      await registerCommittedUpload(accepted.job?.import_ref ?? accepted.draft_id);
+      const acceptedImportRef = accepted.job?.import_ref;
+      await registerCommittedUpload(
+        acceptedImportRef ?? accepted.draft_id,
+        Boolean(acceptedImportRef),
+      );
       const refreshed = await refresh();
       const importRef = accepted.job?.import_ref ?? refreshed?.commit?.result?.import_ref;
       const sheetId = accepted.job?.sheet_id;
@@ -901,7 +928,7 @@ export function PdfBatchImportFlow({
         {error && <div className="pdf-batch-error" role="alert">{error}</div>}
       </div>
       {discardPrompt && (
-        <div className="modal-backdrop" data-testid="pdf-batch-discard-dialog">
+        <div className="modal-backdrop pdf-batch-discard-dialog" data-testid="pdf-batch-discard-dialog">
           <form className="modal-card" onSubmit={(event) => { event.preventDefault(); void confirmDiscard(); }}>
             <div className="modal-title"><AlertTriangle size={15} className="modal-warn-icon" /> Discard this import?</div>
             <p className="modal-body-text">Copied files and your choices will be removed. Nothing has been added to the project.</p>
