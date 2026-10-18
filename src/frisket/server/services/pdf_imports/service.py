@@ -976,6 +976,10 @@ class PdfImportService:
                 return self._frozen(directory, header, inventory)
             self._require_state(header, "open")
             self._revision(header, expected_revision)
+            if header["paused"]:
+                raise PdfImportDraftError(
+                    409, "PDF import is paused; resume it before importing"
+                )
             stats = inventory.stats()
             if not stats["manifest_sealed"]:
                 raise PdfImportDraftError(409, "PDF selection manifest is not sealed")

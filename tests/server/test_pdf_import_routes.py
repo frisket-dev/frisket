@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from frisket.server.route_errors import register_route_error_handler
 from frisket.server.routes.pdf_imports import register_pdf_import_routes
 from frisket.server.services.pdf_imports import PdfImportService
 from frisket.server.services.selector_choices_capabilities import SelectorCapabilities
@@ -420,6 +421,7 @@ def test_real_pdf_import_http_create_upload_sample_page_and_discard(
         },
     )
     app = FastAPI()
+    register_route_error_handler(app)
     register_pdf_import_routes(app, service=service, capabilities_for=_capabilities)
     client = TestClient(app)
     payload = (
@@ -507,6 +509,21 @@ def test_real_pdf_import_http_create_upload_sample_page_and_discard(
         },
     )
     assert choices.status_code == 200, choices.text
+    paused = client.post(f"{base}/{draft_id}/pause")
+    assert paused.status_code == 200, paused.text
+    paused_commit = client.post(
+        f"{base}/{draft_id}/commit",
+        json={
+            "expected_revision": paused.json()["revision"],
+            "idempotency_key": "paused-commit",
+        },
+    )
+    assert paused_commit.status_code == 409, paused_commit.text
+    assert paused_commit.json()["detail"] == (
+        "PDF import is paused; resume it before importing"
+    )
+    resumed = client.post(f"{base}/{draft_id}/resume")
+    assert resumed.status_code == 200, resumed.text
     estimate = client.post(
         f"{base}/{draft_id}/files/{sample['occurrence_id']}/pages/1/"
         "ocr-preview/estimate",
