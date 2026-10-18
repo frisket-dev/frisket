@@ -11954,6 +11954,7 @@ type HttpSheetList_SheetListItem = ({
   "cited_column_ids": (Array<(number)>);
   "columns": (Array<(HttpSheetList_SheetDataColumn)>);
   "dependent_sheet_ids": (Array<(number)>);
+  "document_text_column_ids": (Array<(number)>);
   "id": (number);
   "materialized_kind"?: (((string)) | ((null)));
   "name": (string);
