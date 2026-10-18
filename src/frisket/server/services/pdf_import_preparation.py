@@ -311,7 +311,7 @@ class PdfImportPreparationStore:
         run_id = response.get("run_id")
         job_id = response.get("job_id")
         status = str(response.get("status") or "queued")
-        completed_rows = int(row_count) if status == "completed" else 0
+        completed_rows = int(row_count) if status in _TERMINAL_CHILD_STATUSES else 0
         self.db.execute(
             "INSERT INTO pdf_commit_preparation_children"
             "(child_key,action_id,row_count,receipt_id,run_id,job_id,status,"
@@ -379,12 +379,17 @@ class PdfImportPreparationStore:
                 run = run_map.get(int(child["run_id"]))
                 if run is not None:
                     status = str(run["status"])
-                    completed_rows = min(
-                        int(child["row_count"]), int(run["completed_rows"] or 0)
+                    completed_rows = (
+                        int(child["row_count"])
+                        if status in _TERMINAL_CHILD_STATUSES
+                        else min(
+                            int(child["row_count"]),
+                            int(run["completed_rows"] or 0),
+                        )
                     )
             elif child["receipt_id"] is not None:
                 status = receipt_map.get(str(child["receipt_id"]), status)
-                if status == "completed":
+                if status in _TERMINAL_CHILD_STATUSES:
                     completed_rows = int(child["row_count"])
             updates.append((status, completed_rows, str(child["child_key"])))
         self.db.executemany(
@@ -599,7 +604,6 @@ class PdfImportPreparationCoordinator:
             }
             run_kwargs: dict[str, Any] = {
                 "background_priority": "pdf_import_ocr" if ocr else None,
-                "output_group_label": "Document text",
             }
             if ocr and grant is not None:
                 run_kwargs["trusted_consent_authorizer"] = self._grant_authorizer(

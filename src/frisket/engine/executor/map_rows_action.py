@@ -3477,16 +3477,6 @@ def typed_queued_map_spec(
                 )
         except (TypeError, ValueError, ValidationError) as exc:
             return _typed_plan_error(bound.action.action_id, exc)
-        prepared_group_label = (
-            initial_plan.spec.get("group_label") if initial_plan is not None else None
-        )
-        if isinstance(prepared_group_label, str) and prepared_group_label:
-            plan = replace(
-                plan,
-                spec=MappingProxyType(
-                    {**plan.spec, "group_label": prepared_group_label}
-                ),
-            )
         if (
             initial_plan is not None
             and initial_plan.evaluation_context is not None

@@ -304,7 +304,6 @@ class ActionRunService:
         admitted_sources: Mapping[str, BoundLocalFile] | None = None,
         required_execution_target: ExactExecutionMatch | None = None,
         background_priority: Literal["pdf_import_ocr"] | None = None,
-        output_group_label: str | None = None,
         trusted_consent_authorizer: TrustedConsentAuthorizer | None = None,
         trusted_consent_principal: str | None = None,
     ) -> ActionRunResponse:
@@ -448,7 +447,6 @@ class ActionRunService:
             ),
             execution_context=execution_context,
             background_priority=background_priority,
-            output_group_label=output_group_label,
         )
         if queued_result is not None:
             self._reserve_queued_media_search_preparation(
@@ -478,11 +476,6 @@ class ActionRunService:
                     ],
                 )
             )
-        if output_group_label is not None:
-            raise ValueError(
-                "output group labels require an ordinary queued row action"
-            )
-
         execution_composition = request_execution_composition()
         direct_request_deps = request_executor_deps()
         result = run_action_spec(

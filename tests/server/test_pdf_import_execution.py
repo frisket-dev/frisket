@@ -24,11 +24,13 @@ from frisket.server.workspace import Workspace
 from frisket.engine.jobs.import_files import register_import_files_handler
 from frisket.engine.jobs.queue import IMPORT_FILES_PAGE_KIND
 from frisket.engine.jobs.queue import PROJECT_RUN_KIND
+from frisket.engine.jobs.runs import register_project_run_handler
 from frisket.engine.jobs.worker import HandlerRegistry, Worker
 from frisket.engine.store.import_inventory import ImportInventory
 from frisket.engine.store.execution_routes import RouteStore
 from frisket.engine.store.media_blobs import MediaBlobStore
 from frisket.engine.store.receipts import ReceiptStore
+from frisket.engine.store.runs import RunResultStore
 from frisket.engine.executor import ExecutorDeps
 from frisket.execution.consent_coverage import ConsentCoverage
 from frisket.server.services.pdf_import_preparation import PdfImportPreparationStore
@@ -490,7 +492,6 @@ class _ActionRuns:
     def __init__(self) -> None:
         self.bodies: list[dict[str, Any]] = []
         self.priorities: list[str | None] = []
-        self.group_labels: list[str | None] = []
 
     def run_action(
         self,
@@ -498,12 +499,10 @@ class _ActionRuns:
         body: dict[str, Any],
         *,
         background_priority: str | None = None,
-        output_group_label: str | None = None,
         trusted_consent_principal: str | None = None,
     ):
         self.bodies.append(body)
         self.priorities.append(background_priority)
-        self.group_labels.append(output_group_label)
         assert trusted_consent_principal is None
         return ActionRunResponse(
             status_code=202,
@@ -522,12 +521,10 @@ class _BusyThenReadyActions(_ActionRuns):
         body: dict[str, Any],
         *,
         background_priority: str | None = None,
-        output_group_label: str | None = None,
         trusted_consent_principal: str | None = None,
     ):
         self.bodies.append(body)
         self.priorities.append(background_priority)
-        self.group_labels.append(output_group_label)
         assert trusted_consent_principal is None
         if body["action_id"] == "media.ocr" and self.ocr_busy:
             return ActionRunResponse(
@@ -611,7 +608,6 @@ def test_reviewed_text_handoff_uses_one_designated_column_and_action_authority(
     assert actions.bodies[1]["scope"]["row_ids"] == [rows[1]]
     assert actions.bodies[1]["params"]["engine"] == "rapidocr"
     assert actions.bodies[1]["params"]["model"] == "document-v2"
-    assert actions.group_labels == ["Document text", "Document text"]
     assert actions.priorities == [None, "pdf_import_ocr"]
     assert {body["output_names"]["text"] for body in actions.bodies} == {"text"}
     assert [str(column["name"]) for column in project.columns(sheet_id)].count(
@@ -629,6 +625,66 @@ def test_reviewed_text_handoff_uses_one_designated_column_and_action_authority(
         ).fetchone()
         is None
     )
+
+
+def test_reviewed_native_text_child_keeps_queued_identity_through_real_worker(
+    tmp_path: Path,
+) -> None:
+    workspace, project_id = _workspace(tmp_path)
+    project = workspace.get(project_id)
+    sheet_id = project.add_sheet("Documents")
+    media_id = project.add_column(sheet_id, "media", type="file")
+    payload = (Path(__file__).parents[1] / "fixtures/pdf_tables/simple_table.pdf").read_bytes()
+    digest = project.add_blob(payload, filename="native.pdf", mime="application/pdf")
+    row_id = project.add_rows(
+        sheet_id,
+        [
+            {
+                "media": {
+                    "blob": digest,
+                    "filename": "native.pdf",
+                    "mime": "application/pdf",
+                }
+            }
+        ],
+        {"media": media_id},
+    )[0]
+
+    [started] = SearchPreparationService(workspace).create_from_pdf_import(
+        project_id,
+        import_receipt_id="receipt:native-worker",
+        sheet_id=sheet_id,
+        rows=[
+            {
+                "row_id": row_id,
+                "ordinal": 1,
+                "occurrence_id": "native",
+                "category": "text",
+                "ocr_selected": False,
+            }
+        ],
+        ocr_policy="none",
+        ocr_action_params={"engine": "rapidocr"},
+        ocr_authorization=None,
+        semantic_search=False,
+        semantic_setup_confirmation=None,
+    )
+    registry = HandlerRegistry()
+    register_project_run_handler(
+        registry,
+        workspace_root=workspace.root,
+        queue=workspace.queue,
+        router=ModelRouter(cache=None, cache_mode="off"),
+    )
+
+    assert Worker(workspace.queue, registry, worker_id="pdf-native").run_once()
+    job = workspace.queue.get(int(started["job_id"]))
+    assert job is not None and job.status == "done"
+    run = project.db.execute(
+        "SELECT status,params FROM runs WHERE id=?", (int(started["run_id"]),)
+    ).fetchone()
+    assert run is not None and run["status"] == "completed"
+    assert "group_label" not in json.loads(run["params"])
 
 
 def test_reviewed_semantic_choice_starts_existing_setup_with_frozen_consent(
@@ -1059,10 +1115,10 @@ def test_paid_parent_grant_admits_exact_ordinary_child_once(
             (int(started[0]["run_id"]),),
         ).fetchone()["params"]
     )
-    assert prepared_spec["group_label"] == "Document text"
-    assert (
-        len(workspace.queue.list_project_jobs(project_id, kind=PROJECT_RUN_KIND)) == 1
-    )
+    assert "group_label" not in prepared_spec
+    assert len(
+        workspace.queue.list_project_jobs(project_id, kind=PROJECT_RUN_KIND)
+    ) == 1
 
     changed = [{**rows[0], "sha256": "0" * 64}]
     try:
@@ -1509,6 +1565,44 @@ def test_partial_preparation_children_are_terminal_for_bounded_activity(
 
     assert summary.children[0]["child_key"] == "queued-last"
     assert summary.children[0]["status"] == "queued"
+
+
+@pytest.mark.parametrize("status", ["failed", "cancelled"])
+def test_terminal_preparation_failure_settles_progress_without_claiming_success(
+    tmp_path: Path, status: str
+) -> None:
+    workspace, project_id = _workspace(tmp_path)
+    project = workspace.get(project_id)
+    inventory_path = tmp_path / f"{status}-child.db"
+    with ImportInventory(inventory_path) as inventory:
+        inventory._db.execute(
+            "CREATE TABLE pdf_commit_occurrences ("
+            "ordinal INTEGER PRIMARY KEY,occurrence_id TEXT NOT NULL,"
+            "selected_ordinal INTEGER NOT NULL,category TEXT NOT NULL,"
+            "error TEXT,sha256 TEXT,page_count INTEGER,"
+            "ocr_selected INTEGER NOT NULL)"
+        )
+        inventory._db.execute(
+            "INSERT INTO pdf_commit_occurrences VALUES(1,'one',1,'text',NULL,NULL,1,0)"
+        )
+        inventory._db.commit()
+    with PdfImportPreparationStore(inventory_path) as store:
+        sheet_id = project.add_sheet("Documents")
+        op_id = project.append_op("media.read_pdf_text")
+        run_id = RunResultStore(project).start_run(
+            op_id, sheet_id, "media.read_pdf_text", total_rows=1
+        )
+        store.record_child(
+            child_key="native:1-1",
+            action_id="media.read_pdf_text",
+            row_count=1,
+            response={"status": "queued", "run_id": run_id},
+        )
+        RunResultStore(project).finish_run(run_id, status=status)
+        summary = store.summary(project, import_ref=f"import-{status}")
+
+    assert summary.native_completed == 1
+    assert summary.children[0]["status"] == status
 
 
 def test_bootstrap_blob_promotion_uses_the_ordinary_64mib_page_budget(

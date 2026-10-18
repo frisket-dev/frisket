@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Callable, Mapping, MutableMapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Literal
@@ -751,15 +751,9 @@ def queue_v1_action_run(
     ctx: QueuedV1ActionRunContext,
     execution_context: ExecutionCompositionContext,
     background_priority: Literal["pdf_import_ocr"] | None = None,
-    output_group_label: str | None = None,
 ) -> ActionResult | None:
     if background_priority not in {None, PDF_IMPORT_OCR_BACKGROUND}:
         raise ValueError("unknown background action priority")
-    if output_group_label is not None and (
-        not output_group_label.strip()
-        or output_group_label != output_group_label.strip()
-    ):
-        raise ValueError("output group labels must be non-empty and trimmed")
     from frisket.engine.executor.action_dispatch import placement_for_kind
     from frisket.engine.executor.action_specs import PlacementPolicy, execution_spec_for
 
@@ -928,14 +922,6 @@ def queue_v1_action_run(
                 _allow_existing_outputs=recovering_prepared,
                 _enforce_expected_output_columns=not recovering_prepared,
             )
-            if output_group_label is not None:
-                initial_typed_plan = replace(
-                    initial_typed_plan,
-                    spec={
-                        **initial_typed_plan.spec,
-                        "group_label": output_group_label,
-                    },
-                )
     except (KeyError, TypeError, ValueError, ValidationError) as exc:
         return _failed_result(
             project_id=project_id,
