@@ -117,11 +117,12 @@ export function SearchPreparationNotice({
               const completed = boundedTotal === null || line.completed === null
                 ? null
                 : Math.max(0, Math.min(line.completed, boundedTotal));
-              const done = line.complete === true
-                || (completed !== null && boundedTotal !== null && completed >= boundedTotal);
+              const done = line.complete ?? (
+                completed !== null && boundedTotal !== null && completed >= boundedTotal
+              );
               const doneLabel = line.key === 'search-index'
                 ? '✓ Ready'
-                : line.key === 'ocr' ? '✓ Read' : '✓ Done';
+                : line.key === 'ocr' || line.key === 'native' ? '✓ Read' : '✓ Done';
               const count = done
                 ? doneLabel
                 : line.detail ?? (completed !== null && boundedTotal !== null

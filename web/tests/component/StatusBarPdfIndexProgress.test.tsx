@@ -137,6 +137,7 @@ describe('StatusBar PDF indexing progress', () => {
       .toHaveAttribute('value', '11449');
     expect(screen.getByText('More PDFs are being indexed.')).toBeVisible();
     expect(screen.getByText('✓ Done')).toBeVisible();
+    expect(screen.getByText('✓ Read')).toBeVisible();
     expect(screen.getByRole('progressbar', { name: 'Search index progress' }))
       .toHaveAttribute('max', '24909');
   });
