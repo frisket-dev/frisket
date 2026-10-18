@@ -1022,7 +1022,7 @@ function OpenImportWorkspaceSession({
   initialMode: ImportMode;
   onSessionModeChange(mode: ImportMode): void;
 }) {
-  const { projectApi, chromePreferences: { projectId } } = useWorkspaceStores();
+  const { projectApi, route, chromePreferences: { projectId } } = useWorkspaceStores();
   const [importSessionStatus, setImportSessionStatus] = useState<ImportSessionStatus | null>(null);
   const {
     busy: uploadBusy,
@@ -1037,6 +1037,10 @@ function OpenImportWorkspaceSession({
   const pdfPacketCloseGuardRef = useRef<(() => boolean) | null>(null);
   const pdfBatchCloseGuardRef = useRef<(() => boolean) | null>(null);
   const [pdfBatchFiles, setPdfBatchFiles] = useState<File[] | null>(null);
+  const [pdfBatchInitialSheetId] = useState(() => {
+    const id = Number(route.store.get().sheetId);
+    return Number.isSafeInteger(id) && id > 0 ? id : null;
+  });
   const [pdfBatchResumeId, setPdfBatchResumeId] = useState<string | null>(null);
   const pdfBatchActive = pdfBatchFiles !== null || pdfBatchResumeId !== null;
   const [pdfBatchContext, setPdfBatchContext] = useState<PdfBatchShellContext | null>(null);
@@ -1959,6 +1963,7 @@ function OpenImportWorkspaceSession({
                   projectId={projectId}
                   files={pdfBatchFiles ?? undefined}
                   resumeDraftId={pdfBatchResumeId}
+                  initialDestinationSheetId={destinationSheets.some((sheet) => sheet.parent === undefined && Number(sheet.id) === pdfBatchInitialSheetId) ? pdfBatchInitialSheetId : null}
                   destinationSheets={destinationSheets.filter((sheet) => sheet.parent === undefined).map((sheet) => ({ id: Number(sheet.id), name: sheet.name }))}
                   onContextChange={setPdfBatchContext}
                   registerCloseGuard={registerPdfBatchCloseGuard}

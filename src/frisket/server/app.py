@@ -89,6 +89,8 @@ from frisket.server.routes.imports import (
 )
 from frisket.server.routes.import_sessions import register_import_session_routes
 from frisket.server.routes.search_preparation import register_search_preparation_routes
+from frisket.server.routes.document_priority import register_document_priority_route
+from frisket.server.services.document_priority import DocumentPriorityService
 from frisket.server.routes.pdf_packet_splits import register_pdf_packet_split_routes
 from frisket.server.routes.pdf_imports import register_pdf_import_routes
 from frisket.server.services.pdf_imports import PdfImportService
@@ -810,6 +812,11 @@ def create_app(
         service=search_preparation_service,
         capabilities_for=selector_capabilities_for,
     )
+    register_document_priority_route(
+        app,
+        service=DocumentPriorityService(ws),
+        capabilities_for=selector_capabilities_for,
+    )
     search_preparation_service.recover()
 
     async def _reconcile_search_preparation() -> None:
@@ -928,7 +935,12 @@ def create_app(
         service=pdf_packet_split_service,
         limits=bulk_limits,
     )
-    register_pdf_import_routes(app, service=pdf_import_service, limits=bulk_limits)
+    register_pdf_import_routes(
+        app,
+        service=pdf_import_service,
+        limits=bulk_limits,
+        capabilities_for=selector_capabilities_for,
+    )
     register_import_followthemoney_routes(
         app,
         service=FollowTheMoneyUploadService(ws),
