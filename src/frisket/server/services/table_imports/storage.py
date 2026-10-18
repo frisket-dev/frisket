@@ -67,6 +67,10 @@ class TableImportDraftStore:
         return FileLock(str(directory / ".table-draft.lock"), timeout=10)
 
     @staticmethod
+    def commit_lock(directory: Path) -> FileLock:
+        return FileLock(str(directory / ".table-commit.lock"), timeout=60)
+
+    @staticmethod
     def read_json(path: Path) -> dict[str, Any]:
         try:
             value = json.loads(path.read_text("utf-8"))
@@ -103,6 +107,36 @@ class TableImportDraftStore:
 
     def discard(self, directory: Path) -> None:
         shutil.rmtree(directory)
+
+    def purge_expired(self, project_id: str) -> None:
+        project = self.workspace.get(project_id)
+        root = Path(project.path) / ".imports"
+        if not root.is_dir():
+            return
+        cutoff = datetime.now(UTC) - DRAFT_TTL
+        for path in root.glob("import-*/table-draft.json"):
+            try:
+                header = self.read_json(path)
+                if header.get("state") in {"committing", "committed"}:
+                    continue
+                updated = datetime.fromisoformat(
+                    str(header["updated_at"]).replace("Z", "+00:00")
+                )
+                if updated > cutoff:
+                    continue
+                directory = path.parent
+                with self.lock(directory):
+                    current = self.read_json(path)
+                    current_updated = datetime.fromisoformat(
+                        str(current["updated_at"]).replace("Z", "+00:00")
+                    )
+                    if (
+                        current.get("state") not in {"committing", "committed"}
+                        and current_updated <= cutoff
+                    ):
+                        shutil.rmtree(directory)
+            except (KeyError, OSError, ValueError, TableImportDraftError):
+                continue
 
 
 __all__ = ["TableImportDraftError", "TableImportDraftStore", "now"]

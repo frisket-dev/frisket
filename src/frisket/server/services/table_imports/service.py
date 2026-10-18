@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import contextlib
-import hashlib
-import json
+import copy
 import os
 import shutil
-import sqlite3
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
@@ -28,32 +25,43 @@ from frisket.engine.store.table_import_intake import (
     TableImportScan,
     TableImportSource as IntakeTableImportSource,
     freeze_table_plan,
+    frozen_table_import,
     initialize_table_intake,
     read_table_settings,
+    replace_table_dedup_keys,
     replace_table_settings,
+    table_import_status,
     write_table_scan,
 )
-from frisket.engine.store.value_codec import decode_stored_value
 from frisket.server.services.import_uploads import AdmittedUpload
 from frisket.table_import import (
-    ColumnStatsAccumulator,
-    PreviewAccumulator,
-    RawCell,
     TableReadError,
     TableReadSettings,
-    convert_cell,
     inspect_source,
-    open_table,
-    read_prefix,
 )
 
+from .analysis import (
+    build_complete_scan,
+    build_prefix_scan,
+    default_choices,
+    public_columns,
+    zero_issue_counts,
+)
+from .destination import (
+    compare_destination,
+    iter_existing_dedup_keys,
+    new_destination,
+    public_destination,
+)
 from .storage import TableImportDraftError, TableImportDraftStore, now
-
-
-_COPY_CHUNK = 1024 * 1024
-_PREFIX_RECORDS = 64
-_PREVIEW_HEAD = 12
-_PREVIEW_COLUMNS = 8
+from .source import (
+    InvalidWorkbookPassword,
+    adopt_decrypted_source,
+    decrypt_office,
+    known_unsupported,
+    office_encrypted,
+    stage_upload,
+)
 
 
 EnqueueAnalysis = Callable[[str, str, int], int | None]
@@ -108,12 +116,25 @@ class TableImportService:
                     "Confirm this large paste before continuing.",
                 ),
             )
+        self._store.purge_expired(project_id)
         project = self._workspace.get(project_id)
         draft_id, directory = self._store.create_directory(project_id)
         try:
             source_path = directory / "source"
-            self._copy_upload(upload, source_path)
-            self._reject_known_unsupported(source_path)
+            try:
+                stage_upload(upload, source_path)
+            except ValueError as exc:
+                raise TableImportDraftError(
+                    409, self._problem("source_changed", str(exc))
+                ) from exc
+            if known_unsupported(source_path):
+                raise TableImportDraftError(
+                    422,
+                    self._problem(
+                        "unsupported_source",
+                        "Choose a CSV, TSV, text, Excel, or OpenDocument spreadsheet.",
+                    ),
+                )
             source = {
                 "input_kind": input_kind,
                 "filename": "Pasted rows.csv"
@@ -138,13 +159,15 @@ class TableImportService:
                 "source": source,
                 "settings": None,
                 "column_choices": [],
+                "columns_reviewed": False,
                 "destination_request": None,
+                "destination_reviewed": False,
                 "analysis_job_id": None,
                 "error": None,
                 "commit_key": None,
                 "commit": None,
             }
-            if self._office_encrypted(source_path):
+            if office_encrypted(source_path):
                 header["state"] = "password_required"
                 self._store.write_json(directory / "table-draft.json", header)
                 return self._snapshot(directory, header)
@@ -174,17 +197,18 @@ class TableImportService:
                         "This source does not need a password.",
                     ),
                 )
-            self._decrypt_office(
-                directory / "source", directory / "decrypted", password
-            )
-            os.replace(directory / "source", directory / "encrypted-source")
-            os.replace(directory / "decrypted", directory / "source")
-            digest = hashlib.sha256()
-            with (directory / "source").open("rb") as source:
-                while chunk := source.read(_COPY_CHUNK):
-                    digest.update(chunk)
-            header["source"]["size"] = (directory / "source").stat().st_size
-            header["source"]["sha256"] = digest.hexdigest()
+            try:
+                decrypt_office(directory / "source", directory / "decrypted", password)
+            except InvalidWorkbookPassword as exc:
+                raise TableImportDraftError(
+                    422,
+                    self._problem(
+                        "invalid_password", "The workbook password is incorrect."
+                    ),
+                ) from exc
+            size, digest = adopt_decrypted_source(directory)
+            header["source"]["size"] = size
+            header["source"]["sha256"] = digest
             self._inspect_and_prime(directory, header, initialize=True)
             self._store.save_header(directory, header)
             self._enqueue_scan(project_id, directory, header)
@@ -210,20 +234,20 @@ class TableImportService:
                 "requested": requested.model_dump(mode="json"),
                 "resolved": self._resolve_settings(source_info, requested),
             }
+            header["state"] = "analyzing"
+            header["analysis_job_id"] = None
+            header["error"] = None
+            header["destination_request"] = None
+            header["columns_reviewed"] = False
+            header["destination_reviewed"] = False
+            prefix_scan = self._build_prefix(directory, header)
             replace_table_settings(
                 directory,
                 self._table_settings(header),
                 expected_revision=next_settings_revision - 1,
             )
-            header["state"] = "analyzing"
-            header["analysis_job_id"] = None
-            header["error"] = None
-            header["destination_request"] = None
-            self._store.scan(
-                directory
-            )  # Validate any existing file before replacement.
             (directory / "table-preview.json").unlink(missing_ok=True)
-            self._prime_prefix(directory, header)
+            self._publish_prefix(directory, header, prefix_scan)
             self._store.save_header(directory, header)
             self._enqueue_scan(project_id, directory, header)
             return self._snapshot(directory, header)
@@ -297,7 +321,9 @@ class TableImportService:
                     ),
                 )
             header["column_choices"] = choices
+            header["columns_reviewed"] = True
             header["destination_request"] = None
+            header["destination_reviewed"] = False
             self._store.save_header(directory, header)
             return self._snapshot(directory, header)
 
@@ -320,12 +346,36 @@ class TableImportService:
                 "mappings": [dict(item) for item in mappings],
                 "dedup": dict(dedup),
             }
-            request["comparison"] = self._compare_destination(
-                project_id, directory, header, request
-            )
-            header["destination_request"] = request
-            self._store.save_header(directory, header)
-            return self._snapshot(directory, header)
+            scan = self._require_current_scan(directory, header)
+            captured = dict(header)
+        request["comparison"] = compare_destination(
+            self._workspace,
+            project_id,
+            directory,
+            captured,
+            request,
+            source_path=self._source_path(directory),
+            settings=self._table_settings(captured),
+            scan=scan,
+        )
+        with self._store.lock(directory):
+            current = self._store.open(project_id, draft_id)[1]
+            self._require_open_revision(current, expected_revision)
+            if current.get("settings") != captured.get("settings") or current.get(
+                "column_choices"
+            ) != captured.get("column_choices"):
+                raise TableImportDraftError(
+                    409,
+                    self._problem(
+                        "revision_conflict",
+                        "The table import changed. Refresh and try again.",
+                    ),
+                )
+            current["destination_request"] = request
+            current["columns_reviewed"] = True
+            current["destination_reviewed"] = True
+            self._store.save_header(directory, current)
+            return self._snapshot(directory, current)
 
     def scan(
         self, project_id: str, draft_id: str, *, settings_revision: int
@@ -336,47 +386,40 @@ class TableImportService:
             or int(header["settings"]["revision"]) != settings_revision
         ):
             return self._snapshot(directory, header)
-        source_path = self._source_path(directory)
         resolved = self._table_settings(header)
-        total = None
-        if resolved.skip_rows_end:
-            from frisket.table_import import count_records
-
-            total = count_records(source_path, resolved)
-        preview = PreviewAccumulator(
-            head_rows=_PREVIEW_HEAD, tail_rows=2, column_limit=_PREVIEW_COLUMNS
-        )
-        issue_counts = self._zero_issue_counts()
-        with open_table(source_path, resolved, total_record_count=total) as reader:
-            stats = ColumnStatsAccumulator(
-                reader.columns,
-                decimal_separator=resolved.decimal_separator,
-                thousands_separator=resolved.thousands_separator,
+        try:
+            scan = build_complete_scan(
+                self._source_path(directory),
+                resolved,
+                settings_revision=settings_revision,
             )
-            record_count = 0
-            data_rows = 0
-            for row in reader:
-                record_count = row.source.record_ordinal
-                preview.accept(row)
-                stats.accept(row)
-                if row.role == "data":
-                    data_rows += 1
-                self._count_issues(issue_counts, row.issues)
-            scan = {
-                "settings_revision": settings_revision,
-                "record_count": record_count,
-                "data_rows": data_rows,
-                "preview": self._preview_json(
-                    reader.columns,
-                    preview.snapshot(complete=True),
-                    issue_counts,
-                    resolved.encoding,
-                ),
-                "stats": self._stats_json(stats.snapshot(complete=True)),
-                "issue_counts": issue_counts,
-                "complete": True,
-                "error": None,
-            }
+        except TableReadError as exc:
+            with self._store.lock(directory):
+                current = self._store.open(project_id, draft_id)[1]
+                if (
+                    current.get("settings") is not None
+                    and int(current["settings"]["revision"]) == settings_revision
+                ):
+                    current["state"] = "error"
+                    current["error"] = str(exc)
+                    self._store.save_header(directory, current)
+                return self._snapshot(directory, current)
+        record_count = int(scan["record_count"])
+        data_rows = int(scan["data_rows"])
+        issue_counts = scan["issue_counts"]
+        destination_comparison = None
+        captured_destination = header.get("destination_request")
+        if captured_destination is not None:
+            destination_comparison = compare_destination(
+                self._workspace,
+                project_id,
+                directory,
+                header,
+                captured_destination,
+                source_path=self._source_path(directory),
+                settings=resolved,
+                scan=scan,
+            )
         with self._store.lock(directory):
             current = self._store.open(project_id, draft_id)[1]
             if (
@@ -401,18 +444,18 @@ class TableImportService:
             self._store.write_json(directory / "table-preview.json", scan)
             current["state"] = "ready"
             current["error"] = None
-            if not current["column_choices"]:
-                current["column_choices"] = self._default_choices(scan)
-            if current.get("destination_request") is not None:
-                current["destination_request"]["comparison"] = (
-                    self._compare_destination(
-                        project_id,
-                        directory,
-                        current,
-                        current["destination_request"],
-                        scan=scan,
-                    )
-                )
+            if not current.get("columns_reviewed"):
+                current["column_choices"] = default_choices(scan)
+            if not current.get("destination_reviewed"):
+                previous = current.get("destination_request") or {}
+                configuration = previous.get("destination") or {}
+                name = str(configuration.get("sheet_name") or "Imported table")
+                current["destination_request"] = new_destination(scan, name)
+            if (
+                destination_comparison is not None
+                and current.get("destination_request") == captured_destination
+            ):
+                current["destination_request"]["comparison"] = destination_comparison
             self._store.save_header(directory, current)
             return self._snapshot(directory, current)
 
@@ -425,6 +468,7 @@ class TableImportService:
         idempotency_key: str,
     ) -> FrozenTableImport | TableImportCommitResponse:
         directory, _ = self._store.open(project_id, draft_id)
+        prepared: tuple[TableImportPlan, int | None] | None = None
         with self._store.lock(directory):
             header = self._store.open(project_id, draft_id)[1]
             if header.get("commit") is not None:
@@ -437,108 +481,196 @@ class TableImportService:
                         ),
                     )
                 return TableImportCommitResponse.model_validate(header["commit"])
-            self._require_open_revision(header, expected_revision)
-            can_commit, reason = self._commit_readiness(directory, header)
-            if not can_commit:
-                code = (
-                    "analysis_incomplete" if reason == "analyzing" else "invalid_table"
-                )
-                raise TableImportDraftError(
-                    409, self._problem(code, "The table import is not ready to commit.")
-                )
-            scan = self._require_current_scan(directory, header)
-            settings = header["settings"]
-            assert settings is not None and header["destination_request"] is not None
-            destination_request = header["destination_request"]
-            destination = destination_request["destination"]
-            project = self._workspace.get(project_id)
-            destination_sheet_id = (
-                None if destination["kind"] == "new" else int(destination["sheet_id"])
-            )
-            if destination_sheet_id is None:
-                sheet_name = str(destination["sheet_name"])
+            if header["state"] == "committing":
+                if header.get("commit_key") != idempotency_key:
+                    raise TableImportDraftError(
+                        409,
+                        self._problem(
+                            "commit_identity_changed",
+                            "This import is already committing under another request.",
+                        ),
+                    )
             else:
-                sheet = project.db.execute(
-                    "SELECT name FROM sheets WHERE id=? AND hidden=0",
-                    (destination_sheet_id,),
+                self._require_open_revision(header, expected_revision)
+                can_commit, reason = self._commit_readiness(directory, header)
+                if not can_commit:
+                    code = (
+                        "analysis_incomplete"
+                        if reason == "analyzing"
+                        else "invalid_table"
+                    )
+                    raise TableImportDraftError(
+                        409,
+                        self._problem(code, "The table import is not ready to commit."),
+                    )
+                scan = self._require_current_scan(directory, header)
+                prepared = self._build_frozen_plan(
+                    project_id, scan, header, dedup_snapshot_revision=0
+                )
+                header["state"] = "committing"
+                header["commit_key"] = idempotency_key
+                self._store.save_header(directory, header)
+            captured = copy.deepcopy(header)
+
+        with self._store.commit_lock(directory):
+            phase = table_import_status(directory).phase
+            if phase != "draft":
+                try:
+                    return frozen_table_import(directory)
+                except ValueError as exc:
+                    raise TableImportDraftError(
+                        409,
+                        self._problem(
+                            "commit_state_changed",
+                            "The table import commit state is unavailable.",
+                        ),
+                    ) from exc
+            if prepared is None:
+                scan = self._require_current_scan(directory, captured)
+                prepared = self._build_frozen_plan(
+                    project_id, scan, captured, dedup_snapshot_revision=0
+                )
+            plan, dedup_target_column = prepared
+            if dedup_target_column is not None:
+                from frisket.engine.store.table_import_intake import (
+                    table_dedup_revision,
+                )
+
+                current_revision = table_dedup_revision(directory)
+                snapshot_revision = replace_table_dedup_keys(
+                    directory,
+                    iter_existing_dedup_keys(
+                        self._workspace.get(project_id), dedup_target_column
+                    ),
+                    expected_revision=current_revision,
+                )
+                assert plan.dedup is not None
+                plan = replace(
+                    plan,
+                    dedup=replace(plan.dedup, snapshot_revision=snapshot_revision),
+                )
+            try:
+                return freeze_table_plan(
+                    directory,
+                    plan,
+                    require_exact_count=bool(plan.settings.skip_rows_end),
+                )
+            except ValueError as exc:
+                if table_import_status(directory).phase != "draft":
+                    return frozen_table_import(directory)
+                raise TableImportDraftError(
+                    409,
+                    self._problem(
+                        "commit_state_changed",
+                        "The table import changed while committing.",
+                    ),
+                ) from exc
+
+    def _build_frozen_plan(
+        self,
+        project_id: str,
+        scan: Mapping[str, Any],
+        header: Mapping[str, Any],
+        *,
+        dedup_snapshot_revision: int,
+    ) -> tuple[TableImportPlan, int | None]:
+        settings = header["settings"]
+        destination_request = header["destination_request"]
+        assert settings is not None and destination_request is not None
+        destination = destination_request["destination"]
+        project = self._workspace.get(project_id)
+        destination_sheet_id = (
+            None if destination["kind"] == "new" else int(destination["sheet_id"])
+        )
+        if destination_sheet_id is None:
+            sheet_name = str(destination["sheet_name"])
+        else:
+            sheet = project.db.execute(
+                "SELECT name FROM sheets WHERE id=? AND hidden=0",
+                (destination_sheet_id,),
+            ).fetchone()
+            if sheet is None:
+                raise TableImportDraftError(
+                    409,
+                    self._problem(
+                        "destination_changed", "The destination sheet is unavailable."
+                    ),
+                )
+            sheet_name = str(sheet["name"])
+        stats_by_index = {
+            int(item["column"]["index"]): item["column"]
+            for item in scan["stats"]["columns"]
+        }
+        mappings = {
+            int(item["source_index"]): item["target"]
+            for item in destination_request["mappings"]
+        }
+        frozen_columns = []
+        for choice in header["column_choices"]:
+            if not choice.get("included") or choice["target_type"] == "omit":
+                continue
+            source_index = int(choice["source_index"])
+            target = mappings[source_index]
+            target_column_id = (
+                int(target["column_id"]) if target["kind"] == "existing" else None
+            )
+            if target_column_id is None:
+                target_name = str(target["name"])
+            else:
+                target_row = project.db.execute(
+                    "SELECT name,type FROM columns WHERE id=? AND sheet_id=? "
+                    "AND active=1 AND hidden=0",
+                    (target_column_id, destination_sheet_id),
                 ).fetchone()
-                if sheet is None:
+                if target_row is None:
                     raise TableImportDraftError(
                         409,
                         self._problem(
                             "destination_changed",
-                            "The destination sheet is unavailable.",
+                            "A destination column is unavailable.",
                         ),
                     )
-                sheet_name = str(sheet["name"])
-            stats_by_index = {
-                int(item["column"]["index"]): item["column"]
-                for item in scan["stats"]["columns"]
-            }
-            mappings = {
-                int(item["source_index"]): item["target"]
-                for item in destination_request["mappings"]
-            }
-            frozen_columns = []
-            for choice in header["column_choices"]:
-                if not choice.get("included") or choice["target_type"] == "omit":
-                    continue
-                source_index = int(choice["source_index"])
-                target = mappings[source_index]
-                target_column_id = (
-                    int(target["column_id"]) if target["kind"] == "existing" else None
-                )
-                if target_column_id is None:
-                    target_name = str(target["name"])
-                else:
-                    target_row = project.db.execute(
-                        "SELECT name FROM columns WHERE id=? AND sheet_id=? "
-                        "AND active=1 AND hidden=0",
-                        (target_column_id, destination_sheet_id),
-                    ).fetchone()
-                    if target_row is None:
-                        raise TableImportDraftError(
-                            409,
-                            self._problem(
-                                "destination_changed",
-                                "A destination column is unavailable.",
-                            ),
-                        )
-                    target_name = str(target_row["name"])
-                frozen_columns.append(
-                    FrozenTableImportColumn(
-                        source_index=source_index,
-                        source_name=str(stats_by_index[source_index]["name"]),
-                        target_name=target_name,
-                        target_type=str(choice["target_type"]),
-                        target_column_id=target_column_id,
-                        date_order=choice.get("date_order"),
-                    )
-                )
-            dedup = None
-            dedup_request = destination_request["dedup"]
-            if dedup_request.get("enabled"):
-                key_source_index = int(dedup_request["key_source_index"])
-                target = mappings[key_source_index]
-                if target["kind"] != "existing":
+                if str(target_row["type"]) != str(choice["target_type"]):
                     raise TableImportDraftError(
-                        422,
+                        409,
                         self._problem(
-                            "invalid_dedup",
-                            "Duplicate checking requires an existing key column.",
+                            "destination_changed",
+                            "A destination column type changed.",
                         ),
                     )
-                snapshot_revision = int(
-                    project.db.execute(
-                        "SELECT COALESCE(MAX(id),0) FROM ops"
-                    ).fetchone()[0]
+                target_name = str(target_row["name"])
+            frozen_columns.append(
+                FrozenTableImportColumn(
+                    source_index=source_index,
+                    source_name=str(stats_by_index[source_index]["name"]),
+                    target_name=target_name,
+                    target_type=str(choice["target_type"]),
+                    target_column_id=target_column_id,
+                    date_order=choice.get("date_order"),
                 )
-                dedup = FrozenTableImportDedup(
-                    source_index=key_source_index,
-                    target_column_id=int(target["column_id"]),
-                    snapshot_revision=snapshot_revision,
+            )
+        dedup = None
+        dedup_target_column = None
+        dedup_request = destination_request["dedup"]
+        if dedup_request.get("enabled"):
+            key_source_index = int(dedup_request["key_source_index"])
+            target = mappings[key_source_index]
+            if target["kind"] != "existing":
+                raise TableImportDraftError(
+                    422,
+                    self._problem(
+                        "invalid_dedup",
+                        "Duplicate checking requires an existing key column.",
+                    ),
                 )
-            plan = TableImportPlan(
+            dedup_target_column = int(target["column_id"])
+            dedup = FrozenTableImportDedup(
+                source_index=key_source_index,
+                target_column_id=dedup_target_column,
+                snapshot_revision=dedup_snapshot_revision,
+            )
+        return (
+            TableImportPlan(
                 settings_revision=int(settings["revision"]),
                 settings=self._table_settings(header),
                 sheet_name=sheet_name,
@@ -546,16 +678,9 @@ class TableImportService:
                 columns=tuple(frozen_columns),
                 extra_values_target_name="extra values",
                 dedup=dedup,
-            )
-            frozen = freeze_table_plan(
-                directory,
-                plan,
-                require_exact_count=bool(plan.settings.skip_rows_end),
-            )
-            header["state"] = "committing"
-            header["commit_key"] = idempotency_key
-            self._store.save_header(directory, header)
-            return frozen
+            ),
+            dedup_target_column,
+        )
 
     def record_commit(
         self,
@@ -664,7 +789,9 @@ class TableImportService:
                     "resolved": resolved,
                 },
                 "column_choices": [],
+                "columns_reviewed": False,
                 "destination_request": None,
+                "destination_reviewed": False,
                 "analysis_job_id": None,
                 "error": None,
                 "commit_key": None,
@@ -740,62 +867,49 @@ class TableImportService:
         header["state"] = "analyzing"
 
     def _prime_prefix(self, directory: Path, header: dict[str, Any]) -> None:
-        settings = self._table_settings(header)
-        prefix = read_prefix(
-            self._source_path(directory), settings, record_limit=_PREFIX_RECORDS
-        )
-        preview = PreviewAccumulator(
-            head_rows=_PREVIEW_HEAD, tail_rows=2, column_limit=_PREVIEW_COLUMNS
-        )
-        stats = ColumnStatsAccumulator(
-            prefix.columns,
-            decimal_separator=settings.decimal_separator,
-            thousands_separator=settings.thousands_separator,
-        )
-        issues = self._zero_issue_counts()
-        data_rows = 0
-        for row in prefix.rows:
-            preview.accept(row)
-            stats.accept(row)
-            data_rows += int(row.role == "data")
-            self._count_issues(issues, row.issues)
-        scan = {
-            "settings_revision": int(header["settings"]["revision"]),
-            "record_count": len(prefix.rows),
-            "data_rows": data_rows,
-            "preview": self._preview_json(
-                prefix.columns,
-                preview.snapshot(complete=False),
-                issues,
-                settings.encoding,
-            ),
-            "stats": self._stats_json(stats.snapshot(complete=False)),
-            "issue_counts": issues,
-            "complete": False,
-            "error": None,
-        }
+        self._publish_prefix(directory, header, self._build_prefix(directory, header))
+
+    def _build_prefix(
+        self, directory: Path, header: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        try:
+            return build_prefix_scan(
+                self._source_path(directory),
+                self._table_settings(header),
+                settings_revision=int(header["settings"]["revision"]),
+            )
+        except TableReadError as exc:
+            raise TableImportDraftError(
+                422, self._problem("invalid_table", str(exc))
+            ) from exc
+
+    def _publish_prefix(
+        self, directory: Path, header: dict[str, Any], scan: Mapping[str, Any]
+    ) -> None:
         revision, settings_hash, _ = read_table_settings(directory)
         write_table_scan(
             directory,
             TableImportScan(
                 settings_revision=revision,
                 settings_hash=settings_hash,
-                scanned_rows=len(prefix.rows),
+                scanned_rows=int(scan["record_count"]),
                 estimated_rows=None,
                 exact_rows=None,
                 complete=False,
-                problem_count=sum(issues.values()),
+                problem_count=sum(scan["issue_counts"].values()),
             ),
             expected_settings_revision=revision,
         )
         self._store.write_json(directory / "table-preview.json", scan)
-        header["column_choices"] = self._default_choices(scan)
+        header["column_choices"] = default_choices(scan)
+        header["columns_reviewed"] = False
         name = (
             "Pasted rows"
             if header["source"]["input_kind"] == "paste"
             else Path(header["source"]["filename"]).stem or "Imported table"
         )
-        header["destination_request"] = self._new_destination(scan, name[:80])
+        header["destination_request"] = new_destination(scan, name[:80])
+        header["destination_reviewed"] = False
 
     def _snapshot(self, directory: Path, header: Mapping[str, Any]) -> TableImportDraft:
         scan = self._store.scan(directory)
@@ -821,16 +935,22 @@ class TableImportService:
             if scan and scan.get("complete")
             else None,
             "complete": bool(scan and scan.get("complete")),
-            "issue_counts": dict(scan.get("issue_counts", self._zero_issue_counts()))
+            "issue_counts": dict(scan.get("issue_counts", zero_issue_counts()))
             if scan
-            else self._zero_issue_counts(),
+            else zero_issue_counts(),
             "error": header.get("error"),
         }
         columns = (
-            self._public_columns(scan, header.get("column_choices", [])) if scan else []
+            public_columns(
+                scan,
+                header.get("column_choices", []),
+                (header.get("settings") or {}).get("resolved", {}),
+            )
+            if scan
+            else []
         )
         destination = (
-            self._public_destination(scan, header, columns)
+            public_destination(self._workspace, header, columns)
             if scan and header.get("destination_request")
             else None
         )
@@ -874,465 +994,26 @@ class TableImportService:
         resolved = settings.get("resolved") or {}
         if int(resolved.get("skip_rows_end", 0)) and not scan.get("complete"):
             return False, "analyzing"
+        if (
+            int(scan.get("issue_counts", {}).get("unreadable_cells", 0)) > 0
+            and (settings.get("requested") or {}).get("encoding") is None
+        ):
+            return False, "encoding"
         if not any(item.get("included") for item in header.get("column_choices", [])):
             return False, "empty"
         destination = header.get("destination_request")
-        if destination is None or destination.get("comparison", {}).get(
-            "state"
-        ) not in {"ready"}:
+        comparison = destination.get("comparison", {}) if destination else {}
+        if (
+            destination is None
+            or comparison.get("state") != "ready"
+            or int(comparison.get("type_clashes", 0)) > 0
+        ):
             return False, "destination"
         if destination.get("dedup", {}).get("enabled") and not destination.get(
             "comparison", {}
         ).get("complete"):
             return False, "analyzing"
         return True, None
-
-    def _compare_destination(
-        self,
-        project_id: str,
-        directory: Path,
-        header: Mapping[str, Any],
-        request: Mapping[str, Any],
-        *,
-        scan: Mapping[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        project = self._workspace.get(project_id)
-        choices = {
-            int(item["source_index"]): item
-            for item in header["column_choices"]
-            if item.get("included")
-        }
-        destination = request["destination"]
-        if destination.get("kind") == "new":
-            if not str(destination.get("sheet_name") or "").strip():
-                raise TableImportDraftError(
-                    422,
-                    self._problem(
-                        "invalid_destination", "A new sheet name is required."
-                    ),
-                )
-            return {
-                "state": "ready",
-                "matched_columns": 0,
-                "new_columns": len(choices),
-                "type_clashes": 0,
-                "duplicate_rows": 0,
-                "import_rows": (
-                    int(scan["data_rows"]) if scan and scan.get("complete") else None
-                ),
-                "complete": bool(scan and scan.get("complete")),
-                "error": None,
-            }
-        if (
-            destination.get("kind") != "existing"
-            or type(destination.get("sheet_id")) is not int
-        ):
-            raise TableImportDraftError(
-                422,
-                self._problem(
-                    "invalid_destination", "The import destination is invalid."
-                ),
-            )
-        sheet_id = int(destination["sheet_id"])
-        if (
-            project.db.execute(
-                "SELECT 1 FROM sheets WHERE id=? AND hidden=0", (sheet_id,)
-            ).fetchone()
-            is None
-        ):
-            raise TableImportDraftError(
-                409,
-                self._problem(
-                    "destination_changed", "The destination sheet is unavailable."
-                ),
-            )
-        targets = {
-            int(row["id"]): row
-            for row in project.db.execute(
-                "SELECT id,name,type FROM columns WHERE sheet_id=? AND active=1 AND hidden=0",
-                (sheet_id,),
-            )
-        }
-        mappings = request.get("mappings", [])
-        seen_sources: set[int] = set()
-        seen_targets: set[int] = set()
-        matched = new = clashes = 0
-        for mapping in mappings:
-            source_index = mapping.get("source_index")
-            if source_index not in choices or source_index in seen_sources:
-                raise TableImportDraftError(
-                    422,
-                    self._problem(
-                        "invalid_destination",
-                        "Mappings must name each imported column once.",
-                    ),
-                )
-            seen_sources.add(source_index)
-            target = mapping.get("target", {})
-            if target.get("kind") == "new":
-                if not str(target.get("name") or "").strip():
-                    raise TableImportDraftError(
-                        422,
-                        self._problem(
-                            "invalid_destination", "New columns require names."
-                        ),
-                    )
-                new += 1
-            elif (
-                target.get("kind") == "existing"
-                and type(target.get("column_id")) is int
-                and int(target["column_id"]) in targets
-            ):
-                target_id = int(target["column_id"])
-                if target_id in seen_targets:
-                    raise TableImportDraftError(
-                        422,
-                        self._problem(
-                            "invalid_destination",
-                            "Mappings cannot target a column twice.",
-                        ),
-                    )
-                seen_targets.add(target_id)
-                physical = self._physical_type(
-                    str(choices[source_index]["target_type"])
-                )
-                if str(targets[target_id]["type"]) != physical:
-                    clashes += 1
-                else:
-                    matched += 1
-            else:
-                raise TableImportDraftError(
-                    409,
-                    self._problem(
-                        "destination_changed",
-                        "A mapped destination column is unavailable.",
-                    ),
-                )
-        if seen_sources != set(choices):
-            raise TableImportDraftError(
-                422,
-                self._problem(
-                    "invalid_destination", "Mappings must review every imported column."
-                ),
-            )
-        dedup = request.get("dedup", {})
-        duplicate_rows = 0
-        import_rows = int(scan["data_rows"]) if scan and scan.get("complete") else None
-        complete = bool(scan and scan.get("complete"))
-        if dedup.get("enabled"):
-            key = dedup.get("key_source_index")
-            if type(key) is not int or key not in choices:
-                raise TableImportDraftError(
-                    422,
-                    self._problem(
-                        "invalid_dedup",
-                        "Choose an imported key column for duplicate checking.",
-                    ),
-                )
-            if not complete:
-                return {
-                    "state": "running",
-                    "matched_columns": matched,
-                    "new_columns": new,
-                    "type_clashes": clashes,
-                    "duplicate_rows": None,
-                    "import_rows": None,
-                    "complete": False,
-                    "error": None,
-                }
-            key_mapping = next(item for item in mappings if item["source_index"] == key)
-            target = key_mapping["target"]
-            if target["kind"] == "existing":
-                duplicate_rows = self._count_existing_duplicates(
-                    project, directory, header, int(key), int(target["column_id"])
-                )
-                import_rows = max(0, int(scan["data_rows"]) - duplicate_rows)
-        return {
-            "state": "ready",
-            "matched_columns": matched,
-            "new_columns": new,
-            "type_clashes": clashes,
-            "duplicate_rows": duplicate_rows,
-            "import_rows": import_rows,
-            "complete": complete,
-            "error": None,
-        }
-
-    def _count_existing_duplicates(
-        self,
-        project: Any,
-        directory: Path,
-        header: Mapping[str, Any],
-        source_index: int,
-        target_column_id: int,
-    ) -> int:
-        scratch = directory / ".dedup.db"
-        scratch.unlink(missing_ok=True)
-        connection = sqlite3.connect(scratch)
-        try:
-            connection.execute("CREATE TABLE existing_keys(value TEXT PRIMARY KEY)")
-            rows = project.db.execute(
-                "SELECT live.value_kind,live.value FROM current_cell_values live JOIN rows r ON r.id=live.row_id JOIN columns c ON c.id=live.column_id WHERE live.column_id=? AND r.hidden=0 AND c.active=1 AND c.hidden=0",
-                (target_column_id,),
-            )
-            for row in rows:
-                value = decode_stored_value(
-                    row["value_kind"], row["value"], tolerate_errors=True
-                )
-                if value is not None and value != "":
-                    connection.execute(
-                        "INSERT OR IGNORE INTO existing_keys(value) VALUES (?)",
-                        (self._exact_key(value),),
-                    )
-            connection.commit()
-            choice = next(
-                item
-                for item in header["column_choices"]
-                if int(item["source_index"]) == source_index
-            )
-            settings = self._table_settings(header)
-            count = 0
-            with open_table(
-                self._source_path(directory), settings, total_record_count=None
-            ) as reader:
-                for row in reader:
-                    if row.role != "data":
-                        continue
-                    converted = convert_cell(
-                        row.cells[source_index],
-                        choice["target_type"],
-                        decimal_separator=settings.decimal_separator,
-                        thousands_separator=settings.thousands_separator,
-                        date_order=choice.get("date_order") or "month_first",
-                    )
-                    value = converted.value
-                    if value is None or value == "":
-                        continue
-                    count += (
-                        connection.execute(
-                            "SELECT 1 FROM existing_keys WHERE value=?",
-                            (self._exact_key(value),),
-                        ).fetchone()
-                        is not None
-                    )
-            return count
-        finally:
-            connection.close()
-            scratch.unlink(missing_ok=True)
-
-    @staticmethod
-    def _exact_key(value: Any) -> str:
-        return json.dumps(
-            [type(value).__name__, value],
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-
-    def _public_destination(
-        self,
-        scan: Mapping[str, Any],
-        header: Mapping[str, Any],
-        columns: Sequence[Mapping[str, Any]],
-    ) -> dict[str, Any]:
-        request = header["destination_request"]
-        by_index = {int(item["source_index"]): item for item in columns}
-        mappings = []
-        project = self._workspace.get(header["project_id"])
-        target_rows: dict[int, Any] = {}
-        if request["destination"]["kind"] == "existing":
-            sheet_id = int(request["destination"]["sheet_id"])
-            target_rows = {
-                int(row["id"]): row
-                for row in project.db.execute(
-                    "SELECT id,name,type FROM columns WHERE sheet_id=? AND active=1 AND hidden=0",
-                    (sheet_id,),
-                )
-            }
-        for raw in request["mappings"]:
-            source = by_index[int(raw["source_index"])]
-            target = raw["target"]
-            match = "new"
-            detail = None
-            if target["kind"] == "existing":
-                row = target_rows.get(int(target["column_id"]))
-                if row is None:
-                    match, detail = "type_clash", "Destination column is unavailable."
-                elif str(row["type"]) != self._physical_type(source["target_type"]):
-                    match, detail = "type_clash", f"Sheet column is {row['type']}."
-                else:
-                    match = (
-                        "matched"
-                        if self._normalized_name(source["name"])
-                        == self._normalized_name(str(row["name"]))
-                        else "similar"
-                    )
-            mappings.append(
-                {
-                    "source_index": source["source_index"],
-                    "source_name": source["name"],
-                    "source_type": source["target_type"],
-                    "target": target,
-                    "match": match,
-                    "detail": detail,
-                }
-            )
-        return {
-            "configuration": request["destination"],
-            "mappings": mappings,
-            "dedup": request["dedup"],
-            "comparison": request["comparison"],
-        }
-
-    def _public_columns(
-        self, scan: Mapping[str, Any], choices: Sequence[Mapping[str, Any]]
-    ) -> list[dict[str, Any]]:
-        by_choice = {int(item["source_index"]): item for item in choices}
-        result = []
-        for stat in scan["stats"]["columns"]:
-            source = stat["column"]
-            choice = by_choice.get(
-                int(source["index"]),
-                {
-                    "included": stat["suggested_type"] != "omit",
-                    "target_type": stat["suggested_type"],
-                    "date_order": None,
-                },
-            )
-            target = choice["target_type"]
-            counts = stat["counts_by_type"].get(target, self._zero_conversion_counts())
-            samples = [
-                self._conversion_json(
-                    value, target, choice.get("date_order"), header_settings=None
-                )
-                for value in stat["sample_values"][:5]
-            ]
-            needs = [
-                {"leading_zero": "leading_zeros"}.get(item, item)
-                for item in stat["needs_review"]
-            ]
-            if stat["ambiguous_date_order"] and "ambiguous_date_order" not in needs:
-                needs.append("ambiguous_date_order")
-            if counts.get("time_dropped") and "time_dropped" not in needs:
-                needs.append("time_dropped")
-            result.append(
-                {
-                    "source_index": source["index"],
-                    "name": source["name"],
-                    "original_name": source["original_name"],
-                    "name_status": source["name_status"],
-                    "included": bool(choice["included"]),
-                    "target_type": target,
-                    "date_order": choice.get("date_order"),
-                    "suggested_type": stat["suggested_type"],
-                    "ambiguous_date_order": stat["ambiguous_date_order"],
-                    "needs_review": needs,
-                    "samples": samples,
-                    "conversion_counts": counts,
-                    "stats_complete": bool(scan["stats"]["complete"]),
-                }
-            )
-        return result
-
-    @staticmethod
-    def _conversion_json(
-        original: str, target: str, date_order: str | None, header_settings: Any
-    ) -> dict[str, Any]:
-        converted = convert_cell(
-            RawCell(original), target, date_order=date_order or "month_first"
-        )
-        return {
-            "original": converted.original,
-            "value": converted.value,
-            "display": converted.display,
-            "outcome": converted.outcome,
-        }
-
-    @staticmethod
-    def _preview_json(
-        columns: Sequence[Any],
-        preview: Any,
-        issues: Mapping[str, int],
-        encoding: str | None,
-    ) -> dict[str, Any]:
-        payload = asdict(preview)
-        payload["columns"] = [asdict(item) for item in columns]
-        payload["expected_values"] = len(columns)
-        payload["notice"] = TableImportService._notice(
-            len(columns), issues, preview.complete, encoding
-        )
-        return payload
-
-    @staticmethod
-    def _notice(
-        width: int, issues: Mapping[str, int], complete: bool, encoding: str | None
-    ) -> dict[str, Any]:
-        if issues["extra_values"]:
-            kind, count = "extra_values", issues["extra_values"]
-        elif issues["unreadable_cells"]:
-            kind, count = "unreadable_characters", issues["unreadable_cells"]
-        elif width <= 1:
-            kind, count = "one_column", None
-        elif issues["missing_values"]:
-            kind, count = "some_wrong_width", issues["missing_values"]
-        elif not complete:
-            kind, count = "counting", None
-        else:
-            kind, count = "consistent", None
-        return {
-            "kind": kind,
-            "count": count,
-            "common_values": None,
-            "expected_values": width,
-            "encoding": encoding,
-        }
-
-    @staticmethod
-    def _stats_json(stats: Any) -> dict[str, Any]:
-        return {
-            "columns": [asdict(item) for item in stats.columns],
-            "rows_checked": stats.rows_checked,
-            "inference_rows_checked": stats.inference_rows_checked,
-            "complete": stats.complete,
-        }
-
-    @staticmethod
-    def _default_choices(scan: Mapping[str, Any]) -> list[dict[str, Any]]:
-        return [
-            {
-                "source_index": int(item["column"]["index"]),
-                "included": item["suggested_type"] != "omit",
-                "target_type": item["suggested_type"],
-                "date_order": ("month_first" if item["ambiguous_date_order"] else None),
-            }
-            for item in scan["stats"]["columns"]
-        ]
-
-    @staticmethod
-    def _new_destination(scan: Mapping[str, Any], sheet_name: str) -> dict[str, Any]:
-        mappings = [
-            {
-                "source_index": int(item["column"]["index"]),
-                "target": {"kind": "new", "name": item["column"]["name"]},
-            }
-            for item in scan["stats"]["columns"]
-            if item["suggested_type"] != "omit"
-        ]
-        return {
-            "destination": {"kind": "new", "sheet_name": sheet_name},
-            "mappings": mappings,
-            "dedup": {"enabled": False, "key_source_index": None},
-            "comparison": {
-                "state": "ready",
-                "matched_columns": 0,
-                "new_columns": len(mappings),
-                "type_clashes": 0,
-                "duplicate_rows": 0,
-                "import_rows": None,
-                "complete": False,
-                "error": None,
-            },
-        }
 
     @staticmethod
     def _default_requested() -> dict[str, Any]:
@@ -1449,135 +1130,8 @@ class TableImportService:
         return scan
 
     @staticmethod
-    def _physical_type(target: str) -> str:
-        return target
-
-    @staticmethod
-    def _normalized_name(value: str) -> str:
-        return "".join(
-            character for character in value.casefold() if character not in {" ", "_"}
-        )
-
-    @staticmethod
     def _problem(code: str, message: str) -> dict[str, str]:
         return {"code": code, "message": message}
-
-    @staticmethod
-    def _zero_issue_counts() -> dict[str, int]:
-        return {
-            "extra_values": 0,
-            "missing_values": 0,
-            "malformed_records": 0,
-            "unreadable_cells": 0,
-        }
-
-    @staticmethod
-    def _zero_conversion_counts() -> dict[str, int]:
-        return {
-            "rows_checked": 0,
-            "valid": 0,
-            "blank": 0,
-            "changed": 0,
-            "invalid": 0,
-            "leading_zero_loss": 0,
-            "time_dropped": 0,
-        }
-
-    @staticmethod
-    def _count_issues(counts: dict[str, int], issues: Sequence[Any]) -> None:
-        mapping = {
-            "extra_values": "extra_values",
-            "missing_values": "missing_values",
-            "malformed_record": "malformed_records",
-            "unreadable_cell": "unreadable_cells",
-        }
-        for issue in issues:
-            counts[mapping[issue.code]] += 1
-
-    @staticmethod
-    def _copy_upload(upload: AdmittedUpload, target: Path) -> None:
-        with (
-            TableImportService._upload_source(upload) as source,
-            target.open("xb") as sink,
-        ):
-            digest = hashlib.sha256()
-            size = 0
-            while chunk := source.read(_COPY_CHUNK):
-                sink.write(chunk)
-                digest.update(chunk)
-                size += len(chunk)
-            sink.flush()
-            os.fsync(sink.fileno())
-        if size != upload.size or digest.hexdigest() != upload.sha256:
-            raise TableImportDraftError(
-                409,
-                TableImportService._problem(
-                    "source_changed", "The uploaded source changed during admission."
-                ),
-            )
-
-    @staticmethod
-    @contextlib.contextmanager
-    def _upload_source(upload: AdmittedUpload):
-        if upload.open_source is not None:
-            with upload.open_source() as source:
-                yield source
-            return
-        assert upload.source is not None
-        upload.source.seek(0)
-        try:
-            yield upload.source
-        finally:
-            upload.source.seek(0)
-
-    @staticmethod
-    def _reject_known_unsupported(path: Path) -> None:
-        with path.open("rb") as source:
-            prefix = source.read(16)
-        if prefix.startswith(
-            (b"%PDF-", b"\x89PNG", b"GIF87a", b"GIF89a", b"\xff\xd8\xff")
-        ):
-            raise TableImportDraftError(
-                422,
-                TableImportService._problem(
-                    "unsupported_source",
-                    "Choose a CSV, TSV, text, Excel, or OpenDocument spreadsheet.",
-                ),
-            )
-
-    @staticmethod
-    def _office_encrypted(path: Path) -> bool:
-        try:
-            import msoffcrypto
-
-            with path.open("rb") as source:
-                office = msoffcrypto.OfficeFile(source)
-                return bool(office.is_encrypted())
-        except Exception:
-            return False
-
-    @staticmethod
-    def _decrypt_office(source_path: Path, output_path: Path, password: str) -> None:
-        temporary = output_path.with_name(".decrypted.tmp")
-        temporary.unlink(missing_ok=True)
-        try:
-            import msoffcrypto
-
-            with source_path.open("rb") as source, temporary.open("xb") as sink:
-                office = msoffcrypto.OfficeFile(source)
-                office.load_key(password=password, verify_password=True)
-                office.decrypt(sink)
-                sink.flush()
-                os.fsync(sink.fileno())
-            os.replace(temporary, output_path)
-        except Exception as exc:
-            temporary.unlink(missing_ok=True)
-            raise TableImportDraftError(
-                422,
-                TableImportService._problem(
-                    "invalid_password", "The workbook password is incorrect."
-                ),
-            ) from exc
 
 
 __all__ = ["FrozenTableImport", "TableImportService"]

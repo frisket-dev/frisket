@@ -96,6 +96,7 @@ class TableImportRowIssue(WireModel):
     ]
     message: str
     original_values: list[str]
+    count: int = Field(default=1, ge=1)
 
 
 class TableImportPreviewRow(WireModel):
@@ -168,6 +169,7 @@ class TableImportColumn(WireModel):
             "leading_zeros",
             "long_integer",
             "ambiguous_date_order",
+            "mixed_datetime_awareness",
             "invalid_values",
             "time_dropped",
         ]
@@ -273,7 +275,14 @@ class TableImportDraft(WireModel):
     destination: TableImportDestination | None
     can_commit: bool
     commit_blocked_reason: (
-        Literal["password_required", "analyzing", "empty", "destination", "error"]
+        Literal[
+            "password_required",
+            "analyzing",
+            "empty",
+            "destination",
+            "encoding",
+            "error",
+        ]
         | None
     )
     commit: TableImportCommitResponse | None
