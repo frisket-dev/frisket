@@ -30,6 +30,7 @@ from frisket.engine.store.table_import_intake import (
     read_table_settings,
     replace_table_dedup_keys,
     replace_table_settings,
+    table_dedup_revision,
     table_import_status,
     write_table_scan,
 )
@@ -459,6 +460,13 @@ class TableImportService:
             self._store.save_header(directory, current)
             return self._snapshot(directory, current)
 
+    def run_analysis(
+        self, project_id: str, draft_id: str, settings_revision: int
+    ) -> TableImportDraft:
+        """Run the revisioned full scan from a normal queue callback."""
+
+        return self.scan(project_id, draft_id, settings_revision=settings_revision)
+
     def freeze_for_commit(
         self,
         project_id: str,
@@ -532,10 +540,6 @@ class TableImportService:
                 )
             plan, dedup_target_column = prepared
             if dedup_target_column is not None:
-                from frisket.engine.store.table_import_intake import (
-                    table_dedup_revision,
-                )
-
                 current_revision = table_dedup_revision(directory)
                 snapshot_revision = replace_table_dedup_keys(
                     directory,

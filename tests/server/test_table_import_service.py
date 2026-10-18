@@ -6,7 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from frisket.engine.store.table_import_intake import FrozenTableImport
+from frisket.engine.store.table_import_intake import (
+    FrozenTableImport,
+    table_dedup_key,
+    table_key_exists,
+)
 from frisket.server.services.import_uploads import AdmittedUpload
 from frisket.server.services.table_imports import (
     TableImportDraftError,
@@ -217,6 +221,26 @@ def test_existing_destination_preview_counts_only_frozen_sheet_duplicates(
     assert compared.destination.comparison.complete is True
     assert compared.destination.comparison.duplicate_rows == 1
     assert compared.destination.comparison.import_rows == 1
+    frozen = service.freeze_for_commit(
+        project_id,
+        created.draft_id,
+        expected_revision=compared.revision,
+        idempotency_key="existing-dedup",
+    )
+    assert isinstance(frozen, FrozenTableImport)
+    assert frozen.plan.dedup is not None
+    assert frozen.plan.dedup.snapshot_revision == 1
+    key = table_dedup_key("Alice")
+    assert key is not None and table_key_exists(frozen.intake_dir, key)
+
+    replayed = service.freeze_for_commit(
+        project_id,
+        created.draft_id,
+        expected_revision=compared.revision,
+        idempotency_key="existing-dedup",
+    )
+    assert isinstance(replayed, FrozenTableImport)
+    assert replayed.plan_hash == frozen.plan_hash
 
 
 def test_late_encoding_damage_requires_an_explicit_encoding_choice(
