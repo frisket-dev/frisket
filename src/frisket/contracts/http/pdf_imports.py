@@ -20,6 +20,16 @@ PdfTextCategory = Literal[
 PdfOcrPolicy = Literal["missing_or_suspicious", "all", "none"]
 
 
+class PdfImportCategoryCounts(WireModel):
+    text: int = Field(default=0, ge=0)
+    suspicious: int = Field(default=0, ge=0)
+    missing: int = Field(default=0, ge=0)
+    image: int = Field(default=0, ge=0)
+    other: int = Field(default=0, ge=0)
+    unreadable: int = Field(default=0, ge=0)
+    unchecked: int = Field(default=0, ge=0)
+
+
 class PdfImportCreateRequest(WireModel):
     expected_files: int = Field(ge=2)
     expected_bytes: int = Field(ge=0)
@@ -113,7 +123,7 @@ class PdfImportMatch(WireModel):
     total: int = Field(ge=0)
     matched_count: int = Field(ge=0)
     new_count: int = Field(ge=0)
-    new_category_counts: dict[PdfTextCategory, int]
+    new_category_counts: PdfImportCategoryCounts
     error: str | None
 
 
@@ -180,8 +190,8 @@ class PdfImportStatus(WireModel):
     manifest: PdfImportProgress
     upload: PdfImportProgress
     analysis: PdfImportAnalysisProgress
-    category_counts: dict[PdfTextCategory, int]
-    sample_ready_counts: dict[PdfTextCategory, int]
+    category_counts: PdfImportCategoryCounts
+    sample_ready_counts: PdfImportCategoryCounts
     can_review_text: bool
     choices: PdfImportChoices
     match: PdfImportMatch
