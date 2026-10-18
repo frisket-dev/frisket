@@ -89,6 +89,7 @@ export function importActivity(session: ImportSessionStatus): ImportActivity | n
   const selectedTotal = session.selected_total ?? session.admitted_files;
   const preparationIncomplete = session.preparation_completed < session.preparation_total;
   const active = ['admitting', 'running', 'paused', 'cancelling', 'cancelled'].includes(session.state)
+    || Boolean(session.error)
     || preparationIncomplete
     || session.preparation_children.some((child) => ACTIVE_CHILD_STATES.has(child.status));
   if (!active) return null;
@@ -377,15 +378,14 @@ export function composeImportSearchActivity(
       stopBatchId: activity.canStop ? activity.importRef : null,
       stage: failed ? 'failed' : search?.stage ?? 'prepare',
       tone: failed ? 'error' : recovering ? 'warning' : 'active',
-      title: recovering ? 'Import interrupted' : 'Preparing search',
-      detail: recovering
+      title: session.error
+        ? session.selected_total !== null ? 'PDF preparation failed' : 'Import failed'
+        : recovering ? 'Import interrupted' : 'Preparing search',
+      detail: session.error ?? (recovering
         ? `${session.committed_rows.toLocaleString()} rows added`
-        : `${readyFiles.toLocaleString()} of ${selectedTotal.toLocaleString()} files ready`,
+        : `${readyFiles.toLocaleString()} of ${selectedTotal.toLocaleString()} files ready`),
       progress: null,
-      details: [
-        ...(session.error ? [session.error] : []),
-        ...(search?.details ?? []),
-      ],
+      details: search?.details ?? [],
     },
     lines,
   };

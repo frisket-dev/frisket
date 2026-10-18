@@ -647,9 +647,13 @@ class ImportSessionService:
             cancel_requested=header.cancel_requested,
             sealed=sealed,
             error=(
-                "Import processing failed. Retry the import to continue."
-                if session is None and state == "paused"
-                else None
+                pdf_summary.error
+                if pdf_summary is not None and pdf_summary.error is not None
+                else (
+                    "Import processing failed. Retry the import to continue."
+                    if session is None and state == "paused"
+                    else None
+                )
             ),
             search_preparation_status=preparation_status,
             search_preparation_batch_id=preparation_batch_id,

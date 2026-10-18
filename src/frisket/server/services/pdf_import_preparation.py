@@ -53,6 +53,7 @@ class PdfImportPreparationSummary:
     unreadable_total: int
     pending_confirmation: Mapping[str, Any] | None
     semantic_error: str | None
+    error: str | None
     children: tuple[Mapping[str, Any], ...]
     stopped: bool
     row_error_summary: Mapping[str, Any] | None
@@ -133,8 +134,20 @@ class PdfImportPreparationStore:
             "row_count INTEGER NOT NULL,"
             "receipt_id TEXT,run_id INTEGER,job_id INTEGER,"
             "status TEXT NOT NULL DEFAULT 'queued',"
-            "completed_rows INTEGER NOT NULL DEFAULT 0)"
+            "completed_rows INTEGER NOT NULL DEFAULT 0,"
+            "error_message TEXT)"
         )
+        child_columns = {
+            str(row["name"])
+            for row in self.db.execute(
+                "PRAGMA table_info(pdf_commit_preparation_children)"
+            )
+        }
+        if "error_message" not in child_columns:
+            self.db.execute(
+                "ALTER TABLE pdf_commit_preparation_children "
+                "ADD COLUMN error_message TEXT"
+            )
         self.db.commit()
 
     def close(self) -> None:
@@ -312,16 +325,26 @@ class PdfImportPreparationStore:
         job_id = response.get("job_id")
         status = str(response.get("status") or "queued")
         completed_rows = int(row_count) if status in _TERMINAL_CHILD_STATUSES else 0
+        errors = response.get("errors")
+        error_message = (
+            str(errors[0].get("message") or "")[:500] or None
+            if status == "failed"
+            and isinstance(errors, list)
+            and errors
+            and isinstance(errors[0], Mapping)
+            else None
+        )
         self.db.execute(
             "INSERT INTO pdf_commit_preparation_children"
             "(child_key,action_id,row_count,receipt_id,run_id,job_id,status,"
-            "completed_rows) VALUES(?,?,?,?,?,?,?,?) "
+            "completed_rows,error_message) VALUES(?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(child_key) DO UPDATE SET "
             "receipt_id=COALESCE(receipt_id,excluded.receipt_id),"
             "run_id=COALESCE(run_id,excluded.run_id),"
             "job_id=COALESCE(job_id,excluded.job_id),"
             "status=excluded.status,"
-            "completed_rows=MAX(completed_rows,excluded.completed_rows)",
+            "completed_rows=MAX(completed_rows,excluded.completed_rows),"
+            "error_message=COALESCE(error_message,excluded.error_message)",
             (
                 child_key,
                 action_id,
@@ -331,6 +354,7 @@ class PdfImportPreparationStore:
                 int(job_id) if isinstance(job_id, int) else None,
                 status,
                 completed_rows,
+                error_message,
             ),
         )
         self.db.commit()
@@ -464,6 +488,11 @@ class PdfImportPreparationStore:
             else ()
         )
         children = [self._child_payload(child) for child in (*active, *terminal)]
+        failure = self.db.execute(
+            "SELECT error_message FROM pdf_commit_preparation_children "
+            "WHERE status='failed' AND error_message IS NOT NULL "
+            "ORDER BY rowid DESC LIMIT 1"
+        ).fetchone()
         return PdfImportPreparationSummary(
             import_ref=import_ref,
             scheduled_through=int(state["scheduled_through"]),
@@ -477,6 +506,11 @@ class PdfImportPreparationStore:
             pending_confirmation=pending,
             semantic_error=(
                 str(state["semantic_error"]) if state["semantic_error"] else None
+            ),
+            error=(
+                str(failure["error_message"])
+                if failure is not None and failure["error_message"]
+                else None
             ),
             children=tuple(children),
             stopped=bool(state["stopped"]),
@@ -630,12 +664,16 @@ class PdfImportPreparationCoordinator:
                 and status == "failed"
                 and error_code == "derived_consent_refused"
             )
-            if status not in {
-                "queued",
-                "running",
-                "completed",
-                "needs_confirmation",
-            } and not terminal_paid_refusal:
+            if (
+                status
+                not in {
+                    "queued",
+                    "running",
+                    "completed",
+                    "needs_confirmation",
+                }
+                and not terminal_paid_refusal
+            ):
                 message = "PDF text preparation could not start."
                 if isinstance(errors, list) and errors and isinstance(errors[0], dict):
                     message = str(errors[0].get("message") or message)

@@ -93,6 +93,32 @@ describe('PDF import post-commit activity', () => {
     });
   });
 
+  it('keeps a completed import refusal visible with its durable reason', () => {
+    const activity = importActivity(session({
+      preparation_completed: 12,
+      error: 'paid PDF OCR price or route changed',
+      preparation_children: [{
+        action_id: 'media.ocr',
+        row_count: 8,
+        completed_rows: 8,
+        status: 'failed',
+        receipt_id: null,
+        run_id: null,
+        job_id: null,
+      }],
+    }));
+    const combined = composeImportSearchActivity(activity, null);
+
+    expect(activity).not.toBeNull();
+    expect(activity?.liveRun).toBeNull();
+    expect(combined?.notice).toMatchObject({
+      stage: 'failed',
+      tone: 'error',
+      title: 'PDF preparation failed',
+      detail: 'paid PDF OCR price or route changed',
+    });
+  });
+
   it('combines import and existing index progress into one three-line entry', () => {
     const search = {
       activityKey: 'index:9',

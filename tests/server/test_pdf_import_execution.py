@@ -1630,8 +1630,13 @@ def test_paid_route_or_price_drift_is_one_visible_terminal_child(
     summary = preparation.pdf_import_summary(project_id, result.import_ref)
     assert summary.scheduled_through == 1
     assert summary.ocr_completed == 1
+    assert summary.error == "paid PDF OCR price or route changed"
     assert len(summary.children) == 1
     assert summary.children[0]["status"] == "failed"
+    status = ImportSessionService(workspace, search_preparation=preparation).status(
+        project_id, result.import_ref
+    )
+    assert status.error == "paid PDF OCR price or route changed"
     assert len(actions.bodies) == 1
 
     preparation.recover()
@@ -1845,8 +1850,21 @@ def test_partial_preparation_children_are_terminal_for_bounded_activity(
             "error TEXT,sha256 TEXT,page_count INTEGER,"
             "ocr_selected INTEGER NOT NULL)"
         )
+        inventory._db.execute(
+            "CREATE TABLE pdf_commit_preparation_children ("
+            "child_key TEXT PRIMARY KEY,action_id TEXT NOT NULL,"
+            "row_count INTEGER NOT NULL,receipt_id TEXT,run_id INTEGER,"
+            "job_id INTEGER,status TEXT NOT NULL DEFAULT 'queued',"
+            "completed_rows INTEGER NOT NULL DEFAULT 0)"
+        )
         inventory._db.commit()
     with PdfImportPreparationStore(inventory_path) as store:
+        assert "error_message" in {
+            str(row["name"])
+            for row in store.db.execute(
+                "PRAGMA table_info(pdf_commit_preparation_children)"
+            )
+        }
         for index in range(100):
             store.record_child(
                 child_key=f"partial-{index}",
