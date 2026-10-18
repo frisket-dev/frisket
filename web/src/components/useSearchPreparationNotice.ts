@@ -143,7 +143,9 @@ function indexingDetail(indexing: SearchIndexingProjection): string {
     case 'pending':
     case 'queued':
     case 'running':
-      return 'Indexing search content';
+      return indexing.sheet_names?.length
+        ? `Indexing search content · ${indexing.sheet_names.join(', ')}`
+        : 'Indexing search content';
     case 'failed':
       return indexing.error || 'Search indexing failed.';
     case 'idle':

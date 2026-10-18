@@ -153,6 +153,19 @@ describe('search preparation notice projection', () => {
     expect(screen.queryByTestId('search-preparation-review')).toBeNull();
   });
 
+  it('updates the indexing sheet context as work moves between sheets', () => {
+    const notice = (sheetNames: string[]) => deriveSearchPreparationNotice(snapshot({
+      indexing: { status: 'running', job_id: 781, error: null, sheet_names: sheetNames },
+    }))!;
+    const view = render(<SearchPreparationNotice notice={notice(['Contracts'])} />);
+    expect(screen.getByText('Indexing search content · Contracts')).toBeVisible();
+    view.rerender(<SearchPreparationNotice notice={notice(['Court filings', 'Council audio'])} />);
+    expect(screen.getByText('Indexing search content · Court filings, Council audio')).toBeVisible();
+    expect(screen.queryByText('Indexing search content · Contracts')).toBeNull();
+    view.rerender(<SearchPreparationNotice notice={notice([])} />);
+    expect(screen.getByText('Indexing search content')).toBeVisible();
+  });
+
   it('shows independent indexing bars for active PDFs alongside preparation and removes finished files', () => {
     const files = [
       { source_id: 'source:first', filename: 'Council papers.pdf', completed: 1_896, total: 24_909 },
