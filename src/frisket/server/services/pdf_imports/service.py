@@ -23,9 +23,16 @@ from frisket.contracts.http.pdf_imports import (
     PDF_IMPORT_OCCURRENCE_ID_PATTERN,
     PdfImportStatus,
 )
-from frisket.engine.store.disk_capacity import DISK_HEADROOM_BYTES
+from frisket.engine.store.disk_capacity import (
+    DISK_HEADROOM_BYTES,
+    require_disk_headroom,
+)
 from frisket.engine.store.import_inventory import ImportInventory
-from frisket.server.services.import_bulk_sources import fsync_directory, is_junk_path
+from frisket.server.services.import_bulk_sources import (
+    fsync_directory,
+    is_junk_path,
+    open_verified_source,
+)
 from frisket.server.services.import_uploads import AdmittedUpload
 
 from .analysis import analyze_image, analyze_other, analyze_pdf
@@ -198,49 +205,149 @@ class PdfImportService:
         draft_id = f"pdf-{secrets.token_urlsafe(18)}"
         directory = self._root / draft_id
         try:
-            directory.mkdir()
-            (directory / "files").mkdir()
-            (directory / "cache").mkdir()
-            PdfDraftInventory(directory / "inventory.db").close()
-            created_at = now()
-            header = {
-                "schema_version": SCHEMA_VERSION,
-                "draft_id": draft_id,
-                "project_id": project_id,
-                "storage_identity": project.storage_identity,
-                "state": "open",
-                "paused": False,
-                "revision": 1,
-                "created_at": created_at,
-                "updated_at": created_at,
-                "expires_at": self._store.expiry(),
-                "source_label": source_label,
-                "expected_files": expected_files,
-                "expected_bytes": expected_bytes,
-                "preflight": {"state": "waiting", "free_bytes": None},
-                "choices": {
-                    "ocr_policy": "missing_or_suspicious",
-                    "ocr_selection": {"kind": "engine", "engine": "rapidocr"},
-                    "semantic_search": True,
-                    "semantic_setup_confirmation": None,
-                    "destination": {
-                        "kind": "new",
-                        "sheet_name": source_label or "PDFs",
-                    },
-                },
-                "match": self._empty_match(),
-                "batch_ocr": self._empty_batch_ocr(),
-                "ocr_approval": None,
-                "semantic_setup": self._resolve_semantic_setup(project_id, None),
-                "preview_jobs": [],
-                "cleanup": {"bytes_done": 0, "bytes_total": 0},
-                "commit": None,
-            }
+            header = self._initialize_directory(
+                directory,
+                draft_id=draft_id,
+                project_id=project_id,
+                storage_identity=project.storage_identity,
+                expected_files=expected_files,
+                expected_bytes=expected_bytes,
+                source_label=source_label,
+            )
             self._store.write_header(directory, header)
         except BaseException:
             shutil.rmtree(directory, ignore_errors=True)
             raise
         return self._snapshot(header, self._stats(directory))
+
+    def adopt_staged(
+        self,
+        project_id: str,
+        staging_dir: Path,
+        entries: Sequence[Mapping[str, Any]],
+        *,
+        source_label: str | None = None,
+    ) -> dict[str, Any]:
+        """Transfer one unpublished, verified staging roster into PDF ownership."""
+
+        staging_dir = Path(staging_dir)
+        project = self._workspace.get(project_id)
+        if len(entries) < 2:
+            shutil.rmtree(staging_dir, ignore_errors=True)
+            raise PdfImportDraftError(
+                422, "multi-PDF import requires at least two PDFs"
+            )
+
+        uploads: list[AdmittedUpload] = []
+        manifest_items: list[dict[str, Any]] = []
+        facts: list[dict[str, Any]] = []
+        logical_paths: set[str] = set()
+        expected_bytes = 0
+        try:
+            for ordinal, raw in enumerate(entries, start=1):
+                logical_path = _logical_path(str(raw.get("logical_path") or ""))
+                if is_junk_path(logical_path) or logical_path in logical_paths:
+                    raise PdfImportDraftError(
+                        422, "staged import contains duplicate or ignored paths"
+                    )
+                logical_paths.add(logical_path)
+                filename = str(raw.get("filename") or PurePosixPath(logical_path).name)
+                digest = str(raw.get("sha256") or "")
+                size = raw.get("size")
+                mime = str(raw.get("mime") or "application/octet-stream")
+                item = dict(raw)
+                if type(size) is not int or size < 0:
+                    raise PdfImportDraftError(422, "staged file size is invalid")
+                try:
+                    upload = AdmittedUpload(
+                        filename=filename,
+                        mime=mime,
+                        source=None,
+                        sha256=digest,
+                        size=size,
+                        open_source=lambda root=staging_dir, value=item: (
+                            open_verified_source(root, value)
+                        ),
+                    )
+                    media_kind, admitted_mime = self._classify_upload(
+                        upload, filename=filename
+                    )
+                except PdfImportDraftError:
+                    raise
+                except Exception as exc:
+                    raise PdfImportDraftError(
+                        409, "staged source failed verification"
+                    ) from exc
+                occurrence_id = f"staged-{ordinal}-{digest[:24]}"
+                uploads.append(upload)
+                manifest_items.append(
+                    {
+                        "occurrence_id": occurrence_id,
+                        "logical_path": logical_path,
+                        "filename": filename,
+                        "size": size,
+                    }
+                )
+                facts.append(
+                    {
+                        "occurrence_id": occurrence_id,
+                        "logical_path": logical_path,
+                        "sha256": digest,
+                        "size": size,
+                        "mime": admitted_mime,
+                        "media_kind": media_kind,
+                    }
+                )
+                expected_bytes += size
+        except BaseException:
+            shutil.rmtree(staging_dir, ignore_errors=True)
+            raise
+
+        draft_id = f"pdf-{secrets.token_urlsafe(18)}"
+        hidden = self._root / f".adopt-{draft_id}"
+        directory = self._root / draft_id
+        try:
+            header = self._initialize_directory(
+                hidden,
+                draft_id=draft_id,
+                project_id=project_id,
+                storage_identity=project.storage_identity,
+                expected_files=len(entries),
+                expected_bytes=expected_bytes,
+                source_label=source_label,
+            )
+            self._transfer_staged_files(staging_dir, hidden, uploads)
+            with PdfDraftInventory(hidden / "inventory.db") as inventory:
+                for offset in range(0, len(manifest_items), MAX_MANIFEST_BATCH):
+                    page = manifest_items[offset : offset + MAX_MANIFEST_BATCH]
+                    inventory.append_manifest_batch(
+                        f"staged-manifest-{offset // MAX_MANIFEST_BATCH}",
+                        page,
+                        expected_files=len(entries),
+                        expected_bytes=expected_bytes,
+                    )
+                inventory.seal_manifest()
+                for offset in range(0, len(facts), MAX_UPLOAD_BATCH):
+                    inventory.stage_batch(
+                        f"staged-upload-{offset // MAX_UPLOAD_BATCH}",
+                        facts[offset : offset + MAX_UPLOAD_BATCH],
+                    )
+                stats = inventory.stats()
+            header["preflight"] = {
+                "state": "ready",
+                "free_bytes": shutil.disk_usage(hidden).free,
+            }
+            self._store.write_header(hidden, header)
+            os.replace(hidden, directory)
+            fsync_directory(self._root)
+            shutil.rmtree(staging_dir, ignore_errors=True)
+            return self._snapshot(header, stats)
+        except BaseException:
+            shutil.rmtree(directory, ignore_errors=True)
+            shutil.rmtree(hidden, ignore_errors=True)
+            shutil.rmtree(staging_dir, ignore_errors=True)
+            fsync_directory(self._root)
+            raise
 
     def append_manifest(
         self,
@@ -441,15 +548,70 @@ class PdfImportService:
                             self._clear_batch_ocr(header)
                         self._save(directory, header)
 
-        # Analysis is bounded but may still be slow or encounter a hostile PDF.
-        # Each result is independently claimed and published after work finishes.
-        for fact in facts:
-            occurrence_id = str(fact["occurrence_id"])
+        self._analyze_occurrences(
+            project_id,
+            draft_id,
+            directory,
+            [str(fact["occurrence_id"]) for fact in facts],
+        )
+
+        return self.status(project_id, draft_id)
+
+    def analyze_staged(
+        self,
+        project_id: str,
+        draft_id: str,
+        *,
+        limit: int = 8,
+    ) -> dict[str, Any]:
+        """Analyze one bounded page whose bytes are already draft-owned."""
+
+        if type(limit) is not int or not 1 <= limit <= 8:
+            raise PdfImportDraftError(422, "PDF analysis limit must be 1..8")
+        directory, _ = self._open(project_id, draft_id)
+        with (
+            self._lock(directory),
+            PdfDraftInventory(directory / "inventory.db") as inventory,
+        ):
+            header = self._header(project_id, directory)
+            self._require_state(header, "open")
+            if header["paused"]:
+                raise PdfImportDraftError(
+                    409, "PDF import is paused; resume it before analysis"
+                )
+            rows = inventory.db.execute(
+                "SELECT s.occurrence_id FROM pdf_selected s "
+                "JOIN pdf_selected_state st USING(occurrence_id) "
+                "WHERE st.upload_state='staged' AND st.analysis_state='pending' "
+                "ORDER BY s.ordinal LIMIT ?",
+                (limit,),
+            )
+            occurrence_ids = [str(row["occurrence_id"]) for row in rows]
+            if not occurrence_ids:
+                return self._snapshot(header, inventory.stats())
+
+        self._analyze_occurrences(project_id, draft_id, directory, occurrence_ids)
+        return self.status(project_id, draft_id)
+
+    def _analyze_occurrences(
+        self,
+        project_id: str,
+        draft_id: str,
+        directory: Path,
+        occurrence_ids: Sequence[str],
+    ) -> None:
+        # Analysis can be slow or encounter a hostile PDF. Each result is
+        # independently fenced and published after work finishes.
+        for occurrence_id in occurrence_ids:
             with PdfDraftInventory(directory / "inventory.db") as inventory:
                 item = inventory.selected(occurrence_id)
             if item is None or item["analysis_state"] != "pending":
                 continue
             _, current_header = self._open(project_id, draft_id)
+            if current_header["state"] not in {"open", "committing"}:
+                break
+            if current_header["paused"]:
+                break
             analysis = self._analyze_file(
                 self._files_root(directory, current_header) / str(item["sha256"]),
                 media_kind=str(item["media_kind"]),
@@ -460,7 +622,9 @@ class PdfImportService:
             ):
                 header = self._header(project_id, directory)
                 if header["state"] not in {"open", "committing"}:
-                    continue
+                    break
+                if header["paused"]:
+                    break
                 if not inventory.complete_analysis(occurrence_id, analysis):
                     continue
                 self._update_matched_category(header, item, analysis)
@@ -472,8 +636,6 @@ class PdfImportService:
                     }
                 self._save(directory, header)
             self._drain_commit_ready(project_id, draft_id, directory)
-
-        return self.status(project_id, draft_id)
 
     def status(self, project_id: str, draft_id: str) -> dict[str, Any]:
         directory, _ = self._open(project_id, draft_id)
@@ -1591,6 +1753,84 @@ class PdfImportService:
             fsync_directory(target.parent)
         finally:
             temporary.unlink(missing_ok=True)
+
+    def _initialize_directory(
+        self,
+        directory: Path,
+        *,
+        draft_id: str,
+        project_id: str,
+        storage_identity: str,
+        expected_files: int,
+        expected_bytes: int,
+        source_label: str | None,
+    ) -> dict[str, Any]:
+        directory.mkdir()
+        (directory / "files").mkdir()
+        (directory / "cache").mkdir()
+        PdfDraftInventory(directory / "inventory.db").close()
+        created_at = now()
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "draft_id": draft_id,
+            "project_id": project_id,
+            "storage_identity": storage_identity,
+            "state": "open",
+            "paused": False,
+            "revision": 1,
+            "created_at": created_at,
+            "updated_at": created_at,
+            "expires_at": self._store.expiry(),
+            "source_label": source_label,
+            "expected_files": expected_files,
+            "expected_bytes": expected_bytes,
+            "preflight": {"state": "waiting", "free_bytes": None},
+            "choices": {
+                "ocr_policy": "missing_or_suspicious",
+                "ocr_selection": {"kind": "engine", "engine": "rapidocr"},
+                "semantic_search": True,
+                "semantic_setup_confirmation": None,
+                "destination": {
+                    "kind": "new",
+                    "sheet_name": source_label or "PDFs",
+                },
+            },
+            "match": self._empty_match(),
+            "batch_ocr": self._empty_batch_ocr(),
+            "ocr_approval": None,
+            "semantic_setup": self._resolve_semantic_setup(project_id, None),
+            "preview_jobs": [],
+            "cleanup": {"bytes_done": 0, "bytes_total": 0},
+            "commit": None,
+        }
+
+    def _transfer_staged_files(
+        self,
+        staging_dir: Path,
+        directory: Path,
+        uploads: Sequence[AdmittedUpload],
+    ) -> None:
+        source = staging_dir / "files"
+        target = directory / "files"
+        try:
+            target.rmdir()
+            os.replace(source, target)
+            fsync_directory(directory)
+            return
+        except OSError as exc:
+            if exc.errno != errno.EXDEV:
+                raise PdfImportDraftError(
+                    409, "staged source ownership transfer failed"
+                ) from exc
+
+        target.mkdir()
+        copied: set[str] = set()
+        for upload in uploads:
+            if upload.sha256 in copied:
+                continue
+            require_disk_headroom(target, upload.size)
+            self._copy(upload, target / upload.sha256)
+            copied.add(upload.sha256)
 
     def _open(self, project_id: str, draft_id: str) -> tuple[Path, dict[str, Any]]:
         return self._store.open(project_id, draft_id)

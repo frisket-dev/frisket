@@ -154,6 +154,20 @@ def register_pdf_import_routes(
         )
 
     @app.post(
+        f"{base}/{{draft_id}}/analyze",
+        operation_id="analyzeStagedPdfImport",
+        response_model=PdfImportStatus,
+        responses=responses,
+    )
+    async def analyze_staged_pdf_import(pid: str, draft_id: str) -> PdfImportStatus:
+        return await await_thread_worker(
+            service.analyze_staged,
+            pid,
+            draft_id,
+            limit=8,
+        )
+
+    @app.post(
         f"{base}/{{draft_id}}/pause",
         operation_id="pausePdfImport",
         response_model=PdfImportStatus,

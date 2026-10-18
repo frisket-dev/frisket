@@ -207,6 +207,14 @@ class _Service:
         self.calls.append(("upload", [value.filename for value in uploads], kwargs))
         return _status(4)
 
+    def analyze_staged(self, pid, draft_id, **kwargs):
+        self.calls.append(("analyze", pid, draft_id, kwargs))
+        value = _status(5)
+        value["upload"]["files_done"] = 2
+        value["upload"]["sealed"] = True
+        value["analysis"]["files_done"] = 2
+        return value
+
     def set_paused(self, pid, draft_id, paused):
         value = _status(2)
         value["paused"] = paused
@@ -368,6 +376,10 @@ def test_pdf_import_http_contract_and_operation_ids(tmp_path: Path) -> None:
     )
     assert uploaded.status_code == 200, uploaded.text
     assert service.calls[-1][2]["file_ids"] == ["one", "two"]
+    analyzed = client.post("/api/projects/p/import/pdf-imports/pdf-one/analyze")
+    assert analyzed.status_code == 200, analyzed.text
+    assert analyzed.json()["analysis"]["files_done"] == 2
+    assert service.calls[-1] == ("analyze", "p", "pdf-one", {"limit": 8})
     commit = client.post(
         "/api/projects/p/import/pdf-imports/pdf-one/commit",
         json={
@@ -393,6 +405,7 @@ def test_pdf_import_http_contract_and_operation_ids(tmp_path: Path) -> None:
         "appendPdfImportManifest",
         "sealPdfImportManifest",
         "uploadPdfImportFiles",
+        "analyzeStagedPdfImport",
         "pausePdfImport",
         "resumePdfImport",
         "updatePdfImportChoices",
