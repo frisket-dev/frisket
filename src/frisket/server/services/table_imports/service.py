@@ -435,24 +435,26 @@ class TableImportService:
         if reviewed_destination is None:
             return self._snapshot(directory, published)
 
-        reviewed_header, reviewed_request = reviewed_destination
+        reviewed_header, captured_request = reviewed_destination
+        canonical_request = copy.deepcopy(captured_request)
         comparison = compare_destination(
             self._workspace,
             project_id,
             directory,
             reviewed_header,
-            reviewed_request,
+            canonical_request,
             source_path=self._source_path(directory),
             settings=resolved,
             scan=scan,
         )
+        canonical_request["comparison"] = comparison
         with self._store.lock(directory):
             current = self._store.open(project_id, draft_id)[1]
             if (
                 self._analysis_publishable(current, settings_revision)
-                and current.get("destination_request") == reviewed_request
+                and current.get("destination_request") == captured_request
             ):
-                current["destination_request"]["comparison"] = comparison
+                current["destination_request"] = canonical_request
                 self._store.save_header(directory, current)
             return self._snapshot(directory, current)
 

@@ -661,6 +661,76 @@ def test_full_scan_finishes_the_current_reviewed_dedup_comparison(
     assert completed.destination.comparison.duplicate_rows == 1
 
 
+def test_full_scan_publishes_a_recanonicalized_destination_request(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace, project_id, service = _service(tmp_path)
+    project = workspace.get(project_id)
+    sheet_id = project.add_sheet("People")
+    payload = b"extra values,value\n" + b"".join(
+        f"person-{index},{index}\n".encode() for index in range(79)
+    )
+    payload += b"tail,80,overflow\n"
+    created = service.create(
+        project_id, _upload(payload, "overflow-tail.csv"), input_kind="file"
+    )
+    entered = Event()
+    release = Event()
+    from frisket.server.services.table_imports import service as service_module
+
+    original = service_module.build_complete_scan
+
+    def delayed_scan(*args, **kwargs):
+        result = original(*args, **kwargs)
+        entered.set()
+        assert release.wait(timeout=5)
+        return result
+
+    monkeypatch.setattr(service_module, "build_complete_scan", delayed_scan)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(
+            service.scan,
+            project_id,
+            created.draft_id,
+            settings_revision=0,
+        )
+        assert entered.wait(timeout=5)
+        running = service.update_destination(
+            project_id,
+            created.draft_id,
+            expected_revision=created.revision,
+            destination={"kind": "existing", "sheet_id": sheet_id},
+            mappings=[
+                {
+                    "source_index": column.source_index,
+                    "target": {"kind": "new", "name": column.name},
+                }
+                for column in created.columns
+                if column.included
+            ],
+            dedup={"enabled": False, "key_source_index": None},
+        )
+        assert running.destination is not None
+        assert running.destination.mappings[0].target.name == "extra values 2"
+        project.add_column(sheet_id, "extra values 2", type="text", hidden=True)
+        release.set()
+        completed = future.result(timeout=5)
+
+    assert completed.analysis.issue_counts.extra_values == 1
+    assert completed.destination is not None
+    assert completed.destination.comparison.complete is True
+    assert completed.destination.mappings[0].target.name == "extra values 2 2"
+    frozen = service.freeze_for_commit(
+        project_id,
+        created.draft_id,
+        expected_revision=completed.revision,
+        idempotency_key="recanonicalized-after-full-scan",
+    )
+    assert isinstance(frozen, FrozenTableImport)
+    assert frozen.plan.columns[0].target_name == "extra values 2 2"
+    assert frozen.plan.extra_values_target_name == "extra values"
+
+
 def test_destination_canonicalizes_duplicate_output_name_hints(
     tmp_path: Path,
 ) -> None:
