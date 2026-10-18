@@ -50,9 +50,20 @@ def test_conversion_preserves_text_and_reports_changes_and_failures() -> None:
     assert invalid.outcome == "invalid"
     assert invalid.issue is not None
     assert (moment.value, moment.display) == (
-        "2026-10-18T12:30",
-        "2026-10-18 12:30",
+        "2026-10-18T12:30:00",
+        "2026-10-18 12:30:00",
     )
+
+
+def test_conversion_preserves_datetime_precision_and_rejects_storage_overflow() -> None:
+    moment = convert_cell(RawCell("2026-10-18T12:30:45.123456+02:00"), "datetime")
+
+    assert moment.value == "2026-10-18T12:30:45.123456+02:00"
+    assert convert_cell(RawCell("1e999"), "number").outcome == "invalid"
+    assert convert_cell(RawCell(str(2**63)), "integer").outcome == "invalid"
+    assert convert_cell(RawCell(str(-(2**63) - 1)), "integer").outcome == "invalid"
+    assert convert_cell(RawCell("1,2,3"), "number").outcome == "invalid"
+    assert convert_cell(RawCell("1,234,567.89"), "number").value == 1_234_567.89
 
 
 def test_preview_and_stats_stay_bounded_and_mark_provisional_counts() -> None:
@@ -94,3 +105,40 @@ def test_preview_and_stats_stay_bounded_and_mark_provisional_counts() -> None:
     assert snapshot.columns[1].suggested_type == "number"
     assert snapshot.columns[1].counts_by_type["number"].invalid == 1
     assert asdict(snapshot)["rows_checked"] == 5
+
+
+def test_stats_count_every_row_but_bound_inference_to_first_100k() -> None:
+    columns = (SourceColumn(0, "value", "value", "original"),)
+    stats = ColumnStatsAccumulator(columns, inference_limit=100_000, preview_values=5)
+
+    for ordinal in range(1, 100_006):
+        stats.accept(_row(ordinal, str(ordinal)))
+
+    snapshot = stats.snapshot(complete=True)
+    column = snapshot.columns[0]
+    assert snapshot.rows_checked == 100_005
+    assert snapshot.inference_rows_checked == 100_000
+    assert column.sample_values == ("1", "2", "3", "4", "5")
+    assert column.counts_by_type["integer"].rows_checked == 100_005
+    assert column.suggested_type == "integer"
+
+
+def test_mixed_naive_and_aware_datetimes_stay_text_for_review() -> None:
+    columns = (SourceColumn(0, "when", "when", "original"),)
+    stats = ColumnStatsAccumulator(columns)
+    stats.accept(_row(1, "2026-10-18T12:30:45.123456"))
+    stats.accept(_row(2, "2026-10-18T12:30:45+02:00"))
+
+    column = stats.snapshot(complete=True).columns[0]
+    assert column.suggested_type == "text"
+    assert "mixed_datetime_awareness" in column.needs_review
+
+
+def test_date_only_values_infer_date_instead_of_datetime() -> None:
+    columns = (SourceColumn(0, "when", "when", "original"),)
+    stats = ColumnStatsAccumulator(columns)
+    stats.accept(_row(1, "2026-10-18"))
+    stats.accept(_row(2, "2026-10-19"))
+
+    column = stats.snapshot(complete=True).columns[0]
+    assert column.suggested_type == "date"

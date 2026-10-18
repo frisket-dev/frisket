@@ -93,3 +93,23 @@ def test_content_inspection_detects_pipe_and_utf16(tmp_path: Path) -> None:
     assert info.detected_encoding == "utf-16"
     assert info.detected_delimiter == "|"
     assert info.detected_decimal_separator == ","
+
+
+def test_unclosed_quoted_record_fails_closed_without_losing_valid_multiline(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "malformed.csv"
+    source.write_text('name,value\n"Ada\nLovelace,1\n', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="could not be parsed"):
+        count_records(source, _settings())
+
+
+def test_logical_record_count_is_exact_beyond_inference_limit(tmp_path: Path) -> None:
+    source = tmp_path / "large.csv"
+    with source.open("w", encoding="utf-8", newline="") as output:
+        output.write("value\n")
+        for value in range(100_005):
+            output.write(f"{value}\n")
+
+    assert count_records(source, _settings()) == 100_006

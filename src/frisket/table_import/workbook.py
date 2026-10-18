@@ -149,6 +149,8 @@ def _open_calamine(path: Path) -> Any:
     except ImportError as exc:  # pragma: no cover - primary owns dependency setup.
         raise TableReadError("XLS and ODS reading requires python-calamine") from exc
     try:
-        return CalamineWorkbook.from_path(path)
+        # The staged source may deliberately have no filename extension.
+        # Calamine's object entry point detects the workbook from its bytes.
+        return CalamineWorkbook.from_object(path)
     except Exception as exc:
         raise TableReadError(f"workbook could not be opened: {exc}") from exc

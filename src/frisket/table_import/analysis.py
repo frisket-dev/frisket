@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import deque
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 import re
 
 from .models import (
@@ -120,6 +121,8 @@ class ColumnStatsAccumulator:
         self._leading_zero = [False for _ in self._columns]
         self._long_integer = [False for _ in self._columns]
         self._saw_time = [False for _ in self._columns]
+        self._saw_naive_datetime = [False for _ in self._columns]
+        self._saw_aware_datetime = [False for _ in self._columns]
         self._ambiguous_date = [False for _ in self._columns]
         self._clear_date = [False for _ in self._columns]
 
@@ -140,6 +143,9 @@ class ColumnStatsAccumulator:
                 self._long_integer[position] = True
             if in_inference and (cell.kind == "datetime" or _has_time(text)):
                 self._saw_time[position] = True
+                awareness = _datetime_awareness(text)
+                self._saw_naive_datetime[position] |= awareness is False
+                self._saw_aware_datetime[position] |= awareness is True
             if in_inference:
                 date_shape = _numeric_date_shape(text)
                 self._ambiguous_date[position] |= date_shape == "ambiguous"
@@ -168,17 +174,24 @@ class ColumnStatsAccumulator:
     def snapshot(self, *, complete: bool) -> ColumnStatsSnapshot:
         columns: list[ColumnStats] = []
         for position, column in enumerate(self._columns):
+            mixed_datetime_awareness = (
+                self._saw_naive_datetime[position]
+                and self._saw_aware_datetime[position]
+            )
             suggested = _suggest_type(
                 self._inference[position],
                 leading_zero=self._leading_zero[position],
                 long_integer=self._long_integer[position],
                 saw_time=self._saw_time[position],
+                mixed_datetime_awareness=mixed_datetime_awareness,
             )
             needs_review: list[str] = []
             if self._leading_zero[position]:
                 needs_review.append("leading_zero")
             if self._long_integer[position]:
                 needs_review.append("long_integer")
+            if mixed_datetime_awareness:
+                needs_review.append("mixed_datetime_awareness")
             suggested_counts = self._full[position].get(suggested)
             if suggested_counts is not None and suggested_counts.invalid:
                 needs_review.append("invalid_values")
@@ -251,11 +264,12 @@ def _suggest_type(
     leading_zero: bool,
     long_integer: bool,
     saw_time: bool,
+    mixed_datetime_awareness: bool,
 ) -> TargetType:
     nonblank = counts["text"].valid
     if nonblank == 0:
         return "omit"
-    if leading_zero or long_integer:
+    if leading_zero or long_integer or mixed_datetime_awareness:
         return "text"
     boolean = counts["boolean"]
     integer = counts["integer"]
@@ -264,8 +278,8 @@ def _suggest_type(
     candidates: tuple[TargetType, ...] = (
         "integer",
         "number",
-        "datetime",
         "date",
+        "datetime",
         "boolean",
     )
     if saw_time and counts["datetime"].valid > counts["datetime"].invalid:
@@ -277,6 +291,14 @@ def _suggest_type(
 def _has_time(text: str) -> bool:
     value = text.strip()
     return "T" in value or bool(re.search(r"\b\d{1,2}:\d{2}\b", value))
+
+
+def _datetime_awareness(text: str) -> bool | None:
+    try:
+        parsed = datetime.fromisoformat(text.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed.utcoffset() is not None
 
 
 def _numeric_date_shape(text: str) -> str | None:

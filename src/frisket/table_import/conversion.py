@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
+import math
 import re
 
 from .models import (
@@ -44,6 +45,8 @@ def convert_cell(
             if decimal != decimal.to_integral_value():
                 raise ValueError("not a whole number")
             value = int(decimal)
+            if not -(2**63) <= value <= 2**63 - 1:
+                raise ValueError("integer is outside the supported range")
             display = str(value)
         elif target_type == "number":
             decimal = _parse_decimal(
@@ -52,6 +55,8 @@ def convert_cell(
                 thousands_separator=thousands_separator,
             )
             value = float(decimal)
+            if not math.isfinite(value):
+                raise ValueError("number is outside the supported range")
             display = _display_decimal(decimal)
         elif target_type == "boolean":
             value = _parse_boolean(original)
@@ -62,7 +67,7 @@ def convert_cell(
             display = value
         elif target_type == "datetime":
             parsed = _parse_datetime(original, date_order=date_order)
-            value = parsed.isoformat(timespec="minutes")
+            value = parsed.isoformat()
             display = value.replace("T", " ")
         else:  # pragma: no cover - TargetType keeps this closed for typed callers.
             raise ValueError(f"unsupported target type: {target_type}")
@@ -129,8 +134,12 @@ def _parse_decimal(
     if percent:
         text = text[:-1].strip()
     text = _CURRENCY.sub("", text)
-    if thousands_separator:
-        text = text.replace(thousands_separator, "")
+    if thousands_separator and thousands_separator in text:
+        text = _remove_grouping(
+            text,
+            decimal_separator=decimal_separator,
+            thousands_separator=thousands_separator,
+        )
     if decimal_separator != ".":
         text = text.replace(decimal_separator, ".")
     if not text:
@@ -143,6 +152,36 @@ def _parse_decimal(
     if percent:
         value /= Decimal(100)
     return value
+
+
+def _remove_grouping(
+    text: str, *, decimal_separator: str, thousands_separator: str
+) -> str:
+    mantissa, marker, exponent = text.lower().partition("e")
+    if marker and (not exponent or not exponent.lstrip("+-").isdigit()):
+        raise ValueError("invalid exponent")
+    sign = mantissa[:1] if mantissa[:1] in {"+", "-"} else ""
+    unsigned = mantissa[1:] if sign else mantissa
+    integer, decimal_mark, fraction = unsigned.partition(decimal_separator)
+    if decimal_mark and decimal_separator in fraction:
+        raise ValueError("multiple decimal separators")
+    groups = integer.split(thousands_separator)
+    if (
+        len(groups) < 2
+        or not 1 <= len(groups[0]) <= 3
+        or not groups[0].isdigit()
+        or any(len(group) != 3 or not group.isdigit() for group in groups[1:])
+        or thousands_separator in fraction
+    ):
+        raise ValueError("invalid thousands grouping")
+    normalized = sign + "".join(groups)
+    if decimal_mark:
+        if not fraction or not fraction.isdigit():
+            raise ValueError("invalid decimal fraction")
+        normalized += decimal_separator + fraction
+    if marker:
+        normalized += marker + exponent
+    return normalized
 
 
 def _display_decimal(value: Decimal) -> str:
