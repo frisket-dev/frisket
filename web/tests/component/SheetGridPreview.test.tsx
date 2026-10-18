@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CompactSelection, GridCellKind, type DataEditorProps } from '@glideapps/glide-data-grid';
 import { SheetGrid } from '../../src/grid/SheetGrid';
 import { createProjectApi } from '../../src/api/real';
-import type { PreviewOverlayCell, PreviewOverlayColumn, SheetMeta } from '../../src/api/types';
+import type { PreviewOverlayCell, PreviewOverlayColumn, RunProgress, SheetMeta } from '../../src/api/types';
 import { columnDef, row } from '../support/domainFixtures';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
 
@@ -135,5 +135,42 @@ describe('preview grid interactions', () => {
 
     act(() => grid.onVisibleRegionChanged?.({ x: 0, y: 3, width: 1, height: 2 }));
     expect(visibleRowsChanged).not.toHaveBeenCalled();
+  });
+
+  it('shows background OCR pending state only for the child run row scope', async () => {
+    const documentSheet: SheetMeta = {
+      ...sheet,
+      columns: [columnDef({ id: 'text', name: 'Text', type: 'text' })],
+      annotatedTextColumnIds: ['text'],
+    };
+    const backgroundLiveRun: RunProgress = {
+      runId: '42',
+      actionKind: 'media.ocr',
+      actionName: 'OCR PDFs',
+      sheetId: sheet.id,
+      targetColumnId: '',
+      targetRowIds: ['2'],
+      status: 'running',
+      completedRows: 0,
+      totalRows: 1,
+      failedRows: 0,
+      costSoFar: 0,
+    };
+    await act(async () => {
+      render(<SheetGrid sheet={documentSheet} dataVersion={0} liveRun={null}
+        backgroundLiveRun={backgroundLiveRun} rowHeight={32} wrapText={false}
+        columnGroupsStorageScope="preview-grid"
+        onRowOpen={vi.fn()} onColumnOpen={vi.fn()} onCellEdit={vi.fn()}
+      />);
+    });
+
+    expect(editor.props!.getCellContent([0, 0])).toMatchObject({
+      kind: GridCellKind.Text,
+      data: '',
+    });
+    expect(editor.props!.getCellContent([0, 1])).toMatchObject({
+      kind: GridCellKind.Custom,
+      data: { label: 'Waiting for OCR' },
+    });
   });
 });

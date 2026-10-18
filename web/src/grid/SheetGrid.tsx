@@ -1373,6 +1373,10 @@ function useSheetGridController({
     return new Set((exact.length > 0 ? exact.map((column) => column.id) : sheet.annotatedTextColumnIds));
   }, [backgroundRunActive, backgroundLiveRun, sheet.annotatedTextColumnIds, sheet.columns]);
 
+  const backgroundPendingRowIds = useMemo<Set<string>>(() => (
+    new Set(backgroundLiveRun?.targetRowIds ?? [])
+  ), [backgroundLiveRun?.targetRowIds]);
+
   const pendingRowIds = useMemo<Set<string> | null>(() => {
     if (!runActive || !liveRun) return null;
     const ids = liveRun.targetRowIds;
@@ -1477,7 +1481,9 @@ function useSheetGridController({
       const runPending =
         pendingColIds.has(def.id) &&
         (pendingRowIds === null || (row !== undefined && pendingRowIds.has(row.id)));
-      const backgroundPending = backgroundPendingColIds.has(def.id);
+      const backgroundPending = row !== undefined
+        && backgroundPendingColIds.has(def.id)
+        && backgroundPendingRowIds.has(row.id);
       const pending = runPending || backgroundPending;
       const entityMentionCellKey = row ? JSON.stringify([row.id, def.id]) : null;
       let cell = withWrapSafeDisplayData(
@@ -1521,6 +1527,7 @@ function useSheetGridController({
       pendingColIds,
       pendingRowIds,
       backgroundPendingColIds,
+      backgroundPendingRowIds,
       priorityReadingRowId,
       childSheet,
       lensActive,

@@ -5,6 +5,8 @@ import type { ImportSessionStatus } from '../../src/api/open';
 import {
   composeImportSearchActivity,
   importActivity,
+  pendingImportRowCount,
+  preferredImportActivity,
 } from '../../src/components/useImportProgress';
 import {
   abortImportSessionBrowserUpload,
@@ -106,6 +108,49 @@ describe('PDF import post-commit activity', () => {
     expect(cell.kind).toBe(GridCellKind.Custom);
     expect(cell.copyData).toBe('');
     expect((cell as { data?: { label?: string } }).data?.label).toBe('Waiting for OCR');
+  });
+
+  it('adds placeholders only while the import is admitting rows', () => {
+    expect(pendingImportRowCount(importActivity(session({
+      state: 'running',
+      committed_rows: 7,
+    })))).toBe(5);
+    expect(pendingImportRowCount(importActivity(session({
+      state: 'paused',
+      committed_rows: 7,
+    })))).toBe(0);
+    expect(pendingImportRowCount(importActivity(session({
+      state: 'cancelled',
+      committed_rows: 7,
+    })))).toBe(0);
+  });
+
+  it('prefers a live import over an earlier recovery entry', () => {
+    const paused = importActivity(session({
+      import_ref: 'import-paused',
+      state: 'paused',
+      preparation_children: [],
+      preparation_completed: 12,
+    }));
+    const live = importActivity(session({
+      import_ref: 'import-live',
+      state: 'running',
+    }));
+
+    expect(preferredImportActivity([paused!, live!])?.importRef).toBe('import-live');
+  });
+
+  it('prefers row admission over an earlier inactive preparation entry', () => {
+    const inactive = importActivity(session({
+      import_ref: 'import-inactive',
+      preparation_children: [],
+    }));
+    const live = importActivity(session({
+      import_ref: 'import-live',
+      state: 'admitting',
+    }));
+
+    expect(preferredImportActivity([inactive!, live!])?.importRef).toBe('import-live');
   });
 
   it('aborts only the current browser upload registration', () => {

@@ -62,6 +62,22 @@ export interface ImportActivity {
   canStop: boolean;
 }
 
+export function pendingImportRowCount(activity: ImportActivity | null): number {
+  if (!activity || !['admitting', 'running'].includes(activity.session.state)) return 0;
+  const selectedTotal = activity.session.selected_total ?? activity.session.admitted_files;
+  return Math.max(selectedTotal - activity.session.committed_rows, 0);
+}
+
+export function preferredImportActivity(activities: ImportActivity[]): ImportActivity | null {
+  const live = activities.find((activity) => (
+    !['paused', 'cancelled'].includes(activity.session.state)
+    && (['admitting', 'running', 'cancelling'].includes(activity.session.state)
+      || activity.liveRun !== null)
+  ));
+  if (live) return live;
+  return activities.find((activity) => !activity.needsRecovery) ?? activities[0] ?? null;
+}
+
 function activeChild(session: ImportSessionStatus): ImportPreparationChild | null {
   return [...session.preparation_children]
     .reverse()

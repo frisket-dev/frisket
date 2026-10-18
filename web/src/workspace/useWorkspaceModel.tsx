@@ -56,7 +56,11 @@ import { applyColumnTypeRegistry } from '../grid/typeRegistry';
 import { gridReadColumnIds } from '../components/fieldValueDependencies';
 import { computeRowCacheKey, resolveRowCacheScope } from '../grid/rowCacheStore';
 import { PanelLoading } from '../components/PanelPrimitives';
-import { useImportProgress } from '../components/useImportProgress';
+import {
+  pendingImportRowCount as selectPendingImportRowCount,
+  preferredImportActivity,
+  useImportProgress,
+} from '../components/useImportProgress';
 import { documentMediaColumns } from '../workbench/documentMedia';
 import { promoteDocumentPriority } from '../api/documentPriority';
 import { selectWorkViewAvailability } from '../core/selectors/workView';
@@ -579,17 +583,30 @@ export function useWorkspaceModel({
     onChanged: handleImportSessionChanged,
     onError: showError,
   });
-  const activeImportActivity = sheet
-    ? importProgress.activities.find((activity) => activity.session.sheet_id === Number(sheet.id)) ?? null
-    : null;
+  const activeImportActivity = sheet ? preferredImportActivity(
+    importProgress.activities.filter((activity) => activity.session.sheet_id === Number(sheet.id)),
+  ) : null;
   const importLiveRun = activeImportActivity?.liveRun ?? null;
-  const pendingImportRowCount = activeImportActivity
-    ? Math.max(
-      (activeImportActivity.session.selected_total
-        ?? activeImportActivity.session.admitted_files) - activeImportActivity.session.committed_rows,
-      0,
-    )
-    : 0;
+  const pendingImportRowCount = selectPendingImportRowCount(activeImportActivity);
+  const [importRunRowScope, setImportRunRowScope] = useState<{
+    runId: string;
+    rowIds: string[];
+  } | null>(null);
+  useEffect(() => {
+    const runId = importLiveRun?.actionKind === 'media.ocr' ? importLiveRun.runId : null;
+    if (runId === null) return undefined;
+    let alive = true;
+    void projectApi.getRunRows(runId, 0, 500)
+      .then((page) => {
+        if (alive) setImportRunRowScope({ runId, rowIds: page.rows.map((row) => row.rowId) });
+      })
+      .catch(() => {
+        if (alive) setImportRunRowScope({ runId, rowIds: [] });
+      });
+    return () => {
+      alive = false;
+    };
+  }, [importLiveRun?.actionKind, importLiveRun?.runId, projectApi]);
   const closeActionDrawerRef = useRef<() => void>(() => {});
   const onLaunchAccepted = useCallback(() => closeActionDrawerRef.current(), []);
   const { startProposal, startRun } = useRunController({
@@ -3643,7 +3660,12 @@ export function useWorkspaceModel({
           sheet={sheet}
           dataVersion={dataVersion}
           liveRun={run}
-          backgroundLiveRun={importLiveRun}
+          backgroundLiveRun={importLiveRun?.actionKind === 'media.ocr' ? {
+            ...importLiveRun,
+            targetRowIds: importRunRowScope?.runId === importLiveRun.runId
+              ? importRunRowScope.rowIds
+              : [],
+          } : importLiveRun}
           priorityReadingRowId={activeDocumentPriority?.sheetId === sheet.id ? activeDocumentPriority.rowId : null}
           pendingImportRowCount={pendingImportRowCount}
           rowHeight={rowHeight}
@@ -3721,6 +3743,7 @@ export function useWorkspaceModel({
     dataVersion,
     run,
     importLiveRun,
+    importRunRowScope,
     pendingImportRowCount,
     activeDocumentPriority,
     rowHeight,

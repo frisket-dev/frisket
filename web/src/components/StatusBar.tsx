@@ -8,6 +8,7 @@ import { RunFailureTriage } from './RunFailureTriage';
 import { SearchPreparationNotice } from './SearchPreparationNotice';
 import {
   composeImportSearchActivity,
+  preferredImportActivity,
   type ImportProgressController,
 } from './useImportProgress';
 import { useNativePopover } from '../hooks/useNativePopover';
@@ -131,7 +132,7 @@ export function StatusBar({
     projectId,
     descriptor.capabilities.team,
   );
-  const importActivity = importProgress.activities[0] ?? null;
+  const importActivity = preferredImportActivity(importProgress.activities);
   const combinedActivity = composeImportSearchActivity(importActivity, baseSearchPreparationNotice);
   const searchPreparationNotice = combinedActivity?.notice ?? baseSearchPreparationNotice;
   const canUndo = history !== null && history.undoTarget !== null;
