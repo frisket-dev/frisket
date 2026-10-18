@@ -21,8 +21,8 @@ describe('shared activity progress presentation', () => {
     );
 
     const row = screen.getByText('OCR').closest('.activity-progress-row');
-    expect(row).toHaveClass('status-error');
-    expect(row).not.toHaveClass('status-complete');
+    expect(row).toHaveClass('activity-state-error');
+    expect(row).not.toHaveClass('activity-state-complete');
     expect(screen.getByRole('progressbar')).toHaveAttribute('value', '3');
   });
 

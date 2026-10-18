@@ -114,7 +114,7 @@ export function ActionProgressNotice({
       dismissLabel="Minimize action progress"
       dismissTestId="active-run-dismiss"
       testId="active-run-banner"
-      className={`active-run-banner status-${run.status}`}
+      className={`active-run-banner run-status-${run.status}`}
       footer={(
         <>
           {!run.cancelRequested && <span className="pending-ai-cells" data-testid="pending-ai-cells">
@@ -597,6 +597,7 @@ function RunFileProgress({ files }: { files: ReturnType<typeof activeOcrFiles> }
         <ProgressRow
           key={file.row_id}
           className="run-file-progress"
+          layout="file"
           testId={`run-file-progress-${file.row_id}`}
           label={file.filename || `File row ${file.row_id}`}
           completed={file.completed}

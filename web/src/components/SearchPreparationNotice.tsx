@@ -181,6 +181,7 @@ export function SearchPreparationNotice({
                 <ProgressRow
                   key={file.source_id}
                   className="pdf-index-progress"
+                  layout="file"
                   label={<span title={filename}>{filename}</span>}
                   completed={file.completed}
                   total={file.total}

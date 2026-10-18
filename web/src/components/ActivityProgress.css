@@ -2,11 +2,13 @@
   display: grid;
   min-width: 0;
   width: 100%;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   border: 1px solid var(--border-strong);
   border-radius: 10px;
   background: var(--bg);
-  box-shadow: var(--shadow-drawer);
+  box-shadow: 0 10px 30px rgba(40, 30, 20, 0.16);
+  container-type: inline-size;
 }
 
 .status-notice-stack > .activity-progress-card {
@@ -22,9 +24,9 @@
   padding: 12px 42px 11px 16px;
   background: var(--accent-bg);
 }
-.activity-progress-card.status-warning .activity-progress-card-header { background: var(--amber-bg); }
-.activity-progress-card.status-error .activity-progress-card-header { background: var(--red-bg); }
-.activity-progress-card.status-complete .activity-progress-card-header { background: var(--green-bg); }
+.activity-progress-card.activity-state-warning .activity-progress-card-header { background: var(--amber-bg); }
+.activity-progress-card.activity-state-error .activity-progress-card-header { background: var(--red-bg); }
+.activity-progress-card.activity-state-complete .activity-progress-card-header { background: var(--green-bg); }
 
 .activity-progress-card-heading {
   display: flex;
@@ -39,14 +41,14 @@
   gap: 2px;
   overflow-wrap: anywhere;
 }
-.activity-progress-card-copy strong {
+.activity-progress-card-header .activity-progress-card-copy > strong {
   color: var(--accent-strong);
   font-size: 14px;
   font-weight: 650;
 }
-.activity-progress-card.status-warning .activity-progress-card-copy strong { color: var(--amber); }
-.activity-progress-card.status-error .activity-progress-card-copy strong { color: var(--red); }
-.activity-progress-card.status-complete .activity-progress-card-copy strong { color: var(--green); }
+.activity-progress-card.activity-state-warning .activity-progress-card-header .activity-progress-card-copy > strong { color: var(--amber); }
+.activity-progress-card.activity-state-error .activity-progress-card-header .activity-progress-card-copy > strong { color: var(--red); }
+.activity-progress-card.activity-state-complete .activity-progress-card-header .activity-progress-card-copy > strong { color: var(--green); }
 .activity-progress-card-detail {
   color: var(--text-mid);
   font-size: 12.5px;
@@ -107,6 +109,7 @@
 .activity-progress-label strong {
   min-width: 0;
   overflow: hidden;
+  color: var(--text);
   font-size: 12.5px;
   font-weight: 650;
   text-overflow: ellipsis;
@@ -128,14 +131,15 @@
   text-align: right;
   white-space: nowrap;
 }
-.activity-progress-row.status-complete .activity-progress-count { color: var(--green); }
-.activity-progress-row.status-warning .activity-progress-count { color: var(--amber); }
-.activity-progress-row.status-error .activity-progress-count { color: var(--red); }
+.activity-progress-row.activity-state-complete .activity-progress-count { color: var(--green); }
+.activity-progress-row.activity-state-warning .activity-progress-count { color: var(--amber); }
+.activity-progress-row.activity-state-error .activity-progress-count { color: var(--red); }
 
 .activity-progress-bar {
   appearance: none;
   position: relative;
   display: block;
+  min-width: 0;
   width: 100%;
   height: 6px;
   overflow: hidden;
@@ -146,12 +150,12 @@
 .activity-progress-bar::-webkit-progress-bar { background: var(--bg-hover); }
 .activity-progress-bar::-webkit-progress-value { background: var(--accent); }
 .activity-progress-bar::-moz-progress-bar { background: var(--accent); }
-.activity-progress-bar.status-complete::-webkit-progress-value { background: var(--green); }
-.activity-progress-bar.status-complete::-moz-progress-bar { background: var(--green); }
-.activity-progress-bar.status-warning::-webkit-progress-value { background: var(--amber); }
-.activity-progress-bar.status-warning::-moz-progress-bar { background: var(--amber); }
-.activity-progress-bar.status-error::-webkit-progress-value { background: var(--red); }
-.activity-progress-bar.status-error::-moz-progress-bar { background: var(--red); }
+.activity-progress-bar.activity-state-complete::-webkit-progress-value { background: var(--green); }
+.activity-progress-bar.activity-state-complete::-moz-progress-bar { background: var(--green); }
+.activity-progress-bar.activity-state-warning::-webkit-progress-value { background: var(--amber); }
+.activity-progress-bar.activity-state-warning::-moz-progress-bar { background: var(--amber); }
+.activity-progress-bar.activity-state-error::-webkit-progress-value { background: var(--red); }
+.activity-progress-bar.activity-state-error::-moz-progress-bar { background: var(--red); }
 .activity-progress-bar-fill {
   position: absolute;
   inset: 0 auto 0 0;
@@ -159,16 +163,67 @@
   border-radius: inherit;
   background: var(--accent);
 }
-.activity-progress-bar.status-complete .activity-progress-bar-fill { width: 100%; background: var(--green); }
+.activity-progress-bar.activity-state-complete .activity-progress-bar-fill { width: 100%; background: var(--green); }
 .activity-progress-bar.indeterminate .activity-progress-bar-fill {
   width: 40%;
   animation: workbench-bottom-progress-slide 1.1s ease-in-out infinite;
 }
 
-@media (max-width: 700px) {
-  .activity-progress-row { grid-template-columns: minmax(0, 1fr) minmax(80px, 1fr); }
-  .activity-progress-row .activity-progress-count {
+.activity-progress-row-file {
+  grid-template-columns: minmax(80px, 1fr) auto;
+}
+.activity-progress-row-file .activity-progress-label {
+  grid-column: 1 / -1;
+  grid-row: 1;
+}
+.activity-progress-row-file .activity-progress-bar {
+  grid-column: 1;
+  grid-row: 2;
+}
+.activity-progress-row-file .activity-progress-count {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+@container (max-width: 440px) {
+  .activity-progress-row { grid-template-columns: minmax(80px, 1fr) auto; }
+  .activity-progress-row .activity-progress-label {
     grid-column: 1 / -1;
+    grid-row: 1;
+  }
+  .activity-progress-row .activity-progress-bar {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .activity-progress-row .activity-progress-count {
+    grid-column: 2;
+    grid-row: 2;
+  }
+  .activity-progress-row-file { grid-template-columns: minmax(0, 1fr); }
+  .activity-progress-row-file .activity-progress-count {
+    grid-column: 1;
+    grid-row: 2;
+    overflow-wrap: anywhere;
     text-align: left;
+    white-space: normal;
+  }
+  .activity-progress-row-file .activity-progress-bar {
+    grid-column: 1;
+    grid-row: 3;
+  }
+}
+
+@container (max-width: 360px) {
+  .activity-progress-row { grid-template-columns: minmax(0, 1fr); }
+  .activity-progress-row .activity-progress-count {
+    grid-column: 1;
+    grid-row: 2;
+    overflow-wrap: anywhere;
+    text-align: left;
+    white-space: normal;
+  }
+  .activity-progress-row .activity-progress-bar {
+    grid-column: 1;
+    grid-row: 3;
   }
 }

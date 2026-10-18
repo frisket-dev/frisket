@@ -5149,17 +5149,6 @@ li.panel-empty { list-style: none; }
   display: grid;
   min-width: 0;
 }
-.pdf-index-progress.activity-progress-row {
-  grid-template-columns: minmax(0, 1fr) auto;
-}
-.pdf-index-progress .activity-progress-bar {
-  grid-column: 1 / -1;
-  grid-row: 2;
-}
-.pdf-index-progress .activity-progress-count {
-  grid-column: 2;
-  grid-row: 1;
-}
 .search-preparation-details {
   display: grid;
   gap: 4px;
@@ -5202,17 +5191,6 @@ li.panel-empty { list-style: none; }
   color: var(--red);
 }
 .search-preparation-review { justify-self: start; }
-
-@media (max-width: 700px) {
-  .pdf-index-progress.activity-progress-row { grid-template-columns: minmax(0, 1fr); }
-  .pdf-index-progress .activity-progress-count {
-    grid-column: 1;
-    grid-row: 2;
-    text-align: left;
-    white-space: normal;
-  }
-  .pdf-index-progress .activity-progress-bar { grid-row: 3; }
-}
 
 .status-right { display: flex; align-items: center; gap: 2px; }
 .status-btn {
@@ -10654,17 +10632,6 @@ dialog.modal-card::backdrop {
   padding: 8px 0;
 }
 .run-watcher-inline > .activity-progress-row { border-top: 0; }
-.run-watcher .run-file-progress.activity-progress-row {
-  grid-template-columns: minmax(0, 1fr) auto;
-}
-.run-watcher .run-file-progress .activity-progress-bar {
-  grid-column: 1 / -1;
-  grid-row: 2;
-}
-.run-watcher .run-file-progress .activity-progress-count {
-  grid-column: 2;
-  grid-row: 1;
-}
 .active-run-failures { margin-top: 4px; }
 .run-file-progress-list { display: grid; gap: 8px; margin: 8px 0; }
 .run-watcher-errors { margin-top: 10px; border-top: 1px solid var(--bg-hover); padding-top: 8px; }

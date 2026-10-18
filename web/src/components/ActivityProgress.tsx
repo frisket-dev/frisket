@@ -41,7 +41,7 @@ export function ActivityProgressCard({
 
   return (
     <section
-      className={`activity-progress-card status-${state}${className ? ` ${className}` : ''}`}
+      className={`activity-progress-card activity-state-${state}${className ? ` ${className}` : ''}`}
       data-testid={testId}
       data-stage={stage}
       data-status={dataStatus}
@@ -93,7 +93,7 @@ export function ProgressBar({
     ? Math.max(0, Math.min(completed, boundedTotal))
     : null;
   const determinate = boundedCompleted !== null && boundedTotal !== null;
-  const classes = `activity-progress-bar status-${state}${!determinate && state === 'active' ? ' indeterminate' : ''}${className ? ` ${className}` : ''}`;
+  const classes = `activity-progress-bar activity-state-${state}${!determinate && state === 'active' ? ' indeterminate' : ''}${className ? ` ${className}` : ''}`;
 
   if (boundedCompleted !== null && boundedTotal !== null) {
     return (
@@ -129,6 +129,7 @@ export function ProgressRow({
   ariaLabel,
   testId,
   className,
+  layout = 'default',
 }: {
   label: ReactNode;
   labelMeta?: ReactNode;
@@ -139,10 +140,11 @@ export function ProgressRow({
   ariaLabel: string;
   testId?: string;
   className?: string;
+  layout?: 'default' | 'file';
 }) {
   return (
     <div
-      className={`activity-progress-row status-${state}${className ? ` ${className}` : ''}`}
+      className={`activity-progress-row activity-state-${state}${layout === 'file' ? ' activity-progress-row-file' : ''}${className ? ` ${className}` : ''}`}
       data-testid={testId}
     >
       <span className="activity-progress-label">
