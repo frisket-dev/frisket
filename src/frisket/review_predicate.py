@@ -7,8 +7,8 @@ import this so "pending review" means the same thing everywhere."""
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 import json
+from collections.abc import Mapping
 from typing import Any
 
 SUPPORT_COLUMN_NAMES = (
@@ -32,8 +32,54 @@ SUPPORT_COLUMN_SUFFIXES = (
     "_rationale",
 )
 
+# Logical output keys are authored by the action and survive user-chosen column
+# names in runs.params.output_names.  Keep this narrow: these are companion
+# artifacts used to present or ground the primary result, not separate review
+# chores.  Name conventions remain the fallback for older/unmanaged writers.
+PRIMARY_OUTPUT_ROLES = {"media.ocr": frozenset({"text"})}
+SUPPORT_OUTPUT_ROLES = {"media.ocr": frozenset({"blocks", "pdf"})}
 
-def is_support_column(column_name: str, *, action_kind: str | None = None) -> bool:
+
+def authored_output_roles(raw_params: object) -> dict[str, str]:
+    """Map materialized column names to stable action output keys."""
+
+    try:
+        params = json.loads(raw_params) if isinstance(raw_params, str) else raw_params
+    except (TypeError, ValueError):
+        return {}
+    output_names = params.get("output_names") if isinstance(params, Mapping) else None
+    if not isinstance(output_names, Mapping):
+        return {}
+    return {
+        materialized: logical
+        for logical, materialized in output_names.items()
+        if isinstance(logical, str)
+        and logical
+        and isinstance(materialized, str)
+        and materialized
+    }
+
+
+def has_explicit_review_role(action_kind: str | None, output_role: str | None) -> bool:
+    return bool(
+        output_role
+        and (
+            output_role in PRIMARY_OUTPUT_ROLES.get(action_kind or "", ())
+            or output_role in SUPPORT_OUTPUT_ROLES.get(action_kind or "", ())
+        )
+    )
+
+
+def is_support_column(
+    column_name: str,
+    *,
+    action_kind: str | None = None,
+    output_role: str | None = None,
+) -> bool:
+    if output_role in PRIMARY_OUTPUT_ROLES.get(action_kind or "", ()):
+        return False
+    if output_role in SUPPORT_OUTPUT_ROLES.get(action_kind or "", ()):
+        return True
     # Every declared map.find output is authored result data.  A caller may
     # legitimately name a detail "source" or "confidence"; the generic
     # name convention must not silently remove it from Review.

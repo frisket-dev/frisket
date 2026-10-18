@@ -27,6 +27,8 @@ FORMAT_VERSION = 1
 
 #: ``meta`` key carrying the digest of the DDL a bundle was created with.
 SCHEMA_DIGEST_META_KEY = "schema_digest"
+REVIEW_OUTPUT_ROLES_META_KEY = "review_output_roles"
+REVIEW_OUTPUT_ROLES_VERSION = "ocr-v1"
 
 # The exact logical current-value view at the scalar-storage endpoint. Older
 # migrations install this pinned intermediate definition; they must not reach
@@ -2490,6 +2492,14 @@ SCHEMA += "\n" + CITATION_TEXT_SCHEMA_SQL + "\n"
 SCHEMA += "\n" + EXTRACTION_LAYOUTS_SCHEMA_SQL + "\n"
 SCHEMA += "\n" + DOCUMENT_TEXT_SCHEMA_SQL + "\n"
 SCHEMA += "\n" + DOCUMENT_TEXT_SELECTION_VIEW_SQL + "\n"
+# This durable bootstrap row gives the data-only OCR role repair an exact
+# schema endpoint. Fresh bundles start repaired; the known prior revision is
+# upgraded once during open and never needs a Review read-time compatibility
+# query.
+SCHEMA += (
+    "\nINSERT OR IGNORE INTO meta(key,value) VALUES "
+    f"('{REVIEW_OUTPUT_ROLES_META_KEY}','{REVIEW_OUTPUT_ROLES_VERSION}');\n"
+)
 
 # The run queue (jobs + worker_heartbeats) lives in its OWN database, never a
 # project bundle: `<workspace>/.queue.db` locally, the hosted run-queue Postgres

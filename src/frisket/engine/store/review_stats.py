@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import sqlite3
 
-from frisket.review_predicate import is_support_column
+from frisket.review_predicate import authored_output_roles, is_support_column
 
 from .runs import REVIEWABLE_OUTCOMES
 
@@ -65,10 +65,13 @@ def rebuild_run_review_stats(db: sqlite3.Connection, run_id: int) -> None:
     """Rebuild one run's stable aggregate without reclassifying known fields."""
 
     run_id = int(run_id)
-    run = db.execute("SELECT action_kind FROM runs WHERE id=?", (run_id,)).fetchone()
+    run = db.execute(
+        "SELECT action_kind,params FROM runs WHERE id=?", (run_id,)
+    ).fetchone()
     if run is None:
         raise ValueError(f"review stats run not found: {run_id}")
     action_kind = str(run["action_kind"])
+    output_roles = authored_output_roles(run["params"])
 
     # Generations provide the declared output roster. The results union keeps
     # legacy/unmanaged runs and old direct writers representable.
@@ -89,7 +92,8 @@ def rebuild_run_review_stats(db: sqlite3.Connection, run_id: int) -> None:
     known = {
         int(row["column_id"])
         for row in db.execute(
-            "SELECT column_id FROM run_review_fields WHERE run_id=?", (run_id,)
+            "SELECT column_id FROM run_review_fields WHERE run_id=?",
+            (run_id,),
         )
     }
     for candidate in candidates:
@@ -97,6 +101,12 @@ def rebuild_run_review_stats(db: sqlite3.Connection, run_id: int) -> None:
         if column_id in known:
             continue
         name = str(candidate["name"])
+        output_role = output_roles.get(name)
+        is_primary = int(
+            not is_support_column(
+                name, action_kind=action_kind, output_role=output_role
+            )
+        )
         db.execute(
             "INSERT INTO run_review_fields "
             "(run_id,column_id,column_name,column_type,column_position,is_primary) "
@@ -107,7 +117,7 @@ def rebuild_run_review_stats(db: sqlite3.Connection, run_id: int) -> None:
                 name,
                 str(candidate["type"]),
                 int(candidate["position"]),
-                int(not is_support_column(name, action_kind=action_kind)),
+                is_primary,
             ),
         )
 
@@ -187,7 +197,9 @@ def ensure_run_review_stats(db: sqlite3.Connection, run_id: int) -> None:
     row = db.execute(
         "SELECT status,review_stats_ready FROM runs WHERE id=?", (run_id,)
     ).fetchone()
-    if row is None or row["status"] == "running" or bool(row["review_stats_ready"]):
+    if row is None or row["status"] == "running":
+        return
+    if bool(row["review_stats_ready"]):
         return
 
     started_transaction = not db.in_transaction

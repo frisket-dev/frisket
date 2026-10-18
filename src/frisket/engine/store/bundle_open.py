@@ -12,8 +12,16 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from frisket.review_predicate import (
+    authored_output_roles,
+    has_explicit_review_role,
+    is_support_column,
+)
+
 from .schema import (
     BundleSchemaMismatch,
+    REVIEW_OUTPUT_ROLES_META_KEY,
+    REVIEW_OUTPUT_ROLES_VERSION,
     SCHEMA_DIGEST_META_KEY,
     require_current_schema,
 )
@@ -105,6 +113,12 @@ _TYPED_VALUES_FROM_DIGEST = _ACTIVE_COLUMNS_TO_DIGEST
 _IMPORT_SESSION_ROWS_FROM_DIGEST = "frisket.schema.v1:099bb8f1ab7ff5230f6b6b3af36d7a32"
 _IMPORT_SESSION_ROWS_TO_DIGEST = "frisket.schema.v1:ce1bc34b85c900fad11f0fdc948a0ce8"
 
+# The DDL itself is unchanged. Its bootstrap data now records that frozen
+# OCR Review fields follow the authored output roles, giving this one-time data
+# repair an exact endpoint without a per-read legacy check.
+_OCR_REVIEW_ROLES_FROM_DIGEST = _IMPORT_SESSION_ROWS_TO_DIGEST
+_OCR_REVIEW_ROLES_TO_DIGEST = "frisket.schema.v1:887874773c58ac58982913e6604d9ec9"
+
 # The frontend fires hot read endpoints (/sheets, /review/queue) concurrently,
 # so two threads can open the same per-project DB at once. Both open-time
 # reconciliations below are read-then-write with no CAS: two threads that both
@@ -157,6 +171,7 @@ def open_bundle(project: Any) -> None:
         _migrate_execution_metadata(project.db, bundle_path=project.db_path)
         _migrate_document_text(project.db, bundle_path=project.db_path)
         _migrate_import_session_rows(project.db)
+        _migrate_ocr_review_roles(project.db)
         require_current_schema(project.db, bundle_path=project.path)
         _reconcile_open_time_policy(project)
         from frisket.retrieval.upgrade import prepare_retrieval_on_open
@@ -188,6 +203,68 @@ def _migrate_import_session_rows(db: sqlite3.Connection) -> None:
             db.execute(
                 "UPDATE meta SET value=? WHERE key=?",
                 (_IMPORT_SESSION_ROWS_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
+            )
+        db.commit()
+    except BaseException:
+        db.rollback()
+        raise
+
+
+def _migrate_ocr_review_roles(db: sqlite3.Connection) -> None:
+    query = "SELECT value FROM meta WHERE key=?"
+    try:
+        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
+    except sqlite3.DatabaseError:
+        return
+    if row is None or row[0] != _OCR_REVIEW_ROLES_FROM_DIGEST:
+        return
+    db.execute("BEGIN IMMEDIATE")
+    try:
+        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
+        if row is not None and row[0] == _OCR_REVIEW_ROLES_FROM_DIGEST:
+            changed_runs: set[int] = set()
+            rows = db.execute(
+                "SELECT runs.id,runs.params,field.column_id,field.column_name,"
+                "field.is_primary FROM runs JOIN run_review_fields field "
+                "ON field.run_id=runs.id WHERE runs.action_kind='media.ocr'"
+            ).fetchall()
+            roles_by_run: dict[int, dict[str, str]] = {}
+            for field in rows:
+                run_id = int(field[0])
+                roles = roles_by_run.get(run_id)
+                if roles is None:
+                    roles = authored_output_roles(field[1])
+                    roles_by_run[run_id] = roles
+                output_role = roles.get(str(field[3]))
+                if not has_explicit_review_role("media.ocr", output_role):
+                    continue
+                expected = int(
+                    not is_support_column(
+                        str(field[3]),
+                        action_kind="media.ocr",
+                        output_role=output_role,
+                    )
+                )
+                if int(field[4]) == expected:
+                    continue
+                db.execute(
+                    "UPDATE run_review_fields SET is_primary=? "
+                    "WHERE run_id=? AND column_id=?",
+                    (expected, run_id, int(field[2])),
+                )
+                changed_runs.add(run_id)
+            db.executemany(
+                "UPDATE runs SET review_stats_ready=0 WHERE id=?",
+                ((run_id,) for run_id in changed_runs),
+            )
+            db.execute(
+                "INSERT INTO meta(key,value) VALUES (?,?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (REVIEW_OUTPUT_ROLES_META_KEY, REVIEW_OUTPUT_ROLES_VERSION),
+            )
+            db.execute(
+                "UPDATE meta SET value=? WHERE key=?",
+                (_OCR_REVIEW_ROLES_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
             )
         db.commit()
     except BaseException:
