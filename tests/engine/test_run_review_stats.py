@@ -10,6 +10,7 @@ import pytest
 
 from frisket.engine.store import Project
 from frisket.engine.store import review_stats as review_stats_module
+from frisket.engine.runner.review import review_bundle_page, review_runs_page
 from frisket.engine.store.review_stats import (
     current_review_run_predicate,
     ensure_run_review_stats,
@@ -18,7 +19,12 @@ from frisket.engine.store.review_stats import (
 )
 from frisket.engine.store.review_stats_migration import REVIEW_STATS_FROM_DIGEST
 from frisket.engine.store.runs import RunResultStore
-from frisket.engine.store.schema import SCHEMA_DIGEST_META_KEY
+from frisket.engine.store.schema import (
+    REVIEW_OUTPUT_ROLES_META_KEY,
+    REVIEW_OUTPUT_ROLES_VERSION,
+    SCHEMA_DIGEST,
+    SCHEMA_DIGEST_META_KEY,
+)
 from frisket.engine.store.value_codec import encode_stored_value
 from tests.engine.test_bundle_schema_fence import _remove_extraction_layouts
 
@@ -30,6 +36,7 @@ def _managed_run(
     columns: list[int],
     row_ids: list[int],
     action_kind: str = "map.extract",
+    params: dict | None = None,
 ) -> int:
     op_id = project.append_op(action_kind, {"fixture": "review stats"})
     store = RunResultStore(project)
@@ -37,6 +44,7 @@ def _managed_run(
         op_id,
         sheet_id,
         action_kind,
+        params=params,
         row_ids=row_ids,
         total_rows=len(row_ids),
     )
@@ -81,6 +89,98 @@ def _managed_run(
     )
     store.finish_run(run_id)
     return run_id
+
+
+_OCR_REVIEW_ROLES_PRIOR_DIGEST = "frisket.schema.v1:ce1bc34b85c900fad11f0fdc948a0ce8"
+
+
+def test_ocr_review_uses_authored_roles_and_migrates_frozen_runs(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "ocr-review-roles.frisket"
+    project = Project.create(path)
+    try:
+        sheet_id = project.add_sheet("Scans")
+        # "source" exercises the old name-based support heuristic: the authored
+        # OCR text role still has to be the one review chore.
+        text = project.add_column(sheet_id, "source", ai_generated=True)
+        blocks = project.add_column(
+            sheet_id, "Geometry", type="json", ai_generated=True, default_hidden=True
+        )
+        pdf = project.add_column(
+            sheet_id, "Search copy", type="file", ai_generated=True
+        )
+        row_ids = project.add_rows(sheet_id, [{}], {})
+        run_id = _managed_run(
+            project,
+            sheet_id=sheet_id,
+            columns=[text, blocks, pdf],
+            row_ids=row_ids,
+            action_kind="media.ocr",
+            params={
+                "output_names": {
+                    "text": "source",
+                    "blocks": "Geometry",
+                    "pdf": "Search copy",
+                }
+            },
+        )
+
+        assert _field(project, run_id, text)["is_primary"] == 1
+        assert _field(project, run_id, blocks)["is_primary"] == 0
+        assert _field(project, run_id, pdf)["is_primary"] == 0
+        assert project.get_meta(REVIEW_OUTPUT_ROLES_META_KEY) == (
+            REVIEW_OUTPUT_ROLES_VERSION
+        )
+    finally:
+        project.close()
+
+    # Recreate the exact preceding revision: its DDL was identical, but it had
+    # no role marker and froze review fields using column-name conventions.
+    with sqlite3.connect(path / "project.db") as db:
+        db.execute("DELETE FROM meta WHERE key=?", (REVIEW_OUTPUT_ROLES_META_KEY,))
+        db.execute(
+            "UPDATE meta SET value=? WHERE key=?",
+            (_OCR_REVIEW_ROLES_PRIOR_DIGEST, SCHEMA_DIGEST_META_KEY),
+        )
+        db.execute(
+            "UPDATE run_review_fields SET "
+            "is_primary=CASE WHEN column_id=? THEN 0 ELSE 1 END,"
+            "eligible_count=CASE WHEN column_id=? THEN 0 ELSE 1 END "
+            "WHERE run_id=?",
+            (text, text, run_id),
+        )
+        db.execute(
+            "UPDATE runs SET review_bundle_count=1,review_resolved_bundle_count=0,"
+            "review_stats_ready=1 WHERE id=?",
+            (run_id,),
+        )
+
+    migrated = Project(path)
+    try:
+        assert migrated.get_meta(SCHEMA_DIGEST_META_KEY) == SCHEMA_DIGEST
+        assert migrated.get_meta(REVIEW_OUTPUT_ROLES_META_KEY) == (
+            REVIEW_OUTPUT_ROLES_VERSION
+        )
+        ready = migrated.db.execute(
+            "SELECT review_stats_ready FROM runs WHERE id=?", (run_id,)
+        ).fetchone()
+        assert ready is not None and ready[0] == 0
+
+        runs = review_runs_page(migrated)
+        assert [field["column_name"] for field in runs["runs"][0]["fields"]] == [
+            "source"
+        ]
+        bundle = review_bundle_page(migrated, run_id=run_id, include_reviewed=True)[
+            "bundles"
+        ][0]
+        assert [field["column_name"] for field in bundle["fields"]] == ["source"]
+        assert {field["column_name"] for field in bundle["evidence"]} == {
+            "Geometry",
+            "Search copy",
+        }
+    finally:
+        migrated.close()
 
 
 def _field(project: Project, run_id: int, column_id: int) -> sqlite3.Row:

@@ -43,7 +43,8 @@ describe('createActSurfaceStore', () => {
     const {
       store,
       openImportDialog,
-      openCsvImport,
+      openTableImport,
+      openTableImportRerun,
       openBulkImport,
       openImportPreparation,
       closeImportDialog,
@@ -54,20 +55,20 @@ describe('createActSurfaceStore', () => {
     closeImportDialog();
     expect(store.get().importDialogOpen).toBe(false);
     const file = new File(['name\nAda\n'], 'people.csv', { type: 'text/csv' });
-    const preview = {
-      encoding: 'utf-8-sig',
-      delimiter: ',',
-      decimal_separator: '.',
-      row_count: 1,
-      columns: [{ name: 'name', type: 'text', format: null }],
-      preview_rows: [{ name: 'Ada' }],
-      truncated: false,
-    };
-    openCsvImport(file, preview);
+    openTableImport(file);
     expect(store.get().importDialogEntryMode).toBe('csv');
-    expect(store.get().importDialogCsv).toEqual({ file, preview });
+    expect(store.get().importDialogTableFile).toBe(file);
     closeImportDialog();
-    expect(store.get().importDialogCsv).toBeNull();
+    expect(store.get().importDialogTableFile).toBeNull();
+    openTableImportRerun('table-import-17');
+    expect(store.get()).toMatchObject({
+      importDialogOpen: true,
+      importDialogEntryMode: 'csv',
+      importDialogTableFile: null,
+      importDialogTableRerunDraftId: 'table-import-17',
+    });
+    closeImportDialog();
+    expect(store.get().importDialogTableRerunDraftId).toBeNull();
     const files = [new File(['Subject: tip'], 'message.eml', { type: 'message/rfc822' })];
     openBulkImport(files);
     expect(store.get().importDialogEntryMode).toBe('files');
@@ -78,7 +79,7 @@ describe('createActSurfaceStore', () => {
     expect(store.get()).toMatchObject({
       importDialogOpen: true,
       importDialogEntryMode: null,
-      importDialogCsv: null,
+      importDialogTableFile: null,
       importDialogFiles: null,
       importPreparationBatchId: 'prep-17',
     });

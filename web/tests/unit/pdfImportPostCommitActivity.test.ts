@@ -248,3 +248,50 @@ describe('PDF import post-commit activity', () => {
     expect(second).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('table import progress', () => {
+  it('does not leave placeholders for processed duplicates', () => {
+    const activity = importActivity(session({
+      intake_kind: 'table', state: 'running', selected_total: 100,
+      processed_rows: 50, committed_rows: 25, skipped_duplicates: 25,
+    }));
+    expect(pendingImportRowCount(activity)).toBe(50);
+  });
+
+  it('keeps an estimate at least as large as the rows already processed', () => {
+    const activity = importActivity(session({
+      intake_kind: 'table', state: 'running', selected_total: null,
+      estimated_rows: 100, processed_rows: 120, committed_rows: 110,
+    }));
+    const combined = composeImportSearchActivity(activity, null);
+    expect(combined?.lines[0]).toMatchObject({ completed: 120, total: 120 });
+    expect(activity?.lines[0].completed).toBe(110);
+    expect(pendingImportRowCount(activity)).toBe(0);
+  });
+
+  it('keeps an unknown row total indeterminate and shows actual processed rows', () => {
+    const activity = importActivity(session({
+      intake_kind: 'table', state: 'running', selected_total: null,
+      estimated_rows: null, processed_rows: 500, committed_rows: 475,
+      skipped_duplicates: 25, source_label: 'contributions.csv',
+      preparation_children: [], preparation_total: 0, preparation_completed: 0,
+      ocr_total: 0, ocr_completed: 0, unreadable_total: 0,
+      sheet_name: 'Contributions',
+    }));
+    const combined = composeImportSearchActivity(activity, null);
+    expect(combined?.notice.title).toBe('Importing contributions.csv');
+    expect(combined?.notice.detail).toContain('475 rows added');
+    expect(combined?.notice.detail).toContain('25 duplicates skipped');
+    expect(combined?.lines[0]).toMatchObject({ completed: 500, total: null, complete: false });
+    expect(pendingImportRowCount(activity)).toBe(0);
+  });
+  it('labels retained partial rows as stopped rather than complete', () => {
+    const activity = importActivity(session({
+      intake_kind: 'table', state: 'kept', selected_total: 100,
+      processed_rows: 20, committed_rows: 20,
+    }));
+    const combined = composeImportSearchActivity(activity, null);
+    expect(combined?.notice.tone).toBe('warning');
+    expect(combined?.lines[0]).toMatchObject({ complete: false, detail: '20 added · stopped' });
+  });
+});

@@ -50,7 +50,7 @@ export interface ImportActivityLine {
   key: 'adding' | 'native' | 'ocr';
   label: string;
   completed: number;
-  total: number;
+  total: number | null;
   detail?: string;
   complete?: boolean;
 }
@@ -66,8 +66,18 @@ export interface ImportActivity {
 
 export function pendingImportRowCount(activity: ImportActivity | null): number {
   if (!activity || !['admitting', 'running'].includes(activity.session.state)) return 0;
-  const selectedTotal = activity.session.selected_total ?? activity.session.admitted_files;
-  return Math.max(selectedTotal - activity.session.committed_rows, 0);
+  const selectedTotal = importRowTotal(activity.session) ?? activity.session.committed_rows;
+  const processed = activity.session.intake_kind === 'table'
+    ? activity.session.processed_rows ?? activity.session.committed_rows
+    : activity.session.committed_rows;
+  return Math.max(selectedTotal - processed, 0);
+}
+
+function importRowTotal(session: ImportSessionStatus): number | null {
+  if (session.intake_kind !== 'table') return session.selected_total ?? session.admitted_files;
+  if (session.selected_total != null) return session.selected_total;
+  if (session.estimated_rows == null) return null;
+  return Math.max(session.estimated_rows, session.processed_rows ?? 0, session.committed_rows);
 }
 
 export function preferredImportActivity(activities: ImportActivity[]): ImportActivity | null {
@@ -88,10 +98,12 @@ function activeChild(session: ImportSessionStatus): ImportPreparationChild | nul
 }
 
 export function importActivity(session: ImportSessionStatus): ImportActivity | null {
-  const selectedTotal = session.selected_total ?? session.admitted_files;
-  const committedRows = Math.min(session.committed_rows, selectedTotal);
+  const selectedTotal = importRowTotal(session);
+  const committedRows = selectedTotal === null
+    ? session.committed_rows : Math.min(session.committed_rows, selectedTotal);
   const preparationIncomplete = session.preparation_completed < session.preparation_total;
   const active = ['admitting', 'running', 'paused', 'cancelling', 'cancelled'].includes(session.state)
+    || (session.intake_kind === 'table' && ['completed', 'kept'].includes(session.state))
     || Boolean(session.error)
     || preparationIncomplete
     || session.preparation_children.some((child) => ACTIVE_CHILD_STATES.has(child.status));
@@ -102,7 +114,11 @@ export function importActivity(session: ImportSessionStatus): ImportActivity | n
     label: 'Adding rows',
     completed: committedRows,
     total: selectedTotal,
-    complete: ['completed', 'kept'].includes(session.state) && committedRows >= selectedTotal,
+    complete: session.state === 'completed'
+      && (session.intake_kind === 'table' || (selectedTotal !== null && committedRows >= selectedTotal)),
+    ...(session.intake_kind === 'table' ? {
+      detail: `${committedRows.toLocaleString()} added${session.skipped_duplicates ? ` · ${session.skipped_duplicates.toLocaleString()} duplicates skipped` : ''}`,
+    } : {}),
   }];
   const nativeTotal = Math.max(session.preparation_total - session.ocr_total, 0);
   const nativeCompleted = Math.max(Math.min(
@@ -182,9 +198,23 @@ export interface ImportProgressController {
   keep(activity: ImportActivity): void;
 }
 
+export interface ImportProgressChange {
+  sheetId: number | null;
+  refreshData: boolean;
+}
+
+function pollSignature(session: ImportSessionStatus): string {
+  return `${session.state}:${session.committed_rows}:${session.preparation_completed}:${session.ocr_completed}:${session.sheet_id ?? ''}`;
+}
+
+function isSoftTableProgress(session: ImportSessionStatus): boolean {
+  return session.intake_kind === 'table'
+    && (session.state === 'admitting' || session.state === 'running');
+}
+
 export function useImportProgress({ projectId, onChanged, onError }: {
   projectId: string;
-  onChanged?(sheetId: number | null): void;
+  onChanged?(change: ImportProgressChange): void;
   onError?(message: string): void;
 }): ImportProgressController {
   const [sessions, setSessions] = useState<ImportSessionStatus[]>([]);
@@ -197,33 +227,44 @@ export function useImportProgress({ projectId, onChanged, onError }: {
     importSessionSnapshot,
   );
   const preparationGeneration = useRef(0);
+  const refreshGeneration = useRef(0);
   const previousRef = useRef<Map<string, string> | null>(null);
 
   useEffect(() => () => {
     preparationGeneration.current += 1;
+    refreshGeneration.current += 1;
   }, [projectId]);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
+    const generation = ++refreshGeneration.current;
     try {
       const result = await listImportSessions(projectId, { signal });
-      if (signal?.aborted) return;
-      const next = new Map(result.sessions.map((session) => [
-        session.import_ref,
-        `${session.state}:${session.committed_rows}:${session.preparation_completed}:${session.ocr_completed}:${session.sheet_id ?? ''}`,
-      ]));
+      if (signal?.aborted || generation !== refreshGeneration.current) return;
+      const next = new Map(result.sessions.map((session) => [session.import_ref, pollSignature(session)]));
       for (const session of result.sessions) {
         if (session.sealed || ['cancelled', 'completed', 'kept', 'removed'].includes(session.state)) {
           forgetImportSelection(session.import_ref);
         }
       }
       const previous = previousRef.current;
-      if (previous && result.sessions.some((session) => (
-        previous.get(session.import_ref) !== next.get(session.import_ref)
-      ))) onChanged?.(null);
+      if (previous) {
+        const changed = result.sessions.filter((session) => (
+          previous.get(session.import_ref) !== next.get(session.import_ref)
+        ));
+        const removed = [...previous.keys()].some((importRef) => !next.has(importRef));
+        if (changed.length > 0 || removed) {
+          onChanged?.({
+            sheetId: null,
+            refreshData: removed || changed.some((session) => !isSoftTableProgress(session)),
+          });
+        }
+      }
       previousRef.current = next;
       setSessions(result.sessions);
     } catch (error) {
-      if (!signal?.aborted) setMessage(error instanceof Error ? error.message : String(error));
+      if (!signal?.aborted && generation === refreshGeneration.current) {
+        setMessage(error instanceof Error ? error.message : String(error));
+      }
     }
   }, [onChanged, projectId]);
 
@@ -250,12 +291,22 @@ export function useImportProgress({ projectId, onChanged, onError }: {
     setMessage(null);
     try {
       const next = await run();
+      refreshGeneration.current += 1;
+      if (previousRef.current) {
+        const updated = new Map(previousRef.current);
+        if (next.state === 'removed' || (next.state === 'kept' && next.intake_kind !== 'table')) {
+          updated.delete(next.import_ref);
+        } else {
+          updated.set(next.import_ref, pollSignature(next));
+        }
+        previousRef.current = updated;
+      }
       setSessions((current) => (
-        next.state === 'kept' || next.state === 'removed'
+        next.state === 'removed' || (next.state === 'kept' && next.intake_kind !== 'table')
           ? current.filter((item) => item.import_ref !== next.import_ref)
           : current.map((item) => (item.import_ref === next.import_ref ? next : item))
       ));
-      onChanged?.(next.sheet_id);
+      onChanged?.({ sheetId: next.sheet_id, refreshData: true });
     } catch (error) {
       const text = error instanceof Error ? error.message : String(error);
       setMessage(text);
@@ -270,7 +321,7 @@ export function useImportProgress({ projectId, onChanged, onError }: {
     setImportSessionBrowserUploading(session.import_ref, true);
     try {
       await uploadFilesToImportSession(projectId, session, files);
-      onChanged?.(session.sheet_id);
+      onChanged?.({ sheetId: session.sheet_id, refreshData: true });
     } catch (error) {
       const text = error instanceof Error ? error.message : String(error);
       setMessage(text);
@@ -382,6 +433,7 @@ export function composeImportSearchActivity(
 ): { notice: SearchPreparationNotice; lines: ImportSearchActivityLine[] } | null {
   if (!activity) return null;
   const { session } = activity;
+  if (session.intake_kind === 'table') return composeTableImportActivity(activity, search);
   const selectedTotal = session.selected_total ?? session.admitted_files;
   const preparationRemaining = Math.max(
     session.preparation_total - session.preparation_completed,
@@ -394,7 +446,7 @@ export function composeImportSearchActivity(
   const indexActive = search?.tone === 'active';
   const indexComplete = search?.tone === 'complete';
   const ocrLine = activity.lines.find((line) => line.key === 'ocr') ?? null;
-  const readingOcr = ocrLine !== null && ocrLine.completed < ocrLine.total;
+  const readingOcr = ocrLine !== null && ocrLine.total !== null && ocrLine.completed < ocrLine.total;
   const lines: ImportSearchActivityLine[] = [
     ...activity.lines.map((line) => ({ ...line })),
     {
@@ -423,7 +475,7 @@ export function composeImportSearchActivity(
       detail: session.error ?? (recovering
         ? `${session.committed_rows.toLocaleString()} rows added`
         : readingOcr && ocrLine
-          ? `Reading text with OCR · ${ocrLine.completed.toLocaleString()} of ${ocrLine.total.toLocaleString()} files`
+          ? `Reading text with OCR · ${ocrLine.completed.toLocaleString()} of ${ocrLine.total?.toLocaleString()} files`
           : `${readyFiles.toLocaleString()} of ${selectedTotal.toLocaleString()} files ready`),
       progress: null,
       details: search?.details ?? [],
@@ -431,5 +483,45 @@ export function composeImportSearchActivity(
       pdfFilesTruncated: search?.pdfFilesTruncated,
     },
     lines,
+  };
+}
+
+function composeTableImportActivity(
+  activity: ImportActivity,
+  search: SearchPreparationNotice | null,
+): { notice: SearchPreparationNotice; lines: ImportSearchActivityLine[] } {
+  const { session } = activity;
+  const total = importRowTotal(session);
+  const added = session.committed_rows.toLocaleString();
+  const processed = session.processed_rows ?? session.committed_rows;
+  const finished = ['completed', 'kept'].includes(session.state);
+  const detail = session.error ?? (activity.needsRecovery || session.state === 'kept'
+    ? `${added} rows added · import stopped`
+    : `${added} rows added${session.skipped_duplicates ? ` · ${session.skipped_duplicates.toLocaleString()} duplicates skipped` : ''}`);
+  return {
+    notice: {
+      activityKey: `import:${session.import_ref}`,
+      reviewBatchId: null,
+      stopBatchId: activity.canStop ? session.import_ref : null,
+      stage: session.error ? 'failed' : 'prepare',
+      tone: session.error ? 'error' : activity.needsRecovery || session.state === 'kept' ? 'warning' : finished ? 'complete' : 'active',
+      title: `${session.state === 'kept' ? 'Import stopped:' : finished ? 'Imported' : 'Importing'} ${session.source_label ?? session.sheet_name}`,
+      detail,
+      progress: null,
+      details: session.source_label ? [session.source_label] : [],
+    },
+    lines: [
+      {
+        key: 'adding', label: 'Adding rows', completed: processed,
+        total, complete: session.state === 'completed',
+        detail: session.state === 'kept' ? `${added} added · stopped`
+          : total === null ? `${added} added` : `${processed.toLocaleString()} of ${session.selected_total === null ? 'about ' : ''}${total.toLocaleString()}`,
+      },
+      ...(!finished || search ? [{
+        key: 'search-index', label: 'Search index', completed: null, total: null,
+        detail: search?.detail ?? 'Rows are indexed as they arrive',
+        complete: search?.tone === 'complete',
+      }] : []),
+    ],
   };
 }

@@ -1,10 +1,12 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import {
+  commitTableImport,
   createProject,
   importCsv,
   listSheets,
   openImportWorkspace,
+  reviewTableColumns,
   sheetData,
   uniqueName,
 } from './helpers';
@@ -127,6 +129,17 @@ function multipartFilenames(body: string): string[] {
 
 function bulkPreparation(plan: Record<string, unknown>): string {
   return JSON.stringify({ kind: 'bulk', plan });
+}
+
+async function openFilesImport(page: Page) {
+  await openImportWorkspace(page);
+  const tableSource = page.getByRole('region', { name: 'Add data', exact: true });
+  const filesMode = page.getByTestId('import-mode-files');
+  await expect(tableSource.or(filesMode)).toBeVisible();
+  if (await tableSource.isVisible()) {
+    await page.getByRole('button', { name: 'Multiple files', exact: true }).click();
+  }
+  await expect(filesMode).toHaveAttribute('aria-selected', 'true');
 }
 
 async function chooseZip(page: Page, picker: Locator, name: string) {
@@ -253,7 +266,7 @@ test('empty-project dropzone keeps a single ordinary file on legacy file import'
   });
 });
 
-test('import workspace opens as a full-screen modal from the toolbar', async ({ page }) => {
+test('toolbar import opens a modal with table stages and other intake paths', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-import-workspace'));
   await importCsv(page.request, pid, 'seed.csv', 'name\nseed\n');
   await page.goto(`/p/${pid}`);
@@ -267,16 +280,15 @@ test('import workspace opens as a full-screen modal from the toolbar', async ({ 
   await expect(dialog).toBeVisible();
   await expect(dialog).toHaveJSProperty('open', true);
   await expect(page.getByTestId('import-menu')).toHaveCount(0);
-  // The stepper is drawn only where the stages are real. CSV (the opening
-  // mode) commits in one step, so it advertises none; Paste is the path that
-  // actually runs detect -> map -> confirm.
-  await expect(page.getByTestId('import-workspace-stage-detect')).toHaveCount(0);
-  await page.getByTestId('import-mode-paste').click();
-  await expect(page.getByTestId('import-workspace-stage-detect')).toBeVisible();
-  await expect(page.getByTestId('import-workspace-stage-map')).toBeVisible();
-  await expect(page.getByTestId('import-workspace-stage-confirm')).toBeVisible();
-  await page.getByTestId('import-mode-files').click();
-  await expect(page.getByTestId('import-workspace-stage-confirm')).toHaveCount(0);
+  for (const stage of ['add', 'rows', 'columns', 'import']) {
+    await expect(page.getByTestId(`table-import-stage-${stage}`)).toBeVisible();
+  }
+  await expect(page.getByTestId('table-import-stage-add')).toHaveAttribute('aria-current', 'step');
+  await page.getByRole('button', { name: 'Paste rows', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Paste rows', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Choose a file', exact: true }).click();
+  await page.getByRole('button', { name: 'Multiple files', exact: true }).click();
+  await expect(page.getByTestId('table-import-stage-add')).toHaveCount(0);
 
   for (const mode of ['csv', 'files', 'feed']) {
     await expect(page.getByTestId(`import-mode-${mode}`)).toBeVisible();
@@ -333,7 +345,7 @@ test('CSV folder selection plans a bulk import, keeps paths aligned, and execute
 
   await page.goto(`/p/${pid}`);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
-  await openImportWorkspace(page);
+  await openFilesImport(page);
   const workspace = page.getByTestId('import-workspace');
   const folderPicker = workspace.getByRole('button', { name: /folder/i });
   await expect(folderPicker).toBeVisible();
@@ -382,7 +394,7 @@ test('a sole ZIP plans with archive expansion', async ({ page }) => {
 
   await page.goto(`/p/${pid}`);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
-  await openImportWorkspace(page);
+  await openFilesImport(page);
   const workspace = page.getByTestId('import-workspace');
   const zipPicker = workspace.getByRole('button', { name: /zip/i });
   await expect(zipPicker).toBeVisible();
@@ -436,9 +448,8 @@ test('a question-bearing CSV plan waits for a choice and an execute click', asyn
 
   await page.goto(`/p/${pid}`);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
-  await openImportWorkspace(page);
+  await openFilesImport(page);
   const workspace = page.getByTestId('import-workspace');
-  await page.getByTestId('import-mode-files').click();
   await workspace.getByTestId('import-file-input').setInputFiles([
     { name: 'inbox.csv', mimeType: 'text/csv', buffer: Buffer.from('subject\nHello\n') },
     { name: 'sent.csv', mimeType: 'text/csv', buffer: Buffer.from('subject\nReply\n') },
@@ -485,9 +496,8 @@ test('closing a planned bulk import clears it before the workspace reopens', asy
 
   await page.goto(`/p/${pid}`);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
-  await openImportWorkspace(page);
+  await openFilesImport(page);
   const workspace = page.getByTestId('import-workspace');
-  await page.getByTestId('import-mode-files').click();
   await workspace.getByTestId('import-file-input').setInputFiles([
     { name: 'inbox.csv', mimeType: 'text/csv', buffer: Buffer.from('subject\nHello\n') },
     { name: 'sent.csv', mimeType: 'text/csv', buffer: Buffer.from('subject\nReply\n') },
@@ -497,7 +507,7 @@ test('closing a planned bulk import clears it before the workspace reopens', asy
 
   await workspace.getByTestId('import-workspace-close').click();
   await expect(workspace).toHaveCount(0);
-  await openImportWorkspace(page);
+  await openFilesImport(page);
   await expect(workspace.getByRole('heading', { name: 'Proposed outputs' })).toHaveCount(0);
   await expect(workspace.getByLabel(/combine/i)).toHaveCount(0);
   expect(planCount).toBe(1);
@@ -544,7 +554,7 @@ test('a question-free bulk plan executes exactly once without showing an execute
 
   await page.goto(`/p/${pid}`);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
-  await openImportWorkspace(page);
+  await openFilesImport(page);
   const workspace = page.getByTestId('import-workspace');
   await chooseZip(page, workspace.getByRole('button', { name: /zip/i }), 'mail-export.zip');
 
@@ -610,9 +620,8 @@ test('Files accepts two XLSX workbooks, bulk-plans them once, and opens the desi
 
   await page.goto(`/p/${pid}`);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
-  await openImportWorkspace(page);
+  await openFilesImport(page);
   const workspace = page.getByTestId('import-workspace');
-  await page.getByTestId('import-mode-files').click();
   const picker = workspace.getByTestId('import-file-input');
   await expect(picker).toHaveAttribute('accept', /(?:^|,)\.xlsx(?:,|$)/);
   await picker.setInputFiles([
@@ -647,9 +656,8 @@ test('two generic Files selections with one PDF stay on the normal file import',
 
   await page.goto(`/p/${pid}`);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
-  await openImportWorkspace(page);
+  await openFilesImport(page);
   const workspace = page.getByTestId('import-workspace');
-  await page.getByTestId('import-mode-files').click();
   await workspace.getByTestId('import-file-input').setInputFiles([
     { name: 'note.txt', mimeType: 'text/plain', buffer: Buffer.from('one note') },
     { name: 'docket.pdf', mimeType: 'application/pdf', buffer: minimalPdf('generic pair') },
@@ -709,9 +717,8 @@ test('a directly selected extensionless file is sent to the bulk planner', async
 
   await page.goto(`/p/${pid}`);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
-  await openImportWorkspace(page);
+  await openFilesImport(page);
   const workspace = page.getByTestId('import-workspace');
-  await page.getByTestId('import-mode-files').click();
   await workspace.getByTestId('import-file-input').setInputFiles({
     name: 'evidence',
     mimeType: 'application/octet-stream',
@@ -762,7 +769,7 @@ test('bulk email warnings remain inert text alongside a successful import', asyn
 
   await page.goto(`/p/${pid}`);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
-  await openImportWorkspace(page);
+  await openFilesImport(page);
   const workspace = page.getByTestId('import-workspace');
   const zipPicker = workspace.getByRole('button', { name: /zip/i });
   await chooseZip(page, zipPicker, 'mail-export.zip');
@@ -808,7 +815,7 @@ test('bulk email warnings remain visible alongside a partial import failure', as
 
   await page.goto(`/p/${pid}`);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
-  await openImportWorkspace(page);
+  await openFilesImport(page);
   const workspace = page.getByTestId('import-workspace');
   const zipPicker = workspace.getByRole('button', { name: /zip/i });
   await chooseZip(page, zipPicker, 'mail-export.zip');
@@ -841,7 +848,7 @@ test('a bulk plan with no proposed outputs reports that status and cannot execut
 
   await page.goto(`/p/${pid}`);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
-  await openImportWorkspace(page);
+  await openFilesImport(page);
   const workspace = page.getByTestId('import-workspace');
   const zipPicker = workspace.getByRole('button', { name: /zip/i });
   await expect(zipPicker).toBeVisible();
@@ -853,128 +860,80 @@ test('a bulk plan with no proposed outputs reports that status and cannot execut
   expect(executeCount).toBe(0);
 });
 
-test('paste import sends reviewed source to server preparation', async ({ page }) => {
+test('paste import stages the original source and preserves inferred numeric values', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-paste-import'));
   await importCsv(page.request, pid, 'seed.csv', 'name\nseed\n');
-  await page.route(`**/api/projects/${pid}/import/csv`, async (route) => {
-    await route.fulfill({
-      status: 500,
-      contentType: 'application/json',
-      body: JSON.stringify({ error: 'paste import must not use multipart /import/csv' }),
-    });
+  let legacyCsvRequests = 0;
+  await page.route(`**/api/projects/${pid}/import/csv`, async route => {
+    legacyCsvRequests += 1;
+    await route.fulfill({ status: 500, json: { error: 'paste must use the table draft flow' } });
   });
-
   await page.goto(`/p/${pid}`);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
   await openImportWorkspace(page);
-  await expect(page.getByTestId('import-mode-paste')).toBeVisible();
-  await page.getByTestId('import-mode-paste').click();
-  await page.getByTestId('import-paste-text').fill('name\tscore\nAda Lovelace\t7\nGrace Hopper\t9\n');
-  await page.getByTestId('import-detect-submit').click();
-  await expect(page.getByTestId('import-draft-preview')).toContainText('Grace Hopper');
-  await page.getByTestId('import-map-continue').click();
-  await expect(page.getByTestId('import-confirm-summary')).toContainText('Pasted rows');
-
-  const importRowsRequest = page.waitForRequest((request) =>
-    request.url().endsWith(`/api/projects/${pid}/import/drafts/paste/confirm`) &&
-    request.method() === 'POST',
-  );
-  await page.getByTestId('import-confirm-submit').click();
-  const posted = (await importRowsRequest).postDataJSON();
-
-  expect(posted.raw).toBe('name\tscore\nAda Lovelace\t7\nGrace Hopper\t9\n');
-  expect(posted.draft_id).toMatch(/^paste@sha256:/);
-  expect(posted.sheet_name).toBe('Pasted rows');
-  expect(posted.columns).toEqual([
-    { source_name: 'name', name: 'name', type: 'text' },
-    { source_name: 'score', name: 'score', type: 'integer' },
-  ]);
-  expect(posted).not.toHaveProperty('rows');
-  expect(posted).not.toHaveProperty('idempotency_key');
-
-  await expect
-    .poll(async () => (await listSheets(page.request, pid)).some((s) => s.name === 'Pasted rows'), {
-      timeout: 15_000,
-    })
-    .toBeTruthy();
-  const pastedSheet = (await listSheets(page.request, pid)).find((s) => s.name === 'Pasted rows');
-  expect(pastedSheet).toBeTruthy();
-  const data = await sheetData(page.request, pid, pastedSheet!.id);
-  const nameCol = data.columns.find((c) => c.name === 'name');
-  const scoreCol = data.columns.find((c) => c.name === 'score');
-  expect(nameCol).toBeTruthy();
-  expect(scoreCol).toBeTruthy();
-  expect(data.rows[0].cells[String(nameCol!.id)]).toBe('Ada Lovelace');
-  expect(data.rows[1].cells[String(nameCol!.id)]).toBe('Grace Hopper');
-  expect(data.rows[1].cells[String(scoreCol!.id)]).toBe(9);
+  await page.getByRole('button', { name: 'Paste rows', exact: true }).click();
+  const raw = 'name\tscore\nAda Lovelace\t7\nGrace Hopper\t9\n';
+  await page.getByRole('textbox', { name: 'Paste rows', exact: true }).fill(raw);
+  const staged = page.waitForRequest(request =>
+    new URL(request.url()).pathname === `/api/projects/${pid}/import/table-imports/paste`
+    && request.method() === 'POST');
+  await page.getByRole('button', { name: 'Check rows →', exact: true }).click();
+  expect((await staged).postData()).toContain(raw);
+  const rows = page.getByRole('region', { name: 'Check rows', exact: true });
+  await expect(rows.getByRole('table')).toContainText('Grace Hopper');
+  await expect(rows.getByLabel('Character encoding')).toHaveCount(0);
+  await reviewTableColumns(page);
+  await expect(page.getByLabel('Sheet name', { exact: true })).toHaveValue('Pasted rows');
+  const sheetId = await commitTableImport(page, pid);
+  await expect.poll(async () => (await sheetData(page.request, pid, sheetId)).total).toBe(2);
+  const data = await sheetData(page.request, pid, sheetId);
+  const nameCol = data.columns.find(column => column.name === 'name')!;
+  const scoreCol = data.columns.find(column => column.name === 'score')!;
+  expect(scoreCol.type).toBe('integer');
+  expect(data.rows[0].cells[String(nameCol.id)]).toBe('Ada Lovelace');
+  expect(data.rows[1].cells[String(nameCol.id)]).toBe('Grace Hopper');
+  expect(data.rows[1].cells[String(scoreCol.id)]).toBe(9);
+  expect(legacyCsvRequests).toBe(0);
 });
 
-test('import workspace detects maps and confirms pasted rows before writing', async ({ page }) => {
+test('pasted rows review column choices and destination before writing', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-import-draft-flow'));
   await importCsv(page.request, pid, 'seed.csv', 'name\nseed\n');
   await page.goto(`/p/${pid}`);
-
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
   const beforeSheets = await listSheets(page.request, pid);
   await openImportWorkspace(page);
-  await page.getByTestId('import-mode-paste').click();
-  const pastePanelBox = await page.locator('.import-workspace-panel').boundingBox();
-  const pasteTextBox = await page.getByTestId('import-paste-text').boundingBox();
-  expect(pastePanelBox).toBeTruthy();
-  expect(pasteTextBox).toBeTruthy();
-  expect(pasteTextBox!.width / pastePanelBox!.width).toBeGreaterThan(0.86);
-  await expect(page.getByTestId('import-detect-submit')).toHaveClass(/btn-primary/);
-  await page.getByTestId('import-paste-text').fill('name\tscore\nAda Lovelace\t7\nGrace Hopper\t9\n');
-
-  const draftRequest = page.waitForRequest((request) =>
-    request.url().includes(`/api/projects/${pid}/import/drafts/paste`) &&
-    request.method() === 'POST',
-  );
-  await page.getByTestId('import-detect-submit').click();
-  await draftRequest;
-
-  await expect(page.getByTestId('import-workspace-stage-map')).toHaveAttribute('aria-current', 'step');
-  await expect(page.getByTestId('import-draft-preview')).toContainText('Ada Lovelace');
-  await expect(page.getByTestId('import-column-name-score')).toHaveValue('score');
-  await expect(page.getByTestId('import-column-type-score')).toHaveValue('integer');
-
-  expect((await listSheets(page.request, pid)).map((sheet) => sheet.id)).toEqual(
-    beforeSheets.map((sheet) => sheet.id),
-  );
-
-  await page.getByTestId('import-sheet-name').fill('Mapped people');
-  await page.getByTestId('import-column-name-score').fill('rating');
-  await expect(page.getByTestId('import-map-continue')).toHaveClass(/btn-primary/);
-  await page.getByTestId('import-map-continue').click();
-  await expect(page.getByTestId('import-workspace-stage-confirm')).toHaveAttribute('aria-current', 'step');
-  await expect(page.getByTestId('import-confirm-summary')).toContainText('Mapped people');
-  await expect(page.getByTestId('import-confirm-summary')).toContainText('2 rows');
-  await expect(page.getByTestId('import-confirm-submit')).toHaveClass(/btn-primary/);
-
-  const importRowsRequest = page.waitForRequest((request) =>
-    request.url().endsWith(`/api/projects/${pid}/import/drafts/paste/confirm`) &&
-    request.method() === 'POST',
-  );
-  await page.getByTestId('import-confirm-submit').click();
-  const posted = (await importRowsRequest).postDataJSON();
-
-  expect(posted.sheet_name).toBe('Mapped people');
-  expect(posted.columns).toEqual([
-    { source_name: 'name', name: 'name', type: 'text' },
-    { source_name: 'score', name: 'rating', type: 'integer' },
-  ]);
-
-  await expect
-    .poll(async () => (await listSheets(page.request, pid)).some((s) => s.name === 'Mapped people'), {
-      timeout: 15_000,
-    })
-    .toBeTruthy();
-  const mappedSheet = (await listSheets(page.request, pid)).find((s) => s.name === 'Mapped people');
-  expect(mappedSheet).toBeTruthy();
-  const data = await sheetData(page.request, pid, mappedSheet!.id);
-  const ratingCol = data.columns.find((c) => c.name === 'rating');
-  expect(ratingCol?.type).toBe('integer');
-  expect(data.rows[1].cells[String(ratingCol!.id)]).toBe(9);
+  await page.getByRole('button', { name: 'Paste rows', exact: true }).click();
+  const pasteText = page.getByRole('textbox', { name: 'Paste rows', exact: true });
+  const panelBox = await page.locator('.import-workspace-panel').boundingBox();
+  const textBox = await pasteText.boundingBox();
+  expect(panelBox).toBeTruthy();
+  expect(textBox).toBeTruthy();
+  expect(textBox!.width).toBeGreaterThan(600);
+  expect(textBox!.x).toBeGreaterThanOrEqual(panelBox!.x);
+  expect(textBox!.x + textBox!.width).toBeLessThanOrEqual(panelBox!.x + panelBox!.width);
+  await pasteText.fill('name\tscore\nAda Lovelace\t7\nGrace Hopper\t9\n');
+  const checkRows = page.getByRole('button', { name: 'Check rows →', exact: true });
+  await expect(checkRows).toHaveClass(/btn-primary/);
+  await checkRows.click();
+  await expect(page.getByTestId('table-import-stage-rows')).toHaveAttribute('aria-current', 'step');
+  await expect(page.getByRole('region', { name: 'Check rows', exact: true }).getByRole('table')).toContainText('Ada Lovelace');
+  await page.getByRole('button', { name: 'Columns →', exact: true }).click();
+  await expect(page.getByTestId('table-import-stage-columns')).toHaveAttribute('aria-current', 'step');
+  await expect(page.getByLabel('Type for score', { exact: true })).toHaveValue('integer');
+  await page.getByLabel('Type for name', { exact: true }).selectOption('omit');
+  await page.getByLabel('Type for score', { exact: true }).selectOption('text');
+  await page.getByRole('button', { name: 'Continue →', exact: true }).click();
+  await expect(page.getByTestId('table-import-stage-import')).toHaveAttribute('aria-current', 'step');
+  await page.getByLabel('Sheet name', { exact: true }).fill('Reviewed people');
+  expect((await listSheets(page.request, pid)).map(sheet => sheet.id)).toEqual(beforeSheets.map(sheet => sheet.id));
+  const sheetId = await commitTableImport(page, pid);
+  await expect.poll(async () => (await sheetData(page.request, pid, sheetId)).total).toBe(2);
+  const data = await sheetData(page.request, pid, sheetId);
+  expect(data.columns.map(column => column.name)).toEqual(['score']);
+  expect(data.columns[0].type).toBe('text');
+  expect(data.rows[1].cells[String(data.columns[0].id)]).toBe('9');
+  expect((await listSheets(page.request, pid)).find(sheet => sheet.id === sheetId)?.name).toBe('Reviewed people');
 });
 
 test('URL import records invalid URL errors', async ({ page }) => {
@@ -983,8 +942,7 @@ test('URL import records invalid URL errors', async ({ page }) => {
   await page.goto(`/p/${pid}`);
 
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
-  await openImportWorkspace(page);
-  await page.getByTestId('import-mode-files').click();
+  await openFilesImport(page);
   await page.getByTestId('import-source-urls').click();
   await page.getByTestId('import-url-list').fill('not-a-url');
   await page.getByTestId('import-url-submit').click();

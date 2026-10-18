@@ -16,7 +16,7 @@ from frisket.authoring.action_metadata import (
     action_metadata_for_action_kind,
     run_row_action_kind,
 )
-from frisket.engine.jobs.queue import ACTION_RUN_KIND, Job
+from frisket.engine.jobs.queue import ACTION_RUN_KIND, IMPORT_TABLE_STREAM_KIND, Job
 from frisket.engine.jobs.runs import RUN_PROJECT_KIND
 
 
@@ -109,6 +109,12 @@ JOB_RESULT_SUMMARY_KEYS_BY_KIND = {
         "ready_items",
         "error_code",
         "blocked",
+    ),
+    IMPORT_TABLE_STREAM_KIND: (
+        "status",
+        "completed_rows",
+        "sheet_id",
+        "problems",
     ),
 }
 
@@ -280,7 +286,15 @@ def project_action_job_payload(
         or result_summary.get("receipt_id")
     )
     payload_ref = (
-        {"kind": "run", "run_id": run_id} if run_id is not None else {"kind": job.kind}
+        {"kind": "run", "run_id": run_id}
+        if run_id is not None
+        else {
+            "kind": "import",
+            "import_ref": str(job.payload["import_ref"]),
+        }
+        if job.kind == IMPORT_TABLE_STREAM_KIND
+        and isinstance(job.payload.get("import_ref"), str)
+        else {"kind": job.kind}
     )
     return {
         "schema_version": "frisket.job.v1",

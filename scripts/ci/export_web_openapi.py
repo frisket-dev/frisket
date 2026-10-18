@@ -405,6 +405,44 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
             "POST",
         ): "tenant.import_followthemoney.post",
         ("tenant", "import_pdf", "POST"): "tenant.import_pdf.post",
+        (
+            "tenant",
+            "create_table_import_from_file",
+            "POST",
+        ): "tenant.create_table_import_from_file.post",
+        (
+            "tenant",
+            "create_table_import_from_paste",
+            "POST",
+        ): "tenant.create_table_import_from_paste.post",
+        ("tenant", "get_table_import", "GET"): "tenant.get_table_import.get",
+        ("tenant", "unlock_table_import", "POST"): "tenant.unlock_table_import.post",
+        (
+            "tenant",
+            "update_table_import_settings",
+            "PATCH",
+        ): "tenant.update_table_import_settings.patch",
+        (
+            "tenant",
+            "update_table_import_columns",
+            "PATCH",
+        ): "tenant.update_table_import_columns.patch",
+        (
+            "tenant",
+            "update_table_import_destination",
+            "PATCH",
+        ): "tenant.update_table_import_destination.patch",
+        ("tenant", "commit_table_import", "POST"): "tenant.commit_table_import.post",
+        (
+            "tenant",
+            "discard_table_import",
+            "DELETE",
+        ): "tenant.discard_table_import.delete",
+        (
+            "tenant",
+            "rerun_table_import_worksheet",
+            "POST",
+        ): "tenant.rerun_table_import_worksheet.post",
         ("tenant", "create_pdf_import", "POST"): "tenant.create_pdf_import.post",
         ("tenant", "prepare_import_files", "POST"): "tenant.prepare_import_files.post",
         (
@@ -1163,6 +1201,8 @@ def _native_form_data_request(
         ("tenant", "import_files", "POST"),
         ("tenant", "upload_import_session_files", "POST"),
         ("tenant", "upload_pdf_import_files", "POST"),
+        ("tenant", "create_table_import_from_file", "POST"),
+        ("tenant", "create_table_import_from_paste", "POST"),
         ("tenant", "import_followthemoney", "POST"),
         ("tenant", "ocr_compare_scratch", "POST"),
         ("tenant", "ocr_compare_scratch_estimate", "POST"),

@@ -1,0 +1,413 @@
+"""Bounded reader analysis and HTTP projection for table drafts."""
+
+from __future__ import annotations
+
+from collections import Counter
+from dataclasses import asdict
+from pathlib import Path
+from typing import Any, Mapping, Sequence
+
+from frisket.table_import import (
+    ColumnStatsAccumulator,
+    PreviewAccumulator,
+    RawCell,
+    TableReadSettings,
+    convert_cell,
+    count_records,
+    open_table,
+    read_prefix,
+)
+
+
+PREFIX_RECORDS = 64
+PREVIEW_HEAD = 8
+PREVIEW_COLUMNS = 8
+ESTIMATE_SAMPLE_BYTES = 1024 * 1024
+
+
+def build_prefix_scan(
+    source_path: Path, settings: TableReadSettings, *, settings_revision: int
+) -> dict[str, Any]:
+    prefix = read_prefix(source_path, settings, record_limit=PREFIX_RECORDS)
+    preview = PreviewAccumulator(
+        head_rows=PREVIEW_HEAD, tail_rows=2, column_limit=PREVIEW_COLUMNS
+    )
+    stats = ColumnStatsAccumulator(
+        prefix.columns,
+        decimal_separator=settings.decimal_separator,
+        thousands_separator=settings.thousands_separator,
+    )
+    issues = zero_issue_counts()
+    data_rows = 0
+    widths: Counter[int] = Counter()
+    for row in prefix.rows:
+        preview.accept(row)
+        stats.accept(row)
+        if row.role == "data":
+            data_rows += 1
+            widths[len(row.source.cells)] += 1
+            count_issues(issues, row.issues)
+    complete = not prefix.tail_pending and not settings.skip_rows_end
+    payload = _scan_payload(
+        settings_revision=settings_revision,
+        record_count=max(
+            (int(row.source.record_ordinal) for row in prefix.rows), default=0
+        ),
+        data_rows=data_rows,
+        columns=prefix.columns,
+        preview=preview.snapshot(complete=complete),
+        stats=stats.snapshot(complete=complete),
+        issues=issues,
+        encoding=settings.encoding,
+        data_widths=widths,
+    )
+    payload["estimated_rows"] = (
+        None
+        if complete
+        else _estimate_delimited_rows(source_path, settings, prefix.rows, data_rows)
+    )
+    return payload
+
+
+def build_complete_scan(
+    source_path: Path, settings: TableReadSettings, *, settings_revision: int
+) -> dict[str, Any]:
+    total = count_records(source_path, settings) if settings.skip_rows_end else None
+    preview = PreviewAccumulator(
+        head_rows=PREVIEW_HEAD, tail_rows=2, column_limit=PREVIEW_COLUMNS
+    )
+    issues = zero_issue_counts()
+    with open_table(source_path, settings, total_record_count=total) as reader:
+        stats = ColumnStatsAccumulator(
+            reader.columns,
+            decimal_separator=settings.decimal_separator,
+            thousands_separator=settings.thousands_separator,
+        )
+        record_count = data_rows = 0
+        widths: Counter[int] = Counter()
+        for row in reader:
+            record_count = row.source.record_ordinal
+            preview.accept(row)
+            stats.accept(row)
+            if row.role == "data":
+                data_rows += 1
+                widths[len(row.source.cells)] += 1
+                count_issues(issues, row.issues)
+        return _scan_payload(
+            settings_revision=settings_revision,
+            record_count=record_count,
+            data_rows=data_rows,
+            columns=reader.columns,
+            preview=preview.snapshot(complete=True),
+            stats=stats.snapshot(complete=True),
+            issues=issues,
+            encoding=settings.encoding,
+            data_widths=widths,
+        )
+
+
+def _estimate_delimited_rows(
+    source_path: Path,
+    settings: TableReadSettings,
+    rows: Sequence[Any],
+    data_rows: int,
+) -> int | None:
+    """Estimate data rows from a bounded, already-parsed delimited prefix."""
+
+    encoding = (settings.encoding or "").lower().replace("_", "-")
+    if settings.kind != "delimited" or encoding.startswith(("utf-16", "utf-32")):
+        return None
+    physical_line_end = max(
+        (
+            int(row.source.physical_line_end)
+            for row in rows
+            if row.source.physical_line_end is not None
+        ),
+        default=0,
+    )
+    observed_records = max((int(row.source.record_ordinal) for row in rows), default=0)
+    if not physical_line_end or not observed_records or not data_rows:
+        return None
+    size = source_path.stat().st_size
+    sample_size = min(size, ESTIMATE_SAMPLE_BYTES)
+    with source_path.open("rb") as source:
+        sample = source.read(sample_size)
+    line_ends = _physical_line_ends(sample, complete=sample_size == size)
+    if len(line_ends) < physical_line_end:
+        return None
+    consumed_bytes = line_ends[physical_line_end - 1]
+    if consumed_bytes <= 0:
+        return None
+    estimated_records = max(
+        observed_records, round(observed_records * size / consumed_bytes)
+    )
+    estimated_data = round(data_rows * estimated_records / observed_records)
+    return max(data_rows, estimated_data - settings.skip_rows_end)
+
+
+def _physical_line_ends(sample: bytes, *, complete: bool) -> list[int]:
+    """Return CR/LF/CRLF boundaries matching text newline handling."""
+
+    result: list[int] = []
+    index = 0
+    while index < len(sample):
+        byte = sample[index]
+        if byte == 10:
+            result.append(index + 1)
+        elif byte == 13:
+            if index + 1 < len(sample) and sample[index + 1] == 10:
+                index += 1
+                result.append(index + 1)
+            elif index + 1 < len(sample) or complete:
+                result.append(index + 1)
+        index += 1
+    if complete and sample and (not result or result[-1] < len(sample)):
+        result.append(len(sample))
+    return result
+
+
+def public_columns(
+    scan: Mapping[str, Any],
+    choices: Sequence[Mapping[str, Any]],
+    settings: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    by_choice = {int(item["source_index"]): item for item in choices}
+    result = []
+    for stat in scan["stats"]["columns"]:
+        source = stat["column"]
+        choice = by_choice.get(
+            int(source["index"]),
+            {
+                "included": stat["suggested_type"] != "omit",
+                "target_type": stat["suggested_type"],
+                "date_order": stat.get("suggested_date_order"),
+            },
+        )
+        target = choice["target_type"]
+        date_order = choice.get("date_order")
+        counts = _chosen_counts(stat, target, date_order)
+        counts_by_date_order = _counts_by_date_order(stat, target)
+        samples = [
+            conversion_json(
+                value,
+                target,
+                date_order,
+                decimal_separator=str(settings.get("decimal_separator", ".")),
+                thousands_separator=settings.get("thousands_separator", ","),
+            )
+            for value in stat["sample_values"][:5]
+        ]
+        needs = [
+            {"leading_zero": "leading_zeros"}.get(item, item)
+            for item in stat["needs_review"]
+        ]
+        if stat["ambiguous_date_order"] and "ambiguous_date_order" not in needs:
+            needs.append("ambiguous_date_order")
+        if counts.get("time_dropped") and "time_dropped" not in needs:
+            needs.append("time_dropped")
+        result.append(
+            {
+                "source_index": source["index"],
+                "name": source["name"],
+                "original_name": source["original_name"],
+                "name_status": source["name_status"],
+                "included": bool(choice["included"]),
+                "target_type": target,
+                "date_order": date_order,
+                "inferred_date_order": stat.get("suggested_date_order"),
+                "suggested_type": stat["suggested_type"],
+                "ambiguous_date_order": stat["ambiguous_date_order"],
+                "needs_review": needs,
+                "samples": samples,
+                "conversion_counts": counts,
+                "conversion_counts_by_date_order": counts_by_date_order,
+                "stats_complete": bool(scan["stats"]["complete"]),
+            }
+        )
+    return result
+
+
+def default_choices(scan: Mapping[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "source_index": int(item["column"]["index"]),
+            "included": item["suggested_type"] != "omit",
+            "target_type": item["suggested_type"],
+            "date_order": item.get("suggested_date_order")
+            or ("month_first" if item["ambiguous_date_order"] else None),
+        }
+        for item in scan["stats"]["columns"]
+    ]
+
+
+def zero_issue_counts() -> dict[str, int]:
+    return {
+        "extra_values": 0,
+        "missing_values": 0,
+        "malformed_records": 0,
+        "unreadable_cells": 0,
+    }
+
+
+def count_issues(counts: dict[str, int], issues: Sequence[Any]) -> None:
+    names = {
+        "extra_values": "extra_values",
+        "missing_values": "missing_values",
+        "malformed_record": "malformed_records",
+        "unreadable_cell": "unreadable_cells",
+    }
+    for issue in issues:
+        counts[names[issue.code]] += int(getattr(issue, "count", 1))
+
+
+def conversion_json(
+    original: str,
+    target: str,
+    date_order: str | None,
+    *,
+    decimal_separator: str,
+    thousands_separator: str | None,
+) -> dict[str, Any]:
+    converted = convert_cell(
+        RawCell(original),
+        target,
+        date_order=date_order or "month_first",
+        decimal_separator=decimal_separator,
+        thousands_separator=thousands_separator,
+    )
+    return {
+        "original": converted.original,
+        "value": converted.value,
+        "display": converted.display,
+        "outcome": converted.outcome,
+    }
+
+
+def _scan_payload(
+    *,
+    settings_revision: int,
+    record_count: int,
+    data_rows: int,
+    columns: Sequence[Any],
+    preview: Any,
+    stats: Any,
+    issues: Mapping[str, int],
+    encoding: str | None,
+    data_widths: Mapping[int, int],
+) -> dict[str, Any]:
+    return {
+        "settings_revision": settings_revision,
+        "record_count": record_count,
+        "data_rows": data_rows,
+        "preview": _preview_json(
+            columns, preview, issues, encoding, data_widths=data_widths
+        ),
+        "stats": {
+            "columns": [asdict(item) for item in stats.columns],
+            "rows_checked": stats.rows_checked,
+            "inference_rows_checked": stats.inference_rows_checked,
+            "complete": stats.complete,
+        },
+        "issue_counts": dict(issues),
+        "complete": bool(preview.complete),
+        "error": None,
+    }
+
+
+def _preview_json(
+    columns: Sequence[Any],
+    preview: Any,
+    issues: Mapping[str, int],
+    encoding: str | None,
+    *,
+    data_widths: Mapping[int, int],
+) -> dict[str, Any]:
+    payload = asdict(preview)
+    payload["columns"] = [asdict(item) for item in columns]
+    payload["expected_values"] = len(columns)
+    payload["notice"] = _notice(len(columns), issues, encoding, data_widths=data_widths)
+    return payload
+
+
+def _notice(
+    width: int,
+    issues: Mapping[str, int],
+    encoding: str | None,
+    *,
+    data_widths: Mapping[int, int],
+) -> dict[str, Any]:
+    wrong_width_rows = sum(
+        count for values, count in data_widths.items() if values != width
+    )
+    data_rows = sum(data_widths.values())
+    common_values = (
+        max(data_widths.items(), key=lambda item: (item[1], item[0]))[0]
+        if data_widths
+        else None
+    )
+    if issues["unreadable_cells"]:
+        kind, count = "unreadable_characters", issues["unreadable_cells"]
+    elif common_values == 1:
+        kind, count = "one_column", None
+    elif wrong_width_rows > data_rows / 2:
+        kind, count = "mostly_wrong_width", wrong_width_rows
+    elif wrong_width_rows:
+        kind, count = "some_wrong_width", wrong_width_rows
+    else:
+        kind, count = "consistent", None
+    return {
+        "kind": kind,
+        "count": count,
+        "common_values": common_values,
+        "expected_values": width,
+        "encoding": encoding,
+    }
+
+
+def _chosen_counts(
+    stat: Mapping[str, Any], target: str, date_order: str | None
+) -> dict[str, int]:
+    by_order = stat.get("counts_by_date_order")
+    if target in {"date", "datetime"} and date_order and isinstance(by_order, dict):
+        order_counts = by_order.get(date_order)
+        if isinstance(order_counts, dict) and target in order_counts:
+            return dict(order_counts[target])
+    counts = stat["counts_by_type"].get(target)
+    return dict(counts) if isinstance(counts, dict) else _zero_conversion_counts()
+
+
+def _counts_by_date_order(
+    stat: Mapping[str, Any], target: str
+) -> dict[str, dict[str, int]] | None:
+    if target not in {"date", "datetime"}:
+        return None
+    by_order = stat.get("counts_by_date_order")
+    if not isinstance(by_order, dict):
+        return None
+    return {
+        order: dict(
+            (by_order.get(order) or {}).get(target) or _zero_conversion_counts()
+        )
+        for order in ("month_first", "day_first")
+    }
+
+
+def _zero_conversion_counts() -> dict[str, int]:
+    return {
+        "rows_checked": 0,
+        "valid": 0,
+        "blank": 0,
+        "changed": 0,
+        "invalid": 0,
+        "leading_zero_loss": 0,
+        "time_dropped": 0,
+    }
+
+
+__all__ = [
+    "build_complete_scan",
+    "build_prefix_scan",
+    "default_choices",
+    "public_columns",
+    "zero_issue_counts",
+]

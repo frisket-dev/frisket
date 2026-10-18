@@ -150,6 +150,19 @@ def _non_retryable_safe_error(exc: NonRetryableJobError) -> SafeError:
     )
 
 
+def _default_table_analysis_runner(
+    project: Any,
+    project_id: str,
+    draft_id: str,
+    settings_revision: int,
+) -> object:
+    """Enter the server-owned scanner with an already trusted project."""
+
+    from frisket.server.services.table_imports import run_table_analysis
+
+    return run_table_analysis(project, project_id, draft_id, settings_revision)
+
+
 class HandlerRegistry:
     """The ONE registration surface for a worker composition.
 
@@ -322,6 +335,7 @@ def register_production_handlers(
     execution_composition_overlay: ExecutionCompositionOverlay | None = None,
     embedding_runtime: EmbeddingRuntime | None = None,
     on_terminal_file_import: Callable[[str, str, int], None] | None = None,
+    run_table_analysis: Callable[[Any, str, str, int], object] | None = None,
     on_enclosure_downloaded: Callable[[str, int, int], None] | None = None,
     prepare_enclosures_for_search: bool = False,
 ) -> ProjectOpener | None:
@@ -376,6 +390,10 @@ def register_production_handlers(
     from .blob_metadata import register_blob_metadata_handler
     from .search_index import register_search_index_handler
     from .import_files import register_import_files_handler
+    from .import_table import (
+        register_import_table_analysis_handler,
+        register_import_table_handler,
+    )
     from .embeddings import register_embedding_refresh_handler
     from .enclosures import register_enclosure_download_handler
     from .notifications_delivery import register_notification_handlers
@@ -485,6 +503,22 @@ def register_production_handlers(
         project_opener=project_opener,
         on_terminal_import=on_terminal_file_import,
     )
+    import_table_registration = register_import_table_handler(
+        registry,
+        workspace_root=root,
+        queue=queue,
+        require_storage_identity=strict_hosted_storage,
+        workspace_root_storage_org_id=workspace_root_storage_org_id,
+        project_opener=project_opener,
+    )
+    import_table_analysis_registration = register_import_table_analysis_handler(
+        registry,
+        run_analysis=run_table_analysis or _default_table_analysis_runner,
+        workspace_root=root,
+        require_storage_identity=strict_hosted_storage,
+        workspace_root_storage_org_id=workspace_root_storage_org_id,
+        project_opener=project_opener,
+    )
     search_index_registration = register_search_index_handler(
         registry,
         workspace_root=root,
@@ -554,6 +588,8 @@ def register_production_handlers(
             "blob.metadata.backfill": blob_metadata_registration,
             "search.index": search_index_registration,
             "import.files.page": import_files_registration,
+            "import.table.analysis": import_table_analysis_registration,
+            "import.table.stream": import_table_registration,
             "notification.deliver": notification_delivery_registration,
             "notification.digest": notification_digest_registration,
         }
@@ -601,6 +637,7 @@ def register_hosted_handlers(
     notification_delivery_runtime: Any | None = None,
     notification_delivery_runtime_factory: Any | None = None,
     execution_composition_factory: ExecutionCompositionFactory | None = None,
+    run_table_analysis: Callable[[Any, str, str, int], object] | None = None,
 ) -> ProjectOpener | None:
     """Compose the hosted worker: the open worker plus an external edition's ports.
 
@@ -640,6 +677,8 @@ def register_hosted_handlers(
         "notification_delivery_runtime": notification_delivery_runtime,
         "execution_composition_factory": execution_composition_factory,
     }
+    if run_table_analysis is not None:
+        compose_kwargs["run_table_analysis"] = run_table_analysis
     if notification_delivery_runtime_factory is not None:
         compose_kwargs["notification_delivery_runtime_factory"] = (
             notification_delivery_runtime_factory

@@ -15,7 +15,7 @@ import {
   isErrorJob,
   type DockRunSummary,
 } from './dockJobSummary';
-import { RowErrorGroupList } from './RowErrorGroupList';
+import { ImportErrorGroupList, RowErrorGroupList } from './RowErrorGroupList';
 import { AttemptReceiptList } from '../components/AttemptReceiptList';
 import {
   ListDetailGrid,
@@ -106,7 +106,7 @@ function dockJobStatus(job: DockActionJob): string {
   }
   if (job.progress?.status && job.progress.status !== 'complete') return job.progress.status;
   if (job.lease.leaseExpired && job.status === 'running') return 'stalled';
-  if (job.status === 'done') return 'complete';
+  if (job.status === 'done') return job.importErrors?.length ? 'complete with issues' : 'complete';
   return job.status;
 }
 
@@ -124,6 +124,10 @@ function dockJobErrorMessage(job: DockActionJob): string {
   if (job.error) return job.error;
   if ((job.progress?.failedRows ?? 0) > 0) {
     return `${job.progress?.failedRows.toLocaleString()} failed row${job.progress?.failedRows === 1 ? '' : 's'}`;
+  }
+  if (job.importErrors?.length) {
+    const count = job.importErrors.reduce((total, group) => total + group.count, 0);
+    return `${count.toLocaleString()} import issue${count === 1 ? '' : 's'}`;
   }
   return 'Worker lease expired before the run completed.';
 }
@@ -323,6 +327,12 @@ function renderJobDetail(
         >
           <h4>Row errors ({rowErrors.totalFailedRows.toLocaleString()})</h4>
           <RowErrorGroupList groups={rowErrors.groups} />
+        </section>
+      )}
+      {!!job.importErrors?.length && (
+        <section className="bottom-dock-detail-section" data-testid="bottom-dock-import-errors">
+          <h4>Source data</h4>
+          <ImportErrorGroupList groups={job.importErrors} />
         </section>
       )}
       {summaryRows.length > 0 && (

@@ -155,7 +155,7 @@ export function StatusBar({
   onUndo, onRedo, onOpenReview, onCancelRun,
   onShowFailedRows, onRetryFailedRows,
 }: StatusBarProps) {
-  const { actSurface, chromePreferences: { projectId } } = useWorkspaceStores();
+  const { actSurface, chrome, chromePreferences: { projectId } } = useWorkspaceStores();
   const { descriptor } = useEditionModule();
   const baseSearchPreparationNotice = useSearchPreparationNotice(
     projectId,
@@ -239,7 +239,7 @@ export function StatusBar({
             now={importActivity && importPriority?.sheetId === String(importActivity.session.sheet_id)
               ? importPriority.label
               : null}
-            stopLabel={importActivity ? 'Stop remaining' : undefined}
+            stopLabel={importActivity?.session.intake_kind === 'table' ? 'Stop import' : importActivity ? 'Stop remaining' : undefined}
             onResumeImport={importActivity?.needsRecovery && importActivity.session.state !== 'cancelled'
               ? () => importProgress.resume(importActivity)
               : undefined}
@@ -249,6 +249,15 @@ export function StatusBar({
             importActionBusy={importProgress.busyRef === importActivity?.importRef
               || importProgress.preparingRef === importActivity?.importRef}
             importMessage={importActivity ? importProgress.message : null}
+            importProblemCount={importActivity?.session.problem_count}
+            importSourceLabel={importActivity?.session.source_label}
+            importHint={importActivity?.session.intake_kind === 'table' && importActivity.canStop
+              ? 'You can browse rows as they arrive.' : undefined}
+            onImportAnotherSheet={importActivity?.session.can_rerun_workbook
+              && ['completed', 'kept'].includes(importActivity.session.state)
+              ? () => actSurface.openTableImportRerun(importActivity.importRef) : undefined}
+            onOpenErrors={importActivity?.session.intake_kind === 'table' || (importActivity?.session.problem_count ?? 0) > 0
+              ? () => chrome.setActiveBottomDockTab('errors') : undefined}
             onDismiss={() => setSearchNoticeOpen(false)}
           />
         )}

@@ -6,6 +6,7 @@ from typing import Literal
 
 from pydantic import Field, JsonValue
 
+from frisket.contracts.http.import_errors import ImportSourceErrorGroup
 from frisket.contracts.http.models import RunRowErrorSummary, WireModel
 
 
@@ -21,6 +22,7 @@ class ImportPreparationChild(WireModel):
 
 class ImportSessionStatus(WireModel):
     import_ref: str
+    intake_kind: Literal["files", "table"] = "files"
     state: Literal[
         "admitting",
         "running",
@@ -45,6 +47,13 @@ class ImportSessionStatus(WireModel):
     search_preparation_status: Literal["pending", "available", "none"]
     search_preparation_batch_id: str | None = None
     selected_total: int | None = None
+    estimated_rows: int | None = None
+    processed_rows: int = 0
+    skipped_duplicates: int = 0
+    problem_count: int = 0
+    source_label: str | None = None
+    can_rerun_workbook: bool = False
+    source_error_groups: list[ImportSourceErrorGroup] = Field(default_factory=list)
     preparation_completed: int = 0
     preparation_total: int = 0
     ocr_completed: int = 0
@@ -61,4 +70,8 @@ class ImportSessionList(WireModel):
     sessions: list[ImportSessionStatus]
 
 
-__all__ = ["ImportPreparationChild", "ImportSessionList", "ImportSessionStatus"]
+__all__ = [
+    "ImportPreparationChild",
+    "ImportSessionList",
+    "ImportSessionStatus",
+]

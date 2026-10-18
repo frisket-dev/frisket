@@ -114,6 +114,28 @@ def test_ask_history_is_shared_but_viewers_cannot_start_or_change_work(
         assert (response.status_code == 403) == (required == "editor")
 
 
+def test_table_import_drafts_and_commit_require_project_editor(tmp_path: Path) -> None:
+    access = _RecordingProjectAccess("viewer")
+    app = _protect(_core(tmp_path, "table-import-roles"), access)
+    base = "/api/projects/proof/import/table-imports"
+    with TestClient(app, raise_server_exceptions=False) as client:
+        for method, suffix in (
+            ("POST", "/file"),
+            ("POST", "/paste"),
+            ("GET", "/draft"),
+            ("PATCH", "/draft/settings"),
+            ("POST", "/draft/commit"),
+            ("DELETE", "/draft"),
+        ):
+            response = client.request(method, base + suffix, json={})
+            assert access.pop_required_role() == "editor"
+            assert response.status_code == 403, response.text
+        access.role = "editor"
+        response = client.get(base + "/draft")
+        assert access.pop_required_role() == "editor"
+        assert response.status_code == 404, response.text
+
+
 @pytest.mark.parametrize(
     ("method", "path"),
     (

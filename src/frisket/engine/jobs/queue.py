@@ -56,6 +56,8 @@ MODEL_PULL_KIND = "model.pull"
 BLOB_METADATA_KIND = "blob.metadata.backfill"
 SEARCH_INDEX_KIND = "search.index"
 IMPORT_FILES_PAGE_KIND = "import.files.page"
+IMPORT_TABLE_ANALYSIS_KIND = "import.table.analysis"
+IMPORT_TABLE_STREAM_KIND = "import.table.stream"
 BACKGROUND_PRIORITY_PAYLOAD_KEY = "background_priority"
 PDF_IMPORT_OCR_BACKGROUND = "pdf_import_ocr"
 FOREGROUND_PRIORITY_CLASS = 0
@@ -71,6 +73,7 @@ COOPERATIVELY_CANCELLABLE_RUNNING_KINDS = frozenset(
         BLOB_METADATA_KIND,
         SEARCH_INDEX_KIND,
         IMPORT_FILES_PAGE_KIND,
+        IMPORT_TABLE_STREAM_KIND,
     }
 )
 

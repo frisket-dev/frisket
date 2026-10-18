@@ -482,6 +482,7 @@ class StreamingSheetWriter:
                 barrier=True,
                 undo_info={
                     "created_rows": [],
+                    "created_rows_import_session_id": session_id,
                     "created_columns": created_column_ids,
                 },
                 commit=False,
@@ -669,6 +670,7 @@ class StreamingSheetWriter:
                 self._writer_authority,
                 expected_cursor,
             )
+            ImportSessionStore(self.project).upgrade_append_undo(session)
             row_ids = self.project.add_rows(
                 self.sheet_id,
                 batch,
@@ -684,15 +686,6 @@ class StreamingSheetWriter:
                     for offset, row_id in enumerate(row_ids, start=1)
                 ),
             )
-            operation = db.execute(
-                "SELECT undo_info FROM ops WHERE id=?", (self._op_id,)
-            ).fetchone()
-            if operation is None:
-                raise ImportSessionConflict("import operation is unavailable")
-            undo_info = json.loads(operation["undo_info"] or "{}")
-            if "created_rows" in undo_info:
-                undo_info["created_rows"].extend(row_ids)
-                op_log.set_undo_info(self.project, self._op_id, undo_info, commit=False)
             if blob_plan is not None:
                 publish_import_blobs(
                     self.project,

@@ -434,7 +434,7 @@ describe('search preparation notice projection', () => {
     />);
 
     expect(screen.getByTestId('search-preparation-banner')).toHaveTextContent(
-      'Files become searchable as preparation finishes.',
+      'Content becomes searchable as preparation finishes.',
     );
   });
 

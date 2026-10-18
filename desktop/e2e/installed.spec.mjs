@@ -5,6 +5,7 @@ import { handleFirstLaunchPrompts } from './onboarding.mjs';
 import {
   aliveProcesses, assertInstalledPlatform, descendants, installedExecutable, listeningPorts, windowsProcessDetails,
 } from './installed-platform.mjs';
+import { importTable } from './table-import.mjs';
 
 const appPath = process.env.FRISKET_DESKTOP_APP;
 const profile = process.env.FRISKET_DESKTOP_PROFILE;
@@ -248,22 +249,11 @@ test('installed app imports, runs its worker, exports, quits and reopens', async
     await page.getByTestId('create-project').click();
     await page.waitForURL(/\/p\//);
     const projectId = new URL(page.url()).pathname.split('/')[2];
-    if (!await page.getByTestId('import-csv-input').count()) {
-      await page.getByTestId('ribbon-tab-data').click();
-      await page.getByTestId('ribbon-command-import').click();
-    }
-    const uploaded = page.waitForResponse((response) => response.request().method() === 'POST' && new URL(response.url()).pathname.endsWith('/import/csv'));
-    await page.getByTestId('import-csv-input').setInputFiles({
+    const sheetId = await importTable(page, projectId, {
       name: 'desktop-smoke.csv', mimeType: 'text/csv',
       buffer: Buffer.from('note\n"contract worth $4,200 total"\n"routine agenda item"\n'),
     });
-    await expect(page.getByTestId('import-csv-preview')).toBeVisible();
-    await page.getByTestId('import-csv-confirm').click();
-    const response = await uploaded;
-    expect(response.ok()).toBeTruthy();
-    const imported = await response.json();
-    const sheetId = imported.sheet_id;
-    expect(sheetId).toBeTruthy();
+    await expect.poll(async () => (await sheet(page, projectId, sheetId)).total, { timeout: 60_000 }).toBe(2);
     await expect(page.getByTestId('sheet-stats')).toHaveText(/2 rows · 1 columns?/);
     await openRegex(page);
     await page.getByTestId('generated-action-run').click();

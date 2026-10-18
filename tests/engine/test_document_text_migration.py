@@ -14,7 +14,6 @@ from frisket.engine.store.document_text_migration import (
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
 from frisket.engine.store.bundle_open import (
     _IMPORT_SESSION_ROWS_FROM_DIGEST,
-    _IMPORT_SESSION_ROWS_TO_DIGEST,
 )
 
 
@@ -85,7 +84,6 @@ def test_document_text_bundle_adds_stable_import_row_ledger(tmp_path: Path) -> N
 
     reopened = Project(path)
     try:
-        assert _IMPORT_SESSION_ROWS_TO_DIGEST == SCHEMA_DIGEST
         assert reopened.get_meta(SCHEMA_DIGEST_META_KEY) == SCHEMA_DIGEST
         columns = {
             str(row[1])

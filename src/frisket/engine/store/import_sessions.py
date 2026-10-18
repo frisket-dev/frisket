@@ -116,6 +116,37 @@ class ImportSessionStore:
             raise ImportSessionConflict("import session disappeared")
         return session
 
+    def upgrade_append_undo(self, session: ImportSession) -> None:
+        """Adopt ledger membership for an append resumed across an upgrade.
+
+        Runs inside the page transaction: older append sessions stored row IDs
+        in the operation, but already recorded the same durable membership.
+        """
+        operation = self.db.execute(
+            "SELECT undo_info FROM ops WHERE id=?", (session.op_id,)
+        ).fetchone()
+        if operation is None:
+            raise ImportSessionConflict("import operation is unavailable")
+        undo = json.loads(operation["undo_info"] or "{}")
+        if (
+            "created_rows" not in undo
+            or "created_sheets" in undo
+            or "created_rows_import_session_id" in undo
+        ):
+            return
+        count = self.db.execute(
+            "SELECT COUNT(*) FROM import_session_rows WHERE session_id=?",
+            (session.id,),
+        ).fetchone()[0]
+        if count != session.committed_rows:
+            raise ImportSessionConflict("import row membership is incomplete")
+        undo["created_rows"] = []
+        undo["created_rows_import_session_id"] = session.id
+        self.db.execute(
+            "UPDATE ops SET undo_info=? WHERE id=?",
+            (json.dumps(undo), session.op_id),
+        )
+
     def set_state(
         self,
         session_id: str,
@@ -156,7 +187,8 @@ def active_import_session(db: Any, sheet_id: int) -> ImportSession | None:
     if row is None:
         return None
     # Existing-sheet imports own only their checkpointed rows. They deliberately
-    # do not lock unrelated sheet mutations; their undo scope is ``created_rows``.
+    # do not lock unrelated sheet mutations; ``created_rows`` marks that narrow
+    # scope while import_session_rows carries its durable membership.
     operation = db.execute(
         "SELECT undo_info FROM ops WHERE id=?", (int(row["op_id"]),)
     ).fetchone()
@@ -182,6 +214,35 @@ def active_import_session(db: Any, sheet_id: int) -> ImportSession | None:
                 # while later file occurrences continue to arrive.
                 return None
     return ImportSession.from_row(row)
+
+
+def set_import_session_rows_hidden(
+    db: Any,
+    *,
+    op_id: int,
+    session_id: str,
+    hidden: bool,
+) -> int:
+    """Toggle rows owned by one import operation through its durable ledger."""
+
+    session = db.execute(
+        "SELECT committed_rows FROM import_sessions WHERE id=? AND op_id=?",
+        (session_id, int(op_id)),
+    ).fetchone()
+    if session is None:
+        raise ImportSessionConflict("import operation row membership is unavailable")
+    updated = db.execute(
+        "UPDATE rows SET hidden=? WHERE id IN ("
+        "SELECT member.row_id FROM import_session_rows AS member "
+        "JOIN import_sessions AS session ON session.id=member.session_id "
+        "WHERE member.session_id=? AND session.op_id=?"
+        ")",
+        (int(hidden), session_id, int(op_id)),
+    )
+    updated_rows = int(updated.rowcount)
+    if updated_rows != int(session["committed_rows"]):
+        raise ImportSessionConflict("import operation row membership is incomplete")
+    return updated_rows
 
 
 def require_import_sheet_write(
@@ -234,4 +295,5 @@ __all__ = [
     "active_import_session",
     "require_cancelled_import_removal",
     "require_import_sheet_write",
+    "set_import_session_rows_hidden",
 ]

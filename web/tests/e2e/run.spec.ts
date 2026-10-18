@@ -6,7 +6,10 @@ import { expect, test, type Page } from '@playwright/test';
 import {
   TINY_CSV,
   clickCell,
+  commitTableImport,
   createProject,
+  previewTableFile,
+  reviewTableColumns,
   openAction,
   sheetColumns,
   uniqueName,
@@ -71,13 +74,15 @@ test('import → classify run → results → undo/redo', async ({ page }) => {
   await expect(page.getByTestId('import-dropzone')).toBeVisible({ timeout: 15_000 });
   await page.getByTestId('import-workspace-open').click();
   await expect(page.getByTestId('import-workspace')).toBeVisible();
-  await page.getByTestId('import-csv-input').setInputFiles({
+  await previewTableFile(page, {
     name: 'snippets.csv',
     mimeType: 'text/csv',
     buffer: Buffer.from(TINY_CSV),
   });
+  await reviewTableColumns(page);
+  await commitTableImport(page, pid);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId('sheet-stats')).toHaveText('5 rows · 1 columns');
+  await expect(page.getByTestId('sheet-stats')).toHaveText('5 rows · 1 column');
 
   // Fill the classify action form. The prompt carries a per-run nonce so the
   // server's response cache never short-circuits the run — we want to observe
@@ -116,7 +121,7 @@ test('import → classify run → results → undo/redo', async ({ page }) => {
 
   // Undo removes the AI columns; redo restores them.
   await page.getByTestId('undo-button').click();
-  await expect(page.getByTestId('sheet-stats')).toHaveText('5 rows · 1 columns');
+  await expect(page.getByTestId('sheet-stats')).toHaveText('5 rows · 1 column');
   await page.getByTestId('redo-button').click();
   await expect(page.getByTestId('sheet-stats')).toHaveText('5 rows · 4 columns');
 });

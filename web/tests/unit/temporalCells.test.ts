@@ -1,6 +1,6 @@
 import { GridCellKind } from '@glideapps/glide-data-grid';
 import { describe, expect, it } from 'vitest';
-import { buildCell, typeHeaderIcon, type TimelineCell } from '../../src/grid/cells';
+import { buildCell, cellEditability, typeHeaderIcon, type TimelineCell } from '../../src/grid/cells';
 import { presentationFor } from '../../src/grid/typeRegistry';
 import { columnDef, row } from '../support/domainFixtures';
 
@@ -11,6 +11,35 @@ const ANCHOR = {
 };
 
 describe('temporal grid presentation', () => {
+  it('renders logical date-time columns with a date icon and full honest time', () => {
+    const col = columnDef({ id: 'received', name: 'received', type: 'datetime' });
+    const naive = buildCell(col, row({ received: '2026-10-18T12:30:45.123456' }));
+    const offset = buildCell(col, row({ received: '2026-10-18T12:30:45-05:30' }));
+    const editable = buildCell(
+      col,
+      row({ received: '2026-10-18T12:30:45.123456' }),
+      { editable: cellEditability(col) },
+    );
+
+    expect(presentationFor('datetime')).toEqual({ renderer: 'datetime' });
+    expect(typeHeaderIcon('datetime')).toBe('typeDate');
+    expect(typeHeaderIcon('date')).toBe('typeDate');
+    expect(cellEditability(col)).toBe(true);
+    expect(naive).toMatchObject({
+      kind: GridCellKind.Text,
+      data: '2026-10-18T12:30:45.123456',
+      displayData: '18 Oct 2026, 12:30:45.123456',
+      copyData: '2026-10-18T12:30:45.123456',
+      readonly: true,
+    });
+    expect(offset).toMatchObject({
+      data: '2026-10-18T12:30:45-05:30',
+      displayData: '18 Oct 2026, 12:30:45 -05:30',
+      copyData: '2026-10-18T12:30:45-05:30',
+    });
+    expect(editable).toMatchObject({ allowOverlay: true, readonly: false });
+  });
+
   it('registers four types with one read-only timeline renderer', () => {
     expect(presentationFor('timeline_point')).toMatchObject({ renderer: 'timeline', geometry: 'point', multiple: false });
     expect(presentationFor('timeline_points')).toMatchObject({ renderer: 'timeline', geometry: 'point', multiple: true });

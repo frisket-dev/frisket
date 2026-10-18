@@ -29,7 +29,8 @@ export function isErrorJob(job: DockActionJob): boolean {
     Boolean(job.error) ||
     job.status === 'failed' ||
     job.lease.leaseExpired ||
-    (job.progress?.failedRows ?? 0) > 0
+    (job.progress?.failedRows ?? 0) > 0 ||
+    (job.importErrors?.length ?? 0) > 0
   );
 }
 

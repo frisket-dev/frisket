@@ -12,7 +12,11 @@ from dataclasses import dataclass
 from typing import Any, Literal, Mapping
 
 from frisket.engine.store.output_claims import OutputColumnClaimStore
-from frisket.engine.store.import_sessions import active_import_session, ImportInProgress
+from frisket.engine.store.import_sessions import (
+    ImportInProgress,
+    active_import_session,
+    set_import_session_rows_hidden,
+)
 from frisket.engine.store.current_cells import refresh_current_cell_pairs
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
@@ -572,6 +576,14 @@ def validate_operation_undo_info(undo_info: Any) -> str | None:
             "Target operation undo_info.evidence_links_staled must be a list of "
             "stable-id/reason objects"
         )
+    import_session_id = undo_info.get("created_rows_import_session_id")
+    if import_session_id is not None and (
+        not isinstance(import_session_id, str) or not import_session_id
+    ):
+        return (
+            "Target operation undo_info.created_rows_import_session_id must be "
+            "a non-empty string"
+        )
     return None
 
 
@@ -662,6 +674,14 @@ def _unapply(project: Any, op: sqlite3.Row) -> None:
         )
     for row_id in info.get("created_rows", []):
         project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (row_id,))
+    import_session_id = info.get("created_rows_import_session_id")
+    if import_session_id is not None:
+        set_import_session_rows_hidden(
+            project.db,
+            op_id=int(op["id"]),
+            session_id=import_session_id,
+            hidden=True,
+        )
     for row_id in info.get("deleted_rows", []):
         # undo of a row delete restores the soft-deleted row
         project.db.execute("UPDATE rows SET hidden=0 WHERE id=?", (row_id,))
@@ -722,6 +742,14 @@ def _reapply(project: Any, op: sqlite3.Row) -> None:
         )
     for row_id in info.get("created_rows", []):
         project.db.execute("UPDATE rows SET hidden=0 WHERE id=?", (row_id,))
+    import_session_id = info.get("created_rows_import_session_id")
+    if import_session_id is not None:
+        set_import_session_rows_hidden(
+            project.db,
+            op_id=int(op["id"]),
+            session_id=import_session_id,
+            hidden=False,
+        )
     for row_id in info.get("deleted_rows", []):
         # redo of a row delete re-hides the row
         project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (row_id,))

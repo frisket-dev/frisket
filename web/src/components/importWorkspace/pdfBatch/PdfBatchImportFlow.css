@@ -244,25 +244,6 @@
 .pdf-batch-type-list i { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 50%; }
 .pdf-batch-category-table b { text-align: right; }
 
-.pdf-batch-footer {
-  flex: 0 0 60px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 24px;
-  border-top: 1px solid #efeae5;
-  background: #fff;
-}
-
-.pdf-batch-footer > span {
-  flex: 1 1 auto;
-  margin-left: 5px;
-  color: #756c66;
-  font-size: 12px;
-}
-
-.pdf-batch-footer .btn-primary { min-width: 116px; justify-content: center; }
-
 .pdf-batch-error {
   position: absolute;
   right: 24px;
@@ -478,23 +459,15 @@
 
 .pdf-batch-destination .pdf-batch-step-body,
 .pdf-batch-search .pdf-batch-step-body { width: 100%; margin: 0; }
-.pdf-batch-destination-options { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 20px 0 14px; padding: 0; border: 0; }
-.pdf-batch-destination-options legend { margin-bottom: 8px; font-size: 13px; font-weight: 700; }
-.pdf-batch-destination-card,
 .pdf-batch-semantic-choice {
   padding: 13px;
   border: 1px solid #ddd5cd;
   border-radius: 8px;
   background: #fff;
 }
-.pdf-batch-destination-card.active { border-color: #c9cbf5; background: #eef0fd; }
-.pdf-batch-destination-card > label:first-child,
 .pdf-batch-semantic-choice { display: flex; align-items: flex-start; gap: 9px; }
-.pdf-batch-destination-options span,
 .pdf-batch-semantic-choice span { display: grid; gap: 3px; }
-.pdf-batch-destination-options small,
 .pdf-batch-semantic-choice small { color: #756c66; font-size: 11px; }
-.pdf-batch-sheet-field { display: grid; gap: 6px; margin: 12px 0 0 25px; color: #4a433e; font-size: 12px; font-weight: 650; }
 .pdf-batch-matching { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center; padding: 10px 0 14px; color: #756c66; font-size: 12px; }
 .pdf-batch-matching progress { grid-column: 1 / -1; }
 .pdf-batch-destination-summary { display: flex; align-items: baseline; gap: 12px; margin: 18px 0 10px; }
@@ -577,14 +550,11 @@
 }
 
 @media (max-width: 820px) {
-  .pdf-batch-progress-grid,
-  .pdf-batch-destination-options { grid-template-columns: 1fr; }
+  .pdf-batch-progress-grid { grid-template-columns: 1fr; }
   .pdf-batch-check-body { grid-template-columns: 1fr; overflow: auto; }
   .pdf-batch-check-sidebar { overflow: visible; border-right: 0; border-bottom: 1px solid #e7e1db; }
   .pdf-batch-preview { min-height: 520px; }
   .pdf-batch-ocr-policy { grid-template-columns: 1fr; }
   .pdf-batch-engine { width: min(350px, 60%); }
   .pdf-batch-destination-table > div { grid-template-columns: minmax(0, 1fr) 70px 140px; }
-  .pdf-batch-footer > span { display: none; }
-  .pdf-batch-footer .btn-primary { margin-left: auto; }
 }

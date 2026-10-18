@@ -546,6 +546,9 @@ export const headerIcons: SpriteMap = {
  *  (which fall back to no glyph). Resolved from the presentation renderer so
  *  plugin-registered types (geo_point → map-pin, image, etc.) map correctly. */
 export function typeHeaderIcon(type: string): string | undefined {
+  // Date intentionally uses the text renderer for its ordinary cell display,
+  // so its logical type must win before renderer-based icon resolution.
+  if (type === 'date') return 'typeDate';
   const renderer = presentationFor(type).renderer ?? type;
   switch (renderer) {
     case 'text':
@@ -556,6 +559,8 @@ export function typeHeaderIcon(type: string): string | undefined {
       return 'typeNumber';
     case 'boolean':
       return 'typeBoolean';
+    case 'datetime':
+      return 'typeDate';
     case 'link':
       return 'typeLink';
     case 'image':
@@ -572,7 +577,6 @@ export function typeHeaderIcon(type: string): string | undefined {
     default:
       break;
   }
-  if (type === 'date') return 'typeDate';
   return undefined;
 }
 
@@ -798,9 +802,10 @@ export function withOneClickFacetCursor(
 // editor instead of opening the row drawer — the drawer stays reachable via a
 // floating "open row details" affordance (SheetGrid.tsx) or the Space key.
 //
-// SCOPE (post-review retreat): text renderer ONLY this round. number/integer/
-// stars/boolean were dropped after review, for three concrete reasons, not
-// just "be conservative":
+// SCOPE (post-review retreat): text-shaped renderers only. This includes the
+// core text renderer and the datetime renderer, whose exact value remains an
+// ISO string. number/integer/stars/boolean were dropped after review, for
+// three concrete reasons, not just "be conservative":
 //   1. glide's BooleanCell overlay toggles on a SINGLE click — that click is
 //      also the one the drawer-repointing flow (onCellClicked/
 //      onGridSelectionChange, and tests/e2e/helpers.ts's openCellDrawer) fires
@@ -816,7 +821,9 @@ export function withOneClickFacetCursor(
 // Those columns keep the pre-feature behavior (activation always opens the
 // drawer; editing happens there) until a registry-declared inline-editor
 // capability exists per column type (tracked separately, not this feature).
-const EDITABLE_RENDERERS = new Set(['text']);
+// Date-time used the text renderer before receiving its own display treatment;
+// keep the same validated inline-edit path rather than changing interaction.
+const EDITABLE_RENDERERS = new Set(['text', 'datetime']);
 
 /** Whether a column's cells should open glide's native overlay editor on
  *  double-click/Enter (vs. staying read-only, with the row drawer as the only
@@ -950,11 +957,36 @@ const textBuilder: CellBuilder = (col, v, opts) => {
   };
 };
 
+const MONTH_NAMES = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+] as const;
+
+function datetimeDisplayValue(value: CellValue): string {
+  if (typeof value !== 'string') return textDisplayValue(value);
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}:\d{2}:\d{2}(?:\.\d+)?)(Z|[+-]\d{2}:\d{2})?$/.exec(value);
+  if (!match) return value;
+  const [, year, monthText, dayText, time, zone] = match;
+  const month = MONTH_NAMES[Number(monthText) - 1];
+  if (!month) return value;
+  return `${Number(dayText)} ${month} ${year}, ${time}${zone ? ` ${zone}` : ''}`;
+}
+
 /** renderer name (presentation.renderer in the column-type registry) →
  *  builder. Unknown renderer names fall back to text until frontend plugin
  *  renderer modules are wired. */
 const CELL_BUILDERS: Record<string, CellBuilder> = {
   text: textBuilder,
+
+  datetime: (_col, v, opts) => ({
+    kind: GridCellKind.Text,
+    data: v === null ? '' : String(v),
+    displayData: datetimeDisplayValue(v),
+    copyData: v === null ? '' : String(v),
+    allowOverlay: false,
+    allowWrapping: opts.wrap,
+    readonly: true,
+  }),
 
   number: (col, v) => {
     const n = coerceFiniteNumber(v);
@@ -1119,7 +1151,7 @@ const EMPTY_CELL_MARKER = '—';
 // text. Renderers with their own empty affordance (boolean checkbox, category
 // bubble, image, media/map-pin/timeline custom cells, json count badge) are
 // intentionally excluded.
-const EMPTY_MARKER_RENDERERS = new Set(['text', 'number', 'integer', 'stars', 'link', 'date']);
+const EMPTY_MARKER_RENDERERS = new Set(['text', 'datetime', 'number', 'integer', 'stars', 'link', 'date']);
 
 export function buildCell(col: ColumnDef, row: Row | undefined, opts: BuildCellOptions = {}): GridCell {
   if (row === undefined) {

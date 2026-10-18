@@ -6,6 +6,7 @@ import type {
   HttpCellEvidenceResponse,
   HttpEvidenceViewerResponse,
   HttpLocalEndpointDiscoveryResponse,
+  HttpActionJob,
   HttpModelPull,
   HttpProjectSettingsRequest,
   HttpProjectSettingsResponse,
@@ -3081,6 +3082,7 @@ export interface ActionJob {
   };
   error: string | null;
   resultSummary?: Record<string, unknown>;
+  importErrors?: HttpActionJob['import_errors'];
   progress?: RunProgress | null;
 }
 

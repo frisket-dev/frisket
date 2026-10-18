@@ -172,6 +172,7 @@ function mapActionJob(wire: ActionJobWire): ActionJob {
     },
     error: wire.error,
     resultSummary: wire.result_summary ?? {},
+    importErrors: wire.import_errors ?? [],
     progress: wire.progress ? mapPublicRunProgress(wire.progress, wire.progress.sheet_id) : null,
   };
 }

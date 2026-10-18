@@ -197,3 +197,16 @@ describe('derivePluginErrorJobs', () => {
     expect(new Set(rows.map((row) => row.jobId)).size).toBe(25);
   });
 });
+
+describe('table import source issues', () => {
+  it('keeps successful imports with invalid source values in the Errors dock', () => {
+    const job = {
+      ...dockJob(12, '2026-10-18T12:00:00Z', 'Import contributions'),
+      status: 'done', error: null,
+      lease: { lockedBy: null, lockedAt: null, leaseExpiresAt: null, leaseExpired: false },
+      importErrors: [{ code: 'invalid_number', message: 'Invalid numbers were left blank', count: 1, examples: [] }],
+    };
+    expect(isErrorJob(job)).toBe(true);
+    expect(isErrorJob({ ...job, importErrors: [] })).toBe(false);
+  });
+});

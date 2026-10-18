@@ -85,6 +85,26 @@ describe('useRowCache request epochs', () => {
     }
   });
 
+  it('keeps the displayed page while a refresh publishes appended tail rows', async () => {
+    const appended = deferred<{ columns: []; total: number; rows: Row[] }>();
+    const getSheetData = vi.fn()
+      .mockResolvedValueOnce({ columns: [], total: 1, rows: [row(0)] })
+      .mockImplementationOnce(() => appended.promise);
+    const api = gridApi({ getSheetData });
+    const store = createRowCacheStore();
+    const { result } = renderHook(() => useRowCache('7', 1, 1, store, null, api));
+    await waitFor(() => expect(result.current.getRow(0)?.id).toBe('0'));
+
+    act(() => result.current.refresh());
+    await waitFor(() => expect(getSheetData).toHaveBeenCalledTimes(2));
+    expect(result.current.getRow(0)?.id).toBe('0');
+    expect(result.current.rowCount).toBe(1);
+
+    await act(async () => appended.resolve({ columns: [], total: 2, rows: [row(0), row(1)] }));
+    await waitFor(() => expect(result.current.getRow(1)?.id).toBe('1'));
+    expect(result.current.rowCount).toBe(2);
+  });
+
   it('rejects stale responses across an A-to-B-to-A key cycle', async () => {
     const oldA = deferred<{ columns: []; total: number; rows: Row[] }>();
     const requestB = deferred<{ columns: []; total: number; rows: Row[] }>();

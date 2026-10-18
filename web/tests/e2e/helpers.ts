@@ -1096,6 +1096,42 @@ export async function openImportWorkspace(page: Page): Promise<void> {
   await page.getByTestId('ribbon-command-import').click();
 }
 
+/** Select a table through the real import UI and wait for its row preview. */
+export async function previewTableFile(
+  page: Page,
+  file: { name: string; mimeType: string; buffer: Buffer },
+): Promise<void> {
+  await page.getByRole('region', { name: 'Add data', exact: true })
+    .locator('input[type="file"]').setInputFiles(file);
+  await expect(page.getByRole('region', { name: 'Check rows', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Columns →', exact: true })).toBeEnabled();
+}
+
+/** Review the inferred columns and open the destination step. */
+export async function reviewTableColumns(page: Page): Promise<void> {
+  await page.getByRole('button', { name: 'Columns →', exact: true }).click();
+  await expect(page.getByRole('table', { name: 'Columns to import' })).toBeVisible();
+  await page.getByRole('button', { name: 'Continue →', exact: true }).click();
+  await expect(page.locator('.table-import-flow').getByRole('region', { name: 'Import', exact: true })).toBeVisible();
+}
+
+/** Submit the reviewed draft. The live stack worker materializes its rows. */
+export async function commitTableImport(page: Page, pid: string): Promise<number> {
+  const committed = page.waitForResponse((response) =>
+    response.request().method() === 'POST'
+    && new URL(response.url()).pathname.startsWith(`/api/projects/${pid}/import/table-imports/`)
+    && new URL(response.url()).pathname.endsWith('/commit'));
+  await page.locator('.table-import-flow').getByRole('region', { name: 'Import', exact: true })
+    .getByRole('button', { name: /^Import(?: |$)/ }).click();
+  const response = await committed;
+  expect(response.ok()).toBeTruthy();
+  const result = await response.json();
+  expect(result.status).toBe('accepted');
+  expect(Number.isInteger(result.sheet_id)).toBe(true);
+  await expect(page.getByTestId('import-workspace-dialog')).toHaveCount(0);
+  return result.sheet_id;
+}
+
 /**
  * History now lives solely in the bottom dock. Activate its tab and wait for the
  * op-log list to render. Replaces the old sidebar `history-panel-toggle`.

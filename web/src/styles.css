@@ -7597,6 +7597,7 @@ dialog.sources-connections-layer::backdrop { background: transparent; }
   padding: 0;
   border: 0;
   background: var(--bg);
+  color: var(--text);
   z-index: 60;
   display: flex;
   flex-direction: column;

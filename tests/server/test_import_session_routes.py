@@ -36,6 +36,7 @@ def test_import_session_routes_admit_status_and_enqueue_bounded_pages(tmp_path):
     ref = status["import_ref"]
     assert status == {
         "import_ref": ref,
+        "intake_kind": "files",
         "state": "admitting",
         "admitted_files": 0,
         "admitted_bytes": 0,
@@ -51,6 +52,13 @@ def test_import_session_routes_admit_status_and_enqueue_bounded_pages(tmp_path):
         "search_preparation_status": "pending",
         "semantic_preparation_error": None,
         "selected_total": None,
+        "estimated_rows": None,
+        "processed_rows": 0,
+        "skipped_duplicates": 0,
+        "problem_count": 0,
+        "source_label": None,
+        "can_rerun_workbook": False,
+        "source_error_groups": [],
         "preparation_completed": 0,
         "preparation_total": 0,
         "ocr_completed": 0,

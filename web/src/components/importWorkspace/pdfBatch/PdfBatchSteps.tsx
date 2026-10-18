@@ -8,6 +8,8 @@ import { PanelSelect } from '../../PanelSelect';
 import { SegmentedToggle } from '../../PanelPrimitives';
 import { PdfTextPagePreview } from '../pdfPacket/PdfTextPagePreview';
 import { routePath } from '../../../routes';
+import { ImportDestinationChoice, ImportDestinationOptions } from '../ImportDestinationChoice';
+import { ImportStepFooter } from '../ImportStepFooter';
 import type { PdfBatchDestinationSheet } from './PdfBatchImportFlow';
 import { PDF_CATEGORY_LABEL, PDF_CATEGORY_ORDER, PDF_CATEGORY_TONE, PDF_CHECK_CATEGORY_ORDER, bytesLabel, canOpenCheckText, count, destinationIsReady, ocrPolicyCount } from './model';
 
@@ -118,13 +120,13 @@ export function AddFilesStep({
       </div>}
       <CategoryTable snapshot={snapshot} showUnchecked />
     </div>
-    <StepFooter>
+    <ImportStepFooter>
       <button type="button" className="btn" onClick={onCancel}>Cancel</button>
       <span>{canOpenCheckText(snapshot)
         ? 'You can review samples while the remaining files are copied.'
         : 'Check text opens once each type has a few files.'}</span>
       <button type="button" className="btn btn-primary" disabled={!canOpenCheckText(snapshot)} onClick={onContinue}>Check text →</button>
-    </StepFooter>
+    </ImportStepFooter>
   </section>;
 }
 
@@ -287,7 +289,7 @@ export function CheckTextStep({
         </div>
       </div>
     </div>
-    <StepFooter><button type="button" className="btn" disabled={busy} onClick={onBack}>Back</button><span>{checkRunning ? 'You can continue now. Files checked later follow your choice.' : `OCR will apply to ${count(ocrPolicyCount(snapshot, snapshot.choices.ocr_policy), 'file')}${unreadableCount > 0 ? ` · ${unreadableCount.toLocaleString()} couldn't be read` : ''}.`}</span><button type="button" className="btn btn-primary" disabled={busy} onClick={onContinue}>{busy ? 'Saving…' : 'Continue →'}</button></StepFooter>
+    <ImportStepFooter><button type="button" className="btn" disabled={busy} onClick={onBack}>Back</button><span>{checkRunning ? 'You can continue now. Files checked later follow your choice.' : `OCR will apply to ${count(ocrPolicyCount(snapshot, snapshot.choices.ocr_policy), 'file')}${unreadableCount > 0 ? ` · ${unreadableCount.toLocaleString()} couldn't be read` : ''}.`}</span><button type="button" className="btn btn-primary" disabled={busy} onClick={onContinue}>{busy ? 'Saving…' : 'Continue →'}</button></ImportStepFooter>
   </section>;
 }
 
@@ -369,16 +371,28 @@ export function DestinationStep({ projectId, snapshot, destination, sheets, busy
   return <section className="pdf-batch-step pdf-batch-destination" aria-label="Review destination">
     <div className="pdf-batch-step-body">
       <header><h2>Review destination</h2><p>Choose where these files belong, then review exactly what will be added.</p></header>
-      <fieldset className="pdf-batch-destination-options"><legend>Import into</legend>
-        <div className={`pdf-batch-destination-card${destination.kind === 'new' ? ' active' : ''}`}>
-          <label><input type="radio" name="destination" disabled={busy} checked={destination.kind === 'new'} onChange={() => onDestination({ kind: 'new', sheet_name: destination.kind === 'new' ? destination.sheet_name : 'Imported files' })} /><span><strong>New sheet</strong><small>Create a sheet for this batch</small></span></label>
-          {destination.kind === 'new' && <label className="pdf-batch-sheet-field">Sheet name<input className="form-input" disabled={busy} value={destination.sheet_name} onChange={(event) => onDestination({ kind: 'new', sheet_name: event.currentTarget.value })} /></label>}
-        </div>
-        <div className={`pdf-batch-destination-card${destination.kind === 'existing' ? ' active' : ''}`}>
-          <label><input type="radio" name="destination" disabled={busy} checked={destination.kind === 'existing'} onChange={() => { const sheet = sheets[0]; if (sheet) onDestination({ kind: 'existing', sheet_id: sheet.id }); }} /><span><strong>Existing sheet</strong><small>Skip matching file names and sizes</small></span></label>
-          {destination.kind === 'existing' && <label className="pdf-batch-sheet-field">Existing sheet<PanelSelect ariaLabel="Existing sheet" topLayer disabled={busy} value={destination.sheet_id} onValueChange={(value) => onDestination({ kind: 'existing', sheet_id: Number(value) })}>{sheets.map((sheet) => <option key={sheet.id} value={sheet.id}>{sheet.name}</option>)}</PanelSelect></label>}
-        </div>
-      </fieldset>
+      <ImportDestinationOptions>
+        <ImportDestinationChoice
+          name="destination"
+          selected={destination.kind === 'new'}
+          disabled={busy}
+          title="New sheet"
+          description="Create a sheet for this batch"
+          onSelect={() => onDestination({ kind: 'new', sheet_name: destination.kind === 'new' ? destination.sheet_name : 'Imported files' })}
+        >
+          <label className="import-destination-choice-field">Sheet name<input className="form-input" disabled={busy} value={destination.kind === 'new' ? destination.sheet_name : ''} onChange={(event) => onDestination({ kind: 'new', sheet_name: event.currentTarget.value })} /></label>
+        </ImportDestinationChoice>
+        <ImportDestinationChoice
+          name="destination"
+          selected={destination.kind === 'existing'}
+          disabled={busy}
+          title="Existing sheet"
+          description="Skip matching file names and sizes"
+          onSelect={() => { const sheet = sheets[0]; if (sheet) onDestination({ kind: 'existing', sheet_id: sheet.id }); }}
+        >
+          {destination.kind === 'existing' && <label className="import-destination-choice-field">Existing sheet<PanelSelect ariaLabel="Existing sheet" topLayer disabled={busy} value={destination.sheet_id} onValueChange={(value) => onDestination({ kind: 'existing', sheet_id: Number(value) })}>{sheets.map((sheet) => <option key={sheet.id} value={sheet.id}>{sheet.name}</option>)}</PanelSelect></label>}
+        </ImportDestinationChoice>
+      </ImportDestinationOptions>
       {matching && <div className="pdf-batch-matching" role="status"><LoaderCircle className="spin" size={16} /> <span>Comparing with {sheets.find((sheet) => destination.kind === 'existing' && sheet.id === destination.sheet_id)?.name ?? 'sheet'} · {snapshot.match.checked.toLocaleString()} of {snapshot.match.total.toLocaleString()} checked</span><progress max={Math.max(1, snapshot.match.total)} value={snapshot.match.checked} /></div>}
       <p className="pdf-batch-destination-summary"><strong>{count(importing, destination.kind === 'existing' ? 'new file' : 'file')}</strong>{destination.kind === 'existing' && matched > 0 && <span>{count(matched, 'file')} already in {sheetName} and left as is</span>}</p>
       <div className="pdf-batch-destination-table" role="table" aria-label="File import review">
@@ -395,9 +409,9 @@ export function DestinationStep({ projectId, snapshot, destination, sheets, busy
         </div>)}
       </div>
     </div>
-    <StepFooter><button type="button" className="btn" disabled={busy} onClick={onBack}>Back</button><span>{matching
+    <ImportStepFooter><button type="button" className="btn" disabled={busy} onClick={onBack}>Back</button><span>{matching
       ? 'Comparing file names and sizes…'
-      : destination.kind === 'new' ? `Creates “${sheetName}”.` : `New rows are added at the end of ${sheetName}.`}</span><button type="button" className="btn btn-primary" disabled={busy || !destinationIsReady(snapshot, destination) || matching} onClick={onContinue}>{matching ? 'Comparing…' : busy ? 'Saving…' : 'Search setup →'}</button></StepFooter>
+      : destination.kind === 'new' ? `Creates “${sheetName}”.` : `New rows are added at the end of ${sheetName}.`}</span><button type="button" className="btn btn-primary" disabled={busy || !destinationIsReady(snapshot, destination) || matching} onClick={onContinue}>{matching ? 'Comparing…' : busy ? 'Saving…' : 'Search setup →'}</button></ImportStepFooter>
   </section>;
 }
 
@@ -466,15 +480,11 @@ export function SearchSetupStep({ snapshot, semanticEnabled, consent, busy, impo
       </div>}
       {snapshot.paused && <p className="pdf-batch-paused-import" role="status">Copying is paused. Go back to Add files to resume before importing.</p>}
     </div>
-    <StepFooter><button type="button" className="btn" disabled={busy} onClick={onBack}>Back</button><span>{snapshot.paused
+    <ImportStepFooter><button type="button" className="btn" disabled={busy} onClick={onBack}>Back</button><span>{snapshot.paused
       ? 'Copying is paused. Go back to Add files to resume.'
       : semanticWaitingForConsent
       ? `Allow the ${setup.download_bytes == null ? 'model' : bytesLabel(setup.download_bytes)} download, or turn off search by meaning.`
-      : semanticEnabled ? 'Keyword search and search by meaning will be prepared.' : 'Keyword search will be prepared.'}</span><button type="button" className="btn btn-primary" disabled={!canImport} onClick={onImport}>{busy ? 'Importing…' : importLabel}</button></StepFooter>
+      : semanticEnabled ? 'Keyword search and search by meaning will be prepared.' : 'Keyword search will be prepared.'}</span><button type="button" className="btn btn-primary" disabled={!canImport} onClick={onImport}>{busy ? 'Importing…' : importLabel}</button></ImportStepFooter>
   </section>;
-}
-
-function StepFooter({ children }: { children: ReactNode }) {
-  return <footer className="pdf-batch-footer">{children}</footer>;
 }
 

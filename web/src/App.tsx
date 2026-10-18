@@ -1017,7 +1017,11 @@ const WorkspaceActRegion = memo(function WorkspaceActRegion() {
   const catalogStatus = useSelector(actionCatalog.store, (state) => state.status);
   const importDialogOpen = useSelector(actSurface.store, (s) => s.importDialogOpen);
   const importDialogEntryMode = useSelector(actSurface.store, (s) => s.importDialogEntryMode);
-  const importDialogCsv = useSelector(actSurface.store, (s) => s.importDialogCsv);
+  const importDialogTableFile = useSelector(actSurface.store, (s) => s.importDialogTableFile);
+  const importDialogTableRerunDraftId = useSelector(
+    actSurface.store,
+    (s) => s.importDialogTableRerunDraftId,
+  );
   const importDialogFiles = useSelector(actSurface.store, (s) => s.importDialogFiles);
   const importPreparationBatchId = useSelector(
     actSurface.store,
@@ -1072,7 +1076,8 @@ const WorkspaceActRegion = memo(function WorkspaceActRegion() {
       <ImportWorkspaceDialog
         open={importDialogOpen}
         entryMode={importDialogEntryMode}
-        initialCsv={importDialogCsv}
+        initialTableFile={importDialogTableFile}
+        initialTableRerunDraftId={importDialogTableRerunDraftId}
         initialFiles={importDialogFiles}
         initialPreparationBatchId={importPreparationBatchId}
         onClose={closeImportDialog}
@@ -4118,7 +4123,7 @@ function WorkspaceImportMainView() {
               onError={showError}
               onLaunchDownload={runActionFromSurface}
               onOpenWorkspace={actSurface.openImportDialog}
-              onOpenCsv={actSurface.openCsvImport}
+              onOpenTable={actSurface.openTableImport}
               onOpenBulk={actSurface.openBulkImport}
               ftmImportEnabled={ftmImportEnabled}
             />

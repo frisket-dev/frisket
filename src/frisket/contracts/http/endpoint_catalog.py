@@ -616,6 +616,16 @@ _TENANT_SKILLS: tuple[RouteSpec, ...] = (
 )
 
 _TENANT_EDITOR: tuple[RouteSpec, ...] = (
+    ("create_table_import_from_file", "POST"),
+    ("create_table_import_from_paste", "POST"),
+    ("get_table_import", "GET"),
+    ("unlock_table_import", "POST"),
+    ("update_table_import_settings", "PATCH"),
+    ("update_table_import_columns", "PATCH"),
+    ("update_table_import_destination", "PATCH"),
+    ("commit_table_import", "POST"),
+    ("discard_table_import", "DELETE"),
+    ("rerun_table_import_worksheet", "POST"),
     ("create_pdf_import", "POST"),
     ("list_pdf_imports", "GET"),
     ("get_pdf_import", "GET"),
@@ -811,6 +821,16 @@ _TENANT_EDITOR: tuple[RouteSpec, ...] = (
 _BROWSER_CLIENT_IDS = (
     frozenset(
         {
+            "tenant.create_table_import_from_file.post",
+            "tenant.create_table_import_from_paste.post",
+            "tenant.get_table_import.get",
+            "tenant.unlock_table_import.post",
+            "tenant.update_table_import_settings.patch",
+            "tenant.update_table_import_columns.patch",
+            "tenant.update_table_import_destination.patch",
+            "tenant.commit_table_import.post",
+            "tenant.discard_table_import.delete",
+            "tenant.rerun_table_import_worksheet.post",
             "tenant.create_pdf_import.post",
             "tenant.list_pdf_imports.get",
             "tenant.get_pdf_import.get",
