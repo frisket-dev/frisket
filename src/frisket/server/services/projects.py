@@ -41,6 +41,7 @@ from frisket.engine.store.sheet_lifecycle import (
     SheetDeleteNotFound,
 )
 from frisket.features.graph.sheet_graph import sheet_materialized_kind
+from frisket.engine.store.document_text import document_text_column_ids_by_sheet
 from frisket.engine.store.evidence import sheet_cited_column_ids
 from frisket.engine.store.lineage import build_lineage_dag
 from frisket.engine.store.text_annotations import annotated_text_column_ids
@@ -1074,6 +1075,7 @@ class ProjectLifecycleService:
             for sheet in sheets
             if sheet_supports_refresh(project, int(sheet["id"]))
         }
+        document_text_column_ids = document_text_column_ids_by_sheet(project)
         out: list[dict[str, Any]] = []
         for sheet in sheets:
             sheet_id = int(sheet["id"])
@@ -1111,6 +1113,9 @@ class ProjectLifecycleService:
             # missing key the client has to guess about.
             entry["annotated_text_column_ids"] = annotated_text_column_ids(
                 project, sheet_id
+            )
+            entry["document_text_column_ids"] = document_text_column_ids.get(
+                sheet_id, []
             )
             entry["dependent_sheet_ids"] = [
                 item["id"] for item in project.dependent_sheets(sheet_id)

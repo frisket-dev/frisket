@@ -1,6 +1,7 @@
 import { importFileLogicalPath } from '../api/open';
 
 const browserUploads = new Set<string>();
+const browserUploadAborts = new Map<string, () => void>();
 const listeners = new Set<() => void>();
 let version = 0;
 
@@ -76,6 +77,33 @@ export function setImportSessionBrowserUploading(
 
 export function isImportSessionBrowserUploading(importRef: string): boolean {
   return browserUploads.has(importRef);
+}
+
+/**
+ * Connects a committed import's still-running browser upload to the shared
+ * post-import Stop action. The importer owns the controller and unregisters
+ * it when intake settles; this module only keeps the current callback.
+ */
+export function registerImportSessionUploadAbort(
+  importRef: string,
+  abort: () => void,
+): () => void {
+  browserUploadAborts.set(importRef, abort);
+  notifyImportSessionChanged();
+  return () => {
+    if (browserUploadAborts.get(importRef) !== abort) return;
+    browserUploadAborts.delete(importRef);
+    notifyImportSessionChanged();
+  };
+}
+
+/** Stops local byte transfer before the durable import cancellation request. */
+export function abortImportSessionBrowserUpload(importRef: string): void {
+  const abort = browserUploadAborts.get(importRef);
+  if (!abort) return;
+  browserUploadAborts.delete(importRef);
+  abort();
+  notifyImportSessionChanged();
 }
 
 export function importSessionSnapshot(): number {

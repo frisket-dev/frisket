@@ -100,6 +100,11 @@ _ACTIVE_COLUMNS_FROM_DIGEST = _ROWID_CELL_LAYOUT_TO_DIGEST
 _ACTIVE_COLUMNS_TO_DIGEST = "frisket.schema.v1:e865652f2f64091605730c143e3ee5f3"
 _TYPED_VALUES_FROM_DIGEST = _ACTIVE_COLUMNS_TO_DIGEST
 
+# Stable import row ordinals let bounded follow-up schedulers map one intake
+# page without rescanning every cell written by the import producer.
+_IMPORT_SESSION_ROWS_FROM_DIGEST = "frisket.schema.v1:099bb8f1ab7ff5230f6b6b3af36d7a32"
+_IMPORT_SESSION_ROWS_TO_DIGEST = "frisket.schema.v1:ce1bc34b85c900fad11f0fdc948a0ce8"
+
 # The frontend fires hot read endpoints (/sheets, /review/queue) concurrently,
 # so two threads can open the same per-project DB at once. Both open-time
 # reconciliations below are read-then-write with no CAS: two threads that both
@@ -151,11 +156,43 @@ def open_bundle(project: Any) -> None:
         _migrate_retrieval_lifecycle(project.db, bundle_path=project.db_path)
         _migrate_execution_metadata(project.db, bundle_path=project.db_path)
         _migrate_document_text(project.db, bundle_path=project.db_path)
+        _migrate_import_session_rows(project.db)
         require_current_schema(project.db, bundle_path=project.path)
         _reconcile_open_time_policy(project)
         from frisket.retrieval.upgrade import prepare_retrieval_on_open
 
         prepare_retrieval_on_open(project)
+
+
+def _migrate_import_session_rows(db: sqlite3.Connection) -> None:
+    query = "SELECT value FROM meta WHERE key=?"
+    try:
+        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
+    except sqlite3.DatabaseError:
+        return
+    if row is None or row[0] != _IMPORT_SESSION_ROWS_FROM_DIGEST:
+        return
+    db.execute("BEGIN IMMEDIATE")
+    try:
+        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
+        if row is not None and row[0] == _IMPORT_SESSION_ROWS_FROM_DIGEST:
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS import_session_rows ("
+                "session_id TEXT NOT NULL REFERENCES import_sessions(id) "
+                "ON DELETE CASCADE,"
+                "ordinal INTEGER NOT NULL CHECK (ordinal > 0),"
+                "row_id INTEGER NOT NULL REFERENCES rows(id) ON DELETE CASCADE,"
+                "PRIMARY KEY(session_id, ordinal),"
+                "UNIQUE(session_id, row_id))"
+            )
+            db.execute(
+                "UPDATE meta SET value=? WHERE key=?",
+                (_IMPORT_SESSION_ROWS_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
+            )
+        db.commit()
+    except BaseException:
+        db.rollback()
+        raise
 
 
 def _migrate_receipt_attempts(db: sqlite3.Connection) -> None:

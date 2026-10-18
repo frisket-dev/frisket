@@ -68,6 +68,10 @@ interface DocumentViewProps {
   /** Replay the stored `map.ner` action behind a stale layer, from its output
    *  column. Absent when the host cannot launch runs. */
   onReplayAnnotationLayer?: ((outputColumnId: string) => void) | null;
+  /** Transient state set only after the explicit-open priority endpoint accepts the row. */
+  priorityReadingRowId?: string | null;
+  onRequestDocumentPriority?(rowId: string, columnId: string): void;
+  onPriorityLabel?(rowId: string, label: string): void;
 }
 
 export function DocumentView({
@@ -88,6 +92,9 @@ export function DocumentView({
   disabledToggleKeys,
   onSetDisabledToggleKeys,
   onReplayAnnotationLayer,
+  priorityReadingRowId = null,
+  onRequestDocumentPriority,
+  onPriorityLabel,
 }: DocumentViewProps) {
   // The docked mention-detail panel (O3): opening a document from it keeps it
   // open, so a reader can walk the results without losing the list.
@@ -181,6 +188,11 @@ export function DocumentView({
       videoClassName: activeMediaKind === 'video' ? `document-video-${state.videoFit}` : undefined,
     };
   }, [activeItem?.title, activeMedia, activeMediaKind, activeRow, sheet, state.videoFit]);
+  const readingPriority = priorityReadingRowId !== null && activeRowId === priorityReadingRowId;
+  useEffect(() => {
+    if (!readingPriority || !activeItem?.title) return;
+    onPriorityLabel?.(activeRowId!, activeItem.title);
+  }, [activeItem?.title, activeRowId, onPriorityLabel, readingPriority]);
 
   if (list.loading && list.pages.length === 0) {
     return (
@@ -397,11 +409,20 @@ export function DocumentView({
                   role="option"
                   aria-selected={active}
                   style={{ position: 'absolute', top: `${index * LIST_ITEM_HEIGHT}px`, height: `${LIST_ITEM_HEIGHT}px` }}
-                  onClick={() => selectDocument(rowId)}
+                  onClick={() => {
+                    selectDocument(rowId);
+                    if (item.sourceKind === 'pdf' && sourceColumn) {
+                      onRequestDocumentPriority?.(rowId, String(sourceColumn.id));
+                    }
+                  }}
                   onDoubleClick={() => onOpenDetail(rowId)}
                 >
                   <span className="document-list-item-title">{item.title}</span>
-                  <span className="document-list-item-secondary muted">{secondary}</span>
+                  <span className="document-list-item-secondary muted">
+                    {readingPriority && active ? (
+                      <span data-testid="document-reading-priority" role="status">Reading text now</span>
+                    ) : secondary}
+                  </span>
                 </button>
               );
             })}

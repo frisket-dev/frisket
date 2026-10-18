@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from frisket.engine.store.document_text import ensure_document_text_role
 from frisket.server.app import create_app
 
 
@@ -14,6 +15,49 @@ def _claim_job(queue, worker_id: str, job_id: int):
             return claimed
         assert queue.complete(claimed.id, worker_id, {"skipped_by_test": True})
     pytest.fail(f"job {job_id} was not claimable")
+
+
+def test_sheet_list_reports_only_active_document_text_role_columns(tmp_path) -> None:
+    client = TestClient(create_app(tmp_path / "workspace"))
+    created = client.post("/api/projects", json={"name": "Document roles"})
+    assert created.status_code == 200, created.text
+    project_id = created.json()["id"]
+    project = client.app.state.workspace.get(project_id)
+
+    first_sheet = project.add_sheet("First")
+    first_source = project.add_column(first_sheet, "Document", type="file")
+    first_text = project.add_column(first_sheet, "Text", type="text")
+    ensure_document_text_role(
+        project,
+        source_column_id=first_source,
+        text_column_id=first_text,
+        commit=True,
+    )
+    second_sheet = project.add_sheet("Second")
+    second_source = project.add_column(second_sheet, "Document", type="file")
+    second_text = project.add_column(second_sheet, "Text", type="text")
+    ensure_document_text_role(
+        project,
+        source_column_id=second_source,
+        text_column_id=second_text,
+        commit=True,
+    )
+
+    listed = client.get(f"/api/projects/{project_id}/sheets")
+    assert listed.status_code == 200, listed.text
+    by_id = {sheet["id"]: sheet for sheet in listed.json()}
+    assert by_id[first_sheet]["document_text_column_ids"] == [first_text]
+    assert by_id[second_sheet]["document_text_column_ids"] == [second_text]
+
+    project.db.execute(
+        "UPDATE columns SET active=0,hidden=1 WHERE id=?", (first_source,)
+    )
+    project.db.commit()
+    listed = client.get(f"/api/projects/{project_id}/sheets")
+    assert listed.status_code == 200, listed.text
+    by_id = {sheet["id"]: sheet for sheet in listed.json()}
+    assert by_id[first_sheet]["document_text_column_ids"] == []
+    assert by_id[second_sheet]["document_text_column_ids"] == [second_text]
 
 
 def test_project_lifecycle_routes_preserve_http_contract(tmp_path) -> None:
@@ -71,6 +115,7 @@ def test_project_lifecycle_routes_preserve_http_contract(tmp_path) -> None:
             "title_column_id": None,
             "cited_column_ids": [],
             "annotated_text_column_ids": [],
+            "document_text_column_ids": [],
             "dependent_sheet_ids": [],
             "refreshable": False,
             "columns": [

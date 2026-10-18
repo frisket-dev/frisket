@@ -7,6 +7,7 @@ import hashlib
 import os
 import re
 import secrets
+import shutil
 from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal, Mapping
@@ -28,9 +29,12 @@ class ImportIntakeHeader:
     max_rows: int | None = None
     max_bytes: int | None = None
     resolution: Literal["kept", "removed"] | None = None
+    destination_sheet_id: int | None = None
+    pdf_preparation: Mapping[str, Any] | None = None
+    staged_files: bool = False
 
     def to_json(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "project_id": self.project_id,
             "storage_identity": self.storage_identity,
             "envelope": dict(self.envelope),
@@ -39,6 +43,13 @@ class ImportIntakeHeader:
             "max_bytes": self.max_bytes,
             "resolution": self.resolution,
         }
+        if self.destination_sheet_id is not None:
+            payload["destination_sheet_id"] = self.destination_sheet_id
+        if self.pdf_preparation is not None:
+            payload["pdf_preparation"] = dict(self.pdf_preparation)
+        if self.staged_files:
+            payload["staged_files"] = True
+        return payload
 
     @classmethod
     def from_json(cls, value: Mapping[str, Any]) -> ImportIntakeHeader:
@@ -50,6 +61,17 @@ class ImportIntakeHeader:
             max_rows=value.get("max_rows"),
             max_bytes=value.get("max_bytes"),
             resolution=value.get("resolution"),
+            destination_sheet_id=(
+                None
+                if value.get("destination_sheet_id") is None
+                else int(value["destination_sheet_id"])
+            ),
+            pdf_preparation=(
+                None
+                if value.get("pdf_preparation") is None
+                else dict(value["pdf_preparation"])
+            ),
+            staged_files=bool(value.get("staged_files", False)),
         )
 
 
@@ -134,6 +156,10 @@ def compact_terminal_inventory(directory: Path) -> None:
     with ImportInventory(directory / "inventory.db") as inventory:
         inventory.seal()
         inventory.compact_terminal()
+    # Promoted PDF drafts transfer their staged-byte ownership to the ordinary
+    # intake.  Once the sealed inventory is terminal, canonical project blobs
+    # own every imported byte and this duplicate staging tree can be reclaimed.
+    shutil.rmtree(directory / "staged", ignore_errors=True)
 
 
 def append_inventory_batch(

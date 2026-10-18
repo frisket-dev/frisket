@@ -248,6 +248,8 @@ class SheetListItem(WireModel):
     # evidence kind — gating the reader on that would light the Document view up
     # on every sheet that has any evidence at all.
     annotated_text_column_ids: list[int]
+    # Visible active Text columns designated by authoritative document roles.
+    document_text_column_ids: list[int]
     dependent_sheet_ids: list[int]
     refreshable: bool
     columns: list[SheetDataColumn]

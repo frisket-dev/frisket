@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -152,7 +153,35 @@ def active_import_session(db: Any, sheet_id: int) -> ImportSession | None:
         "WHERE sheet_id=? AND state IN ('active','paused','cancelled')",
         (int(sheet_id),),
     ).fetchone()
-    return None if row is None else ImportSession.from_row(row)
+    if row is None:
+        return None
+    # Existing-sheet imports own only their checkpointed rows. They deliberately
+    # do not lock unrelated sheet mutations; their undo scope is ``created_rows``.
+    operation = db.execute(
+        "SELECT undo_info FROM ops WHERE id=?", (int(row["op_id"]),)
+    ).fetchone()
+    if operation is not None:
+        undo_info = json.loads(operation["undo_info"] or "{}")
+        if "created_rows" in undo_info and "created_sheets" not in undo_info:
+            return None
+    receipt_id = row["receipt_id"]
+    if receipt_id is not None:
+        receipt = db.execute(
+            "SELECT body FROM receipts WHERE id=?", (str(receipt_id),)
+        ).fetchone()
+        if receipt is not None:
+            body = json.loads(receipt["body"] or "{}")
+            if any(
+                isinstance(item, dict)
+                and isinstance(item.get("ref"), dict)
+                and item["ref"].get("kind") == "pdf_import_commit"
+                for item in body.get("inputs", ())
+            ):
+                # PDF commits intentionally expose their sheet immediately;
+                # result actions and ordinary edits may target committed rows
+                # while later file occurrences continue to arrive.
+                return None
+    return ImportSession.from_row(row)
 
 
 def require_import_sheet_write(

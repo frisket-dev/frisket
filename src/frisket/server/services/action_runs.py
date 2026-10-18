@@ -7,7 +7,7 @@ import logging
 import os
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Literal, Mapping
 
 from frisket.authoring.action_metadata import (
     action_available_in_edition,
@@ -39,6 +39,7 @@ from frisket.engine.jobs.projection import (
     run_inline_job_payload,
 )
 from frisket.engine.jobs.queue import Job
+from frisket.engine.runner.validation import TrustedConsentAuthorizer
 from frisket.server.action_enqueue import (
     QueuedV1ActionRunContext,
     exact_keyless_replay_covers_action,
@@ -302,7 +303,19 @@ class ActionRunService:
         request_context: Any = None,
         admitted_sources: Mapping[str, BoundLocalFile] | None = None,
         required_execution_target: ExactExecutionMatch | None = None,
+        background_priority: Literal["pdf_import_ocr"] | None = None,
+        trusted_consent_authorizer: TrustedConsentAuthorizer | None = None,
+        trusted_consent_principal: str | None = None,
     ) -> ActionRunResponse:
+        if (trusted_consent_authorizer is None) != (trusted_consent_principal is None):
+            raise ValueError(
+                "trusted consent authority and principal must be supplied together"
+            )
+        if (
+            trusted_consent_principal is not None
+            and not trusted_consent_principal.strip()
+        ):
+            raise ValueError("trusted consent principal must be non-empty")
         # Payload-only gates FIRST, before the project is resolved. These two
         # read nothing but the action envelope and this process's environment,
         # so a refusal they own is already final: opening the workspace to
@@ -430,8 +443,11 @@ class ActionRunService:
                 queue_payload_extra=self._workspace.queue_payload_extra,
                 logger=LOG,
                 request_executor_deps=request_executor_deps,
+                trusted_consent_authorizer=trusted_consent_authorizer,
+                trusted_consent_principal=trusted_consent_principal,
             ),
             execution_context=execution_context,
+            background_priority=background_priority,
         )
         if queued_result is not None:
             self._reserve_queued_media_search_preparation(
@@ -441,7 +457,26 @@ class ActionRunService:
                 result=queued_result,
             )
             return _action_run_response(queued_result)
-
+        if trusted_consent_authorizer is not None:
+            return _action_run_response(
+                V1ActionResult(
+                    action={
+                        "kind": str(action_id_from_request(body) or "unknown"),
+                        "action_id": _new_id("act"),
+                    },
+                    status="failed",
+                    project_id=project_id,
+                    errors=[
+                        V1ActionError(
+                            code="derived_consent_refused",
+                            message=(
+                                "trusted derived consent is available only for "
+                                "ordinary queued row actions"
+                            ),
+                        )
+                    ],
+                )
+            )
         execution_composition = request_execution_composition()
         direct_request_deps = request_executor_deps()
         result = run_action_spec(

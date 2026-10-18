@@ -249,6 +249,82 @@ def _spec(recipe: Recipe, sheet_id: int, **extra: Any) -> dict[str, Any]:
     }
 
 
+@pytest.mark.parametrize("concurrency", [1, 2])
+def test_preferred_admitted_row_takes_the_next_free_worker_without_restart(
+    tmp_path, scope_recipe, monkeypatch, concurrency
+):
+    project, sheet_id, row_ids = _seed_project(tmp_path, rows=7)
+    initial_rows = set(row_ids[:concurrency])
+    preferred_row = row_ids[5]
+    hints: list[int] = []
+    all_initial_started = asyncio.Event()
+    release_first = asyncio.Event()
+    release_others = asyncio.Event()
+    release_preferred = asyncio.Event()
+    preferred_started = asyncio.Event()
+    cancelled: list[int] = []
+    active = 0
+    max_active = 0
+
+    async def execute(values, spec, ctx):
+        nonlocal active, max_active
+        row_id = int(ctx.extras["row_id"])
+        active += 1
+        max_active = max(max_active, active)
+        try:
+            scope_recipe.calls.append(row_id)
+            if initial_rows.issubset(scope_recipe.calls):
+                all_initial_started.set()
+            if row_id == preferred_row:
+                preferred_started.set()
+                await release_preferred.wait()
+            if row_id == row_ids[0]:
+                await release_first.wait()
+            elif row_id in initial_rows:
+                await release_others.wait()
+            return {"derived": values["text"].upper()}
+        except asyncio.CancelledError:
+            cancelled.append(row_id)
+            raise
+        finally:
+            active -= 1
+
+    monkeypatch.setattr(scope_recipe, "execute", execute)
+    try:
+        runner = MapRunner(
+            project,
+            ModelRouter(keys={}),
+            concurrency=concurrency,
+            authority=UnroutedOnlyAuthority(project),
+            take_preferred_row=lambda: hints.pop(0) if hints else None,
+        )
+
+        async def exercise():
+            task = asyncio.create_task(
+                run_with_output_claim(runner, _spec(scope_recipe, sheet_id))
+            )
+            await asyncio.wait_for(all_initial_started.wait(), timeout=5)
+            hints.append(preferred_row)
+            release_first.set()
+            await asyncio.wait_for(preferred_started.wait(), timeout=5)
+            if concurrency == 2:
+                assert active == 2
+            release_preferred.set()
+            release_others.set()
+            return await asyncio.wait_for(task, timeout=5)
+
+        progress = asyncio.run(exercise())
+        assert progress.done and progress.completed == len(row_ids)
+        assert scope_recipe.calls[:concurrency] == row_ids[:concurrency]
+        assert scope_recipe.calls[concurrency] == preferred_row
+        assert sorted(scope_recipe.calls) == sorted(row_ids)
+        assert len(scope_recipe.calls) == len(set(scope_recipe.calls))
+        assert max_active == concurrency
+        assert cancelled == []
+    finally:
+        project.close()
+
+
 @pytest.mark.parametrize("failed_write", [None, "page", "clear"])
 def test_page_progress_is_best_effort_and_clears_before_the_next_row(
     tmp_path, scope_recipe, monkeypatch, caplog, failed_write

@@ -39,6 +39,22 @@ _PAGES_PER_CLAIM = 4
 LOG = logging.getLogger(__name__)
 
 
+def _ensure_staged_blob(project: Project, directory: Path, digest: str) -> None:
+    """Promote staged bytes or verify a prior content-addressed promotion."""
+
+    staged = directory / "staged" / digest
+    if staged.is_file():
+        observed = project.blob_store.put_path(staged, expected_digest=digest)
+        if observed != digest:
+            raise ValueError("promoted import staging digest changed")
+        staged.unlink(missing_ok=True)
+        return
+    # Bootstrap may already have consumed this digest for an earlier duplicate
+    # occurrence or a prior attempt of the same page.
+    with project.blob_store.materialize(digest):
+        pass
+
+
 def register_import_files_handler(
     registry: HandlerRegistry,
     *,
@@ -248,6 +264,14 @@ def register_import_files_handler(
                                 "status": "running",
                                 "completed_rows": session.committed_rows,
                             }
+                        if header.staged_files:
+                            for item in inventory.page(
+                                after=cursor,
+                                limit=max(1, min(256, through - cursor)),
+                                byte_budget=64 * 1024 * 1024,
+                            ):
+                                digest = str(item["sha256"])
+                                _ensure_staged_blob(project, directory, digest)
                         session = run_inventory_table_page(
                             project,
                             project_id,
@@ -263,6 +287,7 @@ def register_import_files_handler(
                             writer_authority=context.handler_authority_id,
                             reserved_action_id=envelope.action_id,
                             reserved_receipt_id=envelope.receipt_id,
+                            destination_sheet_id=header.destination_sheet_id,
                         )
                         pages += 1
                         if session.state == "completed":

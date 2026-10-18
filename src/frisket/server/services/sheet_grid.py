@@ -31,6 +31,7 @@ from frisket.engine.store.current_value_windows import (
     read_current_column,
     read_current_value_window,
 )
+from frisket.engine.store.document_text import document_text_role_for_text_column
 from frisket.engine.store.result_generations import (
     ResultGenerationStore,
     decode_result_warnings,
@@ -998,10 +999,28 @@ def _sheet_data_payload(
                         }
                     )
         if bool(c["ai_generated"]) and generation_managed:
+            document_text_role = document_text_role_for_text_column(
+                project, text_column_id=column_id
+            )
+            document_text_attempts = (
+                _result_attempted_rows(project, column_id, row_ids)
+                if document_text_role is not None
+                else set()
+            )
             for rid in row_ids:
                 if rid in ran_rows:
                     continue
                 if rid in present_value_rows:
+                    continue
+                # A designated document-text cell may be intentionally blank:
+                # for example, a scanned PDF whose import policy explicitly
+                # chose no OCR. With no attempted result head there is no
+                # incomplete action to report. Active preparation is rendered
+                # from its run status. Failed authoritative text is deliberately
+                # not a current value head, so retain the established incomplete
+                # marker when an attempted result exists; its exact reason stays
+                # available through the ordinary row-error surface.
+                if document_text_role is not None and rid not in document_text_attempts:
                     continue
                 meta[rid].setdefault(str(column_id), {}).update({"state": "incomplete"})
             # Do not let replay acceptance reinterpret a mixed head set.
@@ -1144,6 +1163,25 @@ def _result_metadata(project: Project, column_id: int, row_ids: list[int]) -> di
         ).fetchall()
         output.update({int(row["row_id"]): row for row in rows})
     return output
+
+
+def _result_attempted_rows(
+    project: Project, column_id: int, row_ids: list[int]
+) -> set[int]:
+    """Return visible rows with any persisted attempt for one output column."""
+
+    attempted: set[int] = set()
+    for start in range(0, len(row_ids), 400):
+        chunk = row_ids[start : start + 400]
+        placeholders = ",".join("?" for _ in chunk)
+        rows = project.db.execute(
+            "SELECT DISTINCT row_id FROM results WHERE column_id=? "
+            "AND publication_effect IS NOT NULL "
+            f"AND row_id IN ({placeholders})",
+            (column_id, *chunk),
+        ).fetchall()
+        attempted.update(int(row["row_id"]) for row in rows)
+    return attempted
 
 
 def _download_filename(column_name: str, row_id: int) -> str:

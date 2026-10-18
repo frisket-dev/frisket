@@ -17,12 +17,29 @@ export interface OnboardingImportOptions {
 
 export type ImportSessionState = HttpImportSessionStatus['state'];
 
+export interface ImportPreparationChild {
+  action_id: 'media.read_pdf_text' | 'media.ocr';
+  row_count: number;
+  completed_rows: number;
+  status: string;
+  receipt_id: string | null;
+  run_id: number | null;
+  job_id: number | null;
+}
+
 export type ImportSessionStatus = HttpImportSessionStatus & {
   committed_rows: number;
   committed_bytes: number;
   sheet_id: number | null;
   error: string | null;
   search_preparation_batch_id: string | null;
+  selected_total: number | null;
+  preparation_completed: number;
+  preparation_total: number;
+  ocr_completed: number;
+  ocr_total: number;
+  unreadable_total: number;
+  preparation_children: ImportPreparationChild[];
 };
 
 export type ImportSessionList = Omit<HttpImportSessionList, 'sessions'> & {
@@ -37,6 +54,27 @@ function normalizeImportSession(status: HttpImportSessionStatus): ImportSessionS
     sheet_id: status.sheet_id ?? null,
     error: status.error ?? null,
     search_preparation_batch_id: status.search_preparation_batch_id ?? null,
+    selected_total: 'selected_total' in status && typeof status.selected_total === 'number'
+      ? status.selected_total
+      : null,
+    preparation_completed: 'preparation_completed' in status
+      && typeof status.preparation_completed === 'number' ? status.preparation_completed : 0,
+    preparation_total: 'preparation_total' in status
+      && typeof status.preparation_total === 'number' ? status.preparation_total : 0,
+    ocr_completed: 'ocr_completed' in status && typeof status.ocr_completed === 'number'
+      ? status.ocr_completed
+      : 0,
+    ocr_total: 'ocr_total' in status && typeof status.ocr_total === 'number'
+      ? status.ocr_total
+      : 0,
+    unreadable_total: 'unreadable_total' in status && typeof status.unreadable_total === 'number'
+      ? status.unreadable_total
+      : 0,
+    preparation_pending_confirmation: status.preparation_pending_confirmation ?? null,
+    preparation_children: 'preparation_children' in status
+      && Array.isArray(status.preparation_children)
+      ? status.preparation_children as ImportPreparationChild[]
+      : [],
   };
 }
 

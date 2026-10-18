@@ -8,7 +8,7 @@ authors = [
 ]
 requires-python = ">=3.12"
 license = "Apache-2.0"
-license-files = ["LICENSE"]
+license-files = ["LICENSE", "src/frisket/documents/text_quality/CMUDICT-NOTICE.txt"]
 keywords = ["ai", "data-analysis", "journalism", "spreadsheet"]
 classifiers = [
     "Development Status :: 3 - Alpha",

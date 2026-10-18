@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import '@testing-library/jest-dom/vitest';
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const listImportSessions = vi.hoisted(() => vi.fn());
@@ -17,22 +17,59 @@ vi.mock('../../src/api/open', () => ({
   resumeImportSession,
   uploadFilesToImportSession,
   snapshotImportFiles: (files: FileList | null) => Array.from(files ?? []),
-  importFileLogicalPath: (file: File) => (
-    (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name
-  ),
+  importFileLogicalPath: (file: File) => file.name,
 }));
 
 import {
-  rememberImportSessionFiles,
-  setImportSessionBrowserUploading,
+  registerImportSessionUploadAbort,
 } from '../../src/components/importProgressSession';
-import { ImportProgress } from '../../src/components/ImportProgress';
+import {
+  useImportProgress,
+  type ImportActivity,
+} from '../../src/components/useImportProgress';
 
 const running = {
-  import_ref: 'import-1', state: 'running', admitted_files: 10, admitted_bytes: 100,
-  through: 10, committed_rows: 3, committed_bytes: 30, sheet_id: 9,
-  sheet_name: 'Files', cancel_requested: false, sealed: true, error: null,
-};
+  import_ref: 'import-1',
+  state: 'running',
+  admitted_files: 10,
+  admitted_bytes: 100,
+  through: 10,
+  committed_rows: 3,
+  committed_bytes: 30,
+  sheet_id: 9,
+  sheet_name: 'Files',
+  cancel_requested: false,
+  sealed: true,
+  error: null,
+  search_preparation_status: 'none',
+  search_preparation_batch_id: null,
+  selected_total: 10,
+  preparation_completed: 0,
+  preparation_total: 2,
+  ocr_completed: 0,
+  ocr_total: 2,
+  unreadable_total: 0,
+  preparation_pending_confirmation: null,
+  preparation_children: [],
+} as const;
+
+function Harness() {
+  const controller = useImportProgress({ projectId: 'project-1' });
+  return (
+    <div>
+      {controller.activities.map((activity: ImportActivity) => (
+        <section key={activity.importRef} data-testid="activity">
+          {activity.lines.map((line) => (
+            <span key={line.key}>{line.label}: {line.completed}/{line.total}</span>
+          ))}
+          <button type="button" onClick={() => controller.resume(activity)}>Resume</button>
+          <button type="button" onClick={() => void controller.stop(activity)}>Stop remaining</button>
+          <button type="button" onClick={() => controller.keep(activity)}>Keep what's added</button>
+        </section>
+      ))}
+    </div>
+  );
+}
 
 beforeEach(() => {
   listImportSessions.mockResolvedValue({ sessions: [running] });
@@ -44,128 +81,63 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe('persistent import progress', () => {
-  it('leaves completed import navigation and preparation to their owning workspace flows', async () => {
-    listImportSessions.mockResolvedValue({ sessions: [{
-      ...running, state: 'completed', committed_rows: 10, search_preparation_batch_id: 'prep-1',
-    }] });
-    render(<ImportProgress projectId="project-1" onOpenSheet={vi.fn()} />);
-
-    await waitFor(() => expect(listImportSessions).toHaveBeenCalledWith(
-      'project-1', expect.objectContaining({ signal: expect.any(AbortSignal) }),
-    ));
-    expect(screen.queryByRole('region', { name: 'Import progress' })).not.toBeInTheDocument();
-  });
-
-  it('restores running progress, opens committed rows read-only, and offers cancellation', async () => {
-    const onOpenSheet = vi.fn();
-    cancelImportSession.mockResolvedValue({ ...running, state: 'cancelling', cancel_requested: true });
-    render(<ImportProgress projectId="project-1" onOpenSheet={onOpenSheet} />);
-
-    expect(await screen.findByText(/3 of 10 rows added/)).toBeInTheDocument();
-    expect(screen.getByText(/read-only until import settles/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Open sheet' }));
-    expect(onOpenSheet).toHaveBeenCalledWith(9);
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-    await waitFor(() => expect(cancelImportSession).toHaveBeenCalledWith('project-1', 'import-1'));
-  });
-
-  it('keeps cancelled rows by default and makes removal explicit', async () => {
-    const cancelled = { ...running, state: 'cancelled', committed_rows: 3 };
-    listImportSessions.mockResolvedValue({ sessions: [cancelled] });
-    resolveImportSession.mockImplementation(async (_project: string, _ref: string, decision: string) => ({
-      ...cancelled, state: decision === 'keep' ? 'kept' : 'removed',
-    }));
-    render(<ImportProgress projectId="project-1" onOpenSheet={vi.fn()} />);
-
-    expect(await screen.findByText(/3 rows retained/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Keep' }));
-    await waitFor(() => expect(resolveImportSession).toHaveBeenCalledWith('project-1', 'import-1', 'keep'));
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'Remove added rows' })).not.toBeInTheDocument());
-  });
-
-  it('distinguishes a live folder upload from an interrupted selection', async () => {
-    const admitting = { ...running, state: 'admitting', committed_rows: 0, sheet_id: null, sealed: false };
-    listImportSessions.mockResolvedValue({ sessions: [admitting] });
-    const file = new File(['one'], 'one.pdf');
-    Object.defineProperty(file, 'webkitRelativePath', { value: 'folder/one.pdf' });
-    await rememberImportSessionFiles('import-1', [file]);
-    setImportSessionBrowserUploading('import-1', true);
-    render(<ImportProgress projectId="project-1" onOpenSheet={vi.fn()} />);
-
-    expect(await screen.findByText(/Uploading files/)).toBeInTheDocument();
-    expect(screen.queryByText(/Upload was interrupted/)).not.toBeInTheDocument();
-    setImportSessionBrowserUploading('import-1', false);
-    await waitFor(() => expect(screen.getByText(/Upload was interrupted/)).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: 'Reselect files' }));
-    expect(screen.getByLabelText('Reselect import files')).toHaveAttribute('webkitdirectory');
-  });
-
-  it('keeps polling a paused session through an automatic retry to completion', async () => {
-    vi.useFakeTimers();
-    const paused = { ...running, state: 'paused', committed_rows: 3 };
-    const completed = { ...running, state: 'completed', committed_rows: 10 };
-    listImportSessions
-      .mockResolvedValueOnce({ sessions: [paused] })
-      .mockResolvedValue({ sessions: [completed] });
-    render(<ImportProgress projectId="project-1" onOpenSheet={vi.fn()} />);
-
-    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
-    expect(screen.getByTestId('import-progress-paused')).toBeInTheDocument();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(2_000);
+describe('persistent import progress controller', () => {
+  it('keeps a completed import visible while ordinary PDF preparation remains', async () => {
+    listImportSessions.mockResolvedValue({
+      sessions: [{ ...running, state: 'completed', committed_rows: 10 }],
     });
-    expect(screen.queryByTestId('import-progress-completed')).not.toBeInTheDocument();
-    expect(listImportSessions).toHaveBeenCalledTimes(2);
+
+    render(<Harness />);
+
+    expect(await screen.findByText('Adding rows: 10/10')).toBeInTheDocument();
+    expect(screen.getByText('OCR: 0/2')).toBeInTheDocument();
   });
 
-  it('allows cancellation while a resumed browser upload chunk is pending', async () => {
-    const admitting = {
-      ...running, state: 'admitting', through: 0, committed_rows: 0, sheet_id: null, sealed: false,
-    };
-    listImportSessions.mockResolvedValue({ sessions: [admitting] });
-    cancelImportSession.mockResolvedValue({ ...admitting, state: 'cancelling', cancel_requested: true });
-    let finishUpload!: () => void;
-    uploadFilesToImportSession.mockImplementation(() => new Promise((resolve) => {
-      finishUpload = () => resolve({ ...admitting, state: 'running', sealed: true });
-    }));
-    const file = new File(['one'], 'one.pdf');
-    await rememberImportSessionFiles('import-1', [file]);
-    render(<ImportProgress projectId="project-1" onOpenSheet={vi.fn()} />);
+  it('stops the browser upload before canonical cancel and keep', async () => {
+    const order: string[] = [];
+    registerImportSessionUploadAbort('import-1', () => { order.push('abort'); });
+    cancelImportSession.mockImplementation(async () => {
+      order.push('cancel');
+      return { ...running, state: 'cancelled' };
+    });
+    resolveImportSession.mockImplementation(async () => {
+      order.push('keep');
+      return { ...running, state: 'kept' };
+    });
 
-    await screen.findByText(/Upload was interrupted/);
-    fireEvent.click(screen.getByRole('button', { name: 'Reselect files' }));
-    fireEvent.change(screen.getByLabelText('Reselect import files'), { target: { files: [file] } });
-    await waitFor(() => expect(uploadFilesToImportSession).toHaveBeenCalledTimes(1));
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-    await waitFor(() => expect(cancelImportSession).toHaveBeenCalledWith('project-1', 'import-1'));
-    await act(async () => { finishUpload(); });
-  });
+    render(<Harness />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Stop remaining' }));
 
-  it('does not abort one session preparation when another session is cancelled', async () => {
-    const preparing = {
-      ...running, import_ref: 'import-a', state: 'admitting', through: 0,
-      committed_rows: 0, sheet_id: null, sealed: false,
-    };
-    const other = { ...running, import_ref: 'import-b' };
-    listImportSessions.mockResolvedValue({ sessions: [preparing, other] });
-    cancelImportSession.mockResolvedValue({ ...other, state: 'cancelling', cancel_requested: true });
-    uploadFilesToImportSession.mockResolvedValue({ ...preparing, state: 'running', sealed: true });
-    const files = Array.from({ length: 2_048 }, (_, index) => new File(['x'], `${index}.pdf`));
-    await rememberImportSessionFiles('import-a', files);
-    render(<ImportProgress projectId="project-1" onOpenSheet={vi.fn()} />);
-
-    const interrupted = await screen.findByText(/Upload was interrupted/);
-    fireEvent.click(within(interrupted.parentElement!).getByRole('button', { name: 'Reselect files' }));
-    fireEvent.change(screen.getByLabelText('Reselect import files'), { target: { files } });
-    expect(screen.getByText(/Preparing files/)).toBeInTheDocument();
-    const otherSession = screen.getAllByTestId('import-progress-running')
-      .find((element) => element.textContent?.includes('3 of 10'))!;
-    fireEvent.click(within(otherSession).getByRole('button', { name: 'Cancel' }));
-
-    await waitFor(() => expect(cancelImportSession).toHaveBeenCalledWith('project-1', 'import-b'));
-    await waitFor(() => expect(uploadFilesToImportSession).toHaveBeenCalledWith(
-      'project-1', expect.objectContaining({ import_ref: 'import-a' }), files,
+    await waitFor(() => expect(resolveImportSession).toHaveBeenCalledWith(
+      'project-1',
+      'import-1',
+      'keep',
     ));
+    expect(order).toEqual(['abort', 'cancel', 'keep']);
+  });
+
+  it('resumes a sealed paused session through the canonical endpoint', async () => {
+    const paused = { ...running, state: 'paused' };
+    listImportSessions.mockResolvedValue({ sessions: [paused] });
+    resumeImportSession.mockResolvedValue({ ...running, state: 'running' });
+
+    render(<Harness />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Resume' }));
+
+    await waitFor(() => expect(resumeImportSession).toHaveBeenCalledWith(
+      'project-1',
+      'import-1',
+    ));
+  });
+
+  it('keeps polling while durable preparation is incomplete', async () => {
+    vi.useFakeTimers();
+    listImportSessions.mockResolvedValue({ sessions: [{ ...running, state: 'completed' }] });
+
+    render(<Harness />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+
+    expect(listImportSessions).toHaveBeenCalledTimes(2);
   });
 });

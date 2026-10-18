@@ -61,6 +61,7 @@ function mapSheetList(wire: SheetListWire): SheetMeta[] {
       titleColumnId: sheet.title_column_id == null ? null : String(sheet.title_column_id),
       citedColumnIds: sheet.cited_column_ids.map(String),
       annotatedTextColumnIds: sheet.annotated_text_column_ids.map(String),
+      documentTextColumnIds: sheet.document_text_column_ids.map(String),
       dependentSheetIds: (sheet.dependent_sheet_ids ?? []).map(String),
       refreshable: sheet.refreshable,
     };

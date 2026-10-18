@@ -83,7 +83,6 @@ import { entityTableDraft } from './actions/entityTable';
 import { HomeScreen } from './components/HomeScreen';
 import { ReplayModeBanner } from './components/ReplayModeBanner';
 import { ImportDropzone, ImportWorkspaceDialog } from './components/ImportCsv';
-import { ImportProgress } from './components/ImportProgress';
 import { CostGateModal } from './components/CostGateModal';
 import { ApplicationGuidance } from './components/ApplicationGuidance';
 import { SampleProjectOnboarding } from './workbench/SampleProjectOnboarding';
@@ -1006,9 +1005,6 @@ const WorkspaceActRegion = memo(function WorkspaceActRegion() {
     revealPluginLauncher,
     onImported,
     showError,
-    project,
-    refreshSheets,
-    selectSheet,
     setRibbonMode,
     setActiveRibbonTab,
   } = useWorkspaceShell();
@@ -1037,7 +1033,6 @@ const WorkspaceActRegion = memo(function WorkspaceActRegion() {
       && state.resolvedTemplates.some((template) => template.kind === 'frisket.ftm.ftm_import'),
   );
   const closeImportDialog = actSurface.closeImportDialog;
-  const importSessionChanged = useCallback(() => { void refreshSheets(); }, [refreshSheets]);
   useEffect(() => {
     // Command tabs appear before catalog-backed tabs; keep the saved selection
     // until the catalog has settled so loading cannot overwrite it.
@@ -1087,14 +1082,6 @@ const WorkspaceActRegion = memo(function WorkspaceActRegion() {
         onExtractEntities={() => runActionFromSurface(MENTIONS_EXTRACT_ACTION_KIND)}
         nerTemplate={nerTemplate}
         ftmImportEnabled={ftmImportEnabled}
-      />
-      <ImportProgress
-        projectId={project.id}
-        onOpenSheet={(sheetId) => {
-          void refreshSheets().then(() => selectSheet(String(sheetId)));
-        }}
-        onChanged={importSessionChanged}
-        onError={showError}
       />
     </section>
   );
@@ -3523,6 +3510,9 @@ function WorkspacePrimarySurface() {
     closeSplit,
     documentView,
     documentViewShowing,
+    documentPriority,
+    prioritizeDocumentRow,
+    setDocumentPriorityLabel,
     extractViewShowing,
     annotatedTextColumnIds,
     documentAnnotationPreferences,
@@ -3698,6 +3688,9 @@ function WorkspacePrimarySurface() {
         disabledToggleKeys={documentAnnotationPreferences[sheet.id] ?? NO_DISABLED_TOGGLE_KEYS}
         onSetDisabledToggleKeys={(next) => setSheetAnnotationToggles(sheet.id, next)}
         onReplayAnnotationLayer={replayAnnotationLayer}
+        priorityReadingRowId={documentPriority?.sheetId === sheet.id ? documentPriority.rowId : null}
+        onRequestDocumentPriority={prioritizeDocumentRow}
+        onPriorityLabel={setDocumentPriorityLabel}
         onListSort={(columnName, dir) => {
           if (dir === null) clearGridSort();
           else applyGridSortForColumn(columnName, dir);
@@ -4748,6 +4741,7 @@ const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
     doUndo,
     error,
     evidenceViewerState,
+    documentPriority,
     hideWorkbenchContribution,
     history,
     lastCommandAction,
@@ -4771,6 +4765,7 @@ const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
     workbenchCommandEntries,
     workbenchHostContext,
     workbenchVisibilityTargets,
+    importProgress,
   } = useOverlayModel();
   const actSurfaceHandle = useActSurfaceHandle();
   const sourcesConnectionsOpen = useSelector(
@@ -4827,6 +4822,8 @@ const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
         history={history}
         reviewCount={reviewCount}
         projectionStatus={projectionStatus}
+        importProgress={importProgress}
+        importPriority={documentPriority}
         onUndo={doUndo}
         onRedo={doRedo}
         onOpenReview={() => openReview()}

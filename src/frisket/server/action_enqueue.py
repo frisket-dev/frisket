@@ -6,8 +6,9 @@ import json
 import logging
 from collections.abc import Callable, Mapping, MutableMapping
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import ValidationError
 
@@ -27,7 +28,12 @@ from frisket.engine.executor.queued_actions import (
     queued_v1_action_request,
     queued_v1_job_payload,
 )
-from frisket.engine.jobs.queue import ACTION_RUN_KIND, JobQueue
+from frisket.engine.jobs.queue import (
+    ACTION_RUN_KIND,
+    BACKGROUND_PRIORITY_PAYLOAD_KEY,
+    JobQueue,
+    PDF_IMPORT_OCR_BACKGROUND,
+)
 from frisket.engine.jobs.runs import RUN_PROJECT_KIND, build_attempt_authority
 from frisket.ai.llm import ModelRouter
 from frisket.ai.llm.remediation import missing_provider_key_message
@@ -42,6 +48,11 @@ from frisket.engine.runner import (
     ProviderKeyRefusal,
     RunProgress,
 )
+from frisket.engine.runner.validation import (
+    TrustedConsentAuthorizer,
+    TrustedConsentRefused,
+)
+from frisket.execution.consent_coverage import ConsentCoverage
 from frisket.server.provider_config import KEY_PROVIDERS
 from frisket.engine.store import Project
 from frisket.engine.store.output_claims import OutputColumnClaimStore
@@ -256,6 +267,8 @@ class QueuedV1ActionRunContext:
     queue_payload_extra: Mapping[str, Any]
     logger: logging.Logger
     request_executor_deps: Callable[[], ExecutorDeps] = ExecutorDeps
+    trusted_consent_authorizer: TrustedConsentAuthorizer | None = None
+    trusted_consent_principal: str | None = None
 
 
 def attach_run_edition_run_context(
@@ -347,6 +360,18 @@ def _queue_v1_project_run_request(
         project, router, execution_context
     )
     consent_coverage = ctx.request_executor_deps().consent_coverage
+    if ctx.trusted_consent_principal is not None:
+        if (
+            consent_coverage is not None
+            and consent_coverage.principal != ctx.trusted_consent_principal
+        ):
+            raise ValueError("trusted consent principal changed during admission")
+        consent_coverage = ConsentCoverage(
+            ctx.trusted_consent_principal,
+            consent_coverage.threshold_usd
+            if consent_coverage is not None
+            else Decimal("0"),
+        )
     atomic_publication = request.entry.requires_atomic_publication(
         request.params, program=request.program
     )
@@ -435,6 +460,7 @@ def _queue_v1_project_run_request(
                 build_attempt_authority(
                     project,
                     composition=execution_composition,
+                    consent_coverage=consent_coverage,
                 )
                 if atomic_publication
                 else UnroutedOnlyAuthority(project)
@@ -457,6 +483,7 @@ def _queue_v1_project_run_request(
                     **program_kwargs,
                     confirmed=bool(reservation.get("confirmed", False)),
                     output_fields=reservation["output_fields"],
+                    trusted_consent_authorizer=ctx.trusted_consent_authorizer,
                 )
                 progress = RunProgress(
                     run_id=prepared.run_id,
@@ -468,6 +495,7 @@ def _queue_v1_project_run_request(
                     runner_spec,
                     **program_kwargs,
                     confirmed=bool(reservation.get("confirmed", False)),
+                    trusted_consent_authorizer=ctx.trusted_consent_authorizer,
                 )
             request.entry.mark_prepared(
                 project,
@@ -497,6 +525,14 @@ def _queue_v1_project_run_request(
                     or error.code == "model_cost_requires_confirmation"
                     else "failed"
                 ),
+            )
+        except TrustedConsentRefused as exc:
+            return abort_prepare(
+                ActionError(
+                    code="derived_consent_refused",
+                    message=str(exc),
+                    action_kind=request.action.kind,
+                )
             )
         except ProviderKeyRefusal as exc:
             # Every refusal about the provider key this run would spend
@@ -714,7 +750,10 @@ def queue_v1_action_run(
     *,
     ctx: QueuedV1ActionRunContext,
     execution_context: ExecutionCompositionContext,
+    background_priority: Literal["pdf_import_ocr"] | None = None,
 ) -> ActionResult | None:
+    if background_priority not in {None, PDF_IMPORT_OCR_BACKGROUND}:
+        raise ValueError("unknown background action priority")
     from frisket.engine.executor.action_dispatch import placement_for_kind
     from frisket.engine.executor.action_specs import PlacementPolicy, execution_spec_for
 
@@ -825,6 +864,11 @@ def queue_v1_action_run(
             max_attempts=max_attempts,
             payload_extra={
                 "workspace_root": str(ctx.workspace_root),
+                **(
+                    {BACKGROUND_PRIORITY_PAYLOAD_KEY: background_priority}
+                    if background_priority is not None
+                    else {}
+                ),
                 **correlation_log_payload(),
                 **ctx.queue_payload_extra,
             },
@@ -920,4 +964,9 @@ def queue_v1_action_run(
         ctx=ctx,
         execution_context=execution_context,
         request=request,
+        payload_extra=(
+            {BACKGROUND_PRIORITY_PAYLOAD_KEY: PDF_IMPORT_OCR_BACKGROUND}
+            if background_priority == PDF_IMPORT_OCR_BACKGROUND
+            else None
+        ),
     )

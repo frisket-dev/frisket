@@ -119,6 +119,32 @@ describe('DocumentView loading state', () => {
     await waitFor(() => expect(hydrateRow).toHaveBeenCalledWith('7', ['file']));
   });
 
+  it('requests priority only after an explicit PDF list click', async () => {
+    const onRequestDocumentPriority = vi.fn();
+    render(
+      <DocumentView
+        projectId="project-1" sheet={sheet} state={state}
+        onChangeState={() => undefined} onDocumentFocus={() => undefined} onOpenDetail={() => undefined}
+        queryDocuments={async () => ({
+          items: [{ rowId: '7', ordinal: 7, title: 'Roster scan', titleTruncated: false,
+            sourceKind: 'pdf', sourcePresent: true, sourceLabel: 'roster-scan.pdf',
+            sourceLabelTruncated: false, characterCount: null }],
+          nextCursor: null, previousCursor: null,
+        })}
+        hydrateRow={async () => null} onListSort={() => undefined} orderKey="none"
+        listSortDir={null} annotatedTextColumnIds={[]} disabledToggleKeys={[]}
+        onSetDisabledToggleKeys={() => undefined}
+        onRequestDocumentPriority={onRequestDocumentPriority}
+      />,
+    );
+
+    const listItem = await screen.findByTestId('document-list-item');
+    expect(onRequestDocumentPriority).not.toHaveBeenCalled();
+    fireEvent.click(listItem);
+    expect(onRequestDocumentPriority).toHaveBeenCalledOnce();
+    expect(onRequestDocumentPriority).toHaveBeenCalledWith('7', 'file');
+  });
+
   it('labels absent media and empty annotated text without claiming content', async () => {
     render(
       <DocumentView

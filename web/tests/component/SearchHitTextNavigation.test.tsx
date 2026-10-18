@@ -61,7 +61,7 @@ beforeEach(() => {
       current_run_id: null, transcript_status: null, media_download_candidate: null };
     if (url.pathname.endsWith('/sheets')) return json([1, 2].map((id) => ({ id, name: `Sheet ${id}`, rows: 1,
       parent_sheet_id: null, parent_op_id: null, title_column_id: null, cited_column_ids: [],
-      annotated_text_column_ids: [], dependent_sheet_ids: [], columns: [column] })));
+      annotated_text_column_ids: [], document_text_column_ids: [], dependent_sheet_ids: [], columns: [column] })));
     if (url.pathname.endsWith('/locate')) return json({ found: true, row_id: 20, index: 0, page_offset: 0, page_size: 100 });
     if (url.pathname.endsWith('/data')) return json({ total: 1, columns: [column], rows: [{ id: 20, cells: {}, meta: {
       '7': { current_value_ref: { kind: 'source_cell', row_id: 20, column_id: 7, run_id: null, op_id: null }, bounded_value: { preview: 'preview only', value_kind: 'text', total_characters: total, total_bytes: total + 3,

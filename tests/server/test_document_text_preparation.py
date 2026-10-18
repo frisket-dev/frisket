@@ -26,6 +26,7 @@ from frisket.engine.store.value_codec import PreparedContentRef
 from frisket.engine.jobs.search_preparation_store import canonical_plan_hash
 from frisket.server.route_errors import RouteError
 from frisket.server.services.search_preparation import SearchPreparationService
+from frisket.server.services.sheet_grid import SheetGridService
 from helpers import write_claimed_test_results
 
 
@@ -111,6 +112,101 @@ def _publish_legacy_results(
         ],
     )
     RunResultStore(project).finish_run(run_id, "completed")
+
+
+def test_grid_treats_unattempted_document_text_as_blank_without_hiding_errors(
+    tmp_path,
+) -> None:
+    with closing(Project.create(tmp_path / "document-text-grid.frisket")) as project:
+        sheet_id, source_column_id = _source(project)
+        row_ids = project.add_rows(
+            sheet_id,
+            [{"Document": None}, {"Document": None}],
+            {"Document": source_column_id},
+        )
+        text_column_id = project.add_column(
+            sheet_id, "Text", type="text", ai_generated=True
+        )
+        ordinary_column_id = project.add_column(
+            sheet_id, "Ordinary output", type="text", ai_generated=True
+        )
+        with project.transaction_scope():
+            ensure_document_text_role(
+                project,
+                source_column_id=source_column_id,
+                text_column_id=text_column_id,
+                commit=False,
+            )
+
+        text_op_id = project.append_op("media.read_pdf_text")
+        text_run_id = RunResultStore(project).start_run(
+            text_op_id,
+            sheet_id,
+            "media.read_pdf_text",
+            row_ids=row_ids,
+            total_rows=len(row_ids),
+        )
+        write_claimed_test_results(
+            project,
+            text_run_id,
+            [
+                {
+                    "row_id": row_ids[1],
+                    "column_id": text_column_id,
+                    "value": None,
+                    "error": "PDF bytes could not be read",
+                    "error_code": "pdf_text_failed",
+                    "outcome": "row_error",
+                }
+            ],
+        )
+        RunResultStore(project).finish_run(text_run_id, "completed")
+
+        ordinary_op_id = project.append_op("map.classify")
+        ordinary_run_id = RunResultStore(project).start_run(
+            ordinary_op_id,
+            sheet_id,
+            "map.classify",
+            row_ids=row_ids,
+            total_rows=len(row_ids),
+        )
+        write_claimed_test_results(
+            project,
+            ordinary_run_id,
+            [
+                {
+                    "row_id": row_ids[1],
+                    "column_id": ordinary_column_id,
+                    "value": "classified",
+                }
+            ],
+        )
+        RunResultStore(project).finish_run(ordinary_run_id, "completed")
+
+        payload = SheetGridService(
+            SimpleNamespace(get=lambda _project_id: project)
+        ).sheet_data("project", sheet_id)
+        by_id = {int(row["id"]): row for row in payload["rows"]}
+        text_key = str(text_column_id)
+        ordinary_key = str(ordinary_column_id)
+
+        assert by_id[row_ids[0]]["cells"][text_key] is None
+        assert "state" not in by_id[row_ids[0]]["meta"][text_key]
+        assert by_id[row_ids[0]]["meta"][ordinary_key]["state"] == "incomplete"
+        assert by_id[row_ids[1]]["meta"][text_key]["state"] == "incomplete"
+        assert RunResultStore(project).row_error_summary(text_run_id) == {
+            "total_failed_rows": 1,
+            "groups": [
+                {
+                    "message": "PDF bytes could not be read",
+                    "count": 1,
+                    "code": "pdf_text_failed",
+                    "outcome": "row_error",
+                    "terminal": False,
+                    "row_ids": [row_ids[1]],
+                }
+            ],
+        }
 
 
 def test_native_and_ocr_preparation_share_one_designated_text_column(tmp_path) -> None:

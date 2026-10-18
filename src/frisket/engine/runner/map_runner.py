@@ -424,6 +424,12 @@ class MapRunner:
     execution_composition: ExecutionComposition | None = field(
         kw_only=True, default=None
     )
+    # Optional queue-owned scheduling hint for an already-admitted row scope.
+    # The callback may reorder only work that has not been assigned yet; it
+    # cannot widen the attempt scope or interrupt a row that is in flight.
+    take_preferred_row: Callable[[], int | None] | None = field(
+        kw_only=True, default=None, repr=False
+    )
     _throttle: AdaptiveThrottle = field(default_factory=AdaptiveThrottle, init=False)
     run_store: RunResultStore = field(init=False)
 
@@ -502,6 +508,7 @@ class MapRunner:
         *,
         program: Recipe | None = None,
         confirmed: bool = False,
+        trusted_consent_authorizer: validation.TrustedConsentAuthorizer | None = None,
     ) -> RunProgress:
         """Create the op/run row synchronously without executing rows.
 
@@ -513,6 +520,7 @@ class MapRunner:
             program=program,
             confirmed=confirmed,
             resume_run_id=None,
+            trusted_consent_authorizer=trusted_consent_authorizer,
         )
         progress = RunProgress(run_id=prepared.run_id, total=prepared.row_count)
         if self.on_progress:
@@ -527,6 +535,7 @@ class MapRunner:
         confirmed: bool,
         resume_run_id: int | None,
         precomputed_output_fields: list[dict[str, Any]] | None = None,
+        trusted_consent_authorizer: validation.TrustedConsentAuthorizer | None = None,
         _validated: validation._ValidatedSpec | None = None,
     ) -> PreparedRun:
         if resume_run_id is not None and any(
@@ -545,6 +554,7 @@ class MapRunner:
             confirmed=confirmed,
             resume_run_id=resume_run_id,
             precomputed_output_fields=precomputed_output_fields,
+            trusted_consent_authorizer=trusted_consent_authorizer,
         )
         if resume_run_id is None and (
             validated.recipe.atomic_output_columns
@@ -634,6 +644,7 @@ class MapRunner:
         confirmed: bool,
         resume_run_id: int | None,
         precomputed_output_fields: list[dict[str, Any]] | None = None,
+        trusted_consent_authorizer: validation.TrustedConsentAuthorizer | None = None,
     ) -> validation._ValidatedSpec:
         recipe = program if program is not None else validation.recipe_for_spec(spec)
         if (
@@ -655,6 +666,7 @@ class MapRunner:
             composition=self.execution_composition,
             consent_coverage=self.consent_coverage,
             precomputed_output_fields=precomputed_output_fields,
+            trusted_consent_authorizer=trusted_consent_authorizer,
         )
 
     def prepare_admitted_run(
@@ -664,6 +676,7 @@ class MapRunner:
         program: Recipe | None = None,
         confirmed: bool,
         output_fields: list[dict[str, Any]],
+        trusted_consent_authorizer: validation.TrustedConsentAuthorizer | None = None,
     ) -> tuple[PreparedRun, AttemptCommitment]:
         """Prepare and admit a fresh canonical run in its caller's transaction."""
 
@@ -677,6 +690,7 @@ class MapRunner:
             confirmed=confirmed,
             resume_run_id=None,
             precomputed_output_fields=output_fields,
+            trusted_consent_authorizer=trusted_consent_authorizer,
         )
         prepared = self._prepare(
             spec,
@@ -684,6 +698,7 @@ class MapRunner:
             confirmed=confirmed,
             resume_run_id=None,
             precomputed_output_fields=output_fields,
+            trusted_consent_authorizer=trusted_consent_authorizer,
             _validated=validated,
         )
         output_column_ids = sorted(prepared.out_cols.values())
@@ -1964,6 +1979,79 @@ class MapRunner:
                 finally:
                     queue.task_done()
 
+        async def run_preferred_row_workers() -> None:
+            """Let workers pull rows so a late hint can win the next free slot.
+
+            The ordinary path keeps its small prefetch buffer. A queue-backed
+            automatic OCR run opts into this pull path because prefetched row
+            ids would otherwise sit ahead of a document the user explicitly
+            opened. The admitted attempt remains the complete authority: a
+            stale or out-of-scope hint is consumed and ignored.
+            """
+
+            if attempt is None:
+                # Queued project runs always carry an admitted attempt. Keep a
+                # malformed composition from turning a hint into new scope.
+                await _await_owned_tasks(
+                    producer(), *(worker() for _ in range(worker_count))
+                )
+                return
+
+            admitted_order = {
+                int(row_id): seq for seq, row_id in enumerate(attempt.scope)
+            }
+            eligible_rows = set(admitted_order)
+            if prepared.run_scope_run_id is not None:
+                eligible_rows.difference_update(
+                    self.run_store.completed_result_row_ids(
+                        prepared.run_scope_run_id, output_column_ids
+                    )
+                )
+            assigned: set[int] = set()
+            source = source_rows().__aiter__()
+            source_lock = asyncio.Lock()
+            take_preferred_row = self.take_preferred_row
+            assert take_preferred_row is not None
+
+            async def take_next() -> tuple[int, int] | None:
+                async with source_lock:
+                    if cancelled():
+                        return None
+                    try:
+                        preferred = take_preferred_row()
+                        if preferred is not None and not isinstance(preferred, bool):
+                            preferred = int(preferred)
+                        else:
+                            preferred = None
+                    except Exception:  # noqa: BLE001 - priority is best effort
+                        _log.warning("preferred_row_take_failed", exc_info=True)
+                        preferred = None
+                    if preferred is not None:
+                        if preferred in eligible_rows and preferred not in assigned:
+                            assigned.add(preferred)
+                            return preferred, admitted_order[preferred]
+                    while True:
+                        try:
+                            row_id = int(await anext(source))
+                        except StopAsyncIteration:
+                            return None
+                        if row_id in assigned:
+                            continue
+                        assigned.add(row_id)
+                        return row_id, admitted_order[row_id]
+
+            async def pull_worker() -> None:
+                while True:
+                    item = await take_next()
+                    if item is None:
+                        return
+                    try:
+                        await one_row(*item)
+                    finally:
+                        clear_work_progress(item[0])
+
+            await _await_owned_tasks(*(pull_worker() for _ in range(worker_count)))
+
         # Give an already-latched operator cancellation precedence over recipe
         # admission.  Tasks are created inside the scope so task-local recipe
         # resources (ContextVars) are inherited by every row worker.
@@ -1985,9 +2073,13 @@ class MapRunner:
                         spec, ctx, expected_rows=prepared.row_count
                     ):
                         try:
-                            await _await_owned_tasks(
-                                producer(), *(worker() for _ in range(worker_count))
-                            )
+                            if self.take_preferred_row is None:
+                                await _await_owned_tasks(
+                                    producer(),
+                                    *(worker() for _ in range(worker_count)),
+                                )
+                            else:
+                                await run_preferred_row_workers()
                         finally:
                             # Normal rows flush individually; this final drain
                             # keeps any accepted concurrent sibling result

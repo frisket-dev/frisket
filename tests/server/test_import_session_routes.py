@@ -49,6 +49,17 @@ def test_import_session_routes_admit_status_and_enqueue_bounded_pages(tmp_path):
         "error": None,
         "search_preparation_batch_id": None,
         "search_preparation_status": "pending",
+        "semantic_preparation_error": None,
+        "selected_total": None,
+        "preparation_completed": 0,
+        "preparation_total": 0,
+        "ocr_completed": 0,
+        "ocr_total": 0,
+        "unreadable_total": 0,
+        "preparation_stopped": False,
+        "preparation_pending_confirmation": None,
+        "row_error_summary": None,
+        "preparation_children": [],
     }
     assert client.get(base).json() == {"sessions": [status]}
     assert client.get(f"{base}/{ref}").json() == status

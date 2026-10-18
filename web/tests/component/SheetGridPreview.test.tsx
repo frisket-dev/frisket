@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { act, cleanup } from '@testing-library/react';
+import { act, cleanup, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { GridCellKind, type DataEditorProps } from '@glideapps/glide-data-grid';
+import { CompactSelection, GridCellKind, type DataEditorProps } from '@glideapps/glide-data-grid';
 import { SheetGrid } from '../../src/grid/SheetGrid';
 import { createProjectApi } from '../../src/api/real';
-import type { PreviewOverlayCell, PreviewOverlayColumn, SheetMeta } from '../../src/api/types';
-import { columnDef, row } from '../support/domainFixtures';
+import type { ColumnRun, PreviewOverlayCell, PreviewOverlayColumn, RunProgress, SheetMeta } from '../../src/api/types';
+import { aiMeta, columnDef, row } from '../support/domainFixtures';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
 
 const editor = vi.hoisted(() => ({ props: null as DataEditorProps | null }));
@@ -23,11 +23,24 @@ vi.mock('@glideapps/glide-data-grid', async (importOriginal) => {
   };
 });
 const rows = [row({ old: 'COMMITTED' }, { id: '1' }), row({ old: 'UNSAMPLED' }, { id: '2', index: 1 })];
+const visibleRowsChanged = vi.hoisted(() => vi.fn());
 vi.mock('../../src/grid/useRowCache', () => ({
-  useRowCache: () => ({ getRow: (index: number) => rows[index], rowCount: 2, version: 0, refresh: vi.fn(), onVisibleRowsChanged: vi.fn() }),
+  useRowCache: () => ({
+    getRow: (index: number) => rows[index],
+    rowCount: 2,
+    version: 0,
+    refresh: vi.fn(),
+    onVisibleRowsChanged: visibleRowsChanged,
+  }),
 }));
-const { render } = createWorkspaceTestHarness({ projectId: 'preview-grid', api: { projectApi: createProjectApi('preview-grid') } });
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+const projectApi = createProjectApi('preview-grid');
+const { render } = createWorkspaceTestHarness({ projectId: 'preview-grid', api: { projectApi } });
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+  visibleRowsChanged.mockClear();
+  localStorage.clear();
+});
 const sheet: SheetMeta = { id: '1', name: 'Videos', rowCount: 2, columns: [columnDef({ id: 'old', name: 'Cuts', type: 'text' })] };
 const column: PreviewOverlayColumn = { name: 'Cuts', columnType: 'timeline_points', format: null, hidden: false, overwritesColumnId: 'old' };
 const temporal: PreviewOverlayCell = { value: {
@@ -47,6 +60,19 @@ async function mount(sample: PreviewOverlayCell, descriptor = column) {
     />);
   });
   return { open, edit, facet, grid: editor.props! };
+}
+
+async function mountImportPlaceholders() {
+  const open = vi.fn();
+  const edit = vi.fn().mockResolvedValue(undefined);
+  const selected = vi.fn();
+  await act(async () => {
+    render(<SheetGrid sheet={sheet} dataVersion={0} liveRun={null} rowHeight={32} wrapText={false}
+      columnGroupsStorageScope="preview-grid" pendingImportRowCount={3}
+      onRowOpen={open} onColumnOpen={vi.fn()} onCellEdit={edit} onSelectedRowsChange={selected}
+    />);
+  });
+  return { open, edit, selected, grid: editor.props! };
 }
 
 describe('preview grid interactions', () => {
@@ -76,5 +102,155 @@ describe('preview grid interactions', () => {
     expect(grid.getCellContent([0, 1])).toMatchObject({ data: 'UNSAMPLED' });
     await act(async () => grid.onCellEdited?.([0, 1], { kind: GridCellKind.Text, data: 'normal edit', displayData: 'normal edit', allowOverlay: true }));
     expect(edit).toHaveBeenCalledWith(rows[1], sheet.columns[0], 'normal edit');
+  });
+
+  it('appends inert loading rows without exposing virtual indexes to selection', async () => {
+    const { grid, open, edit, selected } = await mountImportPlaceholders();
+
+    expect(grid.rows).toBe(5);
+    expect(grid.getCellContent([0, 4])).toMatchObject({
+      kind: GridCellKind.Loading,
+      allowOverlay: false,
+    });
+    act(() => grid.onCellActivated?.([0, 4]));
+    act(() => grid.onCellEdited?.([0, 4], {
+      kind: GridCellKind.Text,
+      data: 'virtual edit',
+      displayData: 'virtual edit',
+      allowOverlay: true,
+    }));
+    expect(open).not.toHaveBeenCalled();
+    expect(edit).not.toHaveBeenCalled();
+
+    act(() => grid.onGridSelectionChange?.({
+      columns: CompactSelection.empty(),
+      rows: CompactSelection.fromSingleSelection([0, 5]),
+      current: {
+        cell: [0, 4],
+        range: { x: 0, y: 0, width: 1, height: 5 },
+        rangeStack: [],
+      },
+    }));
+    expect(selected).toHaveBeenLastCalledWith({
+      sheetId: '1',
+      rowIds: ['1', '2'],
+      rowIndexes: [0, 1],
+    });
+    expect(editor.props?.gridSelection.rows.toArray()).toEqual([0, 1]);
+    expect(editor.props?.gridSelection.current).toBeUndefined();
+
+    act(() => grid.onVisibleRegionChanged?.({ x: 0, y: 3, width: 1, height: 2 }));
+    expect(visibleRowsChanged).not.toHaveBeenCalled();
+  });
+
+  it('shows background OCR pending state only for the child run row scope', async () => {
+    const documentSheet: SheetMeta = {
+      ...sheet,
+      columns: [columnDef({ id: 'text', name: 'Text', type: 'text' })],
+      annotatedTextColumnIds: ['text'],
+    };
+    const backgroundLiveRun: RunProgress = {
+      runId: '42',
+      actionKind: 'media.ocr',
+      actionName: 'OCR PDFs',
+      sheetId: sheet.id,
+      targetColumnId: '',
+      targetRowIds: ['2'],
+      status: 'running',
+      completedRows: 0,
+      totalRows: 1,
+      failedRows: 0,
+      costSoFar: 0,
+    };
+    await act(async () => {
+      render(<SheetGrid sheet={documentSheet} dataVersion={0} liveRun={null}
+        backgroundLiveRun={backgroundLiveRun} rowHeight={32} wrapText={false}
+        columnGroupsStorageScope="preview-grid"
+        onRowOpen={vi.fn()} onColumnOpen={vi.fn()} onCellEdit={vi.fn()}
+      />);
+    });
+
+    expect(editor.props!.getCellContent([0, 0])).toMatchObject({
+      kind: GridCellKind.Text,
+      data: '',
+    });
+    expect(editor.props!.getCellContent([0, 1])).toMatchObject({
+      kind: GridCellKind.Custom,
+      data: { label: 'Waiting for OCR' },
+    });
+  });
+
+  it('labels only the authoritative document text group neutrally', async () => {
+    const ordinaryRun: ColumnRun = {
+      runId: '43',
+      actionKind: 'map.summarize',
+      actionName: 'Summarize',
+      model: 'local',
+      status: 'completed',
+      spec: {},
+      totalRows: 2,
+      completedRows: 2,
+      failedRows: 0,
+      cost: 0,
+      startedAt: null,
+      finishedAt: null,
+      durationMs: null,
+      tokensIn: null,
+      tokensOut: null,
+      current: true,
+      humanScore: { passed: 0, graded: 0 },
+      judgeScores: [],
+    };
+    const getColumnRuns = vi.spyOn(projectApi, 'getColumnRuns').mockResolvedValue({
+      columnName: 'Summary',
+      offset: 0,
+      limit: 20,
+      totalRuns: 1,
+      hasMore: false,
+      nextOffset: null,
+      currentRun: ordinaryRun,
+      currentRunLoaded: true,
+      latestRun: ordinaryRun,
+      latestRunLoaded: true,
+      mixedOrigins: false,
+      runs: [ordinaryRun],
+    });
+    localStorage.setItem('frisket:column-groups:preview-grid:1', JSON.stringify({
+      42: {
+        label: 'media.read_pdf_text',
+        showConfidence: true,
+        showJustification: true,
+      },
+    }));
+    const groupedSheet: SheetMeta = {
+      ...sheet,
+      documentTextColumnIds: ['text'],
+      columns: [
+        columnDef({ id: 'text', name: 'Text', ai: aiMeta(), latestRunId: '42' }),
+        columnDef({ id: 'blocks', name: 'Search positions', ai: aiMeta(), latestRunId: '42' }),
+        columnDef({ id: 'summary', name: 'Summary', ai: aiMeta(), latestRunId: '43' }),
+        columnDef({ id: 'summary-confidence', name: 'summary_confidence', ai: aiMeta(), latestRunId: '43' }),
+      ],
+    };
+    await act(async () => {
+      render(<SheetGrid sheet={groupedSheet} dataVersion={0} liveRun={null}
+        rowHeight={32} wrapText={false} columnGroupsStorageScope="preview-grid"
+        onRowOpen={vi.fn()} onColumnOpen={vi.fn()} onCellEdit={vi.fn()}
+      />);
+    });
+
+    const documentGroup = editor.props!.columns[0].group!;
+    const ordinaryGroup = editor.props!.columns[2].group!;
+    expect(editor.props!.getGroupDetails?.(documentGroup)).toMatchObject({
+      name: 'Document text',
+    });
+    await waitFor(() => expect(getColumnRuns).toHaveBeenCalledTimes(1));
+    expect(getColumnRuns).toHaveBeenCalledWith('summary');
+    await waitFor(() => expect(editor.props!.getGroupDetails?.(ordinaryGroup)).toMatchObject({
+      name: 'map.summarize',
+    }));
+    expect(editor.props!.getGroupDetails?.(documentGroup)).toMatchObject({
+      name: 'Document text',
+    });
   });
 });

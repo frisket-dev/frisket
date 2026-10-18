@@ -87,6 +87,7 @@ const SHEET_LIST_WIRE = [
     title_column_id: null,
     cited_column_ids: [],
     annotated_text_column_ids: [],
+    document_text_column_ids: [],
     dependent_sheet_ids: [],
     columns: [
       {

@@ -56,7 +56,13 @@ import { applyColumnTypeRegistry } from '../grid/typeRegistry';
 import { gridReadColumnIds } from '../components/fieldValueDependencies';
 import { computeRowCacheKey, resolveRowCacheScope } from '../grid/rowCacheStore';
 import { PanelLoading } from '../components/PanelPrimitives';
+import {
+  pendingImportRowCount as selectPendingImportRowCount,
+  preferredImportActivity,
+  useImportProgress,
+} from '../components/useImportProgress';
 import { documentMediaColumns } from '../workbench/documentMedia';
+import { promoteDocumentPriority } from '../api/documentPriority';
 import { selectWorkViewAvailability } from '../core/selectors/workView';
 import { WORK_VIEW_KINDS, WORK_VIEW_TITLES } from '../core/selectors/views/registry';
 import { createStore } from '../core/store/createStore';
@@ -571,6 +577,36 @@ export function useWorkspaceModel({
   );
 
   const sheet = sheets.find((candidate) => candidate.id === activeSheetId);
+  const handleImportSessionChanged = useCallback(() => { void refreshSheets(); }, [refreshSheets]);
+  const importProgress = useImportProgress({
+    projectId: project.id,
+    onChanged: handleImportSessionChanged,
+    onError: showError,
+  });
+  const activeImportActivity = sheet ? preferredImportActivity(
+    importProgress.activities.filter((activity) => activity.session.sheet_id === Number(sheet.id)),
+  ) : null;
+  const importLiveRun = activeImportActivity?.liveRun ?? null;
+  const pendingImportRowCount = selectPendingImportRowCount(activeImportActivity);
+  const [importRunRowScope, setImportRunRowScope] = useState<{
+    runId: string;
+    rowIds: string[];
+  } | null>(null);
+  useEffect(() => {
+    const runId = importLiveRun?.actionKind === 'media.ocr' ? importLiveRun.runId : null;
+    if (runId === null) return undefined;
+    let alive = true;
+    void projectApi.getRunRows(runId, 0, 500)
+      .then((page) => {
+        if (alive) setImportRunRowScope({ runId, rowIds: page.rows.map((row) => row.rowId) });
+      })
+      .catch(() => {
+        if (alive) setImportRunRowScope({ runId, rowIds: [] });
+      });
+    return () => {
+      alive = false;
+    };
+  }, [importLiveRun?.actionKind, importLiveRun?.runId, projectApi]);
   const closeActionDrawerRef = useRef<() => void>(() => {});
   const onLaunchAccepted = useCallback(() => closeActionDrawerRef.current(), []);
   const { startProposal, startRun } = useRunController({
@@ -1233,9 +1269,46 @@ export function useWorkspaceModel({
     [selection, sheet],
   );
 
+  const [documentPriority, setDocumentPriority] = useState<{
+    sheetId: string;
+    rowId: string;
+    columnId: string;
+    label: string;
+    runId: string;
+  } | null>(null);
+  const documentPriorityRequest = useRef(0);
+  const activeDocumentPriority = documentPriority?.runId === importLiveRun?.runId
+    && importLiveRun?.actionKind === 'media.ocr' ? documentPriority : null;
+
+  const prioritizeDocumentRow = useCallback(
+    (rowId: string, columnId: string) => {
+      if (!sheet) return;
+      const numericRowId = Number(rowId);
+      const numericColumnId = Number(columnId);
+      if (!Number.isSafeInteger(numericRowId) || !Number.isSafeInteger(numericColumnId)) return;
+      const request = ++documentPriorityRequest.current;
+      void promoteDocumentPriority(project.id, {
+        sheetId: Number(sheet.id),
+        rowId: numericRowId,
+        columnId: numericColumnId,
+      }).then((result) => {
+        if (request !== documentPriorityRequest.current || !result.promoted || result.runId === null) return;
+        setDocumentPriority({
+          sheetId: sheet.id,
+          rowId,
+          columnId,
+          label: `File row ${rowId}`,
+          runId: result.runId,
+        });
+      }).catch(() => undefined);
+    },
+    [project.id, sheet],
+  );
+
   const openRowInDocumentView = useCallback(
     (rowId: string, columnId: string) => {
       if (!sheet) return;
+      prioritizeDocumentRow(rowId, columnId);
       setOpenSplit(null);
       const base =
         documentView && documentView.sheetId === sheet.id
@@ -1258,8 +1331,11 @@ export function useWorkspaceModel({
       });
       selection.clearRowSelection(sheet.id);
     },
-    [sheet, documentView, selection, setDocumentView, setOpenSplit],
+    [sheet, prioritizeDocumentRow, documentView, selection, setDocumentView, setOpenSplit],
   );
+  const setDocumentPriorityLabel = useCallback((rowId: string, label: string) => {
+    setDocumentPriority((current) => current?.rowId === rowId ? { ...current, label } : current);
+  }, []);
 
   const openRowRef = useCallback(
     (sheetId: number | string, rowId: number | string) => {
@@ -3591,6 +3667,14 @@ export function useWorkspaceModel({
           sheet={sheet}
           dataVersion={dataVersion}
           liveRun={run}
+          backgroundLiveRun={importLiveRun?.actionKind === 'media.ocr' ? {
+            ...importLiveRun,
+            targetRowIds: importRunRowScope?.runId === importLiveRun.runId
+              ? importRunRowScope.rowIds
+              : [],
+          } : importLiveRun}
+          priorityReadingRowId={activeDocumentPriority?.sheetId === sheet.id ? activeDocumentPriority.rowId : null}
+          pendingImportRowCount={pendingImportRowCount}
           rowHeight={rowHeight}
           wrapText={wrapText}
           columnGroupsStorageScope={project.id}
@@ -3665,6 +3749,10 @@ export function useWorkspaceModel({
     sheet,
     dataVersion,
     run,
+    importLiveRun,
+    importRunRowScope,
+    pendingImportRowCount,
+    activeDocumentPriority,
     rowHeight,
     wrapText,
     project.id,
@@ -3822,6 +3910,9 @@ export function useWorkspaceModel({
       closeSplit,
       documentView,
       documentViewShowing,
+      documentPriority: activeDocumentPriority,
+      prioritizeDocumentRow,
+      setDocumentPriorityLabel,
       extractViewShowing,
       annotatedTextColumnIds,
       documentAnnotationPreferences,
@@ -3978,6 +4069,9 @@ export function useWorkspaceModel({
       closeSplit,
       documentView,
       documentViewShowing,
+      activeDocumentPriority,
+      prioritizeDocumentRow,
+      setDocumentPriorityLabel,
       extractViewShowing,
       answersViewShowing,
       answersCitedColumns,
@@ -4058,6 +4152,7 @@ export function useWorkspaceModel({
       doUndo,
       error,
       evidenceViewerState,
+      documentPriority: activeDocumentPriority,
       hideWorkbenchContribution,
       history,
       lastCommandAction,
@@ -4082,6 +4177,7 @@ export function useWorkspaceModel({
       workbenchCommandEntries,
       workbenchHostContext,
       workbenchVisibilityTargets,
+      importProgress,
     }),
     [
       afterColumnUpdated,
@@ -4116,6 +4212,7 @@ export function useWorkspaceModel({
       doUndo,
       error,
       evidenceViewerState,
+      activeDocumentPriority,
       hideWorkbenchContribution,
       history,
       lastCommandAction,
@@ -4139,6 +4236,7 @@ export function useWorkspaceModel({
       workbenchCommandEntries,
       workbenchHostContext,
       workbenchVisibilityTargets,
+      importProgress,
     ],
   );
 
