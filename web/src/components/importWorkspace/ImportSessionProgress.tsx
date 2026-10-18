@@ -1,4 +1,5 @@
 import type { ImportSessionStatus } from '../../api/open';
+import { ProgressBar } from '../ActivityProgress';
 
 export function ImportSessionProgress({
   status,
@@ -34,7 +35,12 @@ export function ImportSessionProgress({
     return (
       <div className="import-files-progress" role="status">
         <span><span className="run-spinner" aria-hidden /> Uploading {status.admitted_files.toLocaleString()} of {selectedFiles.toLocaleString()} files</span>
-        <progress aria-label="Files uploaded" value={status.admitted_files} max={Math.max(selectedFiles, 1)} />
+        <ProgressBar
+          label="Files uploaded"
+          completed={status.admitted_files}
+          total={Math.max(selectedFiles, 1)}
+          state="active"
+        />
       </div>
     );
   }
@@ -42,7 +48,12 @@ export function ImportSessionProgress({
     return (
       <div className="import-files-progress" role="status">
         <span><span className="run-spinner" aria-hidden /> Adding files to the sheet — {status.committed_rows.toLocaleString()} of {status.admitted_files.toLocaleString()} saved</span>
-        <progress aria-label="Files saved" value={status.committed_rows} max={Math.max(status.admitted_files, 1)} />
+        <ProgressBar
+          label="Files saved"
+          completed={status.committed_rows}
+          total={Math.max(status.admitted_files, 1)}
+          state="active"
+        />
       </div>
     );
   }

@@ -68,7 +68,8 @@ describe('ModelPullProgress', () => {
     expect(screen.getByText('Qwen 3')).toBeInTheDocument();
     expect(screen.getByText('downloading')).toBeInTheDocument();
     const bar = screen.getByRole('progressbar');
-    expect(bar).toHaveAttribute('aria-valuenow', '25');
+    expect(bar).toHaveAttribute('value', '250');
+    expect(bar).toHaveAttribute('max', '1000');
     expect(screen.getByText(/^25% ·/)).toBeInTheDocument();
   });
 

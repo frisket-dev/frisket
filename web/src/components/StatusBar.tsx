@@ -19,6 +19,7 @@ import {
   useSearchPreparationNotice,
   type SearchPreparationNotice as SearchPreparationNoticeModel,
 } from './useSearchPreparationNotice';
+import { ActivityProgressCard, ProgressRow } from './ActivityProgress';
 
 // A queued run whose worker never showed up must not spin forever: the
 // reconciler flags no_live_worker so we can show a fix-it warning instead.
@@ -36,27 +37,21 @@ function activeOcrFiles(run: RunProgress) {
 }
 
 function activeStatusCopy(run: RunProgress): string {
-  if (run.cancelRequested && isActiveRunStatus(run.status)) return `Stopping… · ${rowsProgress(run)}`;
+  if (run.cancelRequested && isActiveRunStatus(run.status)) return 'Stopping…';
   if (isNoLiveWorker(run)) {
-    return `no worker is running — queued work is stuck · ${rowsProgress(run)}`;
+    return 'no worker is running — queued work is stuck';
   }
   switch (run.status) {
     case 'queued':
-      return `queued — waiting to start · ${rowsProgress(run)}`;
+      return 'queued — waiting to start';
     case 'running':
-      return `running · ${rowsProgress(run)}`;
+      return 'running';
     case 'stalled':
-      return `stalled: waiting for worker progress · ${rowsProgress(run)}`;
+      return 'stalled: waiting for worker progress';
     case 'orphaned':
-      return `orphaned: waiting on run recovery · ${rowsProgress(run)}`;
-    case 'failed':
-      return `failed after ${rowsProgress(run)}`;
-    case 'complete':
-      return `${runStatusLabel(run.status, run.failedRows)} · ${run.totalRows.toLocaleString()} rows`;
-    case 'cancelled':
-      return `cancelled · ${run.totalRows.toLocaleString()} rows`;
+      return 'orphaned: waiting on run recovery';
     default:
-      return `${run.status} · ${rowsProgress(run)}`;
+      return run.status;
   }
 }
 
@@ -86,6 +81,60 @@ function compactStatusCopy(run: RunProgress): string {
 
 function actionTitle(name: string): string {
   return `Action: ${name}`;
+}
+
+export function ActionProgressNotice({
+  run,
+  onCancel,
+  onDismiss,
+}: {
+  run: RunProgress;
+  onCancel(runId: string): void;
+  onDismiss(): void;
+}) {
+  const noLiveWorker = isNoLiveWorker(run);
+  return (
+    <ActivityProgressCard
+      state={noLiveWorker ? 'warning' : 'active'}
+      title={actionTitle(run.actionName)}
+      detail={(
+        <>
+          <span>{activeStatusCopy(run)} · {formatUsd(run.costSoFar)}</span>
+          {noLiveWorker && (
+            <span className="run-no-worker-hint">
+              Start a worker (<code>frisket worker</code>) or check the worker container, then the queue drains.
+            </span>
+          )}
+        </>
+      )}
+      indicator={noLiveWorker ? (
+        <AlertTriangle size={16} className="run-warning-icon" aria-hidden data-testid="run-no-worker-warning" />
+      ) : undefined}
+      onDismiss={onDismiss}
+      dismissLabel="Minimize action progress"
+      dismissTestId="active-run-dismiss"
+      testId="active-run-banner"
+      className={`active-run-banner status-${run.status}`}
+      footer={(
+        <>
+          {!run.cancelRequested && <span className="pending-ai-cells" data-testid="pending-ai-cells">
+            {pendingRunCopy(run)}
+          </span>}
+          <button
+            type="button"
+            className="mini-btn run-cancel"
+            data-testid="active-run-cancel"
+            disabled={run.cancelRequested}
+            onClick={() => onCancel(run.runId)}
+          >
+            <Square size={11} /> {run.cancelRequested ? 'Stopping…' : 'Cancel run'}
+          </button>
+        </>
+      )}
+    >
+      <ActiveRunWatcher run={run} />
+    </ActivityProgressCard>
+  );
 }
 
 function formatProjectionPointCount(count: number): string {
@@ -193,52 +242,11 @@ export function StatusBar({
     {(runNoticeOpen || searchNoticeOpen) && (
       <div className="status-notice-stack" data-testid="status-notice-stack">
         {run && runNoticeOpen && (
-          <section
-            className={`active-run-banner status-${run.status}`}
-            data-testid="active-run-banner"
-            role="status"
-            aria-live="polite"
-            aria-atomic="true"
-          >
-            <button
-              type="button"
-              className="icon-btn status-notice-dismiss"
-              data-testid="active-run-dismiss"
-              aria-label="Minimize action progress"
-              onClick={() => setRunNoticeOpen(false)}
-            >
-              <X size={14} aria-hidden />
-            </button>
-            <div className="active-run-main">
-              {isNoLiveWorker(run) ? (
-                <AlertTriangle size={16} className="run-warning-icon" aria-hidden data-testid="run-no-worker-warning" />
-              ) : (
-                <span className="run-spinner" aria-hidden />
-              )}
-              <div className="active-run-copy">
-                <strong>{actionTitle(run.actionName)}</strong>
-                <span>{activeStatusCopy(run)} · {formatUsd(run.costSoFar)}</span>
-                {isNoLiveWorker(run) && (
-                  <span className="run-no-worker-hint">
-                    Start a worker (<code>frisket worker</code>) or check the worker container, then the queue drains.
-                  </span>
-                )}
-              </div>
-            </div>
-            <ActiveRunWatcher run={run} />
-            {!run.cancelRequested && <span className="pending-ai-cells" data-testid="pending-ai-cells">
-              {pendingRunCopy(run)}
-            </span>}
-            <button
-              type="button"
-              className="mini-btn run-cancel"
-              data-testid="active-run-cancel"
-              disabled={run.cancelRequested}
-              onClick={() => onCancelRun(run.runId)}
-            >
-              <Square size={11} /> {run.cancelRequested ? 'Stopping…' : 'Cancel run'}
-            </button>
-          </section>
+          <ActionProgressNotice
+            run={run}
+            onCancel={onCancelRun}
+            onDismiss={() => setRunNoticeOpen(false)}
+          />
         )}
         {searchPreparationNotice && searchNoticeOpen && (
           <SearchPreparationNotice
@@ -558,9 +566,46 @@ function ProjectionWatcher({
  * the banner so the footer stays a compact affordance during active runs.
  */
 function ActiveRunWatcher({ run }: { run: RunProgress }) {
+  const unit = run.actionKind === 'media.ocr' ? 'files' : 'rows';
+  const files = activeOcrFiles(run);
   return (
     <div className="run-watcher run-watcher-inline" data-testid="run-watcher">
-      <RunWatcherBody run={run} />
+      <ProgressRow
+        label={unit === 'files' ? 'OCR files' : 'Rows'}
+        completed={run.completedRows}
+        total={run.totalRows}
+        state="active"
+        status={rowsProgress(run)}
+        ariaLabel={`${unit === 'files' ? 'OCR files' : 'Rows'} progress`}
+      />
+      <RunFileProgress files={files} />
+      {run.failedRows > 0 && (
+        <div className="active-run-failures">
+          <span className="run-failed">{run.failedRows.toLocaleString()} failed</span>
+          <RunWatcherErrors key={`${run.runId}:${run.failedRows}`} runId={run.runId} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RunFileProgress({ files }: { files: ReturnType<typeof activeOcrFiles> }) {
+  if (!files?.length) return null;
+  return (
+    <div className="run-file-progress-list">
+      {files.map((file) => (
+        <ProgressRow
+          key={file.row_id}
+          className="run-file-progress"
+          testId={`run-file-progress-${file.row_id}`}
+          label={file.filename || `File row ${file.row_id}`}
+          completed={file.completed}
+          total={file.total}
+          state="active"
+          status={`${file.completed.toLocaleString()} / ${file.total.toLocaleString()} pages`}
+          ariaLabel={`OCR pages for ${file.filename || `File row ${file.row_id}`}`}
+        />
+      ))}
     </div>
   );
 }
@@ -680,24 +725,7 @@ function RunWatcherBody({
         <span className="prov-key">cost</span>
         <span>{formatUsd(run.costSoFar)}</span>
       </div>
-      {files.length > 0 && (
-        <div className="run-file-progress-list">
-          {files.map((file) => (
-            <div className="run-file-progress" key={file.row_id} data-testid={`run-file-progress-${file.row_id}`}>
-              <div className="run-file-progress-copy">
-                <span className="run-file-progress-name">{file.filename || `File row ${file.row_id}`}</span>
-                <span className="run-file-progress-count">{file.completed.toLocaleString()} / {file.total.toLocaleString()} pages</span>
-              </div>
-              <progress
-                className="run-file-progress-bar"
-                aria-label={`OCR pages for ${file.filename || `File row ${file.row_id}`}`}
-                max={file.total}
-                value={file.completed}
-              />
-            </div>
-          ))}
-        </div>
-      )}
+      <RunFileProgress files={files} />
       {!isActiveRunStatus(run.status) && run.rowErrors && (
         <RunFailureTriage
           rowErrors={run.rowErrors}

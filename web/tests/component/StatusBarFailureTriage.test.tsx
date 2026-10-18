@@ -187,6 +187,15 @@ describe('StatusBar queued-run feedback', () => {
     expect(onCancelRun.mock.calls).toEqual([['run-9'], ['run-9']]);
   });
 
+  it('keeps active failures visible without repeating the full run summary', () => {
+    renderBar(finishedRun({ status: 'running', completedRows: 20, totalRows: 100, failedRows: 2 }));
+    const banner = screen.getByTestId('active-run-banner');
+    expect(banner).toHaveTextContent('20/100 rows');
+    expect(banner).toHaveTextContent('2 failed');
+    expect(banner.textContent?.match(/\$1\.50/g)).toHaveLength(1);
+    expect(within(banner).getByTestId('run-inspector-rows')).toBeInTheDocument();
+  });
+
   it('shows accepted cancellation as stopping and disables both cancel controls', () => {
     const onCancelRun = vi.fn();
     renderBar(finishedRun({
@@ -253,7 +262,7 @@ describe('StatusBar queued-run feedback', () => {
     expect(screen.queryByTestId('run-file-progress-12')).not.toBeInTheDocument();
     expect(screen.getByTestId('run-file-progress-13')).toHaveTextContent('41 / 500 pages');
     expect(screen.getByTestId('active-run-banner')).toHaveTextContent('1/7 files');
-    expect(screen.getAllByRole('progressbar')).toHaveLength(1);
+    expect(screen.getAllByRole('progressbar')).toHaveLength(2);
   });
 });
 

@@ -380,7 +380,8 @@ describe('search preparation notice projection', () => {
     expect(banner).toHaveAttribute('data-stage', 'download');
     expect(banner).toHaveTextContent('Downloading EmbeddingGemma · downloading model files');
     expect(banner).toHaveTextContent('Downloading model');
-    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '42');
+    expect(screen.getByRole('progressbar')).toHaveAttribute('value', '42');
+    expect(screen.getByRole('progressbar')).toHaveAttribute('max', '100');
   });
 
   it('uses the authoritative project indexing projection even without a preparation batch', () => {
@@ -408,6 +409,20 @@ describe('search preparation notice projection', () => {
       stage: 'prepare',
       detail: 'Extracting text · 2 files',
     });
+  });
+
+  it('describes combined search readiness without claiming an unobserved indexing state', () => {
+    const notice = deriveSearchPreparationNotice(snapshot({ batches: [batch()] }));
+    render(<SearchPreparationNotice
+      notice={notice!}
+      progressLines={[{
+        key: 'search-index', label: 'Search index', completed: 1, total: 3, complete: false,
+      }]}
+    />);
+
+    expect(screen.getByTestId('search-preparation-banner')).toHaveTextContent(
+      'Files become searchable as preparation finishes.',
+    );
   });
 
   it('surfaces failed OCR rows while the remaining files continue', () => {
@@ -442,7 +457,8 @@ describe('search preparation notice projection', () => {
       progress: 67,
     });
     render(<SearchPreparationNotice notice={notice!} />);
-    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '67');
+    expect(screen.getByRole('progressbar')).toHaveAttribute('value', '67');
+    expect(screen.getByRole('progressbar')).toHaveAttribute('max', '100');
     fireEvent.click(screen.getByTestId('search-preparation-details'));
     expect(screen.getByText('One PDF page could not be recognized.')).toBeInTheDocument();
     expect(screen.getByText('Extracting text · 2 files')).toBeInTheDocument();
