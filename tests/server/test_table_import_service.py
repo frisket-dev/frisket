@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import io
 from pathlib import Path
+from threading import Event
 
 import pytest
 
@@ -11,12 +13,15 @@ from frisket.engine.store.table_import_intake import (
     table_dedup_key,
     table_key_exists,
 )
+from frisket.engine.store.import_intake import read_import_header
 from frisket.server.services.import_uploads import AdmittedUpload
 from frisket.server.services.table_imports import (
     TableImportDraftError,
     TableImportService,
+    run_table_analysis,
 )
 from frisket.server.workspace import Workspace
+from frisket.table_import import TableReadError
 
 
 CSV = b"name,joined,score\nAlice,2025-01-02T03:04:05,1.5\nBob,2025-02-03T04:05:06,2.5\n"
@@ -47,13 +52,16 @@ def test_table_draft_stages_privately_and_freezes_reviewed_plan(tmp_path: Path) 
     assert created.state == "analyzing"
     assert created.settings is not None and created.settings.revision == 0
     assert created.preview is not None and created.preview.tail_pending is True
+    assert created.preview.notice.kind == "consistent"
     assert created.analysis.exact_rows is None
     assert created.can_commit is True
     assert directory.joinpath("source").read_bytes() == CSV
     assert project.sheets() == []
     assert project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 0
 
-    scanned = service.scan(project_id, created.draft_id, settings_revision=0)
+    scanned = run_table_analysis(
+        project, project_id, created.draft_id, settings_revision=0
+    )
     assert scanned.state == "ready"
     assert scanned.analysis.exact_rows == 2
     assert scanned.preview is not None and scanned.preview.tail_pending is False
@@ -115,6 +123,31 @@ def test_table_settings_revision_rejects_stale_preview_and_footer_waits(
     scanned = service.scan(project_id, created.draft_id, settings_revision=1)
     assert scanned.analysis.exact_rows == 1
     assert scanned.can_commit is True
+
+
+def test_exact_scan_blocks_the_deployment_row_limit_before_freeze(
+    tmp_path: Path,
+) -> None:
+    workspace, project_id, service = _service(tmp_path)
+    created = service.create(project_id, _upload(CSV), input_kind="file", max_rows=1)
+    directory = Path(workspace.get(project_id).path) / ".imports" / created.draft_id
+    assert read_import_header(directory).max_rows == 1
+    assert created.analysis.exact_rows is None
+
+    scanned = service.scan(project_id, created.draft_id, settings_revision=0)
+
+    assert scanned.analysis.exact_rows == 2
+    assert scanned.can_commit is False
+    assert scanned.commit_blocked_reason == "limit"
+    with pytest.raises(TableImportDraftError) as rejected:
+        service.freeze_for_commit(
+            project_id,
+            created.draft_id,
+            expected_revision=scanned.revision,
+            idempotency_key="over-limit",
+        )
+    assert rejected.value.status_code == 413
+    assert rejected.value.detail["code"] == "source_too_large"
 
 
 def test_invalid_settings_leave_the_published_revision_retryable(
@@ -180,6 +213,37 @@ def test_snapshot_exposes_inferred_date_order_and_both_conversion_counts(
     assert column.conversion_counts_by_date_order is not None
     assert column.conversion_counts_by_date_order.day_first.valid == 2
     assert column.conversion_counts_by_date_order.month_first.invalid == 2
+
+    resolved = service.update_columns(
+        project_id,
+        created.draft_id,
+        expected_revision=scanned.revision,
+        columns=[
+            {
+                "source_index": 0,
+                "included": True,
+                "target_type": "date",
+                "date_order": None,
+            }
+        ],
+    )
+    assert resolved.columns[0].date_order == "day_first"
+
+    with pytest.raises(TableImportDraftError) as invalid:
+        service.update_columns(
+            project_id,
+            created.draft_id,
+            expected_revision=resolved.revision,
+            columns=[
+                {
+                    "source_index": 0,
+                    "included": True,
+                    "target_type": "text",
+                    "date_order": "day_first",
+                }
+            ],
+        )
+    assert invalid.value.detail["code"] == "invalid_columns"
 
 
 def test_full_scan_refreshes_unreviewed_prefix_inference(tmp_path: Path) -> None:
@@ -260,6 +324,103 @@ def test_existing_destination_preview_counts_only_frozen_sheet_duplicates(
     assert replayed.plan_hash == frozen.plan_hash
 
 
+def test_full_scan_finishes_the_current_reviewed_dedup_comparison(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace, project_id, service = _service(tmp_path)
+    project = workspace.get(project_id)
+    sheet_id = project.add_sheet("People")
+    name_column = project.add_column(sheet_id, "name", type="text")
+    project.add_rows(sheet_id, [{"name": "Alice"}], {"name": name_column})
+    created = service.create(project_id, _upload(CSV), input_kind="file")
+    entered = Event()
+    release = Event()
+    from frisket.server.services.table_imports import service as service_module
+
+    original = service_module.build_complete_scan
+
+    def delayed_scan(*args, **kwargs):
+        result = original(*args, **kwargs)
+        entered.set()
+        assert release.wait(timeout=5)
+        return result
+
+    monkeypatch.setattr(service_module, "build_complete_scan", delayed_scan)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(
+            service.scan,
+            project_id,
+            created.draft_id,
+            settings_revision=0,
+        )
+        assert entered.wait(timeout=5)
+        running = service.update_destination(
+            project_id,
+            created.draft_id,
+            expected_revision=created.revision,
+            destination={"kind": "existing", "sheet_id": sheet_id},
+            mappings=[
+                {
+                    "source_index": column.source_index,
+                    "target": (
+                        {"kind": "existing", "column_id": name_column}
+                        if column.name == "name"
+                        else {"kind": "new", "name": column.name}
+                    ),
+                }
+                for column in created.columns
+                if column.included
+            ],
+            dedup={"enabled": True, "key_source_index": 0},
+        )
+        assert running.destination is not None
+        assert running.destination.comparison.state == "running"
+        release.set()
+        completed = future.result(timeout=5)
+
+    assert completed.destination is not None
+    assert completed.destination.comparison.state == "ready"
+    assert completed.destination.comparison.complete is True
+    assert completed.destination.comparison.duplicate_rows == 1
+
+
+def test_destination_rejects_duplicate_and_reserved_output_names(
+    tmp_path: Path,
+) -> None:
+    _workspace, project_id, service = _service(tmp_path)
+    created = service.create(project_id, _upload(CSV), input_kind="file")
+    scanned = service.scan(project_id, created.draft_id, settings_revision=0)
+    included = [column for column in scanned.columns if column.included]
+
+    with pytest.raises(TableImportDraftError) as duplicate:
+        service.update_destination(
+            project_id,
+            created.draft_id,
+            expected_revision=scanned.revision,
+            destination={"kind": "new", "sheet_name": "People"},
+            mappings=[
+                {
+                    "source_index": column.source_index,
+                    "target": {"kind": "new", "name": "duplicate"},
+                }
+                for column in included
+            ],
+            dedup={"enabled": False, "key_source_index": None},
+        )
+    assert duplicate.value.status_code == 422
+    assert duplicate.value.detail["code"] == "invalid_destination"
+
+    reserved = service.create(
+        project_id,
+        _upload(b"extra values,name\noverflow,Alice\n", "reserved.csv"),
+        input_kind="file",
+    )
+    assert reserved.destination is not None
+    assert reserved.destination.comparison.state == "error"
+    assert reserved.can_commit is False
+    assert reserved.commit_blocked_reason == "destination"
+
+
 def test_late_encoding_damage_requires_an_explicit_encoding_choice(
     tmp_path: Path,
 ) -> None:
@@ -292,6 +453,63 @@ def test_late_encoding_damage_requires_an_explicit_encoding_choice(
     )
     assert rescanned.analysis.issue_counts.unreadable_cells == 2
     assert rescanned.can_commit is True
+
+
+@pytest.mark.parametrize("scan_fails", [False, True])
+def test_scan_publication_never_reopens_a_committed_draft(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scan_fails: bool
+) -> None:
+    _workspace, project_id, service = _service(tmp_path)
+    created = service.create(project_id, _upload(CSV), input_kind="file")
+    entered = Event()
+    release = Event()
+    from frisket.server.services.table_imports import service as service_module
+
+    original = service_module.build_complete_scan
+
+    def delayed_scan(*args, **kwargs):
+        entered.set()
+        assert release.wait(timeout=5)
+        if scan_fails:
+            raise TableReadError("late analysis failure")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(service_module, "build_complete_scan", delayed_scan)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(
+            service.scan,
+            project_id,
+            created.draft_id,
+            settings_revision=0,
+        )
+        assert entered.wait(timeout=5)
+        frozen = service.freeze_for_commit(
+            project_id,
+            created.draft_id,
+            expected_revision=created.revision,
+            idempotency_key="commit-during-scan",
+        )
+        assert isinstance(frozen, FrozenTableImport)
+        service.record_commit(
+            project_id,
+            created.draft_id,
+            idempotency_key="commit-during-scan",
+            result={
+                "import_ref": created.draft_id,
+                "sheet_id": 1,
+                "sheet_name": "People",
+                "selected_total": None,
+                "estimated_rows": None,
+            },
+        )
+        release.set()
+        published = future.result(timeout=5)
+
+    assert published.state == "committed"
+    assert service.status(project_id, created.draft_id).state == "committed"
+    with pytest.raises(TableImportDraftError) as discard:
+        service.discard(project_id, created.draft_id)
+    assert discard.value.detail["code"] == "already_committed"
 
 
 def test_encrypted_workbook_password_is_transient_and_decrypted_source_is_readable(

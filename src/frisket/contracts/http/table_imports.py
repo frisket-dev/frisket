@@ -288,6 +288,7 @@ class TableImportDraft(WireModel):
             "empty",
             "destination",
             "encoding",
+            "limit",
             "error",
         ]
         | None

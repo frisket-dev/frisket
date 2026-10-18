@@ -136,10 +136,12 @@ def test_file_and_paste_use_distinct_typed_operations() -> None:
     assert service.calls[0][3] == {
         "input_kind": "file",
         "large_paste_confirmed": False,
+        "max_rows": None,
     }
     assert service.calls[1][3] == {
         "input_kind": "paste",
         "large_paste_confirmed": True,
+        "max_rows": None,
     }
     operation_ids = {
         route.operation_id
@@ -164,8 +166,9 @@ def test_commit_projects_execution_result_to_the_public_response() -> None:
     app = FastAPI()
     service = _Service(_snapshot())
 
-    def commit_handler(frozen, _request):
+    def commit_handler(frozen, _request, max_rows):
         assert frozen.import_ref == "import-" + "1" * 32
+        assert max_rows is None
         return {
             "import_ref": frozen.import_ref,
             "sheet_id": 7,

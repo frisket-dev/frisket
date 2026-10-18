@@ -88,6 +88,7 @@ class TableImportService:
         *,
         input_kind: str,
         large_paste_confirmed: bool = False,
+        max_rows: int | None = None,
     ) -> TableImportDraft:
         if input_kind not in {"file", "paste"}:
             raise TableImportDraftError(
@@ -97,6 +98,10 @@ class TableImportService:
             raise TableImportDraftError(
                 422, self._problem("empty_source", "The selected source is empty.")
             )
+        if max_rows is not None and (
+            isinstance(max_rows, bool) or not isinstance(max_rows, int) or max_rows < 0
+        ):
+            raise ValueError("max_rows must be a non-negative integer or None")
         if self._max_upload_bytes is not None and upload.size > self._max_upload_bytes:
             raise TableImportDraftError(
                 413,
@@ -153,6 +158,7 @@ class TableImportService:
                 "draft_id": draft_id,
                 "project_id": project_id,
                 "storage_identity": project.storage_identity,
+                "max_rows": max_rows,
                 "state": "analyzing",
                 "revision": 1,
                 "created_at": timestamp,
@@ -266,7 +272,10 @@ class TableImportService:
             header = self._store.open(project_id, draft_id)[1]
             self._require_open_revision(header, expected_revision)
             scan = self._require_current_scan(directory, header)
-            known = {int(item["column"]["index"]) for item in scan["stats"]["columns"]}
+            stats_by_index = {
+                int(item["column"]["index"]): item for item in scan["stats"]["columns"]
+            }
+            known = set(stats_by_index)
             seen: set[int] = set()
             choices: list[dict[str, Any]] = []
             for raw in columns:
@@ -303,6 +312,19 @@ class TableImportService:
                         422,
                         self._problem(
                             "invalid_columns", "A selected date order is unavailable."
+                        ),
+                    )
+                if target in {"date", "datetime"} and date_order is None:
+                    date_order = (
+                        stats_by_index[index].get("suggested_date_order")
+                        or "month_first"
+                    )
+                elif target not in {"date", "datetime"} and date_order is not None:
+                    raise TableImportDraftError(
+                        422,
+                        self._problem(
+                            "invalid_columns",
+                            "Date order is only available for date columns.",
                         ),
                     )
                 choices.append(
@@ -395,50 +417,67 @@ class TableImportService:
                 settings_revision=settings_revision,
             )
         except TableReadError as exc:
-            with self._store.lock(directory):
-                current = self._store.open(project_id, draft_id)[1]
-                if (
-                    current.get("settings") is not None
-                    and int(current["settings"]["revision"]) == settings_revision
-                ):
-                    current["state"] = "error"
-                    current["error"] = str(exc)
-                    self._store.save_header(directory, current)
-                return self._snapshot(directory, current)
-        record_count = int(scan["record_count"])
-        data_rows = int(scan["data_rows"])
-        issue_counts = scan["issue_counts"]
-        destination_comparison = None
-        captured_destination = header.get("destination_request")
-        if captured_destination is not None:
-            destination_comparison = compare_destination(
-                self._workspace,
+            return self._publish_analysis_error(
                 project_id,
-                directory,
-                header,
-                captured_destination,
-                source_path=self._source_path(directory),
-                settings=resolved,
-                scan=scan,
+                draft_id,
+                settings_revision=settings_revision,
+                error=str(exc),
             )
+
+        published, reviewed_destination = self._publish_complete_scan(
+            project_id,
+            draft_id,
+            settings_revision=settings_revision,
+            scan=scan,
+        )
+        if reviewed_destination is None:
+            return self._snapshot(directory, published)
+
+        reviewed_header, reviewed_request = reviewed_destination
+        comparison = compare_destination(
+            self._workspace,
+            project_id,
+            directory,
+            reviewed_header,
+            reviewed_request,
+            source_path=self._source_path(directory),
+            settings=resolved,
+            scan=scan,
+        )
         with self._store.lock(directory):
             current = self._store.open(project_id, draft_id)[1]
             if (
-                current.get("settings") is None
-                or int(current["settings"]["revision"]) != settings_revision
+                self._analysis_publishable(current, settings_revision)
+                and current.get("destination_request") == reviewed_request
             ):
-                return self._snapshot(directory, current)
+                current["destination_request"]["comparison"] = comparison
+                self._store.save_header(directory, current)
+            return self._snapshot(directory, current)
+
+    def _publish_complete_scan(
+        self,
+        project_id: str,
+        draft_id: str,
+        *,
+        settings_revision: int,
+        scan: Mapping[str, Any],
+    ) -> tuple[dict[str, Any], tuple[dict[str, Any], dict[str, Any]] | None]:
+        directory, _ = self._store.open(project_id, draft_id)
+        with self._store.lock(directory):
+            current = self._store.open(project_id, draft_id)[1]
+            if not self._analysis_publishable(current, settings_revision):
+                return copy.deepcopy(current), None
             revision, settings_hash, _ = read_table_settings(directory)
             write_table_scan(
                 directory,
                 TableImportScan(
                     settings_revision=revision,
                     settings_hash=settings_hash,
-                    scanned_rows=record_count,
+                    scanned_rows=int(scan["record_count"]),
                     estimated_rows=None,
-                    exact_rows=data_rows,
+                    exact_rows=int(scan["data_rows"]),
                     complete=True,
-                    problem_count=sum(issue_counts.values()),
+                    problem_count=sum(scan["issue_counts"].values()),
                 ),
                 expected_settings_revision=revision,
             )
@@ -452,13 +491,44 @@ class TableImportService:
                 configuration = previous.get("destination") or {}
                 name = str(configuration.get("sheet_name") or "Imported table")
                 current["destination_request"] = new_destination(scan, name)
-            if (
-                destination_comparison is not None
-                and current.get("destination_request") == captured_destination
+            reviewed_destination = None
+            if current.get("destination_reviewed") and current.get(
+                "destination_request"
             ):
-                current["destination_request"]["comparison"] = destination_comparison
+                reviewed_destination = (
+                    copy.deepcopy(current),
+                    copy.deepcopy(current["destination_request"]),
+                )
             self._store.save_header(directory, current)
+            return copy.deepcopy(current), reviewed_destination
+
+    def _publish_analysis_error(
+        self,
+        project_id: str,
+        draft_id: str,
+        *,
+        settings_revision: int,
+        error: str,
+    ) -> TableImportDraft:
+        directory, _ = self._store.open(project_id, draft_id)
+        with self._store.lock(directory):
+            current = self._store.open(project_id, draft_id)[1]
+            if self._analysis_publishable(current, settings_revision):
+                current["state"] = "error"
+                current["error"] = error
+                self._store.save_header(directory, current)
             return self._snapshot(directory, current)
+
+    @classmethod
+    def _analysis_publishable(
+        cls, header: Mapping[str, Any], settings_revision: int
+    ) -> bool:
+        settings = header.get("settings")
+        return bool(
+            settings is not None
+            and int(settings["revision"]) == settings_revision
+            and not cls._commit_started(header)
+        )
 
     def run_analysis(
         self, project_id: str, draft_id: str, settings_revision: int
@@ -502,6 +572,14 @@ class TableImportService:
                 self._require_open_revision(header, expected_revision)
                 can_commit, reason = self._commit_readiness(directory, header)
                 if not can_commit:
+                    if reason == "limit":
+                        raise TableImportDraftError(
+                            413,
+                            self._problem(
+                                "source_too_large",
+                                "The table exceeds the deployment row limit.",
+                            ),
+                        )
                     code = (
                         "analysis_incomplete"
                         if reason == "analyzing"
@@ -741,7 +819,12 @@ class TableImportService:
             self._store.discard(directory)
 
     def rerun(
-        self, project_id: str, draft_id: str, *, worksheet: str
+        self,
+        project_id: str,
+        draft_id: str,
+        *,
+        worksheet: str,
+        max_rows: int | None = None,
     ) -> TableImportDraft:
         source_directory, source_header = self._store.open(project_id, draft_id)
         if source_header["state"] != "committed" or source_header["source"].get(
@@ -765,6 +848,10 @@ class TableImportService:
                 ),
             )
         project = self._workspace.get(project_id)
+        if max_rows is not None and (
+            isinstance(max_rows, bool) or not isinstance(max_rows, int) or max_rows < 0
+        ):
+            raise ValueError("max_rows must be a non-negative integer or None")
         new_id, directory = self._store.create_directory(project_id)
         try:
             os.link(self._source_path(source_directory), directory / "source")
@@ -782,6 +869,7 @@ class TableImportService:
                 "draft_id": new_id,
                 "project_id": project_id,
                 "storage_identity": project.storage_identity,
+                "max_rows": max_rows,
                 "state": "analyzing",
                 "revision": 1,
                 "created_at": timestamp,
@@ -807,6 +895,7 @@ class TableImportService:
                     project_id=project_id,
                     storage_identity=project.storage_identity,
                     envelope={},
+                    max_rows=max_rows,
                     intake_kind="table",
                 ),
                 source=IntakeTableImportSource(
@@ -856,6 +945,7 @@ class TableImportService:
                     project_id=str(header["project_id"]),
                     storage_identity=str(header["storage_identity"]),
                     envelope={},
+                    max_rows=header.get("max_rows"),
                     intake_kind="table",
                 ),
                 source=IntakeTableImportSource(
@@ -998,6 +1088,13 @@ class TableImportService:
         resolved = settings.get("resolved") or {}
         if int(resolved.get("skip_rows_end", 0)) and not scan.get("complete"):
             return False, "analyzing"
+        max_rows = header.get("max_rows")
+        if (
+            max_rows is not None
+            and scan.get("complete")
+            and int(scan.get("data_rows", 0)) > int(max_rows)
+        ):
+            return False, "limit"
         if (
             int(scan.get("issue_counts", {}).get("unreadable_cells", 0)) > 0
             and (settings.get("requested") or {}).get("encoding") is None
@@ -1115,6 +1212,14 @@ class TableImportService:
                     "The table import changed. Refresh and try again.",
                 ),
             )
+
+    @staticmethod
+    def _commit_started(header: Mapping[str, Any]) -> bool:
+        return bool(
+            header.get("state") in {"committing", "committed"}
+            or header.get("commit_key")
+            or header.get("commit")
+        )
 
     def _require_current_scan(
         self, directory: Path, header: Mapping[str, Any]

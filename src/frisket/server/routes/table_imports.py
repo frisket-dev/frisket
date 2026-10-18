@@ -24,7 +24,10 @@ from frisket.server.services.table_imports import FrozenTableImport, TableImport
 from frisket.server.thread_worker import await_thread_worker
 
 
-CommitHandler = Callable[[FrozenTableImport, Request], Mapping[str, Any] | Any]
+CommitHandler = Callable[
+    [FrozenTableImport, Request, int | None], Mapping[str, Any] | Any
+]
+MaxRowsForRequest = Callable[[str, Request], int | None]
 
 
 def register_table_import_routes(
@@ -32,6 +35,7 @@ def register_table_import_routes(
     *,
     service: TableImportService,
     commit_handler: CommitHandler | None = None,
+    max_rows_for_request: MaxRowsForRequest | None = None,
 ) -> None:
     base = "/api/projects/{pid}/import/table-imports"
     responses = http_error_responses(400, 401, 403, 404, 409, 413, 422, 500, 503)
@@ -39,6 +43,7 @@ def register_table_import_routes(
     async def create(
         pid: str,
         file: UploadFile,
+        request: Request,
         *,
         input_kind: str,
         large_paste_confirmed: bool = False,
@@ -50,6 +55,11 @@ def register_table_import_routes(
             admitted,
             input_kind=input_kind,
             large_paste_confirmed=large_paste_confirmed,
+            max_rows=(
+                None
+                if max_rows_for_request is None
+                else max_rows_for_request(pid, request)
+            ),
         )
 
     @app.post(
@@ -60,9 +70,9 @@ def register_table_import_routes(
         responses=responses,
     )
     async def create_table_import_from_file(
-        pid: str, file: Annotated[UploadFile, File()]
+        request: Request, pid: str, file: Annotated[UploadFile, File()]
     ) -> TableImportDraft:
-        return await create(pid, file, input_kind="file")
+        return await create(pid, file, request, input_kind="file")
 
     @app.post(
         f"{base}/paste",
@@ -72,6 +82,7 @@ def register_table_import_routes(
         responses=responses,
     )
     async def create_table_import_from_paste(
+        request: Request,
         pid: str,
         file: Annotated[UploadFile, File()],
         large_paste_confirmed: Annotated[bool, Form()] = False,
@@ -79,6 +90,7 @@ def register_table_import_routes(
         return await create(
             pid,
             file,
+            request,
             input_kind="paste",
             large_paste_confirmed=large_paste_confirmed,
         )
@@ -181,7 +193,10 @@ def register_table_import_routes(
             return frozen
         if commit_handler is None:
             raise RuntimeError("table import commit handler is unavailable")
-        result = commit_handler(frozen, request)
+        max_rows = (
+            None if max_rows_for_request is None else max_rows_for_request(pid, request)
+        )
+        result = commit_handler(frozen, request, max_rows)
         if inspect.isawaitable(result):
             result = await result
         if hasattr(result, "__dict__") and not isinstance(result, Mapping):
@@ -225,10 +240,18 @@ def register_table_import_routes(
         responses=responses,
     )
     async def rerun_table_import_worksheet(
-        pid: str, draft_id: str, body: TableImportRerunRequest
+        request: Request, pid: str, draft_id: str, body: TableImportRerunRequest
     ) -> TableImportDraft:
         return await await_thread_worker(
-            service.rerun, pid, draft_id, worksheet=body.worksheet
+            service.rerun,
+            pid,
+            draft_id,
+            worksheet=body.worksheet,
+            max_rows=(
+                None
+                if max_rows_for_request is None
+                else max_rows_for_request(pid, request)
+            ),
         )
 
 

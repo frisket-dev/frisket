@@ -63,6 +63,8 @@ def compare_destination(
     mappings = request.get("mappings", [])
     seen_sources: set[int] = set()
     seen_targets: set[int] = set()
+    new_target_names: set[str] = set()
+    existing_target_names = {str(row["name"]) for row in targets.values()}
     matched = new = clashes = 0
     for mapping in mappings:
         source_index = mapping.get("source_index")
@@ -75,8 +77,21 @@ def compare_destination(
         seen_sources.add(source_index)
         target = mapping.get("target", {})
         if target.get("kind") == "new":
-            if not str(target.get("name") or "").strip():
+            target_name = str(target.get("name") or "")
+            if not target_name.strip():
                 raise _error(422, "invalid_destination", "New columns require names.")
+            if (
+                target_name == "extra values"
+                or target_name in new_target_names
+                or target_name in existing_target_names
+            ):
+                raise _error(
+                    422,
+                    "invalid_destination",
+                    "Destination column names must be unique; "
+                    "'extra values' is reserved for overflow values.",
+                )
+            new_target_names.add(target_name)
             new += 1
             continue
         if kind == "new":
@@ -103,6 +118,12 @@ def compare_destination(
                 "Mappings cannot target a column twice.",
             )
         seen_targets.add(target_id)
+        if str(targets[target_id]["name"]) == "extra values":
+            raise _error(
+                422,
+                "invalid_destination",
+                "'extra values' is reserved for overflow values.",
+            )
         if str(targets[target_id]["type"]) != str(choices[source_index]["target_type"]):
             clashes += 1
         else:
@@ -301,19 +322,26 @@ def new_destination(scan: Mapping[str, Any], sheet_name: str) -> dict[str, Any]:
         if item["suggested_type"] != "omit"
     ]
     complete = bool(scan.get("complete"))
+    names = [str(item["target"]["name"]) for item in mappings]
+    valid_names = len(names) == len(set(names)) and "extra values" not in names
     return {
         "destination": {"kind": "new", "sheet_name": sheet_name},
         "mappings": mappings,
         "dedup": {"enabled": False, "key_source_index": None},
         "comparison": {
-            "state": "ready",
+            "state": "ready" if valid_names else "error",
             "matched_columns": 0,
             "new_columns": len(mappings),
             "type_clashes": 0,
             "duplicate_rows": 0,
             "import_rows": int(scan["data_rows"]) if complete else None,
             "complete": complete,
-            "error": None,
+            "error": (
+                None
+                if valid_names
+                else "Destination column names must be unique; "
+                "'extra values' is reserved for overflow values."
+            ),
         },
     }
 

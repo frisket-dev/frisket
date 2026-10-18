@@ -241,12 +241,12 @@ def _preview_json(
     payload = asdict(preview)
     payload["columns"] = [asdict(item) for item in columns]
     payload["expected_values"] = len(columns)
-    payload["notice"] = _notice(len(columns), issues, preview.complete, encoding)
+    payload["notice"] = _notice(len(columns), issues, encoding)
     return payload
 
 
 def _notice(
-    width: int, issues: Mapping[str, int], complete: bool, encoding: str | None
+    width: int, issues: Mapping[str, int], encoding: str | None
 ) -> dict[str, Any]:
     if issues["extra_values"]:
         kind, count = "extra_values", issues["extra_values"]
@@ -256,8 +256,6 @@ def _notice(
         kind, count = "one_column", None
     elif issues["missing_values"]:
         kind, count = "some_wrong_width", issues["missing_values"]
-    elif not complete:
-        kind, count = "counting", None
     else:
         kind, count = "consistent", None
     return {
