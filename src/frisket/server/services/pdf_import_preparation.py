@@ -193,9 +193,7 @@ class PdfImportPreparationStore:
                 "error": str(item["error"]) if item["error"] else None,
                 "sha256": str(item["sha256"]) if item["sha256"] else None,
                 "page_count": (
-                    int(item["page_count"])
-                    if item["page_count"] is not None
-                    else None
+                    int(item["page_count"]) if item["page_count"] is not None else None
                 ),
                 "ocr_selected": bool(item["ocr_selected"]),
             }
@@ -603,15 +601,13 @@ class PdfImportPreparationCoordinator:
                 "output_group_label": "Document text",
             }
             if ocr and grant is not None:
-                run_kwargs["trusted_consent_authorizer"] = (
-                    self._grant_authorizer(
-                        project,
-                        sheet_id=sheet_id,
-                        source_column_id=int(source["id"]),
-                        rows=rows,
-                        reviewed_ocr_params=reviewed_ocr_params,
-                        grant=grant,
-                    )
+                run_kwargs["trusted_consent_authorizer"] = self._grant_authorizer(
+                    project,
+                    sheet_id=sheet_id,
+                    source_column_id=int(source["id"]),
+                    rows=rows,
+                    reviewed_ocr_params=reviewed_ocr_params,
+                    grant=grant,
                 )
             response = self.action_runs.run_action(project_id, body, **run_kwargs)
             status = str(response.payload.get("status") or "")
@@ -692,14 +688,19 @@ class PdfImportPreparationCoordinator:
         end = max(int(row["ordinal"]) for row in rows)
         child_key = f"commit-ordinals:{start}-{end}"
         children = grant.allocation.get("children")
-        child = next(
-            (
-                dict(value)
-                for value in children
-                if isinstance(value, Mapping) and value.get("child_key") == child_key
-            ),
-            None,
-        ) if isinstance(children, list) else None
+        child = (
+            next(
+                (
+                    dict(value)
+                    for value in children
+                    if isinstance(value, Mapping)
+                    and value.get("child_key") == child_key
+                ),
+                None,
+            )
+            if isinstance(children, list)
+            else None
+        )
         if child is None:
             raise ValueError("paid PDF OCR child is outside the approved allocation")
 
@@ -715,7 +716,9 @@ class PdfImportPreparationCoordinator:
                 sha256 = str(row["sha256"])
                 page_count = int(row["page_count"])
             except (KeyError, TypeError, ValueError) as exc:
-                raise ValueError("paid PDF OCR occurrence facts are incomplete") from exc
+                raise ValueError(
+                    "paid PDF OCR occurrence facts are incomplete"
+                ) from exc
             if not sha256 or page_count < 1 or row_id in by_row_id:
                 raise ValueError("paid PDF OCR occurrence facts are invalid")
             source = resolve_cell_blob_source(
@@ -794,11 +797,11 @@ class PdfImportPreparationCoordinator:
                 continue
             if basis.get("row_quote_quantities_digest") is None:
                 continue
-            if (
-                basis.pop("row_quote_quantities_digest") != quantities_digest
-                or basis.pop("row_quote_quantities_count", None)
-                != len(canonical_quantities)
-            ):
+            if basis.pop(
+                "row_quote_quantities_digest"
+            ) != quantities_digest or basis.pop(
+                "row_quote_quantities_count", None
+            ) != len(canonical_quantities):
                 raise ValueError("paid PDF OCR child row quote authority changed")
             basis["row_quote_quantities"] = canonical_quantities
         if promise_rows_hash(restored_promises) != child.get("promise_set_hash"):
@@ -871,12 +874,11 @@ class PdfImportPreparationCoordinator:
                 encoded = json.dumps(
                     canonical_quantities, sort_keys=True, separators=(",", ":")
                 ).encode()
-                if (
-                    expected_basis.get("row_quote_quantities_digest")
-                    != hashlib.sha256(encoded).hexdigest()
-                    or expected_basis.get("row_quote_quantities_count")
-                    != len(canonical_quantities)
-                ):
+                if expected_basis.get("row_quote_quantities_digest") != hashlib.sha256(
+                    encoded
+                ).hexdigest() or expected_basis.get(
+                    "row_quote_quantities_count"
+                ) != len(canonical_quantities):
                     return refusal("paid PDF OCR row quote allocation changed")
             if row_quantities_required and set(row_quantities) != set(by_row_id):
                 return refusal("paid PDF OCR per-row page quote is incomplete")

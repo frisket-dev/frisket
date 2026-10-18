@@ -761,6 +761,7 @@ def create_app(
         ws, registry=pdf_packet_job_registry
     )
     search_preparation_service = SearchPreparationService(ws)
+
     def enqueue_pdf_import_continuation(
         project_id: str, draft_id: str, idempotency_key: str, revision: int
     ) -> None:

@@ -469,7 +469,9 @@ class ActionRunService:
                 )
             )
         if output_group_label is not None:
-            raise ValueError("output group labels require an ordinary queued row action")
+            raise ValueError(
+                "output group labels require an ordinary queued row action"
+            )
 
         execution_composition = request_execution_composition()
         direct_request_deps = request_executor_deps()

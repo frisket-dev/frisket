@@ -908,9 +908,7 @@ def test_paid_parent_grant_admits_exact_ordinary_child_once(
     media_id = project.add_column(sheet_id, "media", type="file")
     payload = b"%PDF-paid-child"
     digest = project.add_blob(payload, filename="scan.pdf", mime="application/pdf")
-    MediaBlobStore(project).replace_probe_metadata(
-        digest, {"kind": "pdf", "pages": 2}
-    )
+    MediaBlobStore(project).replace_probe_metadata(digest, {"kind": "pdf", "pages": 2})
     row_id = project.add_rows(
         sheet_id,
         [
@@ -933,9 +931,7 @@ def test_paid_parent_grant_admits_exact_ordinary_child_once(
         "category": "missing",
     }
     roster = hashlib.sha256(
-        (
-            json.dumps(occurrence, sort_keys=True, separators=(",", ":")) + "\n"
-        ).encode()
+        (json.dumps(occurrence, sort_keys=True, separators=(",", ":")) + "\n").encode()
     ).hexdigest()
     partitions = [
         {
@@ -960,9 +956,7 @@ def test_paid_parent_grant_admits_exact_ordinary_child_once(
             "draft_id": "paid-draft",
             "work_scope_hash": roster,
             "child_partitions_hash": hashlib.sha256(
-                json.dumps(
-                    partitions, sort_keys=True, separators=(",", ":")
-                ).encode()
+                json.dumps(partitions, sort_keys=True, separators=(",", ":")).encode()
             ).hexdigest(),
             "child_partitions": partitions,
         },
@@ -995,9 +989,7 @@ def test_paid_parent_grant_admits_exact_ordinary_child_once(
                 "blocks": "untrusted_blocks",
             },
             "idempotency_key": "public-cannot-author-derived-consent",
-            "trusted_consent_authorizer": {
-                "grant_basis": "pdf_import_grant_derived"
-            },
+            "trusted_consent_authorizer": {"grant_basis": "pdf_import_grant_derived"},
         },
     )
     assert public_attempt.payload["status"] in {"failed", "needs_confirmation"}
@@ -1038,9 +1030,9 @@ def test_paid_parent_grant_admits_exact_ordinary_child_once(
         ).fetchone()["params"]
     )
     assert prepared_spec["group_label"] == "Document text"
-    assert len(
-        workspace.queue.list_project_jobs(project_id, kind=PROJECT_RUN_KIND)
-    ) == 1
+    assert (
+        len(workspace.queue.list_project_jobs(project_id, kind=PROJECT_RUN_KIND)) == 1
+    )
 
     changed = [{**rows[0], "sha256": "0" * 64}]
     try:
@@ -1059,9 +1051,9 @@ def test_paid_parent_grant_admits_exact_ordinary_child_once(
         assert "source bytes changed" in str(exc)
     else:  # pragma: no cover - a changed blob must never enqueue
         raise AssertionError("changed PDF bytes reused the paid OCR approval")
-    assert len(
-        workspace.queue.list_project_jobs(project_id, kind=PROJECT_RUN_KIND)
-    ) == 1
+    assert (
+        len(workspace.queue.list_project_jobs(project_id, kind=PROJECT_RUN_KIND)) == 1
+    )
 
 
 def test_reviewed_text_recovery_continues_after_server_restart(tmp_path: Path) -> None:
@@ -1377,9 +1369,10 @@ def test_prepromotion_failure_restores_draft_and_releases_reservation(
             "committed": False,
         }
     ]
-    assert ReceiptStore(project).find_by_idempotency_key(
-        f"pdf-import:{frozen.commit_id}"
-    ) is None
+    assert (
+        ReceiptStore(project).find_by_idempotency_key(f"pdf-import:{frozen.commit_id}")
+        is None
+    )
     assert len(preparation.abandoned) == 1
     import_ref = preparation.abandoned[0]["import_ref"]
     assert not (project.path / ".imports" / import_ref).exists()
@@ -1436,20 +1429,15 @@ def test_semantic_setup_failure_does_not_block_native_text_preparation(
         expected_revision=1,
     )
 
-    assert [body["action_id"] for body in actions.bodies] == [
-        "media.read_pdf_text"
-    ]
+    assert [body["action_id"] for body in actions.bodies] == ["media.read_pdf_text"]
     summary = preparation.pdf_import_summary(project_id, result.import_ref)
     assert summary.scheduled_through == 1
-    status = ImportSessionService(
-        workspace, search_preparation=preparation
-    ).status(project_id, result.import_ref)
+    status = ImportSessionService(workspace, search_preparation=preparation).status(
+        project_id, result.import_ref
+    )
     assert status.semantic_preparation_error == "semantic setup confirmation changed"
     inventory_path = (
-        workspace.get(project_id).path
-        / ".imports"
-        / result.import_ref
-        / "inventory.db"
+        workspace.get(project_id).path / ".imports" / result.import_ref / "inventory.db"
     )
     with PdfImportPreparationStore(inventory_path) as store:
         semantic_error = store.db.execute(

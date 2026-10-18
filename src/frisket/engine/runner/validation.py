@@ -1334,7 +1334,9 @@ def validate_spec(
             if trusted_decision is not None and not isinstance(
                 trusted_decision, TrustedConsentApproval
             ):
-                raise TypeError("trusted consent authorizer returned an invalid decision")
+                raise TypeError(
+                    "trusted consent authorizer returned an invalid decision"
+                )
             if isinstance(trusted_decision, TrustedConsentApproval):
                 if not trusted_decision.grant_basis.strip():
                     raise ValueError("trusted consent grant basis must not be empty")
@@ -1391,9 +1393,7 @@ def validate_spec(
                     else CONSENT_BASIS_PREAPPROVED
                 )
         elif trusted_consent_authorizer is not None:
-            raise TrustedConsentRefused(
-                "trusted consent requires a resolved execution"
-            )
+            raise TrustedConsentRefused("trusted consent requires a resolved execution")
         else:
             # Unrouted recipes use their existing cost-confirmation path;
             # unavailable routed executions have already refused in estimate_run.

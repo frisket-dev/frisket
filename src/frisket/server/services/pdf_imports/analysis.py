@@ -80,9 +80,7 @@ def analyze_pdf(
                     )
                 )
                 pages[page_number] = batch.pages[0]
-                page_text[page_number] = positioned_tokens_text(
-                    batch.pages[0].tokens
-                )
+                page_text[page_number] = positioned_tokens_text(batch.pages[0].tokens)
             except PdfTextError:
                 sample = asyncio.run(
                     sample_pdf_text(
@@ -95,9 +93,9 @@ def analyze_pdf(
                 page_text[page_number] = sample.text
             remaining -= len(page_text[page_number])
         loaded_pages = [page for page in sample_pages if page in pages]
-        text = "\n".join(
-            page_text[page] for page in sample_pages if page in page_text
-        )[:MAX_SAMPLE_CHARS]
+        text = "\n".join(page_text[page] for page in sample_pages if page in page_text)[
+            :MAX_SAMPLE_CHARS
+        ]
         category = "missing" if not text.strip() else "text"
         if text.strip() and _quality_flags(
             path, text, loaded_pages, pages, quality_assessor

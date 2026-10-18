@@ -88,11 +88,17 @@ def test_project_run_composes_queue_hint_only_for_marked_pdf_ocr() -> None:
     assert callback is not None and callback() == 41
     assert calls == [(17, "authority-17")]
 
-    assert _pdf_import_preferred_row_callback(
-        queue, _project_run(background=False), context
-    ) is None
-    assert _pdf_import_preferred_row_callback(
-        queue,
-        {**marked, "action_kind": "media.read_pdf_text"},
-        context,
-    ) is None
+    assert (
+        _pdf_import_preferred_row_callback(
+            queue, _project_run(background=False), context
+        )
+        is None
+    )
+    assert (
+        _pdf_import_preferred_row_callback(
+            queue,
+            {**marked, "action_kind": "media.read_pdf_text"},
+            context,
+        )
+        is None
+    )

@@ -740,7 +740,8 @@ def queue_v1_action_run(
     if background_priority not in {None, PDF_IMPORT_OCR_BACKGROUND}:
         raise ValueError("unknown background action priority")
     if output_group_label is not None and (
-        not output_group_label.strip() or output_group_label != output_group_label.strip()
+        not output_group_label.strip()
+        or output_group_label != output_group_label.strip()
     ):
         raise ValueError("output group labels must be non-empty and trimmed")
     from frisket.engine.executor.action_dispatch import placement_for_kind
