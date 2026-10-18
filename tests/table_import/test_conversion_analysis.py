@@ -134,6 +134,17 @@ def test_mixed_naive_and_aware_datetimes_stay_text_for_review() -> None:
     assert "mixed_datetime_awareness" in column.needs_review
 
 
+def test_mixed_slash_naive_and_iso_aware_datetimes_stay_text_for_review() -> None:
+    columns = (SourceColumn(0, "when", "when", "original"),)
+    stats = ColumnStatsAccumulator(columns)
+    stats.accept(_row(1, "03/04/2026 12:30"))
+    stats.accept(_row(2, "2026-03-04T12:30:00+02:00"))
+
+    column = stats.snapshot(complete=True).columns[0]
+    assert column.suggested_type == "text"
+    assert "mixed_datetime_awareness" in column.needs_review
+
+
 def test_date_only_values_infer_date_instead_of_datetime() -> None:
     columns = (SourceColumn(0, "when", "when", "original"),)
     stats = ColumnStatsAccumulator(columns)

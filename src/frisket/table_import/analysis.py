@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections import deque
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
 import re
 
 from .models import (
@@ -19,7 +18,7 @@ from .models import (
     TableRow,
     TargetType,
 )
-from .conversion import _conversion_outcomes
+from .conversion import _conversion_outcomes, _parse_datetime_orders
 
 
 class PreviewAccumulator:
@@ -375,10 +374,10 @@ def _has_time(text: str) -> bool:
 
 
 def _datetime_awareness(text: str) -> bool | None:
-    try:
-        parsed = datetime.fromisoformat(text.strip().replace("Z", "+00:00"))
-    except ValueError:
+    parsed_by_order = _parse_datetime_orders(text)
+    if not parsed_by_order:
         return None
+    parsed = next(iter(parsed_by_order.values()))
     return parsed.utcoffset() is not None
 
 
