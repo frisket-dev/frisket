@@ -658,7 +658,7 @@ class StreamingSheetWriter:
         db = self.project.db
         try:
             db.execute("BEGIN IMMEDIATE")
-            ImportSessionStore(self.project).require_writer(
+            session = ImportSessionStore(self.project).require_writer(
                 self._session_id,
                 self._writer_authority,
                 expected_cursor,
@@ -669,6 +669,14 @@ class StreamingSheetWriter:
                 self._column_ids,
                 producer_id=self._producer_id,
                 commit=False,
+            )
+            db.executemany(
+                "INSERT INTO import_session_rows(session_id,ordinal,row_id) "
+                "VALUES(?,?,?)",
+                (
+                    (self._session_id, session.committed_rows + offset, row_id)
+                    for offset, row_id in enumerate(row_ids, start=1)
+                ),
             )
             operation = db.execute(
                 "SELECT undo_info FROM ops WHERE id=?", (self._op_id,)
@@ -811,6 +819,16 @@ class StreamingSheetWriter:
             ).fetchone()
             undo_info = json.loads(operation["undo_info"] or "{}")
             if "created_sheets" in undo_info:
+                foreign_row = db.execute(
+                    "SELECT 1 FROM rows AS r WHERE r.sheet_id=? AND NOT EXISTS ("
+                    "SELECT 1 FROM cells AS c WHERE c.row_id=r.id "
+                    "AND c.producer_id=?) LIMIT 1",
+                    (session.sheet_id, session.producer_id),
+                ).fetchone()
+                if foreign_row is not None:
+                    raise ImportSessionConflict(
+                        "import sheet has unrelated rows; keep it and use Undo"
+                    )
                 db.execute(
                     "DELETE FROM evidence_links WHERE sheet_id=? OR op_id=?",
                     (session.sheet_id, session.op_id),

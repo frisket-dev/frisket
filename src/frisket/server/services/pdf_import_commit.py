@@ -37,6 +37,7 @@ from frisket.server.services.import_uploads import upload_sheet_name
 
 
 _PAGE_SIZE = 256
+_PAGE_BYTES = 64 * 1024 * 1024
 
 
 class PdfImportIntake(Protocol):
@@ -159,9 +160,7 @@ class PdfImportCommitService:
         )
         return self.commit_frozen(project_id, frozen)
 
-    def commit_frozen(
-        self, project_id: str, frozen: Any
-    ) -> PdfImportCommitResult:
+    def commit_frozen(self, project_id: str, frozen: Any) -> PdfImportCommitResult:
         """Commit a snapshot already frozen by the request-authority route."""
 
         draft_id = str(frozen.draft_id)
@@ -195,6 +194,7 @@ class PdfImportCommitService:
                             project.blob_store,
                             after=0,
                             limit=_PAGE_SIZE,
+                            byte_budget=_PAGE_BYTES,
                         ),
                         session_id=ref,
                         writer_authority=f"pdf-import-bootstrap:{ref}",
@@ -229,6 +229,7 @@ class PdfImportCommitService:
                                 project.blob_store,
                                 after=session.cursor,
                                 limit=_PAGE_SIZE,
+                                byte_budget=_PAGE_BYTES,
                             ),
                             session_id=ref,
                             writer_authority=authority,
@@ -236,9 +237,7 @@ class PdfImportCommitService:
                             reserved_receipt_id=envelope.receipt_id,
                             destination_sheet_id=header.destination_sheet_id,
                         )
-            handoff = self._record_handoff(
-                project_id, draft_id, frozen, ref, session
-            )
+            handoff = self._record_handoff(project_id, draft_id, frozen, ref, session)
             if session.state in {"completed", "kept"}:
                 with import_admit_lock(directory):
                     compact_terminal_inventory(directory)
@@ -407,7 +406,9 @@ class PdfImportCommitService:
         *,
         after: int,
     ) -> None:
-        for item in inventory.page(after=after, limit=_PAGE_SIZE):
+        for item in inventory.page(
+            after=after, limit=_PAGE_SIZE, byte_budget=_PAGE_BYTES
+        ):
             digest = str(item["sha256"])
             observed = project.blob_store.put_path(
                 directory / "staged" / digest,

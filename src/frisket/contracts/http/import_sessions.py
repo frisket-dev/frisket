@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import Field, JsonValue
 
-from frisket.contracts.http.models import WireModel
+from frisket.contracts.http.models import RunRowErrorSummary, WireModel
 
 
 class ImportPreparationChild(WireModel):
@@ -52,8 +52,9 @@ class ImportSessionStatus(WireModel):
     unreadable_total: int = 0
     preparation_stopped: bool = False
     preparation_pending_confirmation: dict[str, JsonValue] | None = None
-    row_error_summary: dict[str, JsonValue] | None = None
+    row_error_summary: RunRowErrorSummary | None = None
     preparation_children: list[ImportPreparationChild] = Field(default_factory=list)
+
 
 class ImportSessionList(WireModel):
     sessions: list[ImportSessionStatus]

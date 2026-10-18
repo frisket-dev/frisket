@@ -416,21 +416,52 @@ class SearchPreparationService:
             raise RouteError(409, "semantic search setup is unavailable")
         if requirement.runtime_ready and requirement.weights_ready:
             return
-        if not confirmation:
-            raise RouteError(409, "semantic search setup consent is missing")
+        ready = bool(requirement.runtime_ready and requirement.weights_ready)
+        available = bool(
+            ready or requirement.runtime_ready or requirement.runtime_installable
+        )
+        binding = {
+            "setup_ref": str(requirement.setup_ref),
+            "display_name": str(requirement.display_name),
+            "runtime_ready": bool(requirement.runtime_ready),
+            "download_bytes": (
+                None
+                if requirement.weights_ready
+                else int(requirement.download_bytes_if_missing)
+            ),
+            "additional_runtime_download": bool(
+                requirement.runtime_installable and not requirement.runtime_ready
+            ),
+            "license": str(requirement.license),
+            "source_url": str(requirement.source_url),
+            "available": available,
+        }
+        current_confirmation = hashlib.sha256(
+            json.dumps(binding, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        if not available or confirmation != current_confirmation:
+            raise RouteError(
+                409, "semantic search setup facts changed; review them again"
+            )
         self.setup_start(_SEMANTIC_REF, f"pdf-import:{import_receipt_id}")
 
     def progress_pdf_import(self, project_id: str, import_ref: str) -> int:
-        coordinator = self._pdf_imports()
-        prior = 0
-        while True:
-            through = coordinator.progress(project_id, import_ref)
-            if through <= prior:
-                return through
-            prior = through
+        # One recovery tick admits at most one bounded inventory page. The
+        # durable cursor lets the normal recovery scheduler continue later.
+        return self._pdf_imports().progress(project_id, import_ref)
 
     def pdf_import_summary(self, project_id: str, import_ref: str) -> Any:
         return self._pdf_imports().summary(project_id, import_ref)
+
+    def pdf_import_child_page(
+        self, project_id: str, import_ref: str, *, after: int, limit: int = 100
+    ) -> Any:
+        return self._pdf_imports().child_page(
+            project_id, import_ref, after=after, limit=limit
+        )
+
+    def stop_pdf_import(self, project_id: str, import_ref: str) -> Any:
+        return self._pdf_imports().stop(project_id, import_ref)
 
     def create_after_import(
         self,
@@ -446,6 +477,20 @@ class SearchPreparationService:
             receipt_id=receipt_id,
             include_pending=True,
         )
+        if existing is not None and existing.import_ref is not None:
+            project = self.workspace.get(project_id)
+            try:
+                header = read_import_header(
+                    import_intake_dir(project.path, existing.import_ref)
+                )
+            except (OSError, ValueError):
+                header = None
+            if header is not None and header.pdf_preparation is not None:
+                # The ordinary import terminal callback is also the wake-up for
+                # reviewed PDF preparation. Preserve that reserved cursor;
+                # hydrating it as a generic automatic plan would strand OCR.
+                self.progress_pdf_import(project_id, existing.import_ref)
+                return existing.id
         if not self.automatic_enabled(project_id):
             if existing is not None and existing.plan is None:
                 self.store.mark_settled(
@@ -1151,9 +1196,7 @@ class SearchPreparationService:
                     if header.pdf_preparation is not None:
                         self._recover_pending_import(row)
                 except Exception:
-                    LOG.warning(
-                        "PDF import preparation recovery failed", exc_info=True
-                    )
+                    LOG.warning("PDF import preparation recovery failed", exc_info=True)
             if len(rows) < 100:
                 return
             after_created_at = rows[-1].created_at

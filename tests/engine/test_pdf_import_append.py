@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from frisket.actions.system import typed_action_for_request
-from frisket.contracts.action import Receipt
+from frisket.contracts.action import Receipt, ReceiptIO
 from frisket.engine.executor.file_inventory_read import FileInventoryAdmission
 from frisket.engine.executor.map_rows_action import typed_request_hash
 from frisket.engine.executor.table_action import run_inventory_table_page
@@ -155,6 +155,66 @@ def test_cancelled_append_is_kept_then_removed_by_normal_undo(tmp_path: Path) ->
         project.close()
 
 
+def test_pdf_created_sheet_refuses_remove_after_unrelated_row_write(
+    tmp_path: Path,
+) -> None:
+    project = Project.create(tmp_path / "remove-new-pdf.frisket", name="pdf")
+    try:
+        ReceiptStore(project).insert_running(
+            Receipt(
+                receipt_id="receipt:pdf-new",
+                project_id="pdf-project",
+                action_id="act:pdf-new",
+                action_kind="import.files",
+                idempotency_key="pdf-new",
+                params_hash="sha256:pdf-new",
+                status="running",
+                inputs=[
+                    ReceiptIO(
+                        name="pdf_import_commit",
+                        ref={"kind": "pdf_import_commit", "commit_id": "commit:new"},
+                    )
+                ],
+            )
+        )
+        writer = StreamingSheetWriter.start_session(
+            project,
+            session_id="pdf-new",
+            writer_authority="claim:new",
+            sheet_name="New PDFs",
+            columns=[{"name": "filename", "type": "text"}],
+            project_id="pdf-project",
+            action_kind="import.files",
+            idempotency_key="pdf-new",
+            params_hash="sha256:pdf-new",
+            action_id="act:pdf-new",
+            receipt_id="receipt:pdf-new",
+            source_ref={"kind": "file_inventory", "inventory_id": "pdf-new"},
+        )
+        writer.append_page(
+            [{"filename": "imported.pdf"}], expected_cursor=0, next_cursor=1
+        )
+        filename_column = int(project.columns(writer.sheet_id)[0]["id"])
+        [foreign_row] = project.add_rows(
+            writer.sheet_id,
+            [{"filename": "unrelated.pdf"}],
+            {"filename": filename_column},
+        )
+        writer.cancel(expected_cursor=1)
+
+        with pytest.raises(ImportSessionConflict, match="unrelated rows"):
+            writer.remove_session(expected_cursor=1)
+
+        assert (
+            project.db.execute(
+                "SELECT hidden FROM rows WHERE id=?", (foreign_row,)
+            ).fetchone()["hidden"]
+            == 0
+        )
+    finally:
+        project.close()
+
+
 def test_append_adds_missing_import_columns_without_touching_existing_data(
     tmp_path: Path,
 ) -> None:
@@ -225,10 +285,14 @@ def test_unrelated_write_during_append_keeps_normal_history_order(
         project.close()
 
 
+@pytest.mark.parametrize("text_action", ["media.read_pdf_text", "media.ocr"])
 def test_import_undo_after_derived_text_result_preserves_existing_rows(
     tmp_path: Path,
+    text_action: str,
 ) -> None:
-    project = Project.create(tmp_path / "derived-result.frisket", name="append")
+    project = Project.create(
+        tmp_path / f"derived-{text_action.rsplit('.', 1)[-1]}.frisket", name="append"
+    )
     try:
         sheet_id, columns = _existing_sheet(project)
         writer = _start_append(project, sheet_id)
@@ -247,6 +311,13 @@ def test_import_undo_after_derived_text_result_preserves_existing_rows(
             label="PDF native text",
             replace_existing=True,
         )
+        project.db.execute(
+            "UPDATE ops SET kind=? WHERE id=?", (text_action, derived.op_id)
+        )
+        project.db.execute(
+            "UPDATE runs SET action_kind=? WHERE id=?", (text_action, derived.run_id)
+        )
+        project.db.commit()
         generations = ResultGenerationStore(project)
         _declare(
             generations,
@@ -278,9 +349,10 @@ def test_import_undo_after_derived_text_result_preserves_existing_rows(
         existing_row = project.db.execute(
             "SELECT id FROM rows WHERE sheet_id=? AND hidden=0", (sheet_id,)
         ).fetchone()
-        assert project.get_values(sheet_id, columns["text"])[
-            int(existing_row["id"])
-        ] == "existing"
+        assert (
+            project.get_values(sheet_id, columns["text"])[int(existing_row["id"])]
+            == "existing"
+        )
     finally:
         project.close()
 

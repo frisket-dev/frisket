@@ -9,10 +9,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
+from filelock import FileLock
+
 from frisket.engine.store.import_inventory import ImportInventory
 from frisket.engine.store.import_intake import import_intake_dir, read_import_header
 from frisket.engine.store.import_sessions import ImportSessionStore
 from frisket.server.route_errors import RouteError
+
+_CHILD_STATUS_PAGE = 100
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,6 +38,8 @@ class PdfImportPreparationSummary:
     unreadable_total: int
     pending_confirmation: Mapping[str, Any] | None
     children: tuple[Mapping[str, Any], ...]
+    stopped: bool
+    row_error_summary: Mapping[str, Any] | None
 
 
 class PdfImportPreparationStore:
@@ -53,50 +59,42 @@ class PdfImportPreparationStore:
             "singleton INTEGER PRIMARY KEY CHECK(singleton=1),"
             "scheduled_through INTEGER NOT NULL DEFAULT 0,"
             "pending_confirmation_json TEXT,"
+            "stopped INTEGER NOT NULL DEFAULT 0,"
             "native_total INTEGER NOT NULL DEFAULT 0,"
             "ocr_total INTEGER NOT NULL DEFAULT 0,"
             "unreadable_total INTEGER NOT NULL DEFAULT 0)"
         )
-        columns = {
-            str(item["name"])
-            for item in self.db.execute("PRAGMA table_info(pdf_commit_preparation)")
-        }
-        if "pending_confirmation_json" not in columns:
-            self.db.execute(
-                "ALTER TABLE pdf_commit_preparation "
-                "ADD COLUMN pending_confirmation_json TEXT"
-            )
-        for name in ("native_total", "ocr_total", "unreadable_total"):
-            if name not in columns:
-                self.db.execute(
-                    f"ALTER TABLE pdf_commit_preparation ADD COLUMN {name} "
-                    "INTEGER NOT NULL DEFAULT 0"
-                )
-        counts = self.db.execute(
-            "SELECT "
-            "SUM(CASE WHEN ocr_selected=0 AND category NOT IN "
-            "('missing','unchecked') THEN 1 ELSE 0 END) AS native_total,"
-            "SUM(CASE WHEN ocr_selected=1 AND category!='unreadable' "
-            "THEN 1 ELSE 0 END) AS ocr_total,"
-            "SUM(CASE WHEN category='unreadable' THEN 1 ELSE 0 END) "
-            "AS unreadable_total FROM pdf_commit_occurrences"
+        state = self.db.execute(
+            "SELECT 1 FROM pdf_commit_preparation WHERE singleton=1"
         ).fetchone()
-        self.db.execute(
-            "INSERT OR IGNORE INTO pdf_commit_preparation"
-            "(singleton,scheduled_through,native_total,ocr_total,unreadable_total) "
-            "VALUES(1,0,?,?,?)",
-            (
-                int(counts["native_total"] or 0),
-                int(counts["ocr_total"] or 0),
-                int(counts["unreadable_total"] or 0),
-            ),
-        )
+        if state is None:
+            counts = self.db.execute(
+                "SELECT "
+                "SUM(CASE WHEN category='unreadable' OR (ocr_selected=0 "
+                "AND category NOT IN ('missing','unchecked')) "
+                "THEN 1 ELSE 0 END) AS native_total,"
+                "SUM(CASE WHEN ocr_selected=1 AND category!='unreadable' "
+                "THEN 1 ELSE 0 END) AS ocr_total,"
+                "SUM(CASE WHEN category='unreadable' THEN 1 ELSE 0 END) "
+                "AS unreadable_total FROM pdf_commit_occurrences"
+            ).fetchone()
+            self.db.execute(
+                "INSERT INTO pdf_commit_preparation"
+                "(singleton,scheduled_through,native_total,ocr_total,"
+                "unreadable_total) VALUES(1,0,?,?,?)",
+                (
+                    int(counts["native_total"] or 0),
+                    int(counts["ocr_total"] or 0),
+                    int(counts["unreadable_total"] or 0),
+                ),
+            )
         self.db.execute(
             "CREATE TRIGGER IF NOT EXISTS pdf_commit_preparation_occurrence_insert "
             "AFTER INSERT ON pdf_commit_occurrences BEGIN "
             "UPDATE pdf_commit_preparation SET "
-            "native_total=native_total + CASE WHEN NEW.ocr_selected=0 "
-            "AND NEW.category NOT IN ('missing','unchecked') THEN 1 ELSE 0 END,"
+            "native_total=native_total + CASE WHEN NEW.category='unreadable' "
+            "OR (NEW.ocr_selected=0 AND NEW.category NOT IN "
+            "('missing','unchecked')) THEN 1 ELSE 0 END,"
             "ocr_total=ocr_total + CASE WHEN NEW.ocr_selected=1 "
             "AND NEW.category!='unreadable' THEN 1 ELSE 0 END,"
             "unreadable_total=unreadable_total + CASE "
@@ -108,7 +106,9 @@ class PdfImportPreparationStore:
             "child_key TEXT PRIMARY KEY,"
             "action_id TEXT NOT NULL,"
             "row_count INTEGER NOT NULL,"
-            "receipt_id TEXT,run_id INTEGER,job_id INTEGER)"
+            "receipt_id TEXT,run_id INTEGER,job_id INTEGER,"
+            "status TEXT NOT NULL DEFAULT 'queued',"
+            "completed_rows INTEGER NOT NULL DEFAULT 0)"
         )
         self.db.commit()
 
@@ -125,7 +125,7 @@ class PdfImportPreparationStore:
         self,
         project: Any,
         *,
-        producer_id: int,
+        import_ref: str,
         committed_through: int,
         limit: int = 256,
     ) -> PdfPreparationPage:
@@ -151,11 +151,9 @@ class PdfImportPreparationStore:
         row_map = {
             int(item["ordinal"]): int(item["row_id"])
             for item in project.db.execute(
-                "SELECT ordinal,row_id FROM ("
-                "SELECT row_id,ROW_NUMBER() OVER (ORDER BY row_id) AS ordinal "
-                "FROM (SELECT DISTINCT row_id FROM cells WHERE producer_id=?)) "
-                "WHERE ordinal>? AND ordinal<=? ORDER BY ordinal",
-                (int(producer_id), scheduled, through),
+                "SELECT ordinal,row_id FROM import_session_rows "
+                "WHERE session_id=? AND ordinal>? AND ordinal<=? ORDER BY ordinal",
+                (import_ref, scheduled, through),
             ).fetchall()
         }
         if len(row_map) != len(metadata):
@@ -176,11 +174,89 @@ class PdfImportPreparationStore:
         updated = self.db.execute(
             "UPDATE pdf_commit_preparation SET scheduled_through=?,"
             "pending_confirmation_json=NULL WHERE singleton=1 "
-            "AND scheduled_through=? AND pending_confirmation_json IS NULL",
+            "AND scheduled_through=? AND pending_confirmation_json IS NULL "
+            "AND stopped=0",
             (int(through), int(expected)),
         )
         self.db.commit()
         return updated.rowcount == 1
+
+    def block_for_confirmation(
+        self, *, expected: int, response: Mapping[str, Any]
+    ) -> bool:
+        encoded = json.dumps(dict(response), sort_keys=True, allow_nan=False)
+        updated = self.db.execute(
+            "UPDATE pdf_commit_preparation SET pending_confirmation_json=? "
+            "WHERE singleton=1 AND scheduled_through=? "
+            "AND pending_confirmation_json IS NULL AND stopped=0",
+            (encoded, int(expected)),
+        )
+        self.db.commit()
+        return updated.rowcount == 1
+
+    def scheduled_through(self) -> int:
+        row = self.db.execute(
+            "SELECT scheduled_through FROM pdf_commit_preparation WHERE singleton=1"
+        ).fetchone()
+        return int(row["scheduled_through"])
+
+    def stopped(self) -> bool:
+        row = self.db.execute(
+            "SELECT stopped FROM pdf_commit_preparation WHERE singleton=1"
+        ).fetchone()
+        return bool(row["stopped"])
+
+    def stop(self) -> None:
+        self.db.execute(
+            "UPDATE pdf_commit_preparation SET stopped=1,"
+            "pending_confirmation_json=NULL WHERE singleton=1"
+        )
+        self.db.commit()
+
+    def _row_error_summary(
+        self, project: Any, *, import_ref: str
+    ) -> Mapping[str, Any] | None:
+        total = self.db.execute(
+            "SELECT COUNT(*) AS count FROM pdf_commit_occurrences "
+            "WHERE category='unreadable' AND error IS NOT NULL AND error<>''"
+        ).fetchone()
+        if total is None or int(total["count"]) == 0:
+            return None
+        groups = []
+        for group in self.db.execute(
+            "SELECT error,COUNT(*) AS count FROM pdf_commit_occurrences "
+            "WHERE category='unreadable' AND error IS NOT NULL AND error<>'' "
+            "GROUP BY error ORDER BY count DESC,error LIMIT 10"
+        ).fetchall():
+            rows = self.db.execute(
+                "SELECT ordinal FROM pdf_commit_occurrences WHERE error=? "
+                "ORDER BY ordinal LIMIT 5",
+                (str(group["error"]),),
+            ).fetchall()
+            ordinals = [int(row["ordinal"]) for row in rows]
+            row_ids: list[int] = []
+            if ordinals:
+                placeholders = ",".join("?" for _ in ordinals)
+                row_ids = [
+                    int(row["row_id"])
+                    for row in project.db.execute(
+                        "SELECT row_id FROM import_session_rows "
+                        "WHERE session_id=? AND ordinal IN "
+                        f"({placeholders}) ORDER BY ordinal",
+                        (import_ref, *ordinals),
+                    ).fetchall()
+                ]
+            groups.append(
+                {
+                    "message": str(group["error"]),
+                    "count": int(group["count"]),
+                    "code": "pdf_unreadable",
+                    "outcome": "row_error",
+                    "terminal": False,
+                    "row_ids": row_ids,
+                }
+            )
+        return {"total_failed_rows": int(total["count"]), "groups": groups}
 
     def record_child(
         self,
@@ -195,13 +271,18 @@ class PdfImportPreparationStore:
         receipt_id = response.get("receipt_id")
         run_id = response.get("run_id")
         job_id = response.get("job_id")
+        status = str(response.get("status") or "queued")
+        completed_rows = int(row_count) if status == "completed" else 0
         self.db.execute(
             "INSERT INTO pdf_commit_preparation_children"
-            "(child_key,action_id,row_count,receipt_id,run_id,job_id) "
-            "VALUES(?,?,?,?,?,?) ON CONFLICT(child_key) DO UPDATE SET "
+            "(child_key,action_id,row_count,receipt_id,run_id,job_id,status,"
+            "completed_rows) VALUES(?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(child_key) DO UPDATE SET "
             "receipt_id=COALESCE(receipt_id,excluded.receipt_id),"
             "run_id=COALESCE(run_id,excluded.run_id),"
-            "job_id=COALESCE(job_id,excluded.job_id)",
+            "job_id=COALESCE(job_id,excluded.job_id),"
+            "status=excluded.status,"
+            "completed_rows=MAX(completed_rows,excluded.completed_rows)",
             (
                 child_key,
                 action_id,
@@ -209,9 +290,100 @@ class PdfImportPreparationStore:
                 str(receipt_id) if receipt_id else None,
                 int(run_id) if isinstance(run_id, int) else None,
                 int(job_id) if isinstance(job_id, int) else None,
+                status,
+                completed_rows,
             ),
         )
         self.db.commit()
+
+    def _refresh_child_statuses(self, project: Any) -> None:
+        rows = self.db.execute(
+            "SELECT child_key,row_count,run_id,receipt_id,status,completed_rows "
+            "FROM pdf_commit_preparation_children WHERE status NOT IN "
+            "('completed','failed','cancelled') ORDER BY rowid LIMIT ?",
+            (_CHILD_STATUS_PAGE,),
+        ).fetchall()
+        if not rows:
+            return
+        run_ids = [int(row["run_id"]) for row in rows if row["run_id"] is not None]
+        run_map: dict[int, Any] = {}
+        if run_ids:
+            placeholders = ",".join("?" for _ in run_ids)
+            run_map = {
+                int(row["id"]): row
+                for row in project.db.execute(
+                    "SELECT id,status,completed_rows FROM runs "
+                    f"WHERE id IN ({placeholders})",
+                    tuple(run_ids),
+                ).fetchall()
+            }
+        receipt_ids = [
+            str(row["receipt_id"])
+            for row in rows
+            if row["run_id"] is None and row["receipt_id"] is not None
+        ]
+        receipt_map: dict[str, str] = {}
+        if receipt_ids:
+            placeholders = ",".join("?" for _ in receipt_ids)
+            receipt_map = {
+                str(row["id"]): str(row["status"])
+                for row in project.db.execute(
+                    f"SELECT id,status FROM receipts WHERE id IN ({placeholders})",
+                    tuple(receipt_ids),
+                ).fetchall()
+            }
+        updates = []
+        for child in rows:
+            status = str(child["status"])
+            completed_rows = int(child["completed_rows"])
+            if child["run_id"] is not None:
+                run = run_map.get(int(child["run_id"]))
+                if run is not None:
+                    status = str(run["status"])
+                    completed_rows = min(
+                        int(child["row_count"]), int(run["completed_rows"] or 0)
+                    )
+            elif child["receipt_id"] is not None:
+                status = receipt_map.get(str(child["receipt_id"]), status)
+                if status == "completed":
+                    completed_rows = int(child["row_count"])
+            updates.append((status, completed_rows, str(child["child_key"])))
+        self.db.executemany(
+            "UPDATE pdf_commit_preparation_children SET status=?,"
+            "completed_rows=? WHERE child_key=?",
+            updates,
+        )
+        self.db.commit()
+
+    @staticmethod
+    def _child_payload(child: Any) -> dict[str, Any]:
+        return {
+            "child_key": str(child["child_key"]),
+            "action_id": str(child["action_id"]),
+            "row_count": int(child["row_count"]),
+            "completed_rows": int(child["completed_rows"]),
+            "status": str(child["status"]),
+            "receipt_id": (
+                str(child["receipt_id"]) if child["receipt_id"] is not None else None
+            ),
+            "run_id": int(child["run_id"]) if child["run_id"] is not None else None,
+            "job_id": int(child["job_id"]) if child["job_id"] is not None else None,
+        }
+
+    def child_page(self, *, after: int, limit: int = 100) -> tuple[dict[str, Any], ...]:
+        if after < 0 or limit < 1 or limit > 100:
+            raise ValueError("invalid PDF preparation child page")
+        return tuple(
+            {
+                "rowid": int(child["rowid"]),
+                **self._child_payload(child),
+            }
+            for child in self.db.execute(
+                "SELECT rowid,* FROM pdf_commit_preparation_children "
+                "WHERE rowid>? ORDER BY rowid LIMIT ?",
+                (int(after), int(limit)),
+            ).fetchall()
+        )
 
     def summary(self, project: Any, *, import_ref: str) -> PdfImportPreparationSummary:
         """Read durable aggregate progress without bounded activity history."""
@@ -224,65 +396,44 @@ class PdfImportPreparationStore:
             if state["pending_confirmation_json"] is None
             else json.loads(str(state["pending_confirmation_json"]))
         )
-        completed = {"media.read_pdf_text": 0, "media.ocr": 0}
-        children: list[dict[str, Any]] = []
-        for child in self.db.execute(
-            "SELECT child_key,action_id,row_count,run_id,receipt_id,job_id "
-            "FROM pdf_commit_preparation_children ORDER BY rowid"
-        ).fetchall():
-            action_id = str(child["action_id"])
-            run = (
-                project.db.execute(
-                    "SELECT status,completed_rows,failed_rows FROM runs WHERE id=?",
-                    (int(child["run_id"]),),
-                ).fetchone()
-                if child["run_id"] is not None
-                else None
-            )
-            status = str(run["status"]) if run is not None else "queued"
-            completed_rows = 0
-            if run is not None:
-                completed_rows = min(
-                    int(child["row_count"]), int(run["completed_rows"] or 0)
-                )
-            elif child["receipt_id"] is not None:
-                receipt = project.db.execute(
-                    "SELECT status FROM receipts WHERE id=?", (str(child["receipt_id"]),)
-                ).fetchone()
-                if receipt is not None:
-                    status = str(receipt["status"])
-            if action_id in completed:
-                completed[action_id] += completed_rows
-            children.append(
-                {
-                    "child_key": str(child["child_key"]),
-                    "action_id": action_id,
-                    "row_count": int(child["row_count"]),
-                    "completed_rows": completed_rows,
-                    "status": status,
-                    "receipt_id": str(child["receipt_id"])
-                    if child["receipt_id"] is not None
-                    else None,
-                    "run_id": int(child["run_id"])
-                    if child["run_id"] is not None
-                    else None,
-                    "job_id": int(child["job_id"])
-                    if child["job_id"] is not None
-                    else None,
-                }
-            )
+        self._refresh_child_statuses(project)
+        completed = {
+            str(row["action_id"]): int(row["completed"] or 0)
+            for row in self.db.execute(
+                "SELECT action_id,SUM(completed_rows) AS completed "
+                "FROM pdf_commit_preparation_children GROUP BY action_id"
+            ).fetchall()
+        }
+        active = self.db.execute(
+            "SELECT * FROM pdf_commit_preparation_children WHERE status NOT IN "
+            "('completed','failed','cancelled') ORDER BY rowid LIMIT ?",
+            (_CHILD_STATUS_PAGE,),
+        ).fetchall()
+        remaining = _CHILD_STATUS_PAGE - len(active)
+        terminal = (
+            self.db.execute(
+                "SELECT * FROM pdf_commit_preparation_children WHERE status IN "
+                "('completed','failed','cancelled') ORDER BY rowid DESC LIMIT ?",
+                (remaining,),
+            ).fetchall()
+            if remaining
+            else ()
+        )
+        children = [self._child_payload(child) for child in (*active, *terminal)]
         return PdfImportPreparationSummary(
             import_ref=import_ref,
             scheduled_through=int(state["scheduled_through"]),
             native_total=int(state["native_total"]),
             native_completed=min(
-                int(state["native_total"]), completed["media.read_pdf_text"]
+                int(state["native_total"]), completed.get("media.read_pdf_text", 0)
             ),
             ocr_total=int(state["ocr_total"]),
-            ocr_completed=min(int(state["ocr_total"]), completed["media.ocr"]),
+            ocr_completed=min(int(state["ocr_total"]), completed.get("media.ocr", 0)),
             unreadable_total=int(state["unreadable_total"]),
             pending_confirmation=pending,
             children=tuple(children),
+            stopped=bool(state["stopped"]),
+            row_error_summary=self._row_error_summary(project, import_ref=import_ref),
         )
 
 
@@ -354,8 +505,11 @@ class PdfImportPreparationCoordinator:
         native_rows = sorted(
             int(item["row_id"])
             for item in rows
-            if not bool(item.get("ocr_selected"))
-            and str(item.get("category")) not in {"missing", "unchecked"}
+            if str(item.get("category")) == "unreadable"
+            or (
+                not bool(item.get("ocr_selected"))
+                and str(item.get("category")) not in {"missing", "unchecked"}
+            )
         )
         ocr_rows = sorted(
             int(item["row_id"])
@@ -450,69 +604,76 @@ class PdfImportPreparationCoordinator:
     def progress(self, project_id: str, import_ref: str) -> int:
         project = self.workspace.get(project_id)
         directory = import_intake_dir(project.path, import_ref)
-        header = read_import_header(directory)
-        facts = header.pdf_preparation
-        if facts is None or header.cancel_requested:
-            return 0
-        session = ImportSessionStore(project).get(import_ref)
-        if session is None or session.sheet_id is None or session.producer_id is None:
-            return 0
-        with PdfImportPreparationStore(directory / "inventory.db") as preparation:
-            page = preparation.page(
-                project,
-                producer_id=session.producer_id,
-                committed_through=session.cursor,
-            )
-            if page.pending_confirmation is not None or not page.rows:
-                return page.scheduled_through
-            self.ensure_semantic_setup(
-                project_id,
-                import_receipt_id=str(header.envelope["receipt_id"]),
-                enabled=bool(facts.get("semantic_search")),
-                confirmation=facts.get("semantic_setup_confirmation"),
-            )
-            try:
-                responses = self.create(
+        with FileLock(str(directory / ".pdf-preparation.lock")):
+            header = read_import_header(directory)
+            facts = header.pdf_preparation
+            if facts is None or header.cancel_requested:
+                return 0
+            session = ImportSessionStore(project).get(import_ref)
+            if (
+                session is None
+                or session.sheet_id is None
+                or session.producer_id is None
+            ):
+                return 0
+            with PdfImportPreparationStore(directory / "inventory.db") as preparation:
+                if preparation.stopped():
+                    return preparation.scheduled_through()
+                page = preparation.page(
+                    project,
+                    import_ref=import_ref,
+                    committed_through=session.cursor,
+                )
+                if page.pending_confirmation is not None or not page.rows:
+                    return page.scheduled_through
+                self.ensure_semantic_setup(
                     project_id,
                     import_receipt_id=str(header.envelope["receipt_id"]),
-                    sheet_id=session.sheet_id,
-                    rows=page.rows,
-                    ocr_policy=str(facts["ocr_policy"]),
-                    ocr_authorization=None,
-                    semantic_search=bool(facts.get("semantic_search")),
-                    semantic_setup_confirmation=facts.get(
-                        "semantic_setup_confirmation"
-                    ),
-                    ocr_action_params=facts["ocr_action_params"],
-                    on_started=lambda action_id, child_key, row_count, response: (
-                        preparation.record_child(
-                            child_key=child_key,
-                            action_id=action_id,
-                            row_count=row_count,
-                            response=response,
-                        )
-                    ),
+                    enabled=bool(facts.get("semantic_search")),
+                    confirmation=facts.get("semantic_setup_confirmation"),
                 )
-            except _OutputBusy:
-                return page.scheduled_through
-            confirmation = next(
-                (
-                    response
-                    for response in responses
-                    if response.get("status") == "needs_confirmation"
-                ),
-                None,
-            )
-            if confirmation is not None:
-                preparation.block_for_confirmation(
-                    expected=page.scheduled_through, response=confirmation
+                try:
+                    responses = self.create(
+                        project_id,
+                        import_receipt_id=str(header.envelope["receipt_id"]),
+                        sheet_id=session.sheet_id,
+                        rows=page.rows,
+                        ocr_policy=str(facts["ocr_policy"]),
+                        ocr_authorization=None,
+                        semantic_search=bool(facts.get("semantic_search")),
+                        semantic_setup_confirmation=facts.get(
+                            "semantic_setup_confirmation"
+                        ),
+                        ocr_action_params=facts["ocr_action_params"],
+                        on_started=lambda action_id, child_key, row_count, response: (
+                            preparation.record_child(
+                                child_key=child_key,
+                                action_id=action_id,
+                                row_count=row_count,
+                                response=response,
+                            )
+                        ),
+                    )
+                except _OutputBusy:
+                    return page.scheduled_through
+                confirmation = next(
+                    (
+                        response
+                        for response in responses
+                        if response.get("status") == "needs_confirmation"
+                    ),
+                    None,
                 )
-                return page.scheduled_through
-            if not preparation.advance(
-                expected=page.scheduled_through, through=page.through
-            ):
-                return self.progress(project_id, import_ref)
-            return page.through
+                if confirmation is not None:
+                    preparation.block_for_confirmation(
+                        expected=page.scheduled_through, response=confirmation
+                    )
+                    return page.scheduled_through
+                if not preparation.advance(
+                    expected=page.scheduled_through, through=page.through
+                ):
+                    return page.scheduled_through
+                return page.through
 
     def summary(self, project_id: str, import_ref: str) -> PdfImportPreparationSummary:
         project = self.workspace.get(project_id)
@@ -520,18 +681,21 @@ class PdfImportPreparationCoordinator:
         with PdfImportPreparationStore(inventory_path) as preparation:
             return preparation.summary(project, import_ref=import_ref)
 
-    def block_for_confirmation(
-        self, *, expected: int, response: Mapping[str, Any]
-    ) -> bool:
-        encoded = json.dumps(dict(response), sort_keys=True, allow_nan=False)
-        updated = self.db.execute(
-            "UPDATE pdf_commit_preparation SET pending_confirmation_json=? "
-            "WHERE singleton=1 AND scheduled_through=? "
-            "AND pending_confirmation_json IS NULL",
-            (encoded, int(expected)),
-        )
-        self.db.commit()
-        return updated.rowcount == 1
+    def child_page(
+        self, project_id: str, import_ref: str, *, after: int, limit: int = 100
+    ) -> tuple[dict[str, Any], ...]:
+        project = self.workspace.get(project_id)
+        inventory_path = import_intake_dir(project.path, import_ref) / "inventory.db"
+        with PdfImportPreparationStore(inventory_path) as preparation:
+            return preparation.child_page(after=after, limit=limit)
+
+    def stop(self, project_id: str, import_ref: str) -> PdfImportPreparationSummary:
+        project = self.workspace.get(project_id)
+        directory = import_intake_dir(project.path, import_ref)
+        with FileLock(str(directory / ".pdf-preparation.lock")):
+            with PdfImportPreparationStore(directory / "inventory.db") as preparation:
+                preparation.stop()
+                return preparation.summary(project, import_ref=import_ref)
 
 
 __all__ = [

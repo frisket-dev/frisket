@@ -602,6 +602,15 @@ CREATE TABLE IF NOT EXISTS import_sessions (
 CREATE UNIQUE INDEX IF NOT EXISTS uq_import_sessions_active_sheet
   ON import_sessions(sheet_id)
   WHERE state IN ('active','paused','cancelled');
+-- Stable ordinal-to-row publication ledger. Consumers can page the rows from
+-- a streaming import without rescanning the growing cells table.
+CREATE TABLE IF NOT EXISTS import_session_rows (
+  session_id TEXT NOT NULL REFERENCES import_sessions(id) ON DELETE CASCADE,
+  ordinal INTEGER NOT NULL CHECK (ordinal > 0),
+  row_id INTEGER NOT NULL REFERENCES rows(id) ON DELETE CASCADE,
+  PRIMARY KEY(session_id, ordinal),
+  UNIQUE(session_id, row_id)
+);
 -- IMPORT_SESSIONS_END
 CREATE INDEX IF NOT EXISTS idx_receipts_run ON receipts(run_id);
 -- Newest-first receipt scans tiebreak on insertion order (rowid), not the

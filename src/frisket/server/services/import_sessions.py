@@ -243,17 +243,38 @@ class ImportSessionService:
                 ActionRunCancelService,
             )
 
-            summary = self._search_preparation.pdf_import_summary(project_id, ref)
+            stop_preparation = getattr(
+                self._search_preparation, "stop_pdf_import", None
+            )
+            summary = (
+                stop_preparation(project_id, ref)
+                if callable(stop_preparation)
+                else self._search_preparation.pdf_import_summary(project_id, ref)
+            )
             cancellation = ActionRunCancelService(self._workspace)
-            for child in summary.children:
-                run_id = child.get("run_id")
-                if not isinstance(run_id, int) or child.get("status") != "running":
-                    continue
-                try:
-                    cancellation.cancel_run(project_id, run_id)
-                except ActionRunCancelRouteError as exc:
-                    if exc.status_code not in {404, 409}:
-                        raise
+            child_page = getattr(
+                self._search_preparation, "pdf_import_child_page", None
+            )
+            after = 0
+            while True:
+                children = (
+                    child_page(project_id, ref, after=after, limit=100)
+                    if callable(child_page)
+                    else summary.children
+                )
+                for child in children:
+                    run_id = child.get("run_id")
+                    if isinstance(run_id, int):
+                        try:
+                            cancellation.cancel_run(project_id, run_id)
+                        except ActionRunCancelRouteError as exc:
+                            if exc.status_code not in {404, 409}:
+                                raise
+                    elif isinstance(child.get("job_id"), int):
+                        self._workspace.queue.cancel(int(child["job_id"]))
+                if not callable(child_page) or len(children) < 100:
+                    break
+                after = int(children[-1]["rowid"])
         try:
             with import_worker_lock(directory, timeout=0):
                 session = ImportSessionStore(project).get(ref)
@@ -270,6 +291,14 @@ class ImportSessionService:
                     )
         except Timeout:
             pass
+        session = ImportSessionStore(project).get(ref)
+        if (
+            header.pdf_preparation is not None
+            and session is not None
+            and session.state in {"completed", "kept"}
+        ):
+            with import_admit_lock(directory):
+                header = set_import_resolution(directory, "kept")
         with ImportInventory(directory / "inventory.db") as inventory:
             return self._status(project, ref, directory, header, inventory)
 
@@ -514,7 +543,9 @@ class ImportSessionService:
             if owned:
                 inventory.close()
         session = ImportSessionStore(project).get(ref)
-        if session is not None:
+        if header.pdf_preparation is not None and header.resolution is not None:
+            state = header.resolution
+        elif session is not None:
             state = {
                 "active": "running",
                 "paused": "paused",
@@ -555,6 +586,7 @@ class ImportSessionService:
         )
         if (
             state in {"completed", "kept"}
+            and header.pdf_preparation is None
             and preparation_batch_id is None
             and self._search_preparation is not None
             and self._search_preparation.automatic_enabled(header.project_id)
@@ -641,8 +673,12 @@ class ImportSessionService:
             unreadable_total=(
                 0 if pdf_summary is None else pdf_summary.unreadable_total
             ),
+            preparation_stopped=(False if pdf_summary is None else pdf_summary.stopped),
             preparation_pending_confirmation=(
                 None if pdf_summary is None else pdf_summary.pending_confirmation
+            ),
+            row_error_summary=(
+                None if pdf_summary is None else pdf_summary.row_error_summary
             ),
             preparation_children=(
                 []

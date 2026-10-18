@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import shutil
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -18,8 +19,10 @@ from frisket.server.route_errors import RouteError
 from frisket.server.workspace import Workspace
 from frisket.engine.jobs.import_files import register_import_files_handler
 from frisket.engine.jobs.queue import IMPORT_FILES_PAGE_KIND
+from frisket.engine.jobs.queue import PROJECT_RUN_KIND
 from frisket.engine.jobs.worker import HandlerRegistry, Worker
 from frisket.engine.store.import_inventory import ImportInventory
+from frisket.server.services.pdf_import_preparation import PdfImportPreparationStore
 
 
 @dataclass(frozen=True)
@@ -33,6 +36,7 @@ class _Occurrence:
     path: Path | None
     page_count: int | None
     category: str
+    error: str | None = None
     matched: bool = False
     ocr_selected: bool = False
 
@@ -158,7 +162,7 @@ class _Intake:
                             item.occurrence_id,
                             item.ordinal,
                             item.category,
-                            None,
+                            item.error,
                             int(item.ocr_selected),
                         )
                         for offset, item in enumerate(metadata)
@@ -278,7 +282,7 @@ def test_real_draft_promotes_into_ordinary_import_and_undo(
         draft_id,
         expected_revision=uploaded["revision"],
         ocr_policy="none",
-            ocr_selection={"kind": "engine", "engine": "rapidocr"},
+        ocr_selection={"kind": "engine", "engine": "rapidocr"},
         semantic_search=False,
         semantic_setup_confirmation=None,
         destination={"kind": "new", "sheet_name": "Evidence PDFs"},
@@ -549,7 +553,7 @@ def test_reviewed_text_handoff_uses_one_designated_column_and_action_authority(
                 "occurrence_id": "broken",
                 "category": "unreadable",
                 "error": "PDF xref could not be read",
-                "ocr_selected": False,
+                "ocr_selected": True,
             },
         ],
         ocr_policy="missing_or_suspicious",
@@ -577,10 +581,13 @@ def test_reviewed_text_handoff_uses_one_designated_column_and_action_authority(
         for column in project.columns(sheet_id)
         if str(column["name"]) == "text"
     )
-    assert project.db.execute(
-        "SELECT 1 FROM cells WHERE row_id=? AND column_id=?",
-        (rows[2], text_column),
-    ).fetchone() is None
+    assert (
+        project.db.execute(
+            "SELECT 1 FROM cells WHERE row_id=? AND column_id=?",
+            (rows[2], text_column),
+        ).fetchone()
+        is None
+    )
 
 
 def test_reviewed_semantic_choice_starts_existing_setup_with_frozen_consent(
@@ -591,23 +598,54 @@ def test_reviewed_semantic_choice_starts_existing_setup_with_frozen_consent(
     preparation = SearchPreparationService(
         workspace, setup_start=lambda ref, owner: started.append((ref, owner)) or 1
     )
+    requirement = SimpleNamespace(
+        setup_ref="engine-setup:embeddinggemma-2.local@1",
+        display_name="Search by meaning",
+        runtime_ready=False,
+        weights_ready=False,
+        runtime_installable=True,
+        download_bytes_if_missing=1234,
+        license="Apache-2.0",
+        source_url="https://example.test/model",
+    )
     monkeypatch.setattr(
         preparation,
         "_setup_snapshot",
         lambda: SimpleNamespace(
-            requirements_by_ref={
-                "engine-setup:embeddinggemma-2.local@1": SimpleNamespace(
-                    runtime_ready=False, weights_ready=False
-                )
-            }
+            requirements_by_ref={requirement.setup_ref: requirement}
         ),
     )
+    binding = {
+        "setup_ref": requirement.setup_ref,
+        "display_name": requirement.display_name,
+        "runtime_ready": False,
+        "download_bytes": 1234,
+        "additional_runtime_download": True,
+        "license": requirement.license,
+        "source_url": requirement.source_url,
+        "available": True,
+    }
+    confirmation = hashlib.sha256(
+        json.dumps(binding, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+    try:
+        preparation._ensure_pdf_semantic_setup(
+            project_id,
+            import_receipt_id="receipt:pdf-semantic",
+            enabled=True,
+            confirmation="stale-review",
+        )
+    except RouteError as exc:
+        assert exc.status_code == 409
+    else:  # pragma: no cover - regression assertion
+        raise AssertionError("stale setup consent was accepted")
 
     preparation._ensure_pdf_semantic_setup(
         project_id,
         import_receipt_id="receipt:pdf-semantic",
         enabled=True,
-        confirmation="reviewed-download-consent",
+        confirmation=confirmation,
     )
 
     assert started == [
@@ -625,9 +663,7 @@ def test_mixed_native_and_ocr_page_serializes_on_shared_text_claim(
     draft = tmp_path / "draft-mixed"
     draft.mkdir()
     native = _staged(draft, 1, "native.pdf", category="text")
-    scan = replace(
-        _staged(draft, 2, "scan.pdf", category="missing"), ocr_selected=True
-    )
+    scan = replace(_staged(draft, 2, "scan.pdf", category="missing"), ocr_selected=True)
     frozen = _Frozen(
         commit_id="pdf-commit-mixed",
         draft_id="draft-mixed",
@@ -670,18 +706,116 @@ def test_mixed_native_and_ocr_page_serializes_on_shared_text_claim(
     ]
     first = preparation.pdf_import_summary(project_id, result.import_ref)
     assert first.scheduled_through == 0
-    assert [child["action_id"] for child in first.children] == [
-        "media.read_pdf_text"
-    ]
+    assert [child["action_id"] for child in first.children] == ["media.read_pdf_text"]
+    ImportSessionService(workspace, search_preparation=preparation).status(
+        project_id, result.import_ref
+    )
+    session = (
+        workspace.get(project_id)
+        .db.execute(
+            "SELECT receipt_id FROM import_sessions WHERE id=?", (result.import_ref,)
+        )
+        .fetchone()
+    )
+    preparation.create_after_import(
+        project_id,
+        receipt_id=str(session["receipt_id"]),
+        sheet_id=result.sheet_id,
+    )
 
     actions.ocr_busy = False
-    preparation.progress_pdf_import(project_id, result.import_ref)
+    preparation.recover()
     final = preparation.pdf_import_summary(project_id, result.import_ref)
     assert final.scheduled_through == 2
     assert [child["action_id"] for child in final.children] == [
         "media.read_pdf_text",
         "media.ocr",
     ]
+
+
+def test_stop_completed_import_keeps_rows_and_terminates_pending_preparation(
+    tmp_path: Path,
+) -> None:
+    workspace, project_id = _workspace(tmp_path)
+    draft = tmp_path / "draft-stop"
+    draft.mkdir()
+    scan = replace(_staged(draft, 1, "scan.pdf", category="missing"), ocr_selected=True)
+    frozen = _Frozen(
+        commit_id="pdf-commit-stop",
+        draft_id="draft-stop",
+        project_id=project_id,
+        storage_identity=workspace.get(project_id).storage_identity,
+        idempotency_key="commit-stop",
+        selected_through=1,
+        selected_total=1,
+        staged_through=1,
+        manifest_hash="sha256:frozen-stop",
+        destination={"kind": "new", "sheet_name": "Stopped PDFs"},
+        ocr_policy="missing_or_suspicious",
+        ocr_engine="rapidocr",
+        ocr_action_params={"engine": "rapidocr"},
+        ocr_authorization=None,
+        semantic_search=False,
+        semantic_setup_confirmation=None,
+        directory=draft,
+        commit_inventory_path=draft / "commit-inventory.db",
+        committed_total=1,
+        available_through=0,
+        uploads_complete=False,
+        sealed=False,
+        occurrences=[scan],
+    )
+    actions = _BusyThenReadyActions()
+    preparation = SearchPreparationService(workspace, action_runs=actions)
+    result = PdfImportCommitService(
+        workspace, intake=_Intake(frozen), text_preparation=preparation
+    ).commit(
+        project_id,
+        frozen.draft_id,
+        idempotency_key=frozen.idempotency_key,
+        expected_revision=1,
+    )
+    queued_jobs = [
+        workspace.queue.enqueue(
+            PROJECT_RUN_KIND,
+            {
+                "project_id": project_id,
+                "run_id": 999 + offset,
+                "action_kind": "media.ocr",
+            },
+        )
+        for offset in range(105)
+    ]
+    inventory_path = (
+        workspace.get(project_id).path / ".imports" / result.import_ref / "inventory.db"
+    )
+    with PdfImportPreparationStore(inventory_path) as store:
+        for offset, job_id in enumerate(queued_jobs):
+            store.record_child(
+                child_key=f"pending-ocr-{offset}",
+                action_id="media.ocr",
+                row_count=1,
+                response={"status": "queued", "job_id": job_id},
+            )
+
+    assert (
+        len(preparation.pdf_import_summary(project_id, result.import_ref).children)
+        == 100
+    )
+
+    stopped = ImportSessionService(workspace, search_preparation=preparation).cancel(
+        project_id, result.import_ref
+    )
+    assert stopped.state == "kept"
+    assert stopped.preparation_stopped
+    assert workspace.get(project_id).row_count(result.sheet_id) == 1
+    assert all(
+        workspace.queue.get(job_id).status == "cancelled" for job_id in queued_jobs
+    )
+    before = len(actions.bodies)
+    actions.ocr_busy = False
+    preparation.recover()
+    assert len(actions.bodies) == before
 
 
 def test_reviewed_text_handoff_refuses_to_reinterpret_paid_draft_consent(
@@ -720,7 +854,11 @@ def test_reviewed_text_recovery_continues_after_server_restart(tmp_path: Path) -
     project = workspace.get(project_id)
     draft = tmp_path / "draft-recovery"
     draft.mkdir()
-    first = _staged(draft, 1, "native.pdf", category="text")
+    first = replace(
+        _staged(draft, 1, "unreadable.pdf", category="unreadable"),
+        error="PDF xref could not be read",
+        ocr_selected=True,
+    )
     pending = _Occurrence(
         ordinal=2,
         occurrence_id="occurrence-2",
@@ -768,15 +906,29 @@ def test_reviewed_text_recovery_continues_after_server_restart(tmp_path: Path) -
         idempotency_key="commit-recovery",
         expected_revision=1,
     )
-    assert [body["action_id"] for body in actions.bodies] == [
-        "media.read_pdf_text"
-    ]
+    assert [body["action_id"] for body in actions.bodies] == ["media.read_pdf_text"]
     opened_ref = PdfImportCommitService._ref(frozen.commit_id)
-    status = ImportSessionService(
-        workspace, search_preparation=preparation
-    ).status(project_id, opened_ref)
+    status = ImportSessionService(workspace, search_preparation=preparation).status(
+        project_id, opened_ref
+    )
     assert status.selected_total == 2
     assert status.preparation_total == 1
+    assert status.unreadable_total == 1
+    assert status.row_error_summary is not None
+    assert status.row_error_summary.model_dump(mode="json") == {
+        "total_failed_rows": 1,
+        "groups": [
+            {
+                "message": "PDF xref could not be read",
+                "count": 1,
+                "code": "pdf_unreadable",
+                "outcome": "row_error",
+                "terminal": False,
+                "row_ids": [actions.bodies[0]["scope"]["row_ids"][0]],
+                "details": None,
+            }
+        ],
+    }
     assert [child.action_id for child in status.preparation_children] == [
         "media.read_pdf_text"
     ]
@@ -885,8 +1037,28 @@ def test_commit_request_publishes_one_bounded_page_then_enqueues_continuation(
     assert project.row_count(opened.sheet_id) == 600
     assert not (project.path / ".imports" / opened.import_ref / "staged").exists()
     preparation.recover()
+    assert [len(body["scope"]["row_ids"]) for body in actions.bodies] == [256, 256]
+    preparation.recover()
     assert [len(body["scope"]["row_ids"]) for body in actions.bodies] == [
         256,
         256,
         88,
     ]
+
+
+def test_bootstrap_blob_promotion_uses_the_ordinary_64mib_page_budget(
+    tmp_path: Path,
+) -> None:
+    calls: list[dict[str, int]] = []
+
+    class _Inventory:
+        def page(self, **kwargs):
+            calls.append(kwargs)
+            return []
+
+    project = SimpleNamespace(blob_store=SimpleNamespace(put_path=None))
+    PdfImportCommitService._promote_page_blobs(
+        project, tmp_path, _Inventory(), after=17
+    )
+
+    assert calls == [{"after": 17, "limit": 256, "byte_budget": 64 * 1024 * 1024}]
