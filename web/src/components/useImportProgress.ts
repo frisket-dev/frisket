@@ -99,6 +99,7 @@ export function importActivity(session: ImportSessionStatus): ImportActivity | n
     ? session.committed_rows : Math.min(session.committed_rows, selectedTotal);
   const preparationIncomplete = session.preparation_completed < session.preparation_total;
   const active = ['admitting', 'running', 'paused', 'cancelling', 'cancelled'].includes(session.state)
+    || (session.intake_kind === 'table' && ['completed', 'kept'].includes(session.state))
     || Boolean(session.error)
     || preparationIncomplete
     || session.preparation_children.some((child) => ACTIVE_CHILD_STATES.has(child.status));
@@ -455,7 +456,7 @@ function composeTableImportActivity(
   const added = session.committed_rows.toLocaleString();
   const processed = session.processed_rows ?? session.committed_rows;
   const finished = ['completed', 'kept'].includes(session.state);
-  const detail = session.error ?? (activity.needsRecovery
+  const detail = session.error ?? (activity.needsRecovery || session.state === 'kept'
     ? `${added} rows added · import stopped`
     : `${added} rows added${session.skipped_duplicates ? ` · ${session.skipped_duplicates.toLocaleString()} duplicates skipped` : ''}`);
   return {
@@ -464,7 +465,7 @@ function composeTableImportActivity(
       reviewBatchId: null,
       stopBatchId: activity.canStop ? session.import_ref : null,
       stage: session.error ? 'failed' : 'prepare',
-      tone: session.error ? 'error' : activity.needsRecovery ? 'warning' : 'active',
+      tone: session.error ? 'error' : activity.needsRecovery || session.state === 'kept' ? 'warning' : finished ? 'complete' : 'active',
       title: `Import: ${session.sheet_name}`,
       detail,
       progress: null,
@@ -476,11 +477,11 @@ function composeTableImportActivity(
         total, complete: finished,
         detail: total === null ? `${added} added` : `${processed.toLocaleString()} / ${session.selected_total === null ? 'about ' : ''}${total.toLocaleString()}`,
       },
-      {
+      ...(!finished || search ? [{
         key: 'search-index', label: 'Search index', completed: null, total: null,
-        detail: search?.detail ?? (finished ? 'Waiting for indexing' : 'Rows are indexed as they arrive'),
+        detail: search?.detail ?? 'Rows are indexed as they arrive',
         complete: search?.tone === 'complete',
-      },
+      }] : []),
     ],
   };
 }

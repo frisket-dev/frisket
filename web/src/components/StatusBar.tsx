@@ -239,7 +239,7 @@ export function StatusBar({
             now={importActivity && importPriority?.sheetId === String(importActivity.session.sheet_id)
               ? importPriority.label
               : null}
-            stopLabel={importActivity ? 'Stop remaining' : undefined}
+            stopLabel={importActivity?.session.intake_kind === 'table' ? 'Stop import' : importActivity ? 'Stop remaining' : undefined}
             onResumeImport={importActivity?.needsRecovery && importActivity.session.state !== 'cancelled'
               ? () => importProgress.resume(importActivity)
               : undefined}
@@ -249,6 +249,11 @@ export function StatusBar({
             importActionBusy={importProgress.busyRef === importActivity?.importRef
               || importProgress.preparingRef === importActivity?.importRef}
             importMessage={importActivity ? importProgress.message : null}
+            importProblemCount={importActivity?.session.problem_count}
+            importSourceLabel={importActivity?.session.source_label}
+            onImportAnotherSheet={importActivity?.session.can_rerun_workbook
+              && ['completed', 'kept'].includes(importActivity.session.state)
+              ? () => actSurface.openTableImportRerun(importActivity.importRef) : undefined}
             onOpenErrors={(importActivity?.session.problem_count ?? 0) > 0
               ? () => chrome.setActiveBottomDockTab('errors') : undefined}
             onDismiss={() => setSearchNoticeOpen(false)}

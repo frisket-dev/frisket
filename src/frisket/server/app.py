@@ -27,7 +27,8 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from frisket.server.exports.sheet_csv import SheetExportLimits
 from frisket.engine.jobs import JobQueue, WorkerPorts
-from frisket.engine.jobs.queue import IMPORT_FILES_PAGE_KIND
+from frisket.engine.jobs.queue import IMPORT_FILES_PAGE_KIND, IMPORT_TABLE_ANALYSIS_KIND
+from frisket.engine.jobs.import_table import table_analysis_dedupe_key
 from frisket.project_opener import ProjectOpener
 from frisket.engine.executor import (
     CellEditQueryLimits,
@@ -95,7 +96,7 @@ from frisket.server.services.document_priority import DocumentPriorityService
 from frisket.server.routes.pdf_packet_splits import register_pdf_packet_split_routes
 from frisket.server.routes.pdf_imports import register_pdf_import_routes
 from frisket.server.routes.table_imports import register_table_import_routes
-from frisket.server.services.table_imports import TableImportService
+from frisket.server.services.table_imports import FrozenTableImport, TableImportService
 from frisket.server.services.pdf_imports import FrozenPdfImport, PdfImportService
 from frisket.server.services.pdf_import_ocr_approval import PdfImportOcrApprovalQuoter
 from frisket.server.services.pdf_import_commit import PdfImportCommitService
@@ -921,14 +922,15 @@ def create_app(
         limits = None if deps is None else deps.import_workload_limits
         return None if limits is None else limits.max_rows
 
+    import_session_service = ImportSessionService(
+        ws,
+        limits=bulk_limits,
+        enqueue=enqueue_import_page,
+        search_preparation=search_preparation_service,
+    )
     register_import_session_routes(
         app,
-        service=ImportSessionService(
-            ws,
-            limits=bulk_limits,
-            enqueue=enqueue_import_page,
-            search_preparation=search_preparation_service,
-        ),
+        service=import_session_service,
         max_rows_for_request=import_max_rows,
     )
 
@@ -971,9 +973,46 @@ def create_app(
         capabilities_for=selector_capabilities_for,
         commit_handler=commit_pdf_import,
     )
+
+    def enqueue_table_analysis(
+        project_id: str, draft_id: str, settings_revision: int
+    ) -> int:
+        return ws.queue.enqueue(
+            IMPORT_TABLE_ANALYSIS_KIND,
+            {
+                **ws.queue_payload_extra,
+                "workspace_root": str(ws.root),
+                "project_id": project_id,
+                "draft_id": draft_id,
+                "settings_revision": settings_revision,
+                "dedupe_key": table_analysis_dedupe_key(
+                    project_id, draft_id, settings_revision
+                ),
+            },
+        )
+
+    async def commit_table_import(
+        frozen: FrozenTableImport, request: Request, max_rows: int | None
+    ) -> dict[str, Any]:
+        project_id = str(request.path_params["pid"])
+        result = await await_thread_worker(
+            lambda: asyncio.run(
+                import_session_service.commit_table(
+                    project_id, frozen, max_rows=max_rows
+                )
+            )
+        )
+        return result.model_dump(mode="json")
+
     register_table_import_routes(
         app,
-        service=TableImportService(ws, max_upload_bytes=bulk_limits.max_upload_bytes),
+        service=TableImportService(
+            ws,
+            max_upload_bytes=bulk_limits.max_upload_bytes,
+            enqueue_analysis=enqueue_table_analysis,
+        ),
+        commit_handler=commit_table_import,
+        max_rows_for_request=import_max_rows,
     )
     register_import_followthemoney_routes(
         app,

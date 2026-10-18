@@ -25,6 +25,9 @@ export function SearchPreparationNotice({
   importActionBusy = false,
   importMessage,
   onOpenErrors,
+  importProblemCount = 0,
+  onImportAnotherSheet,
+  importSourceLabel,
 }: {
   notice: Notice;
   onReviewPreparation?: (batchId: string) => void;
@@ -38,6 +41,9 @@ export function SearchPreparationNotice({
   importActionBusy?: boolean;
   importMessage?: string | null;
   onOpenErrors?(): void;
+  importProblemCount?: number;
+  onImportAnotherSheet?(): void;
+  importSourceLabel?: string | null;
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [stopState, setStopState] = useState<{ batchId: string; busy: boolean; error: string | null } | null>(null);
@@ -75,7 +81,7 @@ export function SearchPreparationNotice({
       && (notice.stage === 'approval' || notice.stage === 'failed'),
   );
   const hasFooter = Boolean(
-    searchFooter || onOpenErrors || canStop || onResumeImport || onKeepImport || importMessage || canReview,
+    searchFooter || onOpenErrors || onImportAnotherSheet || canStop || onResumeImport || onKeepImport || importMessage || canReview,
   );
 
   return (
@@ -93,7 +99,10 @@ export function SearchPreparationNotice({
           {searchFooter && <span className="search-preparation-footer-copy">{searchFooter}</span>}
           <div className="search-preparation-actions">
             {onOpenErrors && <button type="button" className="search-preparation-action" onClick={onOpenErrors}>
-              View issues
+              {importProblemCount.toLocaleString()} {importProblemCount === 1 ? 'problem' : 'problems'} · Errors
+            </button>}
+            {onImportAnotherSheet && <button type="button" className="search-preparation-action" onClick={onImportAnotherSheet}>
+              Import another sheet{importSourceLabel ? ` from ${importSourceLabel}` : ''}
             </button>}
             {canStop && (
               <button type="button" className="search-preparation-action" disabled={currentStop?.busy}

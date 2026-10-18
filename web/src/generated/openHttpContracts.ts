@@ -6193,6 +6193,7 @@ type HttpImportSessionList_ImportPreparationChild = ({
 type HttpImportSessionList_ImportSessionStatus = ({
   "admitted_bytes": (number);
   "admitted_files": (number);
+  "can_rerun_workbook"?: (boolean);
   "cancel_requested": (boolean);
   "committed_bytes"?: (number);
   "committed_rows"?: (number);
@@ -6316,6 +6317,7 @@ type HttpImportSessionStatus_RunRowErrorSummary = ({
 export type HttpImportSessionStatus = ({
   "admitted_bytes": (number);
   "admitted_files": (number);
+  "can_rerun_workbook"?: (boolean);
   "cancel_requested": (boolean);
   "committed_bytes"?: (number);
   "committed_rows"?: (number);
@@ -12492,11 +12494,13 @@ type HttpTableImportDraft_TableImportAnalysis = ({
 type HttpTableImportDraft_TableImportColumn = ({
   "ambiguous_date_order": (boolean);
   "conversion_counts": (HttpTableImportDraft_TableImportConversionCounts);
+  "conversion_counts_by_date_order": (((HttpTableImportDraft_TableImportConversionCountsByDateOrder)) | ((null)));
   "date_order": ((("month_first" | "day_first") & (string)) | ((null)));
   "included": (boolean);
+  "inferred_date_order": ((("month_first" | "day_first") & (string)) | ((null)));
   "name": (string);
   "name_status": ("original" | "duplicate" | "missing") & (string);
-  "needs_review": (Array<("leading_zeros" | "long_integer" | "ambiguous_date_order" | "invalid_values" | "time_dropped") & (string)>);
+  "needs_review": (Array<("leading_zeros" | "long_integer" | "ambiguous_date_order" | "mixed_datetime_awareness" | "invalid_values" | "time_dropped") & (string)>);
   "original_name": (((string)) | ((null)));
   "samples": (Array<(HttpTableImportDraft_TableImportConversionSample)>);
   "source_index": (number);
@@ -12524,6 +12528,11 @@ type HttpTableImportDraft_TableImportConversionCounts = ({
   "rows_checked": (number);
   "time_dropped": (number);
   "valid": (number);
+});
+
+type HttpTableImportDraft_TableImportConversionCountsByDateOrder = ({
+  "day_first": (HttpTableImportDraft_TableImportConversionCounts);
+  "month_first": (HttpTableImportDraft_TableImportConversionCounts);
 });
 
 type HttpTableImportDraft_TableImportConversionSample = ({
@@ -12647,6 +12656,7 @@ type HttpTableImportDraft_TableImportResolvedSettings = ({
 
 type HttpTableImportDraft_TableImportRowIssue = ({
   "code": ("extra_values" | "missing_values" | "malformed_record" | "unreadable_cell") & (string);
+  "count"?: (number);
   "message": (string);
   "original_values": (Array<(string)>);
 });
@@ -12686,7 +12696,7 @@ export type HttpTableImportDraft = ({
   "can_commit": (boolean);
   "columns": (Array<(HttpTableImportDraft_TableImportColumn)>);
   "commit": (((HttpTableImportDraft_TableImportCommitResponse)) | ((null)));
-  "commit_blocked_reason": ((("password_required" | "analyzing" | "empty" | "destination" | "error") & (string)) | ((null)));
+  "commit_blocked_reason": ((("password_required" | "analyzing" | "empty" | "destination" | "encoding" | "limit" | "error") & (string)) | ((null)));
   "created_at": (string);
   "destination": (((HttpTableImportDraft_TableImportDestination)) | ((null)));
   "draft_id": (string);
