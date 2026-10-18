@@ -38,7 +38,7 @@ from frisket.engine.jobs.projection import (
     run_id_from_inline_job_id,
     run_inline_job_payload,
 )
-from frisket.engine.jobs.queue import Job
+from frisket.engine.jobs.queue import IMPORT_TABLE_STREAM_KIND, Job
 from frisket.engine.runner.validation import TrustedConsentAuthorizer
 from frisket.server.action_enqueue import (
     QueuedV1ActionRunContext,
@@ -54,12 +54,17 @@ from frisket.server.workspace import Workspace
 from frisket.execution.provider import ExactExecutionMatch, ExecutionComposition
 from frisket.execution.targets import CAPABILITY_LLM
 from frisket.engine.store import Project
+from frisket.engine.store.import_intake import import_intake_dir
 from frisket.engine.store.receipts import (
     FINISHED_RECEIPT_STATUSES,
     ReceiptStore,
     StoredReceipt,
 )
 from frisket.engine.store.sources import SourceStore
+from frisket.engine.store.table_import_intake import (
+    table_import_status,
+    table_issue_groups,
+)
 from frisket.features.watchlists.triggers import (
     source_poll_materialization_from_receipt,
     trigger_completed_source_poll_watches,
@@ -131,6 +136,31 @@ def _job_payload_sort_key(payload: dict[str, Any]) -> tuple[float, int]:
     parsed = parse_status_time(raw)
     epoch = parsed.timestamp() if parsed is not None else 0.0
     return (epoch, int(payload.get("job_id") or 0))
+
+
+def _attach_table_import_errors(
+    payload: dict[str, Any], *, project: Project
+) -> dict[str, Any]:
+    if payload.get("kind") != IMPORT_TABLE_STREAM_KIND:
+        return payload
+    payload_ref = payload.get("payload_ref")
+    import_ref = (
+        payload_ref.get("import_ref") if isinstance(payload_ref, Mapping) else None
+    )
+    if not isinstance(import_ref, str):
+        return payload
+    directory = import_intake_dir(project.path, import_ref)
+    try:
+        status = table_import_status(directory)
+        errors = table_issue_groups(
+            directory,
+            through=status.source_cursor,
+            max_groups=10,
+            max_examples=3,
+        )
+    except (OSError, ValueError):
+        errors = []
+    return {**payload, "import_errors": errors}
 
 
 @dataclass(frozen=True)
@@ -859,7 +889,7 @@ class ActionRunService:
         project = self._workspace.get(project_id)
         now = datetime.now(UTC)
         jobs = []
-        for kind in (RUN_PROJECT_KIND, ACTION_RUN_KIND):
+        for kind in (RUN_PROJECT_KIND, ACTION_RUN_KIND, IMPORT_TABLE_STREAM_KIND):
             jobs.extend(
                 self._workspace.queue.list_project_jobs(
                     project_id,
@@ -870,7 +900,10 @@ class ActionRunService:
                 )
             )
         payloads = [
-            project_action_job_payload(job, project_id=project_id, now=now)
+            _attach_table_import_errors(
+                project_action_job_payload(job, project_id=project_id, now=now),
+                project=project,
+            )
             for job in jobs
         ]
         # Union in runs whose action placement is
@@ -933,7 +966,8 @@ class ActionRunService:
         job = self._workspace.queue.get(job_id)
         if (
             job is None
-            or job.kind not in {RUN_PROJECT_KIND, ACTION_RUN_KIND}
+            or job.kind
+            not in {RUN_PROJECT_KIND, ACTION_RUN_KIND, IMPORT_TABLE_STREAM_KIND}
             or job_project_id(job) != project_id
             or (
                 self._storage_org_id() is not None
@@ -943,7 +977,10 @@ class ActionRunService:
             raise ActionRunRouteError(404, "no such action job")
         now = datetime.now(UTC)
         return self._attach_run_progress(
-            project_action_job_payload(job, project_id=project_id, now=now),
+            _attach_table_import_errors(
+                project_action_job_payload(job, project_id=project_id, now=now),
+                project=project,
+            ),
             project_id=project_id,
             project=project,
             now=now,

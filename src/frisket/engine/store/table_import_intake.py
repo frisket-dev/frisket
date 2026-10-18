@@ -332,6 +332,7 @@ class FrozenTableImport:
     plan: TableImportPlan
     estimated_rows: int | None
     exact_rows: int | None
+    source_record_count: int | None
 
 
 @dataclass(frozen=True)
@@ -496,7 +497,7 @@ def freeze_table_plan(
         raise ValueError("table plan scan is stale")
     if require_exact_count and (scan is None or not scan.complete):
         raise ValueError("table plan requires a complete row count")
-    if plan.dedup is not None and plan.dedup.snapshot_revision != _dedup_revision(
+    if plan.dedup is not None and plan.dedup.snapshot_revision != table_dedup_revision(
         directory
     ):
         raise ValueError("table dedup snapshot is stale")
@@ -523,7 +524,7 @@ def frozen_table_import(directory: Path) -> FrozenTableImport:
     revision, settings_hash, settings = read_table_settings(directory)
     if revision != plan.settings_revision or settings != plan.settings:
         raise ValueError("frozen table settings changed")
-    if plan.dedup is not None and plan.dedup.snapshot_revision != _dedup_revision(
+    if plan.dedup is not None and plan.dedup.snapshot_revision != table_dedup_revision(
         directory
     ):
         raise ValueError("frozen table dedup snapshot changed")
@@ -541,6 +542,9 @@ def frozen_table_import(directory: Path) -> FrozenTableImport:
             state.exact_rows
             if state.exact_rows is not None
             else (None if scan is None else scan.exact_rows)
+        ),
+        source_record_count=(
+            scan.scanned_rows if scan is not None and scan.complete else None
         ),
     )
 
@@ -674,7 +678,7 @@ def _open_table_db(directory: Path) -> sqlite3.Connection:
     return db
 
 
-def _dedup_revision(directory: Path) -> int:
+def table_dedup_revision(directory: Path) -> int:
     with _open_table_db(directory) as db:
         row = db.execute("SELECT revision FROM dedup_meta WHERE singleton=1").fetchone()
     return int(row[0])
@@ -908,6 +912,7 @@ __all__ = [
     "replace_table_settings",
     "table_import_status",
     "table_dedup_key",
+    "table_dedup_revision",
     "table_issue_groups",
     "table_key_exists",
     "table_problem_count",

@@ -13,6 +13,7 @@ from frisket.authoring.workbench.contracts import (
     RUNTIME_PLUGIN_SCHEMA_VERSION,
     WORKBENCH_DESCRIPTOR_PACKAGE_SCHEMA_VERSION,
 )
+from frisket.contracts.http.import_errors import ImportSourceErrorGroup
 
 
 ACTION_JOB_SCHEMA_VERSION = "frisket.job.v1"
@@ -703,6 +704,7 @@ class ActionJob(WireModel):
     action_kind: str | None = None
     action_name: str | None = None
     result_summary: dict[str, JsonValue] | None = None
+    import_errors: list[ImportSourceErrorGroup] = Field(default_factory=list)
     progress: ActionJobProgress | None = None
     attempts: int
     max_attempts: int

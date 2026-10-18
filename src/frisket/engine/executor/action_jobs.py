@@ -678,28 +678,10 @@ def reserve_typed_action_job(
     edition_run_context: Mapping[str, Any] | None = None,
 ) -> ActionJobEnvelope | ActionResult:
     """Reserve canonical intent without invoking a worker-resolved callable."""
-    from frisket.actions.core import _ProjectAction, CreateSheet
-    from frisket.actions.transcript_types import TranscriptReader
-    from frisket.actions.document_extract import PositionedDocumentReader
-    from frisket.actions.import_inventory_types import FileInventoryReader
-    from frisket.actions.temporal_types import TemporalMediaReader
     from frisket.engine.executor.action_inventory import _TypedProjectEnvelope
     from frisket.engine.executor.map_rows_action import typed_request_hash
 
-    terminal = bound.action.definition.run
-    if not (
-        isinstance(terminal, _ProjectAction)
-        or isinstance(terminal, CreateSheet)
-        and any(
-            cap in terminal.capabilities
-            for cap in (
-                TranscriptReader,
-                TemporalMediaReader,
-                FileInventoryReader,
-                PositionedDocumentReader,
-            )
-        )
-    ):
+    if not _supports_typed_action_job(bound):
         raise TypeError(
             "typed action jobs require a supported callable or transcript table"
         )
@@ -734,11 +716,6 @@ def bind_typed_action_job(
     envelope: ActionJobEnvelope, *, project: Any = None
 ) -> Any | ActionResult:
     """Revalidate queued intent; queue fields never authorize capability arguments."""
-    from frisket.actions.core import _ProjectAction, CreateSheet
-    from frisket.actions.transcript_types import TranscriptReader
-    from frisket.actions.document_extract import PositionedDocumentReader
-    from frisket.actions.import_inventory_types import FileInventoryReader
-    from frisket.actions.temporal_types import TemporalMediaReader
     from frisket.actions.system import typed_action_for_request
     from frisket.engine.executor.map_rows_action import typed_request_hash
 
@@ -755,23 +732,10 @@ def bind_typed_action_job(
             )
         if bound is None:
             bound = typed_action_for_request(dict(envelope.action))
-        terminal = bound.action.definition.run
         if (
             bound.request.action_id != envelope.action_kind
             or bound.request.idempotency_key != envelope.idempotency_key
-            or not (
-                isinstance(terminal, _ProjectAction)
-                or isinstance(terminal, CreateSheet)
-                and any(
-                    cap in terminal.capabilities
-                    for cap in (
-                        TranscriptReader,
-                        TemporalMediaReader,
-                        FileInventoryReader,
-                        PositionedDocumentReader,
-                    )
-                )
-            )
+            or not _supports_typed_action_job(bound)
             or envelope.resolve_phase != "worker"
         ):
             raise ValueError("action job identity does not match its canonical request")
@@ -793,6 +757,38 @@ def bind_typed_action_job(
                 field="action",
             ),
         )
+
+
+def _supports_typed_action_job(bound: Any) -> bool:
+    """Admit only typed callables with a worker-owned execution contract."""
+
+    from frisket.actions.core import CreateSheet, _ProjectAction
+    from frisket.actions.document_extract import PositionedDocumentReader
+    from frisket.actions.import_inventory_types import FileInventoryReader
+    from frisket.actions.temporal_types import TemporalMediaReader
+    from frisket.actions.transcript_types import TranscriptReader
+
+    terminal = bound.action.definition.run
+    if isinstance(terminal, _ProjectAction):
+        return True
+    if not isinstance(terminal, CreateSheet):
+        return False
+    if (
+        bound.request.action_id == "import.rows"
+        and getattr(bound.params, "rows", None) == []
+    ):
+        # The table-import worker supplies reviewed rows through the resumable
+        # writer; public nonempty inline imports keep their ordinary sync path.
+        return True
+    return any(
+        capability in terminal.capabilities
+        for capability in (
+            TranscriptReader,
+            TemporalMediaReader,
+            FileInventoryReader,
+            PositionedDocumentReader,
+        )
+    )
 
 
 def probe_queued_action_job_receipt(

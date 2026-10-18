@@ -29,6 +29,7 @@ from frisket.engine.store.table_import_intake import (
     replace_table_settings,
     table_import_status,
     table_dedup_key,
+    table_dedup_revision,
     table_issue_groups,
     table_key_exists,
     write_table_scan,
@@ -206,6 +207,7 @@ def test_final_dedup_snapshot_replaces_stale_preview_keys(tmp_path: Path) -> Non
         directory, (value for value in ["current", "", "current"]), expected_revision=1
     )
     assert revision == 2
+    assert table_dedup_revision(directory) == 2
     assert not table_key_exists(directory, "stale")
     assert table_key_exists(directory, "current")
     frozen = freeze_table_plan(
