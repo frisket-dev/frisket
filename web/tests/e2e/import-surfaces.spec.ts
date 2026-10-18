@@ -283,7 +283,7 @@ test('import workspace opens as a full-screen modal from the toolbar', async ({ 
     await expect(page.getByTestId(`import-mode-${mode}`)).toBeVisible();
   }
   await expect(page.getByTestId('import-mode-paste')).toHaveCount(0);
-  await expect(page.getByTestId('import-mode-urls')).toBeVisible();
+  await expect(page.getByTestId('import-source-urls')).toBeVisible();
   await expect(page.getByTestId('import-mode-xlsx')).toHaveCount(0);
   await expect(page.getByTestId('import-mode-pdf')).toHaveCount(0);
 });
@@ -637,24 +637,13 @@ test('Files accepts two XLSX workbooks, bulk-plans them once, and opens the desi
   expect(executeCount).toBe(1);
 });
 
-test('two generic Files selections use the shared bulk planner', async ({ page }) => {
+test('two generic Files selections with one PDF stay on the normal file import', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-bulk-generic-pair'));
   await importCsv(page.request, pid, 'seed.csv', 'name\nseed\n');
-  let planBody = '';
-  let legacyFilesCount = 0;
+  let preparationCount = 0;
   await page.route(`**/api/projects/${pid}/import/files/prepare`, async (route) => {
-    planBody = route.request().postData() ?? '';
-    await route.fulfill({
-      contentType: 'application/json',
-      body: bulkPreparation({
-        plan_id: 'generic-pair-plan', questions: [], proposed_outputs: [],
-        message: 'No importable files found.',
-      }),
-    });
-  });
-  await page.route(`**/api/projects/${pid}/import/files`, async (route) => {
-    legacyFilesCount += 1;
-    await route.fulfill({ status: 500, body: 'two files must share bulk planning' });
+    preparationCount += 1;
+    await route.fulfill({ status: 500, body: 'one-PDF generic selections must not use staged preparation' });
   });
 
   await page.goto(`/p/${pid}`);
@@ -667,12 +656,10 @@ test('two generic Files selections use the shared bulk planner', async ({ page }
     { name: 'docket.pdf', mimeType: 'application/pdf', buffer: minimalPdf('generic pair') },
   ]);
 
-  await expect.poll(() => planBody).not.toBe('');
-  expect(multipartFilenames(planBody)).toEqual(['note.txt', 'docket.pdf']);
-  expect(multipartFieldValues(planBody, 'logical_paths')).toEqual(['note.txt', 'docket.pdf']);
-  expect(multipartFieldValues(planBody, 'expand_archive')).toEqual(['false']);
-  expect(legacyFilesCount).toBe(0);
-  await expect(workspace.getByRole('status')).toContainText('No importable files found.');
+  await expect(page.getByTestId('sheet-stats')).toHaveText('2 rows · 3 columns', {
+    timeout: 15_000,
+  });
+  expect(preparationCount).toBe(0);
 });
 
 test('a directly selected extensionless file is sent to the bulk planner', async ({ page }) => {
@@ -984,7 +971,7 @@ test('import surface exposes non-CSV modes and imports file rows', async ({ page
   await expect(page.getByTestId('import-mode-paste')).toBeVisible();
 
   await page.getByTestId('import-mode-files').click();
-  await expect(page.getByTestId('import-file-picker')).toContainText('Choose files');
+  await expect(page.getByTestId('import-file-picker')).toContainText('Pick files');
   await expect(page.getByTestId('import-multiple-supported')).toContainText(
     'PDFs are added as documents',
   );
@@ -1030,7 +1017,7 @@ test('import surface exposes non-CSV modes and imports file rows', async ({ page
   await expect(page.getByTestId('row-drawer')).toContainText('note.txt');
 
   await openImportWorkspace(page);
-  await page.getByTestId('import-mode-urls').click();
+  await page.getByTestId('import-source-urls').click();
   await page.getByTestId('import-url-list').fill('not-a-url');
   await page.getByTestId('import-url-submit').click();
 
