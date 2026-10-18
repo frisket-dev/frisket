@@ -90,6 +90,9 @@ from frisket.server.routes.imports import (
 from frisket.server.routes.import_sessions import register_import_session_routes
 from frisket.server.routes.search_preparation import register_search_preparation_routes
 from frisket.server.routes.pdf_packet_splits import register_pdf_packet_split_routes
+from frisket.server.routes.pdf_imports import register_pdf_import_routes
+from frisket.server.services.pdf_imports import PdfImportService
+from frisket.documents.text_quality import assess_text_quality
 from frisket.server.routes.instance import (
     register_admin_pricing_routes,
     register_health_routes,
@@ -752,6 +755,12 @@ def create_app(
         ws, registry=pdf_packet_job_registry
     )
     search_preparation_service = SearchPreparationService(ws)
+    pdf_import_service = PdfImportService(
+        ws,
+        preview_runs=action_preview_run_service,
+        quality_assessor=assess_text_quality,
+    )
+    app.state.pdf_import_service = pdf_import_service
     pdf_packet_split_service = PdfPacketSplitService(
         ws,
         registry=pdf_packet_job_registry,
@@ -919,6 +928,7 @@ def create_app(
         service=pdf_packet_split_service,
         limits=bulk_limits,
     )
+    register_pdf_import_routes(app, service=pdf_import_service, limits=bulk_limits)
     register_import_followthemoney_routes(
         app,
         service=FollowTheMoneyUploadService(ws),

@@ -63,8 +63,7 @@ import {
   type PdfPacketShellContext,
 } from './importWorkspace/pdfPacket/PdfPacketImportFlow';
 import { PDF_PACKET_STAGES } from './importWorkspace/pdfPacket/model';
-import { PdfBatchImportFlow, type PdfBatchShellContext } from './importWorkspace/pdfBatch/PdfBatchImportFlow';
-import { canHandlePdfBatch } from './importWorkspace/pdfBatch/model';
+import { PdfBatchImportFlow, PdfBatchDrafts, canHandlePdfBatch, type PdfBatchShellContext } from './importWorkspace/pdfBatch';
 import { SearchPreparationReceipt } from './SearchPreparationReceipt';
 import {
   IMPORT_MODES,
@@ -1038,6 +1037,8 @@ function OpenImportWorkspaceSession({
   const pdfPacketCloseGuardRef = useRef<(() => boolean) | null>(null);
   const pdfBatchCloseGuardRef = useRef<(() => boolean) | null>(null);
   const [pdfBatchFiles, setPdfBatchFiles] = useState<File[] | null>(null);
+  const [pdfBatchResumeId, setPdfBatchResumeId] = useState<string | null>(null);
+  const pdfBatchActive = pdfBatchFiles !== null || pdfBatchResumeId !== null;
   const [pdfBatchContext, setPdfBatchContext] = useState<PdfBatchShellContext | null>(null);
   const registerPdfBatchCloseGuard = useCallback((guard: (() => boolean) | null) => {
     pdfBatchCloseGuardRef.current = guard;
@@ -1305,7 +1306,7 @@ function OpenImportWorkspaceSession({
     onClose();
   }, [onClose, resetBulkPlan, resetCsvPreview, resetDraft]);
   const closeWorkspaceFromUser = useCallback(() => {
-    if (pdfBatchFiles) {
+    if (pdfBatchActive) {
       if (pdfBatchCloseGuardRef.current && !pdfBatchCloseGuardRef.current()) return;
       closeWorkspace();
       return;
@@ -1313,7 +1314,7 @@ function OpenImportWorkspaceSession({
     if (selectionPreparing || (busy && !sessionBusy) || bulkBusy || draftBusy || pdfPacketContext.busy) return;
     if (mode === 'pdf_split' && pdfPacketCloseGuardRef.current && !pdfPacketCloseGuardRef.current()) return;
     closeWorkspace();
-  }, [bulkBusy, busy, closeWorkspace, draftBusy, mode, pdfBatchFiles, pdfPacketContext.busy, selectionPreparing, sessionBusy]);
+  }, [bulkBusy, busy, closeWorkspace, draftBusy, mode, pdfBatchActive, pdfPacketContext.busy, selectionPreparing, sessionBusy]);
 
   // The ONE shared success
   // handler replacing the three independent close-on-success calls
@@ -1841,7 +1842,7 @@ function OpenImportWorkspaceSession({
         onMouseDown={closeWorkspaceFromUser}
       />
       <section
-        className={`import-workspace${pdfPacketContext.active || pdfBatchFiles ? ' pdf-packet-workspace' : ''}`}
+        className={`import-workspace${pdfPacketContext.active || pdfBatchActive ? ' pdf-packet-workspace' : ''}${pdfBatchActive ? ' pdf-batch-workspace' : ''}`}
         data-testid="import-workspace"
         aria-label="Import"
         tabIndex={-1}
@@ -1929,14 +1930,14 @@ function OpenImportWorkspaceSession({
             className="icon-btn"
             aria-label="Close import"
             data-testid="import-workspace-close"
-            disabled={!pdfBatchFiles && (selectionPreparing || (busy && !sessionBusy) || bulkBusy || draftBusy || pdfPacketContext.busy)}
+            disabled={!pdfBatchActive && (selectionPreparing || (busy && !sessionBusy) || bulkBusy || draftBusy || pdfPacketContext.busy)}
             onClick={closeWorkspaceFromUser}
           >
             <X size={16} />
           </button>
         </header>
-        <div className={`import-workspace-main${pdfPacketContext.active || pdfBatchFiles ? ' pdf-packet-workspace-main' : ''}${showPreparation ? ' import-workspace-main-preparation' : ''}`}>
-          {!pdfPacketContext.active && !pdfBatchFiles && !showPreparation ? (
+        <div className={`import-workspace-main${pdfPacketContext.active || pdfBatchActive ? ' pdf-packet-workspace-main' : ''}${showPreparation ? ' import-workspace-main-preparation' : ''}`}>
+          {!pdfPacketContext.active && !pdfBatchActive && !showPreparation ? (
             <aside className="import-workspace-sidebar">
               <ImportModeRail modes={IMPORT_MODES} mode={railMode} onSelectMode={selectMode} />
             </aside>
@@ -1952,11 +1953,12 @@ function OpenImportWorkspaceSession({
             {mode === 'paste' ? (
               <ImportStageStepper stages={IMPORT_WORKSPACE_STAGES} stage={stage} />
             ) : null}
-            <div className={`import-workspace-panel${mode === 'pdf_split' || pdfBatchFiles ? ' pdf-packet-workspace-panel' : ''}`}>
-              {pdfBatchFiles ? (
+            <div className={`import-workspace-panel${mode === 'pdf_split' || pdfBatchActive ? ' pdf-packet-workspace-panel' : ''}`}>
+              {pdfBatchActive ? (
                 <PdfBatchImportFlow
                   projectId={projectId}
-                  files={pdfBatchFiles}
+                  files={pdfBatchFiles ?? undefined}
+                  resumeDraftId={pdfBatchResumeId}
                   destinationSheets={destinationSheets.filter((sheet) => sheet.parent === undefined).map((sheet) => ({ id: Number(sheet.id), name: sheet.name }))}
                   onContextChange={setPdfBatchContext}
                   registerCloseGuard={registerPdfBatchCloseGuard}
@@ -1965,6 +1967,7 @@ function OpenImportWorkspaceSession({
                   onError={onError}
                 />
               ) : <>
+              {railMode === 'files' && !showPreparation && <PdfBatchDrafts projectId={projectId} onResume={setPdfBatchResumeId} />}
               {railMode === 'files' && !showPreparation ? (
                 <SegmentedToggle
                   fullWidth={false}
