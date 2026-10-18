@@ -248,3 +248,22 @@ describe('PDF import post-commit activity', () => {
     expect(second).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('table import progress', () => {
+  it('keeps an unknown row total indeterminate and shows actual processed rows', () => {
+    const activity = importActivity(session({
+      intake_kind: 'table', state: 'running', selected_total: null,
+      estimated_rows: null, processed_rows: 500, committed_rows: 475,
+      skipped_duplicates: 25, source_label: 'contributions.csv',
+      preparation_children: [], preparation_total: 0, preparation_completed: 0,
+      ocr_total: 0, ocr_completed: 0, unreadable_total: 0,
+      sheet_name: 'Contributions',
+    }));
+    const combined = composeImportSearchActivity(activity, null);
+    expect(combined?.notice.title).toBe('Import: Contributions');
+    expect(combined?.notice.detail).toContain('475 rows added');
+    expect(combined?.notice.detail).toContain('25 duplicates skipped');
+    expect(combined?.lines[0]).toMatchObject({ completed: 500, total: null, complete: false });
+    expect(pendingImportRowCount(activity)).toBe(0);
+  });
+});

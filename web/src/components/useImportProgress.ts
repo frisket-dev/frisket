@@ -50,7 +50,7 @@ export interface ImportActivityLine {
   key: 'adding' | 'native' | 'ocr';
   label: string;
   completed: number;
-  total: number;
+  total: number | null;
   detail?: string;
   complete?: boolean;
 }
@@ -66,8 +66,14 @@ export interface ImportActivity {
 
 export function pendingImportRowCount(activity: ImportActivity | null): number {
   if (!activity || !['admitting', 'running'].includes(activity.session.state)) return 0;
-  const selectedTotal = activity.session.selected_total ?? activity.session.admitted_files;
+  const selectedTotal = importRowTotal(activity.session) ?? activity.session.committed_rows;
   return Math.max(selectedTotal - activity.session.committed_rows, 0);
+}
+
+function importRowTotal(session: ImportSessionStatus): number | null {
+  return session.intake_kind === 'table'
+    ? session.selected_total ?? session.estimated_rows ?? null
+    : session.selected_total ?? session.admitted_files;
 }
 
 export function preferredImportActivity(activities: ImportActivity[]): ImportActivity | null {
@@ -88,8 +94,9 @@ function activeChild(session: ImportSessionStatus): ImportPreparationChild | nul
 }
 
 export function importActivity(session: ImportSessionStatus): ImportActivity | null {
-  const selectedTotal = session.selected_total ?? session.admitted_files;
-  const committedRows = Math.min(session.committed_rows, selectedTotal);
+  const selectedTotal = importRowTotal(session);
+  const committedRows = selectedTotal === null
+    ? session.committed_rows : Math.min(session.committed_rows, selectedTotal);
   const preparationIncomplete = session.preparation_completed < session.preparation_total;
   const active = ['admitting', 'running', 'paused', 'cancelling', 'cancelled'].includes(session.state)
     || Boolean(session.error)
@@ -102,7 +109,11 @@ export function importActivity(session: ImportSessionStatus): ImportActivity | n
     label: 'Adding rows',
     completed: committedRows,
     total: selectedTotal,
-    complete: ['completed', 'kept'].includes(session.state) && committedRows >= selectedTotal,
+    complete: ['completed', 'kept'].includes(session.state)
+      && (session.intake_kind === 'table' || (selectedTotal !== null && committedRows >= selectedTotal)),
+    ...(session.intake_kind === 'table' ? {
+      detail: `${committedRows.toLocaleString()} added${session.skipped_duplicates ? ` · ${session.skipped_duplicates.toLocaleString()} duplicates skipped` : ''}`,
+    } : {}),
   }];
   const nativeTotal = Math.max(session.preparation_total - session.ocr_total, 0);
   const nativeCompleted = Math.max(Math.min(
@@ -382,6 +393,7 @@ export function composeImportSearchActivity(
 ): { notice: SearchPreparationNotice; lines: ImportSearchActivityLine[] } | null {
   if (!activity) return null;
   const { session } = activity;
+  if (session.intake_kind === 'table') return composeTableImportActivity(activity, search);
   const selectedTotal = session.selected_total ?? session.admitted_files;
   const preparationRemaining = Math.max(
     session.preparation_total - session.preparation_completed,
@@ -394,7 +406,7 @@ export function composeImportSearchActivity(
   const indexActive = search?.tone === 'active';
   const indexComplete = search?.tone === 'complete';
   const ocrLine = activity.lines.find((line) => line.key === 'ocr') ?? null;
-  const readingOcr = ocrLine !== null && ocrLine.completed < ocrLine.total;
+  const readingOcr = ocrLine !== null && ocrLine.total !== null && ocrLine.completed < ocrLine.total;
   const lines: ImportSearchActivityLine[] = [
     ...activity.lines.map((line) => ({ ...line })),
     {
@@ -423,7 +435,7 @@ export function composeImportSearchActivity(
       detail: session.error ?? (recovering
         ? `${session.committed_rows.toLocaleString()} rows added`
         : readingOcr && ocrLine
-          ? `Reading text with OCR · ${ocrLine.completed.toLocaleString()} of ${ocrLine.total.toLocaleString()} files`
+          ? `Reading text with OCR · ${ocrLine.completed.toLocaleString()} of ${ocrLine.total?.toLocaleString()} files`
           : `${readyFiles.toLocaleString()} of ${selectedTotal.toLocaleString()} files ready`),
       progress: null,
       details: search?.details ?? [],
@@ -431,5 +443,44 @@ export function composeImportSearchActivity(
       pdfFilesTruncated: search?.pdfFilesTruncated,
     },
     lines,
+  };
+}
+
+function composeTableImportActivity(
+  activity: ImportActivity,
+  search: SearchPreparationNotice | null,
+): { notice: SearchPreparationNotice; lines: ImportSearchActivityLine[] } {
+  const { session } = activity;
+  const total = importRowTotal(session);
+  const added = session.committed_rows.toLocaleString();
+  const processed = session.processed_rows ?? session.committed_rows;
+  const finished = ['completed', 'kept'].includes(session.state);
+  const detail = session.error ?? (activity.needsRecovery
+    ? `${added} rows added · import stopped`
+    : `${added} rows added${session.skipped_duplicates ? ` · ${session.skipped_duplicates.toLocaleString()} duplicates skipped` : ''}`);
+  return {
+    notice: {
+      activityKey: `import:${session.import_ref}`,
+      reviewBatchId: null,
+      stopBatchId: activity.canStop ? session.import_ref : null,
+      stage: session.error ? 'failed' : 'prepare',
+      tone: session.error ? 'error' : activity.needsRecovery ? 'warning' : 'active',
+      title: `Import: ${session.sheet_name}`,
+      detail,
+      progress: null,
+      details: session.source_label ? [session.source_label] : [],
+    },
+    lines: [
+      {
+        key: 'adding', label: 'Adding rows', completed: processed,
+        total, complete: finished,
+        detail: total === null ? `${added} added` : `${processed.toLocaleString()} / ${session.selected_total === null ? 'about ' : ''}${total.toLocaleString()}`,
+      },
+      {
+        key: 'search-index', label: 'Search index', completed: null, total: null,
+        detail: search?.detail ?? (finished ? 'Waiting for indexing' : 'Rows are indexed as they arrive'),
+        complete: search?.tone === 'complete',
+      },
+    ],
   };
 }

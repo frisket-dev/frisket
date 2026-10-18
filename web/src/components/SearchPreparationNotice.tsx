@@ -24,6 +24,7 @@ export function SearchPreparationNotice({
   onKeepImport,
   importActionBusy = false,
   importMessage,
+  onOpenErrors,
 }: {
   notice: Notice;
   onReviewPreparation?: (batchId: string) => void;
@@ -36,6 +37,7 @@ export function SearchPreparationNotice({
   onKeepImport?(): void;
   importActionBusy?: boolean;
   importMessage?: string | null;
+  onOpenErrors?(): void;
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [stopState, setStopState] = useState<{ batchId: string; busy: boolean; error: string | null } | null>(null);
@@ -64,8 +66,8 @@ export function SearchPreparationNotice({
     ? notice.tone === 'error'
       ? 'Search preparation needs attention.'
       : searchLine.complete
-      ? 'Ready files are searchable.'
-      : 'Files become searchable as preparation finishes.'
+      ? 'Ready content is searchable.'
+      : 'Content becomes searchable as preparation finishes.'
     : null;
   const canStop = Boolean(notice.stopBatchId && onStopPreparation);
   const canReview = Boolean(
@@ -73,7 +75,7 @@ export function SearchPreparationNotice({
       && (notice.stage === 'approval' || notice.stage === 'failed'),
   );
   const hasFooter = Boolean(
-    searchFooter || canStop || onResumeImport || onKeepImport || importMessage || canReview,
+    searchFooter || onOpenErrors || canStop || onResumeImport || onKeepImport || importMessage || canReview,
   );
 
   return (
@@ -90,6 +92,9 @@ export function SearchPreparationNotice({
         <>
           {searchFooter && <span className="search-preparation-footer-copy">{searchFooter}</span>}
           <div className="search-preparation-actions">
+            {onOpenErrors && <button type="button" className="search-preparation-action" onClick={onOpenErrors}>
+              View issues
+            </button>}
             {canStop && (
               <button type="button" className="search-preparation-action" disabled={currentStop?.busy}
                 onClick={() => void stop()}>

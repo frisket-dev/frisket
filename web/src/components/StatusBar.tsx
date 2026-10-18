@@ -155,7 +155,7 @@ export function StatusBar({
   onUndo, onRedo, onOpenReview, onCancelRun,
   onShowFailedRows, onRetryFailedRows,
 }: StatusBarProps) {
-  const { actSurface, chromePreferences: { projectId } } = useWorkspaceStores();
+  const { actSurface, chrome, chromePreferences: { projectId } } = useWorkspaceStores();
   const { descriptor } = useEditionModule();
   const baseSearchPreparationNotice = useSearchPreparationNotice(
     projectId,
@@ -249,6 +249,8 @@ export function StatusBar({
             importActionBusy={importProgress.busyRef === importActivity?.importRef
               || importProgress.preparingRef === importActivity?.importRef}
             importMessage={importActivity ? importProgress.message : null}
+            onOpenErrors={(importActivity?.session.problem_count ?? 0) > 0
+              ? () => chrome.setActiveBottomDockTab('errors') : undefined}
             onDismiss={() => setSearchNoticeOpen(false)}
           />
         )}

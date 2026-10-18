@@ -2603,6 +2603,21 @@ type HttpActionJob_ActionWorkProgress = ({
   "kind": ("ocr_pages") & (string);
 });
 
+type HttpActionJob_ImportSourceErrorExample = ({
+  "column_name": (string);
+  "line_end"?: (((number)) | ((null)));
+  "line_start"?: (((number)) | ((null)));
+  "original": (string);
+  "source_ordinal": (number);
+});
+
+type HttpActionJob_ImportSourceErrorGroup = ({
+  "code": (string);
+  "count": (number);
+  "examples"?: (Array<(HttpActionJob_ImportSourceErrorExample)>);
+  "message": (string);
+});
+
 type HttpActionJob_JsonValue = JsonValue;
 
 type HttpActionJob_RunRowErrorGroup = ({
@@ -2627,6 +2642,7 @@ export type HttpActionJob = ({
   "action_name"?: (((string)) | ((null)));
   "attempts": (number);
   "error": (((string)) | ((null)));
+  "import_errors"?: (Array<(HttpActionJob_ImportSourceErrorGroup)>);
   "job_id": (number);
   "kind": (string);
   "lease": (HttpActionJob_ActionJobLease);
@@ -2658,6 +2674,7 @@ type HttpActionJobsPage_ActionJob = ({
   "action_name"?: (((string)) | ((null)));
   "attempts": (number);
   "error": (((string)) | ((null)));
+  "import_errors"?: (Array<(HttpActionJobsPage_ImportSourceErrorGroup)>);
   "job_id": (number);
   "kind": (string);
   "lease": (HttpActionJobsPage_ActionJobLease);
@@ -2758,6 +2775,21 @@ type HttpActionJobsPage_ActionRunTiming = ({
 type HttpActionJobsPage_ActionWorkProgress = ({
   "files": (Array<(HttpActionJobsPage_ActionFileWorkProgress)>);
   "kind": ("ocr_pages") & (string);
+});
+
+type HttpActionJobsPage_ImportSourceErrorExample = ({
+  "column_name": (string);
+  "line_end"?: (((number)) | ((null)));
+  "line_start"?: (((number)) | ((null)));
+  "original": (string);
+  "source_ordinal": (number);
+});
+
+type HttpActionJobsPage_ImportSourceErrorGroup = ({
+  "code": (string);
+  "count": (number);
+  "examples"?: (Array<(HttpActionJobsPage_ImportSourceErrorExample)>);
+  "message": (string);
 });
 
 type HttpActionJobsPage_JsonValue = JsonValue;
@@ -6165,7 +6197,9 @@ type HttpImportSessionList_ImportSessionStatus = ({
   "committed_bytes"?: (number);
   "committed_rows"?: (number);
   "error"?: (((string)) | ((null)));
+  "estimated_rows"?: (((number)) | ((null)));
   "import_ref": (string);
+  "intake_kind"?: ("files" | "table") & (string);
   "ocr_completed"?: (number);
   "ocr_total"?: (number);
   "preparation_children"?: (Array<(HttpImportSessionList_ImportPreparationChild)>);
@@ -6175,6 +6209,8 @@ type HttpImportSessionList_ImportSessionStatus = ({
 })) | ((null)));
   "preparation_stopped"?: (boolean);
   "preparation_total"?: (number);
+  "problem_count"?: (number);
+  "processed_rows"?: (number);
   "row_error_summary"?: (((HttpImportSessionList_RunRowErrorSummary)) | ((null)));
   "sealed": (boolean);
   "search_preparation_batch_id"?: (((string)) | ((null)));
@@ -6183,9 +6219,27 @@ type HttpImportSessionList_ImportSessionStatus = ({
   "semantic_preparation_error"?: (((string)) | ((null)));
   "sheet_id"?: (((number)) | ((null)));
   "sheet_name": (string);
+  "skipped_duplicates"?: (number);
+  "source_error_groups"?: (Array<(HttpImportSessionList_ImportSourceErrorGroup)>);
+  "source_label"?: (((string)) | ((null)));
   "state": ("admitting" | "running" | "paused" | "cancelling" | "cancelled" | "completed" | "kept" | "removed") & (string);
   "through": (number);
   "unreadable_total"?: (number);
+});
+
+type HttpImportSessionList_ImportSourceErrorExample = ({
+  "column_name": (string);
+  "line_end"?: (((number)) | ((null)));
+  "line_start"?: (((number)) | ((null)));
+  "original": (string);
+  "source_ordinal": (number);
+});
+
+type HttpImportSessionList_ImportSourceErrorGroup = ({
+  "code": (string);
+  "count": (number);
+  "examples"?: (Array<(HttpImportSessionList_ImportSourceErrorExample)>);
+  "message": (string);
 });
 
 type HttpImportSessionList_JsonValue = JsonValue;
@@ -6225,6 +6279,21 @@ type HttpImportSessionStatus_ImportPreparationChild = ({
   "status": (string);
 });
 
+type HttpImportSessionStatus_ImportSourceErrorExample = ({
+  "column_name": (string);
+  "line_end"?: (((number)) | ((null)));
+  "line_start"?: (((number)) | ((null)));
+  "original": (string);
+  "source_ordinal": (number);
+});
+
+type HttpImportSessionStatus_ImportSourceErrorGroup = ({
+  "code": (string);
+  "count": (number);
+  "examples"?: (Array<(HttpImportSessionStatus_ImportSourceErrorExample)>);
+  "message": (string);
+});
+
 type HttpImportSessionStatus_JsonValue = JsonValue;
 
 type HttpImportSessionStatus_RunRowErrorGroup = ({
@@ -6251,7 +6320,9 @@ export type HttpImportSessionStatus = ({
   "committed_bytes"?: (number);
   "committed_rows"?: (number);
   "error"?: (((string)) | ((null)));
+  "estimated_rows"?: (((number)) | ((null)));
   "import_ref": (string);
+  "intake_kind"?: ("files" | "table") & (string);
   "ocr_completed"?: (number);
   "ocr_total"?: (number);
   "preparation_children"?: (Array<(HttpImportSessionStatus_ImportPreparationChild)>);
@@ -6261,6 +6332,8 @@ export type HttpImportSessionStatus = ({
 })) | ((null)));
   "preparation_stopped"?: (boolean);
   "preparation_total"?: (number);
+  "problem_count"?: (number);
+  "processed_rows"?: (number);
   "row_error_summary"?: (((HttpImportSessionStatus_RunRowErrorSummary)) | ((null)));
   "sealed": (boolean);
   "search_preparation_batch_id"?: (((string)) | ((null)));
@@ -6269,6 +6342,9 @@ export type HttpImportSessionStatus = ({
   "semantic_preparation_error"?: (((string)) | ((null)));
   "sheet_id"?: (((number)) | ((null)));
   "sheet_name": (string);
+  "skipped_duplicates"?: (number);
+  "source_error_groups"?: (Array<(HttpImportSessionStatus_ImportSourceErrorGroup)>);
+  "source_label"?: (((string)) | ((null)));
   "state": ("admitting" | "running" | "paused" | "cancelling" | "cancelled" | "completed" | "kept" | "removed") & (string);
   "through": (number);
   "unreadable_total"?: (number);
