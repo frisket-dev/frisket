@@ -24,6 +24,7 @@ import {
 import { createPortal } from 'react-dom';
 import { Check, Zap } from 'lucide-react';
 import { DropdownIndicator } from './DropdownIndicator';
+import { MenuPop } from './MenuPop';
 import './PanelSelect.css';
 import { useAnchoredPosition } from '../hooks/useAnchoredPosition';
 
@@ -234,8 +235,9 @@ export const PanelSelect = forwardRef<HTMLSelectElement, PanelSelectProps>(funct
       )}
       {open && !disabled &&
         createPortal(
-          <div
-            className="panel-select-menu"
+          <MenuPop
+            className="select-menu"
+            sizing="anchored"
             role="listbox"
             ref={menuRef}
             data-testid={effectiveTestId ? `${effectiveTestId}-menu` : undefined}
@@ -256,11 +258,9 @@ export const PanelSelect = forwardRef<HTMLSelectElement, PanelSelectProps>(funct
                 role="option"
                 aria-selected="false"
                 aria-disabled="true"
-                className="panel-select-option is-empty"
+                className="menu-empty"
               >
-                <span className="panel-select-option-main">
-                  <span className="panel-select-option-label">{emptyMessage}</span>
-                </span>
+                {emptyMessage}
               </div>
             ) : (
               options.map((option, index) => {
@@ -276,18 +276,18 @@ export const PanelSelect = forwardRef<HTMLSelectElement, PanelSelectProps>(funct
                       type="button"
                       role="option"
                       aria-selected={option.value === selectedValue}
-                      className={`panel-select-option${option.value === selectedValue ? ' is-selected' : ''}`}
+                      className="menu-item"
                       disabled={option.disabled}
                       onClick={() => choose(option.value)}
                     >
-                      <span className="panel-select-option-main">
-                        <span className="panel-select-option-label">
+                      <span className="menu-item-copy">
+                        <span className="menu-item-label">
                           {option.leadingIcon}
                           {option.ai && <Zap size={12} className="panel-select-ai" aria-label="AI column" />}
                           {option.label}
                         </span>
                         {option.description && (
-                          <span className="panel-select-option-desc">{option.description}</span>
+                          <span className="menu-item-description">{option.description}</span>
                         )}
                       </span>
                       {option.value === selectedValue && <Check size={13} className="panel-select-check" aria-hidden />}
@@ -296,7 +296,7 @@ export const PanelSelect = forwardRef<HTMLSelectElement, PanelSelectProps>(funct
                 );
               })
             )}
-          </div>,
+          </MenuPop>,
           portalDialog ?? document.body,
         )}
     </>

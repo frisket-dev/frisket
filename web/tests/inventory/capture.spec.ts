@@ -32,7 +32,9 @@ async function shot(page: Page, family: string, name: string, source: string) {
     await page.screenshot({ path: path.join(output, file), fullPage: true, animations: 'disabled' });
     let detail: string | undefined;
     if (detailSelectors[family]) {
-      const pane = page.locator(detailSelectors[family]).first();
+      const pane = family === 'Side panels' && await page.getByTestId('import-workspace-dialog').isVisible()
+        ? page.getByTestId('import-workspace-dialog')
+        : page.locator(detailSelectors[family]).first();
       if (await pane.isVisible()) {
         detail = `${base}-detail.png`;
         await pane.screenshot({ path: path.join(output, detail), animations: 'disabled' });

@@ -72,41 +72,8 @@
 }
 
 .options {
-  position: absolute;
-  z-index: 20;
-  top: calc(100% + 3px);
   left: 0;
   right: 0;
-  max-height: 176px;
-  overflow: auto;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-6);
-  background: var(--bg);
-  box-shadow: var(--shadow-menu);
-  padding: 3px;
-}
-
-.option {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  width: 100%;
-  padding: 5px 6px;
-  border-radius: var(--radius-4);
-  text-align: left;
-  font-size: 12px;
-}
-
-.option:hover,
-.option:global(.is-active),
-.option[aria-selected='true'] {
-  background: var(--accent-bg);
-}
-
-.optionEmpty {
-  padding: 5px 6px;
-  color: var(--text-light);
-  font-size: 12px;
 }
 
 .warning {

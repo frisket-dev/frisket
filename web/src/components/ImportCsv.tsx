@@ -2119,7 +2119,7 @@ function MediaDownloadPrompt({
   onDismiss(): void;
 }) {
   return (
-    <div className="sources-form import-feed-form" data-testid="media-download-prompt">
+    <div className="content-stack import-feed-form" data-testid="media-download-prompt">
       <div className="import-mode-summary">
         <ListVideo size={16} aria-hidden />
         <strong>Download media?</strong>
@@ -2162,7 +2162,7 @@ function NerExtractPrompt({
   onDismiss(): void;
 }) {
   return (
-    <div className="sources-form import-feed-form" data-testid="ner-import-prompt">
+    <div className="content-stack import-feed-form" data-testid="ner-import-prompt">
       <div className="import-mode-summary">
         <AtSign size={16} aria-hidden />
         <strong>Find the names in it?</strong>
@@ -2328,7 +2328,7 @@ function FeedSourceForm({
 
   if (populate) {
     return (
-      <div className="sources-form import-feed-form" data-testid="feed-populate-prompt">
+      <div className="content-stack import-feed-form" data-testid="feed-populate-prompt">
         <div className="import-mode-summary">
           {feedKindIcon(kind)}
           <strong>Populate feed?</strong>
@@ -2367,61 +2367,58 @@ function FeedSourceForm({
   }
 
   return (
-    <div className="sources-form import-feed-form" data-testid="source-form">
+    <div className="content-stack import-feed-form" data-testid="source-form">
       <div className="import-mode-summary">
         {feedKindIcon(kind)}
         <strong>Feed</strong>
         <span>{feedKindLabel(kind)}</span>
       </div>
-      <label className="import-field-label" htmlFor="source-url-input">
-        URL or reference
-      </label>
-      <TextInput
-        id="source-url-input"
+      <FormField label="URL or reference" htmlFor="source-url-input">
+        <TextInput
+          id="source-url-input"
 
-        placeholder={selectedKind.placeholder}
-        aria-label="Feed URL or reference"
-        data-testid="source-url"
-        value={url}
-        onChange={(e) => {
-          const next = e.target.value;
-          dispatch({
-            type: 'setUrl',
-            value: next,
-            detectedKind: kindTouchedRef.current ? undefined : detectFeedSourceKind(next),
-          });
-        }}
-      />
-      <label className="import-field-label" htmlFor="source-kind-input">
-        Type
-      </label>
-      <PanelSelect
-        id="source-kind-input"
-        className="form-input"
-        aria-label="Source type"
-        data-testid="source-kind"
-        value={kind}
-        onChange={(e) => {
-          kindTouchedRef.current = true;
-          dispatch({ type: 'setKind', value: e.target.value as FeedSourceKind });
-        }}
-      >
-        {FEED_SOURCE_KINDS.map((option) => (
-          <option key={option.value} value={option.value}>{option.label}</option>
-        ))}
-      </PanelSelect>
-      <label className="import-field-label" htmlFor="source-name-input">
-        Name
-      </label>
-      <TextInput
-        id="source-name-input"
+          placeholder={selectedKind.placeholder}
+          aria-label="Feed URL or reference"
+          data-testid="source-url"
+          value={url}
+          onChange={(e) => {
+            const next = e.target.value;
+            dispatch({
+              type: 'setUrl',
+              value: next,
+              detectedKind: kindTouchedRef.current ? undefined : detectFeedSourceKind(next),
+            });
+          }}
+        />
+      </FormField>
+      <FormField label="Type" htmlFor="source-kind-input">
+        <PanelSelect
+          id="source-kind-input"
+          className="form-input"
+          aria-label="Source type"
+          data-testid="source-kind"
+          value={kind}
+          onChange={(e) => {
+            kindTouchedRef.current = true;
+            dispatch({ type: 'setKind', value: e.target.value as FeedSourceKind });
+          }}
+        >
+          {FEED_SOURCE_KINDS.map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </PanelSelect>
+      </FormField>
+      <FormField label="Name" htmlFor="source-name-input">
+        <TextInput
+          id="source-name-input"
 
-        placeholder={defaultFeedName(kind, url)}
-        aria-label="Source name"
-        data-testid="source-name"
-        value={name}
-        onChange={(e) => dispatch({ type: 'setName', value: e.target.value })}
-      />
+          placeholder={defaultFeedName(kind, url)}
+          aria-label="Source name"
+          data-testid="source-name"
+          value={name}
+          onChange={(e) => dispatch({ type: 'setName', value: e.target.value })}
+        />
+      </FormField>
 
       {(kind === 'youtube_playlist' || kind === 'youtube_channel') && (
         <div className="sources-form-grid">
@@ -2521,33 +2518,31 @@ function FeedSourceForm({
               Documents
             </label>
           </div>
-          <label className="import-field-label form-field">
-            Max entries
+          <FormField label="Max entries">
             <TextInput
               aria-label="CourtListener max entries"
               data-testid="source-court-max-entries"
               value={courtMaxEntries}
               onChange={(e) => dispatch({ type: 'setCourtMaxEntries', value: e.target.value })}
             />
-          </label>
+          </FormField>
         </>
       )}
 
-      <label className="import-field-label" htmlFor="source-interval-input">
-        Update frequency
-      </label>
-      <PanelSelect
-        id="source-interval-input"
-        className="form-input"
-        aria-label="Update frequency"
-        data-testid="source-interval"
-        value={cadence}
-        onChange={(e) => dispatch({ type: 'setCadence', value: e.target.value as SourceInterval })}
-      >
-        {INTERVALS.map((i) => (
-          <option key={i.value} value={i.value}>{i.label}</option>
-        ))}
-      </PanelSelect>
+      <FormField label="Update frequency" htmlFor="source-interval-input">
+        <PanelSelect
+          id="source-interval-input"
+          className="form-input"
+          aria-label="Update frequency"
+          data-testid="source-interval"
+          value={cadence}
+          onChange={(e) => dispatch({ type: 'setCadence', value: e.target.value as SourceInterval })}
+        >
+          {INTERVALS.map((i) => (
+            <option key={i.value} value={i.value}>{i.label}</option>
+          ))}
+        </PanelSelect>
+      </FormField>
       {(validationError || error) && (
         <div className="panel-error" role="alert">
           {validationError ?? error}

@@ -59,7 +59,7 @@ describe('OutputNameCombobox native and rich-popup contract', () => {
     await user.keyboard('{ArrowDown}');
     const firstActiveId = input.getAttribute('aria-activedescendant');
     expect(firstActiveId).toBeTruthy();
-    expect(document.getElementById(firstActiveId!)).toHaveClass('is-active');
+    expect(document.getElementById(firstActiveId!)).toHaveAttribute('data-active', 'true');
     expect(input).toHaveFocus();
 
     await user.keyboard('{ArrowDown}');

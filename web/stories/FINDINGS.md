@@ -193,3 +193,17 @@ List/detail isn't one behavior: Skills edits a selected text document; the dock
 inspects jobs; Sources exposes health and runs. Their fetching and selection
 remain separate. Future consolidation should reuse presentation where useful,
 not impose one master/detail state machine on those workflows.
+
+## Compound-control/dropdown presentation
+
+Single selects, multi-column selection and the editable output-name picker now
+use `MenuPop` and shared menu option/empty/selection styles. Trigger appearance
+and chevrons were already shared. Native select keyboard behavior, multi-select
+checkboxes, editable names and model setup remain distinct controllers.
+The model picker is a searchable setup/detail dialog, not an ordinary menu;
+its shared trigger is the correct boundary, not collapsing that dialog into a select.
+
+Review follow-ups: wide inline forms use a bounded label track; feed-import
+prompts no longer reference the retired Sources layout, and their labels and
+controls use field groups. Inventory now crops an open import dialog instead
+of the obscured Sources panel behind it.

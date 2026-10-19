@@ -38,7 +38,7 @@
 }
 .form-label { display: block; margin: 12px 0 6px; font-size: var(--font-size-control); font-weight: 600; color: var(--text-mid); }
 .form-field > .form-label { margin: 0; }
-.form-field[data-field-layout='inline'] { display: grid; grid-template-columns: minmax(90px, 1fr) minmax(0, 1.5fr); align-items: center; gap: 12px; }
+.form-field[data-field-layout='inline'] { display: grid; grid-template-columns: 120px minmax(0, 1fr); align-items: center; gap: 12px; }
 .form-field[data-field-layout='inline'] > .form-hint { grid-column: 1 / -1; }
 .form-field > .form-input, .form-field > .panel-select-shell { width: 100%; }
 .form-hint { margin: 6px 0 0; font-size: 12px; line-height: 1.45; font-weight: 400; color: var(--text-light); }

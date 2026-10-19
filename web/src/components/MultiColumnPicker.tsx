@@ -8,6 +8,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, Zap } from 'lucide-react';
 import { DropdownIndicator } from './DropdownIndicator';
+import { MenuPop } from './MenuPop';
 import { RemovableChip } from './RemovableChip';
 import { useAnchoredPosition } from '../hooks/useAnchoredPosition';
 import { useNativePopover } from '../hooks/useNativePopover';
@@ -146,10 +147,12 @@ export function MultiColumnPicker({
       </div>
       {open && !disabled &&
         createPortal(
-          <div
+          <MenuPop
             ref={menuRef}
-            className="multi-col-menu"
+            className="select-menu"
+            sizing="anchored"
             role="listbox"
+            aria-multiselectable="true"
             data-testid={testId ? `${testId}-menu` : undefined}
             style={
               menuPos
@@ -157,7 +160,7 @@ export function MultiColumnPicker({
                 : { visibility: 'hidden' }
             }
           >
-            {filtered.length === 0 && <div className="multi-col-empty">No matching columns</div>}
+            {filtered.length === 0 && <div className="menu-empty">No matching columns</div>}
             {filtered.map((option) => {
               const selected = value.includes(option.name);
               return (
@@ -166,21 +169,21 @@ export function MultiColumnPicker({
                   type="button"
                   role="option"
                   aria-selected={selected}
-                  className={`multi-col-option${selected ? ' is-selected' : ''}`}
+                  className="menu-item"
                   onClick={() => toggle(option.name)}
                 >
                   <span className={`multi-col-check${selected ? ' is-selected' : ''}`}>
                     {selected && <Check size={11} aria-hidden />}
                   </span>
-                  <span className="multi-col-option-name">
+                  <span className="menu-item-label menu-item-name">
                     {option.ai && <Zap size={11} className="multi-col-ai" aria-hidden />}
                     {option.name}
                   </span>
-                  <span className="multi-col-option-type">{option.type}</span>
+                  <span className="menu-item-description">{option.type}</span>
                 </button>
               );
             })}
-          </div>,
+          </MenuPop>,
           document.body,
         )}
     </>
