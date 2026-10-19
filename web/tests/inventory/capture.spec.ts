@@ -6,7 +6,7 @@ import { createProject, importCsv, openImportWorkspace, openProject } from '../e
 import { captureActionScenes, captureAskAndComparisonScenes, captureInspectionScenes } from './action-scenes';
 import { captureImportScenes } from './import-scenes';
 import { captureMediaScenes } from './media-scenes';
-import { captureMentionsScenes, capturePanelScenes, capturePopulatedPanelScenes, captureSettingsScenes } from './workbench-scenes';
+import { captureMentionsScenes, capturePanelCardScenes, capturePanelScenes, capturePopulatedPanelScenes, captureSettingsScenes } from './workbench-scenes';
 import { captureTeamSettingsScenes } from './team-scenes';
 import { captureElements } from './elements';
 import { captureDialogScenes } from './dialog-scenes';
@@ -23,7 +23,7 @@ const detailSelectors: Record<string, string> = {
   Ask: '[data-testid="ask-dock"]', Extract: '[data-testid="extract-view"], [data-testid="action-drawer"]',
 };
 
-async function shot(page: Page, family: string, name: string, source: string) {
+async function shot(page: Page, family: string, name: string, source: string, detailSelector?: string) {
   console.info(`Capture: ${family} / ${name}`);
   await page.evaluate(() => document.fonts.ready);
   for (const theme of ['light', 'dark']) {
@@ -32,10 +32,11 @@ async function shot(page: Page, family: string, name: string, source: string) {
     const file = `${base}.png`;
     await page.screenshot({ path: path.join(output, file), fullPage: true, animations: 'disabled' });
     let detail: string | undefined;
-    if (detailSelectors[family]) {
-      const pane = family === 'Side panels' && await page.getByTestId('import-workspace-dialog').isVisible()
+    const selector = detailSelector ?? detailSelectors[family];
+    if (selector) {
+      const pane = !detailSelector && family === 'Side panels' && await page.getByTestId('import-workspace-dialog').isVisible()
         ? page.getByTestId('import-workspace-dialog')
-        : page.locator(detailSelectors[family]).first();
+        : page.locator(selector).first();
       if (await pane.isVisible()) {
         detail = `${base}-detail.png`;
         await pane.screenshot({ path: path.join(output, detail), animations: 'disabled' });
@@ -197,6 +198,7 @@ test('workbench panels and dock', async ({ page }) => {
   await capturePanelScenes(page, shot);
 });
 test('populated panel states', async ({ page }) => capturePopulatedPanelScenes(page, shot));
+test('populated card contents and histories', async ({ page }) => capturePanelCardScenes(page, shot));
 test('grouped entity mentions', async ({ page }) => captureMentionsScenes(page, shot));
 test('import workflow stages', async ({ page }) => {
   test.setTimeout(180_000);

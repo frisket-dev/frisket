@@ -52,7 +52,7 @@ export function ProductTelemetryProvider({ children }: { children: ReactNode }) 
               prompts, results, URLs, or error messages. A random browser identifier resets on the
               first of every month. TelemetryDeck processes the events for frisket.
             </p>
-            <label className="setting-check-row">
+            <label className="control-row">
               <input type="checkbox" checked={checked} onChange={(event) => setChecked(event.currentTarget.checked)} />
               <span>Send product telemetry</span>
             </label>

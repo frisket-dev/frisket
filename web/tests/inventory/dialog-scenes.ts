@@ -98,7 +98,7 @@ export async function captureDialogScenes(page: Page, shot: Shot) {
   await openProject(page, pid, sid);
   await page.getByTestId('ribbon-tab-data').click();
   await page.getByTestId('ribbon-command-export-google-sheets').click();
-  await expect(page.getByLabel('Google account', { exact: true })).toContainText('reporter@example.test');
+  await expect(page.getByRole('combobox', { name: 'Google account', exact: true })).toContainText('reporter@example.test');
   await expect(page.getByTestId('export-google-sheets-submit')).toBeEnabled();
   await shot(page, 'Dialogs', 'google-sheets-connected', 'src/components/TopNav.tsx (synthetic connected account and available catalog; export not sent)');
   await dismissWithEscape(page, 'export-google-sheets-modal');

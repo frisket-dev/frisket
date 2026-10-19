@@ -3,7 +3,7 @@ import { LOCAL_EDITION_DESCRIPTOR } from '../../src/editions/posture';
 import { settingsSectionsFor } from '../../src/settings/openSettingsRegistry';
 import { createProject, importCsv, openDiscoverTab, openProject } from '../e2e/helpers';
 
-type Shot = (page: Page, family: string, name: string, source: string) => Promise<void>;
+type Shot = (page: Page, family: string, name: string, source: string, detailSelector?: string) => Promise<void>;
 
 async function expandDock(page: Page) {
   const box = await page.getByTestId('bottom-dock-resize').boundingBox();
@@ -234,6 +234,150 @@ export async function capturePopulatedPanelScenes(page: Page, shot: Shot) {
   await expect(page.getByTestId('lineage-panel')).toBeVisible();
   await expect(page.locator('[data-testid^="lineage-node-"]').first()).toBeVisible();
   await shot(page, 'Bottom dock', 'lineage-import-and-template', 'real local import and model-free map.template; src/workbench/LineagePanel.tsx');
+}
+
+/** Synthetic read-only card states. No source polling, watch evaluation or delivery occurs. */
+export async function capturePanelCardScenes(page: Page, shot: Shot) {
+  const { projectId, sheetId } = await createWorkbench(page, 'Synthetic card contents inventory');
+  const timestamp = '2026-10-19T12:00:00Z';
+  await page.clock.setFixedTime(new Date('2026-10-19T12:05:00Z'));
+  const sourceId = 701;
+  const watchId = 702;
+  const pageInfo = { order: 'desc', offset: 0, limit: 20, total: 1, has_more: false, next_offset: null };
+
+  // Wire shapes: projectSourceReadsHttpContracts.test.ts. The .invalid URL
+  // deliberately exercises long-reference wrapping and is never requested.
+  const source = {
+    id: sourceId, name: 'Synthetic fixture: city planning and housing committee public-records archive with long source title',
+    kind: 'rss', url: 'https://records.invalid/council/planning-and-housing/public-records/2026/committee-reports-and-budget-amendments/feed.xml',
+    config: {}, sheet_id: sheetId, schedule: null, enabled: true, cursor: null,
+    last_checked_at: timestamp, last_status: 'error', new_rows_total: 42, created_at: timestamp,
+  };
+  const sourceRun = {
+    id: 711, source_id: sourceId, op_id: null, receipt_id: null, status: 'error',
+    new_rows: 0, skipped_rows: 2, changed_rows: 0, revisions: 0, duration_ms: 180,
+    warning_count: 1, cost_micro: 0, error: 'Synthetic fixture: the archive returned an incomplete response; previously imported records remain available.',
+    cursor_before: null, cursor_after: null, summary_json: '{}', started_at: timestamp, finished_at: timestamp,
+  };
+  const sourcePage = { schema_version: 'frisket.source_runs_page.v1', ...pageInfo };
+  const health = {
+    schema_version: 'frisket.source_health.v1', source: { ...source, redactions: ['config', 'cursor'] },
+    summary: {
+      status: 'failing', last_success_at: '2026-10-19T11:00:00Z', last_failure_at: timestamp,
+      consecutive_failures: 1, new_rows_total: 42, new_rows_recent: 4, changed_rows_recent: 1,
+      skipped_rows_recent: 2, revisions_recent: 1, recent_run_count: 1, last_cursor_summary: 'stored',
+    },
+    runs_page: sourcePage,
+    runs: [{ ...sourceRun, error_summary: sourceRun.error, cursor_before_present: true, cursor_after_present: false, summary_present: true }],
+    downstream_jobs: [{
+      job_id: 712, kind: 'source.poll', status: 'failed', attempts: 1, max_attempts: 3,
+      created_at: timestamp, started_at: timestamp, finished_at: timestamp,
+      refs: { source_id: sourceId }, result_summary: {}, error_summary: 'Synthetic fixture: archive unavailable.', stalled: false,
+    }],
+    costs: { recent_actual_micro: 0, recent_estimated_micro: 0, basis: 'synthetic fixture; no work executed' },
+    alerts: [], warnings: [{ code: 'synthetic_fixture', message: 'Synthetic fixture: one loaded poll has incomplete archive metadata.' }],
+  };
+
+  // Wire shapes: watchesHttpContracts.test.ts. Both history outcomes are
+  // presentation fixtures; the real Run control is never clicked.
+  const watchRun = {
+    id: 721, watch_id: watchId, status: 'ok', op_cursor_before: 0, op_cursor_after: 3,
+    matched_rows: 12, new_rows: 2, error: null, error_code: null,
+    resolved_query_hash: 'synthetic-planning-query', resolved_query: { kind: 'fts', q: 'planning budget' },
+    started_at: timestamp, finished_at: timestamp,
+  };
+  const watch = {
+    id: watchId, name: 'Synthetic fixture: planning applications and housing budget amendments across committee reports',
+    scope: 'project', sheet_id: sheetId,
+    query: { kind: 'fts', q: 'planning applications housing budget amendments public committee reports', mode: 'keyword', rerank: 'off', limit: 50 },
+    query_version: 'frisket.query.v1', query_hash: 'synthetic-planning-query', detection_policy: { kind: 'new_matches' },
+    enabled: false, last_evaluated_op: 3, last_run_id: watchRun.id, last_status: 'ok',
+    created_at: timestamp, updated_at: timestamp, latest_run: watchRun,
+  };
+  const watchRuns = [watchRun, {
+    ...watchRun, id: 720, status: 'error', matched_rows: 0, new_rows: 0,
+    error: 'Synthetic fixture: evaluation interrupted; the last completed results remain available.',
+    started_at: '2026-10-19T11:00:00Z', finished_at: '2026-10-19T11:00:00Z',
+  }].map(run => ({ ...run, hits: [], hits_limit: 20, hits_truncated: false }));
+
+  // Wire shapes: notificationDeliverySettingsHttpContracts.test.ts. Only
+  // display-safe config is present; no secret value or delivery is created.
+  const channel = {
+    id: 731, kind: 'slack', name: 'Synthetic fixture: planning and housing investigations newsroom alerts',
+    enabled: true, owner_kind: 'project', config: { channel_label: '#planning-and-housing-public-records' },
+    has_secret: true, created_at: timestamp, updated_at: timestamp,
+  };
+  const notificationRoute = {
+    id: 732, name: 'Synthetic fixture: daily digest for planning and housing committee record changes',
+    enabled: false, owner_kind: 'project', owner_ref: projectId, recipient_actor_id: null,
+    channel_id: channel.id, source_kind: 'watch', source_ref_match: { watch_id: watchId }, event_kinds: [],
+    severity_min: 'info', delivery_mode: 'digest', digest_cadence: 'daily', digest_timezone: 'UTC',
+    digest_anchor_time: '09:00', template_key: null, created_at: timestamp, updated_at: timestamp,
+  };
+  const delivery = {
+    id: 733, route_id: notificationRoute.id, channel_id: channel.id, notification_id: null,
+    digest_run_id: null, delivery_kind: 'digest', dedupe_key: 'synthetic-fixture-no-delivery',
+    status: 'failed', job_id: null, available_at: timestamp,
+    last_error: 'Synthetic fixture: destination unavailable; this is a displayed failure, not a real delivery attempt.',
+    provider_ref: null, created_at: timestamp, updated_at: timestamp, sent_at: null,
+  };
+  const fixtures = new Map<string, unknown>([
+    ['sources', [source]],
+    [`sources/${sourceId}`, { ...source, runs: [sourceRun], runs_page: { ...sourcePage, latest_run: sourceRun, latest_run_loaded: true } }],
+    [`sources/${sourceId}/health`, health],
+    ['watches', [watch]],
+    [`watches/${watchId}/runs`, { schema_version: 'frisket.watch_runs_page.v1', ...pageInfo, total: 2, hits_limit: 20, runs: watchRuns }],
+    ['notifications/summary', {
+      schema_version: 'frisket.notifications_summary.v1', total: 2, unseen: 2, seen: 0, read: 0, acknowledged: 0,
+      by_severity: { info: 2 }, by_source_kind: { watch: 2 },
+      by_source_ref: [{ source_kind: 'watch', source_ref: { watch_id: watchId }, unseen: 2 }],
+    }],
+    ['notification-channels', { schema_version: 'frisket.notification_channels.v1', channels: [
+      { ...channel, id: 730, kind: 'in_app', name: 'In-app', config: {}, has_secret: false }, channel,
+    ] }],
+    ['notification-routes', { schema_version: 'frisket.notification_routes.v1', routes: [notificationRoute] }],
+    ['notification-delivery-requests', { schema_version: 'frisket.notification_delivery_requests.v1', ...pageInfo, delivery_requests: [delivery] }],
+  ]);
+  await page.route(`**/api/projects/${projectId}/**`, async route => {
+    // Local import has completed. Any subsequent mutation is a recipe bug.
+    expect(route.request().method(), 'Card inventory must remain read-only').toBe('GET');
+    const endpoint = new URL(route.request().url()).pathname.split(`/api/projects/${projectId}/`)[1];
+    if (fixtures.has(endpoint)) await route.fulfill({ json: fixtures.get(endpoint) });
+    else await route.fallback();
+  });
+
+  await openProject(page, projectId, sheetId);
+  await openDiscoverTab(page, 'Sources');
+  const sourceCard = page.getByTestId(`source-item-${sourceId}`);
+  await expect(sourceCard).toBeVisible();
+  await sourceCard.getByRole('button', { name: 'poll history' }).click();
+  await expect(page.getByTestId(`source-runs-${sourceId}`)).toContainText(sourceRun.error);
+  await shot(page, 'Panel cards', 'source-with-poll-history', 'synthetic read-only API fixture; src/components/SourcesPanel.tsx', `[data-testid="source-item-${sourceId}"]`);
+  await page.getByTestId(`source-health-${sourceId}`).click();
+  await page.getByTestId('source-detail-tab-health').click();
+  await expect(page.getByTestId(`source-health-status-${sourceId}`)).toHaveText('failing');
+  await shot(page, 'Panel cards', 'source-health-summary', 'synthetic read-only API fixture; src/components/SourcesPanel.tsx', '[data-testid="source-health-drawer"]');
+  await page.getByTestId('source-detail-tab-runs').click();
+  await expect(page.getByTestId(`source-health-runs-${sourceId}`)).toContainText(sourceRun.error);
+  await shot(page, 'Panel cards', 'source-health-run-details', 'synthetic read-only API fixture; src/components/SourcesPanel.tsx', '[data-testid="source-health-drawer"]');
+
+  await openDiscoverTab(page, 'Watches');
+  await expect(page.getByTestId('watch-item')).toHaveCount(1);
+  await page.getByTestId('toggle-watch-runs').click();
+  await expect(page.getByTestId('watch-run-history')).toContainText('evaluation interrupted');
+  await expect(page.getByTestId('watch-notification-count')).toHaveText('2');
+  await shot(page, 'Panel cards', 'paused-watch-with-history', 'synthetic read-only API fixture; src/components/WatchesPanel.tsx', '[data-testid="watch-item"]');
+
+  await page.goto(`/p/${projectId}/settings/project/notifications`);
+  await expect(page.getByTestId('notification-settings-refresh')).toBeEnabled();
+  await expect(page.getByTestId('notification-channel-item')).toHaveCount(2);
+  for (const [kind, name] of [['channel', 'notification-channels'], ['route', 'notification-route'], ['delivery-request', 'notification-delivery']]) {
+    const testId = kind === 'delivery-request' ? 'notification-delivery-request' : `notification-${kind}-item`;
+    const selector = `.panel-list:has(> [data-testid="${testId}"])`;
+    await expect(page.getByTestId(testId).first()).toBeVisible();
+    await page.locator(selector).scrollIntoViewIfNeeded();
+    await shot(page, 'Panel cards', name, 'synthetic read-only API fixture; src/components/NotificationSettingsPanel.tsx', selector);
+  }
 }
 
 /** Coherent entity-column fixture; no NER execution or implicit model download. */

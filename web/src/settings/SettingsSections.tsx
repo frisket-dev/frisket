@@ -802,7 +802,7 @@ function PersonalPrivacySettings() {
           sensitive projects send no project telemetry.
         </p>
         {config?.product_telemetry_available ? (
-          <label className="setting-check-row">
+          <label className="control-row">
             <input
               type="checkbox"
               checked={enabled}
