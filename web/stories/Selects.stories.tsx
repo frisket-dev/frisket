@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { PanelSelect } from '../src/components/PanelSelect';
+import { MultiColumnPicker } from '../src/components/MultiColumnPicker';
+import { OutputNameCombobox } from '../src/components/action-panel/TargetSaveToControl';
 import { SegmentedToggle } from '../src/components/PanelPrimitives';
+import { aiMeta } from '../tests/support/domainFixtures';
 
 const options = [
   { value: 'source', label: 'Source document', description: 'Original imported file' },
@@ -47,8 +50,28 @@ function DialogSelect() {
   </dialog>;
 }
 
+function CompoundControls() {
+  const [columns, setColumns] = useState(['notes']);
+  const [output, setOutput] = useState('summary');
+  return <div className="inventory-grid inventory-popup-space">
+    <section className="inventory-example inventory-stack inventory-narrow">
+      <h2>Multiple source columns</h2>
+      <MultiColumnPicker ariaLabel="Source columns" value={columns} onValueChange={setColumns}
+        options={[{ name: 'notes', type: 'text' }, { name: 'summary', type: 'text', ai: true }]} />
+    </section>
+    <section className="inventory-example inventory-stack inventory-narrow">
+      <h2>Editable result column</h2>
+      <OutputNameCombobox value={output} onChange={setOutput} columns={[
+        { id: 'notes', name: 'notes', type: 'text' },
+        { id: 'summary', name: 'summary', type: 'text', ai: aiMeta() },
+      ]} />
+    </section>
+  </div>;
+}
+
 const meta = { title: 'Inventory/Selects and menus' } satisfies Meta;
 export default meta;
 type Story = StoryObj<typeof meta>;
 export const Comparison: Story = { render: () => <SelectComparison /> };
 export const InDialog: Story = { render: () => <DialogSelect /> };
+export const Compound: Story = { render: () => <CompoundControls /> };

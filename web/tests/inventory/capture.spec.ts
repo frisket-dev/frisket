@@ -120,6 +120,21 @@ test('shared controls in production styling', async ({ page }) => {
   await shot(page, 'Shared controls', 'dialog-select-open', 'src/components/PanelSelect.tsx');
 });
 
+test('compound dropdown menus in production styling', async ({ page }) => {
+  await page.goto(`${process.env.FRISKET_INVENTORY_STORY_URL}/iframe.html?id=inventory-selects-and-menus--compound&viewMode=story`);
+  await page.getByRole('group', { name: 'Source columns' }).click();
+  await expect(page.getByRole('listbox')).toHaveAttribute('aria-multiselectable', 'true');
+  await shot(page, 'Shared controls', 'multi-column-menu', 'src/components/MultiColumnPicker.tsx');
+  await page.getByLabel('Save to', { exact: true }).click();
+  const output = page.getByTestId('new-column-name-listbox');
+  await expect(output).toBeVisible();
+  await expect(output.getByRole('option', { name: /summary/ })).toHaveAttribute('aria-selected', 'true');
+  const inputBox = await page.getByTestId('new-column-name').boundingBox();
+  const menuBox = await output.boundingBox();
+  expect(Math.abs(inputBox!.width - menuBox!.width)).toBeLessThan(2);
+  await shot(page, 'Shared controls', 'output-column-menu', 'src/components/action-panel/TargetSaveToControl.tsx');
+});
+
 test('four import entry surfaces', async ({ page }) => {
   const pid = await createProject(page.request, 'Visual inventory');
   const sheet = await importCsv(page.request, pid, 'records.csv', 'name,amount,notes\nAda,1200,Council meeting\nMax,50,Planning hearing\n');
