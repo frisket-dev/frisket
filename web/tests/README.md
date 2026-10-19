@@ -1,5 +1,42 @@
 # frisket e2e suite + screenshot gallery
 
+## UI inventory (current, no model calls)
+
+The new visual bank lives in `stories/` and `tests/inventory/`. It combines
+interactive stories of real components with screenshots of real application
+workflows. It does not use the paid seed/gallery instructions below.
+
+From a checkout with the Python development dependencies installed:
+
+```sh
+npm --prefix sdk ci
+npm --prefix sdk run build
+cd web
+npm ci
+npx playwright install chromium
+npm run storybook                # interactive bank on localhost:6006
+npm run inventory               # separate command: static build + isolated local captures
+```
+
+The capture configuration launches a fresh local backend, Vite, and the static
+Storybook server; it never connects to your running workspace. Python defaults
+to `../.venv/bin/python`; `FRISKET_INVENTORY_PYTHON` can select another installed
+interpreter. No API keys or real documents are needed. Agent runs must also use
+the normal credential-free, egress-denied test sandbox: browser interception
+alone cannot prevent server-side network requests.
+
+Open `screenshots/inventory/index.html` to browse PNGs offline. Full-screen
+context links accompany cropped panels. `stories/COVERAGE.md` records the scope
+and outstanding states; `stories/FINDINGS.md` records consolidation candidates.
+Capture success is not an accessibility audit or proof of model execution.
+
+Checks: `npm run storybook:typecheck`, `npm run inventory:typecheck`, and the
+normal `npx tsc -b`. Do not run two capture commands against the same output
+directory simultaneously. Generated screenshots and Storybook output are not
+checked-in baselines. Review them before changing production styles.
+
+## Older E2E and gallery setup
+
 Both run against a **live local stack** and are deliberately **not wired into
 CI**: `run.spec.ts`, `review.spec.ts`, and the gallery make real (sub-cent)
 `gemini-2.5-flash` calls, which don't belong in CI yet.

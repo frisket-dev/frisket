@@ -1,0 +1,89 @@
+# UI inventory findings
+
+Working audit, not a redesign proposal. Record all substantive findings; no quota or cap. Code observations below are preliminary until accompanied by rendered evidence. Screenshots will be linked from the generated inventory. Group repeated symptoms under their shared cause, and retain intentional behavior differences.
+
+## Structural observations awaiting visual validation
+
+### Application styles are coupled to startup
+
+`src/entries/mount.tsx` loads the shared fonts and stylesheet but also installs global error listeners and mounts edition providers. The catalog must import the style assets without importing that entry. A small side-effect-free style entry shared by both could reduce drift if font/style imports expand; this is not a reason to redesign application bootstrap now.
+
+### Component names do not describe their actual breadth
+
+`PanelSelect` and `PanelPrimitives` now serve more than action panels. Audit use sites before inventing another settings/import-specific control. `WindowCloseButton` already wraps `IconButton`: these are not duplicate implementations merely because both exist.
+
+### Test fixtures mix data construction with test-runtime installation
+
+`tests/support/selectorChoicesFixture.ts` includes useful response construction alongside Vitest spies and DOM polyfills. Stories should reuse pure data where possible, not depend on test-runner globals. If reuse grows, separate the pure fixture builder from installation rather than adding a browser-specific second copy of the same response schema.
+
+### Default test setup is unsuitable for a visual inventory
+
+`tests/gallery.ts` requires named seeded projects and performs a live model run. `playwright/playwright.config.ts` also depends on paid-capable seeding; `playwright.local-stack.ts` defaults to a persistent base workspace. Use a fresh isolated fixture stack for inventory. Do not generalize one-off inventory needs into another environment manager.
+
+## Visual and interaction findings
+
+The links below are relative to the generated inventory (the capture command copies this document there). Source paths are relative to `web/`. A screenshot proves appearance, not a complete accessibility or behavior audit.
+
+### Confirmed interaction defect: nested Escape dismissal
+
+In the CSV row-preview step, open Separator and press Escape. The menu closes **and the parent import opens its discard confirmation**. The capture run reproduced this; it then could not advance because the discard overlay intercepted the click. `components/PanelSelect.tsx` and `components/ImportCsv.tsx` need coordinated Escape ownership. Close only the nearest open layer. The inventory now closes menus using their trigger, so it does not depend on retaining this defect. See [separator menu](import-workflow-table-separator-menu-light.png) and [discard dialog](import-workflow-table-discard-confirmation-light.png).
+
+### Rendered comparisons worth acting on
+
+| Area / example | Observation and possible next step | Preserve |
+| --- | --- | --- |
+| [Close controls](shared-controls-close-controls-light.png) | Shared IconButton/WindowCloseButton coexist with ActivityProgress's hand-built dismiss button. Check remaining `icon-btn` call sites against these existing controls. | Inline, compact and window target sizes are intentional variants. |
+| [Shared feedback](shared-controls-feedback-light.png) | Empty/loading/error/progress already have common primitives. Inventory the bespoke settings/panel equivalents before adding another status treatment. | Error detail, retry, progress and empty state are different meanings. |
+| [Delete dialog](dialogs-delete-rows-light.png), [cost gate](dialogs-cost-gate-light.png), [sheet dialog](dialogs-extract-sheet-light.png) | Similar framing uses native dialog in some cases and a div backdrop/form in others. Focus, Escape and layering should have one tested implementation where semantics agree. | Cost confirmation and destructive confirmation retain their distinct text/actions. |
+| [Extract model picker](actions-extract-model-picker-light.png), [source select](shared-controls-select-open-light.png) | A searchable, grouped setup dialog is not a simple select. Share trigger typography, indicator and focus treatment; do not combine their controllers. | Provider setup/details/search versus immediate single selection. |
+| [Structured output fields](shared-controls-structured-fields-light.png) | Field names, descriptions, type dropdowns, required markers and remove controls form a compact editor. Compare its spacing and state vocabulary with Extract's field rows. | Structured schema editing is not the PDF layout editor. |
+| [Watch composer](side-panels-watch-create-light.png) | A bordered card inside a panel contains yet another inset notice. Compare form grouping, notice styling and button spacing against settings/source creation. | Watch-specific destination warnings and creation behavior. |
+| [Mentions](side-panels-mentions-grouped-forms-light.png) | Group labels, count chips and expanded spellings have several independently styled text treatments. Compare chips/disclosures with source/view/job rows. | Mention grouping and counts remain domain-specific. |
+| [Errors detail](bottom-dock-errors-failed-details-light.png) | A status table and detail pane are an existing useful composition. Several other list/detail screens independently recreate that structure. | Dock sizing, row selection and error-specific remediation. |
+| [PDF layout preview](extract-populated-local-extraction-preview-light.png) | Document and Extract reuse the reader, but separately assemble list/search, field controls and options. Favor extracting genuinely identical chrome, not a new universal editor. | Drawing, citations and editable extraction fields have different interactions. |
+| [Import reader](import-workflow-table-check-rows-light.png) | The options row mixes selects, checkboxes and a numeric stepper. Compare sizes and labels together, not just dropdown arrows. | Native select/input semantics and CSV-specific options. |
+| [MCP form](settings-project-mcp-server-form-light.png), [provider form](settings-personal-provider-key-form-light.png) | Settings sections use different form/label/button vocabularies for similar add/edit tasks. Audit a small common field/notice layout before any schema-driven rewrite. | Secret handling, connection testing and provider-specific validation. |
+
+## Further code-grounded opportunities
+
+These are candidates to investigate, not assertions that every difference is a defect. They are deliberately not capped or reduced to a top-five list.
+
+1. `ImportCsv.tsx` now owns general import routing, bulk intake, feed configuration and receipts. Its name hides its responsibilities; extracting the existing feed form from orchestration is a more concrete seam than creating a wizard framework.
+2. Import flows already share `ImportStageStepper`, `ImportStepFooter` and destination controls. Preserve that reuse; find divergent callers before adding replacements.
+3. PDF batch and PDF packet sample switchers use different markup for related navigation. Share their small controls where appropriate, not their different review algorithms.
+4. Multiple-file import assembles its own progress cards despite `ActivityProgress`. Compare cancellation/retention behavior before replacing it.
+5. Import reader controls wrap selects in implicit labels; accessible names include option text. Explicit associations could simplify the names without changing dropdown semantics.
+6. Destination summaries vary by flow. Common outer layout may help, but domain summaries should not become a large conditional component.
+7. Sources repeats health summary/run/job markup between drawer and main-view presentations. Extracting that shared content looks promising.
+8. Sources, Watches and Notifications each have bespoke list/header/body/status classes. Reuse framing if screenshots support it; do not merge their network controllers.
+9. Settings `InlineStatus`, `settings-error` and `settings-inline-error` overlap with panel status primitives. Pick a consistent meaning-to-presentation mapping.
+10. Skills owns a split list/editor, bespoke refresh control and separate error treatment. Reuse established controls without erasing its editing workflow.
+11. Embedding creation uses a div backdrop, unlike several native dialogs. Include it in the dialog/focus audit.
+12. Discover's comments/test helper still describe an older tab set; Views needs its own equivalent navigation helper. Update discovery vocabulary, not just screenshot selectors.
+13. Internal `Facets` and `pdfBatch` terminology no longer matches Filter and Multiple files. Rename only when it helps ownership/discovery; this is less urgent than actual duplication.
+14. Core settings plus capability/edition contributions are legitimate composition. A component inventory reading only the core registry silently misses real pages; avoid creating a second manual registry.
+15. DocumentReader's custom zoom/page/options controls sit alongside shared buttons in the alongside pane. Compare sizing, disabled and focus states before replacing them.
+16. Document options and extraction options have related row styling but different purposes. Small row/popover primitives may be useful; one combined options controller is unlikely to be.
+17. Extraction fields combine editable labels, examples, locate/delete and validation. They are a good stress test for a shared form-row vocabulary, not justification for a generic form DSL.
+18. Full-page screenshots do not capture internally scrolling settings panes or collapsed dock details. The recipes explicitly scroll settings and expand the dock; preserve that when extending the bank.
+19. Old E2E examples contain obsolete model-picker selectors and typed-confirmation assumptions. Reuse data shapes only after checking current code; do not mistake those tests for current product requirements.
+20. `StructuredFieldsEditor` depends on an `.action-panel` ancestor for its actual row layout. Without it the real component becomes a vertical stack, despite importing all production CSS. The story now supplies the real container; the hidden CSS dependency is a concrete obstacle to reuse elsewhere. Move ownership with the component if it is reused, rather than copying those selectors.
+21. `GeneratedActionForm` derives “Checking engine availability…” from a missing current choice, not a loading flag. The unconfigured-model capture can therefore look busy even when the picker has loaded. Check this distinction before standardizing loading/unavailable states.
+
+## Suggested first consolidation passes (after maintainer review)
+
+1. Fix nested dismissal and noisy accessible labels with focused interaction tests.
+2. Replace remaining equivalent close/refresh/remove controls with existing primitives.
+3. Align notices, errors and form rows across settings/import/panels, preserving meaning.
+4. Extract Sources' repeated health content and repeated Document/Extract list chrome where behavior truly matches.
+
+No component migration or product-style change is included in this inventory PR.
+
+## Additional code findings from coverage review
+
+- `settings/SettingsSections.tsx` concentrates many unrelated settings sections and async behaviors in one large module. Investigate ownership and fixture coupling, not arbitrary file-size targets or a one-component-per-file rule.
+- `components/ActivityProgress.tsx` and `workbench/extract/ExtractView.tsx` still assemble some `icon-btn` controls directly despite the existing shared `IconButton`. Compare focus, active, disabled, glyph, and target sizing before replacing.
+- Extract reuses `useDocumentView` and `DocumentReader` but owns additional document-search/list markup. Compare that chrome against Document view for drift rather than creating another reader abstraction.
+- Extract assembles help/options placement and dismissal; DocumentReader uses `useOptionsPopover` plus a render prop. Check whether a small common overlay primitive would help, retaining differing interaction requirements.
+- `importWorkspace/pdfBatch` now implements the broader Multiple files workflow. Internal Filter naming still includes `Facets`. Both make discovery harder; naming cleanup is distinct from a visual defect.
+- Extract's main view is PDF/image-only (`core/selectors/workView.ts`, `workbench/extract/ExtractView.tsx`). Audio/video temporal extraction is an action form, not another Extract pane. Record unavailable UI and the separate supported workflow, without inventing missing features for this audit.

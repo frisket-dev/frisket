@@ -31,5 +31,7 @@ src/frisket/web_static/
 # Editable installs compile the vendored SQLite Vec1 extension beside the source.
 /src/frisket/retrieval/_native/
 test-results
+web/storybook-static/
+web/screenshots/inventory/
 .codex
 .claude

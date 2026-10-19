@@ -246,6 +246,7 @@ export function pruneStaleE2EWorkspaces({
 // and any leaked project older than that is removed. Only auto-generated project
 // names (isLeakedProjectDir) are ever considered, so seed/fixture projects and
 // non-project files (saved_recipes.json, the ledger, markers) are always kept.
+/** @param {{workspace?: string, env?: NodeJS.ProcessEnv, runId?: string, now?: number, log?: typeof console.warn}} [options] */
 export function pruneStaleBaseWorkspaceProjects({
   workspace,
   env = process.env,
