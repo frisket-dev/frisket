@@ -1542,6 +1542,8 @@ function OpenImportWorkspaceSession({
     && !bulkPlan);
   const showPreparation = preparationReceipt !== null || importInProgress;
   const tableImportActive = tableImportSelected && !showPreparation;
+  const tableImportChoosingSource = tableImportActive
+    && (tableImportContext?.stage ?? 'add') === 'add';
   const showSummary = showPreparation && preparationStep === 'summary';
   const importComplete = importSessionIsComplete(importSessionStatus);
   const preparationPending = importSessionNeedsPreparationPlan(importSessionStatus);
@@ -1583,7 +1585,7 @@ function OpenImportWorkspaceSession({
         onMouseDown={closeWorkspaceFromUser}
       />
       <section
-        className={`import-workspace${pdfPacketContext.active || pdfBatchActive ? ' pdf-packet-workspace' : ''}${pdfBatchActive ? ' pdf-batch-workspace' : ''}${tableImportActive ? ' table-import-workspace' : ''}`}
+        className={`import-workspace${pdfPacketContext.active || pdfBatchActive ? ' pdf-packet-workspace' : ''}${pdfBatchActive ? ' pdf-batch-workspace' : ''}${tableImportActive ? ' table-import-workspace' : ''}${tableImportChoosingSource ? ' table-import-workspace-mode-selection' : ''}`}
         data-testid="import-workspace"
         aria-label="Import"
         tabIndex={-1}
@@ -1685,7 +1687,7 @@ function OpenImportWorkspaceSession({
           </button>
         </header>
         <div className={`import-workspace-main${pdfPacketContext.active || pdfBatchActive ? ' pdf-packet-workspace-main' : ''}${showPreparation ? ' import-workspace-main-preparation' : ''}`}>
-          {!pdfPacketContext.active && !pdfBatchActive && !tableImportActive && !showPreparation ? (
+          {!pdfPacketContext.active && !pdfBatchActive && (!tableImportActive || tableImportChoosingSource) && !showPreparation ? (
             <aside className="import-workspace-sidebar">
               <ImportModeRail modes={IMPORT_MODES} mode={railMode} onSelectMode={selectMode} />
             </aside>

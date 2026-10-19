@@ -81,6 +81,10 @@
   margin-top: 9px;
 }
 
+.table-import-workspace.table-import-workspace-mode-selection .import-workspace-main {
+  grid-template-columns: 230px minmax(0, 1fr);
+}
+
 @media (max-width: 820px) {
   .import-destination-options {
     grid-template-columns: 1fr;
@@ -92,5 +96,9 @@
 
   .import-step-footer .btn-primary {
     margin-left: auto;
+  }
+
+  .table-import-workspace.table-import-workspace-mode-selection .import-workspace-main {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
