@@ -14,6 +14,7 @@
 dialog.modal-card::backdrop {
   background: rgba(20, 26, 40, 0.4);
 }
+.modal-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .modal-title {
   display: flex; align-items: center; gap: 7px;
   font-weight: 700; font-size: 14px;

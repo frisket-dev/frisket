@@ -19,3 +19,4 @@
 .icon-button[aria-expanded='true'], .icon-button[aria-pressed='true'] { background: var(--accent-bg); color: var(--accent); }
 .icon-button:focus-visible, .icon-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .icon-button:disabled, .icon-btn:disabled { cursor: not-allowed; opacity: 0.45; }
+.icon-button[aria-pressed='true']:disabled { opacity: 1; }

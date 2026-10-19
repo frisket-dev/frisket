@@ -302,7 +302,7 @@ export function OutputFieldsEditor({
           This action defines its own output columns.
         </p>
       )}
-      <div className="editor-list">
+      <div className="editor-list" data-testid="output-fields-editor">
         {fields.map((f, i) => (
           <div className="editor-row" key={f.uiId}>
             <FieldRow

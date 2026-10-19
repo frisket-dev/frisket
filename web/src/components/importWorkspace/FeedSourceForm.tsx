@@ -699,8 +699,8 @@ export function FeedSourceForm({
             onChange={(e) => dispatch({ type: 'setCourtKeywords', value: e.target.value })}
             placeholder="injunction, settlement"
           />
-          <div className="source-check-row">
-            <label>
+          <div className="control-row">
+            <label className="control-row">
               <input
                 type="checkbox"
                 data-testid="source-court-include-parties"
@@ -709,7 +709,7 @@ export function FeedSourceForm({
               />
               Parties
             </label>
-            <label>
+            <label className="control-row">
               <input
                 type="checkbox"
                 data-testid="source-court-include-documents"

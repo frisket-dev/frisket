@@ -2,9 +2,10 @@ import { Button } from './Button';
 import { useLayoutEffect, useId, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import './Modal.css';
+import { WindowCloseButton } from './WindowCloseButton';
 
 /** Shared modal lifecycle and framing. Omit onClose for a required step. */
-export function Modal({ title, children, onClose, busy = false, testId, role = 'dialog', descriptionId, size = 'standard' }: {
+export function Modal({ title, children, onClose, busy = false, testId, role = 'dialog', descriptionId, size = 'standard', closeLabel }: {
   title: ReactNode;
   children: ReactNode;
   onClose?: () => void;
@@ -13,6 +14,7 @@ export function Modal({ title, children, onClose, busy = false, testId, role = '
   role?: 'dialog' | 'alertdialog';
   descriptionId?: string;
   size?: 'standard' | 'wide';
+  closeLabel?: string;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const mounted = useRef(false);
@@ -39,7 +41,10 @@ export function Modal({ title, children, onClose, busy = false, testId, role = '
       if (busy || !onClose) { if (!event.currentTarget.open) event.currentTarget.showModal(); }
       else onClose();
     }}>
-    <div className="modal-title" id={titleId}>{title}</div>
+    <div className="modal-header">
+      <div className="modal-title" id={titleId}>{title}</div>
+      {onClose && closeLabel && <WindowCloseButton label={closeLabel} disabled={busy} onClick={onClose} />}
+    </div>
     {children}
   </dialog>, document.body);
 }

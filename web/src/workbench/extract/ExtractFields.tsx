@@ -65,7 +65,7 @@ export function ExtractFields({ template, reference, selected, preview, onChange
         <IconButton disabled={disabled} icon={Trash2} label={`Delete ${section.name}`} onClick={() => onDelete({ kind: 'first', id: section.id })} />
       </div>
       <Button type="button" variant="text" disabled={disabled} className={styles.fieldExample} onClick={() => onSelect({ kind: 'first', id: section.id })}>Record 1 · page {section.first.start.page}</Button>
-      <FormField layout="inline" label="First record ends on page"><TextInput disabled={disabled} type="number"
+      <FormField label="First record ends on page"><TextInput disabled={disabled} type="number"
         min={section.first.start.page} max={section.rest.start.page} value={section.first.end.page}
         onChange={(event) => {
           const page = Number(event.target.value);
@@ -76,7 +76,7 @@ export function ExtractFields({ template, reference, selected, preview, onChange
             first: { ...item.first, end: { page, y } } } : item) });
         }} /></FormField>
       <Button type="button" variant="text" disabled={disabled} className={styles.fieldExample} onClick={() => onSelect({ kind: 'rest', id: section.id })}>Records 2–end · pages {section.rest.start.page}–{section.rest.end.page}</Button>
-      <FormField layout="inline" label="Remaining records end on page"><TextInput disabled={disabled} type="number" min={section.rest.start.page}
+      <FormField label="Remaining records end on page"><TextInput disabled={disabled} type="number" min={section.rest.start.page}
         max={reference?.pages.length ?? section.rest.end.page} value={section.rest.end.page}
         onChange={(event) => {
           const page = Number(event.target.value);

@@ -23,7 +23,6 @@ import {
 } from './costEstimate';
 import { SelectorField } from '../../engine-selector/SelectorField';
 import type { SelectorChoice } from '../../api/selectorChoices';
-import { WindowCloseButton } from '../WindowCloseButton';
 
 interface CreateEmbeddingIndexDialogProps {
   apiPort: Pick<EmbeddingApiPort, 'getSheetData'>;
@@ -297,9 +296,8 @@ export function CreateEmbeddingIndexDialog({
 
   return (
     <Modal testId="embeddings-create-modal" size="wide" onClose={onClose}
-      title={<><Boxes size={15} aria-hidden />Create embedding index
-        <WindowCloseButton className="embeddings-modal-close" label="Close embedding index dialog" onClick={onClose} />
-      </>}>
+      closeLabel="Close embedding index dialog"
+      title={<><Boxes size={15} aria-hidden />Create embedding index</>}>
       <form
         className="form-stack"
         data-testid="embeddings-form"

@@ -339,9 +339,18 @@ export async function capturePanelCardScenes(page: Page, shot: Shot) {
     ['notification-delivery-requests', { schema_version: 'frisket.notification_delivery_requests.v1', ...pageInfo, delivery_requests: [delivery] }],
   ]);
   await page.route(`**/api/projects/${projectId}/**`, async route => {
-    // Local import has completed. Any subsequent mutation is a recipe bug.
-    expect(route.request().method(), 'Card inventory must remain read-only').toBe('GET');
-    const endpoint = new URL(route.request().url()).pathname.split(`/api/projects/${projectId}/`)[1];
+    const request = route.request();
+    const endpoint = new URL(request.url()).pathname.split(`/api/projects/${projectId}/`)[1];
+    // Grid bootstrap reads distinct values through POST. Permit only that
+    // receipt-free local query on our imported sheet, not action execution,
+    // source polling, watch evaluation or notification delivery mutations.
+    const isColumnPreview = request.method() === 'POST'
+      && endpoint === 'column-values/v1/preview'
+      && request.postDataJSON()?.sheet_id === sheetId;
+    if (request.method() !== 'GET' && !isColumnPreview) {
+      await route.abort();
+      throw new Error(`Card inventory blocked mutation: ${request.method()} ${endpoint}`);
+    }
     if (fixtures.has(endpoint)) await route.fulfill({ json: fixtures.get(endpoint) });
     else await route.fallback();
   });

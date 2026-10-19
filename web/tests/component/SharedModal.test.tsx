@@ -12,6 +12,15 @@ import { createPortal } from 'react-dom';
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('normalized controls preserve behavior', () => {
+  it('keeps the close control out of the dialog name and respects busy state', () => {
+    const close = vi.fn();
+    const { rerender } = render(<Modal title="Create index" closeLabel="Close index dialog" onClose={close}>Fields</Modal>);
+    expect(screen.getByRole('dialog', { name: 'Create index', exact: true })).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Close index dialog' }));
+    expect(close).toHaveBeenCalledOnce();
+    rerender(<Modal title="Create index" closeLabel="Close index dialog" onClose={close} busy>Fields</Modal>);
+    expect(screen.getByRole('button', { name: 'Close index dialog' })).toBeDisabled();
+  });
   it('labels fields and forwards native button submission and disabled behavior', () => {
     const submit = vi.fn();
     render(<form onSubmit={event => { event.preventDefault(); submit(); }}>
