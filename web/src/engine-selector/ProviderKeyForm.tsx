@@ -1,3 +1,4 @@
+import { TextInput } from '../components/FormControls';
 import { useState, type FormEvent } from 'react';
 import type { ProviderValidateResult } from '../api/types';
 import { PanelSelect } from '../components/PanelSelect';
@@ -84,8 +85,8 @@ export function ProviderKeyForm<Result = void>({ provider: fixedProvider, provid
     {!fixedProvider && <label><span>Provider</span><PanelSelect aria-label="Provider" value={provider} disabled={!canMutate || busy === 'save'} onChange={(event) => { clearValidation(); setProvider(event.currentTarget.value); setKey(''); editing(false); }}>
       {providers.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
     </PanelSelect></label>}
-    <label><span className={compact ? 'sr-only' : undefined}>{keyLabel}</span><input aria-label={keyLabel} placeholder={keyPlaceholder ?? (compact ? keyLabel : undefined)} type="password" autoComplete="new-password" value={key} disabled={!canMutate || busy === 'save'} onChange={(event) => { clearValidation(); setKey(event.currentTarget.value); editing(true); }} /></label>
-    {supportsSpendCap && <label><span>Spend cap (USD)</span><input aria-label="Spend cap in US dollars" inputMode="decimal" placeholder="e.g. 5.00 — blank for no cap" value={cap} disabled={!canMutate || busy === 'save'} onChange={(event) => setCap(event.currentTarget.value)} /></label>}
+    <label><span className={compact ? 'sr-only' : undefined}>{keyLabel}</span><TextInput aria-label={keyLabel} placeholder={keyPlaceholder ?? (compact ? keyLabel : undefined)} type="password" autoComplete="new-password" value={key} disabled={!canMutate || busy === 'save'} onChange={(event) => { clearValidation(); setKey(event.currentTarget.value); editing(true); }} /></label>
+    {supportsSpendCap && <label><span>Spend cap (USD)</span><TextInput aria-label="Spend cap in US dollars" inputMode="decimal" placeholder="e.g. 5.00 — blank for no cap" value={cap} disabled={!canMutate || busy === 'save'} onChange={(event) => setCap(event.currentTarget.value)} /></label>}
     {compact ? <button className="btn btn-primary" type="submit" disabled={!canMutate || Boolean(busy) || !key.trim()}>{actionLabel}</button>
       : <><button className="btn" type="button" disabled={!canMutate || Boolean(busy) || !key.trim()} onClick={() => void test()}>{busy === 'test' ? 'Testing…' : 'Test'}</button>
         <button className="btn btn-primary" type="submit" disabled={!canMutate || Boolean(busy) || !receipt || !key.trim()}>{busy === 'save' ? 'Saving…' : 'Save'}</button></>}
