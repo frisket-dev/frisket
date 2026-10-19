@@ -146,9 +146,20 @@ class ConversionCounts:
 
 
 @dataclass(frozen=True)
+class ColumnSample:
+    """A bounded source excerpt plus outcomes computed from the complete cell."""
+
+    original: str
+    original_length: int
+    truncated: bool
+    outcomes_by_type: dict[TargetType, ConversionOutcome]
+    outcomes_by_date_order: dict[DateOrder, dict[TargetType, ConversionOutcome]]
+
+
+@dataclass(frozen=True)
 class ColumnStats:
     column: SourceColumn
-    sample_values: tuple[str, ...]
+    sample_values: tuple[ColumnSample, ...]
     suggested_type: TargetType
     suggested_date_order: DateOrder | None
     needs_review: tuple[str, ...]
@@ -184,6 +195,7 @@ class PreviewSnapshot:
     omitted_rows: int | None
     complete: bool
     tail_pending: bool
+    tail_omitted: bool = False
 
 
 @dataclass(frozen=True)

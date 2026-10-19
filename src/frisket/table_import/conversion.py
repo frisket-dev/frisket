@@ -237,7 +237,14 @@ def convert_row(
     return values, tuple(issues)
 
 
-_CURRENCY = re.compile(r"^[\s$£€¥]+|[\s$£€¥]+$")
+def _strip_currency(text: str) -> str:
+    """Trim currency/whitespace at the edges without scanning internal runs."""
+    start, end = 0, len(text)
+    while start < end and (text[start].isspace() or text[start] in "$£€¥"):
+        start += 1
+    while end > start and (text[end - 1].isspace() or text[end - 1] in "$£€¥"):
+        end -= 1
+    return text[start:end]
 
 
 def _parse_decimal(
@@ -260,7 +267,7 @@ def _parse_decimal_details(
     percent = text.endswith("%")
     if percent:
         text = text[:-1].strip()
-    text = _CURRENCY.sub("", text)
+    text = _strip_currency(text)
     if thousands_separator and thousands_separator in text:
         text = _remove_grouping(
             text,

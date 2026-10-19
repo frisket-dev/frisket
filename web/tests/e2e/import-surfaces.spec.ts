@@ -280,10 +280,19 @@ test('toolbar import opens a modal with table stages and other intake paths', as
   await expect(dialog).toBeVisible();
   await expect(dialog).toHaveJSProperty('open', true);
   await expect(page.getByTestId('import-menu')).toHaveCount(0);
+  for (const mode of ['csv', 'files', 'pdf_split', 'feed']) {
+    await expect(page.getByTestId(`import-mode-${mode}`)).toBeVisible();
+  }
+  await expect(page.getByTestId('import-mode-csv')).toHaveAttribute('aria-selected', 'true');
   for (const stage of ['add', 'rows', 'columns', 'import']) {
     await expect(page.getByTestId(`table-import-stage-${stage}`)).toBeVisible();
   }
   await expect(page.getByTestId('table-import-stage-add')).toHaveAttribute('aria-current', 'step');
+  await page.getByTestId('import-mode-files').click();
+  await expect(page.getByTestId('import-mode-files')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByTestId('table-import-stage-add')).toHaveCount(0);
+  await page.getByTestId('import-mode-csv').click();
+  await expect(page.getByTestId('table-import-stage-add')).toBeVisible();
   await page.getByRole('button', { name: 'Paste rows', exact: true }).click();
   await expect(page.getByRole('textbox', { name: 'Paste rows', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Choose a file', exact: true }).click();

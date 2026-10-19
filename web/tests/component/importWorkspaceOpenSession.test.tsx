@@ -191,6 +191,75 @@ afterEach(() => {
 });
 
 describe('ImportWorkspaceDialog controlled open session', () => {
+  it('shows all import kinds while choosing table data, then gives row review the full workspace', async () => {
+    render(
+      <ImportWorkspaceDialog
+        open
+        onClose={vi.fn()}
+        onImported={vi.fn()}
+        onError={vi.fn()}
+        onLaunchDownload={vi.fn()}
+      />,
+    );
+
+    const workspace = screen.getByTestId('import-workspace');
+    expect(screen.getByRole('tablist', { name: 'Import type' })).toBeVisible();
+    expect(screen.getByTestId('import-mode-files')).toBeVisible();
+    expect(workspace).toHaveClass('table-import-workspace-mode-selection');
+
+    createTableImportFromFile.mockResolvedValueOnce({
+      schema_version: 'frisket.table_import.v1',
+      id: 'table-draft-1',
+      draft_id: 'table-draft-1',
+      state: 'ready',
+      revision: 1,
+      created_at: '2026-10-19T00:00:00Z',
+      updated_at: '2026-10-19T00:00:00Z',
+      source: {
+        input_kind: 'file', filename: 'people.csv', size: 13, sha256: 'sha256:test',
+        format: 'delimited', sheets: [], can_rerun_workbook: false,
+      },
+      settings: {
+        revision: 0,
+        requested: {
+          delimiter: null, encoding: null, decimal_separator: 'auto',
+          thousands_separator: 'auto', worksheet: null, skip_rows_start: 0,
+          first_row_is_header: true, skip_rows_end: 0,
+        },
+        resolved: {
+          kind: 'delimited', delimiter: ',', encoding: 'utf-8', decimal_separator: '.',
+          thousands_separator: ',', worksheet: null, skip_rows_start: 0,
+          first_row_is_header: true, skip_rows_end: 0,
+        },
+      },
+      analysis: {
+        state: 'complete', job_id: 1, scanned_rows: 1, estimated_rows: 1,
+        exact_rows: 1, complete: true,
+        issue_counts: { extra_values: 0, missing_values: 0, malformed_records: 0, unreadable_cells: 0 },
+        error: null,
+      },
+      preview: null,
+      columns: [],
+      destination: null,
+      can_commit: false,
+      commit_blocked_reason: 'destination',
+      commit: null,
+    });
+    const file = new File(['name\nAda\n'], 'people.csv', { type: 'text/csv' });
+    const input = screen.getByRole('button', { name: 'Choose file' })
+      .closest('.table-import-dropzone')?.querySelector('input');
+    fireEvent.change(input!, { target: { files: [file] } });
+
+    expect(await screen.findByLabelText('Check rows')).toBeVisible();
+    await waitFor(() => expect(screen.queryByRole('tablist', { name: 'Import type' })).toBeNull());
+    expect(workspace).not.toHaveClass('table-import-workspace-mode-selection');
+    fireEvent.click(screen.getByRole('button', { name: 'Back', exact: true }));
+    expect(await screen.findByLabelText('Add data')).toBeVisible();
+    expect(screen.queryByRole('tablist', { name: 'Import type' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel', exact: true }));
+    expect(await screen.findByTestId('table-import-discard-dialog')).toBeVisible();
+  });
+
   it('reopens an existing preparation batch in the import workspace', async () => {
     render(
       <ImportWorkspaceDialog

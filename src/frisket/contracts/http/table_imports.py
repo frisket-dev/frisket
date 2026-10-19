@@ -133,6 +133,7 @@ class TableImportPreview(WireModel):
     omitted_rows: int | None = Field(default=None, ge=0)
     complete: bool
     tail_pending: bool
+    tail_omitted: bool = False
     expected_values: int = Field(ge=0)
     notice: TableImportPreviewNotice
 
@@ -142,6 +143,8 @@ class TableImportConversionSample(WireModel):
     value: str | int | float | bool | None
     display: str
     outcome: Literal["unchanged", "changed", "blank", "invalid"]
+    truncated: bool = False
+    original_length: int | None = Field(default=None, ge=0)
 
 
 class TableImportConversionCounts(WireModel):

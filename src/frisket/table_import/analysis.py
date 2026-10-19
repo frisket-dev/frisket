@@ -8,12 +8,14 @@ from dataclasses import dataclass
 import re
 
 from .models import (
+    ColumnSample,
     ColumnStats,
     ColumnStatsSnapshot,
     ConversionCounts,
     DateOrder,
     PreviewRow,
     PreviewSnapshot,
+    RowIssue,
     SourceColumn,
     TableRow,
     TargetType,
@@ -21,17 +23,45 @@ from .models import (
 from .conversion import _conversion_outcomes, _parse_datetime_orders
 
 
+PREVIEW_TEXT_CHARS = 256
+
+
+def _text_excerpt(value: str) -> tuple[str, int, bool]:
+    length = len(value)
+    return value[:PREVIEW_TEXT_CHARS], length, length > PREVIEW_TEXT_CHARS
+
+
+def _preview_text(value: str) -> str:
+    excerpt, _length, truncated = _text_excerpt(value)
+    return f"{excerpt[:-1]}…" if truncated else excerpt
+
+
+def _preview_issue(issue: RowIssue) -> RowIssue:
+    return RowIssue(
+        code=issue.code,
+        message=issue.message,
+        original_values=tuple(_preview_text(value) for value in issue.original_values),
+        count=issue.count,
+    )
+
+
 class PreviewAccumulator:
     def __init__(
-        self, *, head_rows: int, tail_rows: int = 2, column_limit: int = 8
+        self,
+        *,
+        head_rows: int,
+        tail_rows: int = 2,
+        column_limit: int = 8,
+        tail_omitted: bool = False,
     ) -> None:
         if head_rows < 0 or tail_rows < 0 or column_limit < 1:
             raise ValueError("preview bounds are invalid")
         self._head_rows = head_rows
-        self._tail_rows = tail_rows
+        self._tail_rows = 0 if tail_omitted else tail_rows
+        self._tail_omitted = tail_omitted
         self._column_limit = column_limit
         self._head: list[PreviewRow] = []
-        self._tail: deque[PreviewRow] = deque(maxlen=tail_rows or None)
+        self._tail: deque[PreviewRow] = deque(maxlen=self._tail_rows or None)
         self._rows_seen = 0
 
     def accept(self, row: TableRow) -> None:
@@ -41,9 +71,11 @@ class PreviewAccumulator:
             record_ordinal=row.source.record_ordinal,
             physical_line_start=row.source.physical_line_start,
             physical_line_end=row.source.physical_line_end,
-            cells=tuple(cell.text for cell in source_cells[: self._column_limit]),
+            cells=tuple(
+                _preview_text(cell.text) for cell in source_cells[: self._column_limit]
+            ),
             hidden_cell_count=max(0, len(source_cells) - self._column_limit),
-            issues=row.issues,
+            issues=tuple(_preview_issue(issue) for issue in row.issues),
         )
         self._rows_seen += 1
         if len(self._head) < self._head_rows:
@@ -62,7 +94,8 @@ class PreviewAccumulator:
             rows_seen=self._rows_seen,
             omitted_rows=omitted,
             complete=complete,
-            tail_pending=not complete,
+            tail_pending=not complete and not self._tail_omitted,
+            tail_omitted=self._tail_omitted,
         )
 
 
@@ -108,7 +141,7 @@ class ColumnStatsAccumulator:
         self._decimal_separator = decimal_separator
         self._thousands_separator = thousands_separator
         self._rows_checked = 0
-        self._samples: list[list[str]] = [[] for _ in self._columns]
+        self._samples: list[list[ColumnSample]] = [[] for _ in self._columns]
         self._full = [
             {target: _MutableCounts() for target in _ANALYZED_TYPES}
             for _ in self._columns
@@ -144,8 +177,6 @@ class ColumnStatsAccumulator:
             text = cell.text
             leading_zero = _has_leading_zero_integer(text)
             has_time = cell.kind == "datetime" or _has_time(text)
-            if text and len(self._samples[position]) < self._preview_values:
-                self._samples[position].append(text)
             if in_inference and leading_zero:
                 self._leading_zero[position] = True
             if in_inference and _is_long_integer(text):
@@ -165,6 +196,31 @@ class ColumnStatsAccumulator:
                 decimal_separator=self._decimal_separator,
                 thousands_separator=self._thousands_separator,
             )
+            if text and len(self._samples[position]) < self._preview_values:
+                original, original_length, truncated = _text_excerpt(text)
+                self._samples[position].append(
+                    ColumnSample(
+                        original=original,
+                        original_length=original_length,
+                        truncated=truncated,
+                        outcomes_by_type={
+                            "text": outcomes.text,
+                            "integer": outcomes.integer,
+                            "number": outcomes.number,
+                            "boolean": outcomes.boolean,
+                        },
+                        outcomes_by_date_order={
+                            "month_first": {
+                                "date": outcomes.month_first_date,
+                                "datetime": outcomes.month_first_datetime,
+                            },
+                            "day_first": {
+                                "date": outcomes.day_first_date,
+                                "datetime": outcomes.day_first_datetime,
+                            },
+                        },
+                    )
+                )
             for target, outcome in (
                 ("text", outcomes.text),
                 ("integer", outcomes.integer),

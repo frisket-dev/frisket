@@ -34,6 +34,7 @@ import {
 export interface TableImportShellContext {
   active: true;
   busy: boolean;
+  canChangeMode: boolean;
   stage: TableImportStage;
   stages: typeof TABLE_IMPORT_STAGES;
   subtitle: string;
@@ -481,10 +482,11 @@ export function TableImportFlow({
     return `${snapshot.source.filename}${rows == null ? '' : ` · ${snapshot.analysis.complete ? '' : 'about '}${rows.toLocaleString()} rows`}${snapshot.columns.length ? ` · ${snapshot.columns.length.toLocaleString()} ${snapshot.columns.length === 1 ? 'column' : 'columns'}` : ''}`;
   }, [snapshot]);
 
+  const canChangeMode = snapshot === null && !busy && !saving;
   useEffect(() => {
-    onContextChange({ active: true, busy: busy || saving, stage, stages: TABLE_IMPORT_STAGES, subtitle });
+    onContextChange({ active: true, busy: busy || saving, canChangeMode, stage, stages: TABLE_IMPORT_STAGES, subtitle });
     return () => onContextChange(null);
-  }, [busy, onContextChange, saving, stage, subtitle]);
+  }, [busy, canChangeMode, onContextChange, saving, stage, subtitle]);
 
   const working = busy || saving;
   return <div className="table-import-flow">

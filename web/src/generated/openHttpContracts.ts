@@ -12538,7 +12538,9 @@ type HttpTableImportDraft_TableImportConversionCountsByDateOrder = ({
 type HttpTableImportDraft_TableImportConversionSample = ({
   "display": (string);
   "original": (string);
+  "original_length"?: (((number)) | ((null)));
   "outcome": ("unchanged" | "changed" | "blank" | "invalid") & (string);
+  "truncated"?: (boolean);
   "value": (((string)) | ((number)) | ((number)) | ((boolean)) | ((null)));
 });
 
@@ -12610,6 +12612,7 @@ type HttpTableImportDraft_TableImportPreview = ({
   "omitted_rows"?: (((number)) | ((null)));
   "rows_seen": (number);
   "tail": (Array<(HttpTableImportDraft_TableImportPreviewRow)>);
+  "tail_omitted"?: (boolean);
   "tail_pending": (boolean);
 });
 
