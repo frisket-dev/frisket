@@ -18,6 +18,14 @@ import frisket.engine.jobs.model_pull as model_pull_module
 from frisket.cli import _register_team_model_pull_handler, _run_worker
 
 
+@pytest.fixture(autouse=True)
+def no_background_pricing_refresh(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep in-process worker probes from starting process-lifetime maintenance."""
+    monkeypatch.setattr(
+        "frisket.ai.llm.pricing_refresh.start_pricing_refresh", lambda: None
+    )
+
+
 def _sqlite_url(tmp_path) -> str:
     return f"sqlite:///{tmp_path / 'team-queue.db'}"
 
