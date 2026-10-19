@@ -300,7 +300,7 @@ Table destination/summary width caps and the extra file-source toggle skin are
 removed. Browser checks cover drop-area size, footer anchoring and destination
 width; the comparison now includes Excel destination and URL entry.
 
-## Frontend ownership refactor (in progress)
+## Frontend ownership refactor (implemented; awaiting visual signoff)
 
 Baseline: `845f9a3e70855818b52eb3c935357eb58b2bbeac`, after the approved
 normalization screenshots. This phase changes ownership, not product behavior.
@@ -324,6 +324,28 @@ Acceptance: targeted interaction tests and independent review per lane, followed
 by integrated types/lint/tests, representative browser workflows, render-count
 checks and focused before/after screenshots. All new files count in LOC totals;
 moving code is not a reduction. Final visual approval precedes PR and merge.
+
+Candidate: `a1604fd6c2bf991fc1e4abc9111b09bf708d73d6`. All 456 frontend test
+files / 3,620 tests pass; types, ESLint and dependency/boundary checks pass
+(existing hook warnings remain). Local/Team builds and Storybook build pass.
+All 20 inventory scenarios pass across the initial run and the repaired dialog
+fixture rerun; four representative scenarios also pass against built production
+assets. The render-isolation script passes twice with unchanged thresholds.
+It now waits for real catalog/detail responses before measuring subsequent
+interactions, rather than misattributing late mount work to theme changes.
+
+Independent reviews covered every extracted feature, workspace composition and
+CSS ownership. They caught shared header cascade and cancelled-status ownership;
+both were repaired. Stable Ask adapters, export-owned subscriptions and guarded
+scope resets remove unnecessary rerenders. Existing React Doctor errors in
+WalkthroughProvider, PdfPacketImportFlow and useJoinSheets remain separate work;
+newly introduced refresh/helper findings were fixed, not suppressed.
+
+Honest size accounting: this ownership round is **+293 production lines**,
+including all new owners and imports; CSS itself is **−148 lines**. The complete
+normalization campaign remains **−3,192 production lines** against `ebe6301d`.
+App is now 302 lines, workspace composition 1,201 and global CSS 235; the moved
+implementations still exist under their responsible features.
 
 Follow-up observations, outside this ownership change: cell-audit and some
 manually refreshed source-health requests lack stale-response protection.

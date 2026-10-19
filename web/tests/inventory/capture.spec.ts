@@ -219,7 +219,15 @@ test('dialog treatments', async ({ page }) => {
   }
 });
 
-test('remaining application dialogs', async ({ page }) => captureDialogScenes(page, shot));
+test('remaining application dialogs', async ({ page }) => {
+  try {
+    await captureDialogScenes(page, shot);
+  } finally {
+    // The synthetic catalog/config handlers may still be fetching after the
+    // last dialog closes. Settle them before Playwright closes this page.
+    await page.unrouteAll({ behavior: 'wait' });
+  }
+});
 
 test('timed transcript components', async ({ page }) => {
   for (const kind of ['audio', 'video']) {
