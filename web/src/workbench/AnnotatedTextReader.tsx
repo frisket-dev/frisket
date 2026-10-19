@@ -1,3 +1,8 @@
+import '../media/PdfViewer.css';
+import './DocumentView.css';
+import '../components/BoundedTextReader.css';
+import '../components/EntityFacetsPanel.css';
+import './AnnotatedTextReader.css';
 import { Button } from '../components/Button';
 // Read one long text cell with the pipeline's entities marked in place, toggle
 // each family off, and click a mark.

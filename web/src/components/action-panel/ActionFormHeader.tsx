@@ -1,3 +1,5 @@
+import '../../workbench/ActionDrawer.css';
+import '../ActionPanel.css';
 import { useRef, useState } from 'react';
 import {
   ArrowLeft,

@@ -1,3 +1,4 @@
+import './Drawer.css';
 import { useCallback, useState, type CSSProperties, type ReactNode, type Ref } from 'react';
 import { useResizable } from './useResizable';
 import { useEscapeDismiss } from '../hooks/useEscapeDismiss';

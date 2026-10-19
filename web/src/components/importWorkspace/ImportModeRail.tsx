@@ -1,3 +1,5 @@
+import './ImportWorkspaceDialog.css';
+import './ImportModeRail.css';
 import type { ImportMode, ImportModeOption } from './model';
 
 interface ImportModeRailProps {

@@ -1,3 +1,4 @@
+import './action-panel/RunScopeFooter.css';
 import { ConfirmDialog } from './Modal';
 import type { RunEstimate } from '../api/open';
 import { formatUsd } from '../actions/model';

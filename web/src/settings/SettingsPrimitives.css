@@ -1,0 +1,258 @@
+.settings-section-frame {
+  max-width: 840px;
+  display: grid;
+  gap: 12px;
+}
+.settings-section-frame h1 {
+  margin: 0;
+  font-size: 26px;
+  line-height: 1.15;
+  letter-spacing: 0;
+}
+.settings-section-summary {
+  max-width: 620px;
+  margin: 0;
+  color: var(--text-mid);
+  line-height: 1.5;
+}
+.settings-section-disabled {
+  border-left: 3px solid var(--amber);
+  padding-left: 14px;
+}
+.settings-meta-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 220px));
+  gap: 10px;
+  margin: 8px 0 0;
+}
+.settings-meta-list div {
+  min-width: 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.settings-meta-list dt {
+  color: var(--text-light);
+  font-size: 11px;
+  font-weight: 700;
+}
+.settings-meta-list dd {
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+}
+.settings-row-note {
+  margin-top: 2px;
+  color: var(--text-mid);
+  font-size: 12px;
+}
+.settings-section-subhead {
+  display: grid;
+  gap: 3px;
+}
+.settings-section-subhead h2,
+.settings-danger-header h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 750;
+  letter-spacing: 0;
+}
+.settings-action-list {
+  display: grid;
+  gap: 8px;
+}
+.settings-action-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.settings-action-row:last-child { border-bottom: 0; }
+.settings-action-row strong {
+  display: block;
+  color: var(--text);
+  font-size: 13px;
+}
+.settings-grid-two {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.settings-check {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-height: 34px;
+  color: var(--text-mid);
+  font-size: 12px;
+  font-weight: 650;
+}
+.settings-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-6);
+}
+.settings-table {
+  width: 100%;
+  min-width: 540px;
+  border-collapse: collapse;
+}
+.settings-table th,
+.settings-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: middle;
+}
+.settings-table th {
+  color: var(--text-light);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.settings-table td {
+  color: var(--text-mid);
+  font-size: 12px;
+}
+.settings-table tr:last-child td { border-bottom: 0; }
+.settings-token-reveal {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent), var(--border) 55%);
+  border-radius: var(--radius-8);
+  background: color-mix(in srgb, var(--accent-bg), var(--bg) 28%);
+}
+.settings-token-reveal-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.settings-token-reveal-head strong {
+  display: block;
+  color: var(--text);
+  font-size: 13px;
+}
+.settings-token-reveal-head span,
+.settings-copy-status {
+  color: var(--text-mid);
+  font-size: 12px;
+}
+.settings-token-copy-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.settings-token-secret,
+.settings-token-prefix {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.settings-token-secret {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-6);
+  background: var(--bg);
+  color: var(--text);
+  padding: 8px 9px;
+  white-space: nowrap;
+}
+.settings-token-prefix {
+  color: var(--text-mid);
+}
+.settings-profile-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.settings-avatar {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-weight: 800;
+}
+.settings-meta-label {
+  color: var(--text-light);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.settings-probe-detail {
+  margin: 2px 0 6px;
+  color: var(--text-light);
+  font-size: 11.5px;
+}
+.settings-probe-detail > summary {
+  cursor: pointer;
+}
+.settings-probe-detail > code {
+  display: block;
+  margin-top: 4px;
+  padding: 5px 7px;
+  border-radius: var(--radius-7);
+  background: var(--bg-panel);
+  color: var(--text-mid);
+  overflow-wrap: anywhere;
+}
+.settings-danger-zone {
+  display: grid;
+  gap: 10px;
+  margin-top: 8px;
+  padding-top: 14px;
+  border-top: 1px solid color-mix(in srgb, var(--red), var(--border) 55%);
+}
+.settings-danger-header {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  color: var(--red);
+}
+.settings-danger-zone label {
+  display: grid;
+  gap: 5px;
+  max-width: 360px;
+  color: var(--text-mid);
+  font-size: 12px;
+  font-weight: 650;
+}
+.settings-danger-button {
+  justify-self: start;
+  width: auto;
+  min-width: 96px;
+}
+.settings-option-label {
+  min-width: 0;
+  color: var(--text-mid);
+  font-weight: 650;
+}
+.settings-total {
+  color: var(--text-mid);
+  font-size: 12px;
+  font-weight: 700;
+}
+@media (max-width: 760px) {
+  .settings-meta-list {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 760px) {
+  .settings-grid-two,
+  .settings-action-row {
+    grid-template-columns: 1fr;
+  }
+}
+.settings-section-kicker {
+  color: var(--text-light);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}

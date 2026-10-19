@@ -1,3 +1,5 @@
+import '../PanelPrimitives.css';
+import '../ActionPanel.css';
 import { TextInput, TextArea } from '../FormControls';
 import { useEffect, useRef, useState } from 'react';
 import type { GeneratedActionParamsBodyProps } from './GeneratedActionParamsBody';

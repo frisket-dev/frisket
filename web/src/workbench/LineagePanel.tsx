@@ -1,3 +1,6 @@
+import '../components/PanelPrimitives.css';
+import '../workspace/SheetInfoPopover.css';
+import './LineagePanel.css';
 import { Button } from '../components/Button';
 // The Monitor Lineage tab: the project's provenance DAG (sources → sheets → AI
 // columns) read from GET /lineage.

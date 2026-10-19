@@ -1,3 +1,4 @@
+import './PluginContributionHosts.css';
 import { createElement, useMemo } from 'react';
 import type { SheetMeta } from '../api/types';
 import { WorkbenchContributionFrame } from './contributions';

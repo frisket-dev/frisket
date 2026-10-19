@@ -1,3 +1,4 @@
+import './SkillsSettings.css';
 import { Button } from './Button';
 import { IconButton } from './IconButton';
 import { PanelEmpty, PanelError } from './PanelPrimitives';

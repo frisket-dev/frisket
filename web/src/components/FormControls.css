@@ -1,3 +1,54 @@
+@layer base, action-panel;
+
+@layer base {
+/* Form header: back chevron + big action title (with change-action menu) +
+   quiet "on <sheet>" context. Calm-hierarchy redesign. */
+/* The form variant wins over PanelHeader regardless of which primitive loads
+   first (including independent form stories). */
+.panel-header.form-header {
+  display: flex; align-items: center; gap: 8px;
+  text-transform: none; letter-spacing: 0;
+  font-size: 13px; color: var(--text);
+  padding: 16px 14px 10px;
+}
+.form-header > .muted { flex-shrink: 0; font-size: 12.5px; }
+.form-label-row {
+  display: flex; align-items: center; justify-content: space-between;
+  margin: var(--space-12) 0 var(--space-4);
+}
+}
+/* Two fields side by side (design card 5b: target sheet/column, match/confident
+   threshold) — each child owns its own label + input stack. */
+.form-row-pair { display: flex; gap: 14px; }
+.form-row-pair > * { flex: 1; min-width: 0; }
+/* Prompt-style
+   textareas grow with their content instead of scrolling a fixed 3-5 rows.
+   field-sizing is the primary mechanism; the paired ref/onInput JS fallback
+   (formControlHelpers.ts resizeTextareaToContent/handleAutoResizeTextareaInput)
+   covers browsers without field-sizing support. Bounded so a pasted essay
+   doesn't push the run button off-panel — scrolls internally past ~50vh. */
+.form-textarea-autogrow {
+  field-sizing: content;
+  /* The scrolling form owns overflow until this editor reaches its height cap. */
+  flex-shrink: 0;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+@layer base {
+.form-check {
+  display: flex; align-items: center; gap: 7px;
+  margin-top: 12px; font-size: 12px; color: var(--text-mid);
+}
+}
+.form-actions .btn-primary { min-width: 74px; }
+
+/* ---- action form extras ----------------------------------------------------- */
+
+.field-group { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.field-labels { font-size: 12px; }
+.field-help { color: var(--text-mid); font-size: 11.5px; line-height: 1.35; }
+.brand-project-btn:hover { background: var(--accent-bg); color: var(--accent); }
+
 /* Native controls share appearance; their owners retain layout, validation and
    specialized editing (code, templates, auto-growing text, etc.). */
 @layer base {
@@ -68,3 +119,8 @@
 .form-stack { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
 .form-stack > *, .form-stack > fieldset > * { margin-block: 0; }
 .form-stack > .btn, .form-stack > fieldset > .btn { align-self: flex-start; }
+.row-height-select:hover { background: var(--bg-hover); }
+.form-input-invalid,
+.form-input-invalid:focus {
+  border-color: var(--red);
+}

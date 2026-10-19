@@ -1,3 +1,5 @@
+import '../components/PanelPrimitives.css';
+import './ImageGallery.css';
 import { Button } from '../components/Button';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Row } from '../api/types';

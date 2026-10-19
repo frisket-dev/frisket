@@ -1,3 +1,6 @@
+import '../components/EntityDetailPanel.css';
+import './WorkbenchCommandPalette.css';
+import './contributions.css';
 import type { ReactNode } from 'react';
 import { useActSurfaceHandle } from '../bind/useActSurfaceHandle';
 import { EmbeddingsPanel, type EmbeddingsPanelProps } from '../components/EmbeddingsPanel';

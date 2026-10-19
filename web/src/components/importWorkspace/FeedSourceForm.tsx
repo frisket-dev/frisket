@@ -1,3 +1,8 @@
+import '../PanelPrimitives.css';
+import '../Modal.css';
+import './ImportWorkspaceDialog.css';
+import './ImportModeRail.css';
+import '../SourcesPanel.css';
 import { useReducer, useRef, useState } from 'react';
 import { Globe2, ListVideo, RefreshCw, Rss, Scale } from 'lucide-react';
 import type { SourceInfo, SourceInput, SourceInterval } from '../../api/open';

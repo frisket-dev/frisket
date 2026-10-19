@@ -1,3 +1,5 @@
+import '../PanelPrimitives.css';
+import './ImportWorkspaceDialog.css';
 import { Button } from '../Button';
 import type { BulkImportPlan, BulkImportFailedOutput } from '../../api/open';
 import { bulkPlanValidationError } from './fileIntake';

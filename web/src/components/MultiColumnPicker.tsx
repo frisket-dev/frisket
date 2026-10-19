@@ -1,3 +1,5 @@
+import './PanelSelect.css';
+import './MultiColumnPicker.css';
 // Chip/token multi-select for column lists — replaces the raw multi-select
 // as the input step shared by Semantic join, Reduce, and Agent.
 // Selected columns show as removable chips (AI columns get the ⚡ purple

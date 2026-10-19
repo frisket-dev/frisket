@@ -1,3 +1,5 @@
+import '../components/EntityFacetsPanel.css';
+import './MentionDetailPanel.css';
 import { Button } from '../components/Button';
 // The drill-down the Mentions panel lacks. Clicking a mention group there
 // filters the GRID; this answers the question a reader actually has — which

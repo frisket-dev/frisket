@@ -5,6 +5,35 @@ import { createProject, importCsv, openDiscoverTab, openProject } from '../e2e/h
 
 type Shot = (page: Page, family: string, name: string, source: string, detailSelector?: string) => Promise<void>;
 
+const SETTINGS_SCENE_OWNERS: Record<string, string> = {
+  'personal.profile': 'src/settings/PersonalSettings.tsx',
+  'personal.preferences': 'src/settings/PersonalSettings.tsx',
+  'personal.privacy': 'src/settings/PersonalSettings.tsx',
+  'personal.aiProviders': 'src/settings/AiProviderSettings.tsx',
+  'personal.diagnostics': 'src/settings/DiagnosticsSettings.tsx',
+  'personal.skills': 'src/components/SkillsSettings.tsx',
+  'organization.aiProviders': 'src/settings/OrganizationSettings.tsx',
+  'organization.secrets': 'src/settings/OrganizationSettings.tsx',
+  'organization.apiKeys': 'src/settings/OrganizationSettings.tsx',
+  'organization.spend': 'src/settings/OrganizationSettings.tsx',
+  'organization.skills': 'src/components/SkillsSettings.tsx',
+  'organization.modelsGateway': 'src/settings/teamModelsGatewaySection.tsx; src/engine-selector/ModelsGatewaySettings.tsx',
+  'project.general': 'src/settings/ProjectSettings.tsx',
+  'project.access': 'src/settings/ProjectSettings.tsx',
+  'project.aiProviders': 'src/settings/AiProviderSettings.tsx',
+  'project.secrets': 'src/settings/ProjectIntegrationSettings.tsx',
+  'project.mcpServers': 'src/settings/ProjectIntegrationSettings.tsx; src/settings/McpServersSection.tsx',
+  'project.notifications': 'src/components/NotificationSettingsPanel.tsx',
+  'project.plugins': 'src/settings/ProjectIntegrationSettings.tsx',
+  'project.dataManagement': 'src/settings/ProjectDataManagementSettings.tsx',
+};
+
+export function settingsSceneSource(component: string): string {
+  const owner = SETTINGS_SCENE_OWNERS[component];
+  if (!owner) throw new Error(`Missing settings scene owner: ${component}`);
+  return `src/settings/SettingsWorkspace.tsx; ${owner}`;
+}
+
 async function expandDock(page: Page) {
   const box = await page.getByTestId('bottom-dock-resize').boundingBox();
   expect(box).not.toBeNull();
@@ -43,12 +72,12 @@ export async function captureSettingsScenes(page: Page, shot: Shot) {
       await expect(page.getByTestId('diagnose-panel-table')).toBeVisible({ timeout: 45_000 });
     }
     if (section.id === 'personal.skills') await expect(page.getByTestId('skills-editor')).toBeEnabled();
-    await shot(page, 'Settings', `${section.scope}-${section.section}`, 'src/settings/SettingsWorkspace.tsx; SettingsSections.tsx');
+    await shot(page, 'Settings', `${section.scope}-${section.section}`, settingsSceneSource(section.component));
     // Full-page screenshots cannot reveal an inner scrolling settings pane.
     const { height, total } = await content.evaluate(element => ({ height: element.clientHeight, total: element.scrollHeight }));
     for (let offset = height * 0.8, part = 2; offset < total - 40; offset += height * 0.8, part += 1) {
       await content.evaluate((element, top) => { element.scrollTop = top; }, offset);
-      await shot(page, 'Settings', `${section.scope}-${section.section}-part-${part}`, 'src/settings/SettingsWorkspace.tsx; SettingsSections.tsx');
+      await shot(page, 'Settings', `${section.scope}-${section.section}-part-${part}`, settingsSceneSource(section.component));
       if (offset + height >= total) break;
     }
     await content.evaluate(element => { element.scrollTop = 0; });
@@ -56,10 +85,10 @@ export async function captureSettingsScenes(page: Page, shot: Shot) {
     if (section.id === 'personal.ai-providers') {
       await content.getByRole('button', { name: 'Add new key', exact: true }).click();
       await expect(content.getByLabel('Provider key', { exact: true })).toBeVisible();
-      await shot(page, 'Settings', 'personal-provider-key-form', 'src/settings/SettingsSections.tsx; engine-selector/ProviderKeyForm.tsx');
+      await shot(page, 'Settings', 'personal-provider-key-form', 'src/settings/AiProviderSettings.tsx; src/engine-selector/ProviderKeyForm.tsx');
       await page.getByTestId('local-endpoint-add').click();
       await expect(page.getByTestId('local-endpoint-add-form')).toBeVisible();
-      await shot(page, 'Settings', 'personal-local-endpoint-form', 'src/settings/SettingsSections.tsx');
+      await shot(page, 'Settings', 'personal-local-endpoint-form', 'src/settings/AiProviderSettings.tsx');
     }
     if (section.id === 'project.mcp-servers') {
       await content.getByRole('button', { name: 'Add MCP server', exact: true }).click();
@@ -103,10 +132,10 @@ export async function capturePanelScenes(page: Page, shot: Shot) {
 
   await openDiscoverTab(page, 'Sources');
   await expect(page.getByTestId('sources-empty')).toBeVisible();
-  await shot(page, 'Side panels', 'sources-empty', 'src/components/SourcesPanel.tsx');
+  await shot(page, 'Side panels', 'sources-empty', 'src/components/SourcesPanel.tsx; src/components/sources/SourceList.tsx');
   await page.getByTestId('sources-add-source').click();
   await expect(page.getByTestId('source-form')).toBeVisible();
-  await shot(page, 'Side panels', 'source-form', 'src/components/SourcesPanel.tsx');
+  await shot(page, 'Side panels', 'source-form', 'src/components/importWorkspace/ImportWorkspaceDialog.tsx; src/components/importWorkspace/FeedSourceForm.tsx');
   await page.getByTestId('import-workspace-close').click();
   await expect(page.getByTestId('import-workspace-dialog')).toHaveCount(0);
 
@@ -361,14 +390,14 @@ export async function capturePanelCardScenes(page: Page, shot: Shot) {
   await expect(sourceCard).toBeVisible();
   await sourceCard.getByRole('button', { name: 'poll history' }).click();
   await expect(page.getByTestId(`source-runs-${sourceId}`)).toContainText(sourceRun.error);
-  await shot(page, 'Panel cards', 'source-with-poll-history', 'synthetic read-only API fixture; src/components/SourcesPanel.tsx', `[data-testid="source-item-${sourceId}"]`);
+  await shot(page, 'Panel cards', 'source-with-poll-history', 'synthetic read-only API fixture; src/components/sources/SourceList.tsx', `[data-testid="source-item-${sourceId}"]`);
   await page.getByTestId(`source-health-${sourceId}`).click();
   await page.getByTestId('source-detail-tab-health').click();
   await expect(page.getByTestId(`source-health-status-${sourceId}`)).toHaveText('failing');
-  await shot(page, 'Panel cards', 'source-health-summary', 'synthetic read-only API fixture; src/components/SourcesPanel.tsx', '[data-testid="source-health-drawer"]');
+  await shot(page, 'Panel cards', 'source-health-summary', 'synthetic read-only API fixture; src/components/sources/SourceHealthDrawer.tsx; src/components/sources/SourceHealthContent.tsx', '[data-testid="source-health-drawer"]');
   await page.getByTestId('source-detail-tab-runs').click();
   await expect(page.getByTestId(`source-health-runs-${sourceId}`)).toContainText(sourceRun.error);
-  await shot(page, 'Panel cards', 'source-health-run-details', 'synthetic read-only API fixture; src/components/SourcesPanel.tsx', '[data-testid="source-health-drawer"]');
+  await shot(page, 'Panel cards', 'source-health-run-details', 'synthetic read-only API fixture; src/components/sources/SourceHealthDrawer.tsx; src/components/sources/SourceHealthContent.tsx', '[data-testid="source-health-drawer"]');
 
   await openDiscoverTab(page, 'Watches');
   await expect(page.getByTestId('watch-item')).toHaveCount(1);

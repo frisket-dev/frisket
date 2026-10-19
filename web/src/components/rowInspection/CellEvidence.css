@@ -1,0 +1,49 @@
+.cell-evidence {
+  margin-top: 8px;
+  display: grid;
+  gap: 6px;
+}
+.cell-evidence-links,
+.cell-evidence-stale-list {
+  display: grid;
+  gap: 5px;
+}
+.cell-evidence-link {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  width: 100%;
+  text-align: left;
+  border: 1px solid #c7d5f7;
+  background: #f5f8ff;
+  border-radius: var(--radius-6);
+  padding: 7px 8px;
+  color: var(--accent);
+}
+.cell-evidence-link:hover { background: var(--accent-bg); }
+.cell-evidence-link small {
+  display: block;
+  color: var(--text-mid);
+  font-size: 11px;
+  line-height: 1.35;
+  margin-top: 2px;
+}
+.cell-evidence-link-stale {
+  border-color: #e2c276;
+  background: var(--amber-bg);
+  color: var(--amber);
+}
+/* The chip whose link is the docked pane's current source: a visual "you are
+   here", not a status. */
+.cell-evidence-link-active {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.cell-evidence-audit-toggle {
+  justify-self: start;
+}
+.cell-evidence-error {
+  color: var(--red);
+  font-size: 11.5px;
+}

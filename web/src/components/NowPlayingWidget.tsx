@@ -1,3 +1,5 @@
+import './IconButton.css';
+import './NowPlayingWidget.css';
 import { useLayoutEffect, useRef } from 'react';
 import { ExternalLink, X } from 'lucide-react';
 

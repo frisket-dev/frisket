@@ -1,3 +1,4 @@
+import './FormControls.css';
 // Design-system select for the action panel: the real select stays in the
 // DOM as the trigger (so tests' selectOption(), form value semantics, and
 // keyboard value-cycling keep working), but pointer users get a custom

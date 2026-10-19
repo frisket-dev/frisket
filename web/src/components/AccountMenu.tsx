@@ -1,3 +1,6 @@
+import '../workbench/ChromeBar.css';
+import './MenuPop.css';
+import './AccountMenu.css';
 // Account / user menu — off the avatar in the global chrome bar and the Home top
 // bar. The avatar carries a focus ring while the menu is open. Contents
 // (top→bottom): a header (avatar + name + email when a real identity exists;

@@ -1,3 +1,4 @@
+import './TopicSegmentationCompareTab.css';
 import { Button } from '../components/Button';
 import {
   useCallback,

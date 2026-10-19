@@ -1,0 +1,54 @@
+/* ============================================================================
+   Preview run surface: a disposable main-view tab + scope banner. Reuses the
+   real sheet grid (scoped via lensRowIds), so previews render every cell type
+   for free; Commit keeps the written results, Discard undoes the run.
+   ========================================================================== */
+
+.preview-view-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 22px;
+  background: var(--preview-bg);
+  border-bottom: 1px solid var(--preview-border);
+}
+.preview-view-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--preview-accent);
+  flex-shrink: 0;
+}
+.preview-view-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--preview-ink);
+}
+.preview-view-scope {
+  font-size: 12.5px;
+  color: var(--preview-muted);
+}
+.preview-view-spacer { flex: 1; }
+.preview-view-discard {
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--preview-border);
+  background: var(--bg);
+  border-radius: var(--radius-8);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--preview-btn);
+  cursor: pointer;
+}
+.preview-view-commit {
+  height: 30px;
+  padding: 0 13px;
+  border: none;
+  background: var(--preview-btn);
+  color: var(--text-on-solid);
+  border-radius: var(--radius-8);
+  font-size: 12.5px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.preview-view-commit:hover { filter: brightness(1.05); }

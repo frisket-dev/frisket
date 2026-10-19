@@ -1,3 +1,5 @@
+.source-detail-contribution-tab { min-width: 0; }
+
 .sources-form-row { display: flex; gap: 6px; }
 .sources-form-row > .panel-select-shell { flex: 1; min-width: 0; }
 .sources-form-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px; }

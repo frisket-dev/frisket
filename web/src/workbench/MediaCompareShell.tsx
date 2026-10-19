@@ -1,3 +1,4 @@
+import './MediaCompareShell.css';
 import { Button } from '../components/Button';
 // The compare family's popover / add-menu dismissal (OcrCompareTab's/
 // TranscribeCompareTab's Configure popovers, TranscribeCompareTab's

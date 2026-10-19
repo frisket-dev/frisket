@@ -1,3 +1,4 @@
+import './Modal.css';
 import { Button } from './Button';
 import { TextInput } from './FormControls';
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';

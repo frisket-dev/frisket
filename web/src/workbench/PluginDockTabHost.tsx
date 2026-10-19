@@ -1,3 +1,5 @@
+import '../components/PanelPrimitives.css';
+import './contributions.css';
 import { useMemo } from 'react';
 import type { SheetMeta } from '../api/types';
 import { WorkbenchContributionFrame } from './contributions';

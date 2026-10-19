@@ -1,3 +1,4 @@
+import './MenuPop.css';
 import { forwardRef, useLayoutEffect, useRef, useState, type HTMLAttributes, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { useAnchoredPosition, type AnchoredPositionOptions } from '../hooks/useAnchoredPosition';

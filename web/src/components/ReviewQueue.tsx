@@ -1,3 +1,4 @@
+import './ReviewQueue.css';
 import { useMemo, useState, type ReactNode } from 'react';
 import { WindowCloseButton } from './WindowCloseButton';
 import type { ReviewBundleOrder } from '../api/types';

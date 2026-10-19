@@ -1,3 +1,5 @@
+import '../PanelPrimitives.css';
+import '../FormControls.css';
 import { Button } from '../Button';
 import { useCallback, useEffect, useReducer } from 'react';
 import { ApiError, type EmbeddingIndexSummary, type Lens, type LensResolved } from '../../api/open';

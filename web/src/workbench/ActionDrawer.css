@@ -1,0 +1,126 @@
+@layer base, action-panel;
+
+@layer action-panel {
+/* ---- Action drawer — fixed-400px right-docked pane (workbench-ia-action-
+   drawer-v1; FULL-HEIGHT per action-drawer-full-height-v1, extended
+   2026-07-15: the band now runs all the way to the shell's bottom edge).
+   The work regions reserve its width so their right edge meets the drawer.
+   top is set inline from the measured band (chrome bar bottom), bottom is 0 —
+   ActionDrawer.tsx's measureBand. The ribbon and sheet tabs stay accessible
+   beside it, with the project bar above. The drawer stacks above the positioned
+   menubar(50) and inspectors, but below modals(60)/command palette(70). ------ */
+.workbench-shell.action-drawer-open > [data-testid='workbench-region-act'],
+.workbench-shell.action-drawer-open > [data-testid='workbench-region-navigate'],
+.workbench-shell.action-drawer-open > .workbench-main-row,
+.workbench-shell.action-drawer-open > [data-testid='workbench-region-bottomDock'] {
+  margin-right: var(--action-drawer-width, 400px);
+}
+.action-drawer {
+  position: absolute;
+  right: 0;
+  z-index: 55;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border-left: 1px solid var(--border);
+  box-shadow: var(--shadow-drawer);
+  overflow: hidden;
+}
+/* The re-hosted form fills the drawer; header sticks to the top and the run
+   footer to the bottom, with the parameter body scrolling between. */
+.action-drawer .action-panel.action-drawer-form-host {
+  width: 100%;
+  height: 100%;
+  border-left: 0;
+  background: transparent;
+  overflow-y: auto;
+  /* Never scroll horizontally: wide content truncates/wraps inside the fixed
+     400px drawer (the header context ellipsizes; forms wrap). */
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+/* The re-hosted form arrives wrapped in an ActionWorkbenchFormFrame section
+   (.workbench-form-contribution) between the scroll host and the form — an
+   auto-height block that used to break the fill chain: the form's
+   min-height:100% resolved against it, not the host, so the Preview/Run
+   footer floated ~⅓ up the drawer over dead space. Stretch the wrapper to the
+   host's full height and let the form flex-fill it. */
+.action-drawer .action-drawer-form-host > .workbench-form-contribution {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.action-drawer .action-drawer-form-host > .workbench-form-contribution > .action-form {
+  flex: 1;
+}
+/* The error variants render .action-form directly under the host (no frame);
+   min-height:100% resolves against the host's definite height there. */
+.action-drawer .action-form {
+  min-height: 100%;
+}
+/* The Preview/Run footer owns the drawer's bottom edge: the form's own 16px
+   bottom padding (base `.action-panel .action-form` rule, which appears later
+   in this file — hence the extra .action-panel here for specificity) would
+   otherwise strand the footer above a dead strip when the form is short. */
+.action-drawer .action-panel .action-form {
+  padding-bottom: 0;
+}
+.action-drawer .action-form > .form-header.action-drawer-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--act-bg);
+  border-bottom: 1px solid var(--border);
+  margin: 0 -18px;
+  padding-left: 18px;
+  padding-right: 12px;
+  /* Two-line header: line 1 = icon + action name (name gets
+     the full width, never squeezed by the context), line 2 = "on <sheet>"
+     ellipsized on its own line, indented under the name; × pinned top-right. */
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-areas:
+    'icon title help close'
+    '.    context help close';
+  column-gap: 9px;
+  row-gap: 1px;
+  align-items: center;
+}
+.action-drawer-header .action-drawer-header-icon { grid-area: icon; }
+.action-drawer-header .action-title-menu,
+.action-drawer-header > span[data-testid='action-form-title'] {
+  grid-area: title; min-width: 0;
+}
+.action-drawer-header .action-form-context {
+  grid-area: context; margin-left: 0; justify-self: start; max-width: 100%;
+}
+.action-drawer-header .action-help-trigger { grid-area: help; align-self: start; }
+.action-drawer-header .action-drawer-close { grid-area: close; align-self: start; }
+.action-drawer-header-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-7);
+  background: var(--act-bg);
+  color: var(--act);
+  flex-shrink: 0;
+}
+.action-drawer-header .action-drawer-close {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+}
+/* Drawer footers share the same sticky surface; only their edge spacing and
+   stacking differ. Auto margin keeps short forms anchored to the bottom. */
+.action-drawer .action-form > .action-run-actions {
+  z-index: 2;
+  margin: auto -18px 0;
+  padding: 12px 18px;
+}
+/* Auto margins collapse in long forms, so the last field owns the minimum gap. */
+.action-drawer .action-form > :has(+ .action-run-actions) {
+  margin-bottom: 14px;
+}

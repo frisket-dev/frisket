@@ -1,3 +1,4 @@
+import '../DocumentView.css';
 import { Button } from '../../components/Button';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, ChevronUp, CircleAlert, CircleHelp, LoaderCircle, Minus, MousePointer2, Play, Rows3, ScanLine, Settings2, Square, X } from 'lucide-react';

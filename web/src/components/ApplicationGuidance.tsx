@@ -1,3 +1,4 @@
+import './ApplicationGuidance.css';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { listWalkthroughs } from '../api/walkthroughs';
 import { useShellIdentity } from '../shellIdentity';

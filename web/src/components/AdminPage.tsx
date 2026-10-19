@@ -1,3 +1,4 @@
+import './AdminPage.css';
 import { Button } from './Button';
 import { TextInput } from './FormControls';
 import {
@@ -40,7 +41,7 @@ import {
 } from '../api/open';
 import { BrandLink } from './BrandLink';
 import { useEditionModule } from '../editions/module';
-import { DiagnosticsSettings } from '../settings/SettingsSections';
+import { DiagnosticsSettings } from '../settings/DiagnosticsSettings';
 
 const ADMIN_LINKS = [
   { path: '/admin', label: 'Overview' },

@@ -1,0 +1,88 @@
+/* history op-log paging controls (bottom-dock list/detail panel) */
+.history-page-control {
+  padding: 5px 8px;
+}
+.history-page-button {
+  width: 100%;
+  height: 28px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-mid);
+  border-radius: var(--radius-6);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.history-page-button:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.history-page-button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+
+.history-icon {
+  display: grid; place-items: center;
+  width: 24px; height: 24px; border-radius: var(--radius-5);
+  background: var(--bg-panel); color: var(--text-mid);
+  flex-shrink: 0;
+}
+.history-label { font-weight: 550; line-height: 1.35; }
+.history-pointer {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  color: var(--accent);
+  align-self: center;
+}
+
+/* run-detail-full-params-v1: run id / deep link rows in the history detail
+   pane, plus the pretty-printed params block. */
+.history-run-id-row, .history-deep-link-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.history-run-id-row code, .history-deep-link-row code {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.history-params-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.bottom-dock-detail-section pre.history-params-json {
+  color: var(--text);
+  max-height: 220px;
+  overflow: auto;
+  background: var(--bg-panel);
+  border-radius: var(--radius-5);
+  padding: 8px;
+}
+
+/* ---- history in the bottom dock (list/detail template) ------------------------ */
+.bottom-dock-table tr.history-state-undone { opacity: 0.5; }
+.bottom-dock-table tr.history-state-current { background: var(--accent-bg); }
+.bottom-dock-table tr.history-state-current .history-icon { background: var(--accent); color: var(--text-on-solid); }
+.bottom-dock-row-button:has(.history-icon) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.bottom-dock-row-button .history-icon,
+.bottom-dock-detail-header .history-icon { width: 20px; height: 20px; }
+.bottom-dock-row-button .history-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bottom-dock-row-button .history-pointer { margin-left: auto; }
+.bottom-dock-detail-header strong { display: flex; align-items: center; gap: 8px; }

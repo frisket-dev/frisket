@@ -1,3 +1,4 @@
+import './PanelPrimitives.css';
 import { useId, type InputHTMLAttributes, type ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { WindowCloseButton } from './WindowCloseButton';

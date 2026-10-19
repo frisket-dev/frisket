@@ -1,3 +1,4 @@
+import './DiscoverPanel.css';
 import { TabButton } from '../components/Button';
 import {
   ChevronLeft,

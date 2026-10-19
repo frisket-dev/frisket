@@ -1,3 +1,5 @@
+import '../PanelPrimitives.css';
+import '../action-panel/RunScopeFooter.css';
 import { Button } from '../Button';
 import { FormField, SearchInput, TextInput } from '../FormControls';
 // The bespoke drawer body for the Combine action ("Group values"). The core

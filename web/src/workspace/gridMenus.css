@@ -1,0 +1,132 @@
+.grid-add-column-popover .grid-add-column-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 6px 0;
+  font-size: 12px;
+  color: var(--text-mid);
+}
+.grid-add-column-popover .grid-add-column-field input,
+.grid-add-column-popover .grid-add-column-field select {
+  width: 100%;
+}
+.grid-add-column-error {
+  padding: 4px 6px;
+  font-size: 11px;
+  color: var(--red);
+}
+.grid-add-column-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 6px 6px 2px;
+}
+.grid-add-column-actions .grid-header-menu-item {
+  width: auto;
+  flex: 0 0 auto;
+}
+.grid-add-column-submit:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.grid-control-panel {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+/* Close affordance for the caret-launched sort panel
+   (workbench-ia-toolbar-diet-v1): the toolbar toggle that used to dismiss them
+   is gone, so the panels dismiss themselves. */
+.grid-control-panel-close {
+  margin-left: auto;
+  align-self: center;
+}
+.grid-header-menu {
+  position: fixed;
+  z-index: 80;
+  width: 246px;
+  padding: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-8);
+  box-shadow: var(--shadow-drawer);
+  /* Guard against a tall menu overflowing the viewport (workbench-ia-action-
+     drawer-v1); the actions list also scrolls internally (below). */
+  max-height: min(84vh, 620px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+/* Keep the "Actions on this column" list from pushing settings/save-view off
+   the bottom: cap it and scroll internally. */
+.grid-header-menu-actions-scroll {
+  max-height: 168px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.grid-header-menu-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 6px 7px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+}
+.grid-header-menu-title span:last-child {
+  flex: none;
+  color: var(--focus);
+  font-size: 11px;
+  font-weight: 600;
+}
+.grid-header-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 30px;
+  padding: 6px 8px;
+  border-radius: var(--radius-5);
+  text-align: left;
+  color: var(--text-mid);
+  font-size: 12.5px;
+}
+.grid-header-menu-item:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.grid-header-menu-item:disabled {
+  color: var(--text-light);
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+.grid-header-menu-sep {
+  height: 1px;
+  margin: 5px 2px;
+  background: var(--border);
+}
+/* Caret menu "Actions on this column" section label (workbench-ia-action-
+   drawer-v1). */
+.grid-header-menu-section {
+  font-size: 10px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-light);
+  padding: 4px 8px 2px;
+}
+/* Filtered-state chip near the caret (replaces inc 6's funnel sprite). */
+.grid-header-menu-filtered {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: var(--radius-999);
+  font-size: 10px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--act-bg);
+  color: var(--act);
+}

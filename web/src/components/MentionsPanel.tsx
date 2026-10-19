@@ -1,3 +1,5 @@
+import './MentionsPanel.css';
+import './EntityFacetsPanel.css';
 import { Button } from './Button';
 import { FormField, TextInput } from './FormControls';
 // Preserve server ordering and counts; this read-only panel never starts extraction.

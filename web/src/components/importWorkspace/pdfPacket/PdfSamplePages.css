@@ -1,0 +1,75 @@
+.pdf-sample-pages { display: grid; gap: 8px; }
+.pdf-sample-pages .pdf-packet-page-picker { display: flex; align-items: center; gap: 8px; margin: 0; }
+.pdf-sample-pages .pdf-packet-page-picker input { width: 64px; }
+.pdf-sample-pages .pdf-packet-sample-heading h3 { margin: 0; font-size: 13px; text-transform: none; }
+.pdf-packet-sample-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 20px 0 7px;
+}
+.pdf-packet-sample-heading h3 { margin: 0; }
+.pdf-packet-samples {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px 9px;
+  margin-bottom: 20px;
+}
+.pdf-packet-samples button {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 2px;
+  border: 0;
+  background: transparent;
+  color: #756c66;
+  font-size: 11px;
+}
+.pdf-packet-samples img {
+  width: 56px;
+  height: 72px;
+  object-fit: cover;
+  border: 1px solid #ddd5cd;
+  border-radius: 2px;
+  background: white;
+  box-shadow: 0 1px 3px rgba(40, 30, 20, 0.12);
+}
+.pdf-packet-samples button.active img {
+  outline: 2px solid #4b4ddb;
+  outline-offset: 2px;
+}
+.pdf-packet-page-picker {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: -8px 0 20px;
+  color: #3b46c4;
+  font-size: 11px;
+}
+.pdf-packet-page-picker > span:last-child {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #756c66;
+}
+.pdf-packet-page-picker input {
+  width: 54px;
+  padding: 4px 5px;
+  border: 1px solid #ddd5cd;
+  border-radius: 5px;
+  background: white;
+  color: #211c19;
+  font: inherit;
+}
+.search-preparation-sample-pages { display: flex; align-items: center; gap: 6px; overflow-x: auto; }
+.search-preparation-sample-pages > button:not(.icon-btn) {
+  border: 1px solid #d7d1cb;
+  border-radius: 999px;
+  background: #fff;
+  padding: 4px 9px;
+  font: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.search-preparation-sample-pages > button.active { border-color: #4b4ddb; color: #3436b8; background: #f1f1ff; }

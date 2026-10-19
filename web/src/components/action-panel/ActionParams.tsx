@@ -1,3 +1,4 @@
+import '../ActionPanel.css';
 import { TextArea, TextInput } from '../FormControls';
 // Generic catalog-parameter rendering. ActionParams receives an ALREADY-FILTERED
 // parameter list: the action-kind bespoke/internal exclusions (NER, semantic/tabular

@@ -1,3 +1,4 @@
+import './EmbeddingsPanel.css';
 import { Button } from './Button';
 import { Plus } from 'lucide-react';
 import type { SheetMeta } from '../api/open';

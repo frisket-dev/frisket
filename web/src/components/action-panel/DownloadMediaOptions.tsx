@@ -1,3 +1,4 @@
+import '../ActionPanel.css';
 import { TextInput } from '../FormControls';
 import { useState } from 'react';
 import type { GeneratedActionParamsBodyProps } from './GeneratedActionParamsBody';

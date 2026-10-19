@@ -1,0 +1,117 @@
+@layer base, action-panel;
+
+/* Quiet cost line: a colored status dot + muted sentence, no banner box.
+   Dot: green = free/local, amber = costs money or needs confirmation. */
+.cost-line {
+  margin-top: 16px;
+  font-size: 12.5px; line-height: 1.5;
+  color: var(--text-mid);
+}
+/* The action panel's cost line rides inside the sticky run footer so the price
+   is on screen at laptop heights (see ActionForm.tsx). The footer is a flex
+   column with its own gap — unlayered, like `.cost-line` itself, so it wins
+   over the @layer action-panel footer rules. */
+.action-run-actions > .cost-line {
+  margin-top: 0;
+  margin-bottom: 2px;
+}
+.cost-line .cost-dot {
+  display: inline-block;
+  width: 7px; height: 7px; border-radius: 50%;
+  margin-right: 7px;
+  background: var(--green);
+}
+.cost-line.cost-paid .cost-dot { background: var(--amber); }
+.cost-line.cost-warn { color: var(--amber); }
+.cost-line.cost-warn .cost-dot { background: var(--amber); }
+.action-run-actions {
+  position: sticky;
+  z-index: 8;
+  bottom: 0;
+  margin: 14px -18px -16px;
+  padding: 10px 18px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+/* Quiet scope summary sits right-aligned above the button row. */
+.run-scope-summary {
+  margin: 0;
+  color: var(--text-light);
+  font-size: 12px;
+  line-height: 1.25;
+  text-align: right;
+}
+.run-disabled-reason {
+  margin: 6px 0 0;
+  color: var(--text-light);
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: right;
+}
+.run-overwrite-existing {
+  margin-left: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.run-actions-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+/* Preview is the quiet ghost sibling of the run cluster. */
+.run-actions-row > .btn {
+  border: 0;
+  background: transparent;
+  color: var(--text-mid);
+  font-size: 13px;
+  min-height: 38px;
+  padding: 0 13px;
+  border-radius: 10px;
+}
+.run-actions-row > .btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--text); }
+.run-scope-control {
+  position: relative;
+  flex-shrink: 0;
+}
+.run-scope-button-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+}
+.run-scope-button-row .btn {
+  min-width: 0;
+  min-height: 38px;
+  font-size: 13px;
+}
+/* The chevron shares the run button's surface so the pair reads as one
+   [Run all ⌄] control rather than two adjacent buttons. Doubled class
+   selectors so these corner radii beat the `.btn` border-radius shorthand
+   that appears later in the file. */
+.btn.run-primary {
+  border-right: 0;
+  border-radius: 10px 0 0 10px;
+  padding: 0 16px;
+}
+.btn.run-scope-toggle {
+  justify-content: center;
+  border-left: 0;
+  border-radius: 0 10px 10px 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+.run-scope-toggle::before {
+  content: '';
+  align-self: stretch;
+  width: 1px;
+  margin: 5px 0;
+  background: rgba(255, 255, 255, 0.28);
+}

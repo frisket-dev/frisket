@@ -1,3 +1,4 @@
+import '../../IconButton.css';
 import { Button } from '../../Button';
 import { FileText, LoaderCircle, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';

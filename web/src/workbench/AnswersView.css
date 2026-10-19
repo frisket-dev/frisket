@@ -1,0 +1,236 @@
+/* ---- Grounded Answers view (answers-view-shell-v1 / -docked-evidence-v1):
+   three panes -- row list (a DocumentView-list clone), the chosen cited
+   column's per-row values + chips, and the docked EvidenceViewer pane. ---- */
+.answers-view {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  background: var(--bg);
+}
+.answers-row-list {
+  width: 240px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--border);
+  background: var(--bg-sidebar);
+}
+.answers-row-list-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-light);
+  flex-shrink: 0;
+}
+.answers-row-list-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text);
+  outline: none;
+}
+.answers-row-list-count { padding: 4px 10px; font-size: 10.5px; flex-shrink: 0; }
+.answers-row-list-body { flex: 1; min-height: 0; overflow-y: auto; outline: none; }
+.answers-row-list-scroller { position: relative; }
+.answers-row-item {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  box-sizing: border-box;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+.answers-row-item:hover { background: var(--bg-hover); }
+.answers-row-item.active {
+  background: var(--accent-bg);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.answers-row-item-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.answers-row-list-empty,
+.answers-row-list-message { padding: 16px 12px; font-size: 12px; color: var(--text-light); }
+.answers-row-list-more { margin: 8px; }
+
+.answers-column {
+  flex: 1 1 auto;
+  min-width: 300px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--canvas);
+}
+.answers-column-header {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  flex-shrink: 0;
+}
+.answers-column-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-mid);
+}
+.answers-column-picker-row > .panel-select-shell { min-width: 160px; }
+.answers-column-picker-static { font-size: 13px; font-weight: 600; color: var(--text); }
+.answers-column-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 12px;
+}
+.answers-cell {
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.answers-cell.active { background: var(--accent-bg); }
+.answers-cell-title { font-size: 11.5px; font-weight: 600; color: var(--text-light); margin-bottom: 4px; }
+.answers-cell-content { font-size: 13px; color: var(--text); white-space: pre-wrap; }
+.answers-cell-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.answers-column-empty { padding: 16px 12px; font-size: 12px; }
+
+.answers-evidence-seam {
+  position: relative;
+  z-index: 2;
+  flex: 0 0 7px;
+  align-self: stretch;
+  cursor: col-resize;
+  touch-action: none;
+  background: var(--border);
+}
+.answers-evidence-seam:hover,
+.answers-evidence-seam:focus-visible,
+.answers-view-resizing .answers-evidence-seam {
+  background: var(--accent);
+  outline: none;
+}
+
+/* The stored width is a preference, not an 860px reservation. Both flexible
+   panes may yield until their own usable floor, so opening Discover no longer
+   takes all lost width from the answer. The evidence pane is an inline-size
+   container because its player/details layout must respond to the PANE it is
+   actually in, not to the much wider browser viewport. */
+.answers-evidence-pane {
+  width: var(--answers-evidence-width, 600px);
+  min-width: var(--answers-evidence-min-width, 420px);
+  max-width: var(--answers-evidence-max-width, 960px);
+  flex: 0 1 var(--answers-evidence-width, 600px);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  container: answers-evidence / inline-size;
+}
+.answers-evidence-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: var(--text-light);
+  font-size: 12.5px;
+  text-align: center;
+}
+/* answers-view-evidence-refinement-v1: the docked pane's three-part reading of
+   the selected row — extraction, then citation, then the (flex) media +
+   segmented transcript viewer below. */
+.answers-evidence-citation {
+  flex-shrink: 0;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  max-height: 30%;
+  overflow-y: auto;
+}
+.answers-evidence-section-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-light);
+  margin-bottom: 6px;
+}
+
+.answers-evidence-citation blockquote {
+  margin: 0;
+  padding-left: 10px;
+  border-left: 3px solid var(--accent);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text);
+  font-style: italic;
+}
+/* The docked viewer fills the space left under the two header sections
+   (it ships with height:100%, which would overflow the flex column here). */
+.answers-evidence-pane .evidence-viewer-pane {
+  height: auto;
+  flex: 1;
+  min-height: 0;
+}
+@container answers-evidence (max-width: 560px) {
+
+/* Once the docked pane is narrow, stack the optional details and temporal
+   transcript under the player. The global 860px media query cannot protect a
+   420px pane inside a wide desktop window. */
+  .answers-evidence-pane .evidence-viewer-content {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .answers-evidence-pane .evidence-viewer-source-pane {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .answers-evidence-pane .evidence-temporal-layout {
+    flex-direction: column;
+  }
+  .answers-evidence-pane .evidence-temporal-player-sticky {
+    position: static;
+    width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
+  .answers-view {
+    flex-wrap: wrap;
+    overflow-y: auto;
+    align-content: flex-start;
+  }
+  .answers-row-list {
+    flex-basis: 160px;
+    width: 160px;
+    min-height: 360px;
+  }
+  .answers-column {
+    flex: 1 0 calc(100% - 160px);
+    min-width: 0;
+    min-height: 360px;
+  }
+  .answers-evidence-seam { display: none; }
+  .answers-evidence-pane {
+    flex: 1 0 100%;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    min-height: 320px;
+    border-top: 1px solid var(--border);
+  }
+}

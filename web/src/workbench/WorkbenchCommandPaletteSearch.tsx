@@ -1,3 +1,6 @@
+import './WorkbenchCommandPalette.css';
+import '../components/IconButton.css';
+import '../components/SearchPreparationReceipt.css';
 import { Button } from '../components/Button';
 import { Bell, Bookmark, LoaderCircle, SearchCheck, X } from 'lucide-react';
 import { useState, type ReactNode } from 'react';

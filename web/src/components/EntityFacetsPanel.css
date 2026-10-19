@@ -1,0 +1,113 @@
+/* ---- entity facets panel ----------------------------------------------- */
+.sidebar-facets {
+  display: flex; flex-direction: column;
+}
+.facets-body { display: flex; flex-direction: column; gap: 7px; }
+.facets-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: end;
+}
+.facets-controls label {
+  display: flex; flex-direction: column; gap: 2px;
+  grid-column: 1 / -1;
+  font-size: 10.5px; font-weight: 650;
+  color: var(--text-light);
+}
+.facets-refresh {
+  justify-self: end;
+  grid-column: 2;
+}
+.facets-summary,
+.facets-empty {
+  color: var(--text-light);
+  font-size: 11.5px;
+  padding: 2px 6px;
+}
+.facets-list {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: 7px;
+}
+/* The label/type/count row is itself the click-to-filter target. */
+.facet-value-hit {
+  display: grid;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-6);
+  background: none;
+  padding: 3px 5px;
+  margin: 0;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.facet-value-hit:not(:disabled):hover {
+  background: var(--bg-hover);
+  border-color: var(--border);
+}
+.facet-value-hit:disabled { cursor: default; }
+.facet-value-hit.is-active {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+}
+.facet-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 650;
+}
+.facet-count {
+  border-radius: var(--radius-8);
+  padding: 1px 6px;
+  font-size: 9.5px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-mid);
+  background: var(--bg-hover);
+}
+/* One-line explainer above the facet controls. */
+.facets-blurb {
+  margin: 0 0 6px;
+  padding: 0 2px;
+  color: var(--text-light);
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+/* Note when the browsed sheet is not the open grid (filtering inert). */
+.facets-note {
+  color: var(--text-light);
+  font-size: 10.5px;
+  padding: 2px 6px;
+  font-style: italic;
+}
+/* Active grid-filter chip inside the panel (browse loop's clear affordance). */
+.facets-active-filter {
+  display: flex; align-items: center; gap: 5px;
+  border: 1px solid var(--accent);
+  background: var(--accent-bg);
+  border-radius: var(--radius-6);
+  padding: 3px 4px 3px 7px;
+  color: var(--accent);
+  font-size: 11px;
+}
+.facets-active-filter-label {
+  min-width: 0; flex: 1;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.facets-active-filter-clear {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px;
+  border: none; background: none; cursor: pointer;
+  border-radius: var(--radius-5); padding: 0; color: inherit;
+}
+.facets-active-filter-clear:not(:disabled):hover { background: var(--bg-hover); color: var(--text); }
+.facets-active-filter-clear:disabled { cursor: default; opacity: 0.5; }
+.facet-value-row { list-style: none; }

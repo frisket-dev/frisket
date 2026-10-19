@@ -1,8 +1,9 @@
+import './PdfTablesPicker.css';
 import { Button } from './Button';
 import { TextInput } from './FormControls';
 import { useEffect, useMemo, useState } from 'react';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
-import { JsonMiniTable } from './RowDrawer';
+import { JsonMiniTable } from './rowInspection/JsonValue';
 
 // The 8 metadata keys media.extract_pdf_tables prepends to every flattened
 // table row (extract_pdf_tables.py _MEDIA_PDF_TABLE_METADATA_COLUMN_TYPES /

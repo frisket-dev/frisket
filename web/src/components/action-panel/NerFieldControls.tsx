@@ -1,3 +1,5 @@
+import '../PanelPrimitives.css';
+import '../FormControls.css';
 import {
   RECOMMENDED_SPACY_TYPES,
   SPACY_CANONICAL_TYPE_VALUES,

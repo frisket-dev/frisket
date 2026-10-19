@@ -1,0 +1,100 @@
+/* evidence viewer */
+.evidence-viewer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background: rgba(20, 26, 40, 0.22);
+  display: grid;
+  place-items: center;
+  padding: 22px;
+}
+.evidence-viewer-shell {
+  width: min(1180px, 100%);
+  height: min(820px, 100%);
+  max-width: min(1180px, calc(100vw - 44px));
+  max-height: min(820px, calc(100vh - 44px));
+  margin: auto;
+  padding: 0;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-8);
+  box-shadow: var(--shadow-drawer);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.evidence-viewer-shell::backdrop {
+  background: transparent;
+}
+.evidence-viewer-pane {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.evidence-viewer-header {
+  height: 52px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px 0 16px;
+}
+.evidence-viewer-header h2 {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.2;
+}
+.evidence-viewer-subtitle {
+  color: var(--text-light);
+  font-size: 11px;
+  margin-top: 2px;
+}
+.evidence-viewer-content {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(340px, 0.8fr);
+}
+/* evidence-pane-reading-surface-v1: the ref-dump aside collapsed (see
+   EvidenceViewerProps.defaultShowDetails) — the source pane takes the full
+   width instead of sharing it with an empty second grid column. */
+.evidence-viewer-content-compact {
+  grid-template-columns: minmax(0, 1fr);
+}
+.evidence-viewer-source-pane,
+.evidence-viewer-detail-pane {
+  min-height: 0;
+  overflow: auto;
+  padding: 14px;
+}
+.evidence-viewer-source-pane {
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
+}
+.evidence-viewer-detail-pane {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+}
+@media (max-width: 860px) {
+  .evidence-viewer-backdrop { padding: 0; }
+  .evidence-viewer-shell {
+    width: 100%;
+    height: 100%;
+    max-width: 100vw;
+    max-height: 100vh;
+    border-radius: 0;
+  }
+  .evidence-viewer-content {
+    grid-template-columns: 1fr;
+  }
+  .evidence-viewer-source-pane {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+}

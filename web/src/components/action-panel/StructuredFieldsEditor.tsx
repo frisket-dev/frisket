@@ -1,3 +1,4 @@
+import '../PanelPrimitives.css';
 import { useState } from 'react';
 
 import type { OutputField } from '../../api/open';

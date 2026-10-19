@@ -1,3 +1,4 @@
+import '../PanelPrimitives.css';
 import { TextInput } from '../FormControls';
 // The shared frequency-sorted column-value list for the four "resolve" actions.
 // Presentational + fully controlled: the parent owns `selected`; this

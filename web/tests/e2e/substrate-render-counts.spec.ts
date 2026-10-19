@@ -4,10 +4,11 @@
 // invocation, so isolating one named workbench region's render count from its
 // siblings/children would require wrapping every region in its own
 // `<Profiler>` boundary — strictly more invasive than the counter this spec
-// reads, for no extra fidelity. Instead, `web/src/App.tsx` publishes
+// reads, for no extra fidelity. Instead, `web/src/workspace/WorkspaceContext.tsx` publishes
 // `window.__renderCounts` (DEV-only, mirrors the `window.__frisketGridTheme`
-// idiom at `web/src/grid/SheetGrid.tsx:461-472`): every top-level workbench
-// region function calls `useRenderCount(<name>)` once per render, which
+// idiom at `web/src/grid/SheetGrid.tsx`): the region functions in
+// `web/src/workspace/WorkspaceMainView.tsx` and its sibling workspace modules
+// call `useRenderCount(<name>)` once per render, which
 // increments a plain counter keyed by region name. Not a production API
 // surface — gated on `import.meta.env.DEV`, same as the grid-theme hook.
 //
@@ -70,8 +71,21 @@ test('render-counts: open sheet -> apply filter -> open drawer -> toggle theme s
   const columns = await sheetColumns(page.request, pid, sheetId);
 
   // --- open sheet ---
+  const catalogLoaded = page.waitForResponse((response) => (
+    response.request().method() === 'GET'
+      && new URL(response.url()).pathname === `/api/projects/${pid}/actions/v1/catalog`
+  ));
+  const pluginsLoaded = page.waitForResponse((response) => (
+    response.request().method() === 'GET'
+      && new URL(response.url()).pathname === `/api/projects/${pid}/workbench/plugins`
+  ));
   await page.goto(`/p/${pid}/s/${sheetId}`);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 20_000 });
+  await Promise.all([(await catalogLoaded).finished(), (await pluginsLoaded).finished()]);
+  // Availability is mount work too; a cold catalog can settle after the grid.
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  }));
 
   // The probe is installed by the FIRST render of each region, before this
   // spec's own interaction script begins. We ZERO EACH EXISTING KEY IN PLACE
@@ -108,7 +122,19 @@ test('render-counts: open sheet -> apply filter -> open drawer -> toggle theme s
   // --- open drawer --- (a detail/route/selection write)
   // 'city' is a plain non-AI text column (now in-place editable —
   // grid-in-place-edit-v1), so the floating icon, not Enter, opens the drawer.
+  const authoritativeRow = page.waitForResponse((response) => {
+    if (response.request().method() !== 'GET') return false;
+    const url = new URL(response.url());
+    return url.pathname === `/api/projects/${pid}/sheets/${sheetId}/data`
+      && url.searchParams.has('row_ids');
+  });
   await openCellDrawer(page, columns, 'city', 0);
+  await (await authoritativeRow).finished();
+  // The cached grid row opens immediately; wait for its authoritative detail
+  // response to commit before measuring the independent appearance change.
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  }));
   await expect(page.getByTestId('row-drawer')).toBeVisible();
   const afterDrawer = await snapshot();
 

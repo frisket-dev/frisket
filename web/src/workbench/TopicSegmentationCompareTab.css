@@ -1,0 +1,148 @@
+/* Per-engine unavailability reasons under the topic tab's "none available"
+   message — same quiet weight as .engine-tier-unavailable. */
+.topic-compare-catalog-reasons {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 11px;
+  color: var(--text-light);
+}
+
+
+/* Topic Segmentation Compare uses the established compare shell colors and
+   layout, but its result grammar is transcript sections and boundary keys —
+   never word-diff tokens. */
+.topic-compare-catalog-message {
+  color: var(--text-mid);
+  font-size: 11px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.topic-compare-source-peek {
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+.topic-compare-source-peek .ocr-compare-peek-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+}
+.topic-compare-source-units {
+  min-height: 0;
+  overflow: auto;
+  padding: 6px;
+}
+.topic-compare-source-unit {
+  display: grid;
+  gap: 3px;
+  margin-bottom: 4px;
+  padding: 7px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-6);
+  font-size: 11px;
+  line-height: 1.45;
+  scroll-margin: 18px;
+}
+.topic-compare-source-unit.active {
+  border-color: var(--amber);
+  background: var(--amber-bg);
+}
+.topic-compare-source-unit-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 9px;
+}
+.topic-compare-speaker {
+  font-size: 10px;
+}
+.topic-compare-columns[data-column-count='3'],
+.topic-compare-columns[data-column-count='4'],
+.topic-compare-columns[data-column-count='5'] {
+  overflow-x: auto;
+  grid-auto-columns: minmax(240px, 1fr);
+}
+.topic-compare-lane-meta {
+  flex-shrink: 0;
+  font-size: 9px;
+  white-space: nowrap;
+}
+.topic-compare-engine-text {
+  padding: 0;
+  font-family: var(--font);
+}
+.topic-compare-section {
+  padding: 8px 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.topic-compare-section-label {
+  margin-bottom: 5px;
+  font-size: 9px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.topic-compare-lane-unit {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  gap: 6px;
+  align-items: start;
+  padding: 4px 2px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.topic-compare-lane-unit.shared {
+  grid-template-columns: 22px 1fr auto;
+  background: var(--bg-hover);
+  border-radius: var(--radius-4);
+}
+.topic-compare-lane-unit-index {
+  font-size: 9px;
+  text-align: right;
+}
+.topic-compare-shared-label {
+  align-self: center;
+  color: var(--text-light);
+  font-family: var(--mono);
+  font-size: 8px;
+  white-space: nowrap;
+}
+.topic-compare-boundary {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-light);
+  font-family: var(--mono);
+  font-size: 8px;
+  cursor: pointer;
+}
+.topic-compare-boundary > span {
+  height: 1px;
+  background: var(--border-strong);
+}
+.topic-compare-boundary.differs {
+  color: var(--amber);
+  font-weight: 650;
+}
+.topic-compare-boundary.differs > span {
+  height: 2px;
+  background: var(--amber);
+}
+.topic-compare-boundary.ghost {
+  margin: 2px 0;
+  border-radius: var(--radius-4);
+  background: var(--amber-bg);
+}
+
+@media (max-width: 900px) {
+  .topic-compare-tab .ocr-compare-doc-list {
+    width: 160px;
+  }
+}

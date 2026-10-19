@@ -1,3 +1,5 @@
+import './PanelPrimitives.css';
+import './StatusBar.css';
 import { Button } from './Button';
 import { useEffect, useReducer, useRef, useState, type RefObject } from 'react';
 import { Activity, AlertTriangle, ChevronUp, Inbox, Redo2, Square, Undo2, X } from 'lucide-react';

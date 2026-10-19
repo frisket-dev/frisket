@@ -1,3 +1,5 @@
+import '../components/importWorkspace/ImportWorkspaceDialog.css';
+import './MediaCompareShell.css';
 // Presentational sub-regions of MediaCompareShell's MediaCompareBody: pure
 // render helpers over the compare session — same DOM/classes/testids as when
 // they lived inline; the parameterized `t` (testid namespacer) is threaded in so

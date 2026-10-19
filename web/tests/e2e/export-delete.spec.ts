@@ -21,7 +21,7 @@ test('project settings downloads exports with and without media', async ({ page 
   const { pid } = await createImportedProject(page, 'export-ui');
 
   // Export actions live in the Data management settings section
-  // (ProjectDataManagementSettings, web/src/settings/SettingsSections.tsx);
+  // (ProjectDataManagementSettings, web/src/settings/ProjectDataManagementSettings.tsx);
   // the general section owns name/description/delete.
   await page.goto(`/p/${pid}/settings/project/data-management`);
   const withMediaDownload = page.waitForEvent('download');
@@ -60,7 +60,7 @@ test('project delete is confirm-gated and removes the project after accept', asy
   await page.goto(`/p/${pid}/settings/project/general`);
   await expect(page.getByTestId('project-delete-confirm-input')).toBeVisible();
   // The danger-zone button is labeled 'Delete' with a stable testid now
-  // (project-delete-button, web/src/settings/SettingsSections.tsx).
+  // (project-delete-button, web/src/settings/ProjectDataManagementSettings.tsx).
   await expect(page.getByTestId('project-delete-button')).toBeDisabled();
   await page.getByTestId('project-delete-confirm-input').fill(`${name}-wrong`);
   await expect(page.getByTestId('project-delete-button')).toBeDisabled();

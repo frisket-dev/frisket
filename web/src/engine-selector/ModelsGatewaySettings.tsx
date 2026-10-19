@@ -1,3 +1,4 @@
+import '../settings/SettingsPrimitives.css';
 import { Button } from '../components/Button';
 import { useEffect, useState } from 'react';
 import type { HttpModelsGatewayStatus } from '../api/modelsGateway';

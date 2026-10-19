@@ -1,3 +1,7 @@
+import '../components/PanelPrimitives.css';
+import '../components/BoundedTextReader.css';
+import './DocumentView.css';
+import '../components/evidence/EvidenceReading.css';
 import { FormField } from '../components/FormControls';
 import { DocumentList } from './DocumentList';
 import type { CSSProperties } from 'react';

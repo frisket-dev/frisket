@@ -4,7 +4,8 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ArtifactSource, TextArtifactSource } from '../../src/components/EvidenceViewer';
+import { ArtifactSource } from '../../src/components/evidence/ArtifactSource';
+import { TextArtifactSource } from '../../src/components/evidence/EvidenceTextSource';
 import type { EvidenceArtifact } from '../../src/api/types';
 import { evidenceArtifact } from '../support/evidenceFixtures';
 

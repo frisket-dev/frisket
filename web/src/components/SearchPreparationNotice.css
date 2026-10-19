@@ -1,0 +1,80 @@
+.active-run-banner .activity-progress-card-body {
+  padding: 10px 16px 2px;
+}
+.active-run-banner .activity-progress-card-footer {
+  justify-content: flex-end;
+}
+.search-preparation-body {
+  display: grid;
+  min-width: 0;
+  background: var(--bg);
+}
+.import-activity-now {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 9px 16px;
+  border-top: 1px solid var(--border);
+  color: var(--text-mid);
+  font-size: 12.5px;
+}
+.import-activity-now strong { color: var(--accent-strong); }
+.import-activity-now span:nth-child(2) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.import-activity-now span:last-child { color: var(--text-light); }
+.search-preparation-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 16px;
+  border-top: 1px solid var(--border);
+  color: var(--text-mid);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.search-preparation-progress .activity-progress-bar { flex: 1; }
+.pdf-index-progress-list {
+  display: grid;
+  min-width: 0;
+}
+.search-preparation-details {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 9px 16px;
+  border-top: 1px solid var(--border);
+  color: var(--text-mid);
+  font-size: 11px;
+}
+.search-preparation-details-toggle {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 650;
+}
+.search-preparation-details-toggle:hover { text-decoration: underline; }
+.search-preparation-details ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.search-preparation-footer-copy { flex: 1 1 220px; }
+.search-preparation-action {
+  color: var(--accent-strong);
+  font: inherit;
+  font-weight: 600;
+}
+.search-preparation-action:hover:not(:disabled) { text-decoration: underline; }
+.search-preparation-action:disabled { opacity: 0.55; }
+.search-preparation-footer-error {
+  flex-basis: 100%;
+  color: var(--red);
+}
+.search-preparation-review { justify-self: start; }

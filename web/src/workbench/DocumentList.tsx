@@ -1,3 +1,4 @@
+import './DocumentView.css';
 import type { ReactNode } from 'react';
 import { Button } from '../components/Button';
 import { SearchInput } from '../components/FormControls';

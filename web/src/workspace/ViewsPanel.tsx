@@ -1,3 +1,7 @@
+import '../components/PanelPrimitives.css';
+import '../components/IconButton.css';
+import '../components/Modal.css';
+import './ViewsPanel.css';
 import { Button } from '../components/Button';
 import { TextInput } from '../components/FormControls';
 // Saved-views panel. This is intentionally presentational: persistence and

@@ -1,3 +1,6 @@
+import './FormControls.css';
+import './IconButton.css';
+import './ApplicationGuidance.css';
 import { Button, TabButton } from './Button';
 // Install-guidance empty states for the local LLM server slot: every dead end
 // for the 'ollama' catalog entry (any OpenAI-compatible local server, not just

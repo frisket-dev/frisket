@@ -1,0 +1,97 @@
+/* Monitor Lineage tab: tiered DAG, stale marks amber. */
+.lineage-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  padding: 8px 12px;
+  overflow: auto;
+}
+/* Vertical padding comes from the shared .panel-frame-header (C2). Horizontal
+   is zeroed: this header sits inside .bottom-dock-tab-body, which owns the
+   dock gutter (the gutter-owner rule). */
+.lineage-panel-header {
+  justify-content: space-between;
+}
+.lineage-panel-caption {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  color: var(--text-light);
+}
+.lineage-rerun-stale {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 99px;
+  background: var(--amber-bg);
+  color: var(--amber);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.lineage-rerun-stale:hover { filter: brightness(0.97); }
+.lineage-tiers {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+.lineage-tier-title {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.07em;
+  color: var(--text-light);
+  margin-bottom: 6px;
+}
+.lineage-tier-empty {
+  font-size: 11.5px;
+  color: var(--text-light);
+}
+.lineage-node {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg);
+  padding: 6px 9px;
+  margin-bottom: 6px;
+}
+.lineage-node[data-stale='true'] {
+  border-color: var(--amber);
+}
+.lineage-node-name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+/* .lineage-node-sync retired — StatusChip (ui-chips-segmented-v1) renders it
+   now, resolving the node's duplicate sync-state attribute hook (the CARD's
+   own [data-stale] border hook above stays; it styles a different element). */
+.lineage-node-sub {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-light);
+  margin-top: 2px;
+}
+.lineage-edge {
+  font-size: 11px;
+  color: var(--text-light);
+  margin-top: 3px;
+}
+.lineage-edge[data-stale='true'] {
+  color: var(--amber);
+}
+.sheet-cascade-confirm-title { font-weight: 700; font-size: 14px; margin-bottom: 10px; }
+.sheet-cascade-confirm-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}

@@ -299,3 +299,34 @@ process selection immediately; progress screens retain their existing controls.
 Table destination/summary width caps and the extra file-source toggle skin are
 removed. Browser checks cover drop-area size, footer anchoring and destination
 width; the comparison now includes Excel destination and URL entry.
+
+## Frontend ownership refactor (in progress)
+
+Baseline: `845f9a3e70855818b52eb3c935357eb58b2bbeac`, after the approved
+normalization screenshots. This phase changes ownership, not product behavior.
+
+- App owns routes; workspace region components own their rendering. Existing
+  stores and subscription boundaries remain in use.
+- Workspace navigation, grid operations, saved views, action execution, view
+  commands, contributions and replay review have cohesive controller owners.
+  Stable projections must retain unrelated-region render isolation.
+- Settings sections are grouped by responsibility, with no compatibility barrel.
+  Organization/workspace model-pull history now shares its actual implementation.
+- Row inspection separates values, structured JSON, citations and run details;
+  Evidence separates fetching/composition from document, media and text readers.
+- Sources separates configuration state, editing, listing and health views.
+  Shared health content serves both drawer and main view.
+- Global CSS retains foundations; component/feature styles load from their
+  owners. Shared visual primitives retain shared styles. Lazy imports and
+  cross-owner selectors need browser verification, not just stylesheet diffs.
+
+Acceptance: targeted interaction tests and independent review per lane, followed
+by integrated types/lint/tests, representative browser workflows, render-count
+checks and focused before/after screenshots. All new files count in LOC totals;
+moving code is not a reduction. Final visual approval precedes PR and merge.
+
+Follow-up observations, outside this ownership change: cell-audit and some
+manually refreshed source-health requests lack stale-response protection.
+The bundled Geo view still receives its stylesheet through the plugin host,
+because the existing plugin loader has no separate CSS-asset interface; this
+does not justify adding an asset framework to this refactor.

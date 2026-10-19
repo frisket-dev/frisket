@@ -48,7 +48,7 @@ describe('optional first-launch Cloud suggestion', () => {
   it('allows Escape to skip', async () => {
     const done = vi.fn();
     render(<FirstLaunchCloudSuggestion onComplete={done} />);
-    fireEvent(await screen.findByRole('dialog'), new Event('cancel', { bubbles: true }));
+    fireEvent(await screen.findByRole('dialog'), new Event('cancel', { bubbles: true, cancelable: true }));
     expect(done).toHaveBeenCalledOnce();
   });
 

@@ -1,3 +1,6 @@
+import './FormControls.css';
+import './TranslatePairPicker.css';
+import './PanelPrimitives.css';
 /** Language-pair controls for Opus-MT. Execution prepares missing models. */
 import { useMemo } from 'react';
 import type { DownloadablePair } from '../api/types';

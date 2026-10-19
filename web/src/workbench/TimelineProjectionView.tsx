@@ -1,3 +1,5 @@
+import '../components/IconButton.css';
+import './TimelineProjectionView.css';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshCw, RotateCcw } from 'lucide-react';
 import type {

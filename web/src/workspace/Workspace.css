@@ -1,0 +1,25 @@
+.app { display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: hidden; }
+
+.app-main { display: flex; flex: 1; min-height: 0; overflow: hidden; }
+
+.workbench-shell {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  /* Containing block for the absolutely-positioned Action drawer overlay
+     (workbench-ia-action-drawer-v1). Establishing position:relative does not
+     reflow the flex children. */
+  position: relative;
+}
+
+.workbench-main-row { flex: 1; min-height: 0; min-width: 0; }
+
+@media (max-width: 640px) {
+  .workbench-main-row {
+    overflow-x: auto;
+  }
+}
+
+.workbench-body { display: flex; flex: 1; min-height: 0; min-width: 0; }

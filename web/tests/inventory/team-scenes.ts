@@ -5,7 +5,8 @@ import path from 'node:path';
 import { teamServerCommands } from '../../playwright/inventory-team';
 import { TEAM_EDITION_DESCRIPTOR } from '../../src/editions/posture';
 import { settingsSectionsFor } from '../../src/settings/openSettingsRegistry';
-import { TEAM_MODELS_GATEWAY_SECTION } from '../../src/settings/teamModelsGatewaySection';
+import type { SettingsSectionDefinition } from '../../src/settings/settingsRegistry';
+import { settingsSceneSource } from './workbench-scenes';
 
 type Shot = (page: Page, family: string, name: string, source: string) => Promise<void>;
 
@@ -26,7 +27,7 @@ export async function captureTeamSettingsScenes(page: Page, shot: Shot) {
   const response = await page.request.post(`${baseURL}/api/projects`, { data: { name: 'Team settings inventory' } });
   expect(response.ok(), await response.text()).toBeTruthy();
   const project = await response.json() as { id: string };
-  const sections = settingsSectionsFor(TEAM_EDITION_DESCRIPTOR, [TEAM_MODELS_GATEWAY_SECTION])
+  const sections: SettingsSectionDefinition[] = settingsSectionsFor(TEAM_EDITION_DESCRIPTOR)
     .filter(section => section.scope === 'organization' || section.id === 'project.access');
   await page.goto(`${baseURL}${sections[0].routePattern}`);
   const onboarding = page.getByTestId('cost-preapproval-setup');
@@ -34,6 +35,15 @@ export async function captureTeamSettingsScenes(page: Page, shot: Shot) {
   await shot(page, 'Team settings', 'cost-preapproval-setup', 'src/components/CostPreapprovalSetupModal.tsx; first-login setup');
   await page.getByTestId('cost-preapproval-setup-save').click();
   await expect(onboarding).toHaveCount(0);
+  // The contribution imports UI/CSS. Read its canonical metadata in Vite's
+  // browser context, and serialize only the definition back to this Node fixture.
+  const gatewayDefinition = await page.evaluate(async (modulePath) => {
+    const { TEAM_MODELS_GATEWAY_SECTION } = await import(modulePath);
+    const { handler, ...definition } = TEAM_MODELS_GATEWAY_SECTION;
+    if (typeof handler !== 'function') throw new Error('Team models gateway contribution has no handler.');
+    return definition;
+  }, '/src/settings/teamModelsGatewaySection.tsx');
+  sections.push(gatewayDefinition);
   const content = page.getByTestId('settings-content');
   for (const section of sections) {
     await page.goto(`${baseURL}${section.routePattern.replace('{projectId}', project.id)}`);
@@ -43,11 +53,11 @@ export async function captureTeamSettingsScenes(page: Page, shot: Shot) {
     await expect(content.getByText('Loading models gateway configuration…', { exact: true })).toHaveCount(0);
     if (section.section === 'skills') await expect(page.getByTestId('skills-editor')).toBeEnabled();
     await expect(onboarding).toHaveCount(0);
-    await shot(page, 'Team settings', `${section.scope}-${section.section}`, 'src/settings/SettingsWorkspace.tsx; SettingsSections.tsx; real Team edition');
+    await shot(page, 'Team settings', `${section.scope}-${section.section}`, `${settingsSceneSource(section.component)}; real Team edition`);
     const { height, total } = await content.evaluate(element => ({ height: element.clientHeight, total: element.scrollHeight }));
     for (let offset = height * 0.8, part = 2; offset < total - 40; offset += height * 0.8, part += 1) {
       await content.evaluate((element, top) => { element.scrollTop = top; }, offset);
-      await shot(page, 'Team settings', `${section.scope}-${section.section}-part-${part}`, 'src/settings/SettingsWorkspace.tsx; SettingsSections.tsx; real Team edition');
+      await shot(page, 'Team settings', `${section.scope}-${section.section}-part-${part}`, `${settingsSceneSource(section.component)}; real Team edition`);
       if (offset + height >= total) break;
     }
   }

@@ -1,3 +1,4 @@
+import './FirstLaunchCloudSuggestion.css';
 import { Button } from './Button';
 import { useEffect, useState } from 'react';
 import { Modal } from './Modal';

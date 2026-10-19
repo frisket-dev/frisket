@@ -1,3 +1,5 @@
+import '../Modal.css';
+import '../ProjectAskDock.css';
 import { Button } from '../Button';
 import { useEffect, useRef, useState } from 'react';
 import type { AskScope } from '../../api/projectQA';

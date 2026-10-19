@@ -21,7 +21,7 @@
 //      pushVsReplace never sees; kept, not forced through routeStore).
 //   4. pushVsReplace matrix spot-subset is live.
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -41,7 +41,10 @@ const read = (rel: string): string => readFileSync(resolve(srcRoot, rel), 'utf8'
 //    these can double-write — regardless of whether the target is itself
 //    RouteState-representable (a bare project route is).
 const ALLOW: Record<string, string[]> = {
-  'workspace/useWorkspaceModel.tsx': [
+  ...Object.fromEntries(readdirSync(resolve(srcRoot, 'workspace'))
+    .filter((name) => /^(?:useWorkspace.*|Workspace.*|useReplayReviewController)\.tsx?$/.test(name))
+    .map((name) => [`workspace/${name}`, []])),
+  'workspace/useWorkspaceNavigationController.ts': [
     "if (mode === 'replace') replaceRoute(nextRoute);",
     'else navigate(nextRoute);',
     "navigate({ kind: 'settings', projectId: project.id, scope: 'project', section: 'general' });",
@@ -74,13 +77,14 @@ describe('route write-site cutover — single ownership', () => {
   it('the RouteSyncController is mounted exactly once per workspace', () => {
     const bind = read('bind/useRouteSyncController.ts');
     expect(bind).toMatch(/createRouteSyncController\(/);
-    const model = read('workspace/useWorkspaceModel.tsx');
-    const mounts = model.match(/useRouteSyncController\(/g) ?? [];
+    const mounts = Object.keys(ALLOW).flatMap((file) => read(file).match(/useRouteSyncController\(/g) ?? []);
     expect(mounts).toHaveLength(1);
+    expect(read('workspace/useWorkspaceNavigationController.ts')).toMatch(/useRouteSyncController\(route, commitRoute\)/);
+    expect(read('workspace/useWorkspaceModel.tsx').match(/useWorkspaceNavigationController\(/g)).toHaveLength(1);
   });
 
   it('review-close preserves the raw history.back() carve-out', () => {
-    expect(read('workspace/useWorkspaceModel.tsx')).toMatch(/window\.history\.back\(\)/);
+    expect(read('workspace/useWorkspaceNavigationController.ts')).toMatch(/window\.history\.back\(\)/);
   });
 });
 

@@ -1,5 +1,5 @@
 import type { ColumnDef, ReviewBundleField, Row } from '../../api/types';
-import { FieldValue } from '../RowDrawer';
+import { FieldValue } from '../rowInspection/FieldValue';
 import { ReviewExcerpt } from './ReviewExcerpt';
 import styles from './ReviewValue.module.css';
 

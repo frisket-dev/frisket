@@ -1,3 +1,4 @@
+import '../PanelPrimitives.css';
 import { LabelChipsInput } from './LabelChipsInput';
 import { SpacyTypeMultiSelect } from './NerFieldControls';
 import styles from './NerEngineFields.module.css';

@@ -1,0 +1,63 @@
+.ai-call-mode-list {
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.ai-call-mode-item {
+  padding: 1px 0 1px 10px;
+  border-left: 2px solid var(--border);
+}
+.ai-call-mode-item.is-current {
+  border-left-color: var(--accent);
+}
+.ai-call-mode-item dd {
+  margin: 0;
+}
+.ai-call-mode-options {
+  border: 0;
+  min-width: 0;
+}
+.ai-call-mode-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  cursor: pointer;
+}
+.ai-call-mode-option:hover {
+  border-left-color: var(--text-light);
+}
+.ai-call-mode-option:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.ai-call-mode-option input {
+  margin: 2px 0 0;
+}
+.ai-call-mode-option .ai-call-mode-help {
+  display: block;
+}
+.ai-call-mode-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 650;
+  font-size: 12.5px;
+  color: var(--text);
+}
+.ai-call-mode-badge {
+  font-size: var(--font-size-caption);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 1px 7px;
+  border-radius: var(--radius-999);
+  background: var(--accent);
+  color: var(--text-on-solid);
+}
+.ai-call-mode-help {
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: var(--text-light);
+  line-height: 1.4;
+}

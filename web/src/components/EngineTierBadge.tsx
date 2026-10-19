@@ -1,3 +1,4 @@
+import './EngineTierBadge.css';
 // Engine-tier badge: ONE small text badge per engine naming where it runs —
 // local / sidecar / hosted — rendered from the catalog's three-tier vocabulary
 // (api/types.ts EngineTier; backend tier tables in

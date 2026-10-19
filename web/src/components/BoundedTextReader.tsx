@@ -1,3 +1,4 @@
+import './BoundedTextReader.css';
 import { Button } from './Button';
 import { useEffect, useRef, useState } from 'react';
 import type { BlobTextWindow } from '../api/raw/blobText';

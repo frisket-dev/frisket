@@ -1,3 +1,6 @@
+import '../../workbench/ActionDrawer.css';
+import '../IconButton.css';
+import './ActionHelpPopover.css';
 import { useRef, useState } from 'react';
 import { CircleHelp } from 'lucide-react';
 

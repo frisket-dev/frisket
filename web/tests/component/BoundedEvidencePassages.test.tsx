@@ -2,7 +2,8 @@
 import '@testing-library/jest-dom/vitest';
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ArtifactSource, TextArtifactSource } from '../../src/components/EvidenceViewer';
+import { ArtifactSource } from '../../src/components/evidence/ArtifactSource';
+import { TextArtifactSource } from '../../src/components/evidence/EvidenceTextSource';
 import { createProjectApi } from '../../src/api/real';
 import type { EvidenceArtifact, EvidenceViewerPayload } from '../../src/api/types';
 import { evidenceArtifact, evidenceSpan, artifactRef, blobRef } from '../support/evidenceFixtures';

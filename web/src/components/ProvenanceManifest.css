@@ -1,0 +1,31 @@
+.provenance-summary {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px; margin: 12px 0 14px;
+}
+.provenance-summary > div {
+  background: var(--bg-panel); border: 1px solid var(--border);
+  border-radius: var(--radius-7); padding: 8px 9px;
+}
+.provenance-summary strong {
+  display: block; margin-top: 3px; font-size: 15px;
+}
+.provenance-chips {
+  display: flex; flex-wrap: wrap; gap: 6px;
+}
+.provenance-table {
+  width: 100%; border-collapse: collapse; font-size: 11.5px;
+  table-layout: fixed;
+}
+.provenance-table th {
+  text-align: left; color: var(--text-mid); font-weight: 650;
+  border-bottom: 1px solid var(--border); padding: 6px 5px;
+}
+.provenance-table td {
+  border-bottom: 1px solid var(--bg-hover); padding: 6px 5px;
+  vertical-align: top; overflow-wrap: anywhere;
+}
+.provenance-table td:nth-child(3),
+.provenance-table td:nth-child(4),
+.provenance-table td:nth-child(5) {
+  text-align: right;
+}

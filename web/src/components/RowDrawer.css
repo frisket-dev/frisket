@@ -1,0 +1,84 @@
+/* row drawer fields */
+.row-field { padding: 10px 0; border-bottom: 1px solid var(--bg-hover); }
+.row-field:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-6);
+}
+.row-field-selected {
+  margin: 0 -8px;
+  padding: 10px 8px;
+  border-radius: var(--radius-8);
+  background: var(--accent-bg);
+}
+.row-field-name {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 650; color: var(--text-mid);
+  margin-bottom: 5px;
+}
+.row-field-type {
+  font-weight: 500; color: var(--text-light);
+  background: var(--bg-panel); border-radius: var(--radius-4); padding: 0 5px;
+  font-size: 10px;
+}
+.row-field-state {
+  font-weight: 600; border-radius: var(--radius-4); padding: 0 5px;
+  font-size: 10px; color: var(--amber); background: var(--amber-bg);
+}
+.row-field-icon {
+  border: 0; background: transparent; color: var(--text-light);
+  width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-4); cursor: pointer;
+}
+.row-field-icon:hover { background: var(--bg-hover); color: var(--text); }
+.row-field-actions {
+  display: grid;
+  grid-template-columns: repeat(3, 20px);
+  align-items: center;
+  justify-content: end;
+  gap: 2px;
+  margin-left: auto;
+  min-width: 64px;
+}
+.row-field-action-slot,
+.row-field-action-placeholder {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.explain-compact {
+  /* Fill + center inside the 20px action slot so the explain glyph aligns
+     with the edit/copy icons (it was baseline-drifting as an inline-flex). */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  margin-top: 0;
+}
+.row-field-editor { display: grid; gap: 6px; }
+.row-field-input { min-height: 74px; resize: vertical; }
+/* Terminal empty_output cell: honest-failure note + deliberate "Retry anyway". */
+.row-field-retry { display: flex; align-items: baseline; gap: 8px; margin-top: 4px; }
+.row-field-retry-note { color: var(--text-light); font-size: 12px; }
+
+.row-lineage {
+  display: block; width: 100%; text-align: left;
+  margin: 0 0 12px; padding: 8px 10px;
+  background: var(--bg-hover); border: 1px solid var(--border);
+  border-radius: var(--radius-6); font-size: 12px; color: var(--text);
+}
+.row-lineage:hover { background: var(--accent-bg); border-color: var(--accent); }
+.inspect-detail-preview-error {
+  margin: 4px 0 10px;
+  padding: 8px 10px;
+  border: 1px solid #f1b0b0;
+  border-radius: var(--radius-6);
+  background: #fdecec;
+  color: #7f1d1d;
+  font-size: 12px;
+}
+.inspect-detail-preview-error strong { display: block; margin-bottom: 3px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; }
+.inspect-detail-preview-error p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.4; }

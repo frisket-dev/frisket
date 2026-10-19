@@ -1,0 +1,251 @@
+@layer base, action-panel;
+
+@media (max-width: 900px) {
+  @layer action-panel {
+  .action-panel {
+    width: min(260px, 34vw);
+  }
+  }
+}
+
+@layer action-panel {
+/* ---- action panel --------------------------------------------------------- */
+.action-panel {
+  width: 392px; flex-shrink: 0;
+  height: 100%;
+  border-left: 1px solid var(--border);
+  background: var(--bg-panel);
+  position: relative; /* anchors the resize handle */
+  display: flex; flex-direction: column;
+  min-height: 0;
+}
+/* reuses the drawer handle chrome (.drawer-resize-handle / .drawer-resizing) */
+.action-panel .drawer-resize-handle {
+  left: -5px;
+  width: 11px;
+  background: transparent;
+  z-index: 6;
+  pointer-events: auto;
+}
+.action-panel .drawer-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 5px;
+  width: 1px;
+  background: var(--border-strong);
+  opacity: 0.7;
+}
+.action-panel .drawer-resize-handle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.action-title-menu { position: relative; min-width: 0; }
+.action-title-button {
+  display: inline-flex; align-items: center; gap: 7px;
+  /* The -7px optical alignment margin must be added back to the width cap,
+     or the title loses exactly 7px and ellipsizes even with room to spare. */
+  max-width: calc(100% + 7px);
+  padding: 3px 7px; margin-left: -7px;
+  border-radius: var(--radius-8);
+  font-size: 17px; font-weight: 750; letter-spacing: -0.01em;
+  color: var(--text);
+  text-align: left;
+}
+.action-title-button:hover { background: var(--bg-hover); }
+.action-title-text {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* The "on <sheet>" context truncates instead of widening the header — an
+   unbreakable sheet/source name must never force horizontal scroll or push
+   the × out of reach. Full name in the title attribute. */
+.form-header > .action-form-context {
+  flex: 1 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.action-list { display: flex; flex-direction: column; padding: 0 8px 12px; gap: 2px; }
+.action-item {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 8px; border-radius: var(--radius-7);
+  text-align: left;
+}
+.action-item:hover { background: var(--bg-hover); }
+
+.action-name { display: block; font-weight: 600; }
+.action-desc { display: block; font-size: 11.5px; color: var(--text-light); margin-top: 1px; }
+
+/* ---- forms ---------------------------------------------------------------- */
+
+.action-form { display: flex; flex-direction: column; padding: 0 14px 16px; }
+.action-advanced {
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-7);
+  background: var(--bg);
+}
+.action-advanced summary {
+  cursor: pointer;
+  padding: 7px 9px;
+  color: var(--text-mid);
+  font-size: 11px;
+  font-weight: 650;
+}
+.action-advanced-body {
+  border-top: 1px solid var(--border);
+  padding: 0 9px 9px;
+}
+
+/* Action panel layout. Shared controls own their appearance. */
+.action-panel .action-form { padding: 0 18px 16px; }
+.action-panel .form-label-row { margin: 18px 0 4px; }
+.action-form .engine-selector { margin-top: 18px; }
+/* Compact single-
+   line fields (text/select/number/checkbox/column pickers) render label-left,
+   input-right instead of stacked — too many stacked options read as a huge
+   form. Textareas and other multi-line widgets (code editor, template
+   composer, chip inputs) opt out by simply not wrapping in .param-row.
+   Extends the existing .form-label-row/.form-row-pair single-row precedents;
+   scoped to .action-panel so settings/sources/ask keep their own stacked
+   .form-input layout. */
+.param-row {
+  display: grid;
+  /* A bare `1fr` track has an implicit min-width:auto — a control with
+     wide min-content (a <select> with a long option label, MultiColumnPicker
+     chips) forces the TRACK past available space, and since the drawer is a
+     fixed 400px with overflow-x:hidden (ActionDrawer.tsx), that reads as
+     silent clipping, not a scrollbar. minmax(0, 1fr) lets the track shrink to
+     0 instead of growing past its share. */
+  grid-template-columns: minmax(110px, 38%) minmax(0, 1fr);
+  align-items: center;
+  column-gap: 12px;
+  margin: 18px 0 0;
+}
+/* The track minmax alone isn't enough: a grid ITEM also defaults to
+   min-width:auto (its own min-content size) regardless of its track's
+   minmax — a native <select> with a long option label, or MultiColumnPicker
+   chips, still forces BOTH the track and the whole .param-row past available
+   space, and since the drawer is a fixed 400px with overflow-x:hidden
+   (ActionDrawer.tsx), that reads as silent clipping, not a scrollbar. Every
+   direct child of .param-row (both the label and whatever control the
+   second slot holds — PanelSelect, MultiColumnPicker, .unit-input, a plain
+   .form-input, or any future control type) needs to opt into shrinking; a
+   blanket `> *` is deliberate here over an exhaustive control-class
+   allowlist, which would silently stop covering a NEW control type added
+   later exactly the way this bug went unnoticed the first time. */
+.param-row > * {
+  min-width: 0;
+}
+.action-panel .form-check { font-size: 12.5px; color: var(--text); }
+.action-panel .form-check input[type="checkbox"] { accent-color: var(--accent); }
+/* clean_column "Cleanings": a compact multi-column checkbox grid so ~a dozen
+   transform toggles fit without a scroll. Bare checkboxes (the
+   description rides a title tooltip), not tall toggle-row cards. The 392px
+   panel leaves ~356px inside the form's 18px side padding; minmax(150px,1fr)
+   + a 12px column gap yields TWO columns (2×150+12=312 ≤ 356) and never three
+   (3×150+2×12=474 > 356). auto-fit collapses empty tracks. */
+.cleanings-grid {
+  border: none;
+  margin: 12px 0 0;
+  padding: 0;
+  min-inline-size: 0;
+}
+.cleanings-grid-legend {
+  padding: 0;
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--text-mid);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.cleanings-grid-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 4px 12px;
+  margin-top: 6px;
+  min-inline-size: 0;
+}
+.cleanings-grid .cleanings-grid-item {
+  margin-top: 0;
+  min-inline-size: 0;
+}
+/* Dense field cluster (`denseGroup`): a run of related labeled controls packed
+   into a compact auto-fit grid, like .cleanings-grid but wrapping arbitrary
+   label+control pairs (unit inputs, selects, text) rather than bare checkboxes.
+   Each item stacks its label above its control; a data-span="2" item claims the
+   full row for a wide control. Same minmax(150px,1fr) auto-fit as the checkbox
+   grid, so it collapses to one column when the panel is too narrow. */
+.dense-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+  min-inline-size: 0;
+}
+.dense-grid .dense-grid-item {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0;
+  min-inline-size: 0;
+}
+.dense-grid .dense-grid-item[data-span="2"] {
+  grid-column: 1 / -1;
+}
+/* Collapses ("Advanced run options", per-action limits) read as quiet
+   caret rows above a hairline, not boxed cards. */
+.action-panel .action-advanced {
+  margin-top: 20px;
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+}
+.action-panel .action-advanced summary {
+  padding: 14px 0 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-mid);
+}
+.action-panel .action-advanced summary:hover { color: var(--text); }
+.action-panel .action-advanced-body {
+  border-top: 0;
+  padding: 0 0 4px;
+}
+/* Labeled data-entry blocks read fine without an enclosing border; the
+   control's own border is enough. .action-io-summary keeps its card since it
+   is a read-only summary, not a data-entry field. */
+.action-source-block {
+  margin-top: 10px;
+}
+.action-io-summary {
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-7);
+  padding: 8px;
+  background: var(--bg);
+}
+/* Inside the redesigned panel every block sits directly on the panel
+   surface; the enclosing card reads as clutter next to borderless labels. */
+.action-panel .action-io-summary {
+  margin-top: 0;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+}
+
+/* Code editor (Prism + react-simple-code-editor) in a deliberately dark chrome
+   for both themes: a contract bar above, a sandbox status bar below, and Prism
+   token colors on the highlighted layer. */
+.python-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.python-editor-scope {
+  font-size: 11.5px;
+  color: var(--text-light);
+}
+}

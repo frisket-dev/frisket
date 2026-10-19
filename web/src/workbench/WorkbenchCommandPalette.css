@@ -1,0 +1,260 @@
+.workbench-command-palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  width: auto;
+  height: auto;
+  margin: 0;
+  border: 0;
+  display: grid;
+  align-items: start;
+  justify-items: center;
+  padding-top: 12vh;
+  background: rgba(15, 23, 42, 0.18);
+}
+.workbench-command-palette {
+  width: min(520px, calc(100vw - 32px));
+  max-height: calc(100vh - 96px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-8);
+  background: var(--bg-panel);
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.22);
+}
+
+.workbench-command-palette-list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  /* Every visibility-managed host contributes hide/reveal items now — the
+     list scrolls instead of pushing commands off the viewport. */
+  overflow-y: auto;
+  min-height: 0;
+}
+.workbench-command-palette-list > li {
+  display: contents;
+}
+.workbench-command-palette-item {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-6);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+}
+.workbench-command-palette-item.active,
+.workbench-command-palette-item:hover,
+.workbench-command-palette-item:focus-visible {
+  border-color: var(--border);
+  background: var(--bg-hover);
+}
+.workbench-command-palette-status {
+  min-height: 20px;
+  color: var(--text-light);
+  font-size: 12px;
+}
+.palette-empty-state {
+  padding: 16px;
+  color: var(--text-light);
+  font-size: 13px;
+  text-align: center;
+}
+
+/* ⌘K palette: the query input, the
+   BEST MATCH / ACTIONS / GO TO / SEARCH sections, and the key legend. */
+.workbench-command-palette-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-8);
+  background: var(--bg-panel);
+  color: var(--text-light);
+}
+.workbench-command-palette-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+}
+.workbench-command-palette-body {
+  display: grid;
+  gap: 12px;
+  overflow-y: auto;
+  min-height: 0;
+}
+.palette-section {
+  display: grid;
+  gap: 3px;
+}
+.palette-section-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 4px;
+  color: var(--text-light);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.palette-row {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-6);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  background: transparent;
+}
+.palette-row.active,
+.palette-row:hover {
+  border-color: var(--focus);
+  background: var(--focus-bg);
+}
+.palette-row-name {
+  flex: 1;
+}
+.palette-row-hint {
+  color: var(--text-light);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+}
+.palette-row-affordance {
+  color: var(--text-light);
+  font-family: var(--mono);
+  font-size: 10px;
+  opacity: 0.6;
+}
+.palette-best-match-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px;
+  border-radius: 99px;
+  background: var(--focus);
+  color: var(--text-on-solid);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+}
+.palette-search-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.palette-search-rerank {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+}
+.search-watch-btn,
+.search-save-btn { display: inline-flex; align-items: center; gap: 4px; }
+.palette-search-index-select { max-width: 150px; }
+.search-watch-status { font-size: 11px; color: var(--text-light); }
+.workbench-command-palette-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.palette-key-legend {
+  color: var(--text-light);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.palette-key-legend kbd {
+  padding: 1px 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-4);
+  font-size: 10px;
+}
+
+/* ---- search results (the ⌘K palette SEARCH section reuses these; the old
+   sidebar search-modal shell + trigger retired in workbench-ia-focus-v1) ------- */
+
+.search-results { overflow-y: auto; padding: 6px; }
+.search-group-label {
+  font-size: 10.5px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--text-light);
+  padding: 8px 8px 3px;
+}
+.search-hit {
+  display: flex; gap: 10px; align-items: baseline;
+  flex: 1; min-width: 0;
+  width: 100%; text-align: left;
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 6px 8px; border-radius: var(--radius-6);
+}
+.search-hit:hover,
+.search-hit.active { border-color: var(--focus); background: var(--focus-bg); }
+.search-hit-row { display: flex; align-items: center; gap: 4px; }
+.search-hit-row.supporting { margin-left: 16px; }
+.search-hit-row.supporting .search-hit-col { color: var(--text-light); }
+.search-hit-similar { flex: 0 0 auto; }
+.search-hit-content { display: grid; gap: 3px; min-width: 0; }
+.search-hit-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; }
+.search-hit-col { font-size: 11px; font-weight: 650; color: var(--ai); overflow-wrap: anywhere; }
+.search-hit-location { font-size: 11px; color: var(--text-light); }
+.search-hit-snip { font-size: 12.5px; color: var(--text-mid); overflow: hidden; }
+.search-hit-snip b { color: var(--text); background: var(--amber-bg); border-radius: 2px; font-weight: 650; }
+.search-empty { padding: 16px; color: var(--text-light); }
+.palette-search-anchor { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border-radius: var(--radius-6); background: var(--focus-bg); color: var(--text-mid); font-size: 12px; }
+.search-group-more { margin-left: 24px; padding: 3px 8px 7px; color: var(--text-light); font-size: 11px; }
+.palette-search-section .picker-error { margin: 10px 4px; }
+.search-setup-consent {
+  display: grid;
+  gap: 7px;
+  margin: 8px 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-6);
+  background: var(--bg-panel);
+  color: var(--text-mid);
+  font-size: 12px;
+}
+.search-setup-consent > div:first-child {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text);
+}
+.search-setup-consent p { margin: 0; }
+.palette-search-section > .search-empty[role='status'] {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  padding: 8px;
+  font-size: 12px;
+}
+.palette-search-section > .search-preparation-receipt { margin: 8px 0; }
+.palette-search-section > .search-preparation-receipt h2 { font-size: 16px; }
+.palette-search-section .search-setup-consent > div:first-child { flex-wrap: wrap; gap: 4px 12px; }

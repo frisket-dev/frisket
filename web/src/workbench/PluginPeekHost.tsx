@@ -1,3 +1,5 @@
+import './WorkbenchCommandPalette.css';
+import '../workspace/WorkspaceOverlays.css';
 import { useMemo } from 'react';
 import type { SheetMeta } from '../api/types';
 import { useEscapeDismiss } from '../hooks/useEscapeDismiss';

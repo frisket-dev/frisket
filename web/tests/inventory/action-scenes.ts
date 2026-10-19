@@ -27,7 +27,7 @@ export async function captureInspectionScenes(page: Page, shot: Shot) {
   await expect(page.getByTestId('toolbar-overflow-menu')).toHaveCount(0);
   await openCellDrawer(page, columns, 'label', 0);
   await expect(page.getByTestId('row-drawer')).toBeVisible();
-  await shot(page, 'Inspection', 'row-and-cell-provenance', 'src/components/RowDrawer.tsx; cell provenance');
+  await shot(page, 'Inspection', 'row-and-cell-provenance', 'src/components/RowDrawer.tsx; src/components/rowInspection/FieldValue.tsx; src/components/rowInspection/CellRunDetails.tsx');
   await openProject(page, pid, sid);
   await clickHeader(page, columns, 'label');
   await expect(page.getByTestId('column-drawer')).toBeVisible();

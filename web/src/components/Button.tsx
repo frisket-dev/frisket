@@ -1,3 +1,4 @@
+import './Button.css';
 import { forwardRef, type ButtonHTMLAttributes } from 'react';
 
 export const Button = forwardRef<HTMLButtonElement, ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'standard' | 'text' }>(function Button(

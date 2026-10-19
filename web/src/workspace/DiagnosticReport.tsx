@@ -1,3 +1,5 @@
+import '../components/PanelPrimitives.css';
+import './DiagnosticReport.css';
 import { Button } from '../components/Button';
 import { TextArea } from '../components/FormControls';
 // Hosted-tier diagnostic report surface: the "Report issue" button + popover

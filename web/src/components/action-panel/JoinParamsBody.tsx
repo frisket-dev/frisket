@@ -1,3 +1,5 @@
+import '../resolve/resolve.css';
+import '../ActionPanel.css';
 import { Button } from '../Button';
 import { useEffect } from 'react';
 import { ArrowDown, ArrowUp, Copy, Plus, Trash2 } from 'lucide-react';

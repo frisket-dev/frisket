@@ -13,7 +13,7 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, screen, within, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { TextArtifactSource } from '../../src/components/EvidenceViewer';
+import { TextArtifactSource } from '../../src/components/evidence/EvidenceTextSource';
 import { artifactRef, blobRef, evidenceArtifact, evidenceSpan } from '../support/evidenceFixtures';
 
 

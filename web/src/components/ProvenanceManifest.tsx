@@ -1,3 +1,5 @@
+import './PanelPrimitives.css';
+import './ProvenanceManifest.css';
 import { Button } from './Button';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Copy, Download, RefreshCcw, ShieldCheck } from 'lucide-react';

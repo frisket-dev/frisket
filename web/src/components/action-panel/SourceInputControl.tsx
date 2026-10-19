@@ -1,3 +1,6 @@
+import '../ActionPanel.css';
+import './SourceInputControl.css';
+import '../FormControls.css';
 import { TextArea } from '../FormControls';
 import { useCallback, useRef } from 'react';
 import type { ReactNode } from 'react';

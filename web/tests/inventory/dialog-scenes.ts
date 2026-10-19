@@ -117,7 +117,7 @@ export async function captureDialogScenes(page: Page, shot: Shot) {
   await page.getByTestId('ai-call-mode-replay').getByRole('radio').check();
   await page.getByTestId('ai-call-mode-save').click();
   await expect(page.getByTestId('ai-call-mode-confirmation')).toBeVisible();
-  await shot(page, 'Dialogs', 'ai-call-mode-confirmation', 'src/settings/SettingsSections.tsx (synthetic editable runtime config)');
+  await shot(page, 'Dialogs', 'ai-call-mode-confirmation', 'src/settings/PersonalSettings.tsx (synthetic editable runtime config)');
   await expectNativeDialog(page, 'ai-call-mode-confirmation');
   await page.getByTestId('ai-call-mode-confirm-cancel').click();
   await expect(page.getByTestId('ai-call-mode-confirmation')).toHaveCount(0);

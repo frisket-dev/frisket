@@ -1,3 +1,5 @@
+import './PluginContributionHosts.css';
+import '../components/PanelPrimitives.css';
 import { Button } from '../components/Button';
 import type { PluginPanelContext } from './pluginPanelContext';
 

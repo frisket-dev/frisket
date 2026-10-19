@@ -1,3 +1,4 @@
+import './ImportWorkspaceDialog.css';
 import { useEffect, useRef, useState, type DragEvent } from 'react';
 import { Upload } from 'lucide-react';
 import { snapshotImportFiles } from '../../api/open';

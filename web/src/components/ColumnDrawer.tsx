@@ -1,3 +1,5 @@
+import './PanelPrimitives.css';
+import './ColumnDrawer.css';
 import { Button } from './Button';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { WorkbenchResolvedLayoutContribution } from '../workbench/layout';

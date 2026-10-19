@@ -1,3 +1,5 @@
+import '../FormControls.css';
+import '../ActionPanel.css';
 import { useEffect, useRef } from 'react';
 
 import type { GeneratedActionParamsBodyProps } from './GeneratedActionParamsBody';

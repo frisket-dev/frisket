@@ -1,3 +1,4 @@
+import '../FormControls.css';
 import { Button } from '../Button';
 import {
   ChartColumnIncreasing,

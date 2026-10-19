@@ -1,3 +1,4 @@
+import './PluginManager.css';
 import { useEffect, useReducer, useRef, useState, type FormEvent } from 'react';
 import { AlertTriangle, CheckCircle2, Info, XCircle } from 'lucide-react';
 import type {

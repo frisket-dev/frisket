@@ -1,3 +1,5 @@
+import '../FormControls.css';
+import './RunScopeFooter.css';
 import { Button } from '../Button';
 import { useId, useRef, useState, type ReactNode } from 'react';
 import { Eye, Play, RefreshCcw } from 'lucide-react';

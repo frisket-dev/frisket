@@ -1,3 +1,5 @@
+import './PanelPrimitives.css';
+import './ReceiptInspector.css';
 import { Button } from './Button';
 import { useEffect, useMemo, useState } from 'react';
 import { FileText, Loader2 } from 'lucide-react';

@@ -323,7 +323,8 @@ describe('translate form', () => {
       .toHaveTextContent('Estimated cost: $0.00'), { timeout: 2000 });
 
     await user.click(within(form).getByTestId('generated-action-run-scope-menu-button'));
-    const menu = within(form).getByTestId('generated-action-run-scope-menu');
+    const menu = await screen.findByTestId('generated-action-run-scope-menu');
+    expect(form).not.toContainElement(menu);
     expect(menu).toBeVisible();
     expect(within(menu).getByTestId('generated-action-row-scope-all')).toHaveTextContent('Run all');
     expect(within(menu).getByTestId('generated-action-row-scope-selected')).toHaveTextContent('Run on selected');

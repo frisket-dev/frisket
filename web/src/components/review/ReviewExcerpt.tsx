@@ -1,3 +1,4 @@
+import '../Button.css';
 import type { ReviewValueExcerpt } from '../../api/types';
 import { formatNumberDisplay } from '../../format';
 import styles from './ReviewValue.module.css';

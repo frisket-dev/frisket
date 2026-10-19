@@ -1,3 +1,5 @@
+import '../components/FormControls.css';
+import './CompareDiscardDialog.css';
 import { Button } from '../components/Button';
 import { useState } from 'react';
 import { Modal } from '../components/Modal';

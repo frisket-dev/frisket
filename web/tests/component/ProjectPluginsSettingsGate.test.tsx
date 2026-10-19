@@ -23,7 +23,7 @@ import * as apiModule from '../../src/api/open';
 import {
   ProjectPluginsSettings,
   ProjectSecretsSettings,
-} from '../../src/settings/SettingsSections';
+} from '../../src/settings/ProjectIntegrationSettings';
 import { createProjectApi } from '../../src/api/real';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
 

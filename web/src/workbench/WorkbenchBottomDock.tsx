@@ -1,3 +1,5 @@
+import './contributions.css';
+import './WorkbenchBottomDock.css';
 import { Button, TabButton } from '../components/Button';
 import {
   useCallback,

@@ -1,3 +1,4 @@
+import './HistoryPanel.css';
 import { Button } from './Button';
 import { useState, type ReactNode } from 'react';
 import { PanelEmpty } from './PanelPrimitives';

@@ -1,3 +1,5 @@
+import '../PanelPrimitives.css';
+import '../FormControls.css';
 import { Button } from '../Button';
 import { useCallback, useReducer } from 'react';
 import type { EmbeddingIndexSummary } from '../../api/open';

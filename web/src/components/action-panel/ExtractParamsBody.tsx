@@ -1,3 +1,5 @@
+import '../PanelPrimitives.css';
+import '../ActionPanel.css';
 import { useEffect, useState } from 'react';
 
 import type { OutputJsonSchema } from '../../api/open';

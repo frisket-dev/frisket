@@ -1,3 +1,5 @@
+import '../../IconButton.css';
+import './PdfSamplePages.css';
 import { Button } from '../../Button';
 import { RefreshCw } from 'lucide-react';
 import { useState, type ReactNode } from 'react';

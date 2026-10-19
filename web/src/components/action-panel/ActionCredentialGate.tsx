@@ -1,3 +1,4 @@
+import './ActionCredentialGate.css';
 import { Button } from '../Button';
 import { AlertTriangle } from 'lucide-react';
 import type { ActionTemplate } from '../../api/types';

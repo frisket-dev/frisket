@@ -34,7 +34,7 @@ vi.mock('../../src/routes', async (importOriginal) => {
 });
 
 // Imported after the mocks are declared so the component picks up the stubs.
-import { ProjectGeneralSettings } from '../../src/settings/SettingsSections';
+import { ProjectGeneralSettings } from '../../src/settings/ProjectSettings';
 import { ApiError, createProjectApi } from '../../src/api/real';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
 

@@ -1,3 +1,5 @@
+import './PluginContributionHosts.css';
+import './GeoMapProjection.css';
 import { useMemo } from 'react';
 import type { ColumnDef, SheetDataPage, SheetMeta } from '../api/types';
 import { ImageGalleryWorkbenchViewFrame, WorkbenchContributionFrame } from './contributions';

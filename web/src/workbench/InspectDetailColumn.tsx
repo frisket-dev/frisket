@@ -1,3 +1,4 @@
+import './InspectDetailColumn.css';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { useMemo, useRef, type ReactNode } from 'react';
 import { RowDrawerBody, PreviewFieldValue } from '../components/RowDrawer';

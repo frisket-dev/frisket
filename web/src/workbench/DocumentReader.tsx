@@ -1,3 +1,4 @@
+import './DocumentView.css';
 import { Button } from '../components/Button';
 import {
   lazy,

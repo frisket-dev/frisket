@@ -2,7 +2,7 @@
 //
 // The Diagnostics settings section is the self-probe
 // GET /api/diagnose canonical home, migrated out of DiagnosePanel.tsx's
-// <dialog> into settings/SettingsSections.tsx's DiagnosticsSettings. These
+// <dialog> into settings/DiagnosticsSettings.tsx. These
 // tests exercise defensive rendering against the exported settings-section
 // component directly:
 // the self-probe response is only type-ASSERTED (fetchDiagnostics's `as
@@ -17,7 +17,7 @@ import { cleanup, screen, waitFor, render, within } from '@testing-library/react
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { DiagnosticsSettings } from '../../src/settings/SettingsSections';
+import { DiagnosticsSettings } from '../../src/settings/DiagnosticsSettings';
 
 
 

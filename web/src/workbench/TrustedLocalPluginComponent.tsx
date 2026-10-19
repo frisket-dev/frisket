@@ -1,3 +1,4 @@
+import './TrustedLocalPluginComponent.css';
 import * as React from 'react';
 import { Component } from 'react';
 import { useEffect, useMemo, useState } from 'react';

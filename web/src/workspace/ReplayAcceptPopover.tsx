@@ -1,3 +1,4 @@
+import './ReplayAcceptPopover.css';
 import { Button } from '../components/Button';
 // Replay preserve+surface cell popover: a minimal top-layer popover — NOT the
 // deferred fast-scan compare, just two

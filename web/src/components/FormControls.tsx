@@ -1,3 +1,4 @@
+import './FormControls.css';
 import { forwardRef, type InputHTMLAttributes, type TextareaHTMLAttributes, type LabelHTMLAttributes, type ReactNode } from 'react';
 import { Search } from 'lucide-react';
 

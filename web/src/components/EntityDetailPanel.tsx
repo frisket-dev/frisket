@@ -1,3 +1,4 @@
+import './EntityDetailPanel.css';
 import { TabButton } from './Button';
 import { useState, type ReactNode } from 'react';
 import type { WorkbenchResolvedLayoutContribution } from '../workbench/layout';

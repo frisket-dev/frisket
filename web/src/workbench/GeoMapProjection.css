@@ -1,0 +1,77 @@
+/* .embedding-badge retired — StatusChip (ui-chips-segmented-v1) renders it
+   now (also fixes the accent-color drift: the old .embedding-badge-remote
+   hardcoded rgba(47,94,209,...), a stale copy of --accent's OLD value; the
+   shared chip reads var(--accent) live). */
+
+/* deck.gl map view (geo_point map projection) */
+.map-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+.map-view-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+.map-view-title {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-weight: 600; color: var(--text);
+}
+.map-view-stats { color: var(--text-mid); font-size: 12px; }
+.map-view-control {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 12px; color: var(--text-mid);
+}
+.map-view-control select { font-size: 12px; }
+.map-tooltip {
+  position: absolute; z-index: 5; pointer-events: none;
+  background: rgba(17, 24, 28, 0.92); color: #fff;
+  font-size: 12px; line-height: 1.4; padding: 6px 8px; border-radius: var(--radius-4);
+  max-width: 240px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+.map-tooltip-coords { font-family: var(--mono); opacity: 0.85; }
+.map-tooltip-label { color: #9ec9c2; }
+.map-legend {
+  position: absolute; z-index: 5; right: 10px; bottom: 28px;
+  background: rgba(255, 255, 255, 0.94); color: #222;
+  font-size: 12px; padding: 8px 10px; border-radius: var(--radius-6);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.2); max-width: 200px;
+}
+.map-legend-title { font-weight: 600; margin-bottom: 4px; }
+.map-legend-item { display: flex; align-items: center; gap: 6px; }
+.map-legend-swatch { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
+.map-legend-numeric { display: flex; align-items: center; gap: 6px; }
+.map-legend-ramp { width: 80px; height: 10px; border-radius: 2px; display: inline-block; }
+.map-legend-range { white-space: nowrap; }
+.map-view-transient {
+  font-size: 12px; color: #8a5a00; background: #fff3d6;
+  padding: 2px 8px; border-radius: var(--radius-999);
+}
+.map-view-canvas { position: relative; flex: 1 1 auto; min-height: 0; }
+.map-view-attribution {
+  position: absolute;
+  right: 8px;
+  bottom: 6px;
+  z-index: 2;
+  padding: 2px 6px;
+  border-radius: var(--radius-4);
+  background: rgba(255, 255, 255, 0.82);
+  color: #334155;
+  font-size: 11px;
+  line-height: 1.3;
+  pointer-events: none;
+}
+.map-view-error,
+.map-view-empty {
+  position: absolute; inset: 0; display: flex;
+  align-items: center; justify-content: center;
+  color: var(--text-mid); padding: 24px; text-align: center;
+}
+.map-view-error { color: var(--red); }
