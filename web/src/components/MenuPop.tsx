@@ -65,7 +65,7 @@ export function AnchoredMenu({
           onClose();
         } else onClickCapture?.(event);
       }}
-      style={position ?? { visibility: 'hidden' }} />,
+      style={{ position: 'fixed', inset: 'auto', margin: 0, ...(position ?? { visibility: 'hidden' }) }} />,
     portalRoot,
   );
 }

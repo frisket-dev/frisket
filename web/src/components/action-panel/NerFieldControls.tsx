@@ -68,7 +68,6 @@ export function SpacyTypeMultiSelect({
       <div className="form-actions">
         <Button
           type="button"
-          variant="text"
           data-testid={`${testId}-select-all`}
           onClick={() => onChange([...SPACY_CANONICAL_TYPE_VALUES])}
         >
@@ -76,7 +75,6 @@ export function SpacyTypeMultiSelect({
         </Button>
         <Button
           type="button"
-          variant="text"
           data-testid={`${testId}-reset-recommended`}
           onClick={() => onChange([...RECOMMENDED_SPACY_TYPES])}
         >

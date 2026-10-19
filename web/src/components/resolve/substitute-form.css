@@ -1,84 +1,23 @@
-/* Substitute drawer body (SubstituteForm.tsx) — canonicalize frame 1b
-   "Mapping table". Every class is prefixed `resolve-substitute-`; tokens come
-   from styles.css custom properties so the form inherits the app skin. This
-   file styles ONLY the Substitute body — shared resolve primitives keep their
-   styles in resolve.css, and styles.css is not edited. */
-
-.resolve-substitute-form {
-  gap: 14px;
-}
-/* Section/field labels read as the app's sentence-case field labels
-   (Clean dates / Extract), never the retired uppercase mono mock. */
-.resolve-substitute-form .field-labels {
-  font-weight: 600;
-  color: var(--text);
-}
-
-/* ── scope row (column select + column facts) ─────────────────────────── */
-
-.resolve-substitute-scope {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-}
-.resolve-substitute-scope .field-group {
-  flex: 1;
-  min-width: 0;
-}
+/* Exact-value typography and mapping-row layout stay local. Shared controls,
+   notices and rows own their appearance. Source has its own full-width row. */
+.resolve-substitute-status { justify-content: space-between; }
 .resolve-substitute-facts {
-  flex-shrink: 0;
   color: var(--text-light);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  padding-bottom: 6px;
 }
-.resolve-substitute-reload {
-  flex-shrink: 0;
-  padding: 3px 8px;
-  font-size: 11px;
-  white-space: nowrap;
-}
-.resolve-substitute-reload-notice,
 .resolve-substitute-exact-note {
   margin: 0;
 }
 
-/* ── don't-enumerate notice ───────────────────────────────────────────── */
-
-.resolve-substitute-threshold {
-  margin: 0;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-7);
-  background: var(--bg-panel);
-  line-height: 1.4;
-}
-
-/* ── "Start from" mode toggle ─────────────────────────────────────────── */
-
-.resolve-substitute-modes {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
 /* ── paste-map block ──────────────────────────────────────────────────── */
 
-.resolve-substitute-paste-block {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
 .resolve-substitute-paste {
   font-family: var(--mono);
-  font-size: 11.5px;
-  line-height: 1.5;
   min-height: 88px;
-  resize: vertical;
 }
 .resolve-substitute-paste-apply {
-  align-self: flex-start;
+  justify-self: start;
 }
 
 /* ── mapping table ────────────────────────────────────────────────────── */
@@ -86,26 +25,18 @@
 /* Flat mapping list (matching Extract's field rows) — no card fill or box,
    just a labelled section with divider-separated rows. */
 .resolve-substitute-table-head {
-  display: flex;
-  align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 0 0 4px;
 }
 .resolve-substitute-legend {
   color: var(--text-light);
   font-size: 11px;
 }
 .resolve-substitute-rows {
-  display: flex;
-  flex-direction: column;
+  gap: 0;
   max-height: 340px;
   overflow-y: auto;
 }
 .resolve-substitute-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   padding: 8px 0;
   border-bottom: 1px solid var(--border);
 }
@@ -143,65 +74,24 @@
   color: var(--text-light);
 }
 .resolve-substitute-target-cell {
-  flex: 1;
+  flex: 1 1 160px;
   min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
 }
 .resolve-substitute-target {
-  flex: 1;
+  flex: 1 1 96px;
   min-width: 0;
-}
-.resolve-substitute-null-toggle {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-4);
-  background: transparent;
-  color: var(--text-light);
-  cursor: pointer;
-  font-size: 12px;
-}
-.resolve-substitute-null-toggle:hover {
-  background: var(--bg-hover);
-  color: var(--text);
 }
 .resolve-substitute-null-chip {
   flex: 1;
   min-width: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-6);
-  background: var(--bg);
-  color: var(--text-light);
-  font-style: italic;
-  font-size: 12.5px;
 }
 .resolve-substitute-null-clear {
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  border: 0;
-  background: transparent;
-  padding: 1px;
-  color: var(--text-light);
-  cursor: pointer;
-  border-radius: var(--radius-4);
-}
-.resolve-substitute-null-clear:hover {
-  background: var(--bg-hover);
-  color: var(--text);
+  width: 100%;
+  justify-content: space-between;
+  font-style: italic;
 }
 .resolve-substitute-merge-hint {
-  flex-shrink: 0;
+  flex-basis: 100%;
   color: var(--text-light);
   font-size: 11px;
 }
@@ -220,10 +110,9 @@
 }
 /* Conflict warning on an extra row that duplicates an enumerated value. */
 .resolve-substitute-override {
-  flex-shrink: 0;
+  flex-basis: 100%;
   color: var(--text-light);
   font-size: 10.5px;
-  white-space: nowrap;
 }
 .resolve-substitute-value-input {
   width: 96px;
@@ -231,21 +120,8 @@
   font-family: var(--mono);
   font-size: 11.5px;
 }
-.resolve-substitute-row-remove {
-  flex-shrink: 0;
-}
-
 /* ── add value + unmatched policy ──────────────────────────────────────── */
 
 .resolve-substitute-add {
-  align-self: flex-start;
-}
-.resolve-substitute-policy-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.resolve-substitute-policy-row > .panel-select-shell {
-  margin-left: auto;
-  max-width: 150px;
+  justify-self: start;
 }

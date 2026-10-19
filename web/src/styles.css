@@ -7962,7 +7962,7 @@ dialog.modal-card::backdrop {
   box-shadow: var(--shadow-drawer);
   padding: 4px;
 }
-.menu-pop[data-menu-sizing='anchored'] { position: fixed; inset: auto; margin: 0; min-width: 0; max-width: none; }
+.menu-pop[data-menu-sizing='anchored'] { min-width: 0; max-width: none; }
 .menu-item {
   display: flex; align-items: center; gap: 7px;
   width: 100%; text-align: left;

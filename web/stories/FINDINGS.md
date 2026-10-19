@@ -17,6 +17,29 @@ secondary review. Fold in maintainer visual feedback. No public PR until all
 revamp cycles and maintainer visual approval are complete. The first split is an
 ownership prerequisite, not itself claimed as a LOC reduction.
 
+### Structural round status
+
+Implemented: named import-workspace modules (no ImportCsv facade), shared
+PanelFrame/Body/Footer for imports, drawers and receipts, AnchoredMenu for
+shared placement/dismissal, and shared form/list/card presentation in plugins,
+cleanup actions, embeddings and evidence. Dead import CSS and page-specific
+control skins were removed. Domain controllers remain separate.
+
+Review found keyboard entry into portaled menus and hover-open Saved Views
+Escape problems; both now have browser regressions. The broad capture also
+caught an inline output menu inheriting fixed positioning: sizing and placement
+must remain separate. Small-control screenshots caught squeezed Substitute
+source and Replace match controls; those are included in the final repair pass.
+
+Production `web/src` delta for this structural round: 541 lines added, 1,575
+deleted (net −1,034), excluding tests, stories and generated artifacts. The
+preceding import ownership split was net +1. Across the full normalization
+campaign, production code is net −2,658 versus `ebe6301d`.
+
+Visual approval is pending. This inventory is a running audit, so observations
+below describe their original baseline unless marked resolved; they are not all
+remaining implementation work.
+
 Working audit, not a redesign proposal. Record all substantive findings; no quota or cap. Code observations below are preliminary until accompanied by rendered evidence. Screenshots will be linked from the generated inventory. Group repeated symptoms under their shared cause, and retain intentional behavior differences.
 
 ## First consolidation pass
@@ -110,9 +133,13 @@ CSS minimum that disagrees with the positioning calculation.
 
 The links below are relative to the generated inventory (the capture command copies this document there). Source paths are relative to `web/`. A screenshot proves appearance, not a complete accessibility or behavior audit.
 
-### Confirmed interaction defect: nested Escape dismissal
+### Resolved interaction defect: nested Escape dismissal
 
-In the CSV row-preview step, open Separator and press Escape. The menu closes **and the parent import opens its discard confirmation**. The capture run reproduced this; it then could not advance because the discard overlay intercepted the click. `components/PanelSelect.tsx` and `components/ImportCsv.tsx` need coordinated Escape ownership. Close only the nearest open layer. The inventory now closes menus using their trigger, so it does not depend on retaining this defect. See [separator menu](import-workflow-table-separator-menu-light.png) and [discard dialog](import-workflow-table-discard-confirmation-light.png).
+In the baseline CSV row-preview step, Escape closed Separator and also opened
+the parent import's discard confirmation. Shared native-popover dismissal now
+closes only the nearest layer and prevents the enclosing dialog's cancellation.
+Browser assertions cover import separators, nested document options, action
+help/title menus and hover-open Saved Views. See [separator menu](import-workflow-table-separator-menu-light.png).
 
 ### Rendered comparisons worth acting on
 
@@ -135,7 +162,7 @@ In the CSV row-preview step, open Separator and press Escape. The menu closes **
 These are candidates to investigate, not assertions that every difference is a defect. They are deliberately not capped or reduced to a top-five list.
 
 1. Done: `ImportCsv.tsx` was removed. Workspace routing, file intake, feed configuration and follow-up presentation now have named modules in `importWorkspace/`.
-2. Import flows share `ImportStageStepper` and destination controls; their body/footer framing is being promoted to the same layout used by panels and receipts.
+2. Done: import flows share `ImportStageStepper`, destination controls and the same PanelBody/PanelFooter used by drawers and receipts.
 3. PDF batch and PDF packet sample switchers use different markup for related navigation. Share their small controls where appropriate, not their different review algorithms.
 4. Multiple-file import assembles its own progress cards despite `ActivityProgress`. Compare cancellation/retention behavior before replacing it.
 5. Import reader controls wrap selects in implicit labels; accessible names include option text. Explicit associations could simplify the names without changing dropdown semantics.

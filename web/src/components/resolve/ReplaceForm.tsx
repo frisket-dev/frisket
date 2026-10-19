@@ -13,7 +13,7 @@ import { IconButton } from '../IconButton';
 // The body emits canonical Params. The generated-action host owns request
 // identity, validation, output naming, preview, and execution.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, Plus, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
 import { PanelSelect } from '../PanelSelect';
 import {
   ApiError,
@@ -439,7 +439,7 @@ function ReplaceFormForSheet({
                     onClick={() => moveRule(index, 1)}
                   />
                   <IconButton
-                    icon={X}
+                    icon={Trash2}
                     data-testid="resolve-replace-rule-delete"
                     label="Delete rule"
                     title="Delete rule"
