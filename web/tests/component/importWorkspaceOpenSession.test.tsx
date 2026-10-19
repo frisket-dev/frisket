@@ -253,6 +253,11 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     expect(await screen.findByLabelText('Check rows')).toBeVisible();
     await waitFor(() => expect(screen.queryByRole('tablist', { name: 'Import type' })).toBeNull());
     expect(workspace).not.toHaveClass('table-import-workspace-mode-selection');
+    fireEvent.click(screen.getByRole('button', { name: 'Back', exact: true }));
+    expect(await screen.findByLabelText('Add data')).toBeVisible();
+    expect(screen.queryByRole('tablist', { name: 'Import type' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel', exact: true }));
+    expect(await screen.findByTestId('table-import-discard-dialog')).toBeVisible();
   });
 
   it('reopens an existing preparation batch in the import workspace', async () => {

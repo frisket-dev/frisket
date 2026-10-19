@@ -1543,6 +1543,7 @@ function OpenImportWorkspaceSession({
   const showPreparation = preparationReceipt !== null || importInProgress;
   const tableImportActive = tableImportSelected && !showPreparation;
   const tableImportChoosingSource = tableImportActive
+    && (tableImportContext?.canChangeMode ?? true)
     && (tableImportContext?.stage ?? 'add') === 'add';
   const showSummary = showPreparation && preparationStep === 'summary';
   const importComplete = importSessionIsComplete(importSessionStatus);
