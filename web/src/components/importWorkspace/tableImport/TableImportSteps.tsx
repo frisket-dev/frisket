@@ -434,8 +434,11 @@ function sampleDisplay(column: TableImportColumn, sample: TableImportColumn['sam
     const preview = text.length > SAMPLE_PREVIEW_LENGTH ? `${text.slice(0, SAMPLE_PREVIEW_LENGTH)}…` : text;
     return preview.replace(/\r\n|\r|\n/g, ' ↵ ');
   };
-  if (sample.truncated) return display(sample.original) + (!compact || sample.original.length <= SAMPLE_PREVIEW_LENGTH ? '…' : '');
   if (sample.outcome === 'blank') return 'blank';
+  if (sample.truncated) {
+    const excerpt = display(sample.original) + (!compact || sample.original.length <= SAMPLE_PREVIEW_LENGTH ? '…' : '');
+    return sample.outcome === 'invalid' ? `${excerpt} → blank` : excerpt;
+  }
   if (sample.outcome === 'invalid') return `${display(sample.original || 'blank')} → blank`;
   let imported = sample.display || String(sample.value ?? sample.original);
   if (column.target_type === 'date' && /^\d{4}-\d{2}-\d{2}$/.test(imported)) {

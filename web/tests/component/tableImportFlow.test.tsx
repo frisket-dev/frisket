@@ -563,7 +563,7 @@ describe('TableImportFlow', () => {
     expect(screen.queryByText(`${longOriginal} → blank`)).not.toBeInTheDocument();
   });
 
-  it('labels oversized samples as source excerpts without inventing a converted result', () => {
+  it('labels oversized samples as source excerpts and preserves the exact invalid outcome', () => {
     const base = draft().columns[0];
     const excerpt = '1234567890'.repeat(25) + '123456';
     const samples = [{ original: excerpt, value: null, display: excerpt, outcome: 'invalid' as const, truncated: true, original_length: 2_000_000 }];
@@ -573,8 +573,7 @@ describe('TableImportFlow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Show more for amount' }));
     expect(screen.getByText('Source excerpt · 2,000,000 characters')).toBeVisible();
     expect(screen.getByText('Long samples show source excerpts. Conversion checks and import use the full values.')).toBeVisible();
-    expect(screen.queryByText(/→ blank/)).not.toBeInTheDocument();
-    expect(screen.getByText(`${excerpt}…`)).toBeVisible();
+    expect(screen.getByText(`${excerpt}… → blank`)).toBeVisible();
   });
 
   it('identifies first-row-only previews for large files', () => {
